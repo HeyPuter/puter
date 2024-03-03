@@ -1,0 +1,116 @@
+import UIWindow from './UIWindow.js'
+import UIWindowMyWebsites from './UIWindowMyWebsites.js'
+
+async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_dir_path){
+    let h = '';
+    h += `<div class="window-publishWebsite-content" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
+        // success
+        h += `<div class="window-publishWebsite-success">`;
+            h += `<img src="${html_encode(window.icons['c-check.svg'])}" style="width:80px; height:80px; display: block; margin:10px auto;">`;
+            h += `<p style="text-align:center;"><strong>${target_dir_name}</strong> has been published to:<p>`;
+            h += `<p style="text-align:center;"><a class="publishWebsite-published-link" target="_blank"></a><img class="publishWebsite-published-link-icon" src="${html_encode(window.icons['launch.svg'])}"></p>`;
+            h += `<button class="button button-normal button-block button-primary publish-window-ok-btn" style="margin-top:20px;">OK</button>`;
+        h+= `</div>`;
+        // form
+        h += `<form class="window-publishWebsite-form">`;
+            // error msg
+            h += `<div class="publish-website-error-msg"></div>`;
+            // subdomain
+            h += `<div style="overflow: hidden;">`;
+                h += `<label style="margin-bottom: 10px;">Pick a name for your website:</label>`;
+                h += `<div style="font-family: monospace;">https://<input class="publish-website-subdomain" style="width:235px;" type="text" autocomplete="subdomain" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>.${window.hosting_domain}</div>`;
+            h += `</div>`;
+            // uid
+            h += `<input class="publishWebsiteTargetDirUID" type="hidden" value="${target_dir_uid}"/>`;
+            // Publish
+            h += `<button class="publish-btn button button-action button-block button-normal">Publish</button>`
+        h += `</form>`;
+    h += `</div>`;
+
+    const el_window = await UIWindow({
+        title: 'Publish Website',
+        icon: null,
+        uid: null,
+        is_dir: false,
+        body_content: h,
+        draggable_body: false,
+        has_head: true,
+        selectable_body: false,
+        draggable_body: false,
+        allow_context_menu: false,
+        is_resizable: false,
+        is_droppable: false,
+        init_center: true,
+        allow_native_ctxmenu: true,
+        allow_user_select: true,
+        width: 450,
+        dominant: true,
+        onAppend: function(this_window){
+            $(this_window).find(`.publish-website-subdomain`).val(generate_identifier());
+            $(this_window).find(`.publish-website-subdomain`).get(0).focus({preventScroll:true});
+        },
+        window_class: 'window-publishWebsite',
+        window_css:{
+            height: 'initial'
+        },
+        body_css: {
+            width: 'initial',
+            height: '100%',
+            'background-color': 'rgb(245 247 249)',
+            'backdrop-filter': 'blur(3px)',
+        }    
+    })
+
+    $(el_window).find('.publish-btn').on('click', function(e){
+        // todo do some basic validation client-side
+
+        //Subdomain
+        let subdomain = $(el_window).find('.publish-website-subdomain').val();
+    
+        // disable 'Publish' button
+        $(el_window).find('.publish-btn').prop('disabled', true);
+
+        puter.hosting.create(
+            subdomain, 
+            target_dir_path).then((res)=>{
+                $(el_window).find('.window-publishWebsite-form').hide(100, function(){
+                    let url = 'https://' + subdomain + '.' + window.hosting_domain + '/';
+                    $(el_window).find('.publishWebsite-published-link').attr('href', url);
+                    $(el_window).find('.publishWebsite-published-link').text(url);
+                    $(el_window).find('.window-publishWebsite-success').show(100)
+                    $(`.item[data-uid="${target_dir_uid}"] .item-has-website-badge`).show();
+                });
+
+                // find all items whose path starts with target_dir_path
+                $(`.item[data-path^="${target_dir_path}"]`).each(function(){
+                    // show the link badge
+                    $(this).find('.item-has-website-url-badge').show();
+                    // update item's website_url attribute
+                    $(this).attr('data-website_url', url + $(this).attr('data-path').substring(target_dir_path.length));
+                })
+
+                update_sites_cache();
+            }).catch((err)=>{
+                $(el_window).find('.publish-website-error-msg').html(
+                    err.message + (
+                        err.code === 'subdomain_limit_reached' ? 
+                            ' <span class="manage-your-websites-link">Manage Your Subdomains</span>' : ''
+                    )
+                );
+                $(el_window).find('.publish-website-error-msg').fadeIn();
+                // re-enable 'Publish' button
+                $(el_window).find('.publish-btn').prop('disabled', false);
+            })
+    })
+
+    $(el_window).find('.publish-window-ok-btn').on('click', function(){
+        $(el_window).close();
+    })
+}
+
+$(document).on('click', '.manage-your-websites-link', async function(e){
+    UIWindowMyWebsites();
+})
+
+
+export default UIWindowPublishWebsite

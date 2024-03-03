@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24">
+    <title>Minimize</title>
+    <g stroke-linecap="round" stroke-width="2" fill="none" stroke="#000000" stroke-linejoin="round"
+        class="nc-icon-wrapper" transform="translate(0.5 0.5)">
+        <line x1="1" y1="19" x2="23" y2="19"></line>
+    </g>
+</svg>

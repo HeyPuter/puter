@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px"
+    height="48px" viewBox="0 0 48 48" stroke-width="1.7">
+    <g stroke-width="1.7" transform="translate(0, 0)">
+        <rect x="4" y="4" width="8" height="8" fill="none" stroke="#444444" stroke-linecap="square"
+            stroke-miterlimit="10" stroke-width="1.7" stroke-linejoin="miter"></rect>
+        <rect x="4" y="20" width="8" height="8" fill="none" stroke="#444444" stroke-linecap="square"
+            stroke-miterlimit="10" stroke-width="1.7" stroke-linejoin="miter"></rect>
+        <rect data-color="color-2" x="4" y="36" width="8" height="8" fill="none" stroke="#444444"
+            stroke-linecap="square" stroke-miterlimit="10" stroke-width="1.7" stroke-linejoin="miter"></rect>
+        <rect x="20" y="4" width="8" height="8" fill="none" stroke="#444444" stroke-linecap="square"
+            stroke-miterlimit="10" stroke-width="1.7" stroke-linejoin="miter"></rect>
+        <rect data-color="color-2" x="20" y="20" width="8" height="8" fill="none" stroke="#444444"
+            stroke-linecap="square" stroke-miterlimit="10" stroke-width="1.7" stroke-linejoin="miter"></rect>
+        <rect x="20" y="36" width="8" height="8" fill="none" stroke="#444444" stroke-linecap="square"
+            stroke-miterlimit="10" stroke-width="1.7" stroke-linejoin="miter"></rect>
+        <rect data-color="color-2" x="36" y="4" width="8" height="8" fill="none" stroke="#444444"
+            stroke-linecap="square" stroke-miterlimit="10" stroke-width="1.7" stroke-linejoin="miter"></rect>
+        <rect x="36" y="20" width="8" height="8" fill="none" stroke="#444444" stroke-linecap="square"
+            stroke-miterlimit="10" stroke-width="1.7" stroke-linejoin="miter"></rect>
+        <rect x="36" y="36" width="8" height="8" fill="none" stroke="#444444" stroke-linecap="square"
+            stroke-miterlimit="10" stroke-width="1.7" stroke-linejoin="miter"></rect>
+    </g>
+</svg>

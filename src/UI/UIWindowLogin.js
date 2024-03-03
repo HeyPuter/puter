@@ -1,0 +1,171 @@
+import UIWindow from './UIWindow.js'
+import UIWindowSignup from './UIWindowSignup.js'
+import UIWindowRecoverPassword from './UIWindowRecoverPassword.js'
+
+async function UIWindowLogin(options){
+    options = options ?? {};
+    options.reload_on_success = options.reload_on_success ?? false;
+    options.has_head = options.has_head ?? true;
+    options.send_confirmation_code = options.send_confirmation_code ?? false;
+
+    return new Promise(async (resolve) => {
+        const internal_id = window.uuidv4();
+        let h = ``;
+        h += `<div style="max-width: 500px; min-width: 340px;">`;
+            if(!options.has_head && options.show_close_button !== false)
+                h += `<div class="generic-close-window-button"> &times; </div>`;
+            h += `<div style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
+                // title
+                h += `<h1 class="login-form-title">Log In</h1>`;
+                // login form
+                h += `<form class="login-form">`;
+                    // error msg
+                    h += `<div class="login-error-msg"></div>`;
+                    // username/email
+                    h += `<div style="overflow: hidden;">`;
+                        h += `<label for="email_or_username-${internal_id}">Email or Username</label>`;
+                        h += `<input id="email_or_username-${internal_id}" class="email_or_username" type="text" name="email_or_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false" autocomplete="username"/>`;
+                    h += `</div>`;
+                    // password
+                    h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
+                        h += `<label for="password-${internal_id}">Password</label>`;
+                        h += `<input id="password-${internal_id}" class="password" type="password" name="password" autocomplete="current-password" />`;
+                    h += `</div>`;
+                    // login
+                    h += `<button class="login-btn button button-primary button-block button-normal">Log in</button>`;
+                    // password recovery
+                    h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">Forgot password?</span></p>`;
+                h += `</form>`;
+            h += `</div>`;
+            // create account link
+            if(options.show_signup_button === undefined || options.show_signup_button){
+                h += `<div class="c2a-wrapper" style="padding:20px;">`;
+                    h += `<button class="signup-c2a-clickable">Create Free Account</button>`;
+                h += `</div>`;
+            }
+        h += `</div>`;
+        
+        const el_window = await UIWindow({
+            title: null,
+            app: 'login',
+            single_instance: true,
+            icon: null,
+            uid: null,
+            is_dir: false,
+            body_content: h,
+            draggable_body: false,
+            has_head: true,
+            selectable_body: false,
+            draggable_body: false,
+            allow_context_menu: false,
+            is_draggable: options.is_draggable ?? true,
+            is_droppable: false,
+            is_resizable: false,
+            stay_on_top: false,
+            allow_native_ctxmenu: true,
+            allow_user_select: true,
+            ...options.window_options,
+            width: 350,
+            dominant: true,
+            on_close: ()=>{
+                resolve(false)
+            },
+            onAppend: function(this_window){
+                $(this_window).find(`.email_or_username`).get(0).focus({preventScroll:true});
+            },
+            window_class: 'window-login',
+            window_css:{
+                height: 'initial',
+            },
+            body_css: {
+                width: 'initial',
+                padding: '0',
+                'background-color': 'rgb(255 255 255)',
+                'backdrop-filter': 'blur(3px)',
+                'display': 'flex',
+                'flex-direction': 'column',
+                'justify-content': 'center',
+                'align-items': 'center',
+            }    
+        })
+
+        $(el_window).find('.forgot-password-link').on('click', function(e){
+            UIWindowRecoverPassword({
+                window_options: {
+                    backdrop: true,
+                    close_on_backdrop_click: false,
+                }
+            });
+        })
+
+        $(el_window).find('.login-btn').on('click', function(e){
+            const email_username = $(el_window).find('.email_or_username').val();
+            const password = $(el_window).find('.password').val();
+            let data;
+        
+            if(is_email(email_username)){
+                data = JSON.stringify({ 
+                    email: email_username, 
+                    password: password
+                })
+            }else{
+                data = JSON.stringify({ 
+                    username: email_username, 
+                    password: password
+                })
+            }
+        
+            $(el_window).find('.login-error-msg').hide();
+        
+            let headers = {};
+            if(window.custom_headers)
+                headers = window.custom_headers;
+    
+            $.ajax({
+                url: gui_origin + "/login",
+                type: 'POST',
+                async: false,
+                headers: headers,
+                contentType: "application/json",
+                data: data,				
+                success: function (data){
+                    update_auth_data(data.token, data.user);
+                    
+                    if(options.reload_on_success){
+                        window.onbeforeunload = null;
+                        window.location.replace('/');
+                    }else
+                        resolve(true);
+                    $(el_window).close();
+                },
+                error: function (err){
+                    $(el_window).find('.login-error-msg').html(err.responseText);
+                    $(el_window).find('.login-error-msg').fadeIn();
+                }
+            });	
+        })  
+
+        $(el_window).find('.login-form').on('submit', function(e){
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        })
+
+        $(el_window).find('.signup-c2a-clickable').on('click', async function(e){
+            //destroy this window
+            $(el_window).close();
+            // create Signup window
+            const signup = await UIWindowSignup({
+                referrer: options.referrer,
+                show_close_button: options.show_close_button,
+                reload_on_success: options.reload_on_success,
+                window_options: options.window_options,
+                send_confirmation_code: options.send_confirmation_code,
+            });
+            if(signup)
+                resolve(true);
+        })
+    }) 
+}
+
+export default UIWindowLogin

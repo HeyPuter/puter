@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<svg width="48" height="48" xmlns="http://www.w3.org/2000/svg" xmlns:svg="http://www.w3.org/2000/svg">
+ <g class="layer">
+  <title>Layer 1</title>
+  <g id="svg_1" stroke-width="3" transform="rotate(90 24 23.9997)">
+   <polyline fill="none" id="svg_2" points="39 24 25 24 25 28" stroke="#ffffff" stroke-linecap="square" stroke-miterlimit="10" stroke-width="3"/>
+   <polyline fill="none" id="svg_3" points="35.879 10.121 32 14 25 14 25 18" stroke="#ffffff" stroke-linecap="square" stroke-miterlimit="10" stroke-width="3"/>
+   <path d="m13,26a10.29,10.29 0 0 1 -7.2,-3" fill="none" id="svg_4" stroke="#ffffff" stroke-linecap="square" stroke-miterlimit="10" stroke-width="3"/>
+   <path d="m17,31.6a5.83,5.83 0 0 1 -4,-5.6a5.73,5.73 0 0 1 2,-4.4" fill="none" id="svg_5" stroke="#ffffff" stroke-linecap="square" stroke-miterlimit="10" stroke-width="3"/>
+   <path d="m35.88,37.88l-3.88,-3.88l-7,0l0,2a9.9,9.9 0 0 1 -10,10a9.9,9.9 0 0 1 -10,-10a9.06,9.06 0 0 1 0.6,-3.2a5.63,5.63 0 0 1 -2.6,-4.8a5.89,5.89 0 0 1 2.8,-5a9.99,9.99 0 0 1 -2.8,-7a9.9,9.9 0 0 1 10,-10l0.4,0a5.83,5.83 0 0 1 5.6,-4a5.89,5.89 0 0 1 6,6" fill="none" id="svg_6" stroke="#ffffff" stroke-linecap="square" stroke-miterlimit="10" stroke-width="3"/>
+   <circle cx="38" cy="8" data-color="color-2" fill="none" id="svg_7" r="3" stroke="#ffffff" stroke-linecap="square" stroke-miterlimit="10" stroke-width="3"/>
+   <circle cx="42" cy="24" data-color="color-2" fill="none" id="svg_8" r="3" stroke="#ffffff" stroke-linecap="square" stroke-miterlimit="10" stroke-width="3"/>
+   <circle cx="38" cy="40" data-color="color-2" fill="none" id="svg_9" r="3" stroke="#ffffff" stroke-linecap="square" stroke-miterlimit="10" stroke-width="3"/>
+  </g>
+ </g>
+</svg>

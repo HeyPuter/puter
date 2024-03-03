@@ -1,0 +1,80 @@
+import UIWindow from './UIWindow.js'
+
+async function UIWindowQR(options){
+    return new Promise(async (resolve) => {
+        options = options ?? {};
+
+        let h = '';
+        h += `<div style="padding: 20px; margin-top: 0;">`;
+            // success
+            h += `<div class="feedback-sent-success">`;
+                h += `<img src="${html_encode(window.icons['c-check.svg'])}" style="width:50px; height:50px; display: block; margin:10px auto;">`;
+                h += `<p style="text-align:center; margin-bottom:10px; color: #005300; padding: 10px;">Thank you for contacting us. If you have an email associated with your account, you will hear back from us as soon as possible.</p>`;
+            h+= `</div>`;
+            // form
+            h += `<div class="feedback-form">`;
+                h += `<p style="margin-top:0; font-size: 15px; -webkit-font-smoothing: antialiased;">Please use the form below to send us your feedback, comments, and bug reports.</p>`;
+                h += `<textarea class="feedback-message" style="width:100%; height: 200px; padding: 10px; box-sizing: border-box;"></textarea>`;
+                h += `<button class="button button-primary send-feedback-btn" style="float: right; margin-bottom: 15px; margin-top: 10px;">Send</button>`;
+            h += `</div>`;
+        h += `</div>`;
+
+        const el_window = await UIWindow({
+            title: 'Contact Us',
+            app: 'feedback',
+            single_instance: true,
+            icon: null,
+            uid: null,
+            is_dir: false,
+            body_content: h,
+            draggable_body: false,
+            has_head: true,
+            selectable_body: false,
+            draggable_body: false,
+            allow_context_menu: false,
+            is_resizable: false,
+            is_droppable: false,
+            init_center: true,
+            allow_native_ctxmenu: false,
+            allow_user_select: false,
+            width: 350,
+            height: 'auto',
+            dominant: true,
+            show_in_taskbar: false,
+            onAppend: function(this_window){
+                $(this_window).find('.feedback-message').get(0).focus({preventScroll:true});
+            },
+            window_class: 'window-feedback',
+            body_css: {
+                width: 'initial',
+                height: '100%',
+                'background-color': 'rgb(245 247 249)',
+                'backdrop-filter': 'blur(3px)',
+            }    
+        })
+
+        $(el_window).find('.send-feedback-btn').on('click', function(e){
+            const message = $(el_window).find('.feedback-message').val();
+            if(message)
+                $(this).prop('disabled', true);
+            $.ajax({
+                url: api_origin + "/contactUs",
+                type: 'POST',
+                async: true,
+                contentType: "application/json",
+                headers: {
+                    "Authorization": "Bearer "+auth_token
+                },    
+                data: JSON.stringify({ 
+                    message: message,
+                }),
+                success: async function (data){
+                    $(el_window).find('.feedback-form').hide();
+                    $(el_window).find('.feedback-sent-success').show(100);
+                }
+            })
+        })
+    })
+}
+
+export default UIWindowQR

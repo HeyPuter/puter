@@ -1,0 +1,74 @@
+{
+	"name": "jquery-ui",
+	"title": "jQuery UI",
+	"description": "A curated set of user interface interactions, effects, widgets, and themes built on top of the jQuery JavaScript Library.",
+	"version": "1.13.2",
+	"homepage": "http://jqueryui.com",
+	"author": {
+		"name": "jQuery Foundation and other contributors",
+		"url": "https://github.com/jquery/jquery-ui/blob/1.13.2/AUTHORS.txt"
+	},
+	"main": "ui/widget.js",
+	"maintainers": [
+		{
+			"name": "Jörn Zaefferer",
+			"email": "joern.zaefferer@gmail.com",
+			"url": "http://bassistance.de"
+		},
+		{
+			"name": "Mike Sherov",
+			"email": "mike.sherov@gmail.com",
+			"url": "http://mike.sherov.com"
+		},
+		{
+			"name": "TJ VanToll",
+			"email": "tj.vantoll@gmail.com",
+			"url": "http://tjvantoll.com"
+		},
+		{
+			"name": "Felix Nagel",
+			"email": "info@felixnagel.com",
+			"url": "http://www.felixnagel.com"
+		},
+		{
+			"name": "Alex Schmitz",
+			"email": "arschmitz@gmail.com",
+			"url": "https://github.com/arschmitz"
+		}
+	],
+	"repository": {
+		"type": "git",
+		"url": "git://github.com/jquery/jquery-ui.git"
+	},
+	"bugs": {
+		"url": "https://github.com/jquery/jquery-ui/issues"
+	},
+	"license": "MIT",
+	"scripts": {
+		"test": "grunt"
+	},
+	"dependencies": {
+		"jquery": ">=1.8.0 <4.0.0"
+	},
+	"devDependencies": {
+		"commitplease": "3.2.0",
+		"eslint-config-jquery": "3.0.0",
+		"glob": "7.2.0",
+		"grunt": "1.5.3",
+		"grunt-bowercopy": "1.2.5",
+		"grunt-cli": "1.4.3",
+		"grunt-compare-size": "0.4.2",
+		"grunt-contrib-concat": "1.0.1",
+		"grunt-contrib-csslint": "2.0.0",
+		"grunt-contrib-qunit": "5.1.1",
+		"grunt-contrib-requirejs": "1.0.0",
+		"grunt-contrib-uglify": "5.0.1",
+		"grunt-eslint": "23.0.0",
+		"grunt-git-authors": "3.2.0",
+		"grunt-html": "14.5.0",
+		"load-grunt-tasks": "5.1.0",
+		"rimraf": "3.0.2",
+		"testswarm": "1.1.2"
+	},
+	"keywords": []
+}

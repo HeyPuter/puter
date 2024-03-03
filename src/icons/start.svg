@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" version="1">
+ <path style="opacity:0.2" d="M 24,5 C 12.92,5 4,13.92 4,25 4,36.08 12.92,45 24,45 35.08,45 44,36.08 44,25 44,13.92 35.08,5 24,5 Z"/>
+ <path style="fill:#69a2f5" d="M 24,4 C 12.92,4 4,12.92 4,24 4,35.08 12.92,44 24,44 35.08,44 44,35.08 44,24 44,12.92 35.08,4 24,4 Z"/>
+ <path style="fill:#ffffff;opacity:0.2" d="M 24 4 C 12.92 4 4 12.92 4 24 C 4 24.167874 4.007647 24.333141 4.0117188 24.5 C 4.2763904 13.653863 13.087874 5 24 5 C 34.912126 5 43.72361 13.653863 43.988281 24.5 C 43.992353 24.333141 44 24.167874 44 24 C 44 12.92 35.08 4 24 4 z"/>
+ <rect style="opacity:0.2" width="6" height="6" x="12" y="14" rx="2" ry="2"/>
+ <rect style="opacity:0.2" width="6" height="6" x="21" y="14" rx="2" ry="2"/>
+ <rect style="opacity:0.2" width="6" height="6" x="30" y="14" rx="2" ry="2"/>
+ <rect style="opacity:0.2" width="6" height="6" x="12" y="22" rx="2" ry="2"/>
+ <rect style="opacity:0.2" width="6" height="6" x="21" y="22" rx="2" ry="2"/>
+ <rect style="opacity:0.2" width="6" height="6" x="30" y="22" rx="2" ry="2"/>
+ <rect style="opacity:0.2" width="6" height="6" x="12" y="30" rx="2" ry="2"/>
+ <rect style="opacity:0.2" width="6" height="6" x="21" y="30" rx="2" ry="2"/>
+ <rect style="opacity:0.2" width="6" height="6" x="30" y="30" rx="2" ry="2"/>
+ <g>
+  <rect style="fill:#ffffff" width="6" height="6" x="12" y="13" rx="2" ry="2"/>
+  <rect style="fill:#ffffff" width="6" height="6" x="21" y="13" rx="2" ry="2"/>
+  <rect style="fill:#ffffff" width="6" height="6" x="30" y="13" rx="2" ry="2"/>
+  <rect style="fill:#ffffff" width="6" height="6" x="12" y="21" rx="2" ry="2"/>
+  <rect style="fill:#ffffff" width="6" height="6" x="21" y="21" rx="2" ry="2"/>
+  <rect style="fill:#ffffff" width="6" height="6" x="30" y="21" rx="2" ry="2"/>
+  <rect style="fill:#ffffff" width="6" height="6" x="12" y="29" rx="2" ry="2"/>
+  <rect style="fill:#ffffff" width="6" height="6" x="21" y="29" rx="2" ry="2"/>
+  <rect style="fill:#ffffff" width="6" height="6" x="30" y="29" rx="2" ry="2"/>
+ </g>
+</svg>
