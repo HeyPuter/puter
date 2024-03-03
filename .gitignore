@@ -3,3 +3,4 @@ node_modules/
 *.zip
 *.tgz
 license.config.json
+license-header.txt
