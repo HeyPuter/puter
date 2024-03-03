@@ -17,7 +17,7 @@
     <a href="https://twitter.com/HeyPuter">X (Twitter)</a>
 </p>
 
-<h3 align="center"><img width="700" style="border-radius:5px;" alt="screenshot" src="https://github.com/HeyPuter/gui/assets/1715019/a1579d6a-6a42-4fec-9af2-ca0a31326850"></h3>
+<h3 align="center"><img width="700" style="border-radius:5px;" alt="screenshot" src="https://github.com/HeyPuter/puter.com/assets/1715019/d4b0f8c4-a334-4382-b258-b6bcff838e50"></h3>
 
 <br/>
 
