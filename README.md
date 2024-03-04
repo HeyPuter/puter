@@ -21,6 +21,10 @@
 
 <br/>
 
+## Puter
+
+Puter is an advanced open-source desktop environment in the browser, designed to be feature-rich, exceptionally fast, and highly extensible. It can be used to build remote desktop environments or serve as an interface for cloud storage services, remote servers, web hosting platforms, and more.
+
 ## Getting Started
 
 ```bash
@@ -30,13 +34,13 @@ npm install
 npm start
 ```
 
-This will launch Puter in development mode at http://localhost:4000 (or the next available port).
+This will launch Puter at http://localhost:4000 (or the next available port).
 
 <br/>
 
 ## Deploy to Production
 
-Here's a detailed guide on how to run Puter in production: [docs/prod.md](docs/prod.md)
+Detailed guide on how to deploy Puter in production: [docs/prod.md](docs/prod.md)
 
 <br/>
 
@@ -47,7 +51,7 @@ Here's a detailed guide on how to run Puter in production: [docs/prod.md](docs/p
 Puter can be used as:
 
 - An alternative to Dropbox, Google Drive, OneDrive, etc. with a fresh interface and powerful features.
-- Remote desktop environment for remote servers and workstations.
+- Remote desktop environment for servers and workstations.
 - A platform for building and hosting websites, web apps, and games.
 - A friendly, open-source project and community to learn about web development, cloud computing, distributed systems, and much more!
 
