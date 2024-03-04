@@ -1,4 +1,4 @@
-<h3 align="center"><img width="80" alt="Puter.com, The Personal Cloud Computer: All your files, apps, and games in one place accessible from anywhere at any time." src="https://github.com/HeyPuter/gui/assets/1715019/ffdc7427-4ed7-41c0-b539-ae7285bd0ffe"></h3>
+<h3 align="center"><img width="80" alt="Puter.com, The Personal Cloud Computer: All your files, apps, and games in one place accessible from anywhere at any time." src="https://assets.puter.site/puter-logo.png"></h3>
 
 <h3 align="center">Desktop Environment in the Browser!</h3>
 
