@@ -1508,7 +1508,6 @@ $(document).on('contextmenu', '.item-has-website-url-badge', async function(e){
     return false;
 })
 
-
 $(document).on('click', '.item-has-website-badge', async function(e){
     puter.fs.stat({
         uid: $(this).closest('.item').attr('data-uid'),
