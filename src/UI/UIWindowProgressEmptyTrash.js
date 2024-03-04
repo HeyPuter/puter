@@ -41,7 +41,6 @@ async function UIWindowProgressEmptyTrash(options){
         uid: null,
         is_dir: false,
         body_content: h,
-        draggable_body: false,
         has_head: false,
         selectable_body: false,
         draggable_body: true,
