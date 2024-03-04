@@ -30,8 +30,8 @@ Puter is an advanced open-source desktop environment in the browser, designed to
 ## Getting Started
 
 ```bash
-git clone https://github.com/HeyPuter/puter.com
-cd puter.com
+git clone https://github.com/HeyPuter/puter
+cd puter
 npm install
 npm start
 ```
