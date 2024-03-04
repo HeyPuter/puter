@@ -57,11 +57,16 @@ Puter can be used as:
 - A platform for building and hosting websites, web apps, and games.
 - A friendly, open-source project and community to learn about web development, cloud computing, distributed systems, and much more!
 
+<br/>
+
+
 ### ❓ Why isn't Puter built with React, Angular, Vue, etc.?
 
 For performance reasons, Puter is built with vanilla JavaScript and jQuery. Additionally, we'd like to avoid complex abstractions and to remain in control of the entire stack, as much as possible.
 
 Also partly inspired by some of our favorite projects that are not built with frameworks: [VSCode](https://github.com/microsoft/vscode), [Photopea](https://www.photopea.com/), and [OnlyOffice](https://www.onlyoffice.com/).
+
+<br/>
 
 ### ❓ Why jQuery?
 
