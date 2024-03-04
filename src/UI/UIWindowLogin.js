@@ -72,7 +72,6 @@ async function UIWindowLogin(options){
             uid: null,
             is_dir: false,
             body_content: h,
-            draggable_body: false,
             has_head: true,
             selectable_body: false,
             draggable_body: false,

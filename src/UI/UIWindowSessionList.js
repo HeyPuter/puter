@@ -80,7 +80,6 @@ async function UIWindowSessionList(options){
             const login = await UIWindowLogin({
                 referrer: options.referrer, 
                 reload_on_success: options.reload_on_success,
-                window_options: options.window_options,
                 cover_page: options.cover_page ?? false,
                 has_head: options.has_head,
                 send_confirmation_code: options.send_confirmation_code,
@@ -106,7 +105,6 @@ async function UIWindowSessionList(options){
             const signup = await UIWindowSignup({
                 referrer: options.referrer,
                 reload_on_success: options.reload_on_success,
-                window_options: options.window_options,
                 send_confirmation_code: options.send_confirmation_code,
                 window_options: {
                     has_head: false,

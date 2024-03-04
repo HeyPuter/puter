@@ -55,7 +55,6 @@ async function UIWindowClaimReferral(options){
             height: 'initial',
         },
         body_css: {
-            padding: '10px',
             width: 'initial',
             'max-height': 'calc(100vh - 200px)',
             'background-color': 'rgb(241 246 251)',

@@ -40,7 +40,6 @@ async function UIWindowGetCopyLink(options){
         uid: null,
         is_dir: false,
         body_content: h,
-        draggable_body: false,
         has_head: true,
         selectable_body: false,
         draggable_body: false,
@@ -58,7 +57,6 @@ async function UIWindowGetCopyLink(options){
             height: 'initial',
         },
         body_css: {
-            padding: '10px',
             width: 'initial',
             'max-height': 'calc(100vh - 200px)',
             'background-color': 'rgb(241 246 251)',

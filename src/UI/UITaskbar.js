@@ -141,7 +141,6 @@ async function UITaskbar(options){
             // make apps draggable
             $(popover).find('.start-app').draggable({
                 appendTo: "body",
-                helper: "clone",
                 revert: "invalid",
                 connectToSortable: ".taskbar",
                 //containment: "document",
