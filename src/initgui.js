@@ -1349,7 +1349,10 @@ window.initgui = async function(){
             else{
                 $selected_items = $(active_element).closest('.item-container').find('.item-selected');
                 if($selected_items.length > 0){
-                    move_items($selected_items, trash_path);
+                    // Only delete the items if we're not renaming one.
+                    if ($selected_items.children('.item-name-editor-active').length === 0) {
+                        move_items($selected_items, trash_path);
+                    }
                 }
             }
         }
