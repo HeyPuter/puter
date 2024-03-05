@@ -26,6 +26,7 @@ async function UIWindowLogin(options){
     options.reload_on_success = options.reload_on_success ?? false;
     options.has_head = options.has_head ?? true;
     options.send_confirmation_code = options.send_confirmation_code ?? false;
+    options.show_password = options.show_password ?? false;
 
     return new Promise(async (resolve) => {
         const internal_id = window.uuidv4();
@@ -45,10 +46,14 @@ async function UIWindowLogin(options){
                         h += `<label for="email_or_username-${internal_id}">Email or Username</label>`;
                         h += `<input id="email_or_username-${internal_id}" class="email_or_username" type="text" name="email_or_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false" autocomplete="username"/>`;
                     h += `</div>`;
-                    // password
-                    h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
-                        h += `<label for="password-${internal_id}">Password</label>`;
-                        h += `<input id="password-${internal_id}" class="password" type="password" name="password" autocomplete="current-password" />`;
+                    // password with conditional type based based on options.show_password
+                    h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px; position: relative;">`;
+                    h += `<label for="password-${internal_id}">Password</label>`;
+                    h += `<input id="password-${internal_id}" class="password" type="${options.show_password ? "text" : "password"}" name="password" autocomplete="current-password"/>`;
+                    // show/hide icon
+                    h += `<span style="position: absolute; right: 5%; top: 50%; cursor: pointer;" id="toggle-show-password-${internal_id}">
+                                <img class="toggle-show-password-icon" src="${options.show_password ? window.icons["eye-closed.svg"] : window.icons["eye-open.svg"]}" width="20" height="20">
+                            </span>`;
                     h += `</div>`;
                     // login
                     h += `<button class="login-btn button button-primary button-block button-normal">Log in</button>`;
@@ -183,6 +188,14 @@ async function UIWindowLogin(options){
             if(signup)
                 resolve(true);
         })
+
+        $(el_window).find(`#toggle-show-password-${internal_id}`).on("click", function (e) {
+            options.show_password = !options.show_password;
+            // hide/show password and update icon
+            $(el_window).find(".password").attr("type", options.show_password ? "text" : "password");
+            $(el_window).find(".toggle-show-password-icon").attr("src", options.show_password ? window.icons["eye-closed.svg"] : window.icons["eye-open.svg"],
+          )
+      })
     }) 
 }
 
