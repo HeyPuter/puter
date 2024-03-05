@@ -19,7 +19,6 @@
 
 import UIWindow from './UIWindow.js'
 
-// todo do this using uid rather than item_path, since item_path is way mroe expensive on the DB
 async function PuterDialog(options) {
     return new Promise(async (resolve) => {
         let h = '';
