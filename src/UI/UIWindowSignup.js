@@ -125,6 +125,7 @@ function UIWindowSignup(options){
                 window_options: options.window_options,
                 show_close_button: options.show_close_button,
                 send_confirmation_code: options.send_confirmation_code,
+                show_password: false,
             });
             if(login)
                 resolve(true);
