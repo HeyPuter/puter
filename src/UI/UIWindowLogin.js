@@ -40,7 +40,7 @@ async function UIWindowLogin(options){
                 // login form
                 h += `<form class="login-form">`;
                     // error msg
-                    h += `<div class="login-error-msg"></div>`;
+                    h += `<div class="login-error-msg">Error! Please check your username and password again.</div>`;
                     // username/email
                     h += `<div style="overflow: hidden;">`;
                         h += `<label for="email_or_username-${internal_id}">Email or Username</label>`;
