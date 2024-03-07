@@ -47,8 +47,7 @@ This will launch Puter at http://localhost:4000 (or the next available port).
 ```bash
 git clone https://github.com/HeyPuter/puter
 cd puter
-docker build -t puter .
-docker run puter
+docker compose up
 ```
 
 <br/>
