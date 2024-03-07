@@ -29,6 +29,8 @@ Puter is an advanced open-source desktop environment in the browser, designed to
 
 ## Getting Started
 
+### Local Development
+
 ```bash
 git clone https://github.com/HeyPuter/puter
 cd puter
@@ -37,6 +39,17 @@ npm start
 ```
 
 This will launch Puter at http://localhost:4000 (or the next available port).
+
+<br/>
+
+### Using Docker
+
+```bash
+git clone https://github.com/HeyPuter/puter
+cd puter
+docker build -t puter .
+docker run puter
+```
 
 <br/>
 
