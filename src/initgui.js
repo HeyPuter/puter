@@ -1305,11 +1305,39 @@ window.initgui = async function(){
         }
     })
 
-    $(document).bind('keyup', async function(e){
+    $(document).bind('keydown', async function(e){
         const focused_el = document.activeElement;
-
         //-----------------------------------------------------------------------
-        // Delete (win)/ shift+del (Mac) key pressed
+        // Shift+Delete (win)/ option+command+delete (Mac) key pressed
+        // Permanent delete bypassing trash after alert
+        //-----------------------------------------------------------------------
+        if((e.keyCode === 46 && e.shiftKey) || (e.altKey && e.metaKey && e.keyCode === 8)) {
+            let $selected_items = $(active_element).closest(`.item-container`).find(`.item-selected`);
+            if($selected_items.length > 0){
+                const alert_resp = await UIAlert({
+                    message: `Are you sure you want to permanently delete these items?`,
+                    buttons:[
+                        {
+                            label: 'Delete',
+                            type: 'primary',
+                        },
+                        {
+                            label: 'Cancel'
+                        },
+                    ]
+                })
+                if((alert_resp) === 'Delete'){
+                    for (let index = 0; index < $selected_items.length; index++) {
+                        const element = $selected_items[index];
+                        await delete_item(element);
+                    }
+                }    
+            }
+            return false;
+        }
+        //-----------------------------------------------------------------------
+        // Delete (win)/ ctrl+delete (Mac) / cmd+delete (Mac) key pressed
+        // Permanent delete from trash after alert or move to trash
         //-----------------------------------------------------------------------
         if(e.keyCode === 46 || (e.keyCode === 8 && (e.ctrlKey || e.metaKey))) {
             // permanent delete?
@@ -1354,6 +1382,7 @@ window.initgui = async function(){
                     }
                 }
             }
+            return false;
         }
 
         //-----------------------------------------------------------------------
