@@ -1066,7 +1066,7 @@ function UIItem(options){
                 });
 
                 // -------------------------------------------
-                // -- seperator --
+                // -- separator --
                 // -------------------------------------------
                 menu_items.push('-');
             }
@@ -1085,7 +1085,7 @@ function UIItem(options){
                     }
                 });
                 // -------------------------------------------
-                // -- seperator --
+                // -- separator --
                 // -------------------------------------------
                 if(!is_trash && !is_trashed && options.is_dir)
                     menu_items.push('-');
