@@ -2117,16 +2117,16 @@ label {
 
 .ui-tooltip, .arrow:after {
     background-color: rgba(231, 238, 245, .92);
-    backdrop-filter: blur(3px);
+    box-shadow: none;
 }
 
 .ui-tooltip {
-    padding: 5px 10px;
+    padding: 7px 11px;
     border-radius: 2px;
     font: 14px "Helvetica Neue", Sans-Serif;
-    box-shadow: 0 0 3px rgba(0, 0, 0, 0.455);
-    background-color: rgba(231, 238, 245, .92);
+    border: none !important;
     backdrop-filter: blur(3px);
+    filter: drop-shadow(0 0 3px rgba(0,0,0,.455));
 }
 
 .arrow {
