@@ -1880,6 +1880,18 @@ async function UIWindow(options) {
                             }
                         },
                         // -------------------------------------------
+                        // Show/Hide hidden files
+                        // -------------------------------------------
+                        {
+                            html: `${window.user_preferences.show_hidden_files ? "Hide" : "Show"} hidden files`,
+                            onClick: function(){
+                                window.mutate_user_preferences({
+                                    show_hidden_files : !window.user_preferences.show_hidden_files,
+                                });
+                                window.show_or_hide_files(document.querySelectorAll('.item-container'));
+                            }
+                        },
+                        // -------------------------------------------
                         // -
                         // -------------------------------------------
                         '-',
