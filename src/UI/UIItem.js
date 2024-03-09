@@ -46,6 +46,7 @@ function UIItem(options){
 
     // set options defaults
     options.disabled = options.disabled ?? false;
+    options.visible = options.visible ?? 'visible'; // one of 'visible', 'revealed', 'hidden'
     options.is_dir = options.is_dir ?? false;
     options.is_selected = options.is_selected ?? false;
     options.is_shared = options.is_shared ?? false;
@@ -71,7 +72,7 @@ function UIItem(options){
     // --------------------------------------------------------
     let h = '';
     h += `<div  id="item-${item_id}" 
-                class="item${options.is_selected ? ' item-selected':''} ${options.disabled ? 'item-disabled':''}" 
+                class="item${options.is_selected ? ' item-selected':''} ${options.disabled ? 'item-disabled':''} item-${options.visible}" 
                 data-id="${item_id}" 
                 data-name="${html_encode(options.name)}" 
                 data-metadata="${html_encode(options.metadata)}" 

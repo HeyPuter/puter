@@ -656,7 +656,13 @@ window.refresh_user_data = async (auth_token)=>{
     // update local user data
     if(whoami){
         update_auth_data(auth_token, whoami)
-    } 
+    }
+
+    // update local user preferences
+    const user_preferences = {
+        show_hidden_files: (await puter.kv.get('user_preferences.show_hidden_files')) === 'true',
+    };
+    update_user_preferences(user_preferences);
 }
 
 window.update_auth_data = (auth_token, user)=>{
@@ -708,6 +714,20 @@ window.update_auth_data = (auth_token, user)=>{
         $('.user-options-login-btn, .user-options-create-account-btn').hide();
         $('.user-options-menu-btn').show();
     }
+}
+
+window.mutate_user_preferences = function(user_preferences_delta) {
+    for (const [key, value] of Object.entries(user_preferences_delta)) {
+        // Don't wait for set to be done for better efficiency
+        puter.kv.set(`user_preferences.${key}`, String(value));
+    }
+    // There may be syncing issues across multiple devices
+    update_user_preferences({ ...window.user_preferences, ...user_preferences_delta });
+}
+
+window.update_user_preferences = function(user_preferences) {
+    window.user_preferences = user_preferences;
+    localStorage.setItem('user_preferences', JSON.stringify(user_preferences));
 }
 
 window.sendWindowWillCloseMsg = function(iframe_element) {
@@ -1255,11 +1275,18 @@ window.refresh_item_container = function(el_item_container, options){
                 if(!window.check_fsentry_against_allowed_file_types_string(fsentry, allowed_file_types))
                     is_disabled = true;
 
-                // skip if hidden (i.e. name starts with `.`)
-                if(fsentry.name.startsWith('.'))
-                    continue;
+                // set visibility based on user preferences and whether file is hidden by default
+                const is_hidden_file = fsentry.name.startsWith('.');
+                let visible;
+                if (!is_hidden_file){
+                    visible = 'visible';
+                }else if (window.user_preferences.show_hidden_files) {
+                    visible = 'revealed';
+                }else{
+                    visible = 'hidden';
+                }
 
-                //metadata
+                // metadata
                 let metadata;
                 if(fsentry.metadata !== ''){
                     try{
@@ -1295,6 +1322,7 @@ window.refresh_item_container = function(el_item_container, options){
                         modified: fsentry.modified,
                         suggested_apps: fsentry.suggested_apps,
                         disabled: is_disabled,
+                        visible: visible,
                     });
                 }
             }
@@ -1378,6 +1406,16 @@ window.sort_items = (item_container, sort_by, sort_order)=>{
         }
 
     }).appendTo(item_container);
+}
+
+window.show_or_hide_files = (item_containers) => {
+    const show_hidden_files = window.user_preferences.show_hidden_files;
+    const class_to_add = show_hidden_files ? 'item-revealed' : 'item-hidden';
+    const class_to_remove = show_hidden_files ? 'item-hidden' : 'item-revealed';
+    $(item_containers)
+        .find('.item')
+        .filter((_, item) => item.dataset.name.startsWith('.'))
+        .removeClass(class_to_remove).addClass(class_to_add);
 }
 
 window.create_folder = async(basedir, appendto_element)=>{

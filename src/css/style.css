@@ -306,6 +306,18 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
     pointer-events: none;
 }
 
+.item-revealed {
+    opacity: 0.9;
+}
+
+.item-hidden {
+    display: none
+}
+
+.item-revealed.item-disabled {
+    opacity: 0.7
+}
+
 .item-container-list .item {
     height: initial;
     width: max-content;
