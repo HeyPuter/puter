@@ -657,12 +657,6 @@ window.refresh_user_data = async (auth_token)=>{
     if(whoami){
         update_auth_data(auth_token, whoami)
     }
-
-    // update local user preferences
-    const user_preferences = {
-        show_hidden_files: (await puter.kv.get('user_preferences.show_hidden_files')) === 'true',
-    };
-    update_user_preferences(user_preferences);
 }
 
 window.update_auth_data = (auth_token, user)=>{

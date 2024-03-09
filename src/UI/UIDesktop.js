@@ -498,6 +498,12 @@ async function UIDesktop(options){
         window.history.pushState(null, document.title, '/');    
     }
 
+    // update local user preferences
+    const user_preferences = {
+        show_hidden_files: (await puter.kv.get('user_preferences.show_hidden_files')) === 'true',
+    };
+    update_user_preferences(user_preferences);
+
     // Append to <body>
     $('body').append(h);
 
