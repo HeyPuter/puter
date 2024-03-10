@@ -19,6 +19,7 @@
 
 window.clipboard_op = '';
 window.clipboard = [];
+window.actions_history = [];
 window.window_nav_history = {};
 window.window_nav_history_current_position = {};
 window.progress_tracker = [];

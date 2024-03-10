@@ -1434,9 +1434,15 @@ window.create_folder = async(basedir, appendto_element)=>{
             overwrite: false,
             success: function (data){
                 const el_created_dir = $(appendto_element).find('.item[data-path="'+html_encode(dirname)+'/'+html_encode(data.name)+'"]');
-                if(el_created_dir.length > 0)
+                if(el_created_dir.length > 0){
                     activate_item_name_editor(el_created_dir);
 
+                    // Add action to actions_history for undo ability
+                    actions_history.push({
+                        operation: 'create_folder',
+                        data: el_created_dir
+                    });
+                }
                 clearTimeout(progwin_timeout);
 
                 // done
@@ -1472,6 +1478,12 @@ window.create_file = async(options)=>{
                 const created_file = $(appendto_element).find('.item[data-path="'+html_encode(dirname)+'/'+html_encode(data.name)+'"]');
                 if(created_file.length > 0){
                     activate_item_name_editor(created_file);
+
+                    // Add action to actions_history for undo ability
+                    actions_history.push({
+                        operation: 'create_file',
+                        data: created_file
+                    });
                 }
             }
         });
@@ -3312,4 +3324,20 @@ window.unzipItem = async function(itemPath) {
             $(progwin).close();   
         }, Math.max(0, copy_progress_hide_delay - (Date.now() - start_ts)));
     })
+}
+
+window.undo_last_action = async()=>{
+    if (actions_history.length > 0) {
+        const last_action = actions_history.pop();
+
+        // Undo the create file action
+        if (last_action.operation === 'create_file' || last_action.operation === 'create_folder') {
+            const lastCreatedItem = last_action.data;
+            undo_create_file_or_folder(lastCreatedItem); 
+        }
+    }
+}
+
+window.undo_create_file_or_folder = async(item)=>{
+    await window.delete_item(item);
 }

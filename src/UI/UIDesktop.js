@@ -726,6 +726,16 @@ async function UIDesktop(options){
                         }
                     },
                     // -------------------------------------------
+                    // Undo
+                    // -------------------------------------------
+                    {
+                        html: "Undo",
+                        disabled: actions_history.length > 0 ? false : true,
+                        onClick: function(){
+                            undo_last_action();
+                        }
+                    },
+                    // -------------------------------------------
                     // Upload Here
                     // -------------------------------------------
                     {
