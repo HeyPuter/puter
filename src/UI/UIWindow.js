@@ -2067,6 +2067,7 @@ async function UIWindow(options) {
     // --------------------------------------------------------
     // Droppable sidebar items
     // --------------------------------------------------------
+   if(options.title!=="Trash"){
     $(el_window).find('.window-sidebar-item').each(function (index){
         // todo only continue if this item is a dir
         const el_item = this;
@@ -2091,6 +2092,7 @@ async function UIWindow(options) {
             }
         });
     })
+   }
 
     //set styles
     $(el_window_body).css(options.body_css);
