@@ -1508,7 +1508,13 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
     let overwrite_all = false;
     (async()=>{
         let copy_progress_window_init_ts = Date.now();
-        let progwin = await UIWindowCopyProgress({operation_id: copy_op_id});
+
+        // only show progress window if it takes longer than 2s to copy
+        let progwin;
+        let progwin_timeout = setTimeout(async () => {
+            progwin = await UIWindowCopyProgress({operation_id: copy_op_id});
+        }, 2000);
+
         for(let i=0; i<clipboard.length; i++){
             let copy_path = clipboard[i].path;
             let item_with_same_name_already_exists = true;
@@ -1563,10 +1569,12 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
         }
 
         // done
+        clearTimeout(progwin_timeout);
+
         let copy_duration = (Date.now() - copy_progress_window_init_ts);
-        if( copy_duration >= copy_progress_hide_delay){
+        if(progwin && copy_duration >= copy_progress_hide_delay){
             $(progwin).close();   
-        }else{
+        }else if(progwin){
             setTimeout(() => {
                 setTimeout(() => {
                     $(progwin).close();   
@@ -1587,7 +1595,13 @@ window.copy_items = function(el_items, dest_path){
     let overwrite_all = false;
     (async()=>{
         let copy_progress_window_init_ts = Date.now();
-        let progwin = await UIWindowCopyProgress({operation_id: copy_op_id});
+
+        // only show progress window if it takes longer than 2s to copy
+        let progwin;
+        let progwin_timeout = setTimeout(async () => {
+            progwin = await UIWindowCopyProgress({operation_id: copy_op_id});
+        }, 2000);
+
         for(let i=0; i < el_items.length; i++){
             let copy_path = $(el_items[i]).attr('data-path');
             let item_with_same_name_already_exists = true;
@@ -1644,10 +1658,12 @@ window.copy_items = function(el_items, dest_path){
         }
 
         // done
+        clearTimeout(progwin_timeout);
+
         let copy_duration = (Date.now() - copy_progress_window_init_ts);
-        if( copy_duration >= copy_progress_hide_delay){
+        if(progwin && copy_duration >= copy_progress_hide_delay){
             $(progwin).close();   
-        }else{
+        }else if(progwin){
             setTimeout(() => {
                 setTimeout(() => {
                     $(progwin).close();   
@@ -2282,8 +2298,11 @@ window.move_items = async function(el_items, dest_path){
     // when did this operation start
     let move_init_ts = Date.now();
 
-    // create progress window
-    let progwin = await UIWindowMoveProgress({operation_id: move_op_id});
+    // only show progress window if it takes longer than 2s to move
+    let progwin;
+    let progwin_timeout = setTimeout(async () => {
+        progwin = await UIWindowMoveProgress({operation_id: move_op_id});
+    }, 2000);
 
     // Go through each item and try to move it
     for(let i=0; i<el_items.length; i++){
@@ -2629,6 +2648,8 @@ window.move_items = async function(el_items, dest_path){
         }
     }
 
+    clearTimeout(progwin_timeout);
+
     // log stats to console
     let move_duration = (Date.now() - move_init_ts);
     console.log(`moved ${el_items.length} item${el_items.length > 1 ? 's':''} in ${move_duration}ms`);
@@ -2636,9 +2657,11 @@ window.move_items = async function(el_items, dest_path){
     // -----------------------------------------------------------------------
     // DONE! close progress window with delay to allow user to see 100% progress
     // -----------------------------------------------------------------------
-    setTimeout(() => {
-        $(progwin).close();   
-    }, copy_progress_hide_delay);
+    if(progwin){
+        setTimeout(() => {
+            $(progwin).close();   
+        }, copy_progress_hide_delay);
+    }
 }
 
 /**
