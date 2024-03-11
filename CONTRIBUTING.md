@@ -44,6 +44,8 @@ If you'd like to contribute code to Puter, please follow these steps:
 5. Push your changes to your fork
 6. Open a pull request
 
+We'll review your pull request and work with you to get your changes merged into the project.
+
 ## Your first code contribution
 
 We maintain a list of issues that are good for first-time contributors. You can find these issues by searching for the `good first issue` label in our [GitHub repository](https://github.com/HeyPuter/puter/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22). These issues are designed to be relatively easy to fix, and we're happy to help you get started. Pick an issue that interests you, and leave a comment on the issue to let us know you're working on it.
