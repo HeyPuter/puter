@@ -1,0 +1,63 @@
+# Contributing to Puter
+
+Welcome to the Puter project, the distributed internet operating system. We're excited to have you contribute to Puter, whether you're reporting bugs, suggesting new features, or contributing code. This guide will help you get started with contributing to Puter in different ways.
+
+# Report bugs
+
+Before reporting a bug, please check our [the issues on our GitHub repository](https://github.com/HeyPuter/puter/issues) to see if the bug has already been reported. If it has, you can add a comment to the existing issue with any additional information you have. Please
+
+If you find a new bug in Puter, please [open an issue on our GitHub repository](https://github.com/HeyPuter/puter/issues). We'll do our best to address the issue as soon as possible. When reporting a bug, please include as much information as possible, including:
+
+- A clear and descriptive title
+- A description of the issue
+- Steps to reproduce the bug
+- Expected behavior
+- Actual behavior
+- Screenshots, if applicable
+- Your operating system and browser
+
+Please open a separate issue for each bug you find.
+
+# Suggest new features
+
+If you have an idea for a new feature in Puter, please [open an issue on our GitHub repository](https://github.com/HeyPuter/puter/issues). We'll review your suggestion and discuss it with you. When suggesting a new feature, please include as much information as possible, including:
+
+- A clear and descriptive title 
+- A description of the feature
+- A use case for the feature
+- Any relevant technical details
+
+# Contribute code
+
+If you'd like to contribute code to Puter, please follow these steps:
+
+1. Fork the repository
+2. Create a new branch for your changes
+3. Make your changes
+4. Test your changes
+5. Push your changes to your fork
+6. Open a pull request
+
+## Your first code contribution
+
+We maintain a list of issues that are good for first-time contributors. You can find these issues by searching for the `good first issue` label in our [GitHub repository](https://github.com/HeyPuter/puter/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22). These issues are designed to be relatively easy to fix, and we're happy to help you get started. Pick an issue that interests you, and leave a comment on the issue to let us know you're working on it.
+
+
+# Code Review
+
+Once you've submitted your pull request, the project maintainers will review your changes. We may suggest some changes or improvements. This is a normal part of the process, and your contributions are greatly appreciated!
+
+
+# Contribution License Agreement (CLA)
+
+Like many open source projects, we require contributors to sign a Contribution License Agreement (CLA) before we can accept your code. When you open a pull request for the first time, a bot will automatically add a comment with a link to the CLA. You can sign the CLA electronically by following the link and filling out the form.
+
+
+# Getting Help
+
+If you have any questions about Puter, please feel free to reach out to us through the following channels:
+
+- [Discord](https://discord.com/invite/PQcx7Teh8u)
+- [Reddit](https://www.reddit.com/r/Puter/)
+- [Twitter](https://twitter.com/HeyPuter)
+- [Email](mailto:support@puter.com)
