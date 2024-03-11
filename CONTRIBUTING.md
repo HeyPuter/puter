@@ -8,7 +8,7 @@ Welcome to Puter, the open-source distributed internet operating system. We're e
 
 Before reporting a bug, please check our [the issues on our GitHub repository](https://github.com/HeyPuter/puter/issues) to see if the bug has already been reported. If it has, you can add a comment to the existing issue with any additional information you have.
 
-If you find a new bug in Puter, please [open an issue on our GitHub repository](https://github.com/HeyPuter/puter/issues). We'll do our best to address the issue as soon as possible. When reporting a bug, please include as much information as possible, including:
+If you find a new bug in Puter, please [open an issue on our GitHub repository](https://github.com/HeyPuter/puter/issues/new). We'll do our best to address the issue as soon as possible. When reporting a bug, please include as much information as possible, including:
 
 - A clear and descriptive title
 - A description of the issue
