@@ -1,12 +1,12 @@
 # Contributing to Puter
 
-Welcome to Puter, the open-source distributed internet operating system. We're excited to have you contribute to our proejct, whether you're reporting bugs, suggesting new features, or contributing code. This guide will help you get started with contributing to Puter in different ways.
+Welcome to Puter, the open-source distributed internet operating system. We're excited to have you contribute to our project, whether you're reporting bugs, suggesting new features, or contributing code. This guide will help you get started with contributing to Puter in different ways.
 
 <br>
 
 # Report bugs
 
-Before reporting a bug, please check our [the issues on our GitHub repository](https://github.com/HeyPuter/puter/issues) to see if the bug has already been reported. If it has, you can add a comment to the existing issue with any additional information you have. Please
+Before reporting a bug, please check our [the issues on our GitHub repository](https://github.com/HeyPuter/puter/issues) to see if the bug has already been reported. If it has, you can add a comment to the existing issue with any additional information you have.
 
 If you find a new bug in Puter, please [open an issue on our GitHub repository](https://github.com/HeyPuter/puter/issues). We'll do our best to address the issue as soon as possible. When reporting a bug, please include as much information as possible, including:
 
@@ -24,25 +24,21 @@ Please open a separate issue for each bug you find.
 
 # Suggest new features
 
-If you have an idea for a new feature in Puter, please [open an issue on our GitHub repository](https://github.com/HeyPuter/puter/issues). We'll review your suggestion and discuss it with you. When suggesting a new feature, please include as much information as possible, including:
+If you have an idea for a new feature in Puter, please open a new discussion thread on our [GitHub repository](https://github.com/HeyPuter/puter/discussions) to discuss your idea with the community. We'll do our best to respond to your suggestion as soon as possible.
 
-- A clear and descriptive title 
+When suggesting a new feature, please include as much information as possible, including:
+
+- A clear and descriptive title
 - A description of the feature
-- A use case for the feature
-- Any relevant technical details
+- The problem the feature will solve
+- Any relevant screenshots or mockups
+- Any relevant links or resources
 
 <br>
 
 # Contribute code
 
-If you'd like to contribute code to Puter, please follow these steps:
-
-1. Fork the repository
-2. Create a new branch for your changes
-3. Make your changes
-4. Test your changes
-5. Push your changes to your fork
-6. Open a pull request
+If you'd like to contribute code to Puter, you need to fork the project and submit a pull request. If this is your first time contributing to an open-source project, we recommend reading this short guide by GitHub on [how to contribute to a project](https://docs.github.com/en/get-started/exploring-projects-on-github/contributing-to-a-project).
 
 We'll review your pull request and work with you to get your changes merged into the project.
 
