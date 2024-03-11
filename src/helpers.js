@@ -2943,6 +2943,20 @@ window.upload_items = async function(items, dest_path){
             // success
             success: async function(items){
                 // DONE
+                // Add action to actions_history for undo ability
+                const files = []
+                if(typeof items[Symbol.iterator] === 'function'){
+                    for(const item of items){
+                        files.push(item.path)
+                    }
+                }else{
+                    files.push(items.path)
+                }
+
+                actions_history.push({
+                    operation: 'upload',
+                    data: files
+                });
                 // close progress window after a bit of delay for a better UX
                 setTimeout(() => {
                     setTimeout(() => {
@@ -3326,7 +3340,7 @@ window.unzipItem = async function(itemPath) {
     })
 }
 
-window.rename_file = async(options, new_name, old_name, el_item, el_item_name, el_item_icon, el_item_name_editor, is_undo = false)=>{
+window.rename_file = async(options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, is_undo = false)=>{
     puter.fs.rename({
         uid: options.uid === 'null' ? null : options.uid,
         new_name: new_name,
@@ -3336,7 +3350,7 @@ window.rename_file = async(options, new_name, old_name, el_item, el_item_name, e
             if (!is_undo)
                 actions_history.push({
                     operation: 'rename',
-                    data: {options, new_name, old_name, el_item, el_item_name, el_item_icon, el_item_name_editor}
+                    data: {options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url}
                 });
             
             // Has the extension changed? in that case update options.sugggested_apps
@@ -3434,6 +3448,24 @@ window.rename_file = async(options, new_name, old_name, el_item, el_item_name, e
     });
 }
 
+/**
+ * Deletes the given item with path.
+ * 
+ * @param {string} path - path of the item to delete 
+ * @returns {Promise<void>}
+ */
+window.delete_item_with_path = async function(path){
+    try{
+        await puter.fs.delete({
+            paths: path,
+            descendantsOnly: false,
+            recursive: true,
+        });
+    }catch(err){
+        UIAlert(err.responseText);
+    }
+}
+
 window.undo_last_action = async()=>{
     if (actions_history.length > 0) {
         const last_action = actions_history.pop();
@@ -3443,12 +3475,22 @@ window.undo_last_action = async()=>{
             const lastCreatedItem = last_action.data;
             undo_create_file_or_folder(lastCreatedItem); 
         } else if(last_action.operation === 'rename') {
-            const {options, new_name, old_name, el_item, el_item_name, el_item_icon, el_item_name_editor}  = last_action.data;
-            rename_file(options, old_name, new_name, el_item, el_item_name, el_item_icon, el_item_name_editor, true); 
+            const {options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url}  = last_action.data;
+            rename_file(options, old_name, new_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true); 
+        } else if(last_action.operation === 'upload') {
+            const files = last_action.data;
+            undo_upload(files);
         }
     }
 }
 
 window.undo_create_file_or_folder = async(item)=>{
     await window.delete_item(item);
+}
+
+window.undo_upload = async(files)=>{
+    for (const file of files) {
+        console.log(file)
+        await window.delete_item_with_path(file);
+    }
 }

@@ -627,7 +627,7 @@ function UIItem(options){
         $(el_item_name_editor).removeClass('item-name-editor-active');
 
         // Perform rename request
-        rename_file(options, new_name, old_name, el_item, el_item_name, el_item_icon, el_item_name_editor);
+        rename_file(options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url);
     }
     
     // --------------------------------------------------------
