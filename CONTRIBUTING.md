@@ -1,6 +1,8 @@
 # Contributing to Puter
 
-Welcome to the Puter project, the distributed internet operating system. We're excited to have you contribute to Puter, whether you're reporting bugs, suggesting new features, or contributing code. This guide will help you get started with contributing to Puter in different ways.
+Welcome to Puter, the open-source distributed internet operating system. We're excited to have you contribute to our proejct, whether you're reporting bugs, suggesting new features, or contributing code. This guide will help you get started with contributing to Puter in different ways.
+
+<br>
 
 # Report bugs
 
@@ -18,6 +20,8 @@ If you find a new bug in Puter, please [open an issue on our GitHub repository](
 
 Please open a separate issue for each bug you find.
 
+<br>
+
 # Suggest new features
 
 If you have an idea for a new feature in Puter, please [open an issue on our GitHub repository](https://github.com/HeyPuter/puter/issues). We'll review your suggestion and discuss it with you. When suggesting a new feature, please include as much information as possible, including:
@@ -26,6 +30,8 @@ If you have an idea for a new feature in Puter, please [open an issue on our Git
 - A description of the feature
 - A use case for the feature
 - Any relevant technical details
+
+<br>
 
 # Contribute code
 
@@ -42,16 +48,19 @@ If you'd like to contribute code to Puter, please follow these steps:
 
 We maintain a list of issues that are good for first-time contributors. You can find these issues by searching for the `good first issue` label in our [GitHub repository](https://github.com/HeyPuter/puter/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22). These issues are designed to be relatively easy to fix, and we're happy to help you get started. Pick an issue that interests you, and leave a comment on the issue to let us know you're working on it.
 
+<br>
 
 # Code Review
 
 Once you've submitted your pull request, the project maintainers will review your changes. We may suggest some changes or improvements. This is a normal part of the process, and your contributions are greatly appreciated!
 
+<br>
 
 # Contribution License Agreement (CLA)
 
 Like many open source projects, we require contributors to sign a Contribution License Agreement (CLA) before we can accept your code. When you open a pull request for the first time, a bot will automatically add a comment with a link to the CLA. You can sign the CLA electronically by following the link and filling out the form.
 
+<br>
 
 # Getting Help
 
