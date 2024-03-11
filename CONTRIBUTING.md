@@ -16,9 +16,12 @@ If you find a new bug in Puter, please [open an issue on our GitHub repository](
 - Expected behavior
 - Actual behavior
 - Screenshots, if applicable
-- Your operating system and browser
+- Your host operating system and browser
+- Your Puter version, location, ...
 
 Please open a separate issue for each bug you find.
+
+Maintainers will apply the appropriate labels to your issue.
 
 <br>
 
@@ -44,17 +47,17 @@ We'll review your pull request and work with you to get your changes merged into
 
 ## Your first code contribution
 
-We maintain a list of issues that are good for first-time contributors. You can find these issues by searching for the `good first issue` label in our [GitHub repository](https://github.com/HeyPuter/puter/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22). These issues are designed to be relatively easy to fix, and we're happy to help you get started. Pick an issue that interests you, and leave a comment on the issue to let us know you're working on it.
+We maintain a list of issues that are good for first-time contributors. You can find these issues by searching for the [`good first issue`](https://twitter.com/HeyPuter/status/1767024945442480132) label in our [GitHub repository](https://github.com/HeyPuter/puter). These issues are designed to be relatively easy to fix, and we're happy to help you get started. Pick an issue that interests you, and leave a comment on the issue to let us know you're working on it.
 
 <br>
 
-# Code Review
+## Code Review
 
 Once you've submitted your pull request, the project maintainers will review your changes. We may suggest some changes or improvements. This is a normal part of the process, and your contributions are greatly appreciated!
 
 <br>
 
-# Contribution License Agreement (CLA)
+## Contribution License Agreement (CLA)
 
 Like many open source projects, we require contributors to sign a Contribution License Agreement (CLA) before we can accept your code. When you open a pull request for the first time, a bot will automatically add a comment with a link to the CLA. You can sign the CLA electronically by following the link and filling out the form.
 
