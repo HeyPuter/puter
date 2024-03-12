@@ -1527,6 +1527,8 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
             progwin = await UIWindowCopyProgress({operation_id: copy_op_id});
         }, 2000);
 
+        const copied_item_paths = []
+
         for(let i=0; i<clipboard.length; i++){
             let copy_path = clipboard[i].path;
             let item_with_same_name_already_exists = true;
@@ -1535,20 +1537,24 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
             do{
                 if(overwrite)
                     item_with_same_name_already_exists = false;
-                
+
                 // cancelled?
                 if(operation_cancelled[copy_op_id])
                     return;
 
                 // perform copy
                 try{
-                    await puter.fs.copy({
+                    let resp = await puter.fs.copy({
                             source: copy_path,
                             destination: dest_path,
                             overwrite: overwrite || overwrite_all,
                             // if user is copying an item to where its source is, change the name so there is no conflict
                             dedupeName: dest_path === path.dirname(copy_path),
                     });
+
+                    // copy new path for undo copy
+                    copied_item_paths.push(resp[0].path);
+
                     // skips next loop iteration
                     break;
                 }catch(err){
@@ -1581,6 +1587,12 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
         }
 
         // done
+        // Add action to actions_history for undo ability
+        actions_history.push({
+            operation: 'copy',
+            data: copied_item_paths
+        });
+
         clearTimeout(progwin_timeout);
 
         let copy_duration = (Date.now() - copy_progress_window_init_ts);
@@ -1614,6 +1626,8 @@ window.copy_items = function(el_items, dest_path){
             progwin = await UIWindowCopyProgress({operation_id: copy_op_id});
         }, 2000);
 
+        const copied_item_paths = []
+
         for(let i=0; i < el_items.length; i++){
             let copy_path = $(el_items[i]).attr('data-path');
             let item_with_same_name_already_exists = true;
@@ -1627,13 +1641,16 @@ window.copy_items = function(el_items, dest_path){
                 if(operation_cancelled[copy_op_id])
                     return;
                 try{
-                    await puter.fs.copy({
+                    let resp = await puter.fs.copy({
                             source: copy_path,
                             destination: dest_path,
                             overwrite: overwrite || overwrite_all,
                             // if user is copying an item to where the source is, automatically change the name so there is no conflict
                             dedupeName: dest_path === path.dirname(copy_path),
                     })
+
+                    // copy new path for undo copy
+                    copied_item_paths.push(resp[0].path);
 
                     // skips next loop iteration
                     item_with_same_name_already_exists = false;
@@ -1670,6 +1687,12 @@ window.copy_items = function(el_items, dest_path){
         }
 
         // done
+        // Add action to actions_history for undo ability
+        actions_history.push({
+            operation: 'copy',
+            data: copied_item_paths
+        });
+
         clearTimeout(progwin_timeout);
 
         let copy_duration = (Date.now() - copy_progress_window_init_ts);
@@ -3480,6 +3503,9 @@ window.undo_last_action = async()=>{
         } else if(last_action.operation === 'upload') {
             const files = last_action.data;
             undo_upload(files);
+        } else if(last_action.operation === 'copy') {
+            const files = last_action.data;
+            undo_copy(files);
         }
     }
 }
@@ -3490,7 +3516,12 @@ window.undo_create_file_or_folder = async(item)=>{
 
 window.undo_upload = async(files)=>{
     for (const file of files) {
-        console.log(file)
+        await window.delete_item_with_path(file);
+    }
+}
+
+window.undo_copy = async(files)=>{
+    for (const file of files) {
         await window.delete_item_with_path(file);
     }
 }
