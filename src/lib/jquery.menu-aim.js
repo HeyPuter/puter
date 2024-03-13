@@ -89,7 +89,7 @@
           options = $.extend({
               rowSelector: "> li",
               submenuSelector: "*",
-              submenuDirection: "right",
+              submenuDirection: $.noop,
               tolerance: 75,  // bigger = more forgivey when entering submenu
               enter: $.noop,
               exit: $.noop,

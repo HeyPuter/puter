@@ -149,42 +149,99 @@ function UIContextMenu(options){
         return false;
     });
 
-    // when mouse is over an item    
-    $(contextMenu).find('.context-menu-item').on('mouseover', function (e) {
-        // mark other items as inactive
-        $(contextMenu).find('.context-menu-item').removeClass('context-menu-item-active');
-        // mark this item as active
-        $(this).addClass('context-menu-item-active');
-        // close any submenu that doesn't belong to this item
-        $(`.context-menu[data-parent-id="${menu_id}"]`).remove();
-        // mark this context menu as active
-        $(contextMenu).addClass('context-menu-active');
-    })
+    $(contextMenu).menuAim({
+        submenuDirection: function (e){
+            // if submenu will open to the left of menu item
+            if (e.getBoundingClientRect().left + e.getBoundingClientRect().width > window.innerWidth) {
+                return 'left';
+            } else {
+                return 'right';
+            }
+        },
+        activate: function (e) {
+
+            console.log('activate', e)
+
+            // mark other items as inactive
+            $(contextMenu).find('.context-menu-item').removeClass('context-menu-item-active');
+            // mark this item as active
+            $(e).addClass('context-menu-item-active');
+            // close any submenu that doesn't belong to this item
+            $(`.context-menu[data-parent-id="${menu_id}"]`).remove();
+            // mark this context menu as active
+            $(contextMenu).addClass('context-menu-active');
+
+
+            // activate submenu
+            // open submenu if applicable
+            if($(e).hasClass('context-menu-item-submenu')){
+                let item_rect_box = e.getBoundingClientRect();
+                // open submenu only if it's not already open
+                if($(`.context-menu[data-id="${menu_id}-${$(e).attr('data-action')}"]`).length === 0){
+                    // close other submenus
+                    $(`.context-menu[parent-element-id="${menu_id}"]`).remove();
+                    // open the new submenu
+                    UIContextMenu({ 
+                        items: options.items[parseInt($(e).attr('data-action'))].items,
+                        parent_id: menu_id,
+                        is_submenu: true,
+                        id: menu_id + '-' + $(e).attr('data-action'),
+                        position:{
+                            top: item_rect_box.top - 5,
+                            left: x_pos + item_rect_box.width + 15,
+                        } 
+                    })
+                }
+            }
+        },
+        deactivate: function (e) {
+            console.log('deactivate')
+            //deactivate submenu
+            if($(e).hasClass('context-menu-item-submenu')){
+                $(`.context-menu[data-id="${menu_id}-${$(e).attr('data-action')}"]`).remove();
+            }
+        }
+    });
+    
+
+    
+
+    // // when mouse is over an item    
+    // $(contextMenu).find('.context-menu-item').on('mouseover', function (e) {
+    //     // mark other items as inactive
+    //     $(contextMenu).find('.context-menu-item').removeClass('context-menu-item-active');
+    //     // mark this item as active
+    //     $(this).addClass('context-menu-item-active');
+    //     // close any submenu that doesn't belong to this item
+    //     $(`.context-menu[data-parent-id="${menu_id}"]`).remove();
+    //     // mark this context menu as active
+    //     $(contextMenu).addClass('context-menu-active');
+    // })
 
     // open submenu if applicable
-    $(`#context-menu-${menu_id} > li.context-menu-item-submenu`).on('mouseover', function (e) {
+    // $(`#context-menu-${menu_id} > li.context-menu-item-submenu`).on('mouseover', function (e) {
         
-        // open submenu only if it's not already open
-        if($(`.context-menu[data-id="${menu_id}-${$(this).attr('data-action')}"]`).length === 0){
-            let item_rect_box = this.getBoundingClientRect();
+    //     // open submenu only if it's not already open
+    //     if($(`.context-menu[data-id="${menu_id}-${$(this).attr('data-action')}"]`).length === 0){
+    //         let item_rect_box = this.getBoundingClientRect();
             
-            // close other submenus
-            $(`.context-menu[parent-element-id="${menu_id}"]`).remove();
+    //         // close other submenus
+    //         $(`.context-menu[parent-element-id="${menu_id}"]`).remove();
 
-            // open the new submenu
-            UIContextMenu({ 
-                items: options.items[parseInt($(this).attr('data-action'))].items,
-                parent_id: menu_id,
-                is_submenu: true,
-                id: menu_id + '-' + $(this).attr('data-action'),
-                position:{
-                    top: item_rect_box.top - 5,
-                    left: x_pos + item_rect_box.width + 15,
-                } 
-            })
-        }
-        return false;    
-    });
+    //         // open the new submenu
+    //         UIContextMenu({ 
+    //             items: options.items[parseInt($(this).attr('data-action'))].items,
+    //             parent_id: menu_id,
+    //             is_submenu: true,
+    //             id: menu_id + '-' + $(this).attr('data-action'),
+    //             position:{
+    //                 top: item_rect_box.top - 5,
+    //                 left: x_pos + item_rect_box.width + 15,
+    //             } 
+    //         })
+    //     }
+    //     return false;    
+    // });
 
     // useful in cases such as where a menue item is over a window, this prevents from the mousedown event
     // reaching the window underneath
