@@ -2891,6 +2891,11 @@ window.upload_items = async function(items, dest_path){
     let upload_progress_window;
     let opid;
 
+    if(dest_path == trash_path){
+        UIAlert('Uploading to trash is not allowed!');
+        return;
+    }
+
     puter.fs.upload(
         // what to upload
         items, 
