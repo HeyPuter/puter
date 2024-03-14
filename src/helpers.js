@@ -3552,7 +3552,7 @@ window.undo_copy = async(files)=>{
 
 window.undo_move = async(items)=>{
     for (const item of items) {
-        const el = await get_html_from_options(item.options);
+        const el = await get_html_element_from_options(item.options);
         console.log(item.original_path)
         move_items([el], path.dirname(item.original_path), true);
     }
@@ -3560,7 +3560,7 @@ window.undo_move = async(items)=>{
 
 window.undo_delete = async(items)=>{
     for (const item of items) {
-        const el = await get_html_from_options(item.options);
+        const el = await get_html_element_from_options(item.options);
         let metadata = $(el).attr('data-metadata') === '' ? {} : JSON.parse($(el).attr('data-metadata'))
         move_items([el], path.dirname(metadata.original_path), true);
     }
