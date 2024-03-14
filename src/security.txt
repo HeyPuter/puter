@@ -1,0 +1,9 @@
+Contact: mailto:security@puter.com
+
+Expires: 2025-01-01T20:00:00.000Z
+
+Acknowledgments: https://github.com/HeyPuter/puter/blob/master/SECURITY-ACKNOWLEDGEMENTS.md
+
+Canonical: https://github.com/HeyPuter/puter/blob/master/src/security.txt
+
+Policy: https://github.com/HeyPuter/puter/blob/master/SECURITY.md
