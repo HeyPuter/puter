@@ -3,4 +3,4 @@ We would like to thank the following security researchers for their responsible 
 
 # 2024
 
-- [xyzeva](https://github.com/xyzeva) (xyzeva@riseup.net)[mailto:xyzeva@riseup.net]
+- xyzeva: [Github](https://github.com/xyzeva) | [email](mailto:xyzeva@riseup.net) | [website](https://kibty.town/)
