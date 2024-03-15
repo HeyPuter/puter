@@ -145,48 +145,71 @@ function UIContextMenu(options){
                 $(contextMenu).remove();
             });
         }
-
         return false;
     });
 
-    // when mouse is over an item    
-    $(contextMenu).find('.context-menu-item').on('mouseover', function (e) {
-        // mark other items as inactive
-        $(contextMenu).find('.context-menu-item').removeClass('context-menu-item-active');
-        // mark this item as active
-        $(this).addClass('context-menu-item-active');
-        // close any submenu that doesn't belong to this item
-        $(`.context-menu[data-parent-id="${menu_id}"]`).remove();
-        // mark this context menu as active
-        $(contextMenu).addClass('context-menu-active');
-    })
+    // initialize menuAim plugin (../libs/jquery.menu-aim.js)
+    $(contextMenu).menuAim({
+        submenuDirection: function(){
+            //if not submenu
+            if(!options.is_submenu){
+                // if submenu left postiton is greater than main menu left position
+                if($(contextMenu).offset().left + 2 * $(contextMenu).width() + 15 < window.innerWidth ){     
+                    return "right";
+                } else {
+                    return "left";
+                }
+            }
+        },
+        //activates item when mouse enters depending in mouse position and direction
+        activate: function (e) {
 
-    // open submenu if applicable
-    $(`#context-menu-${menu_id} > li.context-menu-item-submenu`).on('mouseover', function (e) {
-        
-        // open submenu only if it's not already open
-        if($(`.context-menu[data-id="${menu_id}-${$(this).attr('data-action')}"]`).length === 0){
-            let item_rect_box = this.getBoundingClientRect();
-            
-            // close other submenus
-            $(`.context-menu[parent-element-id="${menu_id}"]`).remove();
+            //activate items
+            let item = $(e).closest('.context-menu-item');
 
-            // open the new submenu
-            UIContextMenu({ 
-                items: options.items[parseInt($(this).attr('data-action'))].items,
-                parent_id: menu_id,
-                is_submenu: true,
-                id: menu_id + '-' + $(this).attr('data-action'),
-                position:{
-                    top: item_rect_box.top - 5,
-                    left: x_pos + item_rect_box.width + 15,
-                } 
-            })
+            // mark other items as inactive
+            $(contextMenu).find('.context-menu-item').removeClass('context-menu-item-active');
+            // mark this item as active
+            $(item).addClass('context-menu-item-active');
+            // close any submenu that doesn't belong to this item
+            $(`.context-menu[data-parent-id="${menu_id}"]`).remove();
+            // mark this context menu as active
+            $(contextMenu).addClass('context-menu-active');
+
+
+            // activate submenu
+            // open submenu if applicable
+            if($(e).hasClass('context-menu-item-submenu')){
+                let item_rect_box = e.getBoundingClientRect();
+                // open submenu only if it's not already open
+                if($(`.context-menu[data-id="${menu_id}-${$(e).attr('data-action')}"]`).length === 0){
+                    // close other submenus
+                    $(`.context-menu[parent-element-id="${menu_id}"]`).remove();
+                    // open the new submenu
+                    UIContextMenu({ 
+                        items: options.items[parseInt($(e).attr('data-action'))].items,
+                        parent_id: menu_id,
+                        is_submenu: true,
+                        id: menu_id + '-' + $(e).attr('data-action'),
+                        position:{
+                            top: item_rect_box.top - 5,
+                            left: x_pos + item_rect_box.width + 15,
+                        } 
+                    })
+                }
+            }
+        },
+        //deactivates row when mouse leavess
+        deactivate: function (e) {
+            console.log('deactivate')
+            //deactivate submenu
+            if($(e).hasClass('context-menu-item-submenu')){
+                $(`.context-menu[data-id="${menu_id}-${$(e).attr('data-action')}"]`).remove();
+            }
         }
-        return false;    
     });
-
-    // useful in cases such as where a menue item is over a window, this prevents from the mousedown event
+    
+    // useful in cases such as where a menu item is over a window, this prevents from the mousedown event
     // reaching the window underneath
     $(`#context-menu-${menu_id} > li:not(.context-menu-item-disabled)`).on('mousedown', function (e) {
         e.preventDefault();
@@ -228,3 +251,5 @@ window.select_ctxmenu_item = function ($ctxmenu_item){
 }
 
 export default UIContextMenu;
+
+
