@@ -5,11 +5,7 @@ name: Docker Image CI
 # branch called `master`.
 on:
   push:
-    branches: ['master']
-  pull_request:
-    branches: ['master']
-  schedule:
-    - cron: "0 2 * * 1-5"
+    branches: ['main']
   
 
 # Defines two custom environment variables for the workflow. These are used
