@@ -2,7 +2,7 @@
 name: Docker Image CI
 
 # Configures this workflow to run every time a change is pushed to the
-# branch called `master`.
+# branch called `main`.
 on:
   push:
     branches: ['main']
