@@ -149,23 +149,45 @@ function UIContextMenu(options){
         return false;
     });
 
+    // initialize menuAim plugin
     $(contextMenu).menuAim({
-        submenuDirection: function (e){
-            // if submenu will open to the left of menu item
-            if (e.getBoundingClientRect().left + e.getBoundingClientRect().width > window.innerWidth) {
-                return 'left';
-            } else {
-                return 'right';
-            }
+        submenuDirection: function(){
+            //if this is not a submenu
+            // if(!options.is_submenu){
+                // if submenu is going to be on the right of the main menu
+                if(x_pos + $(contextMenu).width() + 10 > window.innerWidth){
+                    console.log('right')
+                    return "right";
+                } else {
+                    console.log('left')
+                    return "left";
+                }
+            // }
         },
         activate: function (e) {
+            
+            //if submenu opens on right make submenuDirection right
+            // if($(contextMenu).offset().left + $(contextMenu).width() + 10 > window.innerWidth){
+            //     $(contextMenu).menuAim({
+            //         submenuDirection: 'right'
+            //     });
+            // } else {
+            //     $(contextMenu).menuAim({
+            //         submenuDirection: 'left'
+            //     });
+            // }
+            // hover over an item
+            
+
+            
+            let item = $(e).closest('.context-menu-item');
 
             console.log('activate', e)
 
             // mark other items as inactive
             $(contextMenu).find('.context-menu-item').removeClass('context-menu-item-active');
             // mark this item as active
-            $(e).addClass('context-menu-item-active');
+            $(item).addClass('context-menu-item-active');
             // close any submenu that doesn't belong to this item
             $(`.context-menu[data-parent-id="${menu_id}"]`).remove();
             // mark this context menu as active
@@ -173,6 +195,7 @@ function UIContextMenu(options){
 
 
             // activate submenu
+
             // open submenu if applicable
             if($(e).hasClass('context-menu-item-submenu')){
                 let item_rect_box = e.getBoundingClientRect();
@@ -193,6 +216,7 @@ function UIContextMenu(options){
                     })
                 }
             }
+            
         },
         deactivate: function (e) {
             console.log('deactivate')
@@ -285,3 +309,5 @@ window.select_ctxmenu_item = function ($ctxmenu_item){
 }
 
 export default UIContextMenu;
+
+

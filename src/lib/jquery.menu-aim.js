@@ -166,6 +166,7 @@
                   options.deactivate(activeRow);
               }
 
+
               options.activate(row);
               activeRow = row;
           };
@@ -277,13 +278,13 @@
               // corner to decrease over time, as explained above. If the
               // submenu opens in a different direction, we change our slope
               // expectations.
-              if (options.submenuDirection == "left") {
+              if (options.submenuDirection() == "left") {
                   decreasingCorner = lowerLeft;
                   increasingCorner = upperLeft;
-              } else if (options.submenuDirection == "below") {
+              } else if (options.submenuDirection() == "below") {
                   decreasingCorner = lowerRight;
                   increasingCorner = lowerLeft;
-              } else if (options.submenuDirection == "above") {
+              } else if (options.submenuDirection() == "above") {
                   decreasingCorner = upperLeft;
                   increasingCorner = upperRight;
               }
