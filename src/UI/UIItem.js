@@ -187,6 +187,13 @@ function UIItem(options){
         update_explorer_footer_item_count(el_window);
     }
 
+    // position
+    if(!is_auto_arrange_enabled && options.position && $(el_item).attr('data-path') !== trash_path){
+        el_item.style.position = 'absolute';
+        el_item.style.left = options.position.left + 'px';
+        el_item.style.top = options.position.top + 'px';
+    }
+
     // --------------------------------------------------------
     // Dragster
     // allow dragging of local files on this window, if it's is_dir
@@ -335,6 +342,13 @@ function UIItem(options){
             }
         },
         stop: function(event, ui){
+            if(!is_auto_arrange_enabled && $(el_item).attr('data-path') !== trash_path){
+                el_item.style.position = 'absolute';
+                el_item.style.left = ui.position.left + 'px';
+                el_item.style.top = ui.position.top + 'px';
+                $('.ui-draggable-dragging').remove();
+                save_item_position($(el_item).attr('data-uid'), ui.position)
+            }
             $('.item-selected-clone').remove();
             $('.draggable-count-badge').remove();
             // re-enable all droppable UIItems that are not a dir

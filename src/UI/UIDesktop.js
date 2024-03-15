@@ -624,7 +624,27 @@ async function UIDesktop(options){
                         html: "Sort by",
                         items: [
                             {
+                                html: `Auto Arrange`,
+                                icon: is_auto_arrange_enabled ? '✓' : '',
+                                onClick: async function(){
+                                    is_auto_arrange_enabled = !is_auto_arrange_enabled;
+                                    store_auto_arrange_preference(is_auto_arrange_enabled);
+                                    if(is_auto_arrange_enabled){
+                                        sort_items(el_desktop, $(el_desktop).attr('data-sort_by'), $(el_desktop).attr('data-sort_order'));
+                                        set_sort_by(options.desktop_fsentry.uid, $(el_desktop).attr('data-sort_by'), $(el_desktop).attr('data-sort_order'))
+                                        clear_desktop_item_positions(el_desktop);
+                                    }else{
+                                        set_desktop_item_positions(el_desktop)
+                                    }
+                                }
+                            },
+                            // -------------------------------------------
+                            // -
+                            // -------------------------------------------
+                            '-',
+                            {
                                 html: `Name`,
+                                disabled: !is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_by') === 'name' ? '✓' : '',
                                 onClick: async function(){
                                     sort_items(el_desktop, 'name', $(el_desktop).attr('data-sort_order'));
@@ -633,6 +653,7 @@ async function UIDesktop(options){
                             },
                             {
                                 html: `Date modified`,
+                                disabled: !is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_by') === 'modified' ? '✓' : '',
                                 onClick: async function(){
                                     sort_items(el_desktop, 'modified', $(el_desktop).attr('data-sort_order'));
@@ -641,6 +662,7 @@ async function UIDesktop(options){
                             },
                             {
                                 html: `Type`,
+                                disabled: !is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_by') === 'type' ? '✓' : '',
                                 onClick: async function(){
                                     sort_items(el_desktop, 'type', $(el_desktop).attr('data-sort_order'));
@@ -649,6 +671,7 @@ async function UIDesktop(options){
                             },
                             {
                                 html: `Size`,
+                                disabled: !is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_by') === 'size' ? '✓' : '',
                                 onClick: async function(){
                                     sort_items(el_desktop, 'size', $(el_desktop).attr('data-sort_order'));
@@ -661,6 +684,7 @@ async function UIDesktop(options){
                             '-',
                             {
                                 html: `Ascending`,
+                                disabled: !is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_order') === 'asc' ? '✓' : '',
                                 onClick: async function(){
                                     const sort_by = $(el_desktop).attr('data-sort_by')
@@ -670,6 +694,7 @@ async function UIDesktop(options){
                             },
                             {
                                 html: `Descending`,
+                                disabled: !is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_order') === 'desc' ? '✓' : '',
                                 onClick: async function(){
                                     const sort_by = $(el_desktop).attr('data-sort_by')

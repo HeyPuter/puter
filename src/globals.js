@@ -174,3 +174,5 @@ window.feature_flags = {
     // if true, the user will be able to zip and download directories
     download_directory: true,
 }
+
+window.is_auto_arrange_enabled = true;
