@@ -2,21 +2,22 @@ const express = require("express");
 const { generateDevHtml, build } = require("./utils.js");
 const { argv } = require('node:process');
 const chalk = require('chalk');
+const dotenv = require('dotenv');
+dotenv.config();
 
 const app = express();
-let port = 4000; // Starting port
+let port = process.env.PORT ?? 4000; // Starting port
 const maxAttempts = 10; // Maximum number of ports to try
 const env = argv[2] ?? "dev";
 
-const startServer = (attempt) => {
+const startServer = (attempt, useAnyFreePort = false) => {
     if (attempt > maxAttempts) {
-        console.error(chalk.red(`ERROR: Unable to find an available port after ${maxAttempts} attempts.`));
-        return;
+        useAnyFreePort = true; // Use any port that is free
     }
 
-    app.listen(port, () => {
+    const server = app.listen(useAnyFreePort ? 0 : port, () => {
         console.log("\n-----------------------------------------------------------\n");
-        console.log(`Puter is now live at: `, chalk.underline.blue(`http://localhost:${port}`));
+        console.log(`Puter is now live at: `, chalk.underline.blue(`http://localhost:${server.address().port}`));
         console.log("\n-----------------------------------------------------------\n");
     }).on('error', (err) => {
         if (err.code === 'EADDRINUSE') { // Check if the error is because the port is already in use

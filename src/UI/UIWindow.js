@@ -1880,6 +1880,18 @@ async function UIWindow(options) {
                             }
                         },
                         // -------------------------------------------
+                        // Show/Hide hidden files
+                        // -------------------------------------------
+                        {
+                            html: `${window.user_preferences.show_hidden_files ? "Hide" : "Show"} hidden files`,
+                            onClick: function(){
+                                window.mutate_user_preferences({
+                                    show_hidden_files : !window.user_preferences.show_hidden_files,
+                                });
+                                window.show_or_hide_files(document.querySelectorAll('.item-container'));
+                            }
+                        },
+                        // -------------------------------------------
                         // -
                         // -------------------------------------------
                         '-',
@@ -1902,6 +1914,16 @@ async function UIWindow(options) {
                                     copy_clipboard_items($(el_window).attr('data-path'), el_window_body);
                                 else if(clipboard_op === 'move')
                                     move_clipboard_items(el_window_body)
+                            }
+                        },
+                        // -------------------------------------------
+                        // Undo
+                        // -------------------------------------------
+                        {
+                            html: "Undo",
+                            disabled: actions_history.length > 0 ? false : true,
+                            onClick: function(){
+                                undo_last_action();
                             }
                         },
                         // -------------------------------------------

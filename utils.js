@@ -158,8 +158,12 @@ async function build(options){
     );
 
     const copy_these = [
-        'images', 'favicons',
-        'browserconfig.xml', 'manifest.json', 'favicon.ico',
+        'images', 
+        'favicons',
+        'browserconfig.xml', 
+        'manifest.json', 
+        'favicon.ico',
+        'security.txt',
     ];
 
     const recursive_copy = (src, dest) => {

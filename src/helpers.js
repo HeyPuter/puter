@@ -656,7 +656,7 @@ window.refresh_user_data = async (auth_token)=>{
     // update local user data
     if(whoami){
         update_auth_data(auth_token, whoami)
-    } 
+    }
 }
 
 window.update_auth_data = (auth_token, user)=>{
@@ -708,6 +708,20 @@ window.update_auth_data = (auth_token, user)=>{
         $('.user-options-login-btn, .user-options-create-account-btn').hide();
         $('.user-options-menu-btn').show();
     }
+}
+
+window.mutate_user_preferences = function(user_preferences_delta) {
+    for (const [key, value] of Object.entries(user_preferences_delta)) {
+        // Don't wait for set to be done for better efficiency
+        puter.kv.set(`user_preferences.${key}`, String(value));
+    }
+    // There may be syncing issues across multiple devices
+    update_user_preferences({ ...window.user_preferences, ...user_preferences_delta });
+}
+
+window.update_user_preferences = function(user_preferences) {
+    window.user_preferences = user_preferences;
+    localStorage.setItem('user_preferences', JSON.stringify(user_preferences));
 }
 
 window.sendWindowWillCloseMsg = function(iframe_element) {
@@ -1255,11 +1269,18 @@ window.refresh_item_container = function(el_item_container, options){
                 if(!window.check_fsentry_against_allowed_file_types_string(fsentry, allowed_file_types))
                     is_disabled = true;
 
-                // skip if hidden (i.e. name starts with `.`)
-                if(fsentry.name.startsWith('.'))
-                    continue;
+                // set visibility based on user preferences and whether file is hidden by default
+                const is_hidden_file = fsentry.name.startsWith('.');
+                let visible;
+                if (!is_hidden_file){
+                    visible = 'visible';
+                }else if (window.user_preferences.show_hidden_files) {
+                    visible = 'revealed';
+                }else{
+                    visible = 'hidden';
+                }
 
-                //metadata
+                // metadata
                 let metadata;
                 if(fsentry.metadata !== ''){
                     try{
@@ -1295,6 +1316,7 @@ window.refresh_item_container = function(el_item_container, options){
                         modified: fsentry.modified,
                         suggested_apps: fsentry.suggested_apps,
                         disabled: is_disabled,
+                        visible: visible,
                     });
                 }
             }
@@ -1380,6 +1402,16 @@ window.sort_items = (item_container, sort_by, sort_order)=>{
     }).appendTo(item_container);
 }
 
+window.show_or_hide_files = (item_containers) => {
+    const show_hidden_files = window.user_preferences.show_hidden_files;
+    const class_to_add = show_hidden_files ? 'item-revealed' : 'item-hidden';
+    const class_to_remove = show_hidden_files ? 'item-hidden' : 'item-revealed';
+    $(item_containers)
+        .find('.item')
+        .filter((_, item) => item.dataset.name.startsWith('.'))
+        .removeClass(class_to_remove).addClass(class_to_add);
+}
+
 window.create_folder = async(basedir, appendto_element)=>{
 	let dirname = basedir;
     let folder_name = 'New Folder';
@@ -1402,9 +1434,15 @@ window.create_folder = async(basedir, appendto_element)=>{
             overwrite: false,
             success: function (data){
                 const el_created_dir = $(appendto_element).find('.item[data-path="'+html_encode(dirname)+'/'+html_encode(data.name)+'"]');
-                if(el_created_dir.length > 0)
+                if(el_created_dir.length > 0){
                     activate_item_name_editor(el_created_dir);
 
+                    // Add action to actions_history for undo ability
+                    actions_history.push({
+                        operation: 'create_folder',
+                        data: el_created_dir
+                    });
+                }
                 clearTimeout(progwin_timeout);
 
                 // done
@@ -1440,6 +1478,12 @@ window.create_file = async(options)=>{
                 const created_file = $(appendto_element).find('.item[data-path="'+html_encode(dirname)+'/'+html_encode(data.name)+'"]');
                 if(created_file.length > 0){
                     activate_item_name_editor(created_file);
+
+                    // Add action to actions_history for undo ability
+                    actions_history.push({
+                        operation: 'create_file',
+                        data: created_file
+                    });
                 }
             }
         });
@@ -1476,7 +1520,15 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
     let overwrite_all = false;
     (async()=>{
         let copy_progress_window_init_ts = Date.now();
-        let progwin = await UIWindowCopyProgress({operation_id: copy_op_id});
+
+        // only show progress window if it takes longer than 2s to copy
+        let progwin;
+        let progwin_timeout = setTimeout(async () => {
+            progwin = await UIWindowCopyProgress({operation_id: copy_op_id});
+        }, 2000);
+
+        const copied_item_paths = []
+
         for(let i=0; i<clipboard.length; i++){
             let copy_path = clipboard[i].path;
             let item_with_same_name_already_exists = true;
@@ -1485,20 +1537,24 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
             do{
                 if(overwrite)
                     item_with_same_name_already_exists = false;
-                
+
                 // cancelled?
                 if(operation_cancelled[copy_op_id])
                     return;
 
                 // perform copy
                 try{
-                    await puter.fs.copy({
+                    let resp = await puter.fs.copy({
                             source: copy_path,
                             destination: dest_path,
                             overwrite: overwrite || overwrite_all,
                             // if user is copying an item to where its source is, change the name so there is no conflict
                             dedupeName: dest_path === path.dirname(copy_path),
                     });
+
+                    // copy new path for undo copy
+                    copied_item_paths.push(resp[0].path);
+
                     // skips next loop iteration
                     break;
                 }catch(err){
@@ -1531,10 +1587,18 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
         }
 
         // done
+        // Add action to actions_history for undo ability
+        actions_history.push({
+            operation: 'copy',
+            data: copied_item_paths
+        });
+
+        clearTimeout(progwin_timeout);
+
         let copy_duration = (Date.now() - copy_progress_window_init_ts);
-        if( copy_duration >= copy_progress_hide_delay){
+        if(progwin && copy_duration >= copy_progress_hide_delay){
             $(progwin).close();   
-        }else{
+        }else if(progwin){
             setTimeout(() => {
                 setTimeout(() => {
                     $(progwin).close();   
@@ -1555,7 +1619,15 @@ window.copy_items = function(el_items, dest_path){
     let overwrite_all = false;
     (async()=>{
         let copy_progress_window_init_ts = Date.now();
-        let progwin = await UIWindowCopyProgress({operation_id: copy_op_id});
+
+        // only show progress window if it takes longer than 2s to copy
+        let progwin;
+        let progwin_timeout = setTimeout(async () => {
+            progwin = await UIWindowCopyProgress({operation_id: copy_op_id});
+        }, 2000);
+
+        const copied_item_paths = []
+
         for(let i=0; i < el_items.length; i++){
             let copy_path = $(el_items[i]).attr('data-path');
             let item_with_same_name_already_exists = true;
@@ -1569,13 +1641,16 @@ window.copy_items = function(el_items, dest_path){
                 if(operation_cancelled[copy_op_id])
                     return;
                 try{
-                    await puter.fs.copy({
+                    let resp = await puter.fs.copy({
                             source: copy_path,
                             destination: dest_path,
                             overwrite: overwrite || overwrite_all,
                             // if user is copying an item to where the source is, automatically change the name so there is no conflict
                             dedupeName: dest_path === path.dirname(copy_path),
                     })
+
+                    // copy new path for undo copy
+                    copied_item_paths.push(resp[0].path);
 
                     // skips next loop iteration
                     item_with_same_name_already_exists = false;
@@ -1612,10 +1687,18 @@ window.copy_items = function(el_items, dest_path){
         }
 
         // done
+        // Add action to actions_history for undo ability
+        actions_history.push({
+            operation: 'copy',
+            data: copied_item_paths
+        });
+
+        clearTimeout(progwin_timeout);
+
         let copy_duration = (Date.now() - copy_progress_window_init_ts);
-        if( copy_duration >= copy_progress_hide_delay){
+        if(progwin && copy_duration >= copy_progress_hide_delay){
             $(progwin).close();   
-        }else{
+        }else if(progwin){
             setTimeout(() => {
                 setTimeout(() => {
                     $(progwin).close();   
@@ -2222,7 +2305,7 @@ window.new_context_menu_item = function(dirname, append_to_element){
  * @param {string} dest_path - The destination path to move the items to
  * @returns {Promise<void>} 
  */
-window.move_items = async function(el_items, dest_path){
+window.move_items = async function(el_items, dest_path, is_undo = false){
     let move_op_id = operation_id++;
     operation_cancelled[move_op_id] = false;
 
@@ -2250,8 +2333,14 @@ window.move_items = async function(el_items, dest_path){
     // when did this operation start
     let move_init_ts = Date.now();
 
-    // create progress window
-    let progwin = await UIWindowMoveProgress({operation_id: move_op_id});
+    // only show progress window if it takes longer than 2s to move
+    let progwin;
+    let progwin_timeout = setTimeout(async () => {
+        progwin = await UIWindowMoveProgress({operation_id: move_op_id});
+    }, 2000);
+
+    // storing moved items for undo ability
+    const moved_items = []
 
     // Go through each item and try to move it
     for(let i=0; i<el_items.length; i++){
@@ -2492,7 +2581,7 @@ window.move_items = async function(el_items, dest_path){
                 fsentry.name = metadata?.original_name || fsentry.name;
 
                 // create new item on matching containers
-                UIItem({
+                const options = {
                     appendTo: $(`.item-container[data-path="${html_encode(dest_path)}" i]`),
                     immutable: fsentry.immutable,
                     associated_app_name: fsentry.associated_app?.name,
@@ -2512,7 +2601,9 @@ window.move_items = async function(el_items, dest_path){
                     has_website: $(el_item).attr('data-has_website') === '1',
                     metadata: fsentry.metadata ?? '',
                     suggested_apps: fsentry.suggested_apps,
-                });
+                }
+                UIItem(options);
+                moved_items.push({'options': options, 'original_path': $(el_item).attr('data-path')});
 
                 // this operation may have created some missing directories, 
                 // see if any of the directories in the path of this file is new AND
@@ -2597,6 +2688,8 @@ window.move_items = async function(el_items, dest_path){
         }
     }
 
+    clearTimeout(progwin_timeout);
+
     // log stats to console
     let move_duration = (Date.now() - move_init_ts);
     console.log(`moved ${el_items.length} item${el_items.length > 1 ? 's':''} in ${move_duration}ms`);
@@ -2604,9 +2697,24 @@ window.move_items = async function(el_items, dest_path){
     // -----------------------------------------------------------------------
     // DONE! close progress window with delay to allow user to see 100% progress
     // -----------------------------------------------------------------------
-    setTimeout(() => {
-        $(progwin).close();   
-    }, copy_progress_hide_delay);
+    // Add action to actions_history for undo ability
+    if(!is_undo && dest_path !== trash_path){
+        actions_history.push({
+            operation: 'move',
+            data: moved_items,
+        });
+    }else if(!is_undo && dest_path === trash_path){
+        actions_history.push({
+            operation: 'delete',
+            data: moved_items,
+        });
+    }
+
+    if(progwin){
+        setTimeout(() => {
+            $(progwin).close();   
+        }, copy_progress_hide_delay);
+    }
 }
 
 /**
@@ -2836,6 +2944,11 @@ window.upload_items = async function(items, dest_path){
     let upload_progress_window;
     let opid;
 
+    if(dest_path == trash_path){
+        UIAlert('Uploading to trash is not allowed!');
+        return;
+    }
+
     puter.fs.upload(
         // what to upload
         items, 
@@ -2876,6 +2989,20 @@ window.upload_items = async function(items, dest_path){
             // success
             success: async function(items){
                 // DONE
+                // Add action to actions_history for undo ability
+                const files = []
+                if(typeof items[Symbol.iterator] === 'function'){
+                    for(const item of items){
+                        files.push(item.path)
+                    }
+                }else{
+                    files.push(items.path)
+                }
+
+                actions_history.push({
+                    operation: 'upload',
+                    data: files
+                });
                 // close progress window after a bit of delay for a better UX
                 setTimeout(() => {
                     setTimeout(() => {
@@ -3257,4 +3384,315 @@ window.unzipItem = async function(itemPath) {
             $(progwin).close();   
         }, Math.max(0, copy_progress_hide_delay - (Date.now() - start_ts)));
     })
+}
+
+window.rename_file = async(options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, is_undo = false)=>{
+    puter.fs.rename({
+        uid: options.uid === 'null' ? null : options.uid,
+        new_name: new_name,
+        excludeSocketID: window.socket.id,
+        success: async (fsentry)=>{
+            // Add action to actions_history for undo ability
+            if (!is_undo)
+                actions_history.push({
+                    operation: 'rename',
+                    data: {options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url}
+                });
+            
+            // Has the extension changed? in that case update options.sugggested_apps
+            const old_extension = path.extname(old_name); 
+            const new_extension = path.extname(new_name);
+            if(old_extension !== new_extension){
+                suggest_apps_for_fsentry({
+                    uid: options.uid,
+                    onSuccess: function(suggested_apps){
+                        options.suggested_apps = suggested_apps;
+                    }
+                });
+            }
+
+            // Set new item name
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name`).html(html_encode(truncate_filename(new_name, TRUNCATE_LENGTH)).replaceAll(' ', '&nbsp;'));
+            $(el_item_name).show();
+
+            // Hide item name editor
+            $(el_item_name_editor).hide();
+
+            // Set new icon
+            const new_icon = (options.is_dir ? window.icons['folder.svg'] : (await item_icon(fsentry)).image);
+            $(el_item_icon).find('.item-icon-icon').attr('src', new_icon);
+
+            // Set new data-name
+            options.name = new_name;
+            $(el_item).attr('data-name', html_encode(new_name));
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('data-name', html_encode(new_name));
+            $(`.window-${options.uid}`).attr('data-name', html_encode(new_name));
+
+            // Set new title attribute
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('title', html_encode(new_name));
+            $(`.window-${options.uid}`).attr('title', html_encode(new_name));
+
+            // Set new value for item-name-editor
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name-editor`).val(html_encode(new_name));
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name`).attr('title', html_encode(new_name));
+
+            // Set new data-path
+            options.path = path.join( path.dirname(options.path), options.name);
+            const new_path = options.path;
+            $(el_item).attr('data-path', new_path);
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('data-path', new_path);
+            $(`.window-${options.uid}`).attr('data-path', new_path);
+
+            // Update all elements that have matching paths
+            $(`[data-path="${html_encode(old_path)}" i]`).each(function(){
+                $(this).attr('data-path', new_path)
+                if($(this).hasClass('window-navbar-path-dirname'))
+                    $(this).text(new_name);
+            });
+
+            // Update the paths of all elements whose paths start with old_path
+            $(`[data-path^="${html_encode(old_path) + '/'}"]`).each(function(){
+                const new_el_path = _.replace($(this).attr('data-path'), old_path + '/', new_path+'/');
+                $(this).attr('data-path', new_el_path);
+            });
+
+            // Update the 'Sites Cache'
+            if($(el_item).attr('data-has_website') === '1')
+                await update_sites_cache();
+
+            // Update website_url
+            website_url = determine_website_url(new_path);
+            $(el_item).attr('data-website_url', website_url);
+
+            // Update all exact-matching windows
+            $(`.window-${options.uid}`).each(function(){
+                update_window_path(this, options.path);
+            })
+
+            // Set new name for corresponding open windows
+            $(`.window-${options.uid} .window-head-title`).text(new_name);
+
+            // Re-sort all matching item containers
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).parent('.item-container').each(function(){
+                sort_items(this, $(el_item).closest('.item-container').attr('data-sort_by'), $(el_item).closest('.item-container').attr('data-sort_order'));
+            })
+        },
+        error: function (err){
+            // reset to old name
+            $(el_item_name).text(truncate_filename(options.name, TRUNCATE_LENGTH));
+            $(el_item_name).show();
+
+            // hide item name editor
+            $(el_item_name_editor).hide();
+            $(el_item_name_editor).val(html_encode($(el_item).attr('data-name')));
+
+            //show error
+            if(err.message){
+                UIAlert(err.message)
+            }
+        },
+    });
+}
+
+/**
+ * Deletes the given item with path.
+ * 
+ * @param {string} path - path of the item to delete 
+ * @returns {Promise<void>}
+ */
+window.delete_item_with_path = async function(path){
+    try{
+        await puter.fs.delete({
+            paths: path,
+            descendantsOnly: false,
+            recursive: true,
+        });
+    }catch(err){
+        UIAlert(err.responseText);
+    }
+}
+
+window.undo_last_action = async()=>{
+    if (actions_history.length > 0) {
+        const last_action = actions_history.pop();
+
+        // Undo the create file action
+        if (last_action.operation === 'create_file' || last_action.operation === 'create_folder') {
+            const lastCreatedItem = last_action.data;
+            undo_create_file_or_folder(lastCreatedItem); 
+        } else if(last_action.operation === 'rename') {
+            const {options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url}  = last_action.data;
+            rename_file(options, old_name, new_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true); 
+        } else if(last_action.operation === 'upload') {
+            const files = last_action.data;
+            undo_upload(files);
+        } else if(last_action.operation === 'copy') {
+            const files = last_action.data;
+            undo_copy(files);
+        } else if(last_action.operation === 'move') {
+            const items = last_action.data;
+            undo_move(items);
+        } else if(last_action.operation === 'delete') {
+            const items = last_action.data;
+            undo_delete(items);
+        }
+    }
+}
+
+window.undo_create_file_or_folder = async(item)=>{
+    await window.delete_item(item);
+}
+
+window.undo_upload = async(files)=>{
+    for (const file of files) {
+        await window.delete_item_with_path(file);
+    }
+}
+
+window.undo_copy = async(files)=>{
+    for (const file of files) {
+        await window.delete_item_with_path(file);
+    }
+}
+
+window.undo_move = async(items)=>{
+    for (const item of items) {
+        const el = await get_html_element_from_options(item.options);
+        console.log(item.original_path)
+        move_items([el], path.dirname(item.original_path), true);
+    }
+}
+
+window.undo_delete = async(items)=>{
+    for (const item of items) {
+        const el = await get_html_element_from_options(item.options);
+        let metadata = $(el).attr('data-metadata') === '' ? {} : JSON.parse($(el).attr('data-metadata'))
+        move_items([el], path.dirname(metadata.original_path), true);
+    }
+}
+
+
+window.get_html_element_from_options = async function(options){
+    const item_id = global_element_id++;
+    
+    options.disabled = options.disabled ?? false;
+    options.visible = options.visible ?? 'visible'; // one of 'visible', 'revealed', 'hidden'
+    options.is_dir = options.is_dir ?? false;
+    options.is_selected = options.is_selected ?? false;
+    options.is_shared = options.is_shared ?? false;
+    options.is_shortcut = options.is_shortcut ?? 0;
+    options.is_trash = options.is_trash ?? false;
+    options.metadata = options.metadata ?? '';
+    options.multiselectable = options.multiselectable ?? true;
+    options.shortcut_to = options.shortcut_to ?? '';
+    options.shortcut_to_path = options.shortcut_to_path ?? '';
+    options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? 0 : 1);
+    options.sort_container_after_append = (options.sort_container_after_append !== undefined ? options.sort_container_after_append : false);
+    const is_shared_with_me = (options.path !== '/'+window.user.username && !options.path.startsWith('/'+window.user.username+'/'));
+
+    let website_url = determine_website_url(options.path);
+
+    // do a quick check to see if the target parent has any file type restrictions
+    const appendto_allowed_file_types = $(options.appendTo).attr('data-allowed_file_types')
+    if(!window.check_fsentry_against_allowed_file_types_string({is_dir: options.is_dir, name:options.name, type:options.type}, appendto_allowed_file_types))
+        options.disabled = true;
+
+    // --------------------------------------------------------
+    // HTML for Item
+    // --------------------------------------------------------
+    let h = '';
+    h += `<div  id="item-${item_id}" 
+                class="item${options.is_selected ? ' item-selected':''} ${options.disabled ? 'item-disabled':''} item-${options.visible}" 
+                data-id="${item_id}" 
+                data-name="${html_encode(options.name)}" 
+                data-metadata="${html_encode(options.metadata)}" 
+                data-uid="${options.uid}" 
+                data-is_dir="${options.is_dir ? 1 : 0}" 
+                data-is_trash="${options.is_trash ? 1 : 0}"
+                data-has_website="${options.has_website ? 1 : 0 }" 
+                data-website_url = "${website_url ? html_encode(website_url) : ''}"
+                data-immutable="${options.immutable}" 
+                data-is_shortcut = "${options.is_shortcut}"
+                data-shortcut_to = "${html_encode(options.shortcut_to)}"
+                data-shortcut_to_path = "${html_encode(options.shortcut_to_path)}"
+                data-sortable = "${options.sortable ?? 'true'}"
+                data-sort_by = "${html_encode(options.sort_by) ?? 'name'}"
+                data-size = "${options.size ?? ''}"
+                data-type = "${html_encode(options.type) ?? ''}"
+                data-modified = "${options.modified ?? ''}"
+                data-associated_app_name = "${html_encode(options.associated_app_name) ?? ''}"
+                data-path="${html_encode(options.path)}">`;
+
+        // spinner
+        h += `<div class="item-spinner">`;
+        h += `</div>`;
+        // modified
+        h += `<div class="item-attr item-attr--modified">`;
+            h += `<span>${options.modified === 0 ? '-' : timeago.format(options.modified*1000)}</span>`;
+        h += `</div>`;
+        // size
+        h += `<div class="item-attr item-attr--size">`;
+            h += `<span>${options.size ? byte_format(options.size) : '-'}</span>`;
+        h += `</div>`;
+        // type
+        h += `<div class="item-attr item-attr--type">`;
+            if(options.is_dir)
+                h += `<span>Folder</span>`;
+            else
+                h += `<span>${options.type ? html_encode(options.type) : '-'}</span>`;
+        h += `</div>`;
+
+
+        // icon
+        h += `<div class="item-icon">`;
+            h += `<img src="${html_encode(options.icon.image)}" class="item-icon-${options.icon.type}" data-item-id="${item_id}">`;
+        h += `</div>`;
+        // badges
+        h += `<div class="item-badges">`;
+            // website badge
+            h += `<img  class="item-badge item-has-website-badge long-hover" 
+                        style="${options.has_website ? 'display:block;' : ''}" 
+                        src="${html_encode(window.icons['world.svg'])}" 
+                        data-item-id="${item_id}"
+                    >`;
+            // link badge
+            h += `<img  class="item-badge item-has-website-url-badge" 
+                        style="${website_url ? 'display:block;' : ''}" 
+                        src="${html_encode(window.icons['link.svg'])}" 
+                        data-item-id="${item_id}"
+                    >`;
+
+            // shared badge
+            h += `<img  class="item-badge item-badge-has-permission" 
+                        style="display: ${ is_shared_with_me ? 'block' : 'none'};
+                            background-color: #ffffff;
+                            padding: 2px;" src="${html_encode(window.icons['shared.svg'])}" 
+                        data-item-id="${item_id}"
+                        title="A user has shared this item with you.">`;
+            // owner-shared badge
+            h += `<img  class="item-badge item-is-shared" 
+                        style="background-color: #ffffff; padding: 2px; ${!is_shared_with_me && options.is_shared ? 'display:block;' : ''}" 
+                        src="${html_encode(window.icons['owner-shared.svg'])}" 
+                        data-item-id="${item_id}"
+                        data-item-uid="${options.uid}"
+                        data-item-path="${html_encode(options.path)}"
+                        title="You have shared this item with at least one other user."
+                    >`;
+            // shortcut badge
+            h += `<img  class="item-badge item-shortcut" 
+                        style="background-color: #ffffff; padding: 2px; ${options.is_shortcut !== 0 ? 'display:block;' : ''}" 
+                        src="${html_encode(window.icons['shortcut.svg'])}" 
+                        data-item-id="${item_id}"
+                        title="Shortcut"
+                    >`;
+
+        h += `</div>`;
+
+        // name
+        h += `<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${html_encode(truncate_filename(options.name, TRUNCATE_LENGTH)).replaceAll(' ', '&nbsp;')}</span>`
+        // name editor
+        h += `<textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${html_encode(options.name)}</textarea>`
+    h += `</div>`;
+
+    return h;
 }

@@ -19,6 +19,7 @@
 
 window.clipboard_op = '';
 window.clipboard = [];
+window.actions_history = [];
 window.window_nav_history = {};
 window.window_nav_history_current_position = {};
 window.progress_tracker = [];
@@ -84,6 +85,19 @@ if(window.user !== undefined && window.user !== null){
     window.home_path = '/' + window.user.username;
 }
 window.root_dirname = 'Puter';
+
+// user preferences, persisted across sessions, cached in localStorage
+try {
+    window.user_preferences = JSON.parse(localStorage.getItem('user_preferences'))
+}catch(e){
+    window.user_preferences = null;
+}
+// default values
+if (window.user_preferences === null) {
+    window.user_preferences = {
+        show_hidden_files: false,
+    }
+}
 
 window.window_stack = []
 window.toolbar_height = 30;

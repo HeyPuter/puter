@@ -498,6 +498,12 @@ async function UIDesktop(options){
         window.history.pushState(null, document.title, '/');    
     }
 
+    // update local user preferences
+    const user_preferences = {
+        show_hidden_files: (await puter.kv.get('user_preferences.show_hidden_files')) === 'true',
+    };
+    update_user_preferences(user_preferences);
+
     // Append to <body>
     $('body').append(h);
 
@@ -683,6 +689,18 @@ async function UIDesktop(options){
                         }
                     },
                     // -------------------------------------------
+                    // Show/Hide hidden files
+                    // -------------------------------------------
+                    {
+                        html: `${window.user_preferences.show_hidden_files ? 'Hide' : 'Show'} hidden files`,
+                        onClick: function(){
+                            window.mutate_user_preferences({
+                                show_hidden_files : !window.user_preferences.show_hidden_files,
+                            });
+                            window.show_or_hide_files(document.querySelectorAll('.item-container'));
+                        }
+                    },
+                    // -------------------------------------------
                     // -
                     // -------------------------------------------
                     '-',
@@ -705,6 +723,16 @@ async function UIDesktop(options){
                                 copy_clipboard_items(desktop_path, el_desktop);
                             else if(clipboard_op === 'move')
                                 move_clipboard_items(el_desktop)
+                        }
+                    },
+                    // -------------------------------------------
+                    // Undo
+                    // -------------------------------------------
+                    {
+                        html: "Undo",
+                        disabled: actions_history.length > 0 ? false : true,
+                        onClick: function(){
+                            undo_last_action();
                         }
                     },
                     // -------------------------------------------

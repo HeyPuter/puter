@@ -1677,6 +1677,14 @@ window.initgui = async function(){
             }
             return false;
         }
+        //-----------------------------------------------------------------------------
+        // Undo
+        // ctrl/command + z, will undo last action
+        //-----------------------------------------------------------------------------
+        if((e.ctrlKey || e.metaKey) && e.which === 90){
+            undo_last_action();
+            return false;
+        }
     });
 
     $(document).on('click', '.remove-permission-link', async function(e){
