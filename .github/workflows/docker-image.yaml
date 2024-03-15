@@ -5,12 +5,7 @@ name: Docker Image CI
 # branch called `master`.
 on:
   push:
-    branches: ['master']
-  pull_request:
-    branches: ['master']
-  schedule:
-    - cron: "0 2 * * 1-5"
-  
+    branches: ['master']  
 
 # Defines two custom environment variables for the workflow. These are used
 # for the Container registry domain, and a name for the Docker image that
@@ -48,8 +43,10 @@ jobs:
       # This step uses [docker/metadata-action](https://github.com/docker/metadata-action#about)
       # to extract tags and labels that will be applied to the specified image.
       # The `id` "meta" allows the output of this step to be referenced in
-      # a subsequent step. The `images` value provides the base name for the
-      # tags and labels.
+      # a subsequent step.
+      # The `images` value provides the base name for the tags and labels.
+      # Finally, the `tags` value provides instructions on which pattern/tag
+      # value to apply based on the event that triggered the run.
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
