@@ -1977,3 +1977,31 @@ function requestOpenerOrigin() {
 $(document).on('click', '.generic-close-window-button', function(e){
     $(this).closest('.window').close();
 });
+
+// Re-calculate desktop height and width on window resize and re-position the login and signup windows
+$(window).on("resize", function () {
+    // If host env is popup, don't continue because the popup window has its own resize requirements.
+    if (window.embedded_in_popup)
+        return;
+
+    const ratio = window.desktop_width / window.innerWidth;
+
+    window.desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
+    window.desktop_width = window.innerWidth;
+
+    // Re-center the login window
+    const top = $(".window-login").position()?.top;
+    const width = $(".window-login").width();
+    $(".window-login").css({
+        left: (window.desktop_width - width) / 2,
+        top: top / ratio,
+    });
+
+    // Re-center the create account window
+    const top2 = $(".window-signup").position()?.top;
+    const width2 = $(".window-signup").width();
+    $(".window-signup").css({
+        left: (window.desktop_width - width2) / 2,
+        top: top2 / ratio,
+    });
+});

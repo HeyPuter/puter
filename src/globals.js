@@ -141,21 +141,6 @@ if (window.location !== window.parent.location) {
 window.desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
 window.desktop_width = window.innerWidth;
 
-// recalculate desktop height and width on window resize
-$( window ).on( "resize", function() {
-    const radio = window.desktop_width / window.innerWidth;
-    
-    window.desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
-    window.desktop_width = window.innerWidth;
-    
-    const { top } = $(".window-login").position();
-    const width = $(".window-login").width();
-    $(".window-login").css({
-      left: (window.desktop_width - width) / 2,
-      top: top / radio,
-    });
-});
-  
 // for now `active_element` is basically the last element that was clicked,
 // later on though (todo) `active_element` will also be set by keyboard movements 
 // such as arrow keys, tab key, ... and when creating new windows...
