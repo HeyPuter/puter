@@ -347,7 +347,8 @@ function UIItem(options){
                 el_item.style.left = ui.position.left + 'px';
                 el_item.style.top = ui.position.top + 'px';
                 $('.ui-draggable-dragging').remove();
-                save_item_position($(el_item).attr('data-uid'), ui.position)
+                desktop_item_positions[$(el_item).attr('data-uid')] = ui.position;
+                save_desktop_item_positions()
             }
             $('.item-selected-clone').remove();
             $('.draggable-count-badge').remove();

@@ -176,3 +176,4 @@ window.feature_flags = {
 }
 
 window.is_auto_arrange_enabled = true;
+window.desktop_item_positions = {};

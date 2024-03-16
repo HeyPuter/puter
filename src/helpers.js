@@ -1295,9 +1295,7 @@ window.refresh_item_container = function(el_item_container, options){
                 if(item_path !== trash_path && item_path !== appdata_path){
                     // if this is trash, get original name from item metadata
                     fsentry.name = (metadata && metadata.original_name !== undefined) ? metadata.original_name : fsentry.name;
-                    let position;
-                    if($(el_item_container).hasClass('desktop') && !is_auto_arrange_enabled)
-                        position = await get_item_position(fsentry.uid);
+                    const position = desktop_item_positions[fsentry.uid] ?? undefined;
                     UIItem({
                         appendTo: el_item_container,
                         uid: fsentry.uid,
@@ -3702,18 +3700,14 @@ window.get_html_element_from_options = async function(options){
 }
 
 window.store_auto_arrange_preference = (preference)=>{
-    puter.kv.set(`user_preferences.auto_arrange_desktop`, preference);
+    puter.kv.set('user_preferences.auto_arrange_desktop', preference);
     localStorage.setItem('auto_arrange', preference);
 }
 
-window.get_auto_arrange_preference = async()=>{
-    const preferenceValue = await puter.kv.get(`user_preferences.auto_arrange_desktop`);
-    if (preferenceValue === null) {
-        console.log("E")
-        return true;
-    } else {
-        return preferenceValue;
-    }
+window.get_auto_arrange_data = async()=>{
+    const preferenceValue = await puter.kv.get('user_preferences.auto_arrange_desktop');
+    is_auto_arrange_enabled = preferenceValue === null ? true : preferenceValue;
+    desktop_item_positions = await puter.kv.get('desktop_item_positions');
 }
 
 window.clear_desktop_item_positions = async(el_desktop)=>{
@@ -3727,7 +3721,7 @@ window.clear_desktop_item_positions = async(el_desktop)=>{
 
 window.set_desktop_item_positions = async(el_desktop)=>{
     $(el_desktop).find('.item').each(async function(){
-        const position = await get_item_position($(this).attr('data-uid'));
+        const position = desktop_item_positions[$(this).attr('data-uid')]
         const el_item = $(this)[0];
         if(position){
             $(el_item).css('position', 'absolute');
@@ -3737,14 +3731,6 @@ window.set_desktop_item_positions = async(el_desktop)=>{
     });
 }
 
-window.save_item_position = (itemId, position)=>{
-    puter.kv.set(`desktop_item_position_${itemId}`, position);
-}
-
-window.get_item_position = (itemId)=>{
-    return puter.kv.get(`desktop_item_position_${itemId}`);
-}
-
-window.delete_item_position = (itemId)=>{
-    return puter.kv.del(`desktop_item_position_${itemId}`);
+window.save_desktop_item_positions = ()=>{
+    puter.kv.set('desktop_item_positions', desktop_item_positions);
 }
