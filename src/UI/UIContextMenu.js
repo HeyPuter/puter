@@ -201,7 +201,6 @@ function UIContextMenu(options){
         },
         //deactivates row when mouse leavess
         deactivate: function (e) {
-            console.log('deactivate')
             //deactivate submenu
             if($(e).hasClass('context-menu-item-submenu')){
                 $(`.context-menu[data-id="${menu_id}-${$(e).attr('data-action')}"]`).remove();
