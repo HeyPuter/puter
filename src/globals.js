@@ -7,17 +7,17 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-window.clipboard_op = '';
+window.clipboard_op = "";
 window.clipboard = [];
 window.actions_history = [];
 window.window_nav_history = {};
@@ -43,63 +43,65 @@ window.mouseX = 0;
 window.mouseY = 0;
 
 // get all logged-in users
-try{
-    window.logged_in_users = JSON.parse(localStorage.getItem("logged_in_users"));
-}catch(e){
-    window.logged_in_users = [];
+try {
+  window.logged_in_users = JSON.parse(localStorage.getItem("logged_in_users"));
+} catch (e) {
+  window.logged_in_users = [];
 }
-if(window.logged_in_users === null)
-    window.logged_in_users = [];
+if (window.logged_in_users === null) window.logged_in_users = [];
 
 // this sessions's user
 window.auth_token = localStorage.getItem("auth_token");
-try{
-    window.user = JSON.parse(localStorage.getItem("user"));
-}catch(e){
-    window.user = null;
+try {
+  window.user = JSON.parse(localStorage.getItem("user"));
+} catch (e) {
+  window.user = null;
 }
 
 // in case this is the first time user is visiting multi-user feature
-if(window.logged_in_users.length === 0 && window.user !== null){
-    let tuser = window.user;
-    tuser.auth_token = window.auth_token
-    window.logged_in_users.push(tuser);
-    localStorage.setItem("logged_in_users", window.logged_in_users);
+if (window.logged_in_users.length === 0 && window.user !== null) {
+  let tuser = window.user;
+  tuser.auth_token = window.auth_token;
+  window.logged_in_users.push(tuser);
+  localStorage.setItem("logged_in_users", window.logged_in_users);
 }
 
 window.last_window_zindex = 1;
 
 // first visit tracker
-window.first_visit_ever = localStorage.getItem("has_visited_before") === null ? true : false;
+window.first_visit_ever =
+  localStorage.getItem("has_visited_before") === null ? true : false;
 localStorage.setItem("has_visited_before", true);
 
 // system paths
-if(window.user !== undefined && window.user !== null){
-    window.desktop_path = '/' + window.user.username + '/Desktop';
-    window.trash_path = '/' + window.user.username + '/Trash';
-    window.appdata_path = '/' + window.user.username + '/AppData';
-    window.documents_path = '/' + window.user.username + '/Documents';
-    window.pictures_path = '/' + window.user.username + '/Photos';
-    window.videos_path = '/' + window.user.username + '/Videos';
-    window.audio_path = '/' + window.user.username + '/Audio';
-    window.home_path = '/' + window.user.username;
+if (window.user !== undefined && window.user !== null) {
+  window.desktop_path = "/" + window.user.username + "/Desktop";
+  window.trash_path = "/" + window.user.username + "/Trash";
+  window.appdata_path = "/" + window.user.username + "/AppData";
+  window.documents_path = "/" + window.user.username + "/Documents";
+  window.pictures_path = "/" + window.user.username + "/Photos";
+  window.videos_path = "/" + window.user.username + "/Videos";
+  window.audio_path = "/" + window.user.username + "/Audio";
+  window.home_path = "/" + window.user.username;
 }
-window.root_dirname = 'Puter';
+window.root_dirname = "Puter";
 
 // user preferences, persisted across sessions, cached in localStorage
 try {
-    window.user_preferences = JSON.parse(localStorage.getItem('user_preferences'))
-}catch(e){
-    window.user_preferences = null;
+  window.user_preferences = JSON.parse(
+    localStorage.getItem("user_preferences")
+  );
+} catch (e) {
+  window.user_preferences = null;
 }
 // default values
 if (window.user_preferences === null) {
-    window.user_preferences = {
-        show_hidden_files: false,
-    }
+  window.user_preferences = {
+    show_hidden_files: false,
+  };
 }
 
-window.window_stack = []
+window.window_stack = [];
 window.toolbar_height = 30;
 window.default_taskbar_height = 50;
 window.taskbar_height = window.default_taskbar_height;
@@ -112,43 +114,57 @@ window.operation_id = 0;
 window.operation_cancelled = [];
 window.last_enter_pressed_to_rename_ts = 0;
 window.window_counter = 0;
-window.keypress_item_seach_term = '';
+window.keypress_item_seach_term = "";
 window.keypress_item_seach_buffer_timeout = undefined;
 window.first_visit_animation = false;
 window.show_twitter_link = true;
 window.animate_window_opening = true;
 window.animate_window_closing = true;
-window.desktop_loading_fade_delay = (window.first_visit_ever && first_visit_animation ? 6000 : 1000);
+window.desktop_loading_fade_delay =
+  window.first_visit_ever && first_visit_animation ? 6000 : 1000;
 window.watchItems = [];
 window.appdata_signatures = {};
 window.appCallbackFunctions = [];
 
 // 'Launch' apps
 window.launch_apps = [];
-window.launch_apps.recent = []
-window.launch_apps.recommended = []
+window.launch_apps.recent = [];
+window.launch_apps.recommended = [];
 
 // Is puter being loaded inside an iframe?
 if (window.location !== window.parent.location) {
-    window.is_embedded = true;
-    // taskbar is not needed in embedded mode
-    window.taskbar_height = 0;
+  window.is_embedded = true;
+  // taskbar is not needed in embedded mode
+  window.taskbar_height = 0;
 } else {
-    window.is_embedded = false;
+  window.is_embedded = false;
 }
 
 // calculate desktop height and width
-window.desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
+window.desktop_height =
+  window.innerHeight - window.toolbar_height - window.taskbar_height;
 window.desktop_width = window.innerWidth;
 
 // recalculate desktop height and width on window resize
-$( window ).on( "resize", function() {
-    window.desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
-    window.desktop_width = window.innerWidth;
+$(window).on("resize", function () {
+  const radio = window.desktop_width / window.innerWidth;
+
+  window.desktop_height =
+    window.innerHeight - window.toolbar_height - window.taskbar_height;
+  window.desktop_width = window.innerWidth;
+
+  const { top } = $(".window-login").position();
+
+  const width = $(".window-login").width();
+
+  $(".window-login").css({
+    left: (window.desktop_width - width) / 2,
+    top: top / radio,
+  });
 });
-  
+
 // for now `active_element` is basically the last element that was clicked,
-// later on though (todo) `active_element` will also be set by keyboard movements 
+// later on though (todo) `active_element` will also be set by keyboard movements
 // such as arrow keys, tab key, ... and when creating new windows...
 window.active_element = null;
 
@@ -159,7 +175,7 @@ window.launch_recent_apps_count = 10;
 // if yes, which one?
 window.current_active_snap_zone = undefined;
 
-// 
+//
 window.is_fullpage_mode = false;
 
 window.window_border_radius = 4;
@@ -167,10 +183,10 @@ window.window_border_radius = 4;
 window.sites = [];
 
 window.feature_flags = {
-    // if true, the user will be able to create shortcuts to files and directories
-    create_shortcut: true,
-    // if true, the user will be asked to confirm before navigating away from Puter only if there is at least one window open
-    prompt_user_when_navigation_away_from_puter: false,
-    // if true, the user will be able to zip and download directories
-    download_directory: true,
-}
+  // if true, the user will be able to create shortcuts to files and directories
+  create_shortcut: true,
+  // if true, the user will be asked to confirm before navigating away from Puter only if there is at least one window open
+  prompt_user_when_navigation_away_from_puter: false,
+  // if true, the user will be able to zip and download directories
+  download_directory: true,
+};
