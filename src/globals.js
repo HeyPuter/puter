@@ -147,6 +147,7 @@ window.desktop_width = window.innerWidth;
 
 // recalculate desktop height and width on window resize
 $(window).on("resize", function () {
+
   const radio = window.desktop_width / window.innerWidth;
 
   window.desktop_height =
