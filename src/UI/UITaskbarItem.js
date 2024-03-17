@@ -137,7 +137,7 @@ function UITaskbarItem(options){
 
             // Empty Trash menu item
             menu_items.push({
-                html: 'Empty Trash',
+                html: i18n('empty_trash'),
                 val: $(this).attr('data-id'),
                 onClick: async function(){
                     empty_trash();
@@ -150,7 +150,7 @@ function UITaskbarItem(options){
         //------------------------------------------
         if(options.keep_in_taskbar && !options.lock_keep_in_taskbar){
             menu_items.push({
-                html: 'Remove from Taskbar',
+                html: i18n('remove_from_taskbar'),
                 val: $(this).attr('data-id'),
                 onClick: function(){
                     $(el_taskbar_item).attr('data-keep-in-taskbar', 'false');
@@ -167,7 +167,7 @@ function UITaskbarItem(options){
         //------------------------------------------
         else if(!options.keep_in_taskbar){
             menu_items.push({
-                html: 'Keep in Taskbar',
+                html: i18n('keep_in_taskbar'),
                 val: $(this).attr('data-id'),
                 onClick: function(){
                     $(el_taskbar_item).attr('data-keep-in-taskbar', 'true');
@@ -186,7 +186,7 @@ function UITaskbarItem(options){
             // Show All Windows
             // -------------------------------------------
             menu_items.push({
-                html: "Show All Windows",
+                html: i18n('show_all_windows'),
                 onClick: function(){
                     if(open_windows > 0)
                         $(el_taskbar_item).trigger('click');
@@ -196,7 +196,7 @@ function UITaskbarItem(options){
             // Hide All Windows
             // -------------------------------------------
             menu_items.push({
-                html: "Hide All Windows",
+                html: i18n('hide_all_windows'),
                 onClick: function(){
                     if(open_windows > 0)
                         $(`.window[data-app="${options.app}"]`).hideWindow();
@@ -206,7 +206,7 @@ function UITaskbarItem(options){
             // Close All Windows
             // -------------------------------------------
             menu_items.push({
-                html: "Close All Windows",
+                html: i18n('close_all_windows'),
                 onClick: function(){
                     $(`.window[data-app="${options.app}"]`).close();
                 }

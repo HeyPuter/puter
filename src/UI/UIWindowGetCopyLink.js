@@ -69,7 +69,11 @@ async function UIWindowGetCopyLink(options){
     $(el_window).find('.window-body .downloadable-link').val(url);
 
     $(el_window).find('.window-body .share-copy-link-on-social').on('click', function(e){    
-        const social_links = socialLink({url: url, title: `Get a copy of '${options.name}' on Puter.com!`, description: `Get a copy of '${options.name}' on Puter.com!`});
+        const social_links = socialLink({
+            url: url, 
+            title: i18n('get_a_copy_of_on_puter', options.name, false), 
+            description: i18n('get_a_copy_of_on_puter', options.name, false),
+        });
 
         let social_links_html = ``;
         social_links_html += `<div style="padding: 10px;">`;

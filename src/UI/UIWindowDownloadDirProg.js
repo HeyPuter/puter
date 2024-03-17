@@ -25,7 +25,7 @@ async function UIWindowDownloadDirProg(options){
     let h = '';
     // Loading spinner
     h +=`<svg style="height: 40px; width: 40px; padding: 10px; display: block; float: left;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#212121" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#212121" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`;
-    h += `<p style="text-align:left; padding-left:20px; padding-right:20px; overflow:hidden; width: 310px; text-overflow: ellipsis; white-space: nowrap; float:left; font-size:14px;" class="dir-dl-status">${options.defaultText ?? 'Preparing...'}</p>`;
+    h += `<p style="text-align:left; padding-left:20px; padding-right:20px; overflow:hidden; width: 310px; text-overflow: ellipsis; white-space: nowrap; float:left; font-size:14px;" class="dir-dl-status">${options.defaultText ?? i18n('preparing')}</p>`;
 
     const el_window = await UIWindow({
         title: 'Instant Login!',

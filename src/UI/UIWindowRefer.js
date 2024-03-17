@@ -29,8 +29,8 @@ async function UIWindowRefer(options){
     h += `<div>`;
         h += `<div class="qr-code-window-close-btn generic-close-window-button disable-user-select"> &times; </div>`;
         h += `<img src="${window.icons['present.svg']}" style="width: 70px; margin: 20px auto 20px; display: block; margin-bottom: 20px;">`;
-        h += `<p style="text-align: center; font-size: 16px; padding: 20px; font-weight: 400; margin: -10px 10px 20px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">Get 1 GB for every friend who creates and confirms an account on Puter. Your friend will get 1 GB too!</p>`;
-        h += `<label style="font-weight: bold;">Invite link</label>`;
+        h += `<p style="text-align: center; font-size: 16px; padding: 20px; font-weight: 400; margin: -10px 10px 20px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">${i18n('refer_friends_c2a')}</p>`;
+        h += `<label style="font-weight: bold;">${i18n('invite_link')}</label>`;
         h += `<input type="text" style="margin-bottom:10px;" class="downloadable-link" readonly />`;
         h += `<button class="button button-primary copy-downloadable-link" style="width:130px;">${copy_btn_text}</button>`
         h += `<img class="share-copy-link-on-social" src="${window.icons['share-outline.svg']}">`;
@@ -72,11 +72,11 @@ async function UIWindowRefer(options){
     $(el_window).find('.window-body .downloadable-link').val(url);
 
     $(el_window).find('.window-body .share-copy-link-on-social').on('click', function(e){    
-        const social_links = socialLink({url: url, title: `Get 1 GB of free storage on Puter.com!`, description: `Get 1 GB of free storage on Puter.com!`});
+        const social_links = socialLink({url: url, title: i18n('refer_friends_social_media_c2a'), description: i18n('refer_friends_social_media_c2a')});
 
         let social_links_html = ``;
         social_links_html += `<div style="padding: 10px;">`;
-            social_links_html += `<p style="margin: 0; text-align: center; margin-bottom: 6px; color: #484a57; font-weight: bold; font-size: 14px;">Share to</p>`
+            social_links_html += `<p style="margin: 0; text-align: center; margin-bottom: 6px; color: #484a57; font-weight: bold; font-size: 14px;">${i18n('share_to')}</p>`
             social_links_html += `<a class="copy-link-social-btn" target="_blank" href="${social_links.twitter}" style=""><svg viewBox="0 0 24 24" aria-hidden="true" style="opacity: 0.7;"><g><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></g></svg></a>`
             social_links_html += `<a class="copy-link-social-btn" target="_blank" href="${social_links.whatsapp}" style=""><img src="${window.icons['logo-whatsapp.svg']}"></a>`
             social_links_html += `<a class="copy-link-social-btn" target="_blank" href="${social_links.facebook}" style=""><img src="${window.icons['logo-facebook.svg']}"></a>`

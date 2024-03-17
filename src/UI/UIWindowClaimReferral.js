@@ -26,9 +26,9 @@ async function UIWindowClaimReferral(options){
     h += `<div>`;
         h += `<div class="qr-code-window-close-btn generic-close-window-button disable-user-select"> &times; </div>`;
         h += `<img src="${window.icons['present.svg']}" style="width: 70px; margin: 20px auto 20px; display: block; margin-bottom: 20px;">`;
-        h += `<h1 style="font-weight: 400; padding: 0 10px; font-size: 21px; text-align: center; margin-bottom: 0; color: #60626d; -webkit-font-smoothing: antialiased;">You have been referred to Puter by a friend!</h1>`;
-        h += `<p style="text-align: center; font-size: 16px; padding: 20px; font-weight: 400; margin: -10px 10px 0px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">Create an account and confirm your email address to receive 1 GB of free storage. Your friend will get 1 GB of free storage too.</p>`;
-        h += `<button class="button button-primary button-block create-account-ref-btn" style="display: block;">Create Account</button>`;
+        h += `<h1 style="font-weight: 400; padding: 0 10px; font-size: 21px; text-align: center; margin-bottom: 0; color: #60626d; -webkit-font-smoothing: antialiased;">${i18n('you_have_been_referred_to_puter_by_a_friend')}</h1>`;
+        h += `<p style="text-align: center; font-size: 16px; padding: 20px; font-weight: 400; margin: -10px 10px 0px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">${i18n('confirm_account_for_free_referral_storage_c2a')}</p>`;
+        h += `<button class="button button-primary button-block create-account-ref-btn" style="display: block;">${i18n('create_account')}</button>`;
     h += `</div>`;
 
     const el_window = await UIWindow({

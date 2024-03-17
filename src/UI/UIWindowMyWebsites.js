@@ -90,10 +90,10 @@ async function UIWindowMyWebsites(options){
                             h += `</p>`;
                             h += `<p style="margin-bottom:0; margin-top: 20px; font-size: 13px;">`;
                                 h += `<span class="mywebsites-dis-dir" data-dir-uuid="${sites[i].root_dir.id}" data-site-uuid="${sites[i].uid}">`;
-                                h += `<img style="width: 16px; margin-bottom: -2px; margin-right: 4px;" src="${html_encode(window.icons['plug.svg'])}">Disassociate Folder</span>`;
+                                h += `<img style="width: 16px; margin-bottom: -2px; margin-right: 4px;" src="${html_encode(window.icons['plug.svg'])}">${i18n('disassociate_dir')}</span>`;
                             h += `</p>`;
                         }
-                        h += `<p class="mywebsites-no-dir-notice" data-site-uuid="${sites[i].uid}" style="${sites[i].root_dir ? `display:none;` : `display:block;`}">No directory associated with this address.</p>`;
+                        h += `<p class="mywebsites-no-dir-notice" data-site-uuid="${sites[i].uid}" style="${sites[i].root_dir ? `display:none;` : `display:block;`}">${i18n('no_dir_associated_with_site')}</p>`;
                     h += `</div>`;
                 }
                 $(el_window).find('.window-body').html(h);
@@ -105,7 +105,7 @@ async function UIWindowMyWebsites(options){
                 margin-bottom: 50px;
                 -webkit-font-smoothing: antialiased;
                 -moz-osx-font-smoothing: grayscale;
-                color: #596c7c;">You haven't published any websites!</p>`);
+                color: #596c7c;">${i18n('no_websites_published')}</p>`);
             }
         }, Date.now() - init_ts < 1000 ? 0 : 2000);
     })
@@ -136,10 +136,11 @@ $(document).on('click', '.mywebsites-site-setting', function(e){
                 html: `Release Address`,
                 onClick: async function(){
                     const alert_resp = await UIAlert({
-                        message: `Are you sure you want to release this address?`,
+                        message: i18n('release_address_confirmation'),
                         buttons:[
                             {
-                                label: 'Yes, Release It',
+                                label: i18n('yes_release_it'),
+                                value: 'yes',
                                 type: 'primary',
                             },
                             {
@@ -147,7 +148,7 @@ $(document).on('click', '.mywebsites-site-setting', function(e){
                             },
                         ]
                     })
-                    if(alert_resp !== 'Yes, Release It'){
+                    if(alert_resp !== 'yes'){
                         return;
                     }
                 

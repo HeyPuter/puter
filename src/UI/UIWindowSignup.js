@@ -40,39 +40,39 @@ function UIWindowSignup(options){
             // Form
             h += `<div style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
                 // title
-                h += `<h1 class="signup-form-title">Create Free Account</h1>`;
+                h += `<h1 class="signup-form-title">${i18n('create_free_account')}</h1>`;
                 // signup form
                 h += `<form class="signup-form">`;
                     // error msg
                     h += `<div class="signup-error-msg"></div>`;
                     // username
                     h += `<div style="overflow: hidden;">`;
-                        h += `<label for="username-${internal_id}">Username</label>`;
+                        h += `<label for="username-${internal_id}">${i18n('username')}</label>`;
                         h += `<input id="username-${internal_id}" class="username" type="text" autocomplete="username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                     h += `</div>`;
                     // email
                     h += `<div style="overflow: hidden; margin-top: 20px;">`;
-                        h += `<label for="email-${internal_id}">Email</label>`;
+                        h += `<label for="email-${internal_id}">${i18n('email')}</label>`;
                         h += `<input id="email-${internal_id}" class="email" type="email" autocomplete="email" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                     h += `</div>`;
                     // password
                     h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
-                        h += `<label for="password-${internal_id}">Password</label>`;
+                        h += `<label for="password-${internal_id}">${i18n('password')}</label>`;
                         h += `<input id="password-${internal_id}" class="password" type="password" name="password" autocomplete="new-password" />`;
                     h += `</div>`;
                     // bot trap - if this value is submitted server will ignore the request
                     h += `<input type="text" name="p102xyzname" class="p102xyzname" value="">`;
 
                     // terms and privacy
-                    h += `<p class="signup-terms">By clicking 'Create Free Account' you agree to Puter's <a href="https://puter.com/terms" target="_blank">Terms of Service</a> and <a href="https://puter.com/privacy" target="_blank">Privacy Policy</a>.</p>`;
+                    h += `<p class="signup-terms">${i18n('tos_fineprint', false)}</p>`;
                     // Create Account
-                    h += `<button class="signup-btn button button-primary button-block button-normal">Create Free Account</button>`
+                    h += `<button class="signup-btn button button-primary button-block button-normal">${i18n('create_free_account')}</button>`
                 h += `</form>`;
             h += `</div>`;
             // login link
             // create account link
             h += `<div class="c2a-wrapper" style="padding:20px;">`;
-                h += `<button class="login-c2a-clickable">Log In</button>`;
+                h += `<button class="login-c2a-clickable">${i18n('log_in')}</button>`;
             h += `</div>`;
         h += `</div>`;
 

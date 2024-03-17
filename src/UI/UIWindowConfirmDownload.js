@@ -34,17 +34,17 @@ async function UIWindowConfirmDownload(options){
                 // Item information
                 h += `<div  style="overflow:hidden;">`;
                     // Name
-                    h += `<p style="text-overflow: ellipsis; overflow: hidden;"><span class="dl-conf-item-attr">Name:</span> ${options.name ?? options.url}</p>`;
+                    h += `<p style="text-overflow: ellipsis; overflow: hidden;"><span class="dl-conf-item-attr">${i18n('name')}:</span> ${options.name ?? options.url}</p>`;
                     // Type
-                    h += `<p style="text-overflow: ellipsis; overflow: hidden;"><span class="dl-conf-item-attr">Type:</span> ${options.is_dir === '1' || options.is_dir === 'true' ? 'Folder' : options.type  ?? 'Unknown File Type'}</p>`;
+                    h += `<p style="text-overflow: ellipsis; overflow: hidden;"><span class="dl-conf-item-attr">${i18n('type')}:</span> ${options.is_dir === '1' || options.is_dir === 'true' ? 'Folder' : options.type  ?? 'Unknown File Type'}</p>`;
                     // Source
-                    h += `<p style="text-overflow: ellipsis; overflow: hidden;"><span class="dl-conf-item-attr">From:</span> ${options.source}</p>`;
+                    h += `<p style="text-overflow: ellipsis; overflow: hidden;"><span class="dl-conf-item-attr">${i18n('from')}:</span> ${options.source}</p>`;
                 h += `</div>`;
             h += `</div>`;
             // Download
-            h += `<button style="float:right; margin-top: 15px; margin-right: -2px; margin-left:10px;" class="button button-small button-primary btn-download-confirm">Download</button>`;
+            h += `<button style="float:right; margin-top: 15px; margin-right: -2px; margin-left:10px;" class="button button-small button-primary btn-download-confirm">${i18n('download')}</button>`;
             // Cancel
-            h += `<button style="float:right; margin-top: 15px;" class="button button-small btn-download-cancel">Cancel</button>`;
+            h += `<button style="float:right; margin-top: 15px;" class="button button-small btn-download-cancel">${i18n('cancel')}</button>`;
         h +=`</div>`;
 
         const el_window = await UIWindow({

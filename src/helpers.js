@@ -409,17 +409,17 @@ window.globToRegExp = function (glob, opts) {
  */
 window.validate_fsentry_name = function(name){
     if(!name)
-        throw {message: 'Name cannot be empty.'}
+        throw {message: i18n('name_cannot_be_empty')}
     else if(!isString(name))
-        throw {message: "Name can only be a string."}
+        throw {message: i18n('name_must_be_string')}
     else if(name.includes('/'))
-        throw {message: "Name cannot contain the '/' character."}
+        throw {message: i18n('name_cannot_contain_slash')}
     else if(name === '.')
-        throw {message: "Name can not be the '.' character."};
+        throw {message: i18n('name_cannot_contain_period')};
     else if(name === '..')
-        throw {message: "Name can not be the '..' character."};
+        throw {message: i18n('name_cannot_contain_double_period')};
     else if(name.length > window.max_item_name_length)
-        throw {message: `Name can not be longer than ${config.max_item_name_length} characters`}
+        throw {message: i18n('name_too_long', config.max_item_name_length)}
     else
         return true
 }

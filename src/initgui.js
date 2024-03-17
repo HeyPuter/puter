@@ -46,6 +46,10 @@ window.initgui = async function(){
     if(window.api_origin && puter.APIOrigin !== window.api_origin)
         puter.setAPIOrigin(api_origin);
 
+    // determine locale
+    // const userLang = navigator.language || navigator.userLanguage || 'en';
+    // window.locale = userLang?.split('-')[0] ?? 'en';
+    window.locale = 'ko';
     // Checks the type of device the user is on (phone, tablet, or desktop).
     // Depending on the device type, it sets a class attribute on the body tag 
     // to style or script the page differently for each device type.

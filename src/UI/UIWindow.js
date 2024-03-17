@@ -1812,10 +1812,10 @@ async function UIWindow(options) {
                         // Sort by
                         // -------------------------------------------
                         {
-                            html: "Sort by",
+                            html: i18n('sort_by'),
                             items: [
                                 {
-                                    html: `Name`,
+                                    html: i18n('name'),
                                     icon: $(el_window).attr('data-sort_by') === 'name' ? '✓' : '',
                                     onClick: async function(){
                                         sort_items(el_window_body, 'name', $(el_window).attr('data-sort_order'));
@@ -1823,7 +1823,7 @@ async function UIWindow(options) {
                                     }
                                 },
                                 {
-                                    html: `Date modified`,
+                                    html: i18n('date_modified'),
                                     icon: $(el_window).attr('data-sort_by') === 'modified' ? '✓' : '',
                                     onClick: async function(){
                                         sort_items(el_window_body, 'modified', $(el_window).attr('data-sort_order'));
@@ -1831,7 +1831,7 @@ async function UIWindow(options) {
                                     }
                                 },
                                 {
-                                    html: `Type`,
+                                    html: i18n('type'),
                                     icon: $(el_window).attr('data-sort_by') === 'type' ? '✓' : '',
                                     onClick: async function(){
                                         sort_items(el_window_body, 'type', $(el_window).attr('data-sort_order'));
@@ -1839,7 +1839,7 @@ async function UIWindow(options) {
                                     }
                                 },
                                 {
-                                    html: `Size`,
+                                    html: i18n('size'),
                                     icon: $(el_window).attr('data-sort_by') === 'size' ? '✓' : '',
                                     onClick: async function(){
                                         sort_items(el_window_body, 'size', $(el_window).attr('data-sort_order'));
@@ -1851,7 +1851,7 @@ async function UIWindow(options) {
                                 // -------------------------------------------
                                 '-',
                                 {
-                                    html: `Ascending`,
+                                    html: i18n('ascending'),
                                     icon: $(el_window).attr('data-sort_order') === 'asc' ? '✓' : '',
                                     onClick: async function(){
                                         const sort_by = $(el_window).attr('data-sort_by')
@@ -1860,7 +1860,7 @@ async function UIWindow(options) {
                                     }
                                 },
                                 {
-                                    html: `Descending`,
+                                    html: i18n('descending'),
                                     icon: $(el_window).attr('data-sort_order') === 'desc' ? '✓' : '',
                                     onClick: async function(){
                                         const sort_by = $(el_window).attr('data-sort_by')
@@ -1875,7 +1875,7 @@ async function UIWindow(options) {
                         // Refresh
                         // -------------------------------------------
                         {
-                            html: "Refresh",
+                            html: i18n('refresh'),
                             onClick: function(){
                                 refresh_item_container(el_window_body, options);
                             }
@@ -1884,7 +1884,8 @@ async function UIWindow(options) {
                         // Show/Hide hidden files
                         // -------------------------------------------
                         {
-                            html: `${window.user_preferences.show_hidden_files ? "Hide" : "Show"} hidden files`,
+                            html: i18n('show_hidden'),
+                            icon: window.user_preferences.show_hidden_files ? '✓' : '',
                             onClick: function(){
                                 window.mutate_user_preferences({
                                     show_hidden_files : !window.user_preferences.show_hidden_files,
@@ -1908,7 +1909,7 @@ async function UIWindow(options) {
                         // Paste
                         // -------------------------------------------
                         {
-                            html: "Paste",
+                            html: i18n('paste'),
                             disabled: (clipboard.length === 0 || $(el_window).attr('data-path') === '/') ? true : false,
                             onClick: function(){
                                 if(clipboard_op === 'copy')
@@ -1921,7 +1922,7 @@ async function UIWindow(options) {
                         // Undo
                         // -------------------------------------------
                         {
-                            html: "Undo",
+                            html: i18n('undo'),
                             disabled: actions_history.length > 0 ? false : true,
                             onClick: function(){
                                 undo_last_action();
@@ -1931,21 +1932,12 @@ async function UIWindow(options) {
                         // Upload Here
                         // -------------------------------------------
                         {
-                            html: "Upload Here",
+                            html: i18n('upload_here'),
                             disabled: $(el_window).attr('data-path') === '/' ? true : false,
                             onClick: function(){
                                 init_upload_using_dialog(el_window_body, $(el_window).attr('data-path') + '/');
                             }
                         },
-                        // -------------------------------------------
-                        // Request Files
-                        // -------------------------------------------
-                        // {
-                        //     html: "Request Files",
-                        //     onClick: function(){
-                        //         UIWindowRequestFiles({dir_path: $(el_window).attr('data-path')})
-                        //     }
-                        // },
                         // -------------------------------------------
                         // -
                         // -------------------------------------------
@@ -1954,14 +1946,14 @@ async function UIWindow(options) {
                         // Publish As Website
                         // -------------------------------------------
                         {
-                            html: 'Publish As Website',
+                            html: i18n('publish_as_website'),
                             disabled: !options.is_dir,
                             onClick: async function () {
                                 if (window.require_email_verification_to_publish_website) {
                                     if (window.user.is_temp &&
                                         !await UIWindowSaveAccount({
                                             send_confirmation_code: true,
-                                            message: 'Please create an account to proceed.',
+                                            message: i18n('save_account_to_publish_website'),
                                             window_options: {
                                                 backdrop: true,
                                                 close_on_backdrop_click: false,
@@ -1978,7 +1970,7 @@ async function UIWindow(options) {
                         // Deploy as App
                         // -------------------------------------------
                         {
-                            html: 'Deploy as App',
+                            html: i18n('deploy_as_app'),
                             disabled: !options.is_dir,
                             onClick: async function () {
                                 launch_app({
@@ -1989,7 +1981,6 @@ async function UIWindow(options) {
                                         source_path: $(el_window).attr('data-path'),
                                     }
                                 })
-        
                             }
                         },
                         // -------------------------------------------
@@ -2000,19 +1991,18 @@ async function UIWindow(options) {
                         // Properties
                         // -------------------------------------------
                         {
-                            html: "Properties",
+                            html: i18n('properties'),
                             onClick: function(){
                                 let window_height = 500;
                                 let window_width = 450;
-            
+
                                 let left = mouseX;
                                 left -= 200;
                                 left = left > (window.innerWidth - window_width)? (window.innerWidth - window_width) : left;
-            
+
                                 let top = mouseY;
                                 top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height))? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
-            
-            
+
                                 UIWindowItemProperties(options.title, options.path, options.uid, left, top, window_width, window_height);
                             }
                         },
@@ -2032,7 +2022,7 @@ async function UIWindow(options) {
                             disabled: false,
                             onClick: async function(){
                                 const alert_resp = await UIAlert({
-                                    message: `Are you sure you want to permanently delete the items in Trash?`,
+                                    message: i18n('empty_trash_confirmation'),
                                     buttons:[
                                         {
                                             label: 'Yes',
