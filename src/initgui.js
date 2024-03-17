@@ -33,6 +33,7 @@ import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import PuterDialog from './UI/PuterDialog.js';
+import determine_active_container_parent from './helpers/determine_active_container_parent.js';
 
 window.initgui = async function(){
     let url = new URL(window.location);
