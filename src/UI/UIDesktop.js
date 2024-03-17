@@ -33,6 +33,7 @@ import UIWindowLogin from "./UIWindowLogin.js"
 import UIWindowQR from "./UIWindowQR.js"
 import UIWindowRefer from "./UIWindowRefer.js"
 import UITaskbar from "./UITaskbar.js"
+import new_context_menu_item from "../helpers/new_context_menu_item.js"
 
 async function UIDesktop(options){
     let h = '';
@@ -707,7 +708,7 @@ async function UIDesktop(options){
                     // -------------------------------------------
                     // New File
                     // -------------------------------------------
-                    window.new_context_menu_item(desktop_path, el_desktop),
+                    new_context_menu_item(desktop_path, el_desktop),
                     // -------------------------------------------
                     // -
                     // -------------------------------------------
@@ -930,6 +931,7 @@ async function UIDesktop(options){
                 name: app_launched_from_url,
                 readURL: qparams.get('readURL'),
                 maximized: qparams.get('maximized'),
+                params: app_query_params ?? [],
                 is_fullpage: window.is_fullpage_mode,
                 window_options: {
                     stay_on_top: false,

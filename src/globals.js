@@ -141,8 +141,6 @@ if (window.location !== window.parent.location) {
 window.desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
 window.desktop_width = window.innerWidth;
 
-let isResize = false;
-
 // recalculate desktop height and width on window resize
 $( window ).on( "resize", function() {
     const new_desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
