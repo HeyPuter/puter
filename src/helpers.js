@@ -3707,7 +3707,8 @@ window.store_auto_arrange_preference = (preference)=>{
 window.get_auto_arrange_data = async()=>{
     const preferenceValue = await puter.kv.get('user_preferences.auto_arrange_desktop');
     is_auto_arrange_enabled = preferenceValue === null ? true : preferenceValue;
-    desktop_item_positions = await puter.kv.get('desktop_item_positions');
+    const positions = await puter.kv.get('desktop_item_positions')
+    desktop_item_positions =  (positions === null || typeof positions !== 'object') ? {} : positions;
 }
 
 window.clear_desktop_item_positions = async(el_desktop)=>{
