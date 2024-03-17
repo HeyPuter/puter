@@ -141,19 +141,37 @@ if (window.location !== window.parent.location) {
 window.desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
 window.desktop_width = window.innerWidth;
 
+let isResize = false;
+
 // recalculate desktop height and width on window resize
 $( window ).on( "resize", function() {
-    const radio = window.desktop_width / window.innerWidth;
-    
-    window.desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
-    window.desktop_width = window.innerWidth;
-    
-    const { top } = $(".window-login").position();
-    const width = $(".window-login").width();
-    $(".window-login").css({
-      left: (window.desktop_width - width) / 2,
-      top: top / radio,
-    });
+    const new_desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
+    const new_desktop_width = window.innerWidth;
+
+    $('.window').each((_, el) => {
+        const pos = $(el).position();
+        const leftRadio = pos.left / window.desktop_width;
+        const topRadio = pos.top / window.desktop_height;
+
+        let left = new_desktop_width * leftRadio;
+        let top = new_desktop_height * topRadio;
+        const maxLeft = new_desktop_width - $(el).width();
+        const maxTop = new_desktop_height - $(el).height();
+
+        if(left < 0) left = 0;
+        else if(left > maxLeft) left = maxLeft;
+
+        if(top < window.toolbar_height) top = window.toolbar_height;
+        else if(top > maxTop) top = maxTop + window.toolbar_height;
+
+        $(el).css({
+            left,
+            top
+        })
+    })
+
+    window.desktop_height = new_desktop_height;
+    window.desktop_width = new_desktop_width;
 });
   
 // for now `active_element` is basically the last element that was clicked,
