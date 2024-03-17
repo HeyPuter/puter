@@ -1904,6 +1904,7 @@ window.launch_app = async (options)=>{
 
         // add app_instance_id to URL
         iframe_url.searchParams.append('puter.app_instance_id', uuid);
+
         // add app_id to URL
         iframe_url.searchParams.append('puter.app.id', app_info.uuid);
 
@@ -1939,6 +1940,14 @@ window.launch_app = async (options)=>{
         else if(options.token){
             iframe_url.searchParams.append('puter.auth.token', options.token);
         }
+
+        // if options.params is set, add them to the URL as query params
+        if(options.params && options.params.length > 0){
+            for (const property in options.params) {
+                iframe_url.searchParams.append(property, options.params[property]);
+            }
+        }
+
         // Try to acquire app token from the server
         else{
             let response = await fetch(window.api_origin + "/auth/get-user-app-token", {

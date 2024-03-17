@@ -930,6 +930,7 @@ async function UIDesktop(options){
                 name: app_launched_from_url,
                 readURL: qparams.get('readURL'),
                 maximized: qparams.get('maximized'),
+                params: app_query_params ?? [],
                 is_fullpage: window.is_fullpage_mode,
                 window_options: {
                     stay_on_top: false,
