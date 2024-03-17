@@ -76,6 +76,13 @@ window.initgui = async function(){
     const url_paths = window.location.pathname.split('/').filter(element => element);
     if(url_paths[0]?.toLocaleLowerCase() === 'app' && url_paths[1]){
         window.app_launched_from_url = url_paths[1];
+
+        // get query params, any param that doesn't start with 'puter.' will be passed to the app
+        window.app_query_params = {};
+        for (let [key, value] of url_query_params) {
+            if(!key.startsWith('puter.'))
+                app_query_params[key] = value;
+        }
     }
 
     //--------------------------------------------------------------------------------------
