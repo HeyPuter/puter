@@ -3718,6 +3718,9 @@ window.clear_desktop_item_positions = async(el_desktop)=>{
         $(el_item).css('left', '');
         $(el_item).css('top', '');
     });
+    if(reset_item_positions){
+        delete_desktop_item_positions()
+    }
 }
 
 window.set_desktop_item_positions = async(el_desktop)=>{
@@ -3734,4 +3737,9 @@ window.set_desktop_item_positions = async(el_desktop)=>{
 
 window.save_desktop_item_positions = ()=>{
     puter.kv.set('desktop_item_positions', desktop_item_positions);
+}
+
+window.delete_desktop_item_positions = ()=>{
+    desktop_item_positions = {}
+    puter.kv.del('desktop_item_positions');
 }

@@ -188,7 +188,7 @@ function UIItem(options){
     }
 
     // position
-    if(!is_auto_arrange_enabled && options.position && $(el_item).attr('data-path') !== trash_path){
+    if(!is_auto_arrange_enabled && options.position && $(el_item).closest('.item-container').attr('data-path') === window.desktop_path){
         el_item.style.position = 'absolute';
         el_item.style.left = options.position.left + 'px';
         el_item.style.top = options.position.top + 'px';
@@ -342,7 +342,9 @@ function UIItem(options){
             }
         },
         stop: function(event, ui){
-            if(!is_auto_arrange_enabled && $(el_item).attr('data-path') !== trash_path){
+            // Allow rearranging only if item is on desktop, not trash container, auto arrange is disabled and item is not dropped into another item
+            if($(el_item).closest('.item-container').attr('data-path') === window.desktop_path && 
+                !is_auto_arrange_enabled && $(el_item).attr('data-path') !== trash_path && !ui.helper.data('dropped')){
                 el_item.style.position = 'absolute';
                 el_item.style.left = ui.position.left + 'px';
                 el_item.style.top = ui.position.top + 'px';
@@ -377,6 +379,9 @@ function UIItem(options){
             // If ctrl is pressed and source is Trashed, cancel whole operation
             if(event.ctrlKey && path.dirname($(ui.draggable).attr('data-path')) === window.trash_path)
                 return;
+
+            // Adding a flag to know whether item is rearraged or dropped
+            ui.helper.data('dropped', true);
 
             const items_to_move = []
             
@@ -452,6 +457,10 @@ function UIItem(options){
                 }
                 // Otherwise, move items
                 else if(options.is_dir){
+                    if($(el_item).closest('.item-container').attr('data-path') === window.desktop_path){
+                        delete desktop_item_positions[$(el_item).attr('data-uid')];
+                        save_desktop_item_positions()
+                    }
                     move_items(items_to_move, $(el_item).attr('data-shortcut_to_path') !== '' ? $(el_item).attr('data-shortcut_to_path') : $(el_item).attr('data-path'));
                 }
             }
