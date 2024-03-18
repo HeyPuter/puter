@@ -1,6 +1,6 @@
-const no = {
-    name: "Norsk",
-    code: "no",
+const nb = {
+    name: "Norsk Bokmål",
+    code: "nb",
     dictionary: {
         access_granted_to: "Tilgang gitt til",
         add_existing_account: "Legg til eksisterende konto",
@@ -145,4 +145,4 @@ const no = {
     }
 };
 
-export default no;
+export default nb;
