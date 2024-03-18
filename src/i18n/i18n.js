@@ -756,4 +756,347 @@ window.translations = {
         you_have_been_referred_to_puter_by_a_friend: "Sei stato invitato su Puter da un amico!",
         zip: "Comprimi",
     },
+    // finnish
+    fi: {
+        access_granted_to: "Käyttöoikeus Myönnetty",
+        add_existing_account: "Lisää Olemassaoleva Tili",
+        all_fields_required: 'Kaikki kentät on täytettävä.',
+
+        apply: "Apply", // TODO: Ambiguous meaning
+        // To apply(a principle) => "Sovella" or
+        // Apply for(a job) "Hae" or 
+        // Apply as(an engineer) => "Hakeudu" or
+        // Apply an expression => "Applikoi" or - Probably the most appropriate in the context of the app
+        // Apply in the sense of applying something, like a tool => "Käytä"
+
+        ascending: 'Nouseva',
+        background: "Tausta",
+        browse: "Selaa",
+        cancel: 'Peruuta',
+        center: 'Keskus',
+        change_desktop_background: 'Vaihda työpöydän taustakuvaa…',
+        change_password: "Muuta Salasana",
+        change_username: "Muuta Käyttäjänimeä",
+        close_all_windows: "Sulje Kaikki Ikkunat",
+        color: 'Väri',
+        confirm_account_for_free_referral_storage_c2a: 'Luo tili ja vahvista sähköpostiosoitteesi saadaksesi 1 Gt ilmaista tallennustilaa. Myös kaverisi saa 1 Gt ilmaista tallennustilaa.',
+        confirm_new_password: "Vahvista Uusi Salasana",
+        contact_us: "Ota Yhteyttä",
+
+        contain: 'Contain', // TODO: Ambiguous meaning
+        // "inside(a house)" => "Sisällä" - probably more appropriate
+        // "contain within" => "Sisältää"
+
+        continue: "Jatka",
+
+        copy: 'Copy', // TODO: Lexical categories
+        // Noun "A copy of something" => 'Kopio' or
+        // Verb "To copy something" => 'Kopioi'?
+
+        copy_link: "Kopioi Linkki",
+        copying: "Kopioidaan",
+
+        cover: 'Cover', // TODO: Lexical categories
+        // Noun (shelter) => 'Suoja' or 
+        // Noun (lid) => 'Kansi' or
+        // Intransitive Verb (To occlude something) => 'Peitä' or
+        // Transitive Verb (To cover for someone) => 'Suojaa'
+
+        create_account: "Luo Tili",
+        create_free_account: "Luo Ilmainen Tili",
+        create_shortcut: "Luo Pikakuvake",
+        current_password: "Nykyinen Salasana",
+        cut: 'Leikkaa',
+        date_modified: 'Muutospäivämäärä',
+        delete: 'Poista',
+        delete_permanently: "Poista Pysyvästi",
+        deploy_as_app: 'Levitä sovelluksena',
+        descending: 'Laskeva',
+        desktop_background_fit: "Sovita",
+        dir_published_as_website: `%strong% on julkaistu osoitteessa:`,
+        disassociate_dir: "Erota Hakemisto",
+        download: 'Lataa',
+        downloading: "Ladataan",
+        email: "Sähköposti",
+        email_or_username: "Sähköposti tai Käyttäjänimi",
+        empty_trash: 'Tyhjennä Roskakori',
+        empty_trash_confirmation: `Oletko varma, että haluat poistaa Roskakorin kohteet pysyvästi?`,
+        emptying_trash: 'Tyhjennetään Roskakori…',
+        feedback: "Palaute",
+        feedback_c2a: "Käytä alla olevaa lomaketta lähettääksesi meille palautetta, kommentteja ja vikailmoituksia.",
+        feedback_sent_confirmation: "Kiitos yhteydenotosta. Jos sinulla on tiliisi liittyvä sähköpostiosoite, saat meiltä vastauksen mahdollisimman pian.",
+        forgot_pass_c2a: "Unohditko Salasanasi?",
+
+        from: "From", // TODO: Context dependent, examples
+        // "from address" => "osoitteesta" or
+        // "from sender" => "lähettäjältä".
+        // In the finnish language these are usually translated as case suffixes.
+        // "From Person" gets the suffix "-ltä", being the combination of "Henkilö(Person) and ltä(From)"
+
+        general: "General", // TODO: Conceptual ambiguity
+        // "general (about something)" => "Yleistä" or
+        // "military general" => "Kenraali"
+
+        get_a_copy_of_on_puter: `Hanki '%%' -kopio Puter.com-sivustolta!`, // TODO: Very difficult ambiguity due to different case suffix for any possible word that you can substitue here. Can stay as is, but it's not exactly correct.
+
+        get_copy_link: 'Get Copy Link', // TODO: Ambiguous meaning
+        // 'get a copy of a link' => 'Ota Kopio Linkkiin' or
+        // 'get a link to the copy' => 'Ota Linkki Kopioon' - More probable, just want to be sure
+
+        hide_all_windows: "Piilota Kaikki Ikkunat",
+        html_document: 'HTML-dokumentti',
+        image: 'Kuva',
+        invite_link: "Kutsulinkki",
+        items_in_trash_cannot_be_renamed: `Tätä kohdetta ei voi nimetä uudelleen, koska se on roskakorissa. Jos haluat nimetä kohteen uudelleen, raahaa se ensin pois roskakorista.`,
+        jpeg_image: 'JPEG-kuva',
+        keep_in_taskbar: 'Pidä tehtäväpalkissa',
+        log_in: "Kirjaudu Sisään",
+        log_out: 'Kirjaudu Ulos',
+        move: 'Siirrä',
+        moving: "Siirretään",
+        my_websites: "Verkkosivustoni",
+        name: 'Nimi',
+        name_cannot_be_empty: 'Nimi ei voi olla tyhjä.',
+
+        name_cannot_contain_double_period: "Name can not be the '..' character.", // TODO: definition says a different thing, than the string
+        // "Name can not be the '..' character." => "Nimi ei voi olla '..'-merkki." or
+        // "Name can not contain the '..' character." => "Nimi ei voi sisältää merkkiä '..'."
+
+        name_cannot_contain_period: "Name can not be the '.' character.", // TODO: definition says a different thing, than the string
+        // "Name can not be the '.' character." => "Nimi ei voi olla '.'-merkki." or
+        // "Name can not contain the '.' character." => "Nimi ei voi sisältää merkkiä '.'."
+
+        name_cannot_contain_slash: "Nimi ei voi sisältää merkkiä '/'.",
+        name_must_be_string: "Nimi voi olla vain merkkijono.",
+        name_too_long: `Nimi ei voi olla pidempi kuin %% merkkiä.`,
+        new: 'Uusi',
+        new_folder: 'Uusi kansio',
+        new_password: "Uusi Salasana",
+        new_username: "Uusi Käyttäjänimi",
+        no_dir_associated_with_site: 'Osoitteeseen ei liity mitään hakemistoa.',
+        no_websites_published: "Et ole vielä julkaissut yhtään verkkosivustoa.",
+        ok: 'OK',
+        open: "Avaa",
+        open_in_new_tab: "Avaa uudessa Välilehdessä",
+        open_in_new_window: "Avaa uudessa Ikkunassa",
+
+        open_with: "Open With", // TODO: Context dependent
+        // "Open" => "Avaa", can be "Avaa..." in this context or
+        // "Open With" is often translated in the context of "Open With Application" => "Avaa Sovelluksessa"
+
+        password: "Salasana",
+        password_changed: "Salasana vaihdettu.",
+        passwords_do_not_match: '`Uusi Salasana` ja `Vahvista Uusi Salasana` eivät täsmää.',
+        paste: 'Liitä',
+        paste_into_folder: "Liitä Kansioon",
+        pick_name_for_website: "Valitse nimi verkkosivustollesi:",
+        picture: "Kuva",
+        powered_by_puter_js: `Tämän Mahdollistaa <a href="https://docs.puter.com/" target="_blank">Puter.js</a>`,
+        preparing: "Valmistellaan...",
+        preparing_for_upload: "Valmistellaan latausta...",
+        properties: "Ominaisuudet",
+        publish: "Julkaise",
+        publish_as_website: 'Julkaise verkkosivustona',
+        recent: "Viimeisimmät",
+        recover_password: "Palauta Salasana",
+        refer_friends_c2a: "Saat 1 Gt tilaa jokaisesta kaverista, joka luo ja vahvistaa tilin Puterissa. Myös kaverisi saa 1 Gt tilaa!",
+        refer_friends_social_media_c2a: `Hanki 1 Gt ilmaista tallennustilaa Puter.comista!`,
+        refresh: 'Päivitä',
+
+        release_address_confirmation: `Are you sure you want to release this address?`, // TODO: Slight ambiguity between the meaning of "release"
+        // "get rid of" => "Oletko varma, että haluat luovuttaa tämän osoitteen?" or
+        // "publish" => "Oletko varma, että haluat julkaista tämän osoitteen?"
+
+        remove_from_taskbar:'Poista Tehtäväpalkista',
+        rename: 'Nimeä uudelleen',
+        repeat: 'Toista',
+        resend_confirmation_code: "Lähetä Vahvistuskoodi Uudelleen",
+        restore: "Palauta",
+        save_account_to_get_copy_link: "Luo tili jatkaaksesi.",
+        save_account_to_publish: 'Luo tili jatkaaksesi.',
+        save_session_c2a: 'Luo tili tallentaaksesi nykyisen istuntosi ja välttyäksesi työn menettämiseltä.',
+        scan_qr_c2a: 'Skannaa alla oleva koodi kirjautuaksesi tähän istuntoon muista laitteista',
+        select: "Valitse",
+        select_color: 'Valitse väri…',
+        send: "Lähetä",
+        send_password_recovery_email: "Lähetä Salasanan Palautussähköposti",
+        session_saved: "Kiitos tilin luomisesta. Tämä istunto on tallennettu.",
+        set_new_password: "Aseta Uusi Salasana",
+
+        share_to: "Share to", // TODO: Grammatical ambiguity
+        // The base form of "Share" is "Jaa". So maybe "Jaa..." is appropriate?
+        // If "share to" is followed by the name of a user, it will not make any sense, as the name can be suffixed by for example "Jaa %%lle".
+
+        show_all_windows: "Näytä Kaikki Ikkunat",
+        show_hidden: 'Näytä piilotettu',
+        sign_in_with_puter: "Kirjaudu sisään Puterilla",
+        sign_up: "Rekisteröidy",
+        signing_in: "Kirjaudutaan sisään…",
+        size: 'Koko',
+        sort_by: 'Lajittele:',
+        start: 'Käynnistä',
+        taking_longer_than_usual: 'Kestää hieman tavallista kauemmin. Odottakaa...',
+        text_document: 'Tekstiasiakirja',
+        tos_fineprint: `Klikkaamalla 'Luo ilmainen tili' hyväksyt Puterin käyttöehdot ja tietosuojakäytännön.`,
+
+        trash: 'Trash', // TODO: Ambiguous meaning
+        // "Trash" is oft used to just mean "Trash bin" => 'Roskakori' or
+        // "Trash" by itself => 'Roska'
+
+        type: 'Type', // TODO: Ambiguous meaning
+        // "Type of an object" => 'Tyyppi' or
+        // "Type on the keyboard" => 'Kirjoita'
+
+        undo: 'Kumoa',
+        unzip: "Pura zip",
+        upload: 'Lataa',
+        upload_here: 'Lataa tähän',
+        username: "Käyttäjänimi",
+        username_changed: 'Käyttäjänimi päivitetty onnistuneesti.',
+        versions: "Versiot",
+        yes_release_it: 'Kyllä, Julkaise Se',
+        you_have_been_referred_to_puter_by_a_friend: "Kaverisi on kutsunut sinut Puterille!",
+        zip: "Zip",
+    },
+    ro: {
+        access_granted_to: "Acces acordat pentru",
+        add_existing_account: "Adaugă cont existent",
+        all_fields_required: 'Toate câmpurile sunt necesare.',
+        apply: "Aplică",
+        ascending: 'Ascendent',
+        background: "Background",
+        browse: "Caută",
+        cancel: 'Anulează',
+        center: 'Center',
+        change_desktop_background: 'Schimbă imaginea de fundal…',
+        change_password: "Schimbă Parola",
+        change_username: "Schimbă Numele",
+        close_all_windows: "Inchide toate ferestrele",
+        color: 'Culoare',
+        confirm_account_for_free_referral_storage_c2a: 'Creați un cont și confirmați adresa de e-mail pentru a primi 1 GB de spațiu de stocare gratuit. Și prietenul tău va primi 1 GB de spațiu de stocare gratuit.',
+        confirm_new_password: "Confirmă Parola Nouă",
+        contact_us: "Contactează-ne",
+        contain: 'Contain',
+        continue: "Continuă",
+        copy: 'Copiază',
+        copy_link: "Copiază link",
+        copying: "Se copiază",
+        cover: 'Cover',
+        create_account: "Crează un cont",
+        create_free_account: "Crează un cont gratuit",
+        create_shortcut: "Crează o scurtătură",
+        current_password: "Parola Curentă",
+        cut: 'Taie',
+        date_modified: 'Dată modificată',
+        delete: 'Șterge',
+        delete_permanently: "Șterge Permanent",
+        deploy_as_app: 'Implementează ca aplicație',
+        descending: 'Descending',
+        desktop_background_fit: "Potrivește fundalul",
+        dir_published_as_website: `%strong% a fost publicat către:`,
+        disassociate_dir: "Dezasociaza folderul",
+        download: 'Descarcă',
+        downloading: "Se descarcă",
+        email: "Mail",
+        email_or_username: "Mail sau Nume de Utilizator",
+        empty_trash: 'Golește Coșul de gunoi',
+        empty_trash_confirmation: `Ești sigur că vrei să ștergi permanent conținutul Coșului de gunoi?`,
+        emptying_trash: 'Coșul de gunoi se golește…',
+        feedback: "Feedback",
+        feedback_c2a: "Vă rugăm să folosiți formularul de mai jos pentru a ne trimite feedback, comentarii și rapoarte de erori.",
+        feedback_sent_confirmation: "Mulțumim că ne-ți contactat. Dacă aveți un e-mail asociat contului dvs, veți primi un răspuns de la noi cât mai curând posibil.",
+        forgot_pass_c2a: "Ai uitat parola?",
+        from: "De la",
+        general: "General",
+        get_a_copy_of_on_puter: `Obțineți o copie a '%%' pe Puter.com!`,
+        get_copy_link: 'Obțineți link-ul copiei',
+        hide_all_windows: "Ascunde toate ferestrele",
+        html_document: 'Document HTML',
+        image: 'Imagine',
+        invite_link: "Link de invitație",
+        items_in_trash_cannot_be_renamed: `Acest articol nu poate fi redenumit deoarece este în coșul de gunoi. Pentru a redenumi acest element, mai întâi scoateți-l din Coșul de gunoi.`,
+        jpeg_image: 'Imagine JPEG',
+        keep_in_taskbar: 'Păstrează în bara de activități',
+        log_in: "Loghează-te",
+        log_out: 'Deconectează-te',
+        move: 'Mută',
+        moving: "Se mută",
+        my_websites: "Site-urile mele",
+        name: 'Nume',
+        name_cannot_be_empty: 'Numele nu poate fi necompletat.',
+        name_cannot_contain_double_period: "Numele nu poate conține ..",
+        name_cannot_contain_period: "Numele nu poate conține .",
+        name_cannot_contain_slash: "Numele nu poate contine /",
+        name_must_be_string: "Numele poate fi doar un șir.",
+        name_too_long: `Numele nu poate fi mai lung de %% caractere.`,
+        new: 'Nou',
+        new_folder: 'Folder nou',
+        new_password: "Parolă nouă",
+        new_username: "Nume de Utilizator nou",
+        no_dir_associated_with_site: 'Niciun director asociat cu această adresă.',
+        no_websites_published: "Nu ați publicat încă niciun site web.",
+        ok: 'OK',
+        open: "Deschide",
+        open_in_new_tab: "Deschide in alt tab",
+        open_in_new_window: "Deschide in fereastră nouă",
+        open_with: "Deschide cu",
+        password: "Parolă",
+        password_changed: "Parolă schimbată.",
+        passwords_do_not_match: '`Parola nouă` și `Confirmă Parola nouă` nu sunt la fel.',
+        paste: 'Inserează',
+        paste_into_folder: "Inserează in folder",
+        pick_name_for_website: "Alegeți un nume pentru site-ul dvs:",
+        picture: "Poza",
+        powered_by_puter_js: `Creat de <a href="https://docs.puter.com/" target="_blank">Puter.js</a>`,
+        preparing: "Preparare...",
+        preparing_for_upload: "Preparare pentru încărcare...",
+        properties: "Proprietăți",
+        publish: "Publică",
+        publish_as_website: 'Publică, ca site web',
+        recent: "Recente",
+        recover_password: "Recuperare Parolă",
+        refer_friends_c2a: "Obțineți 1 GB pentru fiecare prieten care creează și confirmă un cont pe Puter. și prietenul tău va primi 1 GB!",
+        refer_friends_social_media_c2a: `Obțineți 1 GB de spațiu de stocare gratuit pe Puter.com!`,
+        refresh: 'Reîmprospătare',
+        release_address_confirmation: `Sigur doriți să eliberați această adresă?`,
+        remove_from_taskbar:'Eliminați din bara de activități',
+        rename: 'Redenumește',
+        repeat: 'Repetă',
+        resend_confirmation_code: "Re-trimite cod de confirmare",
+        restore: "Restaurare",
+        save_account_to_get_copy_link: "Vă rugăm să creați un cont pentru a copia un link.",
+        save_account_to_publish: 'Vă rugăm să creați un cont pentru a publica.',
+        save_session_c2a: 'Creați un cont pentru a vă salva sesiunea curentă și pentru a evita pierderea muncii.',
+        scan_qr_c2a: 'Scanați codul de mai jos pentru a vă conecta la această sesiune de pe alte dispozitive',
+        select: "Selectează",
+        select_color: 'Selectează culoare…',
+        send: "Trimite",
+        send_password_recovery_email: "Trimite mail de recuperare parolă",
+        session_saved: "Vă mulțumim pentru crearea unui cont. Această sesiune a fost salvată.",
+        set_new_password: "Setează o parolă Nouă",
+        share_to: "Distribuie către",
+        show_all_windows: "Afișați toate ferestrele",
+        show_hidden: 'Arată ascuns',
+        sign_in_with_puter: "Conectați-vă cu Puter",
+        sign_up: "Inscrie-te",
+        signing_in: "Se conectează…",
+        size: 'Mărime',
+        sort_by: 'Sortează dupa',
+        start: 'Start',
+        taking_longer_than_usual: 'Durează puțin mai mult decât de obicei. Vă rugăm așteptați...',
+        text_document: 'Document Text',
+        tos_fineprint: `Făcând clic pe „Creați un cont gratuit”, sunteți de acord cu <a href="https://puter.com/terms" target="_blank">Termenii si conditiile</a> si <a href="https://puter.com/privacy" target="_blank">Politia de Confidentialitate Puter.com</a>.`,
+        trash: 'Coș de gunoi',
+        type: 'Type',
+        undo: 'Undo',
+        unzip: "Unzip",
+        upload: 'Incarcă',
+        upload_here: 'Incarcă aici',
+        username: "Nume de Utilizator",
+        username_changed: 'Nume de Utilizator actualizat cu succes.',
+        versions: "Versiuni",
+        yes_release_it: 'Da, eliberează-l',
+        you_have_been_referred_to_puter_by_a_friend: "Ai fost invitat pe Puter de către un prieten!",
+        zip: "Zip",
+    }
 }
