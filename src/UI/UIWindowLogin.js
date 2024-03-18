@@ -36,7 +36,7 @@ async function UIWindowLogin(options){
                 h += `<div class="generic-close-window-button"> &times; </div>`;
             h += `<div style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
                 // title
-                h += `<h1 class="login-form-title">Log In</h1>`;
+                h += `<h1 class="login-form-title">${i18n('log_in')}</h1>`;
                 // login form
                 h += `<form class="login-form">`;
                     // error msg
