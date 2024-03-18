@@ -1131,7 +1131,6 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             }
         }
     });
-    console.log(supoprtedLanguagesItems)
 
     UIContextMenu({
         id: 'user-options-menu',

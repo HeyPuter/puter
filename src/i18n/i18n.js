@@ -1,12 +1,6 @@
 import translations from './translations/translations.js';
 
-window.ListSupportedLanugages = function () {
-    var result = [];
-    Object.keys(translations).forEach(function (key) {
-        result.push(translations[key]);
-    });
-    return result;
-};
+window.ListSupportedLanugages = () => Object.keys(translations).map(lang => translations[lang]);
 
 window.i18n = function (key, replacements = [], encode_html = true) {
     if(typeof replacements === 'boolean' && encode_html === undefined){
