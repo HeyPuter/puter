@@ -1,4 +1,5 @@
 import da from './da.js';
+import de from './de.js'
 import en from './en.js';
 import fa from './fa.js';
 import fr from './fr.js';
@@ -11,6 +12,7 @@ import zh from './zh.js';
 
 export default {
     da,
+    de,
     en,
     fa,
     fr,
