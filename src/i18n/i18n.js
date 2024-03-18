@@ -2,7 +2,7 @@ import translations from './translations/translations.js';
 
 window.ListSupportedLanugages = function () {
     var result = [];
-    translations.keys.forEach(function (key) {
+    Object.keys(translations).forEach(function (key) {
         result.push(translations[key]);
     });
     return result;
