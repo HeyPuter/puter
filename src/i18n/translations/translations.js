@@ -2,6 +2,7 @@ import bn from './bn.js'
 import da from './da.js';
 import de from './de.js'
 import en from './en.js';
+import es from './es.js';
 import fa from './fa.js';
 import fi from './fi.js';
 import fr from './fr.js';
@@ -18,6 +19,7 @@ export default {
     da,
     de,
     en,
+    es,
     fa,
     fi,
     fr,
