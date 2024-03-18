@@ -188,6 +188,7 @@ window.translations = {
         yes_release_it: 'Yes, Release It',
         you_have_been_referred_to_puter_by_a_friend: "You have been referred to Puter by a friend!",
         zip: "Zip",
+        auto_arrange: "Auto Arrange",
     },
     // farsi
     fa: {
@@ -330,6 +331,7 @@ window.translations = {
         yes_release_it: 'بله، آن را آزاد کن',
         you_have_been_referred_to_puter_by_a_friend: "شما توسط یک دوست به Puter معرفی شده اید!",
         zip: "فشرده سازی",
+        auto_arrange: "تنظیم خودکار",
     },
     // korean
     ko: {
@@ -472,6 +474,7 @@ window.translations = {
         yes_release_it: '예, 해제합니다',
         you_have_been_referred_to_puter_by_a_friend: "친구가 Puter로 추천했습니다!",
         zip: "압축",
+        auto_arrange: "자동 정렬",
     },
     zh: {
         access_granted_to: "访问授权给",
@@ -613,5 +616,6 @@ window.translations = {
         yes_release_it: '是的，释放它',
         you_have_been_referred_to_puter_by_a_friend: "您已经被朋友推荐到 Puter！",
         zip: "压缩",
+        auto_arrange: "自动排列"
     },
 }
