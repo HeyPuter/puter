@@ -139,5 +139,3 @@ const no = {
     you_have_been_referred_to_puter_by_a_friend: "Du har blitt henvist til Puter av en venn!",
     zip: "Zip"
 };
-
-export default no;
