@@ -1201,6 +1201,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
                             buttons:[
                                 {
                                     label: i18n('close_all_Windows_and_log_out'),
+                                    value: 'close_and_log_out',
                                     type: 'primary',
                                 },
                                 {
@@ -1208,7 +1209,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
                                 },
                             ]
                         })
-                        if(alert_resp === i18n('close_all_Windows_and_log_out'))
+                        if(alert_resp === 'close_and_log_out')
                             logout();
                     }
                     // no open windows

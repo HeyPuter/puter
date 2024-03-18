@@ -1036,7 +1036,8 @@ window.addEventListener('message', async (event) => {
                                     type: 'primary',
                                 },
                                 {
-                                    label: i18n('cancel')
+                                    label: i18n('cancel'),
+                                    value: 'cancel'
                                 },
                             ],
                             parent_uuid: event.data.appInstanceID,

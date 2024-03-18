@@ -1877,10 +1877,12 @@ window.initgui = async function(){
                 buttons:[
                     {
                         label: i18n('save_account'),
+                        value: 'save_account',
                         type: 'primary',
                     },
                     {
                         label: i18n('log_out'),
+                        value: 'log_out',
                         type: 'danger',
                     },
                     {
@@ -1888,14 +1890,14 @@ window.initgui = async function(){
                     },
                 ]
             })
-            if(alert_resp === 'Save Account'){
+            if(alert_resp === 'save_account'){
                 let saved = await UIWindowSaveAccount({
                     send_confirmation_code: false,
                     default_username: window.user.username
                 });
                 if(saved)
                     logout();
-            }else if (alert_resp === 'Log Out'){
+            }else if (alert_resp === 'log_out'){
                 logout();
             }
             else{
