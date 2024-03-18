@@ -314,7 +314,7 @@ async function UIWindow(options) {
                 // Loading spinner
                 h += `<div class="explorer-loading-spinner">`;
                     h +=`<svg style="display:block; margin: 0 auto; " xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#212121" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#212121" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`;
-                    h += `<p class="explorer-loading-spinner-msg">Loading...</p>`;
+                    h += `<p class="explorer-loading-spinner-msg">${i18n('loading')}...</p>`;
                 h += `</div>`;
             }
 
@@ -2920,7 +2920,7 @@ window.scale_window = (el_window)=>{
 window.update_explorer_footer_item_count = function(el_window){
     //update dir count in explorer footer
     let item_count = $(el_window).find('.item').length;
-    $(el_window).find('.explorer-footer .explorer-footer-item-count').html(item_count + ' item' + (item_count == 0 || item_count > 1 ? 's' : ''));
+    $(el_window).find('.explorer-footer .explorer-footer-item-count').html(item_count + ` ${i18n('item')}` + (item_count == 0 || item_count > 1 ? `${i18n('plural_suffix')}` : ''));
 }
 
 window.update_explorer_footer_selected_items_count = function(el_window){
@@ -2928,7 +2928,7 @@ window.update_explorer_footer_selected_items_count = function(el_window){
     let item_count = $(el_window).find('.item-selected').length;
     if(item_count > 0){
         $(el_window).find('.explorer-footer-seperator, .explorer-footer-selected-items-count').show();
-        $(el_window).find('.explorer-footer .explorer-footer-selected-items-count').html(item_count + ' item' + (item_count == 0 || item_count > 1 ? 's' : '') + ' selected');
+        $(el_window).find('.explorer-footer .explorer-footer-selected-items-count').html(item_count + ` ${i18n('item')}` + (item_count == 0 || item_count > 1 ? `${i18n('plural_suffix')}` : '') + ` ${i18n('selected')}`);
     }else{
         $(el_window).find('.explorer-footer-seperator, .explorer-footer-selected-items-count').hide();
     }

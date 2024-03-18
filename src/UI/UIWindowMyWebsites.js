@@ -68,7 +68,7 @@ async function UIWindowMyWebsites(options){
         margin-bottom: 50px;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
-        color: #596c7c;">Loading...</p>`);
+        color: #596c7c;">${i18n('loading')}...</p>`);
     }, 1000);
 
     puter.hosting.list().then(function (sites){
