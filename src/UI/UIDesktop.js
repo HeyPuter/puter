@@ -34,6 +34,7 @@ import UIWindowQR from "./UIWindowQR.js"
 import UIWindowRefer from "./UIWindowRefer.js"
 import UITaskbar from "./UITaskbar.js"
 import new_context_menu_item from "../helpers/new_context_menu_item.js"
+import ChangeLanguage from "../i18n/i18nChangeLanguage.js"
 
 async function UIDesktop(options){
     let h = '';
@@ -1118,6 +1119,19 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
 
     }
 
+    // -------------------------------------------
+    // Load avaialble languages
+    // -------------------------------------------
+    const supoprtedLanguagesItems = ListSupportedLanugages().map(lang => {
+        return {
+            html: lang.name,
+            icon: window.locale === lang.code ? '✓' : '',
+            onClick: async function(){
+                ChangeLanguage(lang.code);
+            }
+        }
+    });
+
     UIContextMenu({
         id: 'user-options-menu',
         parent_element: parent_element,
@@ -1151,6 +1165,14 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
                 onClick: async function(){
                     UIWindowChangePassword();
                 }
+            },
+
+            //--------------------------------------------------
+            // Change Language
+            //--------------------------------------------------
+            {
+                html: i18n('change_language'),
+                items: supoprtedLanguagesItems
             },
             //--------------------------------------------------
             // Contact Us
