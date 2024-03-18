@@ -96,6 +96,7 @@ try {
 if (window.user_preferences === null) {
     window.user_preferences = {
         show_hidden_files: false,
+        language: 'en',
     }
 }
 

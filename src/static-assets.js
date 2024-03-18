@@ -33,7 +33,6 @@ const lib_paths =[
     `/lib/iro.min.js`,
     `/lib/isMobile.min.js`,
     `/lib/jszip-3.10.1.min.js`,
-    `/i18n/i18n.js`,
 ]
 
 // Ordered list of CSS stylesheets
@@ -49,6 +48,7 @@ const js_paths = [
     '/helpers.js',
     '/IPC.js',
     '/globals.js',
+    `/i18n/i18n.js`,
 ]
 
 module.exports = { lib_paths, css_paths, js_paths }
