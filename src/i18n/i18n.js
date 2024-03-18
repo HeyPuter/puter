@@ -620,7 +620,7 @@ window.translations = {
         all_fields_required: 'Toate câmpurile sunt necesare.',
         apply: "Aplică",
         ascending: 'Ascendent',
-        background: "Fundal",
+        background: "Background",
         browse: "Caută",
         cancel: 'Anulează',
         center: 'Center',
