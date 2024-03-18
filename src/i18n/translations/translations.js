@@ -5,6 +5,7 @@ import en from './en.js';
 import fa from './fa.js';
 import fi from './fi.js';
 import fr from './fr.js';
+import it from './it.js';
 import ko from './ko.js';
 import nb from './nb.js';
 import nn from './nn.js';
@@ -20,6 +21,7 @@ export default {
     fa,
     fi,
     fr,
+    it,
     ko,
     nb,
     nn,
