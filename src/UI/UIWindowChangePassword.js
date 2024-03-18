@@ -29,22 +29,22 @@ async function UIWindowChangePassword(){
         h += `<div class="form-success-msg"></div>`;
         // current password
         h += `<div style="overflow: hidden; margin-bottom: 20px;">`;
-            h += `<label for="current-password-${internal_id}">Current Password</label>`;
+            h += `<label for="current-password-${internal_id}">${i18n('current_password')}</label>`;
             h += `<input id="current-password-${internal_id}" class="current-password" type="password" name="current-password" autocomplete="current-password" />`;
         h += `</div>`;
         // new password
         h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
-            h += `<label for="new-password-${internal_id}">New Password</label>`;
+            h += `<label for="new-password-${internal_id}">${i18n('new_password')}</label>`;
             h += `<input id="new-password-${internal_id}" type="password" class="new-password" name="new-password" autocomplete="off" />`;
         h += `</div>`;
         // confirm new password
         h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
-            h += `<label for="confirm-new-password-${internal_id}">Confirm New Password</label>`;
+            h += `<label for="confirm-new-password-${internal_id}">${i18n('confirm_new_password')}</label>`;
             h += `<input id="confirm-new-password-${internal_id}" type="password" name="confirm-new-password" class="confirm-new-password" autocomplete="off" />`;
         h += `</div>`;
 
         // Change Password
-        h += `<button class="change-password-btn button button-primary button-block button-normal">Change Password</button>`;
+        h += `<button class="change-password-btn button button-primary button-block button-normal">${i18n('change_password')}</button>`;
     h += `</div>`;
 
     const el_window = await UIWindow({
@@ -93,7 +93,7 @@ async function UIWindowChangePassword(){
             return;
         }
         else if(new_password !== confirm_new_password){
-            $(el_window).find('.form-error-msg').html('`New Password` and `Confirm New Password` do not match.');
+            $(el_window).find('.form-error-msg').html(i18n('passwords_do_not_match'));
             $(el_window).find('.form-error-msg').fadeIn();
             return;
         }
@@ -113,7 +113,7 @@ async function UIWindowChangePassword(){
                 new_pass: new_password,
             }),				
             success: function (data){
-                $(el_window).find('.form-success-msg').html('Password changed successfully.');
+                $(el_window).find('.form-success-msg').html(i18n('password_changed'));
                 $(el_window).find('.form-success-msg').fadeIn();
                 $(el_window).find('input').val('');
             },

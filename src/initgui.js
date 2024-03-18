@@ -33,6 +33,7 @@ import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import PuterDialog from './UI/PuterDialog.js';
+import determine_active_container_parent from './helpers/determine_active_container_parent.js';
 
 window.initgui = async function(){
     let url = new URL(window.location);
@@ -44,6 +45,10 @@ window.initgui = async function(){
     // update SDK if api_origin is different from the one in the SDK
     if(window.api_origin && puter.APIOrigin !== window.api_origin)
         puter.setAPIOrigin(api_origin);
+
+    // determine locale
+    const userLang = navigator.language || navigator.userLanguage || 'en';
+    window.locale = userLang?.split('-')[0] ?? 'en';
 
     // Checks the type of device the user is on (phone, tablet, or desktop).
     // Depending on the device type, it sets a class attribute on the body tag 
@@ -76,6 +81,13 @@ window.initgui = async function(){
     const url_paths = window.location.pathname.split('/').filter(element => element);
     if(url_paths[0]?.toLocaleLowerCase() === 'app' && url_paths[1]){
         window.app_launched_from_url = url_paths[1];
+
+        // get query params, any param that doesn't start with 'puter.' will be passed to the app
+        window.app_query_params = {};
+        for (let [key, value] of url_query_params) {
+            if(!key.startsWith('puter.'))
+                app_query_params[key] = value;
+        }
     }
 
     //--------------------------------------------------------------------------------------
@@ -1978,4 +1990,32 @@ function requestOpenerOrigin() {
 
 $(document).on('click', '.generic-close-window-button', function(e){
     $(this).closest('.window').close();
+});
+
+// Re-calculate desktop height and width on window resize and re-position the login and signup windows
+$(window).on("resize", function () {
+    // If host env is popup, don't continue because the popup window has its own resize requirements.
+    if (window.embedded_in_popup)
+        return;
+
+    const ratio = window.desktop_width / window.innerWidth;
+
+    window.desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
+    window.desktop_width = window.innerWidth;
+
+    // Re-center the login window
+    const top = $(".window-login").position()?.top;
+    const width = $(".window-login").width();
+    $(".window-login").css({
+        left: (window.desktop_width - width) / 2,
+        top: top / ratio,
+    });
+
+    // Re-center the create account window
+    const top2 = $(".window-signup").position()?.top;
+    const width2 = $(".window-signup").width();
+    $(".window-signup").css({
+        left: (window.desktop_width - width2) / 2,
+        top: top2 / ratio,
+    });
 });

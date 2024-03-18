@@ -29,13 +29,13 @@ async function UIWindowProgressEmptyTrash(options){
             // message
             h +=`<div style="margin-bottom:20px; float:left; padding-top:3px; font-size:15px; overflow: hidden; width: calc(100% - 40px); text-overflow: ellipsis; white-space: nowrap;">`;
                 // text
-                h += `<span class="newfolder-progress-msg">Emptying the Trash...</span>`;
+                h += `<span class="newfolder-progress-msg">${i18n('emptying_trash')}</span>`;
             h += `</div>`;
         h +=`</div>`;
     h += `</div>`;
 
     const el_window = await UIWindow({
-        title: `Creating New Folder`,
+        title: i18n('emptying_trash'),
         icon: window.icons[`app-icon-newfolder.svg`],
         uid: null,
         is_dir: false,

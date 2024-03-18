@@ -33,6 +33,7 @@ import UIWindowLogin from "./UIWindowLogin.js"
 import UIWindowQR from "./UIWindowQR.js"
 import UIWindowRefer from "./UIWindowRefer.js"
 import UITaskbar from "./UITaskbar.js"
+import new_context_menu_item from "../helpers/new_context_menu_item.js"
 
 async function UIDesktop(options){
     let h = '';
@@ -621,7 +622,7 @@ async function UIDesktop(options){
                     // Sort by
                     // -------------------------------------------
                     {
-                        html: "Sort by",
+                        html: i18n('sort_by'),
                         items: [
                             {
                                 html: `Auto Arrange`,
@@ -645,6 +646,7 @@ async function UIDesktop(options){
                             {
                                 html: `Name`,
                                 disabled: !is_auto_arrange_enabled,
+                                html: i18n('name'),
                                 icon: $(el_desktop).attr('data-sort_by') === 'name' ? '✓' : '',
                                 onClick: async function(){
                                     sort_items(el_desktop, 'name', $(el_desktop).attr('data-sort_order'));
@@ -654,6 +656,7 @@ async function UIDesktop(options){
                             {
                                 html: `Date modified`,
                                 disabled: !is_auto_arrange_enabled,
+                                html: i18n('date_modified'),
                                 icon: $(el_desktop).attr('data-sort_by') === 'modified' ? '✓' : '',
                                 onClick: async function(){
                                     sort_items(el_desktop, 'modified', $(el_desktop).attr('data-sort_order'));
@@ -663,6 +666,7 @@ async function UIDesktop(options){
                             {
                                 html: `Type`,
                                 disabled: !is_auto_arrange_enabled,
+                                html: i18n('type'),
                                 icon: $(el_desktop).attr('data-sort_by') === 'type' ? '✓' : '',
                                 onClick: async function(){
                                     sort_items(el_desktop, 'type', $(el_desktop).attr('data-sort_order'));
@@ -672,6 +676,7 @@ async function UIDesktop(options){
                             {
                                 html: `Size`,
                                 disabled: !is_auto_arrange_enabled,
+                                html: i18n('size'),
                                 icon: $(el_desktop).attr('data-sort_by') === 'size' ? '✓' : '',
                                 onClick: async function(){
                                     sort_items(el_desktop, 'size', $(el_desktop).attr('data-sort_order'));
@@ -685,6 +690,7 @@ async function UIDesktop(options){
                             {
                                 html: `Ascending`,
                                 disabled: !is_auto_arrange_enabled,
+                                html: i18n('ascending'),
                                 icon: $(el_desktop).attr('data-sort_order') === 'asc' ? '✓' : '',
                                 onClick: async function(){
                                     const sort_by = $(el_desktop).attr('data-sort_by')
@@ -695,6 +701,7 @@ async function UIDesktop(options){
                             {
                                 html: `Descending`,
                                 disabled: !is_auto_arrange_enabled,
+                                html: i18n('descending'),
                                 icon: $(el_desktop).attr('data-sort_order') === 'desc' ? '✓' : '',
                                 onClick: async function(){
                                     const sort_by = $(el_desktop).attr('data-sort_by')
@@ -708,7 +715,7 @@ async function UIDesktop(options){
                     // Refresh
                     // -------------------------------------------
                     {
-                        html: "Refresh",
+                        html: i18n('refresh'),
                         onClick: function(){
                             refresh_item_container(el_desktop);
                         }
@@ -717,7 +724,8 @@ async function UIDesktop(options){
                     // Show/Hide hidden files
                     // -------------------------------------------
                     {
-                        html: `${window.user_preferences.show_hidden_files ? 'Hide' : 'Show'} hidden files`,
+                        html: i18n('show_hidden'),
+                        icon: window.user_preferences.show_hidden_files ? '✓' : '',
                         onClick: function(){
                             window.mutate_user_preferences({
                                 show_hidden_files : !window.user_preferences.show_hidden_files,
@@ -732,7 +740,7 @@ async function UIDesktop(options){
                     // -------------------------------------------
                     // New File
                     // -------------------------------------------
-                    window.new_context_menu_item(desktop_path, el_desktop),
+                    new_context_menu_item(desktop_path, el_desktop),
                     // -------------------------------------------
                     // -
                     // -------------------------------------------
@@ -741,7 +749,7 @@ async function UIDesktop(options){
                     // Paste
                     // -------------------------------------------
                     {
-                        html: "Paste",
+                        html: i18n('paste'),
                         disabled: clipboard.length > 0 ? false : true,
                         onClick: function(){
                             if(clipboard_op === 'copy')
@@ -754,7 +762,7 @@ async function UIDesktop(options){
                     // Undo
                     // -------------------------------------------
                     {
-                        html: "Undo",
+                        html: i18n('undo'),
                         disabled: actions_history.length > 0 ? false : true,
                         onClick: function(){
                             undo_last_action();
@@ -764,20 +772,11 @@ async function UIDesktop(options){
                     // Upload Here
                     // -------------------------------------------
                     {
-                        html: "Upload Here",
+                        html: i18n('upload_here'),
                         onClick: function(){
                             init_upload_using_dialog(el_desktop);
                         }
                     },
-                    // -------------------------------------------
-                    // Request Files
-                    // -------------------------------------------
-                    // {
-                    //     html: "Request Files",
-                    //     onClick: function(){
-                    //         UIWindowRequestFiles({dir_path: desktop_path})                       
-                    //     }
-                    // },
                     // -------------------------------------------
                     // -
                     // -------------------------------------------
@@ -786,7 +785,7 @@ async function UIDesktop(options){
                     // Change Desktop Background…
                     // -------------------------------------------
                     {
-                        html: "Change Desktop Background…",
+                        html: i18n('change_desktop_background'),
                         onClick: function(){
                             UIWindowDesktopBGSettings();
                         }
@@ -955,6 +954,7 @@ async function UIDesktop(options){
                 name: app_launched_from_url,
                 readURL: qparams.get('readURL'),
                 maximized: qparams.get('maximized'),
+                params: app_query_params ?? [],
                 is_fullpage: window.is_fullpage_mode,
                 window_options: {
                     stay_on_top: false,
@@ -1159,7 +1159,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             // My Websites
             //--------------------------------------------------
             {
-                html: "My Websites",
+                html: i18n('my_websites'),
                 onClick: async function(){
                     UIWindowMyWebsites();
                 }
@@ -1168,7 +1168,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             // Change Username
             //--------------------------------------------------
             {
-                html: "Change Username",
+                html: i18n('change_username'),
                 onClick: async function(){
                     UIWindowChangeUsername();
                 }
@@ -1178,7 +1178,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             // Change Password
             //--------------------------------------------------
             {
-                html: "Change Password",
+                html: i18n('change_password'),
                 onClick: async function(){
                     UIWindowChangePassword();
                 }
@@ -1187,7 +1187,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             // Contact Us
             //--------------------------------------------------
             {
-                html: "Contact Us",
+                html: i18n('contact_us'),
                 onClick: async function(){
                     UIWindowFeedback();
                 }
@@ -1201,7 +1201,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             // Log Out
             //--------------------------------------------------
             {
-                html: "Log Out",
+                html: i18n('log_out'),
                 onClick: async function(){
                     // see if there are any open windows, if yes notify user
                     if($('.window-app').length > 0){

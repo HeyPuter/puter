@@ -28,18 +28,18 @@ async function UIWindowQR(options){
             // success
             h += `<div class="feedback-sent-success">`;
                 h += `<img src="${html_encode(window.icons['c-check.svg'])}" style="width:50px; height:50px; display: block; margin:10px auto;">`;
-                h += `<p style="text-align:center; margin-bottom:10px; color: #005300; padding: 10px;">Thank you for contacting us. If you have an email associated with your account, you will hear back from us as soon as possible.</p>`;
+                h += `<p style="text-align:center; margin-bottom:10px; color: #005300; padding: 10px;">${i18n('feedback_sent_confirmation')}</p>`;
             h+= `</div>`;
             // form
             h += `<div class="feedback-form">`;
-                h += `<p style="margin-top:0; font-size: 15px; -webkit-font-smoothing: antialiased;">Please use the form below to send us your feedback, comments, and bug reports.</p>`;
+                h += `<p style="margin-top:0; font-size: 15px; -webkit-font-smoothing: antialiased;">${i18n('feedback_c2a')}</p>`;
                 h += `<textarea class="feedback-message" style="width:100%; height: 200px; padding: 10px; box-sizing: border-box;"></textarea>`;
-                h += `<button class="button button-primary send-feedback-btn" style="float: right; margin-bottom: 15px; margin-top: 10px;">Send</button>`;
+                h += `<button class="button button-primary send-feedback-btn" style="float: right; margin-bottom: 15px; margin-top: 10px;">${i18n('send')}</button>`;
             h += `</div>`;
         h += `</div>`;
 
         const el_window = await UIWindow({
-            title: 'Contact Us',
+            title: i18n('contact_us'),
             app: 'feedback',
             single_instance: true,
             icon: null,

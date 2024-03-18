@@ -25,8 +25,8 @@ async function UIWindowItemProperties(item_name, item_path, item_uid, left, top,
     h += `<div class="item-props-tabview" style="display: flex; flex-direction: column; height: 100%;">`;
         // tabs
         h += `<div class="item-props-tab">`;
-            h += `<div class="item-props-tab-btn antialiased disable-user-select item-props-tab-selected" data-tab="general">General</div>`;
-            h += `<div class="item-props-tab-btn antialiased disable-user-select item-props-tab-btn-versions" data-tab="versions">Versions</div>`;
+            h += `<div class="item-props-tab-btn antialiased disable-user-select item-props-tab-selected" data-tab="general">${i18n('general')}</div>`;
+            h += `<div class="item-props-tab-btn antialiased disable-user-select item-props-tab-btn-versions" data-tab="versions">${i18n('versions')}</div>`;
         h += `</div>`;
 
         h+= `<div class="item-props-tab-content item-props-tab-content-selected" data-tab="general" style="border-top-left-radius:0;">`;
@@ -44,7 +44,7 @@ async function UIWindowItemProperties(item_name, item_path, item_uid, left, top,
                 h += `<tr><td class="item-prop-label">Versions</td><td class="item-prop-val item-prop-val-versions"></td></tr>`;
                 h += `<tr><td class="item-prop-label">Associated Websites</td><td class="item-prop-val item-prop-val-websites">`;
                 h += `</td></tr>`;
-                h += `<tr><td class="item-prop-label">Access Granted To</td><td class="item-prop-val item-prop-val-permissions"></td></tr>`;
+                h += `<tr><td class="item-prop-label">${i18n('access_granted_to')}</td><td class="item-prop-val item-prop-val-permissions"></td></tr>`;
             h += `</table>`;
         h += `</div>`;
 

@@ -409,17 +409,17 @@ window.globToRegExp = function (glob, opts) {
  */
 window.validate_fsentry_name = function(name){
     if(!name)
-        throw {message: 'Name cannot be empty.'}
+        throw {message: i18n('name_cannot_be_empty')}
     else if(!isString(name))
-        throw {message: "Name can only be a string."}
+        throw {message: i18n('name_must_be_string')}
     else if(name.includes('/'))
-        throw {message: "Name cannot contain the '/' character."}
+        throw {message: i18n('name_cannot_contain_slash')}
     else if(name === '.')
-        throw {message: "Name can not be the '.' character."};
+        throw {message: i18n('name_cannot_contain_period')};
     else if(name === '..')
-        throw {message: "Name can not be the '..' character."};
+        throw {message: i18n('name_cannot_contain_double_period')};
     else if(name.length > window.max_item_name_length)
-        throw {message: `Name can not be longer than ${config.max_item_name_length} characters`}
+        throw {message: i18n('name_too_long', config.max_item_name_length)}
     else
         return true
 }
@@ -1906,6 +1906,7 @@ window.launch_app = async (options)=>{
 
         // add app_instance_id to URL
         iframe_url.searchParams.append('puter.app_instance_id', uuid);
+
         // add app_id to URL
         iframe_url.searchParams.append('puter.app.id', app_info.uuid);
 
@@ -1941,6 +1942,7 @@ window.launch_app = async (options)=>{
         else if(options.token){
             iframe_url.searchParams.append('puter.auth.token', options.token);
         }
+
         // Try to acquire app token from the server
         else{
             let response = await fetch(window.api_origin + "/auth/get-user-app-token", {
@@ -1979,13 +1981,6 @@ window.launch_app = async (options)=>{
             window_class: 'window-app',
             update_window_url: true,
             app_uuid: app_info.uuid ?? app_info.uid,
-            // has_head: options.has_head ?? true,
-            // top: options.top ?? undefined,
-            // left: options.left ?? undefined,
-            // width: options.width ?? undefined,
-            // height: options.height ?? undefined,
-            // is_resizable: options.is_resizable ?? undefined,
-            // window_css: options.window_css ?? undefined,
             top: options.maximized ? 0 : undefined,
             left: options.maximized ? 0 : undefined,
             height: options.maximized ? `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)` : undefined,
@@ -2241,63 +2236,6 @@ window.open_item = async function(options){
             });
         }
     }    
-}
-
-/**
- * Returns a context menu item to create a new file/folder. 
- * 
- * @param {string} dirname - The directory path to create the item in
- * @param {HTMLElement} append_to_element - Element to append the new item to 
- * @returns {Object} The context menu item object
- */
-
-window.new_context_menu_item = function(dirname, append_to_element){
-    return {
-        html: "New",
-        items: [
-            // New Folder
-            {
-                html: "New Folder",
-                icon: `<img src="${html_encode(window.icons['folder.svg'])}" class="ctx-item-icon">`,
-                onClick: function(){
-                    create_folder(dirname, append_to_element);
-                }
-            },
-            // divider
-            '-',
-            // Text Document
-            {
-                html: `Text Document`,
-                icon: `<img src="${html_encode(window.icons['file-text.svg'])}" class="ctx-item-icon">`,
-                onClick: async function(){
-                    create_file({dirname: dirname, append_to_element: append_to_element, name: 'New File.txt'});
-                }
-            },
-            // HTML Document
-            {
-                html: `HTML Document`,
-                icon: `<img src="${html_encode(window.icons['file-html.svg'])}" class="ctx-item-icon">`,
-                onClick: async function(){
-                    create_file({dirname: dirname, append_to_element: append_to_element, name: 'New File.html'});
-                }
-            },
-            // JPG Image
-            {
-                html: `JPG Image`,
-                icon: `<img src="${html_encode(window.icons['file-image.svg'])}" class="ctx-item-icon">`,
-                onClick: async function(){
-                    var canvas = document.createElement("canvas");
-
-                    canvas.width = 800;
-                    canvas.height = 600;
-                    
-                    canvas.toBlob((blob) =>{
-                        create_file({dirname: dirname, append_to_element: append_to_element, name: 'New Image.jpg', content: blob});
-                    });
-                }
-            },
-        ]
-    }
 }
 
 /**
@@ -3126,29 +3064,6 @@ window.getUsage = () => {
     });
 
 }  
-
-window.determine_active_container_parent = function(){
-    // the container is either an ancestor of active element...
-    let parent_container = $(active_element).closest('.item-container');
-    // ... or a descendant of it...
-    if(parent_container.length === 0){
-        parent_container = $(active_element).find('.item-container');
-    }
-    // ... or siblings or cousins
-    if(parent_container.length === 0){
-        parent_container = $(active_element).closest('.window').find('.item-container');
-    }
-    // ... or the active element itself (if it's a container)
-    if(parent_container.length === 0 && active_element && $(active_element).hasClass('item-container')){
-        parent_container = $(active_element);
-    }
-    // ... or if there is no active element, the selected item that is not blurred
-    if(parent_container.length === 0 && active_item_container){
-        parent_container = active_item_container;
-    }
-
-    return parent_container;
-}
 
 window.getAppUIDFromOrigin = async function(origin) {
     try {

@@ -27,11 +27,13 @@ const lib_paths =[
     `/lib/jquery-ui-1.13.2/jquery-ui.min.js`,
     `/lib/lodash@4.17.21.min.js`,
     `/lib/jquery.dragster.js`,
+    '/lib/jquery.menu-aim.js',
     `/lib/html-entities.js`,
     `/lib/timeago.min.js`,
     `/lib/iro.min.js`,
     `/lib/isMobile.min.js`,
     `/lib/jszip-3.10.1.min.js`,
+    `/i18n/i18n.js`,
 ]
 
 // Ordered list of CSS stylesheets

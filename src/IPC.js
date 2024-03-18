@@ -333,7 +333,6 @@ window.addEventListener('message', async (event) => {
             initiating_app_uuid: app_uuid,
         });
     }
-
     //--------------------------------------------------------
     // setWindowTitle
     //--------------------------------------------------------
@@ -341,6 +340,98 @@ window.addEventListener('message', async (event) => {
         const el_window = $(`.window[data-element_uuid="${event.data.appInstanceID}"]`).get(0);
         // set window title
         $(el_window).find(`.window-head-title`).html(html_encode(event.data.new_title));
+        // send confirmation to requester window
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id, 
+        }, '*');
+    }
+    //--------------------------------------------------------
+    // setWindowWidth
+    //--------------------------------------------------------
+    else if(event.data.msg === 'setWindowWidth' && event.data.width !== undefined){
+        event.data.width = parseFloat(event.data.width);
+        // must be at least 200
+        if(event.data.width < 200)
+            event.data.width = 200;
+        // set window width
+        $($el_parent_window).css('width', event.data.width);
+        // send confirmation to requester window
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id, 
+        }, '*');
+    }
+    //--------------------------------------------------------
+    // setWindowHeight
+    //--------------------------------------------------------
+    else if(event.data.msg === 'setWindowHeight' && event.data.height !== undefined){
+        event.data.height = parseFloat(event.data.height);
+        // must be at least 200
+        if(event.data.height < 200)
+            event.data.height = 200;
+
+        // convert to number and set
+        $($el_parent_window).css('height', event.data.height);
+
+        // send confirmation to requester window
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id, 
+        }, '*');
+    }
+    //--------------------------------------------------------
+    // setWindowSize
+    //--------------------------------------------------------
+    else if(event.data.msg === 'setWindowSize' && (event.data.width !== undefined || event.data.height !== undefined)){
+        // convert to number and set
+        if(event.data.width !== undefined){
+            event.data.width = parseFloat(event.data.width);
+            // must be at least 200
+            if(event.data.width < 200)
+                event.data.width = 200;
+            $($el_parent_window).css('width', event.data.width);
+        }
+        
+        if(event.data.height !== undefined){
+            event.data.height = parseFloat(event.data.height);
+            // must be at least 200
+            if(event.data.height < 200)
+                event.data.height = 200;
+            $($el_parent_window).css('height', event.data.height);
+        }
+
+        // send confirmation to requester window
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id, 
+        }, '*');
+    }
+    //--------------------------------------------------------
+    // setWindowPosition
+    //--------------------------------------------------------
+    else if(event.data.msg === 'setWindowPosition' && (event.data.x !== undefined || event.data.y !== undefined)){
+        // convert to number and set
+        if(event.data.x !== undefined){
+            event.data.x = parseFloat(event.data.x);
+            // we don't want the window to go off the left edge of the screen
+            if(event.data.x < 0)
+                event.data.x = 0;
+            // we don't want the window to go off the right edge of the screen
+            if(event.data.x > window.innerWidth - 100)
+                event.data.x = window.innerWidth - 100;
+            // set window left
+            $($el_parent_window).css('left', parseFloat(event.data.x));
+        }
+
+        if(event.data.y !== undefined){
+            event.data.y = parseFloat(event.data.y);
+            // we don't want the window to go off the top edge of the screen
+            if(event.data.y < window.taskbar_height)
+                event.data.y = window.taskbar_height;
+            // we don't want the window to go off the bottom edge of the screen
+            if(event.data.y > window.innerHeight - 100)
+                event.data.y = window.innerHeight - 100;
+            // set window top
+            $($el_parent_window).css('top', parseFloat(event.data.y));
+        }
+
         // send confirmation to requester window
         target_iframe.contentWindow.postMessage({
             original_msg_id: msg_id, 

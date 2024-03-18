@@ -30,16 +30,16 @@ async function UIWindowChangeUsername(){
         h += `<div class="form-success-msg"></div>`;
         // new username
         h += `<div style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">`;
-            h += `<label for="confirm-new-username-${internal_id}">New Username</label>`;
+            h += `<label for="confirm-new-username-${internal_id}">${i18n('new_username')}</label>`;
             h += `<input id="confirm-new-username-${internal_id}" type="text" name="new-username" class="new-username" autocomplete="off" />`;
         h += `</div>`;
 
         // Change Username
-        h += `<button class="change-username-btn button button-primary button-block button-normal">Change Username</button>`;
+        h += `<button class="change-username-btn button button-primary button-block button-normal">${i18n('change_username')}</button>`;
     h += `</div>`;
 
     const el_window = await UIWindow({
-        title: 'Change Username',
+        title: i18n('change_username'),
         app: 'change-username',
         single_instance: true,
         icon: null,
@@ -78,7 +78,7 @@ async function UIWindowChangeUsername(){
         const new_username = $(el_window).find('.new-username').val();
 
         if(!new_username){
-            $(el_window).find('.form-error-msg').html('All fields are required.');
+            $(el_window).find('.form-error-msg').html(i18n('all_fields_required'));
             $(el_window).find('.form-error-msg').fadeIn();
             return;
         }
@@ -102,7 +102,7 @@ async function UIWindowChangeUsername(){
                 new_username: new_username, 
             }),				
             success: function (data){
-                $(el_window).find('.form-success-msg').html('Username updated successfully.');
+                $(el_window).find('.form-success-msg').html(i18n('username_changed'));
                 $(el_window).find('.form-success-msg').fadeIn();
                 $(el_window).find('input').val('');
                 // update auth data

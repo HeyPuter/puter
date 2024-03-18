@@ -26,13 +26,13 @@ function UIWindowRecoverPassword(options){
 
         let h = '';
         h += `<div style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; color: #3e5362;">`;
-            h += `<h3 style="text-align:center; font-weight: 400; font-size: 20px;">Recover Password</h3>`;
+            h += `<h3 style="text-align:center; font-weight: 400; font-size: 20px;">${i18n('recover_password')}</h3>`;
             h += `<form class="pass-recovery-form">`;
                 h += `<p style="text-align:center; padding: 0 20px;"></p>`;
                 h += `<div class="error"></div>`;
-                h += `<label>Email or Username</label>`;
+                h += `<label>${i18n('email_or_username')}</label>`;
                 h += `<input class="pass-recovery-username-or-email" type="text"/>`;
-                h += `<button type="submit" class="send-recovery-email button button-block button-primary" style="margin-top:10px;">Send Recovery Email</button>`;
+                h += `<button type="submit" class="send-recovery-email button button-block button-primary" style="margin-top:10px;">${i18n('send_password_recovery_email')}</button>`;
             h += `</form>`;
         h += `</div>`;
 

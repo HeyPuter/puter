@@ -42,13 +42,13 @@ async function UIWindowColorPicker(options){
                     h += `</div>`;
 
                     // Select button
-                    h += `<button class="select-btn button button-primary button-block button-normal">Select</button>`
+                    h += `<button class="select-btn button button-primary button-block button-normal">${i18n('select')}</button>`
                 h += `</form>`;
             h += `</div>`;
         h += `</div>`;
         
         const el_window = await UIWindow({
-            title: 'Select color…',
+            title: i18n('select_color'),
             app: 'color-picker',
             single_instance: true,
             icon: null,

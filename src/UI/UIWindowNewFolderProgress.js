@@ -29,7 +29,7 @@ async function UIWindowNewFolderProgress(options){
             // message
             h +=`<div style="margin-bottom:20px; float:left; padding-top:3px; font-size:15px; overflow: hidden; width: calc(100% - 40px); text-overflow: ellipsis; white-space: nowrap;">`;
                 // text
-                h += `<span class="newfolder-progress-msg">Taking a little longer than usual. Please wait...</span>`;
+                h += `<span class="newfolder-progress-msg">${i18n('taking_longer_than_usual')}</span>`;
             h += `</div>`;
         h +=`</div>`;
     h += `</div>`;
