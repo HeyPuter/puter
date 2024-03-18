@@ -144,7 +144,7 @@ $(document).on('click', '.mywebsites-site-setting', function(e){
                                 type: 'primary',
                             },
                             {
-                                label: 'Cancel'
+                                label: i18n('cancel')
                             },
                         ]
                     })

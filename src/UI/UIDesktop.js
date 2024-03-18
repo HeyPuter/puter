@@ -1197,18 +1197,18 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
                     // see if there are any open windows, if yes notify user
                     if($('.window-app').length > 0){
                         const alert_resp = await UIAlert({
-                            message: `<p>You have open apps. Are you sure you want to log out?</p>`,
+                            message: `<p></p>`,
                             buttons:[
                                 {
-                                    label: 'Close Windows and Log Out',
+                                    label: i18n('close_all_Windows_and_log_out'),
                                     type: 'primary',
                                 },
                                 {
-                                    label: 'Cancel'
+                                    label: i18n('cancel')
                                 },
                             ]
                         })
-                        if(alert_resp === 'Close Windows and Log Out')
+                        if(alert_resp === i18n('close_all_Windows_and_log_out'))
                             logout();
                     }
                     // no open windows
@@ -1285,16 +1285,16 @@ $(document).on('click', '.user-options-login-btn', async function(e){
         message: `<strong>Save session before exiting!</strong><p>You are in a temporary session and logging into another account will erase all data in your current session.</p>`,
         buttons:[
             {
-                label: 'Save session',
+                label: i18n('save_session'),
                 value: 'save-session',
                 type: 'primary',
             },
             {
-                label: 'Log into another account anyway',
+                label: i18n('log_into_another_account_anyway'),
                 value: 'login',
             },
             {
-                label: 'Cancel'
+                label: i18n('cancel')
             },
         ]
     })

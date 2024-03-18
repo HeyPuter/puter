@@ -159,7 +159,7 @@ function UIItem(options){
         h += `</div>`;
 
         // name
-        h += `<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${html_encode(truncate_filename(options.name, TRUNCATE_LENGTH)).replaceAll(' ', '&nbsp;')}</span>`
+        h += `<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${options.is_trash ? i18n('trash') : html_encode(truncate_filename(options.name, TRUNCATE_LENGTH)).replaceAll(' ', '&nbsp;')}</span>`
         // name editor
         h += `<textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${html_encode(options.name)}</textarea>`
     h += `</div>`;
@@ -827,14 +827,14 @@ function UIItem(options){
                     html: i18n('delete_permanently'),
                     onClick: async function(){
                         const alert_resp = await UIAlert({
-                            message: `Are you sure you want to permanently delete these items?`,
+                            message: i18n('confirm_delete_multiple_items'),
                             buttons:[
                                 {
-                                    label: 'Delete',
+                                    label: i18n('delete'),
                                     type: 'primary',
                                 },
                                 {
-                                    label: 'Cancel'
+                                    label: i18n('cancel')
                                 },
                             ]
                         })
@@ -1245,14 +1245,14 @@ function UIItem(options){
                     html: i18n('delete_permanently'),
                     onClick: async function(){
                         const alert_resp = await UIAlert({
-                            message: `Are you sure you want to permanently delete this item?`,
+                            message: ` you want to permanently delete this item?`,
                             buttons:[
                                 {
-                                    label: 'Delete',
+                                    label: i18n('delete'),
                                     type: 'primary',
                                 },
                                 {
-                                    label: 'Cancel'
+                                    label: i18n('cancel')
                                 },
                             ]
                         })

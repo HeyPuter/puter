@@ -2018,19 +2018,19 @@ async function UIWindow(options) {
                         // Empty Trash
                         // -------------------------------------------
                         {
-                            html: "Empty Trash",
+                            html: i18n('empty_trash'),
                             disabled: false,
                             onClick: async function(){
                                 const alert_resp = await UIAlert({
                                     message: i18n('empty_trash_confirmation'),
                                     buttons:[
                                         {
-                                            label: 'Yes',
+                                            label: i18n('yes'),
                                             value: 'yes',
                                             type: 'primary',
                                         },
                                         {
-                                            label: 'No',
+                                            label: i18n('no'),
                                             value: 'no',
                                         },
                                     ]
@@ -2517,7 +2517,7 @@ window.navbar_path = (abs_path)=>{
     }
     let str = `${path_seperator_html}<span class="window-navbar-path-dirname" data-path="${html_encode('/')}">${html_encode(window.root_dirname)}</span>`;
     for(let k=1; k<dirs.length; k++){
-        str += `${path_seperator_html}<span class="window-navbar-path-dirname" data-path="${html_encode(dirpaths[k])}">${html_encode(dirs[k])}</span>`;
+        str += `${path_seperator_html}<span class="window-navbar-path-dirname" data-path="${html_encode(dirpaths[k])}">${dirs[k] === 'Trash' ? i18n('trash') : html_encode(dirs[k])}</span>`;
     }
     return str;
 }
