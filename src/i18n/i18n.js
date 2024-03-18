@@ -616,7 +616,7 @@ window.translations = {
     },
     //french
     fr: {
-        access_granted_to: "Access Granted To",
+        access_granted_to: "Accès accordé à",
         add_existing_account: "Ajouter un compte existant",
         all_fields_required: 'All fields are required.',
         apply: "Appliquer",
