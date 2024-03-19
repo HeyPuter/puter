@@ -14,6 +14,7 @@ import nn from './nn.js';
 import ro from './ro.js';
 import sv from './sv.js';
 import zh from './zh.js';
+import emojiLanguage from './emoji.js';
 
 export default {
     bn,
@@ -32,4 +33,5 @@ export default {
     ro,
     sv,
     zh,
+    emojiLanguage
 };
