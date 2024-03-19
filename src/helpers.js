@@ -1031,7 +1031,7 @@ window.show_save_account_notice_if_needed = function(message){
                         body_icon: window.icons['reminder.svg'],
                         buttons:[
                             {
-                                label: 'Save session',
+                                label: i18n('save_session'),
                                 value: 'save-session',
                                 type: 'primary',
                             },
@@ -1565,17 +1565,17 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
                         const alert_resp = await UIAlert({
                             message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                             buttons:[
-                                {label: 'Replace', type: 'primary'},
-                                ... (clipboard.length > 1) ? [{label: 'Replace all'}] : [],
-                                ... (clipboard.length > 1) ? [{label: 'Skip'}] : [{label: 'Cancel'}],
+                                {label: i18n('replace'), type: 'primary', value: 'replace'},
+                                ... (clipboard.length > 1) ? [{label: i18n('replace_all'), value: 'replace_all'}] : [],
+                                ... (clipboard.length > 1) ? [{label: i18n('skip'), value: 'skip'}] : [{label: i18n('cancel'), value: 'cancel'}],
                             ]
                         })
-                        if(alert_resp === 'Replace'){
+                        if(alert_resp === 'replace'){
                             overwrite = true;
-                        }else if (alert_resp === 'Replace all'){
+                        }else if (alert_resp === 'replace_all'){
                             overwrite = true;
                             overwrite_all = true;
-                        }else if(alert_resp === 'Skip' || alert_resp === 'Cancel'){
+                        }else if(alert_resp === 'skip' || alert_resp === 'cancel'){
                             item_with_same_name_already_exists = false;
                         }
                     }
@@ -1662,17 +1662,17 @@ window.copy_items = function(el_items, dest_path){
                         const alert_resp = await UIAlert({
                             message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                             buttons:[
-                                { label: 'Replace', type: 'primary' },
-                                ... (el_items.length > 1) ? [{label: 'Replace all'}] : [],
-                                ... (el_items.length > 1) ? [{label: 'Skip'}] : [{label: 'Cancel'}],
+                                { label: i18n('replace'), type: 'primary', value: 'replace' },
+                                ... (el_items.length > 1) ? [{label: i18n('replace_all'), value: 'replace_all'}] : [],
+                                ... (el_items.length > 1) ? [{label: i18n('skip'), value: 'skip'}] : [{label: i18n('cancel'), value: 'cancel'}],
                             ]
                         })
-                        if(alert_resp === 'Replace'){
+                        if(alert_resp === 'replace'){
                             overwrite = true;
-                        }else if (alert_resp === 'Replace all'){
+                        }else if (alert_resp === 'replace_all'){
                             overwrite = true;
                             overwrite_all = true;
-                        }else if(alert_resp === 'Skip' || alert_resp === 'Cancel'){
+                        }else if(alert_resp === 'skip' || alert_resp === 'cancel'){
                             item_with_same_name_already_exists = false;
                         }
                     }
@@ -2208,15 +2208,16 @@ window.open_item = async function(options){
                     'Found no suitable apps to open this file with. Would you like to download it instead?',
                     [
                     {
-                        label: 'Download File',
+                        label: i18n('download_file'),
+                        value: 'download_file',
                         type: 'primary',
 
                     },
                     {
-                        label: 'Cancel'
+                        label: i18n('cancel')
                     }
                 ])
-            if(alert_resp === 'Download File'){
+            if(alert_resp === 'download_file'){
                 trigger_download([item_path]);
             }
             return;
@@ -2586,17 +2587,17 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
                     const alert_resp = await UIAlert({
                         message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                         buttons:[
-                            { label: 'Replace', type: 'primary',},
-                            ... (el_items.length > 1) ? [{label: 'Replace all'}] : [],
-                            ... (el_items.length > 1) ? [{label: 'Skip'}] : [{label: 'Cancel'}],
+                            { label: i18n('replace'), type: 'primary', value: 'replace' },
+                            ... (el_items.length > 1) ? [{label: i18n('replace_all'), value: 'replace_all'}] : [],
+                            ... (el_items.length > 1) ? [{label: i18n('skip'), value: 'skip'}] : [{label: i18n('cancel'), value: 'cancel'}],
                         ]
                     })
-                    if(alert_resp === 'Replace'){
+                    if(alert_resp === 'replace'){
                         overwrite = true;
-                    }else if (alert_resp === 'Replace all'){
+                    }else if (alert_resp === 'replace_all'){
                         overwrite = true;
                         overwrite_all = true;
-                    }else if(alert_resp === 'Skip' || alert_resp === 'Cancel'){
+                    }else if(alert_resp === 'skip' || alert_resp === 'cancel'){
                         item_with_same_name_already_exists = false;
                     }
                 }
@@ -2973,15 +2974,15 @@ window.upload_items = async function(items, dest_path){
 
 window.empty_trash = async function(){
     const alert_resp = await UIAlert({
-        message: `Are you sure you want to permanently delete the items in Trash?`,
+        message: i18n('empty_trash_confirmation'),
         buttons:[
             {
-                label: 'Yes',
+                label: i18n('yes'),
                 value: 'yes',
                 type: 'primary',
             },
             {
-                label: 'No',
+                label: i18n('no'),
                 value: 'no',
             },
         ]

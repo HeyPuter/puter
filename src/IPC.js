@@ -881,12 +881,12 @@ window.addEventListener('message', async (event) => {
                                     message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                                     buttons:[
                                         {
-                                            label: 'Replace',
+                                            label: i18n('replace'),
                                             value: 'replace',
                                             type: 'primary',
                                         },
                                         {
-                                            label: 'Cancel',
+                                            label: i18n('cancel'),
                                             value: 'cancel',
                                         },
                                     ],
@@ -1032,18 +1032,19 @@ window.addEventListener('message', async (event) => {
                             message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                             buttons:[
                                 {
-                                    label: 'Replace',
+                                    label: i18n('replace'),
                                     type: 'primary',
                                 },
                                 {
-                                    label: 'Cancel'
+                                    label: i18n('cancel'),
+                                    value: 'cancel'
                                 },
                             ],
                             parent_uuid: event.data.appInstanceID,
                         })
                         if(alert_resp === 'Replace'){
                             overwrite = true;
-                        }else if(alert_resp === 'Cancel'){
+                        }else if(alert_resp === 'cancel'){
                             item_with_same_name_already_exists = false;
                         }
                     }else{

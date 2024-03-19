@@ -29,7 +29,7 @@ async function UIWindowDownloadProgress(options){
             // Progress report
             h +=`<div style="margin-bottom:20px; float:left; padding-top:3px; font-size:15px; overflow: hidden; width: calc(100% - 40px); text-overflow: ellipsis; white-space: nowrap;">`;
                 // msg
-                h += `<span class="upload-progress-msg">${i18n('downloading')} <strong>${options.item_name ?? ''}</strong></span>`;
+                h += `<span class="upload-progress-msg">${i18n('downloading')}...<strong>${options.item_name ?? ''}</strong></span>`;
             h += `</div>`;
             // Progress
             h += `<div class="download-progress-bar-container" style="clear:both; margin-top:20px; border-radius:3px;">`;

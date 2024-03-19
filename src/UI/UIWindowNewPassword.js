@@ -116,7 +116,7 @@ async function UIWindowNewPassword(options){
                         backdrop: true,
                         buttons:[
                             {
-                                label: 'Proceed to Login',
+                                label: i18n('proceed_to_login'),
                                 type: 'primary',
                             },
                         ],
