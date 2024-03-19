@@ -1,6 +1,6 @@
-const emojiLanguage = {
+const emoji = {
     name: "🌍",
-    code: "🔤",
+    code: "emoji",
     dictionary: {
         access_granted_to: "🔓✅",
         add_existing_account: "➕🔄👤",
@@ -163,4 +163,4 @@ const emojiLanguage = {
     }
 };
  
-export default emojiLanguage;
+export default emoji;
