@@ -12,7 +12,6 @@ import nn from './nn.js';
 import ro from './ro.js';
 import sv from './sv.js';
 import zh from './zh.js';
-import zh from './zh.js';
 import ar from './ar.js';
 
 export default {
