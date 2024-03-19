@@ -1245,7 +1245,7 @@ function UIItem(options){
                     html: i18n('delete_permanently'),
                     onClick: async function(){
                         const alert_resp = await UIAlert({
-                            message: ` you want to permanently delete this item?`,
+                            message: i18n('configm_delete_single_item'),
                             buttons:[
                                 {
                                     label: i18n('delete'),

@@ -1197,7 +1197,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
                     // see if there are any open windows, if yes notify user
                     if($('.window-app').length > 0){
                         const alert_resp = await UIAlert({
-                            message: `<p></p>`,
+                            message: `<p>${i18n('confirm_open_apps_log_out')}</p>`,
                             buttons:[
                                 {
                                     label: i18n('close_all_Windows_and_log_out'),
