@@ -329,6 +329,7 @@ window.initgui = async function(){
             // Load desktop, only if we're not embedded in a popup
             // -------------------------------------------------------------------------------------
             if(!window.embedded_in_popup){
+                await get_auto_arrange_data()
                 puter.fs.stat(desktop_path, async function(desktop_fsentry){
                     UIDesktop({desktop_fsentry: desktop_fsentry});
                 })
@@ -680,6 +681,7 @@ window.initgui = async function(){
         // Load desktop, if not embedded in a popup
         // -------------------------------------------------------------------------------------
         if(!window.embedded_in_popup){
+            await get_auto_arrange_data();
             puter.fs.stat(desktop_path, function (desktop_fsentry) {
                 UIDesktop({ desktop_fsentry: desktop_fsentry });
             })

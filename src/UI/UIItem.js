@@ -187,6 +187,13 @@ function UIItem(options){
         update_explorer_footer_item_count(el_window);
     }
 
+    // position
+    if(!is_auto_arrange_enabled && options.position && $(el_item).closest('.item-container').attr('data-path') === window.desktop_path){
+        el_item.style.position = 'absolute';
+        el_item.style.left = options.position.left + 'px';
+        el_item.style.top = options.position.top + 'px';
+    }
+
     // --------------------------------------------------------
     // Dragster
     // allow dragging of local files on this window, if it's is_dir
@@ -335,6 +342,19 @@ function UIItem(options){
             }
         },
         stop: function(event, ui){
+            // Allow rearranging only if item is on desktop, not trash container, auto arrange is disabled and item is not dropped into another item
+            if($(el_item).closest('.item-container').attr('data-path') === window.desktop_path && 
+                !is_auto_arrange_enabled && $(el_item).attr('data-path') !== trash_path && !ui.helper.data('dropped') &&
+                // Item must be dropped on the Desktop
+                mouseover_window === undefined){
+    
+                el_item.style.position = 'absolute';
+                el_item.style.left = ui.position.left + 'px';
+                el_item.style.top = ui.position.top + 'px';
+                $('.ui-draggable-dragging').remove();
+                desktop_item_positions[$(el_item).attr('data-uid')] = ui.position;
+                save_desktop_item_positions()
+            }
             $('.item-selected-clone').remove();
             $('.draggable-count-badge').remove();
             // re-enable all droppable UIItems that are not a dir
@@ -362,6 +382,9 @@ function UIItem(options){
             // If ctrl is pressed and source is Trashed, cancel whole operation
             if(event.ctrlKey && path.dirname($(ui.draggable).attr('data-path')) === window.trash_path)
                 return;
+
+            // Adding a flag to know whether item is rearraged or dropped
+            ui.helper.data('dropped', true);
 
             const items_to_move = []
             
@@ -437,6 +460,10 @@ function UIItem(options){
                 }
                 // Otherwise, move items
                 else if(options.is_dir){
+                    if($(el_item).closest('.item-container').attr('data-path') === window.desktop_path){
+                        delete desktop_item_positions[$(el_item).attr('data-uid')];
+                        save_desktop_item_positions()
+                    }
                     move_items(items_to_move, $(el_item).attr('data-shortcut_to_path') !== '' ? $(el_item).attr('data-shortcut_to_path') : $(el_item).attr('data-path'));
                 }
             }
