@@ -57,7 +57,7 @@ function UIAlert(options){
             for(let y=0; y<options.buttons.length; y++){
                 h += `<button class="button button-block button-${html_encode(options.buttons[y].type)} alert-resp-button" 
                                 data-label="${html_encode(options.buttons[y].label)}"
-                                data-value="${html_encode(options.buttons[y].value)}"
+                                data-value="${html_encode(options.buttons[y].value ?? options.buttons[y].label)}"
                                 ${options.buttons[y].type === 'primary' ? 'autofocus' : ''}
                                 >${html_encode(options.buttons[y].label)}</button>`;
             }
