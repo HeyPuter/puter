@@ -20,7 +20,7 @@ const nb = {
         color: "Farge",
         confirm_account_for_free_referral_storage_c2a: "Opprett en konto og bekreft e-postadressen din for å motta 1 GB gratis lagringsplass. Din venn vil også få 1 GB gratis lagringsplass.",
         confirm_delete_multiple_items: 'Er du sikker på at du vil slette disse elementene permanent?',
-        configm_delete_single_item: 'Er du sikker på at du vil slette dette elemente permanent?',
+        confirm_delete_single_item: 'Er du sikker på at du vil slette dette elemente permanent?',
         confirm_open_apps_log_out: 'Du har åpene apper, er du sikker på at du vil logge ut?',
         confirm_new_password: "Bekreft nytt passord",
         contact_us: "Kontakt oss",

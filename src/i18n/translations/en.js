@@ -20,7 +20,7 @@ const en = {
         color: 'Color',
         confirm_account_for_free_referral_storage_c2a: 'Create an account and confirm your email address to receive 1 GB of free storage. Your friend will get 1 GB of free storage too.',
         confirm_delete_multiple_items: 'Are you sure you want to permanently delete these items?',
-        configm_delete_single_item: 'Do you want to permanently delete this item?',
+        confirm_delete_single_item: 'Do you want to permanently delete this item?',
         confirm_open_apps_log_out: 'You have open apps. Are you sure you want to log out?',
         confirm_new_password: "Confirm New Password",
         contact_us: "Contact Us",
