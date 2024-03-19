@@ -1,3 +1,4 @@
+import ar from './ar.js';
 import bn from './bn.js'
 import da from './da.js';
 import de from './de.js'
@@ -17,6 +18,7 @@ import zh from './zh.js';
 import emoji from './emoji.js';
 
 export default {
+    ar,
     bn,
     da,
     de,
