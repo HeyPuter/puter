@@ -217,7 +217,7 @@ async function UITaskbar(options){
     UITaskbarItem({
         icon: trash.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg'],
         app: 'trash',
-        name: 'Trash',
+        name: `${i18n('trash')}`,
         sortable: false,
         keep_in_taskbar: true,
         lock_keep_in_taskbar: true,
