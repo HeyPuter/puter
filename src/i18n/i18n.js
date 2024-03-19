@@ -10,11 +10,8 @@ window.i18n = function (key, replacements = [], encode_html = true) {
         replacements = [replacements];
     }
 
-    // if locale is not set, default to en
-    if(!translations[window.locale])
-        window.locale = 'en';
-
-    let str = translations[window.locale].dictionary[key];
+    let language = translations[window.locale] ?? translations['en'];
+    let str = language.dictionary[key] ?? translations['en'].dictionary[key];
     
     if (!str) {
         str = key;

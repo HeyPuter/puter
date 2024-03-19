@@ -503,6 +503,7 @@ async function UIDesktop(options){
     // update local user preferences
     const user_preferences = {
         show_hidden_files: (await puter.kv.get('user_preferences.show_hidden_files')) === 'true',
+        language: (await puter.kv.get('user_preferences.language'))
     };
     update_user_preferences(user_preferences);
 
