@@ -344,7 +344,10 @@ function UIItem(options){
         stop: function(event, ui){
             // Allow rearranging only if item is on desktop, not trash container, auto arrange is disabled and item is not dropped into another item
             if($(el_item).closest('.item-container').attr('data-path') === window.desktop_path && 
-                !is_auto_arrange_enabled && $(el_item).attr('data-path') !== trash_path && !ui.helper.data('dropped')){
+                !is_auto_arrange_enabled && $(el_item).attr('data-path') !== trash_path && !ui.helper.data('dropped') &&
+                // Item must be dropped on the Desktop
+                mouseover_window === undefined){
+    
                 el_item.style.position = 'absolute';
                 el_item.style.left = ui.position.left + 'px';
                 el_item.style.top = ui.position.top + 'px';
