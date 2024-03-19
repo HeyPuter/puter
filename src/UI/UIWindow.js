@@ -1369,6 +1369,9 @@ async function UIWindow(options) {
                 }
 
                 $(el_window).addClass('window-dragging');
+                
+                // rm window from original_window_position
+                window.original_window_position[$(el_window).attr('id')] = undefined;
 
                 // since jquery draggable sets the z-index automatically we need this to 
                 // bring windows to the front when they are clicked.
