@@ -47,10 +47,10 @@ function UIWindowEmailConfirmationRequired(options){
                 h += `<button type="submit" class="button button-block button-primary email-confirm-btn" style="margin-top:10px;" disabled>${submit_btn_txt}</button>`;
             h += `</form>`;
             h += `<div style="text-align:center; padding:10px; font-size:14px; margin-top:10px;">`;
-                h += `<span class="send-conf-email">Re-send Confirmation Code</span>`;
+                h += `<span class="send-conf-email">${i18n('resend_confirmation_code')}</span>`;
                 if(options.logout_in_footer){
                     h += ` &bull; `;
-                    h += `<span class="conf-email-log-out">Log Out</span>`;
+                    h += `<span class="conf-email-log-out">${i18n('log_out')}</span>`;
                 }
             h += `</div>`;
         h += `</div>`;

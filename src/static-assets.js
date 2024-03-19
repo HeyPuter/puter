@@ -48,6 +48,7 @@ const js_paths = [
     '/helpers.js',
     '/IPC.js',
     '/globals.js',
+    `/i18n/i18n.js`,
 ]
 
 module.exports = { lib_paths, css_paths, js_paths }

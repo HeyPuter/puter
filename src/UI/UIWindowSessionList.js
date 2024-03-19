@@ -28,16 +28,16 @@ async function UIWindowSessionList(options){
     return new Promise(async (resolve) => {
         let h = '';
         h += `<div style="margin:10px;">`;
-            h += `<div class="loading">Signing in...</div>`
+            h += `<div class="loading">${i18n('signing_in')}</div>`
             h += `<div style="overflow-y: scroll; max-width: 400px; margin: 0 auto;">`;
-            h += `<h1 style="text-align: center; font-size: 18px; font-weight: normal; color: #757575;"><img src="${icons['logo-white.svg']}" style="padding: 4px; background-color: blue; border-radius: 5px; width: 25px; box-sizing: border-box; margin-bottom: -6px; margin-right: 6px;">Sign in with Puter</h1>`
+            h += `<h1 style="text-align: center; font-size: 18px; font-weight: normal; color: #757575;"><img src="${icons['logo-white.svg']}" style="padding: 4px; background-color: blue; border-radius: 5px; width: 25px; box-sizing: border-box; margin-bottom: -6px; margin-right: 6px;">${i18n('sign_in_with_puter')}</h1>`
             for (let index = 0; index < logged_in_users.length; index++) {
                 const l_user = logged_in_users[index];
                 h += `<div data-uuid="${l_user.uuid}" class="session-entry">${l_user.username}</div>`;
             }
             h += `</div>`;
 
-            h += `<div style="margin-top: 20px; margin-bottom: 20px; text-align:center;"><span class="login-c2a-session-list">Log Into Another Account</span> &bull; <span class="signup-c2a-session-list">Create Account</span></div>`;
+            h += `<div style="margin-top: 20px; margin-bottom: 20px; text-align:center;"><span class="login-c2a-session-list">Log Into Another Account</span> &bull; <span class="signup-c2a-session-list">${i18n('create_account')}</span></div>`;
         h += `</div>`;
 
         const el_window = await UIWindow({

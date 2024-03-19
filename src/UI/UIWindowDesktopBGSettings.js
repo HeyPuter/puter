@@ -30,28 +30,28 @@ async function UIWindowDesktopBGSettings(){
         h += `<div style="padding: 10px; border-bottom: 1px solid #ced7e1;">`;
 
             // type
-            h += `<label>Background:</label>`;
+            h += `<label>${i18n('background')}:</label>`;
             h += `<select class="desktop-bg-type" style="width: 150px; margin-bottom: 20px;">`
-                h += `<option value="picture">Picture</option>`;
-                h += `<option value="color">Color</option>`;
+                h += `<option value="picture">${i18n('picture')}</option>`;
+                h += `<option value="color">${i18n('color')}</option>`;
             h += `</select>`;
 
             // Picture
             h += `<div class="desktop-bg-settings-wrapper desktop-bg-settings-picture">`;
-                h += `<label>Image:</label>`;
-                h += `<button class="button button-default button-small browse">Browse</button>`;
-                h += `<label style="margin-top: 20px;">Fit:</label>`;
+                h += `<label>${i18n('image')}:</label>`;
+                h += `<button class="button button-default button-small browse">${i18n('browse')}</button>`;
+                h += `<label style="margin-top: 20px;">${i18n('fit')}:</label>`;
                 h += `<select class="desktop-bg-fit" style="width: 150px;">`
-                    h += `<option value="cover">Cover</option>`;
-                    h += `<option value="center">Center</option>`;
-                    h += `<option value="contain">Contain</option>`;
-                    h += `<option value="repeat">Repeat</option>`;
+                    h += `<option value="cover">${i18n('cover')}</option>`;
+                    h += `<option value="center">${i18n('center')}</option>`;
+                    h += `<option value="contain">${i18n('contain')}</option>`;
+                    h += `<option value="repeat">${i18n('repeat')}</option>`;
                 h += `</select>`;
             h += `</div>`
 
             // Color
             h += `<div class="desktop-bg-settings-wrapper desktop-bg-settings-color">`;
-                h += `<label>Color:</label>`;
+                h += `<label>${i18n('color')}:</label>`;
                 h += `<div class="desktop-bg-color-blocks">`;
                     h += `<div class="desktop-bg-color-block" data-color="#4F7BB5" style="background-color: #4F7BB5"></div>`;
                     h += `<div class="desktop-bg-color-block" data-color="#545554" style="background-color: #545554"></div>`;
@@ -69,14 +69,14 @@ async function UIWindowDesktopBGSettings(){
             h += `</div>`;
 
             h += `<div style="padding-top: 5px; overflow:hidden; margin-top: 25px; border-top: 1px solid #CCC;">`
-                h += `<button class="button button-primary apply" style="float:right;">Apply</button>`;
-                h += `<button class="button button-default cancel" style="float:right; margin-right: 10px;">Cancel</button>`;
+                h += `<button class="button button-primary apply" style="float:right;">${i18n('apply')}</button>`;
+                h += `<button class="button button-default cancel" style="float:right; margin-right: 10px;">${i18n('cancel')}</button>`;
             h += `</div>`;
 
         h += `</div>`;
 
         const el_window = await UIWindow({
-            title: 'Change Desktop Background…',
+            title: i18n('change_desktop_background'),
             icon: null,
             uid: null,
             is_dir: false,

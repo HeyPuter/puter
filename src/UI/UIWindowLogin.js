@@ -36,19 +36,19 @@ async function UIWindowLogin(options){
                 h += `<div class="generic-close-window-button"> &times; </div>`;
             h += `<div style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
                 // title
-                h += `<h1 class="login-form-title">Log In</h1>`;
+                h += `<h1 class="login-form-title">${i18n('log_in')}</h1>`;
                 // login form
                 h += `<form class="login-form">`;
                     // error msg
                     h += `<div class="login-error-msg"></div>`;
                     // username/email
                     h += `<div style="overflow: hidden;">`;
-                        h += `<label for="email_or_username-${internal_id}">Email or Username</label>`;
+                        h += `<label for="email_or_username-${internal_id}">${i18n('email_or_username')}</label>`;
                         h += `<input id="email_or_username-${internal_id}" class="email_or_username" type="text" name="email_or_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false" autocomplete="username"/>`;
                     h += `</div>`;
                     // password with conditional type based based on options.show_password
                     h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px; position: relative;">`;
-                    h += `<label for="password-${internal_id}">Password</label>`;
+                    h += `<label for="password-${internal_id}">${i18n('password')}</label>`;
                     h += `<input id="password-${internal_id}" class="password" type="${options.show_password ? "text" : "password"}" name="password" autocomplete="current-password"/>`;
                     // show/hide icon
                     h += `<span style="position: absolute; right: 5%; top: 50%; cursor: pointer;" id="toggle-show-password-${internal_id}">
@@ -56,15 +56,15 @@ async function UIWindowLogin(options){
                             </span>`;
                     h += `</div>`;
                     // login
-                    h += `<button class="login-btn button button-primary button-block button-normal">Log in</button>`;
+                    h += `<button class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
                     // password recovery
-                    h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">Forgot password?</span></p>`;
+                    h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>`;
                 h += `</form>`;
             h += `</div>`;
             // create account link
             if(options.show_signup_button === undefined || options.show_signup_button){
                 h += `<div class="c2a-wrapper" style="padding:20px;">`;
-                    h += `<button class="signup-c2a-clickable">Create Free Account</button>`;
+                    h += `<button class="signup-c2a-clickable">${i18n('create_free_account')}</button>`;
                 h += `</div>`;
             }
         h += `</div>`;

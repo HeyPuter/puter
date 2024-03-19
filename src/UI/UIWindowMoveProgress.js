@@ -29,7 +29,7 @@ async function UIWindowMoveProgress(options){
             // Progress report
             h +=`<div style="margin-bottom:20px; float:left; padding-top:3px; font-size:15px; overflow: hidden; width: calc(100% - 40px); text-overflow: ellipsis; white-space: nowrap;">`;
                 // msg
-                h += `<span class="move-progress-msg">Moving </span>`;
+                h += `<span class="move-progress-msg">${i18n('moving')} </span>`;
                 h += `<span class="move-from" style="font-weight:strong;"></span>`;
             h += `</div>`;
             // progress

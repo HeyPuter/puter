@@ -34,6 +34,7 @@ import UIWindowQR from "./UIWindowQR.js"
 import UIWindowRefer from "./UIWindowRefer.js"
 import UITaskbar from "./UITaskbar.js"
 import new_context_menu_item from "../helpers/new_context_menu_item.js"
+import ChangeLanguage from "../i18n/i18nChangeLanguage.js"
 
 async function UIDesktop(options){
     let h = '';
@@ -622,10 +623,30 @@ async function UIDesktop(options){
                     // Sort by
                     // -------------------------------------------
                     {
-                        html: "Sort by",
+                        html: i18n('sort_by'),
                         items: [
                             {
-                                html: `Name`,
+                                html: i18n('auto_arrange'),
+                                icon: is_auto_arrange_enabled ? '✓' : '',
+                                onClick: async function(){
+                                    is_auto_arrange_enabled = !is_auto_arrange_enabled;
+                                    store_auto_arrange_preference(is_auto_arrange_enabled);
+                                    if(is_auto_arrange_enabled){
+                                        sort_items(el_desktop, $(el_desktop).attr('data-sort_by'), $(el_desktop).attr('data-sort_order'));
+                                        set_sort_by(options.desktop_fsentry.uid, $(el_desktop).attr('data-sort_by'), $(el_desktop).attr('data-sort_order'))
+                                        clear_desktop_item_positions(el_desktop);
+                                    }else{
+                                        set_desktop_item_positions(el_desktop)
+                                    }
+                                }
+                            },
+                            // -------------------------------------------
+                            // -
+                            // -------------------------------------------
+                            '-',
+                            {
+                                html: i18n('name'),
+                                disabled: !is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_by') === 'name' ? '✓' : '',
                                 onClick: async function(){
                                     sort_items(el_desktop, 'name', $(el_desktop).attr('data-sort_order'));
@@ -633,7 +654,8 @@ async function UIDesktop(options){
                                 }
                             },
                             {
-                                html: `Date modified`,
+                                html: i18n('date_modified'),
+                                disabled: !is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_by') === 'modified' ? '✓' : '',
                                 onClick: async function(){
                                     sort_items(el_desktop, 'modified', $(el_desktop).attr('data-sort_order'));
@@ -641,7 +663,8 @@ async function UIDesktop(options){
                                 }
                             },
                             {
-                                html: `Type`,
+                                html: i18n('type'),
+                                disabled: !is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_by') === 'type' ? '✓' : '',
                                 onClick: async function(){
                                     sort_items(el_desktop, 'type', $(el_desktop).attr('data-sort_order'));
@@ -649,7 +672,8 @@ async function UIDesktop(options){
                                 }
                             },
                             {
-                                html: `Size`,
+                                html: i18n('size'),
+                                disabled: !is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_by') === 'size' ? '✓' : '',
                                 onClick: async function(){
                                     sort_items(el_desktop, 'size', $(el_desktop).attr('data-sort_order'));
@@ -661,7 +685,8 @@ async function UIDesktop(options){
                             // -------------------------------------------
                             '-',
                             {
-                                html: `Ascending`,
+                                html: i18n('ascending'),
+                                disabled: !is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_order') === 'asc' ? '✓' : '',
                                 onClick: async function(){
                                     const sort_by = $(el_desktop).attr('data-sort_by')
@@ -670,7 +695,8 @@ async function UIDesktop(options){
                                 }
                             },
                             {
-                                html: `Descending`,
+                                html: i18n('descending'),
+                                disabled: !is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_order') === 'desc' ? '✓' : '',
                                 onClick: async function(){
                                     const sort_by = $(el_desktop).attr('data-sort_by')
@@ -684,7 +710,7 @@ async function UIDesktop(options){
                     // Refresh
                     // -------------------------------------------
                     {
-                        html: "Refresh",
+                        html: i18n('refresh'),
                         onClick: function(){
                             refresh_item_container(el_desktop);
                         }
@@ -693,7 +719,8 @@ async function UIDesktop(options){
                     // Show/Hide hidden files
                     // -------------------------------------------
                     {
-                        html: `${window.user_preferences.show_hidden_files ? 'Hide' : 'Show'} hidden files`,
+                        html: i18n('show_hidden'),
+                        icon: window.user_preferences.show_hidden_files ? '✓' : '',
                         onClick: function(){
                             window.mutate_user_preferences({
                                 show_hidden_files : !window.user_preferences.show_hidden_files,
@@ -717,7 +744,7 @@ async function UIDesktop(options){
                     // Paste
                     // -------------------------------------------
                     {
-                        html: "Paste",
+                        html: i18n('paste'),
                         disabled: clipboard.length > 0 ? false : true,
                         onClick: function(){
                             if(clipboard_op === 'copy')
@@ -730,7 +757,7 @@ async function UIDesktop(options){
                     // Undo
                     // -------------------------------------------
                     {
-                        html: "Undo",
+                        html: i18n('undo'),
                         disabled: actions_history.length > 0 ? false : true,
                         onClick: function(){
                             undo_last_action();
@@ -740,20 +767,11 @@ async function UIDesktop(options){
                     // Upload Here
                     // -------------------------------------------
                     {
-                        html: "Upload Here",
+                        html: i18n('upload_here'),
                         onClick: function(){
                             init_upload_using_dialog(el_desktop);
                         }
                     },
-                    // -------------------------------------------
-                    // Request Files
-                    // -------------------------------------------
-                    // {
-                    //     html: "Request Files",
-                    //     onClick: function(){
-                    //         UIWindowRequestFiles({dir_path: desktop_path})                       
-                    //     }
-                    // },
                     // -------------------------------------------
                     // -
                     // -------------------------------------------
@@ -762,7 +780,7 @@ async function UIDesktop(options){
                     // Change Desktop Background…
                     // -------------------------------------------
                     {
-                        html: "Change Desktop Background…",
+                        html: i18n('change_desktop_background'),
                         onClick: function(){
                             UIWindowDesktopBGSettings();
                         }
@@ -1053,7 +1071,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
     if(window.user.is_temp){
         items.push(            
             {
-                html: `Save Session`,
+                html: i18n('save_session'),
                 icon: `<svg style="margin-bottom: -4px; width: 16px; height: 16px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px" height="48px" viewBox="0 0 48 48"><g transform="translate(0, 0)"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"></path></g></svg>`,
                 icon_active: `<svg style="margin-bottom: -4px; width: 16px; height: 16px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px" height="48px" viewBox="0 0 48 48"><g transform="translate(0, 0)"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"></path></g></svg>`,
                 onClick: async function(){
@@ -1105,7 +1123,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
 
         items.push(            
             {
-                html: 'Add existing account',
+                html: i18n('add_existing_account'),
                 // icon: l_user.username === user.username ? '✓' : '',
                 onClick: async function(val){
                     await UIWindowLogin({
@@ -1126,6 +1144,19 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
 
     }
 
+    // -------------------------------------------
+    // Load avaialble languages
+    // -------------------------------------------
+    const supoprtedLanguagesItems = ListSupportedLanugages().map(lang => {
+        return {
+            html: lang.name,
+            icon: window.locale === lang.code ? '✓' : '',
+            onClick: async function(){
+                ChangeLanguage(lang.code);
+            }
+        }
+    });
+
     UIContextMenu({
         id: 'user-options-menu',
         parent_element: parent_element,
@@ -1136,7 +1167,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             // My Websites
             //--------------------------------------------------
             {
-                html: "My Websites",
+                html: i18n('my_websites'),
                 onClick: async function(){
                     UIWindowMyWebsites();
                 }
@@ -1145,7 +1176,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             // Change Username
             //--------------------------------------------------
             {
-                html: "Change Username",
+                html: i18n('change_username'),
                 onClick: async function(){
                     UIWindowChangeUsername();
                 }
@@ -1155,16 +1186,24 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             // Change Password
             //--------------------------------------------------
             {
-                html: "Change Password",
+                html: i18n('change_password'),
                 onClick: async function(){
                     UIWindowChangePassword();
                 }
+            },
+
+            //--------------------------------------------------
+            // Change Language
+            //--------------------------------------------------
+            {
+                html: i18n('change_language'),
+                items: supoprtedLanguagesItems
             },
             //--------------------------------------------------
             // Contact Us
             //--------------------------------------------------
             {
-                html: "Contact Us",
+                html: i18n('contact_us'),
                 onClick: async function(){
                     UIWindowFeedback();
                 }
@@ -1178,7 +1217,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             // Log Out
             //--------------------------------------------------
             {
-                html: "Log Out",
+                html: i18n('log_out'),
                 onClick: async function(){
                     // see if there are any open windows, if yes notify user
                     if($('.window-app').length > 0){

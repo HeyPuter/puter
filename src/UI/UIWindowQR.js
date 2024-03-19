@@ -27,7 +27,7 @@ async function UIWindowQR(options){
         // close button containing the multiplication sign
         h += `<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>`;
         h += `<div class="otp-qr-code">`;
-            h += `<h1 style="text-align: center; font-size: 16px; padding: 10px; font-weight: 400; margin: -10px 10px 20px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">Scan the code below to log into this session from other devices</h1>`;
+            h += `<h1 style="text-align: center; font-size: 16px; padding: 10px; font-weight: 400; margin: -10px 10px 20px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">${i18n('scan_qr_c2a')}</h1>`;
         h += `</div>`;
 
         const el_window = await UIWindow({

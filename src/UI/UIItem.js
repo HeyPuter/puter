@@ -187,6 +187,13 @@ function UIItem(options){
         update_explorer_footer_item_count(el_window);
     }
 
+    // position
+    if(!is_auto_arrange_enabled && options.position && $(el_item).closest('.item-container').attr('data-path') === window.desktop_path){
+        el_item.style.position = 'absolute';
+        el_item.style.left = options.position.left + 'px';
+        el_item.style.top = options.position.top + 'px';
+    }
+
     // --------------------------------------------------------
     // Dragster
     // allow dragging of local files on this window, if it's is_dir
@@ -335,6 +342,19 @@ function UIItem(options){
             }
         },
         stop: function(event, ui){
+            // Allow rearranging only if item is on desktop, not trash container, auto arrange is disabled and item is not dropped into another item
+            if($(el_item).closest('.item-container').attr('data-path') === window.desktop_path && 
+                !is_auto_arrange_enabled && $(el_item).attr('data-path') !== trash_path && !ui.helper.data('dropped') &&
+                // Item must be dropped on the Desktop
+                mouseover_window === undefined){
+    
+                el_item.style.position = 'absolute';
+                el_item.style.left = ui.position.left + 'px';
+                el_item.style.top = ui.position.top + 'px';
+                $('.ui-draggable-dragging').remove();
+                desktop_item_positions[$(el_item).attr('data-uid')] = ui.position;
+                save_desktop_item_positions()
+            }
             $('.item-selected-clone').remove();
             $('.draggable-count-badge').remove();
             // re-enable all droppable UIItems that are not a dir
@@ -362,6 +382,9 @@ function UIItem(options){
             // If ctrl is pressed and source is Trashed, cancel whole operation
             if(event.ctrlKey && path.dirname($(ui.draggable).attr('data-path')) === window.trash_path)
                 return;
+
+            // Adding a flag to know whether item is rearraged or dropped
+            ui.helper.data('dropped', true);
 
             const items_to_move = []
             
@@ -437,6 +460,10 @@ function UIItem(options){
                 }
                 // Otherwise, move items
                 else if(options.is_dir){
+                    if($(el_item).closest('.item-container').attr('data-path') === window.desktop_path){
+                        delete desktop_item_positions[$(el_item).attr('data-uid')];
+                        save_desktop_item_positions()
+                    }
                     move_items(items_to_move, $(el_item).attr('data-shortcut_to_path') !== '' ? $(el_item).attr('data-shortcut_to_path') : $(el_item).attr('data-path'));
                 }
             }
@@ -736,7 +763,7 @@ function UIItem(options){
             // -------------------------------------------
             if(are_trashed){
                 menu_items.push({
-                    html: "Restore",
+                    html: i18n('restore'),
                     onClick: function(){
                         $selected_items.each(function() {
                             const ell = this;
@@ -755,7 +782,7 @@ function UIItem(options){
                 // Donwload
                 // -------------------------------------------
                 menu_items.push({
-                    html: 'Download',
+                    html: i18n('Download'),
                     onClick: async function(){
                         let items = [];
                         for (let index = 0; index < $selected_items.length; index++) {
@@ -769,7 +796,7 @@ function UIItem(options){
                 // Zip
                 // -------------------------------------------
                 menu_items.push({
-                    html: 'Zip',
+                    html: i18n('zip'),
                     onClick: async function(){
                         let items = [];
                         for (let index = 0; index < $selected_items.length; index++) {
@@ -788,7 +815,7 @@ function UIItem(options){
             // Cut
             // -------------------------------------------
             menu_items.push({
-                html: "Cut",
+                html: i18n('cut'),
                 onClick: function(){
                     window.clipboard_op= 'move';
                     window.clipboard = [];
@@ -804,7 +831,7 @@ function UIItem(options){
             // -------------------------------------------
             if(!are_trashed){
                 menu_items.push({
-                    html: "Copy",
+                    html: i18n('copy'),
                     onClick: function(){
                         window.clipboard_op= 'copy';
                         window.clipboard = [];
@@ -824,7 +851,7 @@ function UIItem(options){
             // -------------------------------------------
             if(are_trashed){
                 menu_items.push({
-                    html: 'Delete Permanently',
+                    html: i18n('delete_permanently'),
                     onClick: async function(){
                         const alert_resp = await UIAlert({
                             message: `Are you sure you want to permanently delete these items?`,
@@ -863,7 +890,7 @@ function UIItem(options){
             // -------------------------------------------
             if(!are_trashed && window.feature_flags.create_shortcut){
                 menu_items.push({
-                    html: 'Create Shortcut',
+                    html: i18n('create_shortcut'),
                     onClick: async function(){
                         $selected_items.each(function() {
                             let base_dir = path.dirname($(this).attr('data-path'));
@@ -889,7 +916,7 @@ function UIItem(options){
             // -------------------------------------------
             if(!are_trashed){
                 menu_items.push({
-                    html: 'Delete',
+                    html: i18n('delete'),
                     onClick: async function(){
                         move_items($selected_items, trash_path);
                     }
@@ -909,7 +936,7 @@ function UIItem(options){
             // -------------------------------------------
             if(!is_trashed){
                 menu_items.push({
-                    html: 'Open',
+                    html: i18n('open'),
                     onClick: function(){
                         open_item({item: el_item});
                     }
@@ -965,7 +992,7 @@ function UIItem(options){
                 }
                 // add all suitable apps
                 menu_items.push({
-                    html: 'Open With',
+                    html: i18n('open_with'),
                     items: items,
                 });
 
@@ -981,7 +1008,7 @@ function UIItem(options){
             // -------------------------------------------
             if($(el_item).closest('.window-body').length > 0 && options.is_dir){
                 menu_items.push({
-                    html: 'Open in New Window',
+                    html: i18n('open_in_new_window'),
                     onClick: function(){
                         if(options.is_dir){
                             open_item({item: el_item, new_window: true})
@@ -1000,7 +1027,7 @@ function UIItem(options){
             // -------------------------------------------
             if(!is_trashed && !is_trash && options.is_dir){
                 menu_items.push({
-                    html: 'Publish As Website',
+                    html: i18n('publish_as_website'),
                     disabled: !options.is_dir,
                     onClick: async function () {
                         if(window.require_email_verification_to_publish_website){
@@ -1027,7 +1054,7 @@ function UIItem(options){
             // -------------------------------------------
             if(!is_trashed && !is_trash && options.is_dir){
                 menu_items.push({
-                    html: 'Deploy As App',
+                    html: i18n('deploy_as_app'),
                     disabled: !options.is_dir,
                     onClick: async function () {
                         launch_app({
@@ -1049,19 +1076,18 @@ function UIItem(options){
             // -------------------------------------------
             if(is_trash){
                 menu_items.push({
-                    html: 'Empty Trash',
+                    html: i18n('empty_trash'),
                     onClick: async function(){
                         empty_trash();
                     }
                 });
-
             }
             // -------------------------------------------
             // Donwload
             // -------------------------------------------
             if(!is_trash && !is_trashed && (options.associated_app_name === null || options.associated_app_name === undefined)){
                 menu_items.push({
-                    html: 'Download',
+                    html: i18n('Download'),
                     disabled: options.is_dir && !window.feature_flags.download_directory,
                     onClick: async function(){
                         if(options.is_dir)
@@ -1078,11 +1104,11 @@ function UIItem(options){
             // -------------------------------------------
             if(!is_trashed && !is_trash && (options.associated_app_name === null || options.associated_app_name === undefined)){
                 menu_items.push({
-                    html: 'Get Copy Link',
+                    html: i18n('get_copy_link'),
                     onClick: async function(){
                         if(window.user.is_temp && 
                             !await UIWindowSaveAccount({
-                                message: 'Please create an account to proceed.',
+                                message: i18n('save_account_to_get_copy_link'),
                                 send_confirmation_code: true,
                                 window_options: {
                                     backdrop: true,
@@ -1107,7 +1133,7 @@ function UIItem(options){
             // -------------------------------------------
             if(!is_trash && !is_trashed && !$(el_item).attr('data-path').endsWith('.zip')){
                 menu_items.push({
-                    html: "Zip",
+                    html: i18n('zip'),
                     onClick: function(){
                         zipItems(el_item, path.dirname($(el_item).attr('data-path')), false);
                     }
@@ -1118,7 +1144,7 @@ function UIItem(options){
             // -------------------------------------------
             if(!is_trash && !is_trashed && $(el_item).attr('data-path').endsWith('.zip')){
                 menu_items.push({
-                    html: "Unzip",
+                    html: i18n('unzip'),
                     onClick: async function(){
                         const zip = new JSZip();
                         let filPath = $(el_item).attr('data-path');
@@ -1146,7 +1172,7 @@ function UIItem(options){
             // -------------------------------------------
             if(is_trashed){
                 menu_items.push({
-                    html: 'Restore',
+                    html: i18n('restore'),
                     onClick: async function(){
                         let metadata = $(el_item).attr('data-metadata') === '' ? {} : JSON.parse($(el_item).attr('data-metadata'))
                         move_items([el_item], path.dirname(metadata.original_path));
@@ -1163,7 +1189,7 @@ function UIItem(options){
             // -------------------------------------------
             if($(el_item).attr('data-immutable') === '0'){
                 menu_items.push({
-                    html: "Cut",
+                    html: i18n('cut'),
                     onClick: function(){
                         window.clipboard_op= 'move';
                         window.clipboard= [options.path];
@@ -1175,7 +1201,7 @@ function UIItem(options){
             // -------------------------------------------
             if(!is_trashed && !is_trash){
                 menu_items.push({
-                    html: "Copy",
+                    html: i18n('copy'),
                     onClick: function(){
                         window.clipboard_op= 'copy';
                         window.clipboard= [{path: options.path}];
@@ -1187,7 +1213,7 @@ function UIItem(options){
             // -------------------------------------------
             if($(el_item).attr('data-is_dir') === '1' && !is_trashed && !is_trash){
                 menu_items.push({
-                    html: "Paste Into Folder",
+                    html: i18n('paste_into_folder'),
                     disabled: clipboard.length > 0 ? false : true,
                     onClick: function(){
                         if(clipboard_op === 'copy')
@@ -1208,7 +1234,7 @@ function UIItem(options){
             // -------------------------------------------
             if(!is_trashed && window.feature_flags.create_shortcut){
                 menu_items.push({
-                    html: 'Create Shortcut',
+                    html: i18n('create_shortcut'),
                     onClick: async function(){
                         let base_dir = path.dirname($(el_item).attr('data-path'));
                         // Trash on Desktop is a special case
@@ -1232,7 +1258,7 @@ function UIItem(options){
             // -------------------------------------------
             if($(el_item).attr('data-immutable') === '0' && !is_trashed){
                 menu_items.push({
-                    html: 'Delete',
+                    html: i18n('delete'),
                     onClick: async function(){
                         move_items([el_item], trash_path);
                     }
@@ -1243,7 +1269,7 @@ function UIItem(options){
             // -------------------------------------------
             if(is_trashed){
                 menu_items.push({
-                    html: 'Delete Permanently',
+                    html: i18n('delete_permanently'),
                     onClick: async function(){
                         const alert_resp = await UIAlert({
                             message: `Are you sure you want to permanently delete this item?`,
@@ -1280,7 +1306,7 @@ function UIItem(options){
             // -------------------------------------------
             if($(el_item).attr('data-immutable') === '0' && !is_trashed && !is_trash){
                 menu_items.push({
-                    html: "Rename",
+                    html: i18n('rename'),
                     onClick: function(){
                         activate_item_name_editor(el_item)
                     }
@@ -1294,7 +1320,7 @@ function UIItem(options){
             // Properties
             // -------------------------------------------
             menu_items.push({
-                html: "Properties",
+                html: i18n('properties'),
                 onClick: function(){
                     let window_height = 500;
                     let window_width = 450;
@@ -1387,8 +1413,8 @@ $(document).on('contextmenu', '.item-has-website-url-badge', async function(e){
         items: [
             // Open
             {
-                html: `Open in New Tab <img src="${window.icons['launch.svg']}" style="width:10px; height:10px; margin-left: 5px;">` ,
-                html_active: `Open in New Tab <img src="${window.icons['launch-white.svg']}" style="width:10px; height:10px; margin-left: 5px;">` ,
+                html: `${i18n('open_in_new_tab')} <img src="${window.icons['launch.svg']}" style="width:10px; height:10px; margin-left: 5px;">` ,
+                html_active: `${i18n('open_in_new_tab')} <img src="${window.icons['launch-white.svg']}" style="width:10px; height:10px; margin-left: 5px;">` ,
                 onClick: function(){
                     const website_url = $(e.target).closest('.item').attr('data-website_url');
                     if(website_url){
@@ -1398,7 +1424,7 @@ $(document).on('contextmenu', '.item-has-website-url-badge', async function(e){
             },
             // Copy Link
             {
-                html: 'Copy Link',
+                html: i18n('copy_link'),
                 onClick: async function(){
                     const website_url = $(e.target).closest('.item').attr('data-website_url');
                     if(website_url){
@@ -1499,7 +1525,7 @@ window.activate_item_name_editor= function(el_item){
     }
     // files in trash cannot be renamed, user should be notified with an Alert.
     else if(path.dirname($(el_item).attr('data-path')) === window.trash_path){
-        UIAlert(`This item can't be renamed because it's in the trash. To rename this item, first drag it out of the Trash.`)
+        UIAlert(i18n('items_in_trash_cannot_be_renamed'));
         return;
     }
 

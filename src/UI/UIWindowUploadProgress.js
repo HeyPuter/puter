@@ -29,19 +29,19 @@ async function UIWindowUploadProgress(options){
             // Progress report
             h +=`<div style="margin-bottom:20px; float:left; padding-top:3px; font-size:15px; overflow: hidden; width: calc(100% - 40px); text-overflow: ellipsis; white-space: nowrap;">`;
                 // msg
-                h += `<span class="upload-progress-msg">Preparing for upload...</span>`;
+                h += `<span class="upload-progress-msg">${i18n('preparing_for_upload')}</span>`;
             h += `</div>`;
             // progress
             h += `<div class="upload-progress-bar-container" style="clear:both; margin-top:20px; border-radius:3px;">`;
                 h += `<div class="upload-progress-bar"></div>`;
             h += `</div>`;
             // cancel
-            h += `<button style="float:right; margin-top: 15px; margin-right: -2px;" class="button button-small upload-cancel-btn">Cancel</button>`;
+            h += `<button style="float:right; margin-top: 15px; margin-right: -2px;" class="button button-small upload-cancel-btn">${i18n('cancel')}</button>`;
         h +=`</div>`;
     h += `</div>`;
 
     const el_window = await UIWindow({
-        title: `Upload`,
+        title: i18n('Upload'),
         icon: window.icons[`app-icon-uploader.svg`],
         uid: null,
         is_dir: false,

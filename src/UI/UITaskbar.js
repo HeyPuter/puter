@@ -50,7 +50,7 @@ async function UITaskbar(options){
     //---------------------------------------------
     UITaskbarItem({
         icon: window.icons['start.svg'],
-        name: 'Start',
+        name: i18n('start'),
         sortable: false,
         keep_in_taskbar: true,
         disable_context_menu: true,
@@ -95,7 +95,7 @@ async function UITaskbar(options){
             // -------------------------------------------
             if(launch_apps.recent.length > 0){
                 // heading
-                apps_str += `<h1 class="start-section-heading start-section-heading-recent">Recent</h1>`;
+                apps_str += `<h1 class="start-section-heading start-section-heading-recent">${i18n('recent')}</h1>`;
 
                 // apps
                 apps_str += `<div class="launch-apps-recent">`;
@@ -116,7 +116,7 @@ async function UITaskbar(options){
             if(launch_apps.recommended.length > 0){
                 // heading
                 apps_str += `<h1 class="start-section-heading start-section-heading-recommended" style="${launch_apps.recent.length > 0 ? 'padding-top: 30px;' : ''}">Recommended</h1>`;
-                
+
                 // apps
                 apps_str += `<div class="launch-apps-recommended">`;
                 for (let index = 0; index < launch_apps.recommended.length; index++) {
@@ -158,7 +158,7 @@ async function UITaskbar(options){
                 }
             });
         }
-    });            
+    });
 
     //---------------------------------------------
     // add `Explorer` to the taskbar

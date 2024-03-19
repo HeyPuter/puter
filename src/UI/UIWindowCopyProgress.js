@@ -29,7 +29,7 @@ async function UIWindowCopyProgress(options){
             // Progress report
             h +=`<div style="margin-bottom:20px; float:left; padding-top:3px; font-size:15px; overflow: hidden; width: calc(100% - 40px); text-overflow: ellipsis; white-space: nowrap;">`;
                 // msg
-                h += `<span class="copy-progress-msg">Copying </span>`;
+                h += `<span class="copy-progress-msg">${i18n('copying')} </span>`;
                 h += `<span class="copy-from" style="font-weight:strong;"></span>`;
             h += `</div>`;
             // progress
@@ -42,7 +42,7 @@ async function UIWindowCopyProgress(options){
     h += `</div>`;
 
     const el_window = await UIWindow({
-        title: `Copying`,
+        title: i18n('copying'),
         icon: window.icons[`app-icon-copying.svg`],
         uid: null,
         is_dir: false,

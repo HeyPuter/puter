@@ -32,39 +32,39 @@ async function UIWindowSaveAccount(options){
             // success
             h += `<div class="save-account-success">`;
                 h += `<img src="${html_encode(window.icons['c-check.svg'])}" style="width:50px; height:50px; display: block; margin:10px auto;">`;
-                h += `<p style="text-align:center; margin-bottom:10px;">Thank you for creating an account. This session has been saved.</p>`;
-                h += `<button class="button button-action button-block save-account-success-ok-btn">OK</button>`
+                h += `<p style="text-align:center; margin-bottom:10px;">${i18n('session_saved')}</p>`;
+                h += `<button class="button button-action button-block save-account-success-ok-btn">${i18n('ok')}</button>`
             h+= `</div>`;
     
             // form
             h += `<div class="save-account-form" style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
                 // title
-                h += `<h1 class="signup-form-title" style="margin-bottom:0;">Create Account</h1>`;
+                h += `<h1 class="signup-form-title" style="margin-bottom:0;">${i18n('create_account')}</h1>`;
                 // description
-                h += `<p class="create-account-desc">${options.message ?? 'Create an account to save your current session and avoid losing your work.'}</p>`;
+                h += `<p class="create-account-desc">${options.message ?? i18n('save_session_c2a')}</p>`;
                 // signup form
                 h += `<form class="signup-form">`;
                     // error msg
                     h += `<div class="signup-error-msg"></div>`;
                     // username
                     h += `<div style="overflow: hidden;">`;
-                        h += `<label for="username-${internal_id}">Username</label>`;
+                        h += `<label for="username-${internal_id}">${i18n('username')}</label>`;
                         h += `<input id="username-${internal_id}" class="username" value="${options.default_username ?? ''}" type="text" autocomplete="username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                     h += `</div>`;
                     // email
                     h += `<div style="overflow: hidden; margin-top: 20px;">`;
-                        h += `<label for="email-${internal_id}">Email</label>`;
+                        h += `<label for="email-${internal_id}">${i18n('email')}</label>`;
                         h += `<input id="email-${internal_id}" class="email" type="email" autocomplete="email" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                     h += `</div>`;
                     // password
                     h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
-                        h += `<label for="password-${internal_id}">Password</label>`;
+                        h += `<label for="password-${internal_id}">${i18n('password')}</label>`;
                         h += `<input id="password-${internal_id}" class="password" type="password" name="password" autocomplete="new-password" />`;
                     h += `</div>`;
                     // bot trap - if this value is submitted server will ignore the request
                     h += `<input type="text" name="p102xyzname" class="p102xyzname" value="">`;
                     // Create Account
-                    h += `<button class="signup-btn button button-primary button-block button-normal">Create Account</button>`
+                    h += `<button class="signup-btn button button-primary button-block button-normal">${i18n('create_account')}</button>`
                 h += `</form>`;
             h += `</div>`;
         h += `</div>`;

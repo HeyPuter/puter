@@ -409,17 +409,17 @@ window.globToRegExp = function (glob, opts) {
  */
 window.validate_fsentry_name = function(name){
     if(!name)
-        throw {message: 'Name cannot be empty.'}
+        throw {message: i18n('name_cannot_be_empty')}
     else if(!isString(name))
-        throw {message: "Name can only be a string."}
+        throw {message: i18n('name_must_be_string')}
     else if(name.includes('/'))
-        throw {message: "Name cannot contain the '/' character."}
+        throw {message: i18n('name_cannot_contain_slash')}
     else if(name === '.')
-        throw {message: "Name can not be the '.' character."};
+        throw {message: i18n('name_cannot_contain_period')};
     else if(name === '..')
-        throw {message: "Name can not be the '..' character."};
+        throw {message: i18n('name_cannot_contain_double_period')};
     else if(name.length > window.max_item_name_length)
-        throw {message: `Name can not be longer than ${config.max_item_name_length} characters`}
+        throw {message: i18n('name_too_long', config.max_item_name_length)}
     else
         return true
 }
@@ -1295,6 +1295,7 @@ window.refresh_item_container = function(el_item_container, options){
                 if(item_path !== trash_path && item_path !== appdata_path){
                     // if this is trash, get original name from item metadata
                     fsentry.name = (metadata && metadata.original_name !== undefined) ? metadata.original_name : fsentry.name;
+                    const position = desktop_item_positions[fsentry.uid] ?? undefined;
                     UIItem({
                         appendTo: el_item_container,
                         uid: fsentry.uid,
@@ -1317,6 +1318,7 @@ window.refresh_item_container = function(el_item_container, options){
                         suggested_apps: fsentry.suggested_apps,
                         disabled: is_disabled,
                         visible: visible,
+                        position: position,
                     });
                 }
             }
@@ -3610,4 +3612,49 @@ window.get_html_element_from_options = async function(options){
     h += `</div>`;
 
     return h;
+}
+
+window.store_auto_arrange_preference = (preference)=>{
+    puter.kv.set('user_preferences.auto_arrange_desktop', preference);
+    localStorage.setItem('auto_arrange', preference);
+}
+
+window.get_auto_arrange_data = async()=>{
+    const preferenceValue = await puter.kv.get('user_preferences.auto_arrange_desktop');
+    is_auto_arrange_enabled = preferenceValue === null ? true : preferenceValue;
+    const positions = await puter.kv.get('desktop_item_positions')
+    desktop_item_positions =  (!positions || typeof positions !== 'object' || Array.isArray(positions)) ? {} : positions;
+}
+
+window.clear_desktop_item_positions = async(el_desktop)=>{
+    $(el_desktop).find('.item').each(function(){
+        const el_item = $(this)[0];
+        $(el_item).css('position', '');
+        $(el_item).css('left', '');
+        $(el_item).css('top', '');
+    });
+    if(reset_item_positions){
+        delete_desktop_item_positions()
+    }
+}
+
+window.set_desktop_item_positions = async(el_desktop)=>{
+    $(el_desktop).find('.item').each(async function(){
+        const position = desktop_item_positions[$(this).attr('data-uid')]
+        const el_item = $(this)[0];
+        if(position){
+            $(el_item).css('position', 'absolute');
+            $(el_item).css('left', position.left + 'px');
+            $(el_item).css('top', position.top + 'px');
+        }
+    });
+}
+
+window.save_desktop_item_positions = ()=>{
+    puter.kv.set('desktop_item_positions', desktop_item_positions);
+}
+
+window.delete_desktop_item_positions = ()=>{
+    desktop_item_positions = {}
+    puter.kv.del('desktop_item_positions');
 }

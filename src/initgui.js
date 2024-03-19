@@ -46,6 +46,9 @@ window.initgui = async function(){
     if(window.api_origin && puter.APIOrigin !== window.api_origin)
         puter.setAPIOrigin(api_origin);
 
+    // determine locale
+    window.locale = window.user_preferences.language;
+
     // Checks the type of device the user is on (phone, tablet, or desktop).
     // Depending on the device type, it sets a class attribute on the body tag 
     // to style or script the page differently for each device type.
@@ -326,6 +329,7 @@ window.initgui = async function(){
             // Load desktop, only if we're not embedded in a popup
             // -------------------------------------------------------------------------------------
             if(!window.embedded_in_popup){
+                await get_auto_arrange_data()
                 puter.fs.stat(desktop_path, async function(desktop_fsentry){
                     UIDesktop({desktop_fsentry: desktop_fsentry});
                 })
@@ -677,6 +681,7 @@ window.initgui = async function(){
         // Load desktop, if not embedded in a popup
         // -------------------------------------------------------------------------------------
         if(!window.embedded_in_popup){
+            await get_auto_arrange_data();
             puter.fs.stat(desktop_path, function (desktop_fsentry) {
                 UIDesktop({ desktop_fsentry: desktop_fsentry });
             })
