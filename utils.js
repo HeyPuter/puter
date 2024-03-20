@@ -16,15 +16,17 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
+import { encode } from 'html-entities';
+import fs from 'fs';
+import path from 'path';
+import webpack from 'webpack';
+import CleanCSS from 'clean-css';
+import uglifyjs from 'uglify-js';
+import { lib_paths, css_paths, js_paths } from './src/static-assets.js';
+import { fileURLToPath } from 'url';
 
-
-const {encode} = require('html-entities');
-const fs = require('fs');
-const path = require('path');
-const webpack = require('webpack');
-const CleanCSS = require('clean-css');
-const uglifyjs = require('uglify-js');
-const {lib_paths, css_paths, js_paths} = require('./src/static-assets.js');
+// Polyfill __dirname, which doesn't exist in modules mode
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Builds the application by performing various tasks such as cleaning the distribution directory,
@@ -348,4 +350,4 @@ function generateDevHtml(options){
 }
 
 // export
-module.exports = {generateDevHtml, build};
+export { generateDevHtml, build };

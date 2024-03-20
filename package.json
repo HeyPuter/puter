@@ -5,6 +5,7 @@
   "license": "AGPL-3.0-only",
   "description": "Desktop environment in the browser!",
   "homepage": "https://puter.com",
+  "type": "module",
   "directories": {
     "lib": "lib"
   },

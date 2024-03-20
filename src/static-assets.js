@@ -51,4 +51,4 @@ const js_paths = [
     `/i18n/i18n.js`,
 ]
 
-module.exports = { lib_paths, css_paths, js_paths }
+export { lib_paths, css_paths, js_paths };
