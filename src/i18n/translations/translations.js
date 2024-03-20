@@ -15,6 +15,7 @@ import nn from './nn.js';
 import ro from './ro.js';
 import sv from './sv.js';
 import zh from './zh.js';
+import ur from './ur.js';
 import emoji from './emoji.js';
 
 export default {
@@ -35,5 +36,6 @@ export default {
     ro,
     sv,
     zh,
+    ur,
     emoji
 };
