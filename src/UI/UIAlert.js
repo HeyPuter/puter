@@ -37,7 +37,7 @@ function UIAlert(options){
         // provide an 'OK' button if no buttons are provided
         if(!options.buttons || options.buttons.length === 0){
             options.buttons = [
-                {label: 'OK', value: true, type: 'primary'}
+                {label: i18n('ok'), value: true, type: 'primary'}
             ]
         }
 

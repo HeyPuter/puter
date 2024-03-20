@@ -46,9 +46,6 @@ window.initgui = async function(){
     if(window.api_origin && puter.APIOrigin !== window.api_origin)
         puter.setAPIOrigin(api_origin);
 
-    // determine locale
-    window.locale = window.user_preferences.language;
-
     // Checks the type of device the user is on (phone, tablet, or desktop).
     // Depending on the device type, it sets a class attribute on the body tag 
     // to style or script the page differently for each device type.
@@ -530,12 +527,12 @@ window.initgui = async function(){
                                                 message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                                                 buttons:[
                                                     {
-                                                        label: 'Replace',
+                                                        label: i18n('replace'),
                                                         value: 'replace',
                                                         type: 'primary',
                                                     },
                                                     {
-                                                        label: 'Cancel',
+                                                        label: i18n('cancel'),
                                                         value: 'cancel',
                                                     },
                                                 ],
@@ -887,12 +884,12 @@ window.initgui = async function(){
                                             message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                                             buttons:[
                                                 {
-                                                    label: 'Replace',
+                                                    label: i18n('replace'),
                                                     value: 'replace',
                                                     type: 'primary',
                                                 },
                                                 {
-                                                    label: 'Cancel',
+                                                    label: i18n('cancel'),
                                                     value: 'cancel',
                                                 },
                                             ],
@@ -1328,14 +1325,14 @@ window.initgui = async function(){
             let $selected_items = $(active_element).closest(`.item-container`).find(`.item-selected`);
             if($selected_items.length > 0){
                 const alert_resp = await UIAlert({
-                    message: `Are you sure you want to permanently delete these items?`,
+                    message: i18n('confirm_delete_multiple_items'),
                     buttons:[
                         {
-                            label: 'Delete',
+                            label: i18n('delete'),
                             type: 'primary',
                         },
                         {
-                            label: 'Cancel'
+                            label: i18n('cancel')
                         },
                     ]
                 })
@@ -1357,14 +1354,14 @@ window.initgui = async function(){
             let $selected_items = $(active_element).closest(`.item-container`).find(`.item-selected[data-path^="${trash_path + '/'}"]`);
             if($selected_items.length > 0){
                 const alert_resp = await UIAlert({
-                    message: `Are you sure you want to permanently delete these items?`,
+                    message: i18n('confirm_delete_multiple_items'),
                     buttons:[
                         {
-                            label: 'Delete',
+                            label: i18n('delete'),
                             type: 'primary',
                         },
                         {
-                            label: 'Cancel'
+                            label: i18n('cancel')
                         },
                     ]
                 })
@@ -1878,26 +1875,28 @@ window.initgui = async function(){
                 message: `<strong>Save account before logging out!</strong><p>You are using a temporary account and logging out will erase all your data.</p>`,
                 buttons:[
                     {
-                        label: 'Save Account',
+                        label: i18n('save_account'),
+                        value: 'save_account',
                         type: 'primary',
                     },
                     {
-                        label: 'Log Out',
+                        label: i18n('log_out'),
+                        value: 'log_out',
                         type: 'danger',
                     },
                     {
-                        label: 'Cancel',
+                        label: i18n('cancel'),
                     },
                 ]
             })
-            if(alert_resp === 'Save Account'){
+            if(alert_resp === 'save_account'){
                 let saved = await UIWindowSaveAccount({
                     send_confirmation_code: false,
                     default_username: window.user.username
                 });
                 if(saved)
                     logout();
-            }else if (alert_resp === 'Log Out'){
+            }else if (alert_resp === 'log_out'){
                 logout();
             }
             else{
