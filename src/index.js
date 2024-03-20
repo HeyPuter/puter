@@ -142,3 +142,8 @@ window.loadCSS = async function(url) {
         document.head.appendChild(link);
     });
 }
+console.log( "%c⚠️Warning⚠️\n %cPlease refrain from adding or pasting any sort of code here, as doing so could potentially compromise your account. \nYou don't get what you intended anyway, but the hacker will !! \n\n%cfor further information please visit https://developer.chrome.com/blog/self-xss",
+    "color:red; font-size:2rem;margin-left:40%;font-family: 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;",
+    "font-size:1rem; font-family: 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;",
+    "font-size:0.9rem; font-family: 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;"
+);
