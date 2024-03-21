@@ -1,3 +1,3 @@
-const {build} = require("./utils.js")
+import { build } from "./utils.js"
 
 build();

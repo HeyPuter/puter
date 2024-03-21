@@ -1,8 +1,8 @@
-const express = require("express");
-const { generateDevHtml, build } = require("./utils.js");
-const { argv } = require('node:process');
-const chalk = require('chalk');
-const dotenv = require('dotenv');
+import express from "express";
+import { generateDevHtml, build } from "./utils.js";
+import { argv } from 'node:process';
+import chalk from 'chalk';
+import dotenv from 'dotenv';
 dotenv.config();
 
 const app = express();
@@ -55,4 +55,4 @@ if(env === "dev"){
     app.use(express.static('./src/'));
 }
 
-module.exports = app;
+export { app };
