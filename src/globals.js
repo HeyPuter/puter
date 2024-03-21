@@ -142,6 +142,54 @@ if (window.location !== window.parent.location) {
 window.desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
 window.desktop_width = window.innerWidth;
 
+// {id: {left: 0, top: 0}}
+window.original_window_position = {};
+
+// recalculate desktop height and width on window resize
+$( window ).on( "resize", function() {
+    const new_desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
+    const new_desktop_width = window.innerWidth;
+
+    $('.window').each((_, el) => {
+        const pos = $(el).position();
+        const id = $(el).attr('id');
+
+        if(!window.original_window_position[id]){
+            window.original_window_position[id] = {
+                left: pos.left,
+                top: pos.top
+            }
+        }
+
+        const leftRadio = pos.left / window.desktop_width;
+        const topRadio = pos.top / window.desktop_height;
+
+        let left = new_desktop_width * leftRadio;
+        let top = new_desktop_height * topRadio;
+
+        const maxLeft = new_desktop_width - $(el).width();
+        const maxTop = new_desktop_height - $(el).height();
+
+        // first move the window to the original position
+        const originalLeft = window.original_window_position[id].left;
+        const originalTop = window.original_window_position[id].top;
+
+        if(left < 0) left = 0;
+        else if(left > maxLeft || originalLeft > maxLeft) left = maxLeft;
+
+        if(top < window.toolbar_height) top = window.toolbar_height;
+        else if(top > maxTop || originalTop > maxTop) top = maxTop + window.toolbar_height;
+
+        $(el).css({
+            left,
+            top
+        })
+    })
+
+    window.desktop_height = new_desktop_height;
+    window.desktop_width = new_desktop_width;
+});
+  
 // for now `active_element` is basically the last element that was clicked,
 // later on though (todo) `active_element` will also be set by keyboard movements 
 // such as arrow keys, tab key, ... and when creating new windows...
