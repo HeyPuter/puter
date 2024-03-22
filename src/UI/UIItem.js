@@ -976,9 +976,18 @@ function UIItem(options){
                             icon: `<img src="${html_encode(suggested_app.icon ?? window.icons['app.svg'])}" style="width:16px; height: 16px; margin-bottom: -4px;">`,
                             onClick: async function(){
                                 var extension = path.extname($(el_item).attr('data-path')).toLowerCase();
-                                if(user_preferences[`default_apps${extension}`] !== suggested_app.name){
+                                if(
+                                    user_preferences[`default_apps${extension}`] !== suggested_app.name 
+                                    && 
+                                    (
+                                        (!user_preferences[`default_apps${extension}`] && index > 0)
+                                        || 
+                                        (user_preferences[`default_apps${extension}`])
+                                    )
+                                ){
                                     const alert_resp = await UIAlert({
-                                        message: `${i18n('change_allways_open_with')} ` + suggested_app.title + '?',
+                                        message: `${i18n('change_allways_open_with')} ` + html_encode(suggested_app.title) + '?',
+                                        body_icon: suggested_app.icon,
                                         buttons:[
                                             {
                                                 label: i18n('yes'),

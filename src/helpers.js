@@ -989,6 +989,10 @@ window.item_icon = async (fsentry)=>{
     else if(fsentry.name.toLowerCase().endsWith('.psd')){
         return {image: window.icons['file-psd.svg'], type: 'icon'};
     }
+    // *.py
+    else if(fsentry.name.toLowerCase().endsWith('.py')){
+        return {image: window.icons['file-py.svg'], type: 'icon'};
+    }
     // *.xlsx
     else if(fsentry.name.toLowerCase().endsWith('.xlsx')){
         return {image: window.icons['file-xlsx.svg'], type: 'icon'};
@@ -2126,10 +2130,9 @@ window.open_item = async function(options){
         }
     }
     //----------------------------------------------------------------
-    // Do the user have a preference for this file type?
+    // Does the user have a preference for this file type?
     //----------------------------------------------------------------
     else if(user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`]) {
-        console.log('launching default app')
         launch_app({
             name: user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`],
             file_path: item_path,
