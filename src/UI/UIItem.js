@@ -355,6 +355,14 @@ function UIItem(options){
                 desktop_item_positions[$(el_item).attr('data-uid')] = ui.position;
                 save_desktop_item_positions()
             }
+
+            // If item is dropped on the taskbar, reset its position
+            if(ui.position.top >= window.desktop_height - window.taskbar_height) {
+                el_item.style.position = 'absolute';
+                el_item.style.left = ui.originalPosition.left + 'px';
+                el_item.style.top = ui.originalPosition.top + 'px';
+            }
+
             $('.item-selected-clone').remove();
             $('.draggable-count-badge').remove();
             // re-enable all droppable UIItems that are not a dir
