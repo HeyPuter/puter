@@ -713,7 +713,7 @@ window.update_auth_data = (auth_token, user)=>{
 window.mutate_user_preferences = function(user_preferences_delta) {
     for (const [key, value] of Object.entries(user_preferences_delta)) {
         // Don't wait for set to be done for better efficiency
-        puter.kv.set(`user_preferences.${key}`, String(value));
+        puter.kv.set(`user_preferences.${key}`, value);
     }
     // There may be syncing issues across multiple devices
     update_user_preferences({ ...window.user_preferences, ...user_preferences_delta });
@@ -2031,6 +2031,7 @@ window.open_item = async function(options){
     const is_shortcut = $(el_item).attr('data-is_shortcut') === '1';
     const shortcut_to_path = $(el_item).attr('data-shortcut_to_path');
     const associated_app_name = $(el_item).attr('data-associated_app_name');
+    const file_uid = $(el_item).attr('data-uid')
     //----------------------------------------------------------------
     // Is this a shortcut whose source is perma-deleted?
     //----------------------------------------------------------------
@@ -2123,6 +2124,19 @@ window.open_item = async function(options){
                 $el_parent_window.close();  
             }, Math.abs(busy_indicator_hide_delay - busy_duration));
         }
+    }
+    //----------------------------------------------------------------
+    // Do the user have a preference for this file type?
+    //----------------------------------------------------------------
+    else if(user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`]) {
+        console.log('launching default app')
+        launch_app({
+            name: user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`],
+            file_path: item_path,
+            window_title: path.basename(item_path),
+            maximized: options.maximized,
+            file_uid: file_uid,
+        });
     }
     //----------------------------------------------------------------
     // Is there an app associated with this item?

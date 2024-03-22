@@ -502,10 +502,18 @@ async function UIDesktop(options){
 
     // update local user preferences
     const user_preferences = {
-        show_hidden_files: (await puter.kv.get('user_preferences.show_hidden_files')) === 'true',
-        language: (await puter.kv.get('user_preferences.language'))
+        show_hidden_files: JSON.parse(await puter.kv.get('user_preferences.show_hidden_files')),
+        language: await puter.kv.get('user_preferences.language'),
     };
-    update_user_preferences(user_preferences);
+
+    // update default apps
+    puter.kv.list('user_preferences.default_apps.*').then(async (default_app_keys) => {
+        for(let key in default_app_keys){
+            user_preferences[default_app_keys[key].substring(17)] = await puter.kv.get(default_app_keys[key]);
+        }
+
+        update_user_preferences(user_preferences);
+    });
 
     // Append to <body>
     $('body').append(h);
