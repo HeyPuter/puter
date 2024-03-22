@@ -25,6 +25,7 @@ const en = {
         all_fields_required: 'All fields are required.',
         apply: "Apply",
         ascending: 'Ascending',
+        auto_arrange: 'Auto Arrange',
         background: "Background",
         browse: "Browse",
         cancel: 'Cancel',

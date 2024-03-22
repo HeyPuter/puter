@@ -25,6 +25,7 @@ const fa = {
         all_fields_required: 'تمامی فیلدها الزامی هستند.',
         apply: "اعمال",
         ascending: 'صعودی',
+        auto_arrange: 'ترتیب خودکار',
         background: "پس زمینه",
         browse: "مرور",
         cancel: 'لغو',
