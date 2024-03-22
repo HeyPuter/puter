@@ -1146,9 +1146,9 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
     }
 
     // -------------------------------------------
-    // Load avaialble languages
+    // Load available languages
     // -------------------------------------------
-    const supoprtedLanguagesItems = ListSupportedLanugages().map(lang => {
+    const supportedLanguagesItems = ListSupportedLanguages().map(lang => {
         return {
             html: lang.name,
             icon: window.locale === lang.code ? '✓' : '',
@@ -1198,7 +1198,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             //--------------------------------------------------
             {
                 html: i18n('change_language'),
-                items: supoprtedLanguagesItems
+                items: supportedLanguagesItems
             },
             //--------------------------------------------------
             // Contact Us

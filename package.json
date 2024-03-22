@@ -23,7 +23,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "nodemon --exec \"node dev-server.js\" ",
-    "build": "node ./build.js"
+    "build": "node ./build.js",
+    "check-translations": "node tools/check-translations.js"
   },
   "nodemonConfig": {
     "ext": "js, json, mjs, jsx, svg, css",
