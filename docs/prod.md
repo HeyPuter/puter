@@ -8,6 +8,7 @@ npm run build
 
 ## Usage
 
+
 Will build Puter in the `dist` directory. Include the generated `./dist/gui.js` file in your HTML page and call `gui()` when the page is loaded:
 
 ```html
@@ -123,6 +124,21 @@ The GUI is a single page application (SPA) and as best practice any route under 
 - `/action/*`
 
 In other words, consider the routes above as "reserved" for Puter.
+
+
+### Publish My Website 
+
+Right-click anywhere on the desktop to display options
+From the options menu, select "New".
+Then, choose "Folder".
+Give the folder a name according to your preference.
+
+After creating the folder:
+
+Right-click on the folder.
+Select the option "Publish as Website".
+
+
 
 ### Best Practices
 

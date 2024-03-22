@@ -97,7 +97,7 @@ const hy = {
         new_username: "Նոր օգտանուն",
         no_dir_associated_with_site: "Այս հասցեի հետ կապված պանակ չկա:",
         no_websites_published: "Դուք դեռ ոչ մի կայք չեք հրապարակել։",
-        ok: "Լավ",
+        ok: "Լավ", 
         open: "Բացել",
         open_in_new_tab: "Բացել նոր ներդիրով",
         open_in_new_window: "Բացել նոր պատուհանում",
