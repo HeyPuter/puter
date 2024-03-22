@@ -119,7 +119,7 @@ const en = {
         paste_into_folder: "Paste Into Folder",
         pick_name_for_website: "Pick a name for your website:",
         picture: "Picture",
-        powered_by_puter_js: ``,
+        powered_by_puter_js:`Powered by <a href="https://docs.puter.com/" target="_blank">Puter.js</a>`,
         preparing: "Preparing...",
         preparing_for_upload: "Preparing for upload...",
         proceed_to_login: 'Proceed to login',
