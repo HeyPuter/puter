@@ -25,6 +25,7 @@ const emoji = {
         all_fields_required: '📝🔒✅',
         apply: "📋🔄",
         ascending: '🔼',
+        auto_arrange: '🔄📂📄',
         background: "🖼️",
         browse: "🔍",
         cancel: '❌',
