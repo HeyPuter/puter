@@ -345,8 +345,8 @@ function UIItem(options){
             // Allow rearranging only if item is on desktop, not trash container, auto arrange is disabled and item is not dropped into another item
             if($(el_item).closest('.item-container').attr('data-path') === window.desktop_path && 
                 !is_auto_arrange_enabled && $(el_item).attr('data-path') !== trash_path && !ui.helper.data('dropped') &&
-                // Item must be dropped on the Desktop
-                mouseover_window === undefined){
+                // Item must be dropped on the Desktop and not on the taskbar
+                mouseover_window === undefined && ui.position.top <= window.desktop_height - window.taskbar_height - 15){
     
                 el_item.style.position = 'absolute';
                 el_item.style.left = ui.position.left + 'px';
@@ -354,13 +354,6 @@ function UIItem(options){
                 $('.ui-draggable-dragging').remove();
                 desktop_item_positions[$(el_item).attr('data-uid')] = ui.position;
                 save_desktop_item_positions()
-            }
-
-            // If item is dropped on the taskbar, reset its position
-            if(ui.position.top >= window.desktop_height - window.taskbar_height) {
-                el_item.style.position = 'absolute';
-                el_item.style.left = ui.originalPosition.left + 'px';
-                el_item.style.top = ui.originalPosition.top + 'px';
             }
 
             $('.item-selected-clone').remove();
