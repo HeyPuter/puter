@@ -29,7 +29,7 @@ async function PuterDialog(options) {
             <button class="button button-auth" id="launch-auth-popup-cancel">${i18n('cancel')}</button>
             <button class="button button-primary button-auth" id="launch-auth-popup" style="margin-left:10px;">${i18n('continue')}</button>
         </div>
-        <p style="text-align: center; font-size: 14px;">${i18n('powered_by_puter_js')}</p>
+        <p style="text-align: center; font-size: 14px;">${i18n('powered_by_puter_js', [], false)}</p>
         <p class="launch-auth-popup-footnote">${i18n('tos_fineprint')}</p>
         </div>`;
 
