@@ -95,7 +95,7 @@ const en = {
         my_websites: "My Websites",
         name: 'Name',
         name_cannot_be_empty: 'Name cannot be empty.',
-        name_cannot_contain_double_period: "Name can nsot be the '..' character.",
+        name_cannot_contain_double_period: "Name can not be the '..' character.",
         name_cannot_contain_period: "Name can not be the '.' character.",
         name_cannot_contain_slash: "Name cannot contain the '/' character.",
         name_must_be_string: "Name can only be a string.",
