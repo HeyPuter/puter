@@ -17,11 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-function ChangeLanguage(lang) {
+function changeLanguage(lang) {
     window.locale = lang;
     window.mutate_user_preferences({
         language : lang,
     });
 }
 
-export default ChangeLanguage;
+export default changeLanguage;

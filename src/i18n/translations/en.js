@@ -18,8 +18,11 @@
  */
 const en = {
     name: "English",
+    english_name: "English",
     code: "en",
     dictionary: {
+        about: "About",
+        account: "Account",
         access_granted_to: "Access Granted To",
         add_existing_account: "Add Existing Account",
         all_fields_required: 'All fields are required.',
@@ -87,6 +90,7 @@ const en = {
         items_in_trash_cannot_be_renamed: `This item can't be renamed because it's in the trash. To rename this item, first drag it out of the Trash.`,
         jpeg_image: 'JPEG image',
         keep_in_taskbar: 'Keep in Taskbar',
+        language: "Language",
         loading: 'Loading',
         log_in: "Log In",
         log_into_another_account_anyway: 'Log into another account anyway',
@@ -173,6 +177,7 @@ const en = {
         unzip: "Unzip",
         upload: 'Upload',
         upload_here: 'Upload here',
+        usage: 'Usage',
         username: "Username",
         username_changed: 'Username updated successfully.',
         versions: "Versions",

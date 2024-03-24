@@ -18,6 +18,7 @@
  */
 const de = {
     name: "Deutsch",
+    english_name: "German",
     code: "de",
     dictionary: {
         access_granted_to: "Erlaubt zugriff auf",

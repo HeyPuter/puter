@@ -18,6 +18,7 @@
  */
 const emoji = {
     name: "🌍",
+    english_name: "Emoji",
     code: "emoji",
     dictionary: {
         access_granted_to: "🔓✅",

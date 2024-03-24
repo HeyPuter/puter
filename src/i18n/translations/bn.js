@@ -18,6 +18,7 @@
  */
 const bn = {
     name: "বাংলা",
+    english_name: "Bengali",
     code: "bn",
     dictionary: {
         access_granted_to: "অ্যাক্সেস মঞ্জুর করা হয়েছে",

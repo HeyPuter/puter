@@ -18,6 +18,7 @@
  */
 const nb = {
     name: "Norsk Bokmål",
+    english_name: "Norwegian Bokmål",
     code: "nb",
     dictionary: {
         access_granted_to: "Tilgang gitt til",

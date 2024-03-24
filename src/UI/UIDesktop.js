@@ -34,7 +34,8 @@ import UIWindowQR from "./UIWindowQR.js"
 import UIWindowRefer from "./UIWindowRefer.js"
 import UITaskbar from "./UITaskbar.js"
 import new_context_menu_item from "../helpers/new_context_menu_item.js"
-import ChangeLanguage from "../i18n/i18nChangeLanguage.js"
+import changeLanguage from "../i18n/i18nchangeLanguage.js"
+import UIWindowSettings from "./Settings/UIWindowSettings.js"
 
 async function UIDesktop(options){
     let h = '';
@@ -1156,12 +1157,12 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
     // -------------------------------------------
     // Load available languages
     // -------------------------------------------
-    const supportedLanguagesItems = ListSupportedLanguages().map(lang => {
+    const supportedLanguagesItems = listSupportedLanguages().map(lang => {
         return {
             html: lang.name,
             icon: window.locale === lang.code ? '✓' : '',
             onClick: async function(){
-                ChangeLanguage(lang.code);
+                changeLanguage(lang.code);
             }
         }
     });
@@ -1288,10 +1289,7 @@ $(document).on('click', '.close-launch-popover', function(){
 });
 
 $(document).on('click', '.toolbar-puter-logo', function(){
-    // launch the about app
-    launch_app({name: 'about', window_options:{
-        single_instance: true,
-    }});
+    UIWindowSettings();
 })
 
 $(document).on('click', '.user-options-create-account-btn', async function(e){
