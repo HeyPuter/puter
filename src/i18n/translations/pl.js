@@ -48,7 +48,7 @@ const pl = {
         continue: "Kontynuuj",
         copy: 'Kopiuj',
         copy_link: "Kopiuj Link",
-        copying: "Copying",
+        copying: "Kopiowanie",
         cover: 'Zakryj',
         create_account: "Stwórz konto",
         create_free_account: "Stwórz darmowe konto",
