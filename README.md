@@ -86,6 +86,15 @@ Puter interacts directly with the DOM and jQuery provides an elegant yet powerfu
 
 <br/>
 
+## #DoesItRunPuter
+
+- [PlayStation 4](https://twitter.com/HeyPuter/status/1767978053014270059)
+- [Tesla Model S](https://twitter.com/HeyPuter/status/1767971178864587057)
+- [Skyworth TV](https://twitter.com/ericalexdube/status/1767983049277411564)
+- [Oculus Quest 2](https://twitter.com/HeyPuter/status/1768664081756754012)
+- Tesla Model 3
+
+
 ## Credits
 
 The default wallpaper is created by [Milad Fakurian](https://unsplash.com/photos/blue-orange-and-yellow-wallpaper-E8Ufcyxz514) and published on [Unsplash](https://unsplash.com/).
