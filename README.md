@@ -88,12 +88,14 @@ Puter interacts directly with the DOM and jQuery provides an elegant yet powerfu
 
 ## #DoesItRunPuter
 
+- [Minecraft](https://twitter.com/HeyPuter/status/1771957571496092036)
 - [PlayStation 4](https://twitter.com/HeyPuter/status/1767978053014270059)
 - [Tesla Model S](https://twitter.com/HeyPuter/status/1767971178864587057)
 - [Skyworth TV](https://twitter.com/ericalexdube/status/1767983049277411564)
 - [Oculus Quest 2](https://twitter.com/HeyPuter/status/1768664081756754012)
 - Tesla Model 3
 
+<br/>
 
 ## Credits
 
