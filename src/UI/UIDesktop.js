@@ -1183,31 +1183,13 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
                 }
             },
             //--------------------------------------------------
-            // Change Username
-            //--------------------------------------------------
-            {
-                html: i18n('change_username'),
-                onClick: async function(){
-                    UIWindowChangeUsername();
-                }
-            },
-
-            //--------------------------------------------------
             // Change Password
             //--------------------------------------------------
             {
-                html: i18n('change_password'),
+                html: i18n('settings'),
                 onClick: async function(){
-                    UIWindowChangePassword();
+                    UIWindowSettings();
                 }
-            },
-
-            //--------------------------------------------------
-            // Change Language
-            //--------------------------------------------------
-            {
-                html: i18n('change_language'),
-                items: supportedLanguagesItems
             },
             //--------------------------------------------------
             // Contact Us

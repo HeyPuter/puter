@@ -157,6 +157,7 @@ const en = {
         send: "Send",
         send_password_recovery_email: "Send Password Recovery Email",
         session_saved: "Thank you for creating an account. This session has been saved.",
+        settings: "Settings",
         set_new_password: "Set New Password",
         share_to: "Share to",
         show_all_windows: "Show All Windows",
