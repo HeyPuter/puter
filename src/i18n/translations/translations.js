@@ -36,6 +36,7 @@ import th from './th.js';
 import zh from './zh.js';
 import ur from './ur.js';
 import emoji from './emoji.js';
+import pl from './pl.js';
 
 export default {
     ar,
@@ -53,9 +54,10 @@ export default {
     nb,
     nn,
     ro,
+    pl,
     sv,
     th,
     zh,
     ur,
-    emoji
+    emoji,
 };
