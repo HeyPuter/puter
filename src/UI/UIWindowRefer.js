@@ -30,7 +30,7 @@ async function UIWindowRefer(options){
         h += `<p style="text-align: center; font-size: 16px; padding: 20px; font-weight: 400; margin: -10px 10px 20px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">${i18n('refer_friends_c2a')}</p>`;
         h += `<label style="font-weight: bold;">${i18n('invite_link')}</label>`;
         h += `<input type="text" style="margin-bottom:10px;" class="downloadable-link" readonly />`;
-        h += `<button class="button button-primary copy-downloadable-link" style="width:130px; white-space:nowrap; display:flex; justify-content: center;">${i18n('copy_link')}</button>` 
+        h += `<button class="button button-primary copy-downloadable-link" style="white-space:nowrap; text-align:center;">${i18n('copy_link')}</button>` 
         h += `<img class="share-copy-link-on-social" src="${window.icons['share-outline.svg']}">`;
     h += `</div>`;
 
