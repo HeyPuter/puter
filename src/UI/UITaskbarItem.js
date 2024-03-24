@@ -28,9 +28,10 @@ function UITaskbarItem(options){
     options.open_windows_count = options.open_windows_count ?? 0;
     options.lock_keep_in_taskbar = options.lock_keep_in_taskbar ?? false;
     options.append_to_taskbar = options.append_to_taskbar ?? true;
+    options.i18n_key = options.i18n_key ?? "";
     const element_id = global_element_id++;
 
-    h += `<div  class = "taskbar-item ${options.sortable ? 'taskbar-item-sortable' : ''} disable-user-select"
+    h += `<div  class = "taskbar-item ${options.sortable ? 'taskbar-item-sortable' : ''} disable-user-select i18n"
                 id = "taskbar-item-${tray_item_id}"
                 data-taskbar-item-id = "${tray_item_id}"
                 data-element-id = "${html_encode(element_id)}"
@@ -38,6 +39,7 @@ function UITaskbarItem(options){
                 data-app = "${html_encode(options.app)}"
                 data-keep-in-taskbar = "${html_encode(options.keep_in_taskbar ?? 'false')}"
                 data-open-windows="${(options.open_windows_count)}"
+                data-i18n-key="${(options.i18n_key)}"
                 title = "${html_encode(options.name)}"
                 style= "${options.style ? html_encode(options.style) : ''}"
             >`;

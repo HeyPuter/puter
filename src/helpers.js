@@ -409,17 +409,17 @@ window.globToRegExp = function (glob, opts) {
  */
 window.validate_fsentry_name = function(name){
     if(!name)
-        throw {message: i18n('name_cannot_be_empty')}
+        throw {message: i18n('name_cannot_be_empty', false)}
     else if(!isString(name))
-        throw {message: i18n('name_must_be_string')}
+        throw {message: i18n('name_must_be_string', false)}
     else if(name.includes('/'))
-        throw {message: i18n('name_cannot_contain_slash')}
+        throw {message: i18n('name_cannot_contain_slash', false)}
     else if(name === '.')
-        throw {message: i18n('name_cannot_contain_period')};
+        throw {message: i18n('name_cannot_contain_period', false)};
     else if(name === '..')
-        throw {message: i18n('name_cannot_contain_double_period')};
+        throw {message: i18n('name_cannot_contain_double_period', false)};
     else if(name.length > window.max_item_name_length)
-        throw {message: i18n('name_too_long', config.max_item_name_length)}
+        throw {message: i18n('name_too_long', false, config.max_item_name_length)}
     else
         return true
 }
@@ -1820,12 +1820,14 @@ window.trigger_download = (paths)=>{
  */
 window.launch_app = async (options)=>{
     const uuid = uuidv4();
-    let icon, title, file_signature;
+    let icon, title, i18n_key, file_signature;
     const window_options = options.window_options ?? {};
 
     // try to get 3rd-party app info
     let app_info = options.app_obj ?? await get_apps(options.name);
 
+    // set i18n key to be able to accomodate language change
+    i18n_key = options.name;
     //-----------------------------------
     // icon
     //-----------------------------------
@@ -1875,7 +1877,8 @@ window.launch_app = async (options)=>{
             icon = window.icons['folder-home.svg'];
         }
         else if(options.path === window.trash_path){
-            title = 'Trash';
+            title = i18n('trash', false);
+            i18n_key = 'trash';
         }
         else if(!options.path)
             title = root_dirname;
@@ -1888,6 +1891,7 @@ window.launch_app = async (options)=>{
             icon: icon,
             path: options.path ?? window.home_path,
             title: title,
+            i18n_key: i18n_key,
             uid: null,
             is_dir: true,
             app: 'explorer',
@@ -1981,6 +1985,7 @@ window.launch_app = async (options)=>{
         UIWindow({
             element_uuid: uuid,
             title: title,
+            i18n_key: i18n_key,
             iframe_url: iframe_url.href,
             icon: icon,
             window_class: 'window-app',
@@ -2153,9 +2158,16 @@ window.open_item = async function(options){
     // Dir with no open windows: create a new window
     //----------------------------------------------------------------
     else if(is_dir && ($el_parent_window.length === 0 || options.new_window)){
+        let title = path.basename(item_path);
+        let i18n_key = "";
+        if (title === "Trash") {
+            title = i18n("trash", false);
+            i18n_key = "trash";
+        }
         UIWindow({
             path: item_path,
-            title: path.basename(item_path),
+            title: title,
+            i18n_key: i18n_key,
             icon: await item_icon({is_dir: true, path: item_path}),
             uid: $(el_item).attr('data-uid'),
             is_dir: is_dir,

@@ -39,7 +39,8 @@ async function UIWindowQR(options){
         h += `</div>`;
 
         const el_window = await UIWindow({
-            title: i18n('contact_us'),
+            title: i18n('contact_us', false),
+            i18n_key: 'contact_us',
             app: 'feedback',
             single_instance: true,
             icon: null,

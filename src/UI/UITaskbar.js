@@ -50,7 +50,8 @@ async function UITaskbar(options){
     //---------------------------------------------
     UITaskbarItem({
         icon: window.icons['start.svg'],
-        name: i18n('start'),
+        name: i18n('start', false),
+        i18n_key: 'start',
         sortable: false,
         keep_in_taskbar: true,
         disable_context_menu: true,
@@ -217,7 +218,8 @@ async function UITaskbar(options){
     UITaskbarItem({
         icon: trash.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg'],
         app: 'trash',
-        name: `${i18n('trash')}`,
+        name: `${i18n('trash', false)}`,
+        i18n_key: 'trash',
         sortable: false,
         keep_in_taskbar: true,
         lock_keep_in_taskbar: true,

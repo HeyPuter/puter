@@ -62,7 +62,7 @@ function UIContextMenu(options){
                         h += `<span class="context-menu-item-icon">${options.items[i].icon ?? ''}</span>`;
                         h += `<span class="context-menu-item-icon-active">${options.items[i].icon_active ?? (options.items[i].icon ?? '')}</span>`;
                         // label
-                        h += `${html_encode(options.items[i].html)}`;
+                        h += `${options.items[i].html}`; // old: `${html_encode(options.items[i].html)}`
                         // arrow
                         h += `<img class="submenu-arrow" src="${html_encode(window.icons['chevron-right.svg'])}"><img class="submenu-arrow submenu-arrow-active" src="${html_encode(window.icons['chevron-right-active.svg'])}">`;
                     h += `</li>`;

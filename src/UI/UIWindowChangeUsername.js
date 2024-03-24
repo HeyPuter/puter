@@ -39,7 +39,8 @@ async function UIWindowChangeUsername(){
     h += `</div>`;
 
     const el_window = await UIWindow({
-        title: i18n('change_username'),
+        title: i18n('change_username', false),
+        i18n_key: 'change_username',
         app: 'change-username',
         single_instance: true,
         icon: null,

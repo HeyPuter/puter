@@ -42,7 +42,8 @@ async function UIWindowCopyProgress(options){
     h += `</div>`;
 
     const el_window = await UIWindow({
-        title: i18n('copying'),
+        title: i18n('copying', false),
+        i18n_key: 'copying',
         icon: window.icons[`app-icon-copying.svg`],
         uid: null,
         is_dir: false,

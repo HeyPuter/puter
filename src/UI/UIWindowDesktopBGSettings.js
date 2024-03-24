@@ -32,8 +32,8 @@ async function UIWindowDesktopBGSettings(){
             // type
             h += `<label>${i18n('background')}:</label>`;
             h += `<select class="desktop-bg-type" style="width: 150px; margin-bottom: 20px;">`
-                h += `<option value="picture">${i18n('picture')}</option>`;
-                h += `<option value="color">${i18n('color')}</option>`;
+                h += `<option value="picture" class="i18n" data-i18n-key="picture">${i18n('picture', false)}</option>`;
+                h += `<option value="color" class="i18n" data-i18n-key="color">${i18n('color', false)}</option>`;
             h += `</select>`;
 
             // Picture
@@ -42,10 +42,10 @@ async function UIWindowDesktopBGSettings(){
                 h += `<button class="button button-default button-small browse">${i18n('browse')}</button>`;
                 h += `<label style="margin-top: 20px;">${i18n('fit')}:</label>`;
                 h += `<select class="desktop-bg-fit" style="width: 150px;">`
-                    h += `<option value="cover">${i18n('cover')}</option>`;
-                    h += `<option value="center">${i18n('center')}</option>`;
-                    h += `<option value="contain">${i18n('contain')}</option>`;
-                    h += `<option value="repeat">${i18n('repeat')}</option>`;
+                    h += `<option value="cover" class="i18n" data-i18n-key="cover">${i18n('cover', false)}</option>`;
+                    h += `<option value="center" class="i18n" data-i18n-key="center">${i18n('center', false)}</option>`;
+                    h += `<option value="contain" class="i18n" data-i18n-key="contain">${i18n('contain', false)}</option>`;
+                    h += `<option value="repeat" class="i18n" data-i18n-key="repeat">${i18n('repeat', false)}</option>`;
                 h += `</select>`;
             h += `</div>`
 
@@ -76,7 +76,8 @@ async function UIWindowDesktopBGSettings(){
         h += `</div>`;
 
         const el_window = await UIWindow({
-            title: i18n('change_desktop_background'),
+            title: i18n('change_desktop_background', false),
+            i18n_key: 'change_desktop_background',
             icon: null,
             uid: null,
             is_dir: false,

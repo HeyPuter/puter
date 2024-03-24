@@ -109,6 +109,7 @@ async function UIWindow(options) {
     options.width = options.width ?? 680;
     options.window_css = options.window_css ?? {};
     options.window_class = (options.window_class !== undefined ? ' ' + options.window_class : '');
+    options.i18n_key = options.i18n_key ?? ""
 
     // if only one instance is allowed, bring focus to the window that is already open
     if(options.single_instance && options.app !== ''){
@@ -181,6 +182,7 @@ async function UIWindow(options) {
                 data-app_uuid="${html_encode(options.app_uuid ?? '')}" 
                 data-disable_parent_window = "${html_encode(options.disable_parent_window)}"
                 data-name="${html_encode(options.title)}" 
+                data-i18n-key="${options.i18n_key}"
                 data-path ="${html_encode(options.path)}"
                 data-uid ="${options.uid}"
                 data-element_uuid="${options.element_uuid}"
@@ -225,7 +227,7 @@ async function UIWindow(options) {
                     if(options.icon)
                         h += `<img class="window-head-icon" />`;
                     // title
-                    h += `<span class="window-head-title" title="${html_encode(options.title)}"></span>`;
+                    h += `<span class="window-head-title i18n" data-i18n-key="${options.i18n_key}" title="${html_encode(options.title)}"></span>`;
                 h += `</div>`;
                 // Minimize button, only if window is resizable and not embedded
                 if(options.is_resizable && options.show_minimize_button && !is_embedded)
@@ -2923,7 +2925,7 @@ window.scale_window = (el_window)=>{
 window.update_explorer_footer_item_count = function(el_window){
     //update dir count in explorer footer
     let item_count = $(el_window).find('.item').length;
-    $(el_window).find('.explorer-footer .explorer-footer-item-count').html(item_count + ` ${i18n('item')}` + (item_count == 0 || item_count > 1 ? `${i18n('plural_suffix')}` : ''));
+    $(el_window).find('.explorer-footer .explorer-footer-item-count').html(item_count + ` ${i18n('item', false)}` + (item_count == 0 || item_count > 1 ? `${i18n('plural_suffix', false)}` : ''));
 }
 
 window.update_explorer_footer_selected_items_count = function(el_window){
@@ -2931,7 +2933,7 @@ window.update_explorer_footer_selected_items_count = function(el_window){
     let item_count = $(el_window).find('.item-selected').length;
     if(item_count > 0){
         $(el_window).find('.explorer-footer-seperator, .explorer-footer-selected-items-count').show();
-        $(el_window).find('.explorer-footer .explorer-footer-selected-items-count').html(item_count + ` ${i18n('item')}` + (item_count == 0 || item_count > 1 ? `${i18n('plural_suffix')}` : '') + ` ${i18n('selected')}`);
+        $(el_window).find('.explorer-footer .explorer-footer-selected-items-count').html(item_count + ` ${i18n('item', false)}` + (item_count == 0 || item_count > 1 ? `${i18n('plural_suffix', false)}` : '') + ` ${i18n('selected')}`);
     }else{
         $(el_window).find('.explorer-footer-seperator, .explorer-footer-selected-items-count').hide();
     }

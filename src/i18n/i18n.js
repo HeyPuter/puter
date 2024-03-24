@@ -20,7 +20,7 @@ import translations from './translations/translations.js';
 
 window.ListSupportedLanguages = () => Object.keys(translations).map(lang => translations[lang]);
 
-window.i18n = function (key, replacements = [], encode_html = true) {
+window.i18n = function (key, return_html = true, replacements = [], encode_html = true) {
     if(typeof replacements === 'boolean' && encode_html === undefined){
         encode_html = replacements;
         replacements = [];
@@ -61,6 +61,12 @@ window.i18n = function (key, replacements = [], encode_html = true) {
             str = str.replace('%%', replacements[i]);
         }
     }
+
+    // if a callers asks with the paramaeter "return_html == true", return the span element, otherwise return the string. 
+    if (return_html === true) {
+        str = `<span class='i18n' data-i18n-key="${key}">${str}</span>`;
+    }
+    
     return str;
 }
 

@@ -48,7 +48,8 @@ async function UIWindowColorPicker(options){
         h += `</div>`;
         
         const el_window = await UIWindow({
-            title: i18n('select_color'),
+            title: i18n('select_color', false),
+            i18n_key: 'select_color',
             app: 'color-picker',
             single_instance: true,
             icon: null,

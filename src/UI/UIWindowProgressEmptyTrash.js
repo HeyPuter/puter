@@ -35,7 +35,8 @@ async function UIWindowProgressEmptyTrash(options){
     h += `</div>`;
 
     const el_window = await UIWindow({
-        title: i18n('emptying_trash'),
+        title: i18n('emptying_trash', false),
+        i18n_key: 'emptying_trash',
         icon: window.icons[`app-icon-newfolder.svg`],
         uid: null,
         is_dir: false,

@@ -59,7 +59,7 @@ function UIAlert(options){
                                 data-label="${html_encode(options.buttons[y].label)}"
                                 data-value="${html_encode(options.buttons[y].value ?? options.buttons[y].label)}"
                                 ${options.buttons[y].type === 'primary' ? 'autofocus' : ''}
-                                >${html_encode(options.buttons[y].label)}</button>`;
+                                >${options.buttons[y].label}</button>`; //old: ${html_encode(options.buttons[y].label) | updated to accomodate for the i18n html element change
             }
             h += `</div>`;
         }

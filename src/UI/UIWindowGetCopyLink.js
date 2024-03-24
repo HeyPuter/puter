@@ -71,8 +71,8 @@ async function UIWindowGetCopyLink(options){
     $(el_window).find('.window-body .share-copy-link-on-social').on('click', function(e){    
         const social_links = socialLink({
             url: url, 
-            title: i18n('get_a_copy_of_on_puter', options.name, false), 
-            description: i18n('get_a_copy_of_on_puter', options.name, false),
+            title: i18n('get_a_copy_of_on_puter', false, options.name, false), 
+            description: i18n('get_a_copy_of_on_puter', false, options.name, false),
         });
 
         let social_links_html = ``;
