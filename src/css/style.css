@@ -3262,19 +3262,20 @@ label {
  * ==================================================
  */
 
-.settings-container{
+.settings-container {
     display: flex;
     flex-direction: column;
     height: 100%;
 }
-.settings{
+
+.settings {
     display: flex;
     flex-direction: row;
     -webkit-font-smoothing: antialiased;
     flex-grow: 1;
 }
 
-.settings-sidebar{
+.settings-sidebar {
     width: 200px;
     background-color: #f9f9f9;
     border-right: 1px solid #e0e0e0;
@@ -3282,7 +3283,7 @@ label {
 
 }
 
-.settings-sidebar-item{
+.settings-sidebar-item {
     cursor: pointer;
     border-radius: 4px;
     padding: 10px;
@@ -3293,29 +3294,31 @@ label {
     padding-left: 45px;
     font-size: 15px;
 }
-.settings-sidebar-item:hover{
+
+.settings-sidebar-item:hover {
     background-color: #e8e8e8;
 }
 
-.settings-sidebar-item.active{
+.settings-sidebar-item.active {
     background-color: #e0e0e0;
 }
-.settings-content-container{
+
+.settings-content-container {
     flex: 1;
     padding: 20px 30px;
     height: 500px;
     overflow-y: scroll;
 }
 
-.settings-content{
+.settings-content {
     display: none;
 }
 
-.settings-content[data-settings="about"]{
+.settings-content[data-settings="about"] {
     height: 100%;
 }
 
-.settings-content h1{
+.settings-content h1 {
     font-size: 24px;
     margin-bottom: 20px;
     border-bottom: 1px solid #e0e0e0;
@@ -3324,17 +3327,18 @@ label {
     font-weight: 500;
 }
 
-.settings-content.active{
+.settings-content.active {
     display: block;
 }
 
-.settings-content .about-container{
+.settings-content .about-container {
     height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-direction: column;
 }
+
 .settings-content[data-settings="about"] a {
     color: #1663d4;
     text-decoration: none;
@@ -3394,7 +3398,12 @@ label {
     padding: 20px 40px;
     max-width: 500px;
 }
-.settings-content .version{
+
+.about-container .about{
+    text-align: center;
+}
+
+.settings-content .version {
     font-size: 9px;
     color: #343c4f;
     text-align: center;
@@ -3403,7 +3412,8 @@ label {
     transition: opacity 0.1s ease-in-out;
     height: 12px;
 }
-.settings-content .version:hover{
+
+.settings-content .version:hover {
     opacity: 1;
 }
 
@@ -3415,23 +3425,28 @@ label {
     color: #3c4963;
     height: 85px;
 }
-.credits{
+
+.credits {
     padding: 0;
-    border: 1px solid #bfbfbf; 
+    border: 1px solid #bfbfbf;
     box-shadow: 1px 1px 10px 0px #8a8a8a;
     width: 400px;
 }
-.credit-content a{
-    font-size:15px;
+
+.credit-content a {
+    font-size: 15px;
 }
-.credits .credit-content{
+
+.credits .credit-content {
     padding: 20px;
 }
-.credit-content{
+
+.credit-content {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
-.credit-content ul{
+
+.credit-content ul {
     max-height: 300px;
     overflow-y: scroll;
     background: #f4f4f4;
@@ -3439,9 +3454,11 @@ label {
     box-shadow: 2px 2px 5px 2px inset #CCC;
 
 }
-.credit-content li{
+
+.credit-content li {
     margin-bottom: 10px;
 }
+
 #storage-bar-wrapper {
     width: 100%;
     height: 15px;
@@ -3495,7 +3512,7 @@ label {
 }
 
 
-.version{
+.version {
     font-size: 9px;
     color: #343c4f;
     text-align: center;
@@ -3504,14 +3521,17 @@ label {
     transition: opacity 0.1s ease-in-out;
     height: 12px;
 }
-.version:hover{
+
+.version:hover {
     opacity: 1;
 }
-.language-list{
+
+.language-list {
     display: grid;
     grid-template-columns: 33.333333333% 33.333333333% 33.333333333%;
 }
-.language-item{
+
+.language-item {
     cursor: pointer;
     padding: 10px;
     border-radius: 4px;
@@ -3519,15 +3539,15 @@ label {
     margin-right: 10px;
 }
 
-.language-item:hover{
+.language-item:hover {
     background-color: #f6f6f6;
 }
 
-.language-item.active{
+.language-item.active {
     background-color: #e0e0e0;
 }
 
-.settings-card{
+.settings-card {
     overflow: hidden;
     padding: 10px 15px;
     border: 1px solid;
@@ -3541,16 +3561,18 @@ label {
     height: 45px;
 }
 
-.settings-card strong{
+.settings-card strong {
     font-weight: 500;
 }
 
-.settings-card-danger{
+.settings-card-danger {
     border-color: #f0080866;
     background: #ffecec;
     color: rgb(215 2 2);
 }
-.error-message{
+
+.error-message {
+    display: none;
     border-color: #f0080866;
     background: #ffecec;
     color: rgb(215 2 2);
@@ -3560,4 +3582,32 @@ label {
     padding: 10px;
     border-radius: 4px;
     border: 1px solid #f0080866;
+}
+
+.account-deletion-confirmation-prompt {
+    text-align: center;
+    font-size: 16px;
+    padding: 20px;
+    font-weight: 400;
+    margin: -10px 10px 20px 10px;
+    -webkit-font-smoothing: antialiased;
+    color: #5f626d;
+}
+.account-deletion-confirmation-icon{
+    width: 70px; 
+    margin: 20px auto 20px; 
+    display: block; 
+    margin-bottom: 20px;
+}
+.proceed-with-user-deletion{
+    margin-bottom: 20px;
+}
+.confirm-temporary-user-deletion{
+    width: 100%; 
+    margin-bottom: 20px;
+}
+
+.confirm-user-deletion-password{
+    width: 100%; 
+    margin-bottom: 20px;
 }

@@ -17,29 +17,27 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 // About
 function UITabAbout(){
     let h = ``;
 
     h += `<div class="settings-content active" data-settings="about">`;
         h += `<div class="about-container">`
-        h += `<div class="about" style="text-align: center;">
+        h += `<div class="about">
                 <a href="https://puter.com" target="_blank" class="logo"><img src="/images/logo.png"></a>
-                <p class="description">Puter is a privacy-first personal cloud to keep all your files, apps, and games in one
-                    secure place, accessible from anywhere at any time.</p>
+                <p class="description">${i18n('puter_description')}</p>
                 <p class="links">
                     <a href="mailto:hey@puter.com" target="_blank">hey@puter.com</a>
                     <span style="color: #CCC;">•</span>
-                    <a href="https://docs.puter.com" target="_blank">Developers</a>
+                    <a href="https://docs.puter.com" target="_blank">${i18n('developers')}</a>
                     <span style="color: #CCC;">•</span>
-                    <a href="https://status.puter.com" target="_blank">Status</a>
+                    <a href="https://status.puter.com" target="_blank">${i18n('status')}</a>
                     <span style="color: #CCC;">•</span>
-                    <a href="https://puter.com/terms" target="_blank">Terms</a>
+                    <a href="https://puter.com/terms" target="_blank">${i18n('terms')}</a>
                     <span style="color: #CCC;">•</span>
-                    <a href="https://puter.com/privacy" target="_blank">Privacy</a>
+                    <a href="https://puter.com/privacy" target="_blank">${i18n('privacy')}</a>
                     <span style="color: #CCC;">•</span>
-                    <a href="#" class="show-credits">Credits</a>
+                    <a href="#" class="show-credits">${i18n('credits')}</a>
                 </p>
                 <div class="social-links">
                     <a href="https://twitter.com/HeyPuter/" target="_blank">
@@ -69,20 +67,20 @@ function UITabAbout(){
 
             <dialog class="credits">
                 <div class="credit-content">
-                    <p style="margin: 0; font-size: 18px; text-align: center;">Open Source Software and Content</p>
+                    <p style="margin: 0; font-size: 18px; text-align: center;">${i18n('oss_code_and_content')}</p>
                     <div style="max-height: 300px; overflow-y: scroll;">
                         <ul style="padding-left: 25px; padding-top:15px;">
-                            <li>FileSaver.js <a target="_blank" href="https://github.com/eligrey/FileSaver.js/blob/master/LICENSE.md">license</a></li>
-                            <li>html-entities <a target="_blank" href="https://github.com/mdevils/html-entities/blob/master/LICENSE">license</a></li>
-                            <li>iro.js <a target="_blank" href="https://github.com/jaames/iro.js/blob/master/LICENSE.txt">license</a></li>
-                            <li>jQuery <a target="_blank" href="https://jquery.org/license/">license</a></li>
-                            <li>jQuery-dragster <a target="_blank" href="https://github.com/catmanjan/jquery-dragster/blob/master/LICENSE">license</a></li>
-                            <li>jQuery UI <a target="_blank" href="https://jquery.org/license/">license</a></li>
-                            <li>lodash <a target="_blank" href="https://lodash.com/license">license</a></li>
-                            <li>mime <a target="_blank" href="https://github.com/broofa/mime/blob/main/LICENSE">license</a></li>
-                            <li>qrcodejs <a target="_blank" href="https://github.com/davidshimjs/qrcodejs/blob/master/LICENSE">license</a></li>
-                            <li>Selection <a target="_blank" href="https://github.com/simonwep/selection/blob/master/LICENSE">license</a></li>
-                            <li>socket.io <a target="_blank" href="https://github.com/socketio/socket.io/blob/main/LICENSE">license</a></li>
+                            <li>FileSaver.js <a target="_blank" href="https://github.com/eligrey/FileSaver.js/blob/master/LICENSE.md">${i18n('license')}</a></li>
+                            <li>html-entities <a target="_blank" href="https://github.com/mdevils/html-entities/blob/master/LICENSE">${i18n('license')}</a></li>
+                            <li>iro.js <a target="_blank" href="https://github.com/jaames/iro.js/blob/master/LICENSE.txt">${i18n('license')}</a></li>
+                            <li>jQuery <a target="_blank" href="https://jquery.org/license/">${i18n('license')}</a></li>
+                            <li>jQuery-dragster <a target="_blank" href="https://github.com/catmanjan/jquery-dragster/blob/master/LICENSE">${i18n('license')}</a></li>
+                            <li>jQuery UI <a target="_blank" href="https://jquery.org/license/">${i18n('license')}</a></li>
+                            <li>lodash <a target="_blank" href="https://lodash.com/license">${i18n('license')}</a></li>
+                            <li>mime <a target="_blank" href="https://github.com/broofa/mime/blob/main/LICENSE">${i18n('license')}</a></li>
+                            <li>qrcodejs <a target="_blank" href="https://github.com/davidshimjs/qrcodejs/blob/master/LICENSE">${i18n('license')}</a></li>
+                            <li>Selection <a target="_blank" href="https://github.com/simonwep/selection/blob/master/LICENSE">${i18n('license')}</a></li>
+                            <li>socket.io <a target="_blank" href="https://github.com/socketio/socket.io/blob/main/LICENSE">${i18n('license')}</a></li>
                             <li>Wallpaper by <a target="_blank" href="https://unsplash.com/@fakurian?utm_content=creditCopyText&utm_medium=referral&utm_source=unsplash">Milad Fakurian</a> on <a target="_blank" href="https://unsplash.com/photos/blue-orange-and-yellow-wallpaper-E8Ufcyxz514?utm_content=creditCopyText&utm_medium=referral&utm_source=unsplash">Unsplash</a></li>
                         </ul>
                     </div>

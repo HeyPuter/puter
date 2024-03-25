@@ -29,13 +29,13 @@ async function UIWindowFinalizeUserDeletion(options){
         if(user.is_temp){
             h += `<div style="padding: 20px;">`;
                 h += `<div class="generic-close-window-button disable-user-select"> &times; </div>`;
-                h += `<img src="${window.icons['danger.svg']}" style="width: 70px; margin: 20px auto 20px; display: block; margin-bottom: 20px;">`;
-                h += `<p style="text-align: center; font-size: 16px; padding: 20px; font-weight: 400; margin: -10px 10px 20px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">${i18n('type_confirm_to_delete_account')}</p>`;
+                h += `<img src="${window.icons['danger.svg']}"  class="account-deletion-confirmation-icon">`;
+                h += `<p class="account-deletion-confirmation-prompt">${i18n('type_confirm_to_delete_account')}</p>`;
                 // error message
-                h += `<div class="error-message" style="display: none;"></div>`;
+                h += `<div class="error-message"></div>`;
                 // input field
-                h += `<input type="text" class="confirm-temporary-user-deletion" placeholder="${i18n('type_confirm_to_delete_account')}" style="width: 100%; margin-bottom: 20px;">`;
-                h += `<button class="button button-block button-danger proceed-with-user-deletion" style="margin-bottom: 20px;">${i18n('delete_account')}</button>`;
+                h += `<input type="text" class="confirm-temporary-user-deletion" placeholder="${i18n('type_confirm_to_delete_account')}">`;
+                h += `<button class="button button-block button-danger proceed-with-user-deletion">${i18n('delete_account')}</button>`;
                 h += `<button class="button button-block button-secondary cancel-user-deletion">${i18n('cancel')}</button>`;
             h += `</div>`;
         }
@@ -43,13 +43,13 @@ async function UIWindowFinalizeUserDeletion(options){
         else{
             h += `<div style="padding: 20px;">`;
                 h += `<div class="generic-close-window-button disable-user-select"> &times; </div>`;
-                h += `<img src="${window.icons['danger.svg']}" style="width: 70px; margin: 20px auto 20px; display: block; margin-bottom: 20px;">`;
-                h += `<p style="text-align: center; font-size: 16px; padding: 20px; font-weight: 400; margin: -10px 10px 20px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">${i18n('enter_password_to_confirm_delete_user')}</p>`;
+                h += `<img src="${window.icons['danger.svg']}" class="account-deletion-confirmation-icon">`;
+                h += `<p class="account-deletion-confirmation-prompt">${i18n('enter_password_to_confirm_delete_user')}</p>`;
                 // error message
-                h += `<div class="error-message" style="display: none;"></div>`;
+                h += `<div class="error-message"></div>`;
                 // input field
-                h += `<input type="password" class="confirm-user-deletion-password" placeholder="${i18n('current_password')}" style="width: 100%; margin-bottom: 20px;">`;
-                h += `<button class="button button-block button-danger proceed-with-user-deletion" style="margin-bottom: 20px;">${i18n('delete_account')}</button>`;
+                h += `<input type="password" class="confirm-user-deletion-password" placeholder="${i18n('current_password')}">`;
+                h += `<button class="button button-block button-danger proceed-with-user-deletion">${i18n('delete_account')}</button>`;
                 h += `<button class="button button-block button-secondary cancel-user-deletion">${i18n('cancel')}</button>`;
             h += `</div>`;
         }

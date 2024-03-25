@@ -52,7 +52,7 @@ async function UIWindowSettings(options){
                 h += `<div class="settings-content" data-settings="usage">`;
                     h += `<h1>Usage</h1>`;
                     h += `<div class="driver-usage">
-                            <h3 style="margin-bottom: 5px; font-size: 14px;">Storage Usage</h3>
+                            <h3 style="margin-bottom: 5px; font-size: 14px;">${i18n('storage_usage')}</h3>
                             <div style="font-size: 13px; margin-bottom: 3px;">
                                 <span id="storage-used"></span>
                                 <span> used of </span>
@@ -67,23 +67,23 @@ async function UIWindowSettings(options){
 
                 // Account
                 h += `<div class="settings-content" data-settings="account">`;
-                    h += `<h1>Account</h1>`;
+                    h += `<h1>${i18n('account')}</h1>`;
                     // change password button
                     h += `<div class="settings-card">`;
-                        h += `<strong>Password</strong>`;
+                        h += `<strong>${i18n('password')}</strong>`;
                         h += `<div style="flex-grow:1;">`;
-                            h += `<button class="button change-password" style="float:right;">Change Password</button>`;
+                            h += `<button class="button change-password" style="float:right;">${i18n('change_password')}</button>`;
                         h += `</div>`;
                     h += `</div>`;
 
                     // change username button
                     h += `<div class="settings-card">`;
                         h += `<div>`;
-                            h += `<strong style="display:block;">Username</strong>`;
-                            h += `<span style="display:block; margin-top:5px;">${user.username}</span>`;
+                            h += `<strong style="display:block;">${i18n('username')}</strong>`;
+                            h += `<span class="username" style="display:block; margin-top:5px;">${user.username}</span>`;
                         h += `</div>`;
                         h += `<div style="flex-grow:1;">`;
-                            h += `<button class="button change-username" style="float:right;">Change Username</button>`;
+                            h += `<button class="button change-username" style="float:right;">${i18n('change_username')}</button>`;
                         h += `</div>`
                     h += `</div>`;
 
@@ -91,11 +91,11 @@ async function UIWindowSettings(options){
                     if(user.email){
                         h += `<div class="settings-card">`;
                             h += `<div>`;
-                                h += `<strong style="display:block;">Email</strong>`;
+                                h += `<strong style="display:block;">${i18n('email')}</strong>`;
                                 h += `<span style="display:block; margin-top:5px;">${user.email}</span>`;
                             h += `</div>`;
                             h += `<div style="flex-grow:1;">`;
-                                h += `<button class="button change-email" style="margin-bottom: 10px; float:right;">Change Email</button>`;
+                                h += `<button class="button change-email" style="margin-bottom: 10px; float:right;">${i18n('change_email')}</button>`;
                             h += `</div>`;
                         h += `</div>`;
                     }
@@ -112,7 +112,7 @@ async function UIWindowSettings(options){
 
                 // Language
                 h += `<div class="settings-content" data-settings="language">`;
-                    h += `<h1>Language</h1>`;
+                    h += `<h1>${i18n('language')}</h1>`;
                     // search
                     h += `<div class="search-container" style="margin-bottom: 10px;">`;
                         h += `<input type="text" class="search" placeholder="Search">`;
@@ -204,7 +204,7 @@ async function UIWindowSettings(options){
                         usageDisplay = `
                             <div class="driver-usage" style="margin-bottom: 10px;">
                                 <h3 style="margin-bottom: 5px; font-size: 14px;">${service.service['driver.interface']} (${service.service['driver.method']}):</h3>
-                                <span style="font-size: 13px; margin-bottom: 3px;">Usage: ${monthly_usage} (Unlimited)</span>
+                                <span style="font-size: 13px; margin-bottom: 3px;">${i18n('usage')}: ${monthly_usage} (${i18n('unlimited')})</span>
                             </div>
                         `;
                     }

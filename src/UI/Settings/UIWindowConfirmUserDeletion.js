@@ -27,9 +27,9 @@ async function UIWindowConfirmUserDeletion(options){
         let h = '';
         h += `<div style="padding: 20px;">`;
             h += `<div class="generic-close-window-button disable-user-select"> &times; </div>`;
-            h += `<img src="${window.icons['danger.svg']}" style="width: 70px; margin: 20px auto 20px; display: block; margin-bottom: 20px;">`;
-            h += `<p style="text-align: center; font-size: 16px; padding: 20px; font-weight: 400; margin: -10px 10px 20px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">${i18n('confirm_delete_user')}</p>`;
-            h += `<button class="button button-block button-danger proceed-with-user-deletion" style="margin-bottom: 20px;">${i18n('proceed_with_account_deletion')}</button>`;
+            h += `<img src="${window.icons['danger.svg']}" class="account-deletion-confirmation-icon">`;
+            h += `<p class="account-deletion-confirmation-prompt">${i18n('confirm_delete_user')}</p>`;
+            h += `<button class="button button-block button-danger proceed-with-user-deletion">${i18n('proceed_with_account_deletion')}</button>`;
             h += `<button class="button button-block button-secondary cancel-user-deletion">${i18n('cancel')}</button>`;
         h += `</div>`;
 
