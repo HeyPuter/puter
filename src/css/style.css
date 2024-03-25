@@ -2748,8 +2748,9 @@ label {
 .launch-search-clear {
     display: none;
     position: absolute;
-    right: 10px;
+    right: 8px;
     top: 8px;
+    height: 28px;
     opacity: 0.5;
 }
 
