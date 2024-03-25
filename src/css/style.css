@@ -3550,3 +3550,14 @@ label {
     background: #ffecec;
     color: rgb(215 2 2);
 }
+.error-message{
+    border-color: #f0080866;
+    background: #ffecec;
+    color: rgb(215 2 2);
+    font-size: 14px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+    padding: 10px;
+    border-radius: 4px;
+    border: 1px solid #f0080866;
+}
