@@ -153,7 +153,7 @@ const en = {
         rename: 'Rename',
         repeat: 'Repeat',
         replace: 'Replace',
-        replace_all: 'Erstatt alle',
+        replace_all: 'Replace All',
         resend_confirmation_code: "Re-send Confirmation Code",
         restore: "Restore",
         save_account: 'Save account',

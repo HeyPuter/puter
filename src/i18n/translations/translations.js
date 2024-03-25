@@ -17,9 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import ar from './ar.js';
-import bn from './bn.js'
+import bn from './bn.js';
 import da from './da.js';
-import de from './de.js'
+import de from './de.js';
 import en from './en.js';
 import es from './es.js';
 import fa from './fa.js';
@@ -29,6 +29,7 @@ import hy from './hy.js';
 import it from './it.js';
 import ko from './ko.js';
 import nb from './nb.js';
+import nl from './nl.js';
 import nn from './nn.js';
 import ro from './ro.js';
 import sv from './sv.js';
@@ -52,6 +53,7 @@ export default {
     it,
     ko,
     nb,
+    nl,
     nn,
     ro,
     pl,
