@@ -75,6 +75,7 @@ function UITabAbout(){
                             <li>iro.js <a target="_blank" href="https://github.com/jaames/iro.js/blob/master/LICENSE.txt">${i18n('license')}</a></li>
                             <li>jQuery <a target="_blank" href="https://jquery.org/license/">${i18n('license')}</a></li>
                             <li>jQuery-dragster <a target="_blank" href="https://github.com/catmanjan/jquery-dragster/blob/master/LICENSE">${i18n('license')}</a></li>
+                            <li>jQuery-menu-aim <a target="_blank" href="https://github.com/kamens/jQuery-menu-aim?tab=readme-ov-file#faq">${i18n('license')}</a></li>
                             <li>jQuery UI <a target="_blank" href="https://jquery.org/license/">${i18n('license')}</a></li>
                             <li>lodash <a target="_blank" href="https://lodash.com/license">${i18n('license')}</a></li>
                             <li>mime <a target="_blank" href="https://github.com/broofa/mime/blob/main/LICENSE">${i18n('license')}</a></li>
