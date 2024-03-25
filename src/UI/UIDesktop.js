@@ -34,7 +34,7 @@ import UIWindowQR from "./UIWindowQR.js"
 import UIWindowRefer from "./UIWindowRefer.js"
 import UITaskbar from "./UITaskbar.js"
 import new_context_menu_item from "../helpers/new_context_menu_item.js"
-import changeLanguage from "../i18n/i18nchangeLanguage.js"
+import changeLanguage from "../i18n/i18nChangeLanguage.js"
 import UIWindowSettings from "./Settings/UIWindowSettings.js"
 
 async function UIDesktop(options){

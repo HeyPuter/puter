@@ -22,7 +22,7 @@ import UIWindowChangePassword from '../UIWindowChangePassword.js'
 // import UIWindowChangeEmail from './UIWindowChangeEmail.js'
 // import UIWindowDeleteAccount from './UIWindowDeleteAccount.js'
 import UIWindowChangeUsername from '../UIWindowChangeUsername.js'
-import changeLanguage from "../../i18n/i18nchangeLanguage.js"
+import changeLanguage from "../../i18n/i18nChangeLanguage.js"
 import UIWindowConfirmUserDeletion from './UIWindowConfirmUserDeletion.js';
 import UITabAbout from './UITabAbout.js';
 
