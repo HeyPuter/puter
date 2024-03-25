@@ -18,6 +18,7 @@
  */
 const ur = {
     name: "اردو",
+    english_name: "Urdu",
     code: "ur",
     dictionary: {
         access_granted_to: "رسائی مسموح ہے",

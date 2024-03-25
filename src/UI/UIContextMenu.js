@@ -148,12 +148,13 @@ function UIContextMenu(options){
         return false;
     });
 
-    // initialize menuAim plugin (../libs/jquery.menu-aim.js)
+    // Initialize the menuAim plugin (../libs/jquery.menu-aim.js)
     $(contextMenu).menuAim({
+        submenuSelector: ".context-menu-item-submenu",
         submenuDirection: function(){
-            //if not submenu
+            // If not submenu
             if(!options.is_submenu){
-                // if submenu left postiton is greater than main menu left position
+                // if submenu's left postiton is greater than main menu's left position
                 if($(contextMenu).offset().left + 2 * $(contextMenu).width() + 15 < window.innerWidth ){     
                     return "right";
                 } else {
@@ -161,12 +162,10 @@ function UIContextMenu(options){
                 }
             }
         },
-        //activates item when mouse enters depending in mouse position and direction
+        // activates item when mouse enters depending on mouse position and direction
         activate: function (e) {
-
             //activate items
             let item = $(e).closest('.context-menu-item');
-
             // mark other items as inactive
             $(contextMenu).find('.context-menu-item').removeClass('context-menu-item-active');
             // mark this item as active
@@ -175,7 +174,6 @@ function UIContextMenu(options){
             $(`.context-menu[data-parent-id="${menu_id}"]`).remove();
             // mark this context menu as active
             $(contextMenu).addClass('context-menu-active');
-
 
             // activate submenu
             // open submenu if applicable

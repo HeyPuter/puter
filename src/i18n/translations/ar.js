@@ -18,6 +18,7 @@
  */
 const ar = {
 	name: "العربية",
+	english_name: "Arabic",
 	code: "ar",
 	dictionary: {
 		access_granted_to: "دخول مسموح به",

@@ -18,6 +18,7 @@
  */
 const da = {
     name: "Dansk",
+    english_name: "Danish",
     code: "da",
     dictionary: {
         access_granted_to: "Adgang givet til",

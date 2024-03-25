@@ -18,6 +18,7 @@
  */
 const th = {
     name: "ไทย",
+    english_name: "Thai",
     code: "th",
     dictionary: {
         access_granted_to: "อนุญาตให้เข้าถึง",

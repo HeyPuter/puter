@@ -18,7 +18,7 @@
  */
 import translations from './translations/translations.js';
 
-window.ListSupportedLanguages = () => Object.keys(translations).map(lang => translations[lang]);
+window.listSupportedLanguages = () => Object.keys(translations).map(lang => translations[lang]);
 
 window.i18n = function (key, replacements = [], encode_html = true) {
     if(typeof replacements === 'boolean' && encode_html === undefined){

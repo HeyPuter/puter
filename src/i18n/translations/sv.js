@@ -18,6 +18,7 @@
  */
 const sv = {
     name: "Svenska",
+    english_name: "Swedish",
     code: "sv",
     dictionary: {
         access_granted_to: "Tillgång beviljad till",

@@ -1870,7 +1870,7 @@ window.initgui = async function(){
      */
     $(document).on("logout", async function(event) {
         // is temp user?
-        if(window.user && window.user.is_temp){
+        if(window.user && window.user.is_temp && !window.user.deleted){
             const alert_resp = await UIAlert({
                 message: `<strong>Save account before logging out!</strong><p>You are using a temporary account and logging out will erase all your data.</p>`,
                 buttons:[

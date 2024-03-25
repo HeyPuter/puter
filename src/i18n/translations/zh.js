@@ -18,6 +18,7 @@
  */
 const zh = {
     name: "中文",
+    english_name: "Chinese",
     code: "zh",
     dictionary: {
         access_granted_to: "访问授权给",

@@ -18,6 +18,7 @@
  */
 const it = {
     name: "Italiano",
+    english_name: "Italian",
     code: "it",
     dictionary: {
         access_granted_to: "Accesso garantito a",

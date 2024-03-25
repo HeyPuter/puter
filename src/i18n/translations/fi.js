@@ -18,6 +18,7 @@
  */
 const fi = {
     name: "Suomi",
+    english_name: "Finnish",
     code: "fi",
     dictionary: {
         access_granted_to: "Käyttöoikeus Myönnetty",

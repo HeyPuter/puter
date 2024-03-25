@@ -722,7 +722,7 @@ window.mutate_user_preferences = function(user_preferences_delta) {
 window.update_user_preferences = function(user_preferences) {
     window.user_preferences = user_preferences;
     localStorage.setItem('user_preferences', JSON.stringify(user_preferences));
-    window.locale = user_preferences.language;
+    window.locale = user_preferences.language ?? 'en';
 }
 
 window.sendWindowWillCloseMsg = function(iframe_element) {

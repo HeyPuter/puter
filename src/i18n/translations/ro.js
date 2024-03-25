@@ -18,6 +18,7 @@
  */
 const ro = {
     name: "Română",
+    english_name: "Romanian",
     code: "ro",
     dictionary: {
         access_granted_to: "Acces acordat pentru",

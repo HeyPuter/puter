@@ -18,6 +18,7 @@
  */
 const fa = {
     name: "فارسی",
+    english_name: "Farsi",
     code: "fa",
     dictionary: {
         access_granted_to: "دسترسی داده شده به",

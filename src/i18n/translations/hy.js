@@ -18,6 +18,7 @@
  */
 const hy = {
     name: "Հայերեն",
+    english_name: "Armenian",
     code: "hy",
     dictionary: {
         access_granted_to: "Մուտքը տրված է՝",

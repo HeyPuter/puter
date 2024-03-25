@@ -18,6 +18,7 @@
  */
 const nn = {
     name: "Norsk Nynorsk",
+    english_name: "Norwegian Nynorsk",
     code: "nn",
     dictionary: {
         access_granted_to: "Tilgang gjeven til",

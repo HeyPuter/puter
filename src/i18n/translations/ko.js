@@ -18,6 +18,7 @@
  */
 const ko = {
     name: "한국어",
+    english_name: "Korean",
     code: "ko",
     dictionary: {
         access_granted_to: "접근 권한 부여",

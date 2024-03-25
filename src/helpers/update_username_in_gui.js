@@ -67,6 +67,9 @@ const update_username_in_gui = function(new_username){
             else if (attr_item_path.startsWith('/' + window.user.username + '/'))
                 $el.attr('data-item-path',  attr_item_path.replace('/' + window.user.username + '/', '/' + new_username + '/'));
         }
+
+        // any element with username class
+        $('.username').text(new_username);
     })
 
     // todo update all window paths
