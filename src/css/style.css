@@ -3573,15 +3573,14 @@ label {
 
 .error-message {
     display: none;
-    border-color: #f0080866;
-    background: #ffecec;
     color: rgb(215 2 2);
     font-size: 14px;
     margin-top: 10px;
     margin-bottom: 10px;
     padding: 10px;
     border-radius: 4px;
-    border: 1px solid #f0080866;
+    border: 1px solid rgb(215 2 2);
+    text-align: center;
 }
 
 .account-deletion-confirmation-prompt {
