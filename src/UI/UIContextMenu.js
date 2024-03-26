@@ -183,6 +183,17 @@ function UIContextMenu(options){
                 if($(`.context-menu[data-id="${menu_id}-${$(e).attr('data-action')}"]`).length === 0){
                     // close other submenus
                     $(`.context-menu[parent-element-id="${menu_id}"]`).remove();
+
+                    // Calculate the position for the submenu
+                    let submenu_x_pos, submenu_y_pos;
+                    if (isMobile.phone || isMobile.tablet) {
+                        submenu_y_pos = y_pos;
+                        submenu_x_pos = x_pos;
+                    } else {
+                        submenu_y_pos = item_rect_box.top - 5; 
+                        submenu_x_pos = x_pos + item_rect_box.width + 15;
+                    }
+
                     // open the new submenu
                     UIContextMenu({ 
                         items: options.items[parseInt($(e).attr('data-action'))].items,
@@ -190,8 +201,8 @@ function UIContextMenu(options){
                         is_submenu: true,
                         id: menu_id + '-' + $(e).attr('data-action'),
                         position:{
-                            top: item_rect_box.top - 5,
-                            left: x_pos + item_rect_box.width + 15,
+                            top: submenu_y_pos,
+                            left: submenu_x_pos,
                         } 
                     })
                 }
