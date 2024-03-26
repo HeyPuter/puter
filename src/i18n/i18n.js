@@ -21,10 +21,7 @@ import translations from './translations/translations.js';
 window.listSupportedLanguages = () => Object.keys(translations).map(lang => translations[lang]);
 
 window.i18n = function (key, replacements = [], encode_html = true) {
-    if(typeof replacements === 'boolean' && encode_html === undefined){
-        encode_html = replacements;
-        replacements = [];
-    }else if(Array.isArray(replacements) === false){
+    if(Array.isArray(replacements) === false){
         replacements = [replacements];
     }
 

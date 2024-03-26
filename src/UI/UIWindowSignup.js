@@ -64,7 +64,7 @@ function UIWindowSignup(options){
                     h += `<input type="text" name="p102xyzname" class="p102xyzname" value="">`;
 
                     // terms and privacy
-                    h += `<p class="signup-terms">${i18n('tos_fineprint', false)}</p>`;
+                    h += `<p class="signup-terms">${i18n('tos_fineprint', [], false)}</p>`;
                     // Create Account
                     h += `<button class="signup-btn button button-primary button-block button-normal">${i18n('create_free_account')}</button>`
                 h += `</form>`;
