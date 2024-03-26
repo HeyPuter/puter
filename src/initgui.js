@@ -969,7 +969,7 @@ window.initgui = async function(){
             && !$(e.target).hasClass('launch-search') 
             && !$(e.target).hasClass('launch-search-clear') 
             && $(e.target).closest('.start-app').length === 0  
-            && !isMobile.phone && !isMobile.table
+            && !isMobile.phone && !isMobile.tablet
             && !$(e.target).hasClass('popover')
             && $(e.target).parents('.popover').length === 0){
 
