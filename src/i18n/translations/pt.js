@@ -204,4 +204,4 @@ const pt = {
     }
 };
 
-export default en;
+export default pt;

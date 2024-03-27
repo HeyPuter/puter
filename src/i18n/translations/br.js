@@ -204,4 +204,4 @@ const br = {
     }
 };
 
-export default en;
+export default br;
