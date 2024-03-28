@@ -360,30 +360,13 @@ async function UIWindowSettings(options){
         $(el_window).on('change', 'select.change-clock-visable', function(e){
             const $this = $(this);  
             const value = $this.val();
-            console.log(value);
-            // $.ajax({
-            //     url: api_origin + "/clock",
-            //     type: 'POST',
-            //     async: true,
-            //     headers: {
-            //         "Authorization": "Bearer "+auth_token
-            //     },
-            //     contentType: "application/json",
-            //     data: value,
-            //     // data: JSON.stringify({ 
-            //     //     old_pass: current_password, 
-            //     //     new_pass: new_password,
-            //     // }),				
-            //     success: function (data){
-            //         // $(el_window).find('.form-success-msg').html(i18n('password_changed'));
-            //         // $(el_window).find('.form-success-msg').fadeIn();
-            //         // $(el_window).find('input').val('');
-            //     },
-            //     error: function (err){
-            //         // $(el_window).find('.form-error-msg').html(err.responseText);
-            //         // $(el_window).find('.form-error-msg').fadeIn();
-            //     }
-            // });	
+
+            value === 'show' && $('#clock').show();
+            value === 'hide' && $('#clock').hide();
+
+            window.mutate_user_preferences({
+                clock_visable: value
+            });
         })
 
         resolve(el_window);
