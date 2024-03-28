@@ -40,6 +40,7 @@ async function UIWindowSettings(options){
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="usage" style="background-image: url(${icons['speedometer-outline.svg']});">${i18n('usage')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="account" style="background-image: url(${icons['user.svg']});">${i18n('account')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="language" style="background-image: url(${icons['language.svg']});">${i18n('language')}</div>`;
+                h += `<div class="settings-sidebar-item disable-user-select" data-settings="clock" style="background-image: url(${icons['clock.svg']});">${i18n('clock')}</div>`;
             h += `</div>`;
 
             // content
@@ -124,8 +125,20 @@ async function UIWindowSettings(options){
                             h += `<div class="language-item ${window.locale === lang.code ? 'active': ''}" data-lang="${lang.code}" data-english-name="${html_encode(lang.english_name)}">${lang.name}</div>`;
                         }
                     h += `</div>`;
-
                 h += `</div>`;
+
+                // Clock
+                h += `<div class="settings-content" data-settings="clock">`;
+                     h += `<h1>Clock</h1>`;
+                     h += `<div style="display: flex;align-items: center">`
+                        h += `<span>Visable:</span>`
+                        h += `<Select class="change-clock-visable" style="margin-left: 10px">`
+                            h += `<option value="auto">Auto - Default, visible only in full-screen mode.</option>`
+                            h += `<option value="hide">Hide - Always visible</option>`
+                            h += `<option value="show">Show - Always hidden</option>`
+                        h += `</Select>`
+                     h += `</div>`
+                h += `</div>`;      
 
             h += `</div>`;
         h += `</div>`;
@@ -343,6 +356,35 @@ async function UIWindowSettings(options){
                 }
             })
         });
+
+        $(el_window).on('change', 'select.change-clock-visable', function(e){
+            const $this = $(this);  
+            const value = $this.val();
+            console.log(value);
+            // $.ajax({
+            //     url: api_origin + "/clock",
+            //     type: 'POST',
+            //     async: true,
+            //     headers: {
+            //         "Authorization": "Bearer "+auth_token
+            //     },
+            //     contentType: "application/json",
+            //     data: value,
+            //     // data: JSON.stringify({ 
+            //     //     old_pass: current_password, 
+            //     //     new_pass: new_password,
+            //     // }),				
+            //     success: function (data){
+            //         // $(el_window).find('.form-success-msg').html(i18n('password_changed'));
+            //         // $(el_window).find('.form-success-msg').fadeIn();
+            //         // $(el_window).find('input').val('');
+            //     },
+            //     error: function (err){
+            //         // $(el_window).find('.form-error-msg').html(err.responseText);
+            //         // $(el_window).find('.form-error-msg').fadeIn();
+            //     }
+            // });	
+        })
 
         resolve(el_window);
     });

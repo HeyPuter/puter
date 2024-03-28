@@ -60,6 +60,7 @@ const en = {
         credits: "Credits",
         current_password: "Current Password",
         cut: 'Cut',
+        clock: "Clock",
         date_modified: 'Date modified',
         delete: 'Delete',
         delete_account: "Delete Account",
