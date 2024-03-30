@@ -361,10 +361,10 @@ async function UIWindowSettings(options){
             const $this = $(this);  
             const value = $this.val();
 
-            changeClockVisable(value);
+            window.change_clock_visable(value);
         })
 
-        change_clock_visable();
+        window.change_clock_visable();
 
         resolve(el_window);
     });
