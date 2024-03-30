@@ -150,8 +150,8 @@ const config_pointer = {};
             if (prop in target) {
                 return target[prop];
             } else {
-                console.log('implied', prop,
-                    'to', get_implied(config_to_export, prop));
+                // console.log('implied', prop,
+                //     'to', get_implied(config_to_export, prop));
                 return get_implied(config_to_export, prop);
             }
         }
