@@ -1932,7 +1932,6 @@ window.launch_app = async (options)=>{
             iframe_url.searchParams.append('puter.item.name', options.filename);
             iframe_url.searchParams.append('puter.item.path', options.file_path ? `~/` + options.file_path.split('/').slice(1).join('/') : undefined);
             iframe_url.searchParams.append('puter.item.read_url', options.readURL);
-            // iframe_url.searchParams.append('puter.item.write_url', file_signature.write_url);
             iframe_url.searchParams.append('puter.domain', window.app_domain);
         }
 
@@ -1947,6 +1946,9 @@ window.launch_app = async (options)=>{
         else if(options.token){
             iframe_url.searchParams.append('puter.auth.token', options.token);
         }
+
+        if(api_origin)
+            iframe_url.searchParams.append('puter.api_origin', api_origin);
 
         // Try to acquire app token from the server
         else{
