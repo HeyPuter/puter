@@ -1029,7 +1029,6 @@ async function UIDesktop(options){
             }
         })
     }
-
 }
 
 $(document).on('contextmenu taphold', '.taskbar', function(event){

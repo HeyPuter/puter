@@ -3677,3 +3677,22 @@ window.delete_desktop_item_positions = ()=>{
     desktop_item_positions = {}
     puter.kv.del('desktop_item_positions');
 }
+
+window.change_clock_visable = (clock_visable) => {
+    let newValue = clock_visable || window.user_preferences.clock_visable;
+    
+    newValue === 'show' && $('#clock').show();
+    newValue === 'hide' && $('#clock').hide();
+
+
+    if(clock_visable) {
+        // save clock_visable to user preferences
+        window.mutate_user_preferences({
+            clock_visable: newValue
+        });
+
+        return;
+    }
+
+    $('select.change-clock-visable').val(window.user_preferences.clock_visable);
+}
