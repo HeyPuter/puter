@@ -129,14 +129,14 @@ async function UIWindowSettings(options){
 
                 // Clock
                 h += `<div class="settings-content" data-settings="clock">`;
-                     h += `<h1>Clock</h1>`;
+                     h += `<h1>${i18n('clock')}</h1>`;
                      h += `<div style="display: flex;align-items: center">`
-                        h += `<span>${i18n('click_visible')}:</span>`
-                        h += `<Select class="change-clock-visible" style="margin-left: 10px;flex: 1">`
-                            h += `<option value="auto">${i18n('click_visible_auto')}</option>`
-                            h += `<option value="hide">${i18n('click_visible_hide')}</option>`
-                            h += `<option value="show">${i18n('click_visible_show')}</option>`
-                        h += `</Select>`
+                        h += `<span>${i18n('visibility')}:</span>`
+                        h += `<select class="change-clock-visible" style="margin-left: 10px;flex: 1">`
+                            h += `<option value="auto">${i18n('clock_visible_auto')}</option>`
+                            h += `<option value="hide">${i18n('clock_visible_hide')}</option>`
+                            h += `<option value="show">${i18n('clock_visible_show')}</option>`
+                        h += `</select>`
                      h += `</div>`
                 h += `</div>`;      
 
