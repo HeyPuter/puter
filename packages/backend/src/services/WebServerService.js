@@ -74,8 +74,6 @@ class WebServerService extends BaseService {
             const is_last_port = i === ports_to_try.length - 1;
             if ( auto_port ) this.log.info('trying port: ' + port);
             try {
-                console.log('---AA--- ', is_last_port);
-                console.log('---BB--- ', ports_to_try);
                 server = http.createServer(this.app).listen(port);
                 server.timeout = 1000 * 60 * 60 * 2; // 2 hours
                 let should_continue = false;
@@ -96,7 +94,6 @@ class WebServerService extends BaseService {
                 })
                 if ( should_continue ) continue;
             } catch (e) {
-                console.log('CONDITION?', e.code, is_last_port)
                 if ( ! is_last_port && e.code === 'EADDRINUSE' ) {
                     this.log.info('port in use:', port);
                     continue;
@@ -352,7 +349,6 @@ class WebServerService extends BaseService {
         const logos = require('../fun/logos.js');
         let last_logo = undefined;
         for ( const logo of logos ) {
-            console.log('comparing', process.stdout.columns, logo.sz)
             if ( logo.sz <= (process.stdout.columns ?? 0) ) {
                 last_logo = logo;
             } else break;
