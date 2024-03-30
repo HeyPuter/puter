@@ -81,12 +81,13 @@ class WebServerService extends BaseService {
                     server.on('error', e => {
                         if ( e.code === 'EADDRINUSE' ) {
                             if ( ! is_last_port && e.code === 'EADDRINUSE' ) {
-                                this.log.info('port in use:', port);
+                                this.log.info('port in use: ' + port);
                                 should_continue = true;
                             }
+                            rslv();
+                        } else {
                             rjct(e);
                         }
-                        rslv();
                     });
                     server.on('listening', () => {
                         rslv();
@@ -95,7 +96,7 @@ class WebServerService extends BaseService {
                 if ( should_continue ) continue;
             } catch (e) {
                 if ( ! is_last_port && e.code === 'EADDRINUSE' ) {
-                    this.log.info('port in use:', port);
+                    this.log.info('port in use:' + port);
                     continue;
                 }
                 throw e;
