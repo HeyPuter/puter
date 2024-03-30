@@ -45,6 +45,9 @@ async function UITaskbar(options){
 
     $('.desktop').append(h);
 
+    // init clock visibility
+    window.change_clock_visible();
+
     //---------------------------------------------
     // add `Start` to taskbar
     //---------------------------------------------

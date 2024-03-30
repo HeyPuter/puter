@@ -505,6 +505,7 @@ async function UIDesktop(options){
     const user_preferences = {
         show_hidden_files: JSON.parse(await puter.kv.get('user_preferences.show_hidden_files')),
         language: await puter.kv.get('user_preferences.language'),
+        clock_visible: await puter.kv.get('user_preferences.clock_visible'),
     };
 
     // update default apps
@@ -1028,7 +1029,6 @@ async function UIDesktop(options){
             }
         })
     }
-
 }
 
 $(document).on('contextmenu taphold', '.taskbar', function(event){
@@ -1379,14 +1379,15 @@ document.addEventListener('fullscreenchange', (event) => {
     // document.fullscreenElement will point to the element that
     // is in fullscreen mode if there is one. If there isn't one,
     // the value of the property is null.
+
     if (document.fullscreenElement) {
         $('.fullscreen-btn').css('background-image', `url(${window.icons['shrink.svg']})`);
         $('.fullscreen-btn').attr('title', 'Exit Full Screen');
-        $('#clock').show();
+        window.user_preferences.clock_visible === 'auto' && $('#clock').show();
     } else {
         $('.fullscreen-btn').css('background-image', `url(${window.icons['fullscreen.svg']})`);
         $('.fullscreen-btn').attr('title', 'Enter Full Screen');
-        $('#clock').hide();
+        window.user_preferences.clock_visible === 'auto' && $('#clock').hide();
     }
 })
 

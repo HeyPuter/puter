@@ -3656,3 +3656,24 @@ window.delete_desktop_item_positions = ()=>{
     desktop_item_positions = {}
     puter.kv.del('desktop_item_positions');
 }
+
+window.change_clock_visible = (clock_visible) => {
+    let newValue = clock_visible || window.user_preferences.clock_visible;
+    
+    
+    newValue === 'auto' && is_fullscreen() ? $('#clock').show() : $('#clock').hide();
+
+    newValue === 'show' && $('#clock').show();
+    newValue === 'hide' && $('#clock').hide();
+
+    if(clock_visible) {
+        // save clock_visible to user preferences
+        window.mutate_user_preferences({
+            clock_visible: newValue
+        });
+
+        return;
+    }
+
+    $('select.change-clock-visible').val(window.user_preferences.clock_visible);
+}

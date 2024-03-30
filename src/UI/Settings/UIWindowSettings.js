@@ -40,6 +40,7 @@ async function UIWindowSettings(options){
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="usage" style="background-image: url(${icons['speedometer-outline.svg']});">${i18n('usage')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="account" style="background-image: url(${icons['user.svg']});">${i18n('account')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="language" style="background-image: url(${icons['language.svg']});">${i18n('language')}</div>`;
+                h += `<div class="settings-sidebar-item disable-user-select" data-settings="clock" style="background-image: url(${icons['clock.svg']});">${i18n('clock')}</div>`;
             h += `</div>`;
 
             // content
@@ -124,8 +125,20 @@ async function UIWindowSettings(options){
                             h += `<div class="language-item ${window.locale === lang.code ? 'active': ''}" data-lang="${lang.code}" data-english-name="${html_encode(lang.english_name)}">${lang.name}</div>`;
                         }
                     h += `</div>`;
-
                 h += `</div>`;
+
+                // Clock
+                h += `<div class="settings-content" data-settings="clock">`;
+                     h += `<h1>${i18n('clock')}</h1>`;
+                     h += `<div style="display: flex;align-items: center">`
+                        h += `<span>${i18n('visibility')}:</span>`
+                        h += `<select class="change-clock-visible" style="margin-left: 10px;flex: 1">`
+                            h += `<option value="auto">${i18n('clock_visible_auto')}</option>`
+                            h += `<option value="hide">${i18n('clock_visible_hide')}</option>`
+                            h += `<option value="show">${i18n('clock_visible_show')}</option>`
+                        h += `</select>`
+                     h += `</div>`
+                h += `</div>`;      
 
             h += `</div>`;
         h += `</div>`;
@@ -343,6 +356,15 @@ async function UIWindowSettings(options){
                 }
             })
         });
+
+        $(el_window).on('change', 'select.change-clock-visible', function(e){
+            const $this = $(this);  
+            const value = $this.val();
+
+            window.change_clock_visible(value);
+        })
+
+        window.change_clock_visible();
 
         resolve(el_window);
     });
