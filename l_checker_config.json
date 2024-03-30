@@ -1,0 +1,26 @@
+{
+    "ignore": ["**/!(*.js|*.css)", "**/assets/**"],
+    "license": "doc/license_header.txt",
+    "licenseFormats": {
+        "js": {
+            "prepend": "/*",
+            "append": " */",
+            "eachLine": {
+                "prepend": " * "
+            }
+        },
+        "dotfile|^Dockerfile": {
+            "eachLine": {
+                "prepend": "# "
+            }
+        },
+        "css": {
+            "prepend": "/*",
+            "append": " */",
+            "eachLine": {
+                "prepend": " * "
+            }
+        }
+    },
+    "trailingWhitespace": "TRIM"
+}

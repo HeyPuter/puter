@@ -1,0 +1,226 @@
+html, body {
+    font-family: 'Roboto', HelveticaNeue, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+#html-login, #body-login, #html-signup, #body-signup, #html-password-recovery, #body-password-recovery,
+ #html-set-new-password, #body-set-new-password {
+    height: 100%;
+}
+
+#html-login h1, #html-signup h1, #html-password-recovery h1, #html-set-new-password h1{
+    color: #5a667a;
+    text-shadow: 1px 1px white;
+    font-size:23px;
+}
+#body-legal{
+    margin-top: 40px;
+    margin-bottom: 100px;
+}
+#body-legal h1 {
+    margin-top: 50px;
+    text-align: center;
+    text-transform: uppercase;
+    font-size: 35px;
+}
+#body-legal h2{
+    font-size: 25px;;
+    margin-top: 50px;
+}
+#body-legal h3{
+    font-size:20px;
+}
+
+#body-legal h4 {
+    margin-top: 40px;
+    margin-bottom: 10px;
+}
+#body-legal ol > h3{
+    font-size: 18px;
+    margin-top: 20px;
+    margin-left: -25px;
+}
+#body-legal ul li{
+    margin-bottom: 10px;
+}
+.tos-li-head {
+    font-weight: bold;
+    display: block;
+    margin-bottom: 10px;
+    margin-top: 30px;
+}
+
+#body-login, #body-signup, #body-password-recovery, #body-set-new-password {
+    display: flex;
+    align-items: center;
+    padding-top: 40px;
+    padding-bottom: 40px;
+    background-color: #f5f5f5;
+    text-align: center;
+}
+
+#body-index {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.form-signin {
+    width: 100%;
+    max-width: 330px;
+    padding: 15px;
+    margin: auto;
+}
+
+.form-signin .form-floating:focus-within {
+    z-index: 2;
+}
+
+#login-error-msg, .error-msg, .error {
+    display: none;
+    color: red;
+    border: 1px solid red;
+    border-radius: 4px;
+    padding: 9px;
+    margin-bottom: 15px;
+    text-align: center;
+    font-size: 13px;
+}
+.error{
+    display: block;
+}
+.success-msg{
+    display: none;
+    color: green;
+    border: 1px solid green;
+    border-radius: 4px;
+    padding: 9px;
+    margin-bottom: 15px;
+    text-align: center;
+    font-size: 13px;
+}
+@media (min-width: 992px) {
+    .rounded-lg-3 {
+        border-radius: .3rem;
+    }
+}
+
+#signup-error-msg {
+    display: none;
+    color: red;
+    border: 1px solid red;
+    border-radius: 4px;
+    padding: 9px;
+    margin-bottom: 15px;
+    text-align: center;
+    font-size: 13px;
+}
+
+.logo {
+    border-radius: 3px;
+}
+
+.signup-c2a, .login-c2a {
+    color: #656f7a;
+    text-align: center;
+    margin: 0;
+    font-size: 14px;
+    text-shadow: 1px 1px #ffffffe3;
+}
+
+.signup-c2a a, .login-c2a a, .pass-reco-link {
+    text-decoration: none;
+}
+
+.signup-c2a a:hover, .login-c2a a:hover, .pass-reco-link:hover {
+    text-decoration: underline;
+}
+.pass-reco-link{
+    font-size:14px;
+}
+.c2a-wrapper {
+    display: block;
+    text-align: center;
+    font-size: 18px;
+    padding-top: 15px;
+    padding-bottom: 15px;
+    border: 1px solid #bfc3cb;
+    color: #949AA8;
+    margin-bottom: 0;
+    border-radius: 6px;
+    margin-top: 20px;
+}
+
+.social-media-icon {
+    width: 30px;
+    float: right;
+    margin-left: 20px;
+}
+
+.hero-browser {
+    margin: 0 auto;
+    background-color: #c5c7cd;
+    overflow: hidden;
+    border-top-left-radius: 3px;
+    border-top-right-radius: 3px;
+    box-shadow: 0 0 10px #8b8b8b7a;
+}
+
+.hero-browser-buttons {
+    border-radius: 100%;
+    width: 10px;
+    height: 9px;
+    background-color: #EEE;
+    float: left;
+    margin-top: 11px;
+    margin-right: 8px;
+}
+
+.hero-browser-url {
+    background-color: white;
+    width: 100%;
+    text-align: left;
+    border-radius: 20px;
+    padding-left: 20px;
+    margin-left: 15px;
+    padding: 5px 5px 5px 20px;
+    font-size: 16px;
+    font-weight: bold;
+    color: #3b5f6c;
+}
+
+.hero-browser-url-lock {
+    width: 15px;
+    height: 15px;
+    opacity: 0.2;
+    margin-top: -4px;
+    margin-right: 10px;
+}
+
+#p102xyzname {
+    display: none;
+}
+
+.feature-icon {
+    width: 50px;
+    margin-bottom: 20px;
+}
+.pass-recovery-email-sent{
+    display:none;
+    border: 1px solid #00c300;
+    padding: 20px 15px;
+    border-radius: 3px;
+    color: darkgreen;
+    background: #e5ffe5; 
+    margin-bottom: 20px;   
+}
+
+.green-1{
+    background-color: rgb(227, 255, 236);
+}
+.green-2{
+    background-color: rgb(139, 228, 168);
+}
+.green-3{
+    background-color: rgb(49, 202, 97);
+}

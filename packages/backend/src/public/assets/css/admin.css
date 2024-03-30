@@ -1,0 +1,62 @@
+h1{
+    border-bottom: 2px solid #CCC;
+    padding-bottom: 10px;
+    margin-bottom: 30px;
+    font-size: 25px;
+}
+
+h1 .bi-caret-right-fill{
+    color: rgb(210, 210, 210);
+    font-size: 25px;
+}
+
+h1 a, h1 a:visited{
+    color: #000;
+    text-decoration: none;
+}
+
+h1 a:hover{
+    text-decoration: underline;
+}
+
+/* ------------------------------------ */
+/* Admin
+/* ------------------------------------ */
+.admin-sidebar{
+    height: 100%;
+    width: 260px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    background-color: #eee;
+    overflow-x: hidden;
+    padding-top: 20px;
+}
+.admin-main{
+    margin-left: 270px;
+    padding: 0px 10px;
+    overflow: hidden;
+}
+.sidebar-item{
+    display: block;
+    padding: 10px;
+    margin:10px;
+    text-decoration: none;
+    color: #000;
+    border-radius: 5px;
+    background-color: #dee1e8;
+}
+.sidebar-item.active{
+    background-color: #a2abba;
+    color:white;
+}
+td{
+    white-space: nowrap;
+}
+.count{
+    float:right;
+    font-size: 13px;
+    font-weight: bold;
+    line-height: 25px;
+    display: block;
+}

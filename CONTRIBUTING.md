@@ -51,6 +51,12 @@ We maintain a list of issues that are good for first-time contributors. You can 
 
 <br>
 
+## Documentation for Contributors
+
+See [doc/contributors/index.md](./doc/contributors/index.md) for more information.
+
+<br>
+
 ## Code Review
 
 Once you've submitted your pull request, the project maintainers will review your changes. We may suggest some changes or improvements. This is a normal part of the process, and your contributions are greatly appreciated!

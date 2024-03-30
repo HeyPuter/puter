@@ -52,9 +52,8 @@ docker compose up
 
 <br/>
 
-## Deploy to Production
-
-Detailed guide on how to deploy Puter in production: [docs/prod.md](docs/prod.md)
+## ⚠️ Self-Hosting ⚠️
+The self-hosted version of Puter is currently in alpha stage and should not be used in production yet. It is under active development and may contain bugs, other issues. Please exercise caution and use it for testing and evaluation purposes only.
 
 <br/>
 
