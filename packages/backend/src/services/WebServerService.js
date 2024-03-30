@@ -355,7 +355,17 @@ class WebServerService extends BaseService {
             } else break;
         }
         if ( last_logo ) {
-            console.log('\x1B[34;1m' + last_logo.txt + '\x1B[0m');
+            const lines = last_logo.txt.split('\n');
+            const width = process.stdout.columns;
+            const pad = (width - last_logo.sz) / 2;
+            const asymmetrical = pad % 1 !== 0;
+            const pad_left = Math.floor(pad);
+            const pad_right = Math.ceil(pad) + (asymmetrical ? 1 : 0);
+            for ( let i = 0 ; i < lines.length ; i++ ) {
+                lines[i] = ' '.repeat(pad_left) + lines[i] + ' '.repeat(pad_right);
+            }
+            const txt = lines.join('\n');
+            console.log('\n\x1B[34;1m' + txt + '\x1B[0m\n');
         }
     }
 }
