@@ -1,6 +1,6 @@
 <h3 align="center"><img width="80" alt="Puter.com, The Personal Cloud Computer: All your files, apps, and games in one place accessible from anywhere at any time." src="https://assets.puter.site/puter-logo.png"></h3>
 
-<h3 align="center">The Internet OS, Free and Open-Source!</h3>
+<h3 align="center">The Internet OS, Free, Open-Source, and Self-Hostable!</h3>
 
 <p align="center">
     <a href="https://puter.com/"><strong>« LIVE DEMO »</strong></a>
