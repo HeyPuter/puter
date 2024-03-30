@@ -131,11 +131,11 @@ async function UIWindowSettings(options){
                 h += `<div class="settings-content" data-settings="clock">`;
                      h += `<h1>Clock</h1>`;
                      h += `<div style="display: flex;align-items: center">`
-                        h += `<span>${i18n('click_visable')}:</span>`
-                        h += `<Select class="change-clock-visable" style="margin-left: 10px;flex: 1">`
-                            h += `<option value="auto">${i18n('click_visable_auto')}</option>`
-                            h += `<option value="hide">${i18n('click_visable_hide')}</option>`
-                            h += `<option value="show">${i18n('click_visable_show')}</option>`
+                        h += `<span>${i18n('click_visible')}:</span>`
+                        h += `<Select class="change-clock-visible" style="margin-left: 10px;flex: 1">`
+                            h += `<option value="auto">${i18n('click_visible_auto')}</option>`
+                            h += `<option value="hide">${i18n('click_visible_hide')}</option>`
+                            h += `<option value="show">${i18n('click_visible_show')}</option>`
                         h += `</Select>`
                      h += `</div>`
                 h += `</div>`;      
@@ -357,14 +357,14 @@ async function UIWindowSettings(options){
             })
         });
 
-        $(el_window).on('change', 'select.change-clock-visable', function(e){
+        $(el_window).on('change', 'select.change-clock-visible', function(e){
             const $this = $(this);  
             const value = $this.val();
 
-            window.change_clock_visable(value);
+            window.change_clock_visible(value);
         })
 
-        window.change_clock_visable();
+        window.change_clock_visible();
 
         resolve(el_window);
     });

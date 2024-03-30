@@ -505,7 +505,7 @@ async function UIDesktop(options){
     const user_preferences = {
         show_hidden_files: JSON.parse(await puter.kv.get('user_preferences.show_hidden_files')),
         language: await puter.kv.get('user_preferences.language'),
-        clock_visable: await puter.kv.get('user_preferences.clock_visable'),
+        clock_visible: await puter.kv.get('user_preferences.clock_visible'),
     };
 
     // update default apps
@@ -1383,11 +1383,11 @@ document.addEventListener('fullscreenchange', (event) => {
     if (document.fullscreenElement) {
         $('.fullscreen-btn').css('background-image', `url(${window.icons['shrink.svg']})`);
         $('.fullscreen-btn').attr('title', 'Exit Full Screen');
-        window.user_preferences.clock_visable === 'auto' && $('#clock').show();
+        window.user_preferences.clock_visible === 'auto' && $('#clock').show();
     } else {
         $('.fullscreen-btn').css('background-image', `url(${window.icons['fullscreen.svg']})`);
         $('.fullscreen-btn').attr('title', 'Enter Full Screen');
-        window.user_preferences.clock_visable === 'auto' && $('#clock').hide();
+        window.user_preferences.clock_visible === 'auto' && $('#clock').hide();
     }
 })
 
