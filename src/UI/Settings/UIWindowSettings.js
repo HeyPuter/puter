@@ -131,11 +131,11 @@ async function UIWindowSettings(options){
                 h += `<div class="settings-content" data-settings="clock">`;
                      h += `<h1>Clock</h1>`;
                      h += `<div style="display: flex;align-items: center">`
-                        h += `<span>Visable:</span>`
-                        h += `<Select class="change-clock-visable" style="margin-left: 10px">`
-                            h += `<option value="auto">Auto - Default, visible only in full-screen mode.</option>`
-                            h += `<option value="hide">Hide - Always visible</option>`
-                            h += `<option value="show">Show - Always hidden</option>`
+                        h += `<span>${i18n('click_visable')}:</span>`
+                        h += `<Select class="change-clock-visable" style="margin-left: 10px;flex: 1">`
+                            h += `<option value="auto" selected="${window.user_preferences.clock_visable === 'auto'}">${i18n('click_visable_auto')}</option>`
+                            h += `<option value="hide" selected="${window.user_preferences.clock_visable === 'hide'}">${i18n('click_visable_hide')}</option>`
+                            h += `<option value="show" selected="${window.user_preferences.clock_visable === 'show'}">${i18n('click_visable_show')}</option>`
                         h += `</Select>`
                      h += `</div>`
                 h += `</div>`;      
@@ -364,6 +364,7 @@ async function UIWindowSettings(options){
             value === 'show' && $('#clock').show();
             value === 'hide' && $('#clock').hide();
 
+            // save clock_visable to user preferences
             window.mutate_user_preferences({
                 clock_visable: value
             });
