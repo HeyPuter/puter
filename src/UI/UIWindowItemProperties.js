@@ -169,24 +169,6 @@ async function UIWindowItemProperties(item_name, item_path, item_uid, left, top,
                 $(el_window).find('.item-props-version-list').append('-');
             }
 
-            // owner
-            $(el_window).find('.item-prop-val-permissions').append(`<p class="item-prop-perm-entry" style="margin-bottom:5px; margin-top:5px;">${(fsentry.owner.email === undefined || fsentry.owner.email === null) ? fsentry.owner.username : fsentry.owner.email} (owner)</p>`);
-
-            // other users with access
-            if(fsentry.permissions && fsentry.permissions.length > 0 ){
-                fsentry.permissions.forEach(perm => {
-                    let h = ``;
-                    // username/email
-                    h += `<p class="item-prop-perm-entry" data-perm-uid="${perm.uid}" style="margin-bottom:5px; margin-top:5px;">${perm.email ?? perm.username} `;
-                    // remove
-                    h += `(<span class="remove-permission-link" data-perm-uid="${perm.uid}">remove</span>)`;
-                    $(el_window).find('.item-prop-val-permissions').append(h);
-                });
-            }
-            else{
-                $(el_window).find('.item-prop-val-permissions').append('-');
-            }
-
             $(el_window).find(`.disassociate-website-link`).on('click', function(e){
                 puter.hosting.update(
                     $(e.target).attr('data-subdomain'), 
@@ -199,43 +181,7 @@ async function UIWindowItemProperties(item_name, item_path, item_uid, left, top,
                         }
                     }
                 )
-            })
-            
-            $(el_window).find('.remove-permission-link').on('click', function(e){
-                const el_remove_perm_link= this;
-                const perm_uid = $(el_remove_perm_link).attr('data-perm-uid');
-                $.ajax({
-                    url: api_origin + "/remove-perm",
-                    type: 'POST',
-                    async: true,
-                    contentType: "application/json",
-                    data: JSON.stringify({
-                        uid: perm_uid,
-                    }),
-                    headers: {
-                        "Authorization": "Bearer "+auth_token
-                    },
-                    statusCode: {
-                        401: function () {
-                            logout();
-                        },
-                    },        
-                    success: async function (res){
-                        $(el_window).find(`.item-prop-perm-entry[data-perm-uid="${perm_uid}"]`).remove();
-                        
-                        if($(el_window).find(`.item-prop-perm-entry`).length === 0){
-                            $(el_window).find(`.item-prop-val-permissions`).html('-');
-                            // todo is it better to combine the following two queriesinto one css selector?
-                            $(`.item[data-uid="${item_uid}"]`).find(`.item-is-shared`).fadeOut(200);
-                            // todo optim do this only if item is a directory
-                            // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
-                            $(`.item[data-path^="${item_path}/"]`).find(`.item-is-shared`).fadeOut(200);
-                        }
-                    },
-                    complete: function(){
-                    }
-                })
-            })
+            })            
         }
     })
 }

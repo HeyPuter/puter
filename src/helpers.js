@@ -2476,29 +2476,6 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
                         success: function (){ 
                         }  
                     })
-                    // remove all associated permissions
-                    // todo, some client-side check to see if this dir has an FR associated with it before sending a whole ajax req
-                    $.ajax({
-                        url: api_origin + "/remove-item-perms",
-                        type: 'POST',
-                        data: JSON.stringify({ 
-                            uid: $(el_item).attr('data-uid'),
-                        }),
-                        async: true,
-                        contentType: "application/json",
-                        headers: {
-                            "Authorization": "Bearer "+auth_token
-                        },
-                        statusCode: {
-                            401: function () {
-                                logout();
-                            },
-                        },        
-                        success: function (){ 
-                        }  
-                    })
-                    $(`.item[data-uid="${$(el_item).attr('data-uid')}"]`).find('.item-is-shared').fadeOut(300);
-
                     // if trashing dir... 
                     if($(el_item).attr('data-is_dir') === '1'){
                         // disassociate all its websites
