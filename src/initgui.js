@@ -1697,35 +1697,6 @@ window.initgui = async function(){
         }
     });
 
-    $(document).on('click', '.remove-permission-link', async function(e){
-        const el_remove_perm_link= this;
-        const perm_uid = $(el_remove_perm_link).attr('data-perm-uid');
-        $.ajax({
-            url: api_origin + "/remove-perm",
-            type: 'POST',
-            async: true,
-            contentType: "application/json",
-            data: JSON.stringify({
-                uid: perm_uid,
-            }),
-            headers: {
-                "Authorization": "Bearer "+auth_token
-            },
-            statusCode: {
-                401: function () {
-                    logout();
-                },
-            },        
-            success: async function (res){
-                $(`[data-perm-uid="${perm_uid}"]`).hide("slide", { direction: "right" }, 300, function(e){
-                    $(this).remove();
-                });
-            },
-            complete: function(){
-            }
-        })
-    })
-
     // update mouse position coordinates
     $(document).mousemove(function(event){
         mouseX = event.clientX;

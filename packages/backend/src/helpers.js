@@ -1,0 +1,2029 @@
+/*
+ * Copyright (C) 2024 Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+const { v4: uuidv4 } = require('uuid');
+const _path = require('path');
+const micromatch = require('micromatch');
+const config = require('./config')
+const mime = require('mime-types');
+const PerformanceMonitor = require('./monitor/PerformanceMonitor.js');
+const { generate_identifier } = require('./util/identifier.js');
+const { ManagedError } = require('./util/errorutil.js');
+const { spanify } = require('./util/otelutil.js');
+const APIError = require('./api/APIError.js');
+const { DB_READ, DB_WRITE } = require('./services/database/consts.js');
+const { BaseDatabaseAccessService } = require('./services/database/BaseDatabaseAccessService.js');
+const { LLRmNode } = require('./filesystem/ll_operations/ll_rmnode');
+const { Context } = require('./util/context');
+const { NodeUIDSelector } = require('./filesystem/node/selectors');
+
+let systemfs = null;
+let services = null;
+const tmp_provide_services = async ss => {
+    services = ss;
+    await services.ready;
+    systemfs = services.get('filesystem').get_systemfs();
+}
+
+async function is_empty(dir_uuid){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'filesystem');
+
+    // first check if this entry is shared
+    let rows = await db.read(
+        `SELECT EXISTS(SELECT 1 FROM fsentries WHERE parent_uid = ? LIMIT 1) AS not_empty`,
+        [dir_uuid]
+    );
+
+    return !rows[0].not_empty;
+}
+
+/**
+ * @deprecated - sharing will be implemented with user-to-user ACL
+ */
+async function has_shared_with(user_id, recipient_user_id){
+    return false;
+}
+
+/**
+ * Checks to see if this file/directory is shared with the user identified by `recipient_user_id`
+ *
+ * @param {*} fsentry_id
+ * @param {*} recipient_user_id
+ *
+ * @deprecated - sharing will be implemented with user-to-user ACL
+ */
+async function is_shared_with(fsentry_id, recipient_user_id){
+    return false;
+}
+
+/**
+ * Checks to see if this file/directory is shared with at least one other user
+ *
+ * @param {*} fsentry_id
+ * @param {*} recipient_user_id
+ * 
+ * @deprecated - sharing will be implemented with user-to-user ACL
+ */
+ async function is_shared_with_anyone(fsentry_id){
+    return false;
+}
+
+const chkperm = spanify('chkperm', async (target_fsentry, requester_user_id, action) => {
+    // basic cases where false is the default response
+    if(!target_fsentry)
+        return false;
+
+    // pseudo-entry from FSNodeContext
+    if ( target_fsentry.is_root ) {
+        return action === 'read';
+    }
+
+    // requester is the owner of this entry
+    if(target_fsentry.user_id === requester_user_id){
+        return true;
+    }
+    // this entry was shared with the requester
+    else if(await is_shared_with(target_fsentry.id, requester_user_id)){
+        return true;
+    }
+    // special case: owner of entry has shared at least one entry with requester and requester is asking for the owner's root directory: /[owner_username]
+    else if(target_fsentry.parent_uid === null && await has_shared_with(target_fsentry.user_id, requester_user_id) && action !== 'write')
+        return true;
+    else
+        return false;
+});
+
+/**
+ * Checks if the string provided is a valid FileSystem Entry name.
+ *
+ * @param {string} name
+ * @returns
+ */
+function validate_fsentry_name(name){
+    if(!name)
+        throw {message: 'Name can not be empty.'}
+    else if(!isString(name))
+        throw {message: "Name can only be a string."}
+    else if(name.includes('/'))
+        throw {message: "Name can not contain the '/' character."}
+    else if(name === '.')
+        throw {message: "Name can not be the '.' character."};
+    else if(name === '..')
+        throw {message: "Name can not be the '..' character."};
+    else if(name.length > config.max_fsentry_name_length)
+        throw {message: `Name can not be longer than ${config.max_fsentry_name_length} characters`}
+    else
+        return true
+}
+
+/**
+ * Convert a FSEntry ID to UUID
+ *
+ * @param {integer} id - `id` of FSEntry
+ * @returns {Promise} Promise object represents the UUID of the FileSystem Entry
+ */
+async function id2uuid(id){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'filesystem');
+
+    let fsentry = await db.requireRead("SELECT `uuid`, immutable FROM `fsentries` WHERE `id` = ? LIMIT 1", [id]);
+
+    if(!fsentry[0])
+        return null;
+    else
+        return fsentry[0].uuid;
+}
+
+/**
+ * Get total data stored by a user
+ *
+ * @param {integer} user_id - `user_id` of user
+ * @returns {Promise} Promise object represents the UUID of the FileSystem Entry
+ */
+ async function df(user_id){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'filesystem');
+
+    const fsentry = await db.read("SELECT SUM(size) AS total FROM `fsentries` WHERE `user_id` = ? LIMIT 1", [user_id]);
+    if(!fsentry[0] || !fsentry[0].total)
+        return 0;
+    else
+        return fsentry[0].total;
+}
+
+/**
+ * Get user by a variety of IDs
+ *
+ * Pass `cached: false` to options if a cached user entry would not be appropriate;
+ * for example: when performing authentication.
+ *
+ * @param {string} options - `options`
+ * @returns {Promise}
+ */
+ async function get_user(options){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'filesystem');
+
+    let user;
+
+    const cached = options.cached ?? true;
+
+    if ( cached ) {
+        if (options.username) user = kv.get('users:username:' + options.username);
+        else if (options.email) user = kv.get('users:email:' + options.email);
+        else if (options.uuid) user = kv.get('users:uuid:' + options.uuid);
+        else if (options.id) user = kv.get('users:id:' + options.id);
+        else if (options.referral_code) user = kv.get('users:referral_code:' + options.referral_code);
+
+        if ( user ) return user;
+    }
+
+    if(options.username)
+        user = await db.read("SELECT * FROM `user` WHERE `username` = ? LIMIT 1", [options.username]);
+    else if(options.email)
+        user = await db.read("SELECT * FROM `user` WHERE `email` = ? LIMIT 1", [options.email]);
+    else if(options.uuid)
+        user = await db.read("SELECT * FROM `user` WHERE `uuid` = ? LIMIT 1", [options.uuid]);
+    else if(options.id)
+        user = await db.read("SELECT * FROM `user` WHERE `id` = ? LIMIT 1", [options.id]);
+    else if(options.referral_code)
+        user = await db.read("SELECT * FROM `user` WHERE `referral_code` = ? LIMIT 1", [options.referral_code]);
+
+    if(!user || !user[0]){
+        if(options.username)
+            user = await db.pread("SELECT * FROM `user` WHERE `username` = ? LIMIT 1", [options.username])
+        else if(options.email)
+            user = await db.pread("SELECT * FROM `user` WHERE `email` = ? LIMIT 1", [options.email]);
+        else if(options.uuid)
+            user = await db.pread("SELECT * FROM `user` WHERE `uuid` = ? LIMIT 1", [options.uuid]);
+        else if(options.id)
+            user = await db.pread("SELECT * FROM `user` WHERE `id` = ? LIMIT 1", [options.id]);
+        else if(options.referral_code)
+            user = await db.pread("SELECT * FROM `user` WHERE `referral_code` = ? LIMIT 1", [options.referral_code]);
+    }
+
+    user = user ? user[0] : null;
+
+    if ( ! user ) return user;
+
+    try {
+        kv.set('users:username:' + user.username, user);
+        kv.set('users:email:' + user.email, user);
+        kv.set('users:uuid:' + user.uuid, user);
+        kv.set('users:id:' + user.id, user);
+        kv.set('users:referral_code:' + user.referral_code, user);
+    } catch (e) {
+        console.error(e);
+    }
+
+    return user;
+}
+
+/**
+ * Invalidate the cached entries for a user object
+ *
+ * @param {User} userID - the user entry to invalidate
+ */
+function invalidate_cached_user (user) {
+    kv.del('users:username:' + user.username);
+    kv.del('users:uuid:' + user.uuid);
+    kv.del('users:email:' + user.email);
+    kv.del('users:id:' + user.id);
+}
+
+/**
+ * Invalidate the cached entries for the user specified by an id
+ * @param {number} id - the id of the user to invalidate
+ */
+function invalidate_cached_user_by_id (id) {
+    const user = kv.get('users:id:' + id);
+    if ( ! user ) return;
+    invalidate_cached_user(user);
+}
+
+/**
+ * Refresh apps cache
+ *
+ * @param {string} options - `options`
+ * @returns {Promise}
+ */
+async function refresh_apps_cache(options, override){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'apps');
+
+    const log = services.get('log-service').create('refresh_apps_cache');
+    log.tick('refresh apps cache');
+    // if options is not provided, refresh all apps
+    if(!options){
+        let apps = await db.read('SELECT * FROM apps');
+        for (let index = 0; index < apps.length; index++) {
+            const app = apps[index];
+            kv.set('apps:name:' + app.name, app);
+            kv.set('apps:id:' + app.id, app);
+            kv.set('apps:uid:' + app.uid, app);
+        }
+    }
+    // refresh only apps that are approved for listing
+    else if(options.only_approved_for_listing){
+        let apps = await db.read('SELECT * FROM apps WHERE approved_for_listing = 1');
+        for (let index = 0; index < apps.length; index++) {
+            const app = apps[index];
+            kv.set('apps:name:' + app.name, app);
+            kv.set('apps:id:' + app.id, app);
+            kv.set('apps:uid:' + app.uid, app);
+        }
+    }
+    // if options is provided, refresh only the app specified
+    else{
+        let app;
+
+        if(options.name)
+            app = await db.read('SELECT * FROM apps WHERE name = ?', [options.name]);
+        else if(options.uid)
+            app = await db.read('SELECT * FROM apps WHERE uid = ?', [options.uid]);
+        else if(options.id)
+            app = await db.read('SELECT * FROM apps WHERE id = ?', [options.id]);
+        else {
+            log.error('invalid options to refresh_apps_cache');
+            throw new Error('Invalid options provided');
+        }
+
+        if(!app || !app[0]) {
+            log.error('refresh_apps_cache could not find the app');
+            return;
+        } else {
+            app = app[0];
+            if ( override ) {
+                Object.assign(app, override);
+            }
+            kv.set('apps:name:' + app.name, app);
+            kv.set('apps:id:' + app.id, app);
+            kv.set('apps:uid:' + app.uid, app);
+        }
+    }
+}
+
+async function refresh_associations_cache(){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'apps');
+
+    const log = services.get('log-service').create('refresh_apps_cache');
+    log.tick('refresh associations cache');
+    const associations = await db.read('SELECT * FROM app_filetype_association');
+    const lists = {};
+    for ( const association of associations ) {
+        let ext = association.type;
+        if ( ext.startsWith('.') ) ext = ext.slice(1);
+        if ( ! lists.hasOwnProperty(ext) ) lists[ext] = [];
+        lists[ext].push(association.app_id);
+    }
+
+    for ( const k in lists ) {
+        kv.set(`assocs:${k}:apps`, lists[k]);
+    }
+}
+
+/**
+ * Get App by a variety of IDs
+ *
+ * @param {string} options - `options`
+ * @returns {Promise}
+ */
+ async function get_app(options){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'apps');
+
+    const log = services.get('log-service').create('get_app');
+    let app = [];
+    if(options.uid){
+        // try cache first
+        app[0] = kv.get(`apps:uid:${options.uid}`);
+        // not in cache, try db
+        if(!app[0]) {
+            log.cache(false, 'apps:uid:' + options.uid);
+            app = await db.read("SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1", [options.uid]);
+        }
+    }else if(options.name){
+        // try cache first
+        app[0] = kv.get(`apps:name:${options.name}`);
+        // not in cache, try db
+        if(!app[0]) {
+            log.cache(false, 'apps:name:' + options.name);
+            app = await db.read("SELECT * FROM `apps` WHERE `name` = ? LIMIT 1", [options.name]);
+        }
+    }
+    else if(options.id){
+        // try cache first
+        app[0] = kv.get(`apps:id:${options.id}`);
+        // not in cache, try db
+        if(!app[0]) {
+            log.cache(false, 'apps:id:' + options.id);
+            app = await db.read("SELECT * FROM `apps` WHERE `id` = ? LIMIT 1", [options.id]);
+        }
+    }
+    app = app && app[0] ? app[0] : null;
+
+    if ( app === null ) return null;
+
+    // shallow clone because we use the `delete` operator
+    // and it corrupts the cache otherwise
+    app = { ...app };
+    return app;
+}
+
+/**
+ * Checks to see if an app exists
+ *
+ * @param {string} options - `options`
+ * @returns {Promise}
+ */
+ async function app_exists(options){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'apps');
+
+    let app;
+    if(options.uid)
+        app = await db.read("SELECT `id` FROM `apps` WHERE `uid` = ? LIMIT 1", [options.uid]);
+    else if(options.name)
+        app = await db.read("SELECT `id` FROM `apps` WHERE `name` = ? LIMIT 1", [options.name]);
+    else if(options.id)
+        app = await db.read("SELECT `id` FROM `apps` WHERE `id` = ? LIMIT 1", [options.id]);
+
+    return app[0];
+}
+
+
+/**
+ * change username
+ *
+ * @param {string} options - `options`
+ * @returns {Promise}
+ */
+ async function change_username(user_id, new_username){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_WRITE, 'auth');
+
+    const old_username = (await get_user({id: user_id})).username;
+
+    // update username
+    await db.write("UPDATE `user` SET username = ? WHERE `id` = ? LIMIT 1", [new_username, user_id]);
+    // update root directory name for this user
+    await db.write("UPDATE `fsentries` SET `name` = ? WHERE `user_id` = ? AND parent_uid IS NULL LIMIT 1", [new_username, user_id]);
+
+    const log = services.get('log-service').create('change_username');
+    log.noticeme(`User ${old_username} changed username to ${new_username}`);
+    await services.get('filesystem').update_child_paths(`/${old_username}`, `/${new_username}`, user_id);
+
+    invalidate_cached_user_by_id(user_id);
+}
+
+
+/**
+ * Find a FSEntry by its uuid
+ *
+ * @param {integer} id - `id` of FSEntry
+ * @returns {Promise} Promise object represents the UUID of the FileSystem Entry
+ * @deprecated Use fs middleware instead
+ */
+async function uuid2fsentry(uuid, return_thumbnail){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'filesystem');
+
+    // todo optim, check if uuid is not exactly 36 characters long, if not it's invalid
+    // and we can avoid one unnecessary DB lookup
+    let fsentry = await db.requireRead(
+        `SELECT
+            id,
+            associated_app_id,
+            uuid,
+            public_token,
+            bucket,
+            bucket_region,
+            file_request_token,
+            user_id,
+            parent_uid,
+            is_dir,
+            is_public,
+            is_shortcut,
+            shortcut_to,
+            sort_by,
+            ${return_thumbnail ? 'thumbnail,' : ''}
+            immutable,
+            name,
+            metadata,
+            modified,
+            created,
+            accessed,
+            size
+            FROM fsentries WHERE uuid = ? LIMIT 1`,
+        [uuid]
+    );
+
+    if(!fsentry[0])
+        return false;
+    else
+        return fsentry[0];
+}
+
+/**
+ * Find a FSEntry by its id
+ *
+ * @param {integer} id - `id` of FSEntry
+ * @returns {Promise} Promise object represents the UUID of the FileSystem Entry
+ */
+ async function id2fsentry(id, return_thumbnail){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'filesystem');
+
+    // todo optim, check if uuid is not exactly 36 characters long, if not it's invalid
+    // and we can avoid one unnecessary DB lookup
+    let fsentry = await db.requireRead(
+        `SELECT
+            id,
+            uuid,
+            public_token,
+            file_request_token,
+            associated_app_id,
+            user_id,
+            parent_uid,
+            is_dir,
+            is_public,
+            is_shortcut,
+            shortcut_to,
+            sort_by,
+            ${return_thumbnail ? 'thumbnail,' : ''}
+            immutable,
+            name,
+            metadata,
+            modified,
+            created,
+            accessed,
+            size
+            FROM fsentries WHERE id = ? LIMIT 1`,
+        [id]
+    );
+
+    if(!fsentry[0]){
+        return false;
+    }else
+        return fsentry[0];
+}
+
+/**
+ * Takes a an absolute path and returns its corresponding FSEntry.
+ *
+ * @param {string} path - absolute path of the filesystem entry to be resolved
+ * @param {boolean} return_content - if FSEntry is a file, determines whether its content should be returned
+ * @returns {false|object} - `false` if path could not be resolved, otherwise an object representing the FSEntry
+ * @deprecated Use fs middleware instead
+ */
+async function convert_path_to_fsentry(path){
+        // todo optim, check if path is valid (e.g. contaisn valid characters)
+        // if syntactical errors are found we can potentially avoid some expensive db lookups
+
+        // '/' means that parent_uid is null
+        // TODO: facade fsentry for root (devlog:2023-06-01)
+        if(path === '/')
+            return null;
+        //first slash is redundant
+        path = path.substr(path.indexOf('/') + 1)
+        //last slash, if existing is redundant
+        if(path[path.length - 1] === '/')
+            path = path.slice(0, -1);
+        //split path into parts
+        const fsentry_names = path.split('/');
+
+        // if no parts, return false
+        if(fsentry_names.length === 0)
+            return false;
+
+        let parent_uid = null;
+        let final_res = null;
+        let is_public = false
+        let result
+
+        /** @type BaseDatabaseAccessService */
+        const db = services.get('database').get(DB_READ, 'filesystem');
+
+        // Try stored path first
+        result = await db.read(
+            `SELECT * FROM fsentries WHERE path=? LIMIT 1`,
+            ['/' + path],
+        );
+
+        if ( result[0] ) {
+            return result[0];
+        }
+
+        for(let i=0; i < fsentry_names.length; i++){
+            if(parent_uid === null){
+                result = await db.read(
+                    `SELECT * FROM fsentries WHERE parent_uid IS NULL AND name=? LIMIT 1`,
+                    [fsentry_names[i]]
+                );
+            }
+            else{
+                result = await db.read(
+                    `SELECT * FROM fsentries WHERE parent_uid = ? AND name=? LIMIT 1`,
+                    [parent_uid, fsentry_names[i]]
+                );
+            }
+
+            if(result[0] ){
+                parent_uid = result[0].uuid;
+                // is_public is either directly specified or inherited from parent dir
+                if(result[0].is_public === null)
+                    result[0].is_public = is_public
+                else
+                    is_public = result[0].is_public
+
+            }else{
+                return false;
+            }
+            final_res = result
+        }
+        return final_res[0];
+}
+
+/**
+ *
+ * @param {integer} bytes - size in bytes
+ * @returns {string} bytes in human-readable format
+ */
+function byte_format(bytes){
+    // calculate and return bytes in human-readable format
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    if (typeof bytes !== "number" || bytes < 1) {
+        return '0 B';
+    }
+    const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
+    return Math.round(bytes / Math.pow(1024, i), 2) + ' ' + sizes[i];
+};
+
+const get_dir_size = async (path, user)=>{
+    let size = 0;
+    const descendants = await get_descendants(path, user);
+    for(let i=0; i < descendants.length; i++){
+        if(!descendants[i].is_dir){
+            size += descendants[i].size;
+        }
+    }
+
+    return size;
+}
+
+/**
+ * Recursively retrieve all files, directories, and subdirectories under `path`.
+ * Optionally the `depth` can be set.
+ *
+ * @param {string} path
+ * @param {object} user
+ * @param {integer} depth
+ * @returns
+ */
+const get_descendants_0 = async (path, user, depth, return_thumbnail = false) => {
+    const log = services.get('log-service').create('get_descendants');
+    log.called();
+
+    // decrement depth if it's set
+    depth !== undefined && depth--;
+    // turn path into absolute form
+    path = _path.resolve('/', path)
+    // get parent dir
+    const parent = await convert_path_to_fsentry(path);
+    // holds array that will be returned
+    const ret = [];
+    // holds immediate children of this path
+    let children;
+
+    // try to extract username from path
+    let username;
+    let split_path = path.split('/');
+    if(split_path.length === 2 && split_path[0] === '')
+        username = split_path[1];
+
+
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'filesystem');
+
+    // -------------------------------------
+    // parent is root ('/')
+    // -------------------------------------
+    if(parent === null){
+        path = '';
+        // direct children under root
+        children = await db.read(
+            `SELECT
+                id, uuid, parent_uid, name, metadata, is_dir, bucket, bucket_region,
+                modified, created, immutable, shortcut_to, is_shortcut, sort_by, associated_app_id,
+                ${return_thumbnail ? 'thumbnail, ' : ''}
+                accessed, size
+                FROM fsentries
+                WHERE user_id = ? AND parent_uid IS NULL`,
+            [user.id]
+        );
+        // users that have shared files/dirs with this user
+        sharing_users = await db.read(
+            `SELECT DISTINCT(owner_user_id), user.username
+                FROM share
+                INNER JOIN user ON user.id = share.owner_user_id
+                WHERE share.recipient_user_id = ?`,
+            [user.id]
+        );
+        if(sharing_users.length>0){
+            for(let i=0; i<sharing_users.length; i++){
+                let dir = {};
+                dir.id = null;
+                dir.uuid = null;
+                dir.parent_uid = null;
+                dir.name = sharing_users[i].username;
+                dir.is_dir = true;
+                dir.immutable = true;
+                children.push(dir)
+            }
+        }
+    }
+    // -------------------------------------
+    // parent doesn't exist
+    // -------------------------------------
+    else if(parent === false){
+        return [];
+    }
+    // -------------------------------------
+    // Parent is a shared-user directory: /[some_username](/)
+    // but make sure `[some_username]` is not the same as the requester's username
+    // -------------------------------------
+    else if(username && username !== user.username){
+        children = [];
+        let sharing_user;
+        sharing_user = await get_user({username: username});
+        if(!sharing_user)
+            return [];
+
+        // shared files/dirs with this user
+        shared_fsentries = await db.read(
+            `SELECT
+                fsentries.id, fsentries.user_id, fsentries.uuid, fsentries.parent_uid, fsentries.bucket, fsentries.bucket_region,
+                fsentries.name, fsentries.shortcut_to, fsentries.is_shortcut, fsentries.metadata, fsentries.is_dir, fsentries.modified,
+                fsentries.created, fsentries.accessed, fsentries.size, fsentries.sort_by, fsentries.associated_app_id,
+                fsentries.is_symlink, fsentries.symlink_path,
+                fsentries.immutable ${return_thumbnail ? ', fsentries.thumbnail' : ''}
+                FROM share
+                INNER JOIN fsentries ON fsentries.id = share.fsentry_id
+                WHERE share.recipient_user_id = ? AND owner_user_id = ?`,
+            [user.id, sharing_user.id]
+        );
+        // merge `children` and `shared_fsentries`
+        if(shared_fsentries.length>0){
+            for(let i=0; i<shared_fsentries.length; i++){
+                shared_fsentries[i].path = await id2path(shared_fsentries[i].id);
+                children.push(shared_fsentries[i])
+            }
+        }
+    }
+    // -------------------------------------
+    // All other cases
+    // -------------------------------------
+    else{
+        children = [];
+        let temp_children = await db.read(
+            `SELECT
+                id, user_id, uuid, parent_uid, name, metadata, is_shortcut,
+                shortcut_to, is_dir, modified, created, accessed, size, sort_by, associated_app_id,
+                is_symlink, symlink_path,
+                immutable ${return_thumbnail ? ', thumbnail' : ''}
+                FROM fsentries
+                WHERE parent_uid = ?`,
+            [parent.uuid]
+        );
+        // check if user has access to each file, if yes add it
+        if(temp_children.length>0){
+            for(let i=0; i<temp_children.length; i++){
+                const tchild = temp_children[i];
+                if(await chkperm(tchild, user.id))
+                    children.push(tchild);
+            }
+        }
+    }
+
+    // shortcut on empty result set
+    if ( children.length === 0 ) return [];
+
+    const ids = children.map(child => child.id);
+    const qmarks = ids.map(() => '?').join(',');
+
+    let rows = await db.read(
+        `SELECT root_dir_id FROM subdomains WHERE root_dir_id IN (${qmarks}) AND user_id=?`,
+        [...ids, user.id]);
+
+    log.debug('rows???', rows);
+
+    const websiteMap = {};
+    for ( const row of rows ) websiteMap[row.root_dir_id] = true;
+
+    for(let i=0; i<children.length; i++){
+        const contentType = mime.contentType(children[i].name)
+
+        // has_website
+        let has_website = false;
+        if(children[i].is_dir){
+            has_website = websiteMap[children[i].id];
+        }
+
+        // object to return
+        // TODO: DRY creation of response fsentry from db fsentry
+        ret.push({
+            path:       children[i].path ?? (path + '/' + children[i].name),
+            name:       children[i].name,
+            metadata:   children[i].metadata,
+            _id:         children[i].id,
+            id:         children[i].uuid,
+            uid:        children[i].uuid,
+            is_shortcut: children[i].is_shortcut,
+            shortcut_to: (children[i].shortcut_to ? await id2uuid(children[i].shortcut_to) : undefined),
+            shortcut_to_path: (children[i].shortcut_to  ? await id2path(children[i].shortcut_to) : undefined),
+            is_symlink: children[i].is_symlink,
+            symlink_path: children[i].symlink_path,
+            immutable:  children[i].immutable,
+            is_dir:     children[i].is_dir,
+            modified:   children[i].modified,
+            created:    children[i].created,
+            accessed:   children[i].accessed,
+            size:       children[i].size,
+            sort_by:    children[i].sort_by,
+            thumbnail:  children[i].thumbnail,
+            associated_app_id:  children[i].associated_app_id,
+            type:       contentType ? contentType : null,
+            has_website:    has_website,
+        })
+        if( children[i].is_dir &&
+            (depth === undefined || (depth !== undefined && depth > 0))
+            ){
+            ret.push(await get_descendants(path + '/' + children[i].name, user, depth))
+        }
+    }
+    return ret.flat();
+}
+
+const get_descendants = async (...args) => {
+    const tracer = services.get('traceService').tracer;
+    let ret;
+    await tracer.startActiveSpan('get_descendants', async span => {
+        ret = await get_descendants_0(...args);
+        span.end();
+    });
+    return ret;
+}
+
+/**
+ *
+ * @param {integer} entry_id
+ * @returns
+ */
+ const id2path = async (entry_uid)=>{
+    if ( entry_uid == null ) {
+        throw new Error('got null or undefined entry id');
+    }
+
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'filesystem');
+
+    const traces = services.get('traceService');
+    const log = services.get('log-service').create('helpers.id2path');
+    log.traceOn();
+    const errors = services.get('error-service').create(log);
+    log.called();
+
+    let result;
+
+    return await traces.spanify(`helpers:id2path`, async () => {
+        log.debug(`entry id: ${entry_uid}`)
+        if ( typeof entry_uid === 'number' ) {
+            const old = entry_uid;
+            entry_uid = await id2uuid(entry_uid);
+            log.debug(`entry id resolved: resolved ${old} ${entry_uid}`)
+        }
+
+        try {
+            result = await db.read(`
+                WITH RECURSIVE cte AS (
+                    SELECT uuid, parent_uid, name, name AS path
+                    FROM fsentries
+                    WHERE uuid = ?
+
+                    UNION ALL
+
+                    SELECT e.uuid, e.parent_uid, e.name, ${
+                        db.case({
+                            sqlite: `e.name || '/' || cte.path`,
+                            otherwise: `CONCAT(e.name, '/', cte.path)`,
+                        })
+                    }
+                    FROM fsentries e
+                    INNER JOIN cte ON cte.parent_uid = e.uuid
+                )
+                SELECT *
+                FROM cte
+                WHERE parent_uid IS NULL
+            `, [entry_uid]);
+        } catch (e) {
+            errors.report('id2path.select', {
+                alarm: true,
+                source: e,
+                message: `error while resolving path for ${entry_uid}: ${e.message}`,
+                extra: {
+                    entry_uid,
+                }
+            });
+            throw new ManagedError(`cannot create path for ${entry_uid}`);
+        }
+
+        if ( ! result || ! result[0] ) {
+            errors.report('id2path.select', {
+                alarm: true,
+                message: `no result for ${entry_uid}: ${e.message}`,
+                extra: {
+                    entry_uid,
+                }
+            });
+            throw new ManagedError(`cannot create path for ${entry_uid}`);
+        }
+
+        return '/' + result[0].path;
+    })
+}
+
+/**
+ *
+ * @param {string} glob
+ * @param {object} user
+ * @returns
+ */
+async function resolve_glob(glob, user){
+    //turn glob into abs path
+    glob = _path.resolve('/', glob)
+    //get base of glob
+    const base = micromatch.scan(glob).base
+    //estimate needed depth
+    let depth = 1
+    const dirs = glob.split('/')
+    for(let i=0; i< dirs.length; i++){
+        if(dirs[i].includes('**')){
+            depth = undefined
+            break
+        }else{
+            depth++
+        }
+    }
+
+    const descendants = await get_descendants(base, user, depth)
+
+    return descendants.filter((fsentry) => {
+        return fsentry.path && micromatch.isMatch(fsentry.path, glob)
+    })
+}
+
+/**
+ * Copies a FSEntry represented by `source_path` to `dest_path`.
+ *
+ * @param {string} source_path
+ * @param {string} dest_path
+ * @param {object} user
+ * @returns
+ */
+function cp(source_path, dest_path, user, overwrite, change_name, check_perms = true){
+    throw new Error(`legacy copy function called`);
+}
+
+isString =  function (variable) {
+    return typeof variable === 'string' || variable instanceof String;
+}
+
+// checks to see if given variable is an object
+isObject = function (variable) {
+    return variable !== null && typeof variable === 'object';
+}
+
+/**
+ * Recusrively deletes all files under `path`
+ *
+ * @param {string} source_path
+ * @param {object} user
+ * @returns
+ */
+function rm(source_path, user, descendants_only = false){
+    throw new Error(`legacy remove function called`);
+}
+
+const body_parser_error_handler = (err, req, res, next) => {
+    if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+        return res.status(400).send(err); // Bad request
+    }
+    next();
+}
+
+async function is_ancestor_of(ancestor_uid, descendant_uid){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'filesystem');
+
+    // root is an ancestor to all FSEntries
+    if(ancestor_uid === null)
+        return true;
+    // root is never a descendant to any FSEntries
+    if(descendant_uid === null)
+        return false;
+
+    if ( typeof ancestor_uid === 'number' ) {
+        ancestor_uid = await id2uuid(ancestor_uid);
+    }
+    if ( typeof descendant_uid === 'number' ) {
+        descendant_uid = await id2uuid(descendant_uid);
+    }
+
+    let parent = await db.read("SELECT `uuid`, `parent_uid` FROM `fsentries` WHERE `uuid` = ? LIMIT 1", [descendant_uid]);
+    if(parent[0] === undefined)
+        parent = await db.pread("SELECT `uuid`, `parent_uid` FROM `fsentries` WHERE `uuid` = ? LIMIT 1", [descendant_uid]);
+    if(parent[0].uuid === ancestor_uid || parent[0].parent_uid === ancestor_uid){
+        return true;
+    }
+    // keep checking as long as parent of parent is not root
+    while(parent[0].parent_uid !== null){
+        parent = await db.read("SELECT `uuid`, `parent_uid` FROM `fsentries` WHERE `uuid` = ? LIMIT 1", [parent[0].parent_uid]);
+        if(parent[0] === undefined) {
+            parent = await db.pread("SELECT `uuid`, `parent_uid` FROM `fsentries` WHERE `uuid` = ? LIMIT 1", [descendant_uid]);
+        }
+
+        if(parent[0].uuid === ancestor_uid || parent[0].parent_uid === ancestor_uid){
+            return true;
+        }
+    }
+
+    return false;
+}
+
+async function sign_file(fsentry, action){
+    const sha256 = require('js-sha256').sha256;
+
+    // fsentry not found
+    if(fsentry === false){
+        throw {message: 'No entry found with this uid'};
+    }
+
+    const uid = fsentry.uuid ?? (fsentry.uid ?? fsentry._id);
+    const ttl = 9999999999999;
+    const secret = config.url_signature_secret;
+    const expires = Math.ceil(Date.now() / 1000) + ttl;
+    const signature = sha256(`${uid}/${action}/${secret}/${expires}`);
+    const contentType = mime.contentType(fsentry.name);
+
+    // return
+    return {
+        uid: uid,
+        expires: expires,
+        signature: signature,
+        url: `${config.api_base_url}/file?uid=${uid}&expires=${expires}&signature=${signature}`,
+        read_url: `${config.api_base_url}/file?uid=${uid}&expires=${expires}&signature=${signature}`,
+        write_url: `${config.api_base_url}/writeFile?uid=${uid}&expires=${expires}&signature=${signature}`,
+        metadata_url: `${config.api_base_url}/itemMetadata?uid=${uid}&expires=${expires}&signature=${signature}`,
+        fsentry_type: contentType,
+        fsentry_is_dir: !! fsentry.is_dir,
+        fsentry_name: fsentry.name,
+        fsentry_size: fsentry.size,
+        fsentry_accessed: fsentry.accessed,
+        fsentry_modified: fsentry.modified,
+        fsentry_created: fsentry.created,
+    }
+}
+
+async function gen_public_token(file_uuid, ttl = 24 * 60 * 60){
+    const { v4: uuidv4 } = require('uuid');
+
+    // get fsentry
+    let fsentry = await uuid2fsentry(file_uuid);
+
+    // fsentry not found
+    if(fsentry === false){
+        throw {message: 'No entry found with this uid'};
+    }
+
+    const uid = fsentry.uuid;
+    const expires = Math.ceil(Date.now() / 1000) + ttl;
+    const token = uuidv4();
+    const contentType = mime.contentType(fsentry.name);
+
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_WRITE, 'filesystem');
+
+    // insert into DB
+    try{
+        await db.write(
+            `UPDATE fsentries SET public_token = ? WHERE id = ?`,
+            [
+                //token
+                token,
+                //fsentry_id
+                fsentry.id,
+            ]);
+    }catch(e){
+        console.log(e);
+        return false;
+    }
+
+    // return
+    return {
+        uid: uid,
+        token: token,
+        url: `${config.api_base_url}/pubfile?token=${token}`,
+        fsentry_type: contentType,
+        fsentry_is_dir: fsentry.is_dir,
+        fsentry_name: fsentry.name,
+    }
+}
+
+async function deleteUser(user_id){
+    console.log('THIS IS deleteUser ---');
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'filesystem');
+
+    // get a list of all files owned by this user
+    let files = await db.read(
+        `SELECT uuid, bucket, bucket_region FROM fsentries WHERE user_id = ? AND is_dir = 0`,
+        [user_id]
+    );
+
+    // delete all files from S3
+    if(files !== null && files.length > 0){
+        for(let i=0; i<files.length; i++){
+            // init S3 SDK
+            const svc_fs = Context.get('services').get('filesystem');
+            const storage = Context.get('storage');
+            const op_delete = storage.create_delete();
+            await op_delete.run({
+                node: await svc_fs.node(new NodeUIDSelector(files[i].uuid))
+            });
+        }
+    }
+
+    // delete all fsentries from DB
+    await db.write(`DELETE FROM fsentries WHERE user_id = ?`,[user_id]);
+
+    // delete user
+    await db.write(`DELETE FROM user WHERE id = ?`,[user_id]);
+}
+
+function subdomain(req){
+    return req.hostname.slice(0, -1 * (config.domain.length + 1));
+}
+
+async function jwt_auth(req){
+    let token;
+    // HTTML Auth header
+    if(req.header && req.header('Authorization'))
+        token = req.header('Authorization');
+    // Cookie
+    else if(req.cookies && req.cookies[config.cookie_name])
+        token = req.cookies[config.cookie_name];
+    // Auth token in URL
+    else if(req.query && req.query.auth_token)
+        token = req.query.auth_token;
+    // Socket
+    else if(req.handshake && req.handshake.query && req.handshake.query.auth_token)
+        token = req.handshake.query.auth_token;
+
+    if(!token)
+        throw('No auth token found');
+    else if (typeof token !== 'string')
+        throw('token must be a string.')
+    else
+        token = token.replace('Bearer ', '')
+
+    try{
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.verify(token, config.jwt_secret)
+
+        if ( decoded.type ) {
+            // This is usually not the correct way to throw an APIError;
+            // this is a workaround for the existing error handling in auth,
+            // which is well tested, stable, and legacy (no sense in refactoring)
+            throw({
+                message: APIError.create('token_unsupported')
+                    .serialize(),
+            });
+        }
+
+        /** @type BaseDatabaseAccessService */
+        const db = services.get('database').get(DB_READ, 'filesystem');
+
+        // in the vast majority of cases looking up a user should succeed unless the request is invalid (rare case),
+        // that's why we first hit up the read replica and if not successful we try the master DB
+        let user = await db.requireRead('SELECT * FROM `user` WHERE `uuid` = ? LIMIT 1', [decoded.uuid]);
+
+        // unsuccessful
+        if(!user[0])
+            throw('');
+        // successful
+        else {
+            return {user: user[0], token: token};
+        }
+    }catch(e){
+        throw(e.message);
+    }
+}
+
+/**
+ * returns all ancestors of an fsentry
+ *
+ * @param {*} fsentry_id
+ */
+ async function ancestors(fsentry_id){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'filesystem');
+
+    const ancestors = [];
+    // first parent
+    let parent = await db.read("SELECT * FROM `fsentries` WHERE `id` = ? LIMIT 1", [fsentry_id]);
+    if(parent.length === 0){
+        return ancestors;
+    }
+    // get all subsequent parents
+    while(parent[0].parent_uid !== null){
+        const parent_fsentry = await uuid2fsentry(parent[0].parent_uid);
+        parent = await db.read("SELECT * FROM `fsentries` WHERE `id` = ? LIMIT 1", [parent_fsentry.id]);
+        if(parent[0].length !== 0){
+            ancestors.push(parent[0])
+        }
+    }
+
+    return ancestors;
+}
+
+// THIS LEGACY FUNCTION IS STILL IN USE
+// by: generate_system_fsentries
+// TODO: migrate generate_system_fsentries to use QuickMkdir
+async function mkdir(options){
+    const fs = systemfs;
+
+    const dirpath           = _path.dirname(_path.resolve('/', options.path));
+    let target_name         = _path.basename(_path.resolve('/', options.path));
+    const overwrite         = options.overwrite ?? false;
+    const dedupe_name       = options.dedupe_name ?? false;
+    const immutable         = options.immutable ?? false;
+    const return_id         = options.return_id ?? false;
+    const no_perm_check     = options.no_perm_check ?? false;
+
+    // make parent directories as needed
+    const create_missing_parents           = options.create_missing_parents ?? false;
+
+    // hold a list of all parent directories created in the process
+    let parent_dirs_created                = [];
+    let overwritten_uid;
+
+    // target_name validation
+    try{
+        validate_fsentry_name(target_name)
+    }catch(e){
+        throw e.message;
+    }
+
+    // resolve dirpath to its fsentry
+    let parent = await convert_path_to_fsentry(dirpath);
+
+    // dirpath not found
+    if(parent === false && !create_missing_parents)
+        throw "Target path not found";
+    // create missing parent directories
+    else if(parent === false && create_missing_parents){
+        const dirs = _path.resolve('/', dirpath).split('/');
+        let cur_path = '';
+        for(let j=0; j < dirs.length; j++){
+            if(dirs[j] === '')
+                continue;
+
+            cur_path += '/'+dirs[j];
+            // skip creating '/[username]'
+            if(j === 1)
+                continue;
+            try{
+                let d = await mkdir(fs, {path: cur_path, user: options.user});
+                d.path = cur_path;
+                parent_dirs_created.push(d);
+            }catch(e){
+                console.log(`Skipped mkdir ${cur_path}`);
+            }
+        }
+        // try setting parent again
+        parent = await convert_path_to_fsentry(dirpath);
+        if(parent === false)
+            throw "Target path not found";
+    }
+
+    // check permission
+    if(!no_perm_check && !await chkperm(parent, options.user.id, 'write'))
+        throw { code:`forbidden`, message: `permission denied.`};
+
+    // check if a fsentry with the same name exists under this path
+    const existing_fsentry = await convert_path_to_fsentry(_path.resolve('/', dirpath + '/' + target_name ));
+
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_WRITE, 'filesystem');
+
+    // if trying to create a directory with an existing path and overwrite==false, throw an error
+    if(!overwrite && !dedupe_name && existing_fsentry !== false){
+        throw {
+            code: 'path_exists',
+            message:"A file/directory with the same path already exists.",
+            entry_name: existing_fsentry.name,
+            existing_fsentry: {
+                name: existing_fsentry.name,
+                uid: existing_fsentry.uuid,
+            }
+        };
+    }
+    else if(overwrite && existing_fsentry){
+        overwritten_uid = existing_fsentry.uuid;
+        // check permission
+        if(!await chkperm(existing_fsentry, options.user.id, 'write'))
+            throw {code:`forbidden`, message: `permission denied.`};
+        // delete existing dir
+        await db.write(
+            `DELETE FROM fsentries WHERE id = ? AND user_id = ?`,
+            [
+                //parent_uid
+                existing_fsentry.uuid,
+                //user_id
+                options.user.id,
+            ]);
+    }
+    // dedupe name, generate a new name until its unique
+    else if(dedupe_name && existing_fsentry !== false){
+        for( let i = 1; ; i++){
+            let try_new_name = existing_fsentry.name + ' (' + i + ')';
+            let check_dupe = await db.read(
+                "SELECT `id` FROM `fsentries` WHERE `parent_uid` = ? AND name = ? LIMIT 1",
+                [existing_fsentry.parent_uid, try_new_name]
+            );
+            if(check_dupe[0] === undefined){
+                target_name = try_new_name;
+                break;
+            }
+        }
+    }
+
+    // shrotcut?
+    let shortcut_fsentry;
+    if(options.shortcut_to){
+        shortcut_fsentry = await uuid2fsentry(options.shortcut_to);
+        if(shortcut_fsentry === false){
+            throw ({ code:`not_found`, message: `shortcut_to not found.`})
+        }else if(!parent.is_dir){
+            throw ({ code:`not_dir`, message: `parent of shortcut_to must be a directory`})
+        }else if(!await chkperm(shortcut_fsentry, options.user.id, 'read')){
+            throw ({ code:`forbidden`, message: `shortcut_to permission denied.`})
+        }
+    }
+
+    // current epoch
+    const ts = Math.round(Date.now() / 1000)
+    const uid = uuidv4();
+
+    // record in db
+    let user_id = (parent === null ? options.user.id : parent.user_id);
+    const { insertId: mkdir_db_id } = await db.write(
+        `INSERT INTO fsentries
+        (uuid, parent_uid, user_id,  name,    is_dir, created, modified, immutable,  shortcut_to, is_shortcut) VALUES
+        (   ?,          ?,       ?,     ?,      true,       ?,        ?,         ?,            ?,           ?)`,
+        [
+            //uuid
+            uid,
+            //parent_uid
+            (parent === null) ? null : parent.uuid,
+            //user_id
+            user_id,
+            //name
+            target_name,
+            //created
+            ts,
+            //modified
+            ts,
+            //immutable
+            immutable,
+            //shortcut_to,
+            shortcut_fsentry ? shortcut_fsentry.id : null,
+            //is_shortcut,
+            shortcut_fsentry ? 1 : 0,
+        ]
+    );
+
+    const ret_obj = {
+        uid : uid,
+        name: target_name,
+        immutable: immutable,
+        is_dir: true,
+        path: options.path ?? false,
+        dirpath: dirpath,
+        is_shared: await is_shared_with_anyone(mkdir_db_id),
+        overwritten_uid: overwritten_uid,
+        shortcut_to: shortcut_fsentry ? shortcut_fsentry.uuid : null,
+        shortcut_to_path: shortcut_fsentry ? await id2path(shortcut_fsentry.id) : null,
+        parent_dirs_created: parent_dirs_created,
+        original_client_socket_id: options.original_client_socket_id,
+    };
+    // add existing_fsentry if exists
+    if(existing_fsentry){
+        ret_obj.existing_fsentry ={
+            name: existing_fsentry.name,
+            uid: existing_fsentry.uuid,
+        }
+    }
+
+    if(return_id)
+        ret_obj.id = mkdir_db_id;
+
+    // send realtime success msg to client
+    let socketio = require('./socketio.js').getio();
+    if(socketio){
+        socketio.to(user_id).emit('item.added', ret_obj)
+    }
+
+    return ret_obj;
+}
+
+function is_valid_uuid ( uuid ) {
+    let s = "" + uuid;
+    s = s.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    return !! s;
+}
+
+function is_valid_uuid4 ( uuid ) {
+    return is_valid_uuid(uuid);
+}
+
+function is_specifically_uuidv4 ( uuid ) {
+    let s = "" + uuid;
+
+    s = s.match(/^[0-9A-F]{8}-[0-9A-F]{4}-[4][0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}$/i);
+    if (!s) {
+      return false;
+    }
+    return true;
+}
+
+function is_valid_url ( url ) {
+    let s = "" + url;
+
+    try {
+        new URL(s);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function hyphenize_confirm_code(email_confirm_code){
+    email_confirm_code = email_confirm_code.toString();
+    email_confirm_code =
+        email_confirm_code[0] +
+        email_confirm_code[1] +
+        email_confirm_code[2] +
+        '-' +
+        email_confirm_code[3] +
+        email_confirm_code[4] +
+        email_confirm_code[5];
+    return email_confirm_code;
+}
+
+async function username_exists(username){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'filesystem');
+
+    let rows = await db.read(`SELECT EXISTS(SELECT 1 FROM user WHERE username=?) AS username_exists`, [username]);
+    if(rows[0].username_exists)
+        return true;
+}
+
+async function app_name_exists(name){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_READ, 'filesystem');
+
+    let rows = await db.read(`SELECT EXISTS(SELECT 1 FROM apps WHERE apps.name=?) AS app_name_exists`, [name]);
+    if(rows[0].app_name_exists)
+        return true;
+}
+
+
+// generates all the default files and directories a user needs,
+// generally used for a brand new account
+async function generate_system_fsentries(user){
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_WRITE, 'filesystem');
+
+    //-------------------------------------------------------------
+    // create root `/[username]/`
+    //-------------------------------------------------------------
+    const root_dir = await mkdir({
+        path: '/' + user.username,
+        user: user,
+        immutable: true,
+        no_perm_check: true,
+        return_id: true,
+    });
+
+    // Normally, it is recommended to use mkdir() to create new folders,
+    // but during signup this could result in multiple queries to the DB server
+    // and for servers in remote regions such as Asia this could result in a
+    // very long time for /signup to finish, sometimes up to 30-40 seconds!
+    // by combining as many queries as we can into one and avoiding multiple back-and-forth
+    // with the DB server, we can speed this process up significantly.
+    const ts = Date.now()/1000;
+
+    // Generate UUIDs for all the default folders and files
+    let trash_uuid = uuidv4();
+    let appdata_uuid = uuidv4();
+    let desktop_uuid = uuidv4();
+    let documents_uuid = uuidv4();
+    let pictures_uuid = uuidv4();
+    let videos_uuid = uuidv4();
+
+    const insert_res = await db.write(
+        `INSERT INTO fsentries
+        (uuid, parent_uid, user_id, name, path, is_dir, created, modified, immutable) VALUES
+        (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
+        (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
+        (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
+        (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
+        (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
+        (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true)
+        `,
+        [
+            // Trash
+            trash_uuid, root_dir.uid, user.id, 'Trash', `/${user.username}/Trash`, ts, ts,
+            // AppData
+            appdata_uuid, root_dir.uid, user.id, 'AppData', `/${user.username}/AppData`, ts, ts,
+            // Desktop
+            desktop_uuid, root_dir.uid, user.id, 'Desktop', `/${user.username}/Desktop`, ts, ts,
+            // Documents
+            documents_uuid, root_dir.uid, user.id, 'Documents', `/${user.username}/Documents`, ts, ts,
+            // Pictures
+            pictures_uuid, root_dir.uid, user.id, 'Pictures', `/${user.username}/Pictures`, ts, ts,
+            // Videos
+            videos_uuid, root_dir.uid, user.id, 'Videos', `/${user.username}/Videos`, ts, ts,
+        ]
+    );
+
+    // https://stackoverflow.com/a/50103616
+    let trash_id = insert_res.insertId;
+    let appdata_id = insert_res.insertId + 1;
+    let desktop_id = insert_res.insertId + 2;
+    let documents_id = insert_res.insertId + 3;
+    let pictures_id = insert_res.insertId + 4;
+    let videos_id = insert_res.insertId + 5;
+
+    // Asynchronously set the user's system folders uuids in database
+    // This is for caching purposes, so we don't have to query the DB every time we need to access these folders
+    // This is also possible because we know the user's system folders uuids will never change
+
+    // TODO: pass to IIAFE manager to avoid unhandled promise rejection
+    // (IIAFE manager doesn't exist yet, hence this is a TODO)
+    db.write(
+        `UPDATE user SET
+        trash_uuid=?, appdata_uuid=?, desktop_uuid=?, documents_uuid=?, pictures_uuid=?, videos_uuid=?,
+        trash_id=?, appdata_id=?, desktop_id=?, documents_id=?, pictures_id=?, videos_id=?
+
+        WHERE id=?`,
+        [
+            trash_uuid, appdata_uuid, desktop_uuid, documents_uuid, pictures_uuid, videos_uuid,
+            trash_id, appdata_id, desktop_id, documents_id, pictures_id, videos_id,
+            user.id
+        ]
+    );
+    invalidate_cached_user(user);
+}
+
+function send_email_verification_code(email_confirm_code, email){
+    const nodemailer = require("nodemailer");
+
+    // send email notif
+    let transporter = nodemailer.createTransport({
+        host: config.smtp_server,
+        port: config.smpt_port,
+        secure: true, // STARTTLS
+        auth: {
+            user: config.smtp_username,
+            pass: config.smtp_password,
+        },
+    });
+
+    transporter.sendMail({
+        from: '"Puter" no-reply@puter.com', // sender address
+        to: email, // list of receivers
+        subject: `${hyphenize_confirm_code(email_confirm_code)} is your confirmation code`, // Subject line
+        html: `<p>Hi there,</p>
+            <p><strong>${hyphenize_confirm_code(email_confirm_code)}</strong> is your email confirmation code.</p>
+            <p>Sincerely,</p>
+            <p>Puter</p>
+        `,
+    });
+}
+
+function send_email_verification_token(email_confirm_token, email, user_uuid){
+    const nodemailer = require("nodemailer");
+
+    // send email notif
+    let transporter = nodemailer.createTransport({
+        host: config.smtp_server,
+        port: config.smpt_port,
+        secure: true, // STARTTLS
+        auth: {
+            user: config.smtp_username,
+            pass: config.smtp_password,
+        },
+    });
+
+    let link = `${config.origin}/confirm-email-by-token?user_uuid=${user_uuid}&token=${email_confirm_token}`;
+    transporter.sendMail({
+        from: '"Puter" no-reply@puter.com', // sender address
+        to: email, // list of receivers
+        subject: `Please confirm your email`, // Subject line
+        html: `<p>Hi there,</p>
+            <p>Please confirm your email address using this link: <strong><a href="${link}">${link}</a></strong>.</p>
+            <p>Sincerely,</p>
+            <p>Puter</p>
+        `,
+    });
+}
+
+async function generate_random_username(){
+    let username;
+    do {
+        username = generate_identifier();
+    } while (await username_exists(username));
+    return username;
+}
+
+function generate_random_str(length) {
+    var result           = '';
+    var characters       = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    var charactersLength = characters.length;
+    for ( var i = 0; i < length; i++ ) {
+      result += characters.charAt(Math.floor(Math.random() *
+ charactersLength));
+   }
+   return result;
+}
+
+/**
+ * Converts a given number of seconds into a human-readable string format.
+ *
+ * @param {number} seconds - The number of seconds to be converted.
+ * @returns {string} The time represented in the format: 'X years Y days Z hours A minutes B seconds'.
+ * @throws {TypeError} If the `seconds` parameter is not a number.
+ */
+function seconds_to_string(seconds) {
+    var numyears = Math.floor(seconds / 31536000);
+    var numdays = Math.floor((seconds % 31536000) / 86400);
+    var numhours = Math.floor(((seconds % 31536000) % 86400) / 3600);
+    var numminutes = Math.floor((((seconds % 31536000) % 86400) % 3600) / 60);
+    var numseconds = (((seconds % 31536000) % 86400) % 3600) % 60;
+    return numyears + " years " + numdays + " days " + numhours + " hours " + numminutes + " minutes " + numseconds + " seconds";
+}
+
+
+/**
+ * returns a list of apps that could open the fsentry, ranked by relevance
+ * @param {*} fsentry
+ * @param {*} options
+ */
+async function suggest_app_for_fsentry(fsentry, options){
+    const monitor = PerformanceMonitor.createContext("suggest_app_for_fsentry");
+    const suggested_apps = [];
+
+    let content_type = mime.contentType(fsentry.name);
+    if(content_type === null || content_type === undefined || content_type === false)
+        content_type = '';
+
+    // IIFE just so fsname can stay `const`
+    const fsname = (() => {
+        if ( ! fsentry.name ) {
+            const fs = require('fs');
+            fs.writeFileSync('/tmp/missing-fsentry-name.txt', JSON.stringify(fsentry, null, 2));
+            return 'missing-fsentry-name';
+        }
+        let fsname = fsentry.name.toLowerCase();
+        // We add `.directory` so that this works as a file association
+        if ( fsentry.is_dir ) fsname += '.directory';
+        return fsname;
+    })();
+    const file_extension = _path.extname(fsname).toLowerCase();
+
+    //---------------------------------------------
+    // Code
+    //---------------------------------------------
+    if(
+        fsname.endsWith('.asm') ||
+        fsname.endsWith('.asp') ||
+        fsname.endsWith('.aspx') ||
+        fsname.endsWith('.bash') ||
+        fsname.endsWith('.c') ||
+        fsname.endsWith('.cpp') ||
+        fsname.endsWith('.css') ||
+        fsname.endsWith('.csv') ||
+        fsname.endsWith('.dhtml') ||
+        fsname.endsWith('.f') ||
+        fsname.endsWith('.go') ||
+        fsname.endsWith('.h') ||
+        fsname.endsWith('.htm') ||
+        fsname.endsWith('.html') ||
+        fsname.endsWith('.html5') ||
+        fsname.endsWith('.java') ||
+        fsname.endsWith('.jl') ||
+        fsname.endsWith('.js') ||
+        fsname.endsWith('.jsa') ||
+        fsname.endsWith('.json') ||
+        fsname.endsWith('.jsonld') ||
+        fsname.endsWith('.jsf') ||
+        fsname.endsWith('.jsp') ||
+        fsname.endsWith('.kt') ||
+        fsname.endsWith('.log') ||
+        fsname.endsWith('.lock') ||
+        fsname.endsWith('.lua') ||
+        fsname.endsWith('.md') ||
+        fsname.endsWith('.perl') ||
+        fsname.endsWith('.phar') ||
+        fsname.endsWith('.php') ||
+        fsname.endsWith('.pl') ||
+        fsname.endsWith('.py') ||
+        fsname.endsWith('.r') ||
+        fsname.endsWith('.rb') ||
+        fsname.endsWith('.rdata') ||
+        fsname.endsWith('.rda') ||
+        fsname.endsWith('.rdf') ||
+        fsname.endsWith('.rds') ||
+        fsname.endsWith('.rs') ||
+        fsname.endsWith('.rlib') ||
+        fsname.endsWith('.rpy') ||
+        fsname.endsWith('.scala') ||
+        fsname.endsWith('.sc') ||
+        fsname.endsWith('.scm') ||
+        fsname.endsWith('.sh') ||
+        fsname.endsWith('.sol') ||
+        fsname.endsWith('.sql') ||
+        fsname.endsWith('.ss') ||
+        fsname.endsWith('.svg') ||
+        fsname.endsWith('.swift') ||
+        fsname.endsWith('.toml') ||
+        fsname.endsWith('.ts') ||
+        fsname.endsWith('.wasm') ||
+        fsname.endsWith('.xhtml') ||
+        fsname.endsWith('.xml') ||
+        fsname.endsWith('.yaml') ||
+        // files with no extension
+        !fsname.includes('.')
+    ){
+        suggested_apps.push(await get_app({name: 'code'}))
+        suggested_apps.push(await get_app({name: 'editor'}))
+    }
+    //---------------------------------------------
+    // Editor
+    //---------------------------------------------
+    if(
+        fsname.endsWith('.txt') ||
+        // files with no extension
+        !fsname.includes('.')
+    ){
+        suggested_apps.push(await get_app({name: 'editor'}))
+        suggested_apps.push(await get_app({name: 'code'}))
+    }
+    //---------------------------------------------
+    // Markus
+    //---------------------------------------------
+    if(fsname.endsWith('.md')){
+        suggested_apps.push(await get_app({name: 'markus'}))
+    }
+    //---------------------------------------------
+    // Viewer
+    //---------------------------------------------
+    if(
+        fsname.endsWith('.jpg') ||
+        fsname.endsWith('.png') ||
+        fsname.endsWith('.webp') ||
+        fsname.endsWith('.svg') ||
+        fsname.endsWith('.bmp') ||
+        fsname.endsWith('.jpeg')
+    ){
+        suggested_apps.push(await get_app({name: 'viewer'}));
+    }
+    //---------------------------------------------
+    // Draw
+    //---------------------------------------------
+    if(
+        fsname.endsWith('.bmp') ||
+        content_type.startsWith('image/')
+    ){
+        suggested_apps.push(await get_app({name: 'draw'}));
+    }
+    //---------------------------------------------
+    // PDF
+    //---------------------------------------------
+    if(fsname.endsWith('.pdf')){
+        suggested_apps.push(await get_app({name: 'pdf'}));
+    }
+    //---------------------------------------------
+    // Player
+    //---------------------------------------------
+    if(
+        fsname.endsWith('.mp4') ||
+        fsname.endsWith('.webm') ||
+        fsname.endsWith('.mpg') ||
+        fsname.endsWith('.mpv') ||
+        fsname.endsWith('.mp3') ||
+        fsname.endsWith('.m4a') ||
+        fsname.endsWith('.ogg')
+    ){
+        suggested_apps.push(await get_app({name: 'player'}));
+    }
+
+    //---------------------------------------------
+    // 3rd-party apps
+    //---------------------------------------------
+    const apps = kv.get(`assocs:${file_extension.slice(1)}:apps`)
+
+    monitor.label("third party associations");
+    if(apps && apps.length > 0){
+        for (let index = 0; index < apps.length; index++) {
+            // retrieve app from DB
+            const third_party_app = await get_app({id: apps[index]})
+            if ( ! third_party_app ) continue;
+            // only add if the app is approved for opening items or the app is owned by this user
+            if( third_party_app.approved_for_opening_items ||
+                (options !== undefined && options.user !== undefined && options.user.id === third_party_app.owner_user_id))
+                suggested_apps.push(third_party_app)
+        }
+    }
+    monitor.stamp();
+    monitor.end();
+
+    // return list
+    return suggested_apps;
+}
+
+function build_item_object(item){
+
+}
+
+async function get_taskbar_items(user) {
+    /** @type BaseDatabaseAccessService */
+    const db = services.get('database').get(DB_WRITE, 'filesystem');
+
+    let taskbar_items_from_db = [];
+    // If taskbar items don't exist (specifically NULL)
+    // add default apps.
+    if(!user.taskbar_items){
+        taskbar_items_from_db = [
+            {name: 'editor', type: 'app'},
+            {name: 'dev-center', type: 'app'},
+            {name: 'draw', type: 'app'},
+            {name: 'code', type: 'app'},
+            {name: 'camera', type: 'app'},
+            {name: 'recorder', type: 'app'},
+            {name: 'terminal', type: 'app'},
+            {name: 'about', type: 'app'},
+        ];
+        await db.write(
+            `UPDATE user SET taskbar_items = ? WHERE id = ?`,
+            [
+                JSON.stringify(taskbar_items_from_db),
+                user.id,
+            ]
+        );
+        invalidate_cached_user(user);
+    }
+    // there are items from before
+    else{
+        try {
+            taskbar_items_from_db = JSON.parse(user.taskbar_items);
+        }catch(e){
+
+        }
+    }
+
+    // get apps that these taskbar items represent
+    let taskbar_items = [];
+    for (let index = 0; index < taskbar_items_from_db.length; index++) {
+        const taskbar_item_from_db = taskbar_items_from_db[index];
+        if(taskbar_item_from_db.type === 'app' && taskbar_item_from_db.name !== 'explorer'){
+            let item = {};
+            if(taskbar_item_from_db.name)
+                item = await get_app({name: taskbar_item_from_db.name});
+            else if(taskbar_item_from_db.id)
+                item = await get_app({id: taskbar_item_from_db.id});
+            else if(taskbar_item_from_db.uid)
+                item = await get_app({uid: taskbar_item_from_db.uid});
+
+            // if item not found, skip it
+            if(!item) continue;
+
+            // delete sensitive attributes
+            delete item.id;
+            delete item.owner_user_id;
+            delete item.timestamp;
+            // delete item.godmode;
+            delete item.approved_for_listing;
+            delete item.approved_for_opening_items;
+
+            // add to final object
+            taskbar_items.push(item)
+        }
+    }
+
+    return taskbar_items;
+}
+
+function validate_signature_auth(url, action) {
+    const query = new URL(url).searchParams;
+
+    if(!query.get('uid'))
+        throw {message: '`uid` is required for signature-based authentication.'}
+    else if(!action)
+        throw {message: '`action` is required for signature-based authentication.'}
+    else if(!query.get('expires'))
+        throw {message: '`expires` is required for signature-based authentication.'}
+    else if(!query.get('signature'))
+        throw {message: '`signature` is required for signature-based authentication.'}
+
+    const expired = query.get('expires') && (query.get('expires') < Date.now() / 1000);
+
+    // expired?
+    if(expired)
+        throw {message: 'Authentication failed. Signature expired.'}
+
+    const uid = query.get('uid');
+    const secret = config.url_signature_secret;
+    const sha256 = require('js-sha256').sha256;
+
+    // before doing anything, see if this signature is valid for 'write' action, if yes that means every action is allowed
+    if(!expired && query.get('signature') === sha256(`${uid}/write/${secret}/${query.get('expires')}`))
+        return true;
+    // if not, check specific actions
+    else if(!expired && query.get('signature') === sha256(`${uid}/${action}/${secret}/${query.get('expires')}`))
+        return true;
+    // auth failed
+    else
+        throw {message: 'Authentication failed'}
+}
+
+function get_url_from_req(req) {
+    return req.protocol + '://' + req.get('host') + req.originalUrl;
+}
+
+async function mv(options){
+    throw new Error('legacy mv function called');
+}
+
+/**
+ * Formats a number with grouped thousands.
+ *
+ * @param {number|string} number - The number to be formatted. If a string is provided, it must only contain numerical characters, plus and minus signs, and the letter 'E' or 'e' (for scientific notation).
+ * @param {number} decimals - The number of decimal points. If a non-finite number is provided, it defaults to 0.
+ * @param {string} [dec_point='.'] - The character used for the decimal point. Defaults to '.' if not provided.
+ * @param {string} [thousands_sep=','] - The character used for the thousands separator. Defaults to ',' if not provided.
+ * @returns {string} The formatted number with grouped thousands, using the specified decimal point and thousands separator characters.
+ * @throws {TypeError} If the `number` parameter cannot be converted to a finite number, or if the `decimals` parameter is non-finite and cannot be converted to an absolute number.
+ */
+function number_format (number, decimals, dec_point, thousands_sep) {
+    // Strip all characters but numerical ones.
+    number = (number + '').replace(/[^0-9+\-Ee.]/g, '');
+    var n = !isFinite(+number) ? 0 : +number,
+        prec = !isFinite(+decimals) ? 0 : Math.abs(decimals),
+        sep = (typeof thousands_sep === 'undefined') ? ',' : thousands_sep,
+        dec = (typeof dec_point === 'undefined') ? '.' : dec_point,
+        s = '',
+        toFixedFix = function (n, prec) {
+            var k = Math.pow(10, prec);
+            return '' + Math.round(n * k) / k;
+        };
+    // Fix for IE parseFloat(0.55).toFixed(0) = 0;
+    s = (prec ? toFixedFix(n, prec) : '' + Math.round(n)).split('.');
+    if (s[0].length > 3) {
+        s[0] = s[0].replace(/\B(?=(?:\d{3})+(?!\d))/g, sep);
+    }
+    if ((s[1] || '').length < prec) {
+        s[1] = s[1] || '';
+        s[1] += new Array(prec - s[1].length + 1).join('0');
+    }
+    return s.join(dec);
+}
+
+module.exports = {
+    ancestors,
+    app_name_exists,
+    app_exists,
+    body_parser_error_handler,
+    build_item_object,
+    byte_format,
+    change_username,
+    chkperm,
+    convert_path_to_fsentry,
+    cp,
+    deleteUser,
+    get_descendants,
+    get_dir_size,
+    gen_public_token,
+    get_taskbar_items,
+    get_url_from_req,
+    generate_system_fsentries,
+    generate_random_str,
+    generate_random_username,
+    get_app,
+    get_user,
+    invalidate_cached_user,
+    invalidate_cached_user_by_id,
+    has_shared_with,
+    hyphenize_confirm_code,
+    id2fsentry,
+    id2path,
+    id2uuid,
+    is_ancestor_of,
+    is_empty,
+    is_shared_with,
+    is_shared_with_anyone,
+    is_valid_uuid4,
+    is_valid_uuid,
+    is_specifically_uuidv4,
+    is_valid_url,
+    jwt_auth,
+    mkdir,
+    mv,
+    number_format,
+    refresh_apps_cache,
+    refresh_associations_cache,
+    resolve_glob,
+    rm,
+    seconds_to_string,
+    send_email_verification_code,
+    send_email_verification_token,
+    sign_file,
+    subdomain,
+    suggest_app_for_fsentry,
+    df,
+    username_exists,
+    uuid2fsentry,
+    validate_fsentry_name,
+    validate_signature_auth,
+    tmp_provide_services,
+};

@@ -1,6 +1,6 @@
 <h3 align="center"><img width="80" alt="Puter.com, The Personal Cloud Computer: All your files, apps, and games in one place accessible from anywhere at any time." src="https://assets.puter.site/puter-logo.png"></h3>
 
-<h3 align="center">The Internet OS, Free and Open-Source!</h3>
+<h3 align="center">The Internet OS! Free, Open-Source, and Self-Hostable!</h3>
 
 <p align="center">
     <a href="https://puter.com/"><strong>« LIVE DEMO »</strong></a>
@@ -23,7 +23,7 @@
 
 ## Puter
 
-Puter is an advanced open-source desktop environment in the browser, designed to be feature-rich, exceptionally fast, and highly extensible. It can be used to build remote desktop environments or serve as an interface for cloud storage services, remote servers, web hosting platforms, and more.
+Puter is an advanced, open-source internet operating system designed to be feature-rich, exceptionally fast, and highly extensible. It can be used to build remote desktop environments or serve as an interface for cloud storage services, remote servers, web hosting platforms, and more.
 
 <br/>
 
@@ -52,9 +52,8 @@ docker compose up
 
 <br/>
 
-## Deploy to Production
-
-Detailed guide on how to deploy Puter in production: [docs/prod.md](docs/prod.md)
+## ⚠️ Self-Hosting ⚠️
+The self-hosted version of Puter is currently in alpha stage and should not be used in production yet. It is under active development and may contain bugs, other issues. Please exercise caution and use it for testing and evaluation purposes only.
 
 <br/>
 
