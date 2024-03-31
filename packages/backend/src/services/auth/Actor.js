@@ -20,6 +20,7 @@ const { AdvancedBase } = require("puter-js-common");
 const { Context } = require("../../util/context");
 const { get_user, get_app } = require("../../helpers");
 
+// TODO: add these to configuration; production deployments should change these!
 const PRIVATE_UID_NAMESPACE = '1757dc3f-8f04-4d77-b939-ff899045696d';
 const PRIVATE_UID_SECRET = 'bf03f0e52f5d93c83822ad8558c625277ce3dddff8dc4a5cb0d3c8493571f770';
 
