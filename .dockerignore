@@ -1,3 +1,5 @@
 .dockerignore
 Dockerfile
 node_modules
+config
+data
