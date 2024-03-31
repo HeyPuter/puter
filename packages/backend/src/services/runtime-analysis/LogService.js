@@ -426,6 +426,8 @@ class LogService extends BaseService {
     }
 
     get_log_file (name) {
+        // sanitize name: cannot contain path characters
+        name = name.replace(/[^a-zA-Z0-9-_]/g, '_');
         return this.modules.path.join(this.log_directory, name);
     }
 
