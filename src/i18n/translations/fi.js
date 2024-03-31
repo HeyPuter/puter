@@ -154,7 +154,7 @@ const fi = {
         paste_into_folder: "Liitä Kansioon",
         pick_name_for_website: "Valitse nimi verkkosivustollesi:",
         picture: "Kuva",
-        powered_by_puter_js: `Tämän Mahdollistaa <a href="https://docs.puter.com/" target="_blank">Puter.js</a>`,
+        powered_by_puter_js: `Tämän Mahdollistaa {{link=docs}}Puter.js{{/link}}`,
         preparing: "Valmistellaan...",
         preparing_for_upload: "Valmistellaan latausta...",
         properties: "Ominaisuudet",

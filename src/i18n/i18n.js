@@ -20,6 +20,18 @@ import translations from './translations/translations.js';
 
 window.listSupportedLanguages = () => Object.keys(translations).map(lang => translations[lang]);
 
+const variables = {
+    docs: "https://docs.puter.com/",
+    terms: "https://puter.com/terms",
+    privacy: "https://puter.com/privacy"
+};
+
+function ReplacePlaceholders(str) {
+    str = str.replace(/{{link=(.*?)}}(.*?){{\/link}}/g, (_, key, text) => `<a href="${variables[key]}" target="_blank">${text}</a>`);
+    str = str.replace(/{{(.*?)}}/g, (_, key) => variables[key]);
+    return str;
+}
+
 window.i18n = function (key, replacements = [], encode_html = true) {
     if(Array.isArray(replacements) === false){
         replacements = [replacements];
@@ -31,6 +43,7 @@ window.i18n = function (key, replacements = [], encode_html = true) {
     if (!str) {
         str = key;
     }
+    str = ReplacePlaceholders(str);
     str = encode_html ? html_encode(str) : str;
     // replace %% occurrences with the values in replacements
     // %% is for simple text replacements
