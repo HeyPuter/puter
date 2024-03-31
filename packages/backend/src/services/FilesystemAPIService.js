@@ -45,7 +45,6 @@ class FilesystemAPIService extends BaseService {
 
         // misc
         app.use(require('../routers/df'))
-        app.use(require('../routers/download'))
 
     }
 }
