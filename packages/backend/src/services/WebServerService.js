@@ -27,6 +27,7 @@ var http = require('http');
 const fs = require('fs');
 const auth = require('../middleware/auth');
 const { osclink } = require('../util/strutil');
+const { surrounding_box, es_import_promise } = require('../fun/dev-console-ui-utils');
 
 class WebServerService extends BaseService {
     static MODULES = {
@@ -42,6 +43,7 @@ class WebServerService extends BaseService {
     };
 
     async ['__on_start.webserver'] () {
+        await es_import_promise;
 
         // error handling middleware goes last, as per the
         // expressjs documentation:
@@ -122,17 +124,7 @@ class WebServerService extends BaseService {
                 lines[2].length,
                 0,
             ];
-            const max_length = Math.max(...lengths);
-            const c = str => `\x1b[34;1m${str}\x1b[0m`;
-            const bar = c(Array(max_length + 4).fill('━').join(''));
-            for ( let i = 0 ; i < lines.length ; i++ ) {
-                while ( lines[i].length < max_length ) {
-                    lines[i] += ' ';
-                }
-                lines[i] = `${c('┃ ')} ${lines[i]} ${c(' ┃')}`;
-            }
-            lines.unshift(`${c('┏')}${bar}${c('┓')}`);
-            lines.push(`${c('┗')}${bar}${c('┛')}`);
+            surrounding_box('34;1', lines, lengths);
             return lines;
         };
         {
@@ -360,7 +352,7 @@ class WebServerService extends BaseService {
             const pad = (width - last_logo.sz) / 2;
             const asymmetrical = pad % 1 !== 0;
             const pad_left = Math.floor(pad);
-            const pad_right = Math.ceil(pad) + (asymmetrical ? 1 : 0);
+            const pad_right = Math.ceil(pad);
             for ( let i = 0 ; i < lines.length ; i++ ) {
                 lines[i] = ' '.repeat(pad_left) + lines[i] + ' '.repeat(pad_right);
             }

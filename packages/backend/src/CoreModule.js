@@ -182,6 +182,9 @@ const install = async ({ services, app }) => {
     const { EventService } = require('./services/EventService');
     services.registerService('event', EventService);
 
+    const DefaultUserService = require('./services/DefaultUserService');
+    services.registerService('__default-user', DefaultUserService);
+
 }
 
 const install_legacy = async ({ services }) => {

@@ -183,6 +183,7 @@ class Kernel extends AdvancedBase {
 
 
         await services.emit('start.webserver');
+        await services.emit('ready.webserver');
     }
 }
 
