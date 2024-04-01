@@ -36,7 +36,7 @@ const pl = {
         change_username: "Zmień użytkownika",
         close_all_windows: "Zamknij wszystkie okna",
         close_all_windows_and_log_out: 'Zamknij wszystkie okna i wyloguj',
-        change_allways_open_with: "Czy chcesz zawsze otwierać ten typ pliku używając",
+        change_always_open_with: "Czy chcesz zawsze otwierać ten typ pliku używając",
         color: 'Kolor',
         confirm_account_for_free_referral_storage_c2a: 'Stwórz konto i potwierdź swój adres e-mail, żeby dostać 1 GB darmowego miejsca. Twój znajomy również dostanie 1 GB darmowego miejsca.',
         confirm_delete_multiple_items: 'Czy na pewno chcesz na zawsze usunąć te przedmioty?',

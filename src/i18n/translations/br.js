@@ -39,7 +39,7 @@ const br = {
         change_username: "Alterar Nome de Utilizador",
         close_all_windows: "Fechar Todas as Janelas",
         close_all_windows_and_log_out: 'Fechar Janelas e Sair',
-        change_allways_open_with: "Quer sempre abrir arquivos deste tipo com",
+        change_always_open_with: "Quer sempre abrir arquivos deste tipo com",
         color: 'Cor',
         confirm_account_for_free_referral_storage_c2a: 'Crie uma conta e confirme o endereço do email para receber 1 GB de armazenamento gratuito. Seu amigo receberá 1 GB de armazenamento gratuito também.',
         confirm_delete_multiple_items: 'Quer apagar estes itens permanentemente?',

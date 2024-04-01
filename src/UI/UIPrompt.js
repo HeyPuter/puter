@@ -38,7 +38,7 @@ function UIPrompt(options){
         if(!options.buttons || options.buttons.length === 0){
             options.buttons = [
                 {label: i18n('cancel'), value: false, type: 'default'},
-                {label: i18n('OK'), value: true, type: 'primary'},
+                {label: i18n('ok'), value: true, type: 'primary'},
             ]
         }
 
@@ -53,7 +53,7 @@ function UIPrompt(options){
         if(options.buttons && options.buttons.length > 0){
             h += `<div style="overflow:hidden; margin-top:20px; float:right;">`;
                 h += `<button class="button button-default prompt-resp-button prompt-resp-btn-cancel" data-label="${i18n('cancel')}" style="padding: 0 20px;">${i18n('cancel')}</button>`;
-                h += `<button class="button button-primary prompt-resp-button prompt-resp-btn-ok" data-label="${i18n('OK')}" data-value="true" autofocus>${i18n('OK')}</button>`;
+                h += `<button class="button button-primary prompt-resp-button prompt-resp-btn-ok" data-label="${i18n('ok')}" data-value="true" autofocus>${i18n('ok')}</button>`;
             h += `</div>`;
         }
 
