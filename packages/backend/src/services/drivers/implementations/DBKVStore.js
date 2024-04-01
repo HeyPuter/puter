@@ -84,15 +84,28 @@ class DBKVStore extends BaseImplementation {
             const db = this.services.get('database').get(DB_WRITE, 'kvstore');
             const key_hash = this.modules.murmurhash.v3(key);
 
-            await db.write(
-                `INSERT INTO kv
-                    (user_id, app, kkey_hash, kkey, value)
-                    VALUES
-                    (?, ?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE
-                    value = ?`,
-                [ user.id, app?.uid ?? 'global', key_hash, key, value, value ]
-            );
+            try {
+                await db.write(
+                    `INSERT INTO kv (user_id, app, kkey_hash, kkey, value)
+                    VALUES (?, ?, ?, ?, ?) ` +
+                    db.case({
+                        mysql: 'ON DUPLICATE KEY UPDATE value = ?',
+                        sqlite: ' ',
+                        // sqlite: 'ON CONFLICT(user_id, app, kkey_hash) DO UPDATE SET value = ?',
+                    }),
+                    [
+                        user.id, app?.uid ?? 'global', key_hash, key, value,
+                        ...db.case({ mysql: [value], otherwise: [] }),
+                    ]
+                );
+            } catch (e) {
+                // if ( e.code !== 'SQLITE_ERROR' && e.code !== 'SQLITE_CONSTRAINT_PRIMARYKEY' ) throw e;
+                // The "ON CONFLICT" clause isn't currently working.
+                await db.write(
+                    `UPDATE kv SET value = ? WHERE user_id=? AND app=? AND kkey_hash=?`,
+                    [ value, user.id, app?.uid ?? 'global', key_hash ]
+                );
+            }
 
             return true;
         },
