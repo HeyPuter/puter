@@ -24,14 +24,7 @@ class DefaultUserService extends BaseService {
         // check if user named `default-user` is using default password
         const require = this.require;
         const tmp_password = await this.get_tmp_password_(user);
-        console.log(`second input [${tmp_password}]`);
         const bcrypt = require('bcrypt');
-        console.log(...[
-            'THESE ARE THE ARGS',
-            tmp_password,
-            // password_hashed,
-            user.password
-        ].map(l => l + '\n'));
         const is_default_password = await bcrypt.compare(
             tmp_password,
             user.password
@@ -86,7 +79,6 @@ class DefaultUserService extends BaseService {
         );
         const user = await get_user({ username: USERNAME });
         const tmp_password = await this.get_tmp_password_(user);
-        console.log(`first input [${tmp_password}]`);
         const bcrypt = require('bcrypt');
         const password_hashed = await bcrypt.hash(tmp_password, 8);
         await db.write(

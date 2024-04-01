@@ -18,8 +18,9 @@
  */
 const CoreModule = require("./src/CoreModule.js");
 const { Kernel } = require("./src/Kernel.js");
-const LocalDiskStorageModule = require("./src/LocalDiskStorageModule.js");
 const DatabaseModule = require("./src/DatabaseModule.js");
+const LocalDiskStorageModule = require("./src/LocalDiskStorageModule.js");
+const SelfhostedModule = require("./src/SelfhostedModule.js");
 const PuterDriversModule = require("./src/PuterDriversModule.js");
 const { testlaunch } = require("./src/index.js");
 const BaseService = require("./src/services/BaseService.js");
@@ -44,4 +45,5 @@ module.exports = {
     DatabaseModule,
     PuterDriversModule,
     LocalDiskStorageModule,
+    SelfhostedModule,
 };
