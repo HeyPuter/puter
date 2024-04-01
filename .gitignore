@@ -9,3 +9,5 @@ dist/
 .env
 # this is for jetbrain IDEs
 .idea/
+config
+data

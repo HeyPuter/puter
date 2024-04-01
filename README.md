@@ -45,8 +45,14 @@ This will launch Puter at http://localhost:4000 (or the next available port).
 ### Using Docker
 
 ```bash
-git clone https://github.com/HeyPuter/puter
-cd puter
+docker run --rm -p 4100:4100 -v `pwd`/data:/opt/puter/app/volatile/runtime -v `pwd`/config:/opt/puter/app/volatile/config ghcr.io/heyputer/puter
+```
+
+### Using Docker Compose
+
+```bash
+mkdir puter && cd puter
+wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
 

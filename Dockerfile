@@ -3,10 +3,10 @@ FROM node:21-alpine
 # Set labels
 LABEL repo="https://github.com/HeyPuter/puter"
 LABEL license="AGPL-3.0,https://github.com/HeyPuter/puter/blob/master/LICENSE.txt"
-LABEL version="v1.2.40-beta"
+LABEL version="1.2.46-beta-1"
 
-# Debugging
-RUN apk add --no-cache bash # useful for debugging
+# Install git (required by Puter to check version)
+RUN apk add --no-cache git
 
 # Setup working directory
 RUN mkdir -p /opt/puter/app
@@ -26,5 +26,7 @@ RUN npm cache clean --force \
 
 EXPOSE 4100
 
+HEALTHCHECK  --interval=30s --timeout=3s \
+  CMD wget --no-verbose --tries=1 --spider http://puter.localhost:4100/test || exit 1
 
 CMD [ "npm", "start" ]
