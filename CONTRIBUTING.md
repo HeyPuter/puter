@@ -57,6 +57,28 @@ See [doc/contributors/index.md](./doc/contributors/index.md) for more informatio
 
 <br>
 
+## Commit Messages
+
+Use the imperative, as is the convention in the Linux kernel:
+
+- correct: `Improve performance of readdir`
+- incorrect: `Improved readdir`
+- incorrect: `Improving readdir`
+
+We have the following exceptions to this rule:
+- If the commit message is in _past tense_, it's a shorthand for the following:
+  - `Apply changes that would be applied after one had <past tense message>`
+- If the commit message is in _present tense_, it's shorthand for the following:
+  - `Apply changes that would be applied after <present-tense message>`
+
+For example, the following are correct:
+- `Improved readdir`
+  - interpret this as: `Apply changes that would be applied after one had improved readdir`
+- `Improving readdir`
+  - interpret this as: `Apply changes that would be applied after improving readdir`
+
+<br>
+
 ## Code Review
 
 Once you've submitted your pull request, the project maintainers will review your changes. We may suggest some changes or improvements. This is a normal part of the process, and your contributions are greatly appreciated!
