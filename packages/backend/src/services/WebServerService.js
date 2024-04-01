@@ -128,8 +128,8 @@ class WebServerService extends BaseService {
             return lines;
         };
         {
-            const svc_devConsole = this.services.get('dev-console');
-            svc_devConsole.add_widget(this.startup_widget);
+            const svc_devConsole = this.services.get('dev-console', { optional: true });
+            if ( svc_devConsole ) svc_devConsole.add_widget(this.startup_widget);
         }
 
         this.print_puter_logo_();
@@ -330,8 +330,8 @@ class WebServerService extends BaseService {
                 id: 'dismiss',
                 description: 'Dismiss the startup message',
                 handler: async () => {
-                    const svc_devConsole = this.services.get('dev-console');
-                    svc_devConsole.remove_widget(this.startup_widget);
+                    const svc_devConsole = this.services.get('dev-console', { optional: true });
+                    if ( svc_devConsole ) svc_devConsole.remove_widget(this.startup_widget);
                 }
             }
         ]);
