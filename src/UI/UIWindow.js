@@ -1956,7 +1956,7 @@ async function UIWindow(options) {
                                     if (window.user.is_temp &&
                                         !await UIWindowSaveAccount({
                                             send_confirmation_code: true,
-                                            message: i18n('save_account_to_publish_website'),
+                                            message: i18n('save_account_to_publish'),
                                             window_options: {
                                                 backdrop: true,
                                                 close_on_backdrop_click: false,
