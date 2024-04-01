@@ -53,6 +53,7 @@ async function checkTranslationRegistrations() {
     }
 }
 
+// Ensure that translations only contain keys that exist in the en dictionary
 function checkTranslationKeys() {
     const enDictionary = translations.en.dictionary;
 
@@ -71,8 +72,40 @@ function checkTranslationKeys() {
     }
 }
 
+// Ensure that all keys passed to i18n() exist in the en dictionary
+async function checkTranslationUsage() {
+    const enDictionary = translations.en.dictionary;
+
+    const sourceDirectories = [
+        './src/helpers',
+        './src/UI',
+    ];
+
+    // Looks for i18n() calls using either ' or " for the key string.
+    // The key itself is at index 2 of the result.
+    const i18nRegex = /i18n\((['"])(.*?)\1\)/g;
+
+    for (const dir of sourceDirectories) {
+        const files = await fs.promises.readdir(dir, { recursive: true });
+        for (const relativeFileName of files) {
+            if (!relativeFileName.endsWith('.js')) continue;
+            const fileName = `${dir}/${relativeFileName}`;
+
+            const fileContents = await fs.promises.readFile(fileName, { encoding: 'utf8' });
+            const i18nUses = fileContents.matchAll(i18nRegex);
+            for (const use of i18nUses) {
+                const key = use[2];
+                if (!enDictionary.hasOwnProperty(key)) {
+                    reportError(`Unrecognized i18n key: call ${use[0]} in ${fileName}`);
+                }
+            }
+        }
+    }
+}
+
 await checkTranslationRegistrations();
 checkTranslationKeys();
+await checkTranslationUsage();
 
 if (hadError) {
     process.stdout.write('Errors were found in translation files.\n');

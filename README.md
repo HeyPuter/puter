@@ -58,8 +58,37 @@ docker compose up
 
 <br/>
 
+See [Configuration](#configuration) for next steps.
+
+<br/>
+
 ## ⚠️ Self-Hosting ⚠️
 The self-hosted version of Puter is currently in alpha stage and should not be used in production yet. It is under active development and may contain bugs, other issues. Please exercise caution and use it for testing and evaluation purposes only.
+
+## Configuration
+
+Running the server will generate a configuration file at `volatile/config/config.json`.
+
+### Domain Name
+
+To access Puter on your device, you can simply go to the address printed in
+the server console (usually `puter.localhost:4100`).
+
+To access Puter from another device, a domain name must be configured, as well as
+an `api` subdomain. For example, `example.local` might be the domain name pointing
+to the IP address of the server running puter, and `api.example.com` must point to
+this address as well. This domain must be specified in the configuration file
+(usually `volatile/config/config.json`) as well.
+
+See [domain configuration](./doc/self-hosters/domains.md) for more information.
+
+### Default User
+
+By default, Puter will create a user called `default_user` with the password
+`changeme`. A warning will persist in the dev console until this user's
+password is changed. Please login to this user and change the password as
+your first step. This user by default has 10GB storage instead of the default
+(500MB storage) for new/temporary users.
 
 <br/>
 

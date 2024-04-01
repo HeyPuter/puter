@@ -110,7 +110,7 @@ const ur = {
         paste_into_folder: "فولڈر میں چسپاں کریں",
         pick_name_for_website: "ویب سائٹ کے لئے نام منتخب کریں ",
         picture: "تصویر ",
-        powered_by_puter_js: 'پیوٹر جے ایس کے زریعے محرک<a href="https://docs.puter.com/" target="_blank">Puter.js</a>',
+        powered_by_puter_js: 'پیوٹر جے ایس کے زریعے محرک{{link=docs}}Puter.js{{/link}}',
         preparing: "تیاری ",
         preparing_for_upload: "اپلوڈ کے لئے تیاری ",
         properties: "خصوصیات ",

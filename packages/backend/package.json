@@ -61,6 +61,7 @@
     "socket.io": "^4.6.2",
     "ssh2": "^1.13.0",
     "string-hash": "^1.1.3",
+    "string-length": "^6.0.0",
     "svgo": "^3.0.2",
     "tiktoken": "^1.0.11",
     "uglify-js": "^3.17.4",

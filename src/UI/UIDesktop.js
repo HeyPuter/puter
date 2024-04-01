@@ -1217,7 +1217,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
                             message: `<p>${i18n('confirm_open_apps_log_out')}</p>`,
                             buttons:[
                                 {
-                                    label: i18n('close_all_Windows_and_log_out'),
+                                    label: i18n('close_all_windows_and_log_out'),
                                     value: 'close_and_log_out',
                                     type: 'primary',
                                 },
