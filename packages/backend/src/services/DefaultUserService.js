@@ -6,7 +6,6 @@ const BaseService = require("./BaseService");
 const { Actor, UserActorType } = require("./auth/Actor");
 const { DB_WRITE } = require("./database/consts");
 
-const DEFAULT_PASSWORD = 'changeme';
 const USERNAME = 'default_user';
 
 class DefaultUserService extends BaseService {
