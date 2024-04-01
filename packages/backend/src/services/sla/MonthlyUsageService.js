@@ -57,7 +57,7 @@ class MonthlyUsageService extends BaseService {
                     //     'DO UPDATE SET `count` = `count` + 1 AND `extra` = ?',
                 }),
                 [
-                    year, month, key, actor.type.user.id, maybe_app_id, JSON.stringify(extra),
+                    year, month, key, actor.type.user.id, maybe_app_id ?? null, JSON.stringify(extra),
                     ...this.db.case({ mysql: [JSON.stringify(extra)], otherwise: [] }),
                 ]
             );
