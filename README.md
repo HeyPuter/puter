@@ -63,6 +63,8 @@ The self-hosted version of Puter is currently in alpha stage and should not be u
 
 Running the server will generate a configuration file at `volatile/config/config.json`.
 
+### Domain Name
+
 To access Puter on your device, you can simply go to the address printed in
 the server console (usually `puter.localhost:4100`).
 
@@ -73,6 +75,14 @@ this address as well. This domain must be specified in the configuration file
 (usually `volatile/config/config.json`) as well.
 
 See [domain configuration](./doc/self-hosters/domains.md) for more information.
+
+### Default User
+
+By default, Puter will create a user called `default_user` with the password
+`changeme`. A warning will persist in the dev console until this user's
+password is changed. Please login to this user and change the password as
+your first step. This user by default has 10GB storage instead of the default
+(500MB storage) for new/temporary users.
 
 <br/>
 
