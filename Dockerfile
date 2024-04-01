@@ -24,7 +24,7 @@ USER node
 RUN npm cache clean --force \
     && npm install
 
-EXPOSE 4000
+EXPOSE 4100
 
 
 CMD [ "npm", "start" ]
