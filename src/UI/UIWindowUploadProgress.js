@@ -41,7 +41,7 @@ async function UIWindowUploadProgress(options){
     h += `</div>`;
 
     const el_window = await UIWindow({
-        title: i18n('Upload'),
+        title: i18n('upload'),
         icon: window.icons[`app-icon-uploader.svg`],
         uid: null,
         is_dir: false,

@@ -783,7 +783,7 @@ function UIItem(options){
                 // Donwload
                 // -------------------------------------------
                 menu_items.push({
-                    html: i18n('Download'),
+                    html: i18n('download'),
                     onClick: async function(){
                         let items = [];
                         for (let index = 0; index < $selected_items.length; index++) {
@@ -1113,11 +1113,11 @@ function UIItem(options){
                 });
             }
             // -------------------------------------------
-            // Donwload
+            // Download
             // -------------------------------------------
             if(!is_trash && !is_trashed && (options.associated_app_name === null || options.associated_app_name === undefined)){
                 menu_items.push({
-                    html: i18n('Download'),
+                    html: i18n('download'),
                     disabled: options.is_dir && !window.feature_flags.download_directory,
                     onClick: async function(){
                         if(options.is_dir)

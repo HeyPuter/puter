@@ -60,7 +60,7 @@ async function UIWindowFontPicker(options){
                     h += `</div>`;
 
                     // Select
-                    h += `<button class="select-btn button button-primary button-block button-normal">${i18n('Select')}</button>`
+                    h += `<button class="select-btn button button-primary button-block button-normal">${i18n('select')}</button>`
                 h += `</form>`;
             h += `</div>`;
         h += `</div>`;
