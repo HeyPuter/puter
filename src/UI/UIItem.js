@@ -987,7 +987,7 @@ function UIItem(options){
                                     )
                                 ){
                                     const alert_resp = await UIAlert({
-                                        message: `${i18n('change_allways_open_with')} ` + html_encode(suggested_app.title) + '?',
+                                        message: `${i18n('change_always_open_with')} ` + html_encode(suggested_app.title) + '?',
                                         body_icon: suggested_app.icon,
                                         buttons:[
                                             {

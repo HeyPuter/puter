@@ -36,7 +36,7 @@ const nb = {
         change_username: "Endre brukernavn",
         close_all_windows: "Lukk alle vinduer",
         close_all_windows_and_log_out: 'Lukk alle vinduer og logg ut',
-        change_allways_open_with: "Ønsker du å alltid åpne denne filtypen med",
+        change_always_open_with: "Ønsker du å alltid åpne denne filtypen med",
         color: "Farge",
         confirm_account_for_free_referral_storage_c2a: "Opprett en konto og bekreft e-postadressen din for å motta 1 GB gratis lagringsplass. Din venn vil også få 1 GB gratis lagringsplass.",
         confirm_delete_multiple_items: 'Er du sikker på at du vil slette disse elementene permanent?',

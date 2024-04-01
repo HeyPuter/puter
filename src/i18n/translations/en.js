@@ -39,7 +39,7 @@ const en = {
         change_username: "Change Username",
         close_all_windows: "Close All Windows",
         close_all_windows_and_log_out: 'Close Windows and Log Out',
-        change_allways_open_with: "Do you want to always open this type of file with",
+        change_always_open_with: "Do you want to always open this type of file with",
         color: 'Color',
         confirm_account_for_free_referral_storage_c2a: 'Create an account and confirm your email address to receive 1 GB of free storage. Your friend will get 1 GB of free storage too.',
         confirm_delete_multiple_items: 'Are you sure you want to permanently delete these items?',
