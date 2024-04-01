@@ -34,18 +34,41 @@ class MonthlyUsageService extends BaseService {
 
         const maybe_app_id = actor.type.app?.id;
 
+        if ( this.db.case({ sqlite: true, otherwise: false }) ) {
+            return;
+        }
+
         // UPSERT increment count
-        await this.db.write(
-            'INSERT INTO `service_usage_monthly` (`year`, `month`, `key`, `count`, `user_id`, `app_id`, `extra`) ' +
-            'VALUES (?, ?, ?, 1, ?, ?, ?) ' +
-            'ON DUPLICATE KEY UPDATE `count` = `count` + 1',
-            [
-                year, month, key,
-                actor.type.user?.id || null,
-                maybe_app_id || null,
-                JSON.stringify(extra)
-            ]
-        );
+        try {
+            await this.db.write(
+                'INSERT INTO `service_usage_monthly` (`year`, `month`, `key`, `count`, `user_id`, `app_id`, `extra`) ' +
+                'VALUES (?, ?, ?, 1, ?, ?, ?) ' +
+                this.db.case({
+                    mysql: 'ON DUPLICATE KEY UPDATE `count` = `count` + 1, `extra` = ?',
+                    sqlite: ' ',
+                    // sqlite: 'ON CONFLICT(`year`, `month`, `key`, `user_id`, `app_id`) ' +
+                    //     'DO UPDATE SET `count` = `count` + 1 AND `extra` = ?',
+                }),
+                [
+                    year, month, key, actor.type.user.id, maybe_app_id, JSON.stringify(extra),
+                    ...this.db.case({ mysql: [JSON.stringify(extra)], otherwise: [] }),
+                ]
+            );
+        } catch (e) {
+            // if ( e.code !== 'SQLITE_ERROR' && e.code !== 'SQLITE_CONSTRAINT_PRIMARYKEY' ) throw e;
+            // The "ON CONFLICT" clause isn't currently working.
+            await this.db.write(
+                'UPDATE `service_usage_monthly` ' +
+                'SET `count` = `count` + 1, `extra` = ? ' +
+                'WHERE `year` = ? AND `month` = ? AND `key` = ? ' +
+                'AND `user_id` = ? AND `app_id` = ?',
+                [
+                    JSON.stringify(extra),
+                    year, month, key, actor.type.user.id, maybe_app_id,
+                ]
+            );
+
+        }
     }
 
     async check (actor, specifiers) {

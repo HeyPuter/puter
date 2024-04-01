@@ -95,11 +95,8 @@ class Kernel extends AdvancedBase {
 
         root_context.arun(async () => {
             await this._install_modules();
-        });
-
-        (async () => {
             await this._boot_services();
-        })();
+        });
 
 
         // Error.stackTraceLimit = Infinity;
@@ -183,6 +180,7 @@ class Kernel extends AdvancedBase {
 
 
         await services.emit('start.webserver');
+        await services.emit('ready.webserver');
     }
 }
 
