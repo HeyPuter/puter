@@ -73,7 +73,10 @@ The self-hosted version of Puter is currently in alpha stage and should not be u
 
 ## Configuration
 
-Running the server will generate a configuration file at `volatile/config/config.json`.
+Running the server will generate a configuration file in one of these locations:
+- `config/config.json` when [Using Docker](#using-docker)
+- `volatile/config/config.json` in [Local Development](#local-development)
+- `/etc/puter/config.json` on a server (or within a Docker container)
 
 ### Domain Name
 
