@@ -15,8 +15,8 @@ services:
       PUID: 1000
       PGID: 1000
     volumes:
-      - ./config:/opt/puter/app/volatile/config
-      - ./data:/opt/puter/app/volatile/runtime
+      - ./volatile/config:/opt/puter/app/volatile/config
+      - ./volatile/runtime:/opt/puter/app/volatile/runtime
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://puter.localhost:4100/test || exit 1
       interval: 30s
