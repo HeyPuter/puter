@@ -21,6 +21,8 @@ const path_ = require('path');
 const fs_ = require('fs');
 
 const generate_puter_page_html = ({
+    env,
+
     manifest,
     gui_path,
 
@@ -98,7 +100,7 @@ const generate_puter_page_html = ({
 
     <!-- Files from JSON (may be empty) -->
     ${
-        (manifest?.css_paths
+        ((env == 'dev' && manifest?.css_paths)
             ? manifest.css_paths.map(path => `<link rel="stylesheet" href="${path}">\n`)
             : []).join('')
     }
@@ -108,7 +110,7 @@ const generate_puter_page_html = ({
 <body>
     <script>window.puter_gui_enabled = true;</script>
     ${
-        (manifest?.lib_paths
+        ((env == 'dev' && manifest?.lib_paths)
             ? manifest.lib_paths.map(path => `<script type="text/javascript" src="${path}"></script>\n`)
             : []).join('')
     }
@@ -117,7 +119,7 @@ const generate_puter_page_html = ({
     window.icons = {};
 
     ${(() => {
-        if ( ! manifest ) return '';
+        if ( !(env == 'dev' && manifest) ) return '';
         const html = [];
         fs_.readdirSync(path_.join(gui_path, 'src/icons')).forEach(file => {
             // skip dotfiles
@@ -138,12 +140,12 @@ const generate_puter_page_html = ({
     </script>
 
     ${
-        (manifest?.js_paths
+        ((env == 'dev' && manifest?.js_paths)
             ? manifest.js_paths.map(path => `<script type="module" src="${path}"></script>\n`)
             : []).join('')
     }
     <!-- Load the GUI script -->
-    <script ${ manifest.index ? ' type="module"' : ''} src="${manifest?.index ?? '/dist/gui.js'}"></script>
+    <script ${ env == 'dev' ? ' type="module"' : ''} src="${(env == 'dev' && manifest?.index) || '/dist/gui.js'}"></script>
     <!-- Initialize GUI when document is loaded -->
     <script>
     window.addEventListener('load', function() {

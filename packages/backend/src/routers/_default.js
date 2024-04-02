@@ -296,6 +296,8 @@ router.all('*', async function(req, res, next) {
                 const APP_ORIGIN = config.origin;
                 const API_ORIGIN = config.api_base_url;
                 return res.send(generate_puter_page_html({
+                    env: config.env,
+
                     app_origin: APP_ORIGIN,
                     api_origin: API_ORIGIN,
 
