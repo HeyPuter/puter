@@ -55,7 +55,7 @@ class DBKVStore extends BaseImplementation {
                 [ user.id, key_hash ]
             );
 
-            return kv[0] ? { key: kv[0].key, value: kv[0].value } : null;
+            return kv[0]?.value ?? null;
         },
         set: async function ({ key, value }) {
             const actor = this.context.get('actor');
