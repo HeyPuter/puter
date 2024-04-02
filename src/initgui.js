@@ -292,6 +292,29 @@ window.initgui = async function(){
         window.history.pushState(null, document.title, '/');
     }
 
+    /**
+     * Logout without showing confirmation or "Save Account" action,
+     * and without authenticating with the server.
+     */
+    const bad_session_logout = async () => {
+        try {
+            // TODO: i18n
+            await UIAlert({
+                message: 'Your session is invalid. You will be logged out.'
+            });
+            // clear local storage
+            localStorage.clear();
+            // reload the page
+            window.location.reload();
+        }catch(e){
+            // TODO: i18n
+            await UIAlert({
+                message: 'Session is invalid and logout failed; ' +
+                    'please clear local storage manually.'
+            });
+        }
+    };
+
     // -------------------------------------------------------------------------------------
     // Authed
     // -------------------------------------------------------------------------------------
@@ -302,7 +325,7 @@ window.initgui = async function(){
                 whoami = await puter.os.user();
             }catch(e){
                 if(e.status === 401){
-                    logout();
+                    bad_session_logout();
                     return;
                 }
             }

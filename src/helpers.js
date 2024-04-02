@@ -738,7 +738,9 @@ window.sendWindowWillCloseMsg = function(iframe_element) {
 }
 
 window.logout = ()=>{
-    document.dispatchEvent(new Event("logout", { bubbles: true}));    
+    console.log('DISP LOGOUT EVENT');
+    $(document).trigger('logout');
+    // document.dispatchEvent(new Event("logout", { bubbles: true}));    
 }
 
 /**
