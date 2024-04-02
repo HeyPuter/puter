@@ -179,6 +179,11 @@ class DevConsoleService extends BaseService {
     generateSeparator(text) {
         text = text || '[ Dev Console ]';
         const totalWidth = process.stdout.columns;
+
+        if ( totalWidth <= text.length+1 ) {
+            return '═'.repeat(totalWidth < 0 ? 0 : totalWidth);
+        }
+
         const paddingSize = (totalWidth - text.length) / 2;
 
         // Construct the separator
