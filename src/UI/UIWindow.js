@@ -311,7 +311,7 @@ async function UIWindow(options) {
                 // Add 'This folder is empty' message by default
                 h += `<div class="explorer-empty-message">This folder is empty</div>`;
 
-                h += `<div class="explorer-error-message">This folder is empty</div>`;
+                h += `<div class="explorer-error-message">Error message is missing</div>`;
 
                 // Loading spinner
                 h += `<div class="explorer-loading-spinner">`;
