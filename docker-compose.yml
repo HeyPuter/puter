@@ -8,7 +8,7 @@ services:
     # build: ./
     restart: unless-stopped
     ports:
-      - '4100:4100'
+      - '41041:4100'
     environment:
       # TZ: Europe/Paris
       # CONFIG_PATH: /etc/puter
