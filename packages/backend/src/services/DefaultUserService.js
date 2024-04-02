@@ -24,6 +24,11 @@ class DefaultUserService extends BaseService {
         const require = this.require;
         const tmp_password = await this.get_tmp_password_(user);
         const bcrypt = require('bcrypt');
+        console.log(
+            'VALUES',
+            tmp_password,
+            user.password,
+        );
         const is_default_password = await bcrypt.compare(
             tmp_password,
             user.password
@@ -100,7 +105,7 @@ class DefaultUserService extends BaseService {
             const driver_response = await svc_driver.call(
                 'puter-kvstore', 'get', { key: 'tmp_password' });
 
-            if ( driver_response.result ) return driver_response.result.value;
+            if ( driver_response.result ) return driver_response.result;
 
             const tmp_password = require('crypto').randomBytes(4).toString('hex');
             await svc_driver.call(
