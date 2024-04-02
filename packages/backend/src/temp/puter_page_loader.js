@@ -51,6 +51,10 @@ const generate_puter_page_html = ({
         gui_origin: app_origin,
     };
 
+    const asset_dir = env === 'dev'
+        ? '/src' : '/dist' ;
+    // const asset_dir = '/dist';
+
     return `<!DOCTYPE html>
 <html lang="en">
 
@@ -66,7 +70,7 @@ const generate_puter_page_html = ({
     <meta property="og:type" content="website">
     <meta property="og:title" content="${e(title)}">
     <meta property="og:description" content="${e((short_description).replace(/\n/g, " "))}">
-    <meta property="og:image" content="/dist/images/screenshot.png">
+    <meta property="og:image" content="${asset_dir}/images/screenshot.png">
 
     <!-- Twitter meta tags -->
     <meta name="twitter:card" content="summary_large_image">
@@ -74,29 +78,29 @@ const generate_puter_page_html = ({
     <meta property="twitter:url" content="${app_origin}">
     <meta name="twitter:title" content="${e(title)}">
     <meta name="twitter:description" content="${e((short_description).replace(/\n/g, " "))}">
-    <meta name="twitter:image" content="/dist/images/screenshot.png">
+    <meta name="twitter:image" content="${asset_dir}/images/screenshot.png">
 
     <!-- favicons -->
-    <link rel="apple-touch-icon" sizes="57x57" href="/dist/favicons/apple-icon-57x57.png">
-    <link rel="apple-touch-icon" sizes="60x60" href="/dist/favicons/apple-icon-60x60.png">
-    <link rel="apple-touch-icon" sizes="72x72" href="/dist/favicons/apple-icon-72x72.png">
-    <link rel="apple-touch-icon" sizes="76x76" href="/dist/favicons/apple-icon-76x76.png">
-    <link rel="apple-touch-icon" sizes="114x114" href="/dist/favicons/apple-icon-114x114.png">
-    <link rel="apple-touch-icon" sizes="120x120" href="/dist/favicons/apple-icon-120x120.png">
-    <link rel="apple-touch-icon" sizes="144x144" href="/dist/favicons/apple-icon-144x144.png">
-    <link rel="apple-touch-icon" sizes="152x152" href="/dist/favicons/apple-icon-152x152.png">
-    <link rel="apple-touch-icon" sizes="180x180" href="/dist/favicons/apple-icon-180x180.png">
-    <link rel="icon" type="image/png" sizes="192x192"  href="/dist/favicons/android-icon-192x192.png">
-    <link rel="icon" type="image/png" sizes="32x32" href="/dist/favicons/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="96x96" href="/dist/favicons/favicon-96x96.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/dist/favicons/favicon-16x16.png">
-    <link rel="manifest" href="/dist/manifest.json">
+    <link rel="apple-touch-icon" sizes="57x57" href="${asset_dir}/favicons/apple-icon-57x57.png">
+    <link rel="apple-touch-icon" sizes="60x60" href="${asset_dir}/favicons/apple-icon-60x60.png">
+    <link rel="apple-touch-icon" sizes="72x72" href="${asset_dir}/favicons/apple-icon-72x72.png">
+    <link rel="apple-touch-icon" sizes="76x76" href="${asset_dir}/favicons/apple-icon-76x76.png">
+    <link rel="apple-touch-icon" sizes="114x114" href="${asset_dir}/favicons/apple-icon-114x114.png">
+    <link rel="apple-touch-icon" sizes="120x120" href="${asset_dir}/favicons/apple-icon-120x120.png">
+    <link rel="apple-touch-icon" sizes="144x144" href="${asset_dir}/favicons/apple-icon-144x144.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="${asset_dir}/favicons/apple-icon-152x152.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="${asset_dir}/favicons/apple-icon-180x180.png">
+    <link rel="icon" type="image/png" sizes="192x192"  href="${asset_dir}/favicons/android-icon-192x192.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="${asset_dir}/favicons/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="96x96" href="${asset_dir}/favicons/favicon-96x96.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="${asset_dir}/favicons/favicon-16x16.png">
+    <link rel="manifest" href="${asset_dir}/manifest.json">
     <meta name="msapplication-TileColor" content="#ffffff">
-    <meta name="msapplication-TileImage" content="/dist/favicons/ms-icon-144x144.png">
+    <meta name="msapplication-TileImage" content="${asset_dir}/favicons/ms-icon-144x144.png">
     <meta name="theme-color" content="#ffffff">
 
     <!-- Preload images when applicable -->
-    <link rel="preload" as="image" href="/dist/images/wallpaper.webp">
+    <link rel="preload" as="image" href="${asset_dir}/images/wallpaper.webp">
 
     <!-- Files from JSON (may be empty) -->
     ${
