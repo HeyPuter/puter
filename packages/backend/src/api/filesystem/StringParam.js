@@ -16,6 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
+const APIError = require('../APIError'); // Added by @braingix
+
 module.exports = class StringParam {
     constructor (srckey, options) {
         this.srckey = srckey;

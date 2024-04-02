@@ -1,5 +1,5 @@
 {
-    "index": "/src/index.js",
+    "index": "/index.js",
     "lib_paths": [
         "/lib/jquery-3.6.1/jquery-3.6.1.min.js",
         "/lib/viselect.min.js",
@@ -22,10 +22,10 @@
         "/css/style.css"
     ],
     "js_paths": [
-        "/src/initgui.js",
-        "/src/helpers.js",
-        "/src/IPC.js",
-        "/src/globals.js",
-        "/src/i18n/i18n.js"
+        "/initgui.js",
+        "/helpers.js",
+        "/IPC.js",
+        "/globals.js",
+        "/i18n/i18n.js"
     ]
 }

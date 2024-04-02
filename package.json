@@ -24,6 +24,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
+    "start=dev": "nodemon --exec \"node run-selfhosted.js\"",
     "start": "node run-selfhosted.js",
     "build": "node ./build.js",
     "check-translations": "node tools/check-translations.js"
@@ -35,7 +36,8 @@
     "ext": "js, json, mjs, jsx, svg, css",
     "ignore": [
       "./dist/",
-      "./node_modules/"
+      "./node_modules/",
+      "./volatile/"
     ]
   },
   "dependencies": {

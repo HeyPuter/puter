@@ -16,52 +16,46 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const {encode} = require('html-entities');
-const path_ = require('path');
-const fs_ = require('fs');
+const { encode } = require("html-entities");
+const path_ = require("path");
+const fs_ = require("fs");
 
 const generate_puter_page_html = ({
-    env,
+  env,
 
-    manifest,
-    gui_path,
+  manifest,
+  gui_path,
 
+  app_origin,
+  api_origin,
+
+  meta,
+
+  gui_params,
+}) => {
+  const e = encode;
+
+  const { title, description, short_description, company, canonical_url } =
+    meta;
+
+  gui_params = {
+    ...meta,
+    ...gui_params,
     app_origin,
     api_origin,
+    gui_origin: app_origin,
+  };
 
-    meta,
+  const asset_dir = env === "dev" ? "" : "";
+  // const asset_dir = '/dist';
 
-    gui_params,
-}) => {
-    const e = encode;
-
-    const {
-        title,
-        description,
-        short_description,
-        company,
-        canonical_url,
-    } = meta;
-
-    gui_params = {
-        ...meta,
-        ...gui_params,
-        app_origin,
-        api_origin,
-        gui_origin: app_origin,
-    };
-
-    const asset_dir = env === 'dev'
-        ? '/src' : '/dist' ;
-    // const asset_dir = '/dist';
-
-    return `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 
 <head>
     <title>${e(title)}</title>
     <meta name="author" content="${e(company)}">
-    <meta name="description" content="${e((description).replace(/\n/g, " "))}">
+    <meta name="description" content="${e(description.replace(/\n/g, " "))}">
     <meta name="facebook-domain-verification" content="e29w3hjbnnnypf4kzk2cewcdaxym1y" />
     <link rel="canonical" href="${e(canonical_url)}">
 
@@ -69,7 +63,9 @@ const generate_puter_page_html = ({
     <meta property="og:url" content="${app_origin}">
     <meta property="og:type" content="website">
     <meta property="og:title" content="${e(title)}">
-    <meta property="og:description" content="${e((short_description).replace(/\n/g, " "))}">
+    <meta property="og:description" content="${e(
+      short_description.replace(/\n/g, " ")
+    )}">
     <meta property="og:image" content="${asset_dir}/images/screenshot.png">
 
     <!-- Twitter meta tags -->
@@ -77,7 +73,9 @@ const generate_puter_page_html = ({
     <meta property="twitter:domain" content="puter.com">
     <meta property="twitter:url" content="${app_origin}">
     <meta name="twitter:title" content="${e(title)}">
-    <meta name="twitter:description" content="${e((short_description).replace(/\n/g, " "))}">
+    <meta name="twitter:description" content="${e(
+      short_description.replace(/\n/g, " ")
+    )}">
     <meta name="twitter:image" content="${asset_dir}/images/screenshot.png">
 
     <!-- favicons -->
@@ -103,53 +101,64 @@ const generate_puter_page_html = ({
     <link rel="preload" as="image" href="${asset_dir}/images/wallpaper.webp">
 
     <!-- Files from JSON (may be empty) -->
-    ${
-        ((env == 'dev' && manifest?.css_paths)
-            ? manifest.css_paths.map(path => `<link rel="stylesheet" href="${path}">\n`)
-            : []).join('')
-    }
+    ${(env == "dev" && manifest?.css_paths
+      ? manifest.css_paths.map(
+          (path) => `<link rel="stylesheet" href="${path}">\n`
+        )
+      : []
+    ).join("")}
     <!-- END Files from JSON -->
 </head>
 
 <body>
     <script>window.puter_gui_enabled = true;</script>
-    ${
-        ((env == 'dev' && manifest?.lib_paths)
-            ? manifest.lib_paths.map(path => `<script type="text/javascript" src="${path}"></script>\n`)
-            : []).join('')
-    }
+    ${(env == "dev" && manifest?.lib_paths
+      ? manifest.lib_paths.map(
+          (path) => `<script type="text/javascript" src="${path}"></script>\n`
+        )
+      : []
+    ).join("")}
 
     <script>
     window.icons = {};
 
     ${(() => {
-        if ( !(env == 'dev' && manifest) ) return '';
-        const html = [];
-        fs_.readdirSync(path_.join(gui_path, 'src/icons')).forEach(file => {
-            // skip dotfiles
-            if(file.startsWith('.'))
-                return;
-            // load image
-            let buff = new Buffer.from(fs_.readFileSync(path_.join(gui_path, 'src/icons') + '/' + file));
-            // convert to base64
-            let base64data = buff.toString('base64');
-            // add to `window.icons`
-            if(file.endsWith('.png'))
-                html.push(`window.icons['${file}'] = "data:image/png;base64,${base64data}";\n`);
-            else if(file.endsWith('.svg'))
-                html.push(`window.icons['${file}'] = "data:image/svg+xml;base64,${base64data}";\n`);
-        })
-        return html.join('');
+      if (!(env == "dev" && manifest)) return "";
+      const html = [];
+      fs_.readdirSync(path_.join(gui_path, "src/icons")).forEach((file) => {
+        // skip dotfiles
+        if (file.startsWith(".")) return;
+        // load image
+        let buff = new Buffer.from(
+          fs_.readFileSync(path_.join(gui_path, "src/icons") + "/" + file)
+        );
+        // convert to base64
+        let base64data = buff.toString("base64");
+        // add to `window.icons`
+        if (file.endsWith(".png"))
+          html.push(
+            `window.icons['${file}'] = "data:image/png;base64,${base64data}";\n`
+          );
+        else if (file.endsWith(".svg"))
+          html.push(
+            `window.icons['${file}'] = "data:image/svg+xml;base64,${base64data}";\n`
+          );
+      });
+      return html.join("");
     })()}
     </script>
 
-    ${
-        ((env == 'dev' && manifest?.js_paths)
-            ? manifest.js_paths.map(path => `<script type="module" src="${path}"></script>\n`)
-            : []).join('')
-    }
+    ${(env == "dev" && manifest?.js_paths
+      ? manifest.js_paths.map(
+          (path) =>
+            `<script type="module" src="${path}"></script>\n`
+        )
+      : []
+    ).join("")}
     <!-- Load the GUI script -->
-    <script ${ env == 'dev' ? ' type="module"' : ''} src="${(env == 'dev' && manifest?.index) || '/dist/gui.js'}"></script>
+    <script ${env == "dev" ? ' type="module"' : ""} src="${
+    (env == "dev" && manifest?.index) || "/gui.js"
+  }"></script>
     <!-- Initialize GUI when document is loaded -->
     <script>
     window.addEventListener('load', function() {
@@ -163,5 +172,5 @@ const generate_puter_page_html = ({
 };
 
 module.exports = {
-    generate_puter_page_html,
+  generate_puter_page_html,
 };
