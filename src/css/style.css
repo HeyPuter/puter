@@ -721,6 +721,14 @@ span.header-sort-icon img {
     display: none;
 }
 
+.explorer-error-message {
+    text-align: center;
+    margin-top: 20px;
+    color: #935c5c;
+    -webkit-font-smoothing: antialiased;
+    display: none;
+}
+
 .explorer-loading-spinner {
     margin-top: 20px;
     font-size: 13px;

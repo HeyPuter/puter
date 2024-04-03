@@ -1165,6 +1165,8 @@ window.refresh_item_container = function(el_item_container, options){
     let el_window = $(el_item_container).closest('.window');
     let el_window_head_icon = $(el_window).find('.window-head-icon');
     const loading_spinner = $(el_item_container).find('.explorer-loading-spinner');
+    const error_message = $(el_item_container).find('.explorer-error-message');
+    const empty_message = $(el_item_container).find('.explorer-empty-message');
 
     if(options.fadeInItems)
         $(el_item_container).css('opacity', '0')
@@ -1176,6 +1178,9 @@ window.refresh_item_container = function(el_item_container, options){
     // Hide the loading spinner to avoid the flickering effect if the folder
     // is already loaded.
     $(loading_spinner).hide();
+
+    // Hide the error message in case it's visible
+    $(error_message).hide();
 
     // current timestamp in milliseconds
     let start_ts = new Date().getTime();
@@ -1369,6 +1374,19 @@ window.refresh_item_container = function(el_item_container, options){
         // This makes sure the loading spinner shows up if the request takes longer than 1 second 
         // and stay there for at least 1 second since the flickering is annoying
         (Date.now() - start_ts) > 1000 ? 1000 : 1)
+    }).catch(e => {
+        // clear loading timeout
+        clearTimeout(loading_timeout);
+
+        // hide other messages/indicators
+        $(loading_spinner).hide();
+        $(empty_message).hide();
+
+        // UIAlert('Failed to load directory' + (e && e.message ? ': ' + e.message : ''));
+
+        // show error message
+        $(error_message).html('Failed to load directory' + (e && e.message ? ': ' + e.message : ''));
+        $(error_message).show();
     });
 }    
 
