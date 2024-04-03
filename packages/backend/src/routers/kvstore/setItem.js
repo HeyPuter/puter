@@ -56,32 +56,6 @@ router.post('/setItem', auth, express.json(), async (req, res, next)=>{
     else if(req.body.app && !await app_exists({uid: req.body.app}))
         return res.status(400).send('`app` does not exist');
 
-    // hash key for faster search in DB
-    const murmurhash = require('murmurhash')
-    const key_hash = murmurhash.v3(req.body.key);
-
-    // database connection
-    const db = require('../../db/mysql.js');
-
-    // insert into DB (in case the row isn't migrated yet)
-    await db.promise().execute(
-        `INSERT INTO kv
-         (user_id, app, kkey_hash, kkey, value)
-         VALUES
-         (?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-         value = ?`,
-        [
-            req.user.id,
-            // 0 is reserved for global system variables
-            req.body.app ?? 'global',
-            key_hash,
-            String(req.body.key),
-            String(req.body.value),
-            String(req.body.value),
-        ]
-    )
-
     // insert into KV 1
     const actor = req.body.app
         ? await Actor.create(AppUnderUserActorType, {

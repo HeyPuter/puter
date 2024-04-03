@@ -40,6 +40,10 @@ router.get('/file', async (req, res, next)=>{
         return res.status(403).send(e);
     }
 
+    const log = req.services.get('log-service').create('/file');
+    const errors = req.services.get('error-service').create(log);
+
+
     // modules
     const db = req.services.get('database').get(DB_WRITE, 'filesystem');
     const mime = require('mime-types')
@@ -113,13 +117,17 @@ router.get('/file', async (req, res, next)=>{
 
         // stream data from S3
         try{
-            let stream = await storage.create_read_stream({
-                key: fsentry[0].uuid,
+            let stream = await storage.create_read_stream(fsentry[0].uuid, {
                 bucket: fsentry[0].bucket,
                 bucket_region: fsentry[0].bucket_region,
             });
             return stream.pipe(res);
         }catch(e){
+            errors.report('read from storage', {
+                source: e,
+                trace: true,
+                alarm: true,
+            });
             return res.type('application/json').status(500).send({message: 'There was an internal problem reading the file.'});
         }
     }
@@ -175,14 +183,17 @@ router.get('/file', async (req, res, next)=>{
         });
 
         try{
-            let stream = await storage.create_read_stream({
-                key: fsentry[0].uuid,
+            let stream = await storage.create_read_stream(fsentry[0].uuid, {
                 bucket: fsentry[0].bucket,
                 bucket_region: fsentry[0].bucket_region,
             });
             return stream.pipe(res);
         }catch(e){
-            console.log(e)
+            errors.report('read from storage', {
+                source: e,
+                trace: true,
+                alarm: true,
+            });
             return res.type('application/json').status(500).send({message: 'There was an internal problem reading the file.'});
         }
     }
