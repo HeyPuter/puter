@@ -19,7 +19,6 @@
 "use strict"
 const express = require('express');
 const router = new express.Router();
-const config = require('../config');
 const {validate_signature_auth, get_url_from_req, get_descendants, id2path, get_user, sign_file} = require('../helpers');
 const { DB_WRITE } = require('../services/database/consts');
 
@@ -174,13 +173,6 @@ router.get('/file', async (req, res, next)=>{
 
         // HTTP Status 206 for Partial Content
         res.writeHead(206, headers);
-
-        // init S3
-        const s3 = new AWS.S3({
-            accessKeyId: config.s3_access_key,
-            secretAccessKey: config.s3_secret_key,
-            region: fsentry[0].bucket_region,
-        });
 
         try{
             let stream = await storage.create_read_stream(fsentry[0].uuid, {
