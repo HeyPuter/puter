@@ -39,6 +39,7 @@
     ]
   },
   "dependencies": {
+    "diskusage": "^1.2.0",
     "uuid": "^9.0.1"
   }
 }

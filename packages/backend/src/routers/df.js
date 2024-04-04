@@ -39,7 +39,7 @@ router.post('/df', auth, express.json(), async (req, response, next)=>{
         // auth
         response.send({
             used: parseInt(await df(req.user.id)),
-            capacity: (req.user.free_storage === undefined || req.user.free_storage === null) ? config.storage_capacity : req.user.free_storage,
+            capacity: config.is_storage_limited ? (req.user.free_storage === undefined || req.user.free_storage === null) ? config.storage_capacity : req.user.free_storage : config.available_device_storage,
         });
     }catch(e){
         console.log(e)
@@ -64,7 +64,7 @@ router.get('/df', auth, express.json(), async (req, response, next)=>{
         // auth
         response.send({
             used: parseInt(await df(req.user.id)),
-            capacity: (req.user.free_storage === undefined || req.user.free_storage === null) ? config.storage_capacity : req.user.free_storage,
+            capacity: config.is_storage_limited ? (req.user.free_storage === undefined || req.user.free_storage === null) ? config.storage_capacity : req.user.free_storage : config.available_device_storage,
         });
     }catch(e){
         console.log(e)

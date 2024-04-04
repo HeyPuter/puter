@@ -23,6 +23,7 @@ const { NodePathSelector, RootNodeSelector } = require("../node/selectors");
 const { HLFilesystemOperation } = require("./definitions");
 const { MkTree } = require("./hl_mkdir");
 const { HLRemove } = require("./hl_remove");
+const config = require("../../config");
 
 class HLCopy extends HLFilesystemOperation {
     static DESCRIPTION = `
@@ -141,7 +142,7 @@ class HLCopy extends HLFilesystemOperation {
             let deset_usage = await sizeService.get_usage(dest_user.id);
 
             const size = await source.fetchSize(values.user);
-            let capacity = (dest_user.free_storage === undefined || dest_user.free_storage === null) ? config.storage_capacity : dest_user.free_storage
+            let capacity = config.is_storage_limited ? (dest_user.free_storage === undefined || dest_user.free_storage === null) ? config.storage_capacity : dest_user.free_storage : config.available_device_storage
             if(capacity - deset_usage - size < 0){
                 throw APIError.create('storage_limit_reached');
             }
