@@ -6,8 +6,11 @@ LABEL license="AGPL-3.0,https://github.com/HeyPuter/puter/blob/master/LICENSE.tx
 LABEL version="1.2.46-beta-1"
 
 # Install git (required by Puter to check version)
-RUN apk add --no-cache git
-
+# python3 would be required by node-gyp to natively build node addon 
+# This is required if we build for multi-platform
+RUN apk add --no-cache git python3 make g++ \
+    && ln -s /usr/bin/python3 /usr/bin/python
+    
 # Setup working directory
 RUN mkdir -p /opt/puter/app
 WORKDIR /opt/puter/app
