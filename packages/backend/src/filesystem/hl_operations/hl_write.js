@@ -61,8 +61,8 @@ class WriteCommonTrait {
             const { file, user } = this.values;
 
             const usage = await sizeService.get_usage(user.id);
-            let capacity = user.free_storage == undefined
-                ? config.storage_capacity : user.free_storage;
+            let capacity = config.is_storage_limited ? user.free_storage == undefined
+                ? config.storage_capacity : user.free_storage : config.available_device_storage;
             if( capacity - usage - file.size < 0 ) {
                 throw APIError.create('storage_limit_reached');
             }

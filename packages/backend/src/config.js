@@ -19,6 +19,7 @@
 "use strict"
 const deep_proto_merge = require('./config/deep_proto_merge');
 // const reserved_words = require('./config/reserved_words');
+const diskusage = require('diskusage');
 
 let config = {};
 
@@ -52,6 +53,17 @@ config.monitor = {
 config.max_subdomains_per_user = 2000;
 config.storage_capacity = 1*1024*1024*1024;
 config.static_hosting_domain = '-static.puter.local';
+
+// Storage limiting is set to false by default
+// Storage available on the device puter is running is the storage available
+config.is_storage_limited = false;
+diskusage.check('/', (err, info) => {
+  if (err) {
+    config.available_device_storage = 1*1024*1024*1024;
+  } else{
+    config.available_device_storage = info.free;
+  }
+});
 
 config.thumb_width = 80;
 config.thumb_height = 80;
