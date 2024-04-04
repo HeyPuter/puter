@@ -59,7 +59,6 @@ mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 100
 **note:** it is **not** necessary to run this within a clone of this repository. For contributors, it is recommended to use the [Local Development](#local-development) instructions.
 
 ```bash
-mkdir puter && cd puter
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
