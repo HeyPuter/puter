@@ -9,7 +9,7 @@ LABEL version="1.2.46-beta-1"
 # python3 would be required by node-gyp to natively build node addon 
 # This is required if we build for multi-platform
 RUN apk add --no-cache git python3 make g++ \
-    && ln -s /usr/bin/python3 /usr/bin/python
+    && ln -sf /usr/bin/python3 /usr/bin/python
     
 # Setup working directory
 RUN mkdir -p /opt/puter/app
