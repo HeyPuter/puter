@@ -1955,23 +1955,20 @@ window.launch_app = async (options)=>{
             iframe_url.searchParams.append('puter.domain', window.app_domain);
         }
 
-        // Add auth_token to GODMODE apps
-        if(app_info.godmode && app_info.godmode === 1){
+        if (app_info.godmode && app_info.godmode === 1){
+            // Add auth_token to GODMODE apps
+
             iframe_url.searchParams.append('puter.auth.token', auth_token);
             iframe_url.searchParams.append('puter.auth.username', window.user.username);
             iframe_url.searchParams.append('puter.domain', window.app_domain);
-        }
-        // App token. Only add token if it's not a GODMODE app since GODMODE apps already have the super token
-        // that has access to everything.
-        else if(options.token){
+        } else if (options.token){
+            // App token. Only add token if it's not a GODMODE app since GODMODE apps already have the super token
+            // that has access to everything.
+
             iframe_url.searchParams.append('puter.auth.token', options.token);
-        }
+        } else {
+            // Try to acquire app token from the server
 
-        if(api_origin)
-            iframe_url.searchParams.append('puter.api_origin', api_origin);
-
-        // Try to acquire app token from the server
-        else{
             let response = await fetch(window.api_origin + "/auth/get-user-app-token", {
                 "headers": {
                     "Content-Type": "application/json",
@@ -1985,6 +1982,9 @@ window.launch_app = async (options)=>{
                 iframe_url.searchParams.append('puter.auth.token', res.token);
             }
         }
+
+        if(api_origin)
+            iframe_url.searchParams.append('puter.api_origin', api_origin);
 
         // Add options.params to URL
         if(options.params){
