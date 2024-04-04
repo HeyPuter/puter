@@ -101,6 +101,8 @@ See [domain configuration](./doc/self-hosters/domains.md) for more information.
 - You can specify a custom port by setting `http_port` to a desired value
 - If you're using a reverse-proxy such as nginx or cloudflare, you should
   also set `pub_port` to the public (external) port (usually `443`)
+- If you have HTTPS enabled on your reverse-proxy, ensure that
+  `protocol` in config.json is set accordingly
 
 ### Default User
 
