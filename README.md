@@ -29,6 +29,10 @@ Puter is an advanced, open-source internet operating system designed to be featu
 
 ## Getting Started
 
+After reading this section, please proceed to **Self-Hosting** and **Configuration** below.
+Read these instructions carefully or you may see errors due to
+an invalid setup.
+
 ### Local Development
 
 ```bash
@@ -71,6 +75,8 @@ See [Configuration](#configuration) for next steps.
 ## ⚠️ Self-Hosting ⚠️
 The self-hosted version of Puter is currently in alpha stage and should not be used in production yet. It is under active development and may contain bugs, other issues. Please exercise caution and use it for testing and evaluation purposes only.
 
+<br/>
+
 ## Configuration
 
 Running the server will generate a configuration file in one of these locations:
@@ -90,6 +96,12 @@ this address as well. This domain must be specified in the configuration file
 (usually `volatile/config/config.json`) as well.
 
 See [domain configuration](./doc/self-hosters/domains.md) for more information.
+
+### Configure the Port
+
+- You can specify a custom port by setting `http_port` to a desired value
+- If you're using a reverse-proxy such as nginx or cloudflare, you should
+  also set `pub_port` to the public (external) port (usually `443`)
 
 ### Default User
 
