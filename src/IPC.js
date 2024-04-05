@@ -74,10 +74,14 @@ window.addEventListener('message', async (event) => {
         return;
     }
 
+    const iframe_for_app_instance = (instanceID) => {
+        return $(`.window[data-element_uuid="${instanceID}"]`).find('.window-app-iframe').get(0)
+    };
+
     const $el_parent_window = $(`.window[data-element_uuid="${event.data.appInstanceID}"]`);
     const parent_window_id = $el_parent_window.attr('data-id');
     const $el_parent_disable_mask = $el_parent_window.find('.window-disable-mask');
-    const target_iframe = $(`.window[data-element_uuid="${event.data.appInstanceID}"]`).find('.window-app-iframe').get(0);
+    const target_iframe = iframe_for_app_instance(event.data.appInstanceID);
     const msg_id = event.data.uuid;
     const app_name = $(target_iframe).attr('data-app');
     const app_uuid = $el_parent_window.attr('data-app_uuid');
@@ -1053,6 +1057,27 @@ window.addEventListener('message', async (event) => {
                 }
             }
         }
+    }
+    //--------------------------------------------------------
+    // messageToApp
+    //--------------------------------------------------------
+    else if (event.data.msg === 'messageToApp') {
+        const { appInstanceID, targetAppInstanceID, targetAppOrigin, contents } = event.data;
+        // TODO: Determine if we should allow the message
+        // TODO: Track message traffic between apps
+
+        // pass on the message
+        const target_iframe = iframe_for_app_instance(targetAppInstanceID);
+        if (!target_iframe) {
+            console.error('Failed to send message to non-existent app', event);
+            return;
+        }
+        target_iframe.contentWindow.postMessage({
+            msg: 'messageToApp',
+            appInstanceID,
+            targetAppInstanceID,
+            contents,
+        }, targetAppOrigin);
     }
 
     //--------------------------------------------------------
