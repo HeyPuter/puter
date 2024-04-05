@@ -163,6 +163,7 @@ class HLCopy extends HLFilesystemOperation {
             throw APIError('cannot_copy_item_into_itself');
         }
 
+        let overwritten;
         if ( await dest.exists() ) {
             // condition: no overwrite behaviour specified
             if ( ! values.overwrite && ! values.dedupe_name ) {
@@ -189,12 +190,13 @@ class HLCopy extends HLFilesystemOperation {
                 dest = await parent.getChild(target_name);
             }
             else if ( values.overwrite ) {
-                if ( ! await chkperm(dest.entry, options.user.id, 'rm') ) {
+                if ( ! await chkperm(dest.entry, values.user.id, 'rm') ) {
                     throw APIError.create('forbidden');
                 }
 
                 // TODO: This will be LLRemove
                 // TODO: what to do with parent_operation?
+                overwritten = await dest.getSafeEntry();
                 const hl_remove = new HLRemove();
                 await hl_remove.run({
                     target: dest,
@@ -213,7 +215,10 @@ class HLCopy extends HLFilesystemOperation {
 
         await this.copied.awaitStableEntry();
         const response = await this.copied.getSafeEntry({ thumbnail: true });
-        return response;
+        return {
+            copied : response,
+            overwritten
+        };
     }
 }
 

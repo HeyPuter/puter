@@ -1579,8 +1579,13 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
                             dedupeName: dest_path === path.dirname(copy_path),
                     });
 
+                    // remove overwritten item from the DOM
+                    if(resp[0].overwritten?.id){
+                        $(`.item[data-uid=${resp[0].overwritten.id}]`).removeItems();
+                    }
+
                     // copy new path for undo copy
-                    copied_item_paths.push(resp[0].path);
+                    copied_item_paths.push(resp[0].copied.path);
 
                     // skips next loop iteration
                     break;
@@ -1676,8 +1681,13 @@ window.copy_items = function(el_items, dest_path){
                             dedupeName: dest_path === path.dirname(copy_path),
                     })
 
+                    // remove overwritten item from the DOM
+                    if(resp[0].overwritten?.id){
+                        $(`.item[data-uid=${resp.overwritten.id}]`).removeItems();
+                    }
+
                     // copy new path for undo copy
-                    copied_item_paths.push(resp[0].path);
+                    copied_item_paths.push(resp[0].copied.path);
 
                     // skips next loop iteration
                     item_with_same_name_already_exists = false;
