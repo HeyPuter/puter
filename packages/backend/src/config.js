@@ -112,7 +112,9 @@ const computed_defaults = {
     pub_port: config => config.http_port,
     origin: config => config.protocol + '://' + config.domain +
         (config.pub_port !== 80 && config.pub_port !== 443 ? ':' + config.pub_port : ''),
-    api_base_url: config => config.protocol + '://api.' + config.domain +
+    api_base_url: config => config.experimental_no_subdomain
+        ? config.origin
+        : config.protocol + '://api.' + config.domain +
         (config.pub_port !== 80 && config.pub_port !== 443 ? ':' + config.pub_port : ''),
     social_card: config => `${config.origin}/assets/img/screenshot.png`,
 };
