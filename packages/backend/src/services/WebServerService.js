@@ -290,8 +290,9 @@ class WebServerService extends BaseService {
             if ( req.path === '/signup' || req.path === '/login' ) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
             }
+            console.log('subdomains', req.subdomains);
             // Website(s) to allow to connect
-            if ( req.subdomains[0] === 'api' ) {
+            if ( req.subdomains[req.subdomains.length-1] === 'api' ) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
                 res.setHeader('Access-Control-Allow-Credentials', 'true');
             }
