@@ -1849,7 +1849,7 @@ window.trigger_download = (paths)=>{
  * @param {*} options 
  */
 window.launch_app = async (options)=>{
-    const uuid = uuidv4();
+    const uuid = options.uuid ?? uuidv4();
     let icon, title, file_signature;
     const window_options = options.window_options ?? {};
 
@@ -1944,6 +1944,11 @@ window.launch_app = async (options)=>{
 
         // add app_id to URL
         iframe_url.searchParams.append('puter.app.id', app_info.uuid);
+
+        // add parent_app_instance_id to URL
+        if (options.parent_instance_id) {
+            iframe_url.searchParams.append('puter.parent_instance_id', options.parent_instance_id);
+        }
 
         if(file_signature){
             iframe_url.searchParams.append('puter.item.uid', file_signature.uid);
