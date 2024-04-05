@@ -329,9 +329,13 @@ class WebServerService extends BaseService {
             {
                 id: 'dismiss',
                 description: 'Dismiss the startup message',
-                handler: async () => {
+                handler: async (_, log) => {
+                    if ( ! this.startup_widget ) return;
                     const svc_devConsole = this.services.get('dev-console', { optional: true });
                     if ( svc_devConsole ) svc_devConsole.remove_widget(this.startup_widget);
+                    const lines = this.startup_widget();
+                    for ( const line of lines ) log.log(line);
+                    this.startup_widget = null;
                 }
             }
         ]);
