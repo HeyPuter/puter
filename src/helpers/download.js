@@ -123,7 +123,7 @@ const download = function(options){
                     }
                     resolve(item);
                 }, options.return_timeout ?? 500);
-                // Stop and clear the the cloud progress check interval
+                // Stop and clear the cloud progress check interval
                 clearInterval(progress_check_interval)
             }
         }, 200);
