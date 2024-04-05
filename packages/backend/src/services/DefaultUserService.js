@@ -24,11 +24,6 @@ class DefaultUserService extends BaseService {
         const require = this.require;
         const tmp_password = await this.get_tmp_password_(user);
         const bcrypt = require('bcrypt');
-        console.log(
-            'VALUES',
-            tmp_password,
-            user.password,
-        );
         const is_default_password = await bcrypt.compare(
             tmp_password,
             user.password
