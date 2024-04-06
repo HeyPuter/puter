@@ -31,7 +31,7 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/auth/grant-user-app'))
         app.use(require('../routers/auth/revoke-user-app'))
         app.use(require('../routers/auth/grant-user-user'));
-        // app.use(require('../routers/auth/revoke-user-user'));
+        app.use(require('../routers/auth/revoke-user-user'));
         app.use(require('../routers/auth/list-permissions'))
         app.use(require('../routers/auth/check-app'))
         app.use(require('../routers/auth/app-uid-from-origin'))

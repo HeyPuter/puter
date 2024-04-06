@@ -526,6 +526,45 @@ class PermissionService extends BaseService {
         );
     }
 
+    async revoke_user_user_permission (actor, username, permission, meta) {
+        permission = await this._rewrite_permission(permission);
+
+        const user = await get_user({ username });
+        if ( ! user ) {
+            throw new Error('user not found');
+        }
+
+        console.log('revoking', user.id, actor.type.user.id, permission)
+
+        // DELETE permission
+        await this.db.write(
+            'DELETE FROM `user_to_user_permissions` ' +
+            'WHERE `holder_user_id` = ? AND `issuer_user_id` = ? AND `permission` = ?',
+            [
+                user.id,
+                actor.type.user.id,
+                permission,
+            ]
+        );
+
+        // INSERT audit table
+        await this.db.write(
+            'INSERT INTO `audit_user_to_user_permissions` (' +
+            '`holder_user_id`, `holder_user_id_keep`, `issuer_user_id`, `issuer_user_id_keep`, ' +
+            '`permission`, `action`, `reason`) ' +
+            'VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [
+                user.id,
+                user.id,
+                actor.type.user.id,
+                actor.type.user.id,
+                permission,
+                'revoke',
+                meta?.reason || 'revoked via PermissionService',
+            ]
+        );
+    }
+
     get_parent_permissions (permission) {
         const parent_perms = [];
         {
