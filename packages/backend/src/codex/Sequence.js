@@ -109,7 +109,7 @@ class Sequence {
         async run (values) {
             // Initialize scope
             values = values || this.thisArg?.values || {};
-            Object.assign(this.scope_, values);
+            Object.assign(this.scope_, values); // TODO: can this be __proto__?
 
             // Run sequence
             for ( ; this.i < this.steps.length ; this.i++ ) {
