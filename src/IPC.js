@@ -74,10 +74,14 @@ window.addEventListener('message', async (event) => {
         return;
     }
 
+    const iframe_for_app_instance = (instanceID) => {
+        return $(`.window[data-element_uuid="${instanceID}"]`).find('.window-app-iframe').get(0)
+    };
+
     const $el_parent_window = $(`.window[data-element_uuid="${event.data.appInstanceID}"]`);
     const parent_window_id = $el_parent_window.attr('data-id');
     const $el_parent_disable_mask = $el_parent_window.find('.window-disable-mask');
-    const target_iframe = $(`.window[data-element_uuid="${event.data.appInstanceID}"]`).find('.window-app-iframe').get(0);
+    const target_iframe = iframe_for_app_instance(event.data.appInstanceID);
     const msg_id = event.data.uuid;
     const app_name = $(target_iframe).attr('data-app');
     const app_uuid = $el_parent_window.attr('data-app_uuid');
@@ -88,6 +92,19 @@ window.addEventListener('message', async (event) => {
     //-------------------------------------------------
     if(event.data.msg === 'READY'){
         $(target_iframe).attr('data-appUsesSDK', 'true');
+
+        // If we were waiting to launch this as a child app, report to the parent that it succeeded.
+        const child_launch_callback = window.child_launch_callbacks[event.data.appInstanceID];
+        if (child_launch_callback) {
+            const parent_iframe = iframe_for_app_instance(child_launch_callback.parent_instance_id);
+            // send confirmation to requester window
+            parent_iframe.contentWindow.postMessage({
+                msg: 'childAppLaunched',
+                original_msg_id: child_launch_callback.launch_msg_id,
+                child_instance_id: event.data.appInstanceID,
+            }, '*');
+            delete window.child_launch_callbacks[event.data.appInstanceID];
+        }
     }
     //-------------------------------------------------
     // windowFocused
@@ -496,16 +513,20 @@ window.addEventListener('message', async (event) => {
     // launchApp
     //--------------------------------------------------------
     else if(event.data.msg === 'launchApp'){
-        // launch app
+        // TODO: Determine if the app is allowed to launch child apps? We may want to limit this to prevent abuse.
+        // remember app for launch callback later
+        const child_instance_id = uuidv4();
+        window.child_launch_callbacks[child_instance_id] = {
+            parent_instance_id: event.data.appInstanceID,
+            launch_msg_id: msg_id,
+        };
+        // launch child app
         launch_app({
             name: event.data.app_name ?? app_name,
             args: event.data.args ?? {},
+            parent_instance_id: event.data.appInstanceID,
+            uuid: child_instance_id,
         });
-
-        // send confirmation to requester window
-        target_iframe.contentWindow.postMessage({
-            original_msg_id: msg_id, 
-        }, '*');
     }
     //--------------------------------------------------------
     // readAppDataFile
@@ -1053,6 +1074,27 @@ window.addEventListener('message', async (event) => {
                 }
             }
         }
+    }
+    //--------------------------------------------------------
+    // messageToApp
+    //--------------------------------------------------------
+    else if (event.data.msg === 'messageToApp') {
+        const { appInstanceID, targetAppInstanceID, targetAppOrigin, contents } = event.data;
+        // TODO: Determine if we should allow the message
+        // TODO: Track message traffic between apps
+
+        // pass on the message
+        const target_iframe = iframe_for_app_instance(targetAppInstanceID);
+        if (!target_iframe) {
+            console.error('Failed to send message to non-existent app', event);
+            return;
+        }
+        target_iframe.contentWindow.postMessage({
+            msg: 'messageToApp',
+            appInstanceID,
+            targetAppInstanceID,
+            contents,
+        }, targetAppOrigin);
     }
 
     //--------------------------------------------------------
