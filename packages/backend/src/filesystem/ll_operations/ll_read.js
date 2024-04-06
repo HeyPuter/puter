@@ -60,6 +60,7 @@ class LLRead extends LLFilesystemOperation {
                 const svc_acl = context.get('services').get('acl');
                 const { fsNode, actor } = a.values();
                 if ( ! await svc_acl.check(actor, fsNode, 'read') ) {
+                    console.log('\x1B[36;1mACL CHECK FAILED', { actor, fsNode });
                     throw await svc_acl.get_safe_acl_error(actor, fsNode, 'read');
                 }
             },

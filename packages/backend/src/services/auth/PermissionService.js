@@ -84,6 +84,10 @@ const implicit_user_app_permissions = [
     },
 ];
 
+const implicit_user_permissions = {
+    'driver': {},
+};
+
 class PermissionRewriter {
     static create ({ id, matcher, rewriter }) {
         return new PermissionRewriter({ id, matcher, rewriter });
@@ -101,6 +105,32 @@ class PermissionRewriter {
 
     async rewrite (permission) {
         return await this.rewriter(permission);
+    }
+}
+
+class PermissionImplicator {
+    static create ({ id, matcher, checker }) {
+        return new PermissionImplicator({ id, matcher, checker });
+    }
+
+    constructor ({ id, matcher, checker }) {
+        this.id = id;
+        this.matcher = matcher;
+        this.checker = checker;
+    }
+
+    matches (permission) {
+        return this.matcher(permission);
+    }
+
+    /**
+     * Check if the permission is implied by this implicator
+     * @param  {Actor} actor
+     * @param  {string} permission
+     * @returns 
+     */
+    async check (actor, permission) {
+        return await this.checker(actor, permission);
     }
 }
 
@@ -142,6 +172,7 @@ class PermissionService extends BaseService {
         this._register_commands(this.services.get('commands'));
 
         this._permission_rewriters = [];
+        this._permission_implicators = [];
     }
 
     async _rewrite_permission (permission) {
@@ -162,30 +193,89 @@ class PermissionService extends BaseService {
         });
         // For now we're only checking driver permissions, and users have all of them
         if ( actor.type instanceof UserActorType ) {
-            return {};
+            return await this.check_user_permission(actor, permission);
         }
 
         if ( actor.type instanceof AccessTokenActorType ) {
+            // Authorizer must have permission
+            const authorizer_permission = await this.check(authorizer, permission);
+            if ( ! authorizer_permission ) return false;
+
             return await this.check_access_token_permission(
                 actor.type.authorizer, actor.type.token, permission
             );
         }
 
         // Prevent undefined behaviour
-        if ( ! (actor.type instanceof AppUnderUserActorType) ) {
-            throw new Error('actor must be an app under a user');
+        if ( actor.type instanceof AppUnderUserActorType ) {
+            // NEXT:
+            const app_uid = actor.type.app.uid;
+            const user_has_permission = await this.check_user_permission(actor, permission);
+            if ( ! user_has_permission ) return undefined;
+
+            return await this.check_user_app_permission(actor, app_uid, permission);
         }
 
-        // Now it's an app under a user
-        const app_uid = actor.type.app.uid;
-        return await this.check_user_app_permission(actor, app_uid, permission);
+        throw new Error('unrecognized actor type');
+    }
+
+    // TODO: context meta for cycle detection
+    async check_user_permission (actor, permission) {
+        this.log.noticeme('check input: ' +  permission);
+        permission = await this._rewrite_permission(permission);
+        this.log.noticeme('check output: ' +  permission);
+        const parent_perms = this.get_parent_permissions(permission);
+
+        // Check implicit permissions
+        for ( const parent_perm of parent_perms ) {
+            if ( implicit_user_permissions[parent_perm] ) {
+                return implicit_user_permissions[parent_perm];
+            }
+        }
+
+        for ( const implicator of this._permission_implicators ) {
+            if ( ! implicator.matches(permission) ) continue;
+            const implied = await implicator.check(actor, permission);
+            if ( implied ) return implied;
+        }
+
+        // Check permissions granted by other users
+        let sql_perm = parent_perms.map((perm) =>
+            `\`permission\` = ?`).join(' OR ');
+        if ( parent_perms.length > 1 ) sql_perm = '(' + sql_perm + ')';
+
+        // SELECT permission
+        const rows = await this.db.read(
+            'SELECT * FROM `user_to_user_permissions` ' +
+            'WHERE `holder_user_id` = ? AND ' +
+            sql_perm,
+            [
+                actor.type.user.id,
+                ...parent_perms,
+            ]
+        );
+
+        // Return the first matching permission where the
+        // issuer also has the permission granted
+        for ( const row of rows ) {
+            const issuer_actor = new Actor({
+                type: new UserActorType({
+                    user: await get_user({ id: row.issuer_user_id }),
+                }),
+            });
+
+            const issuer_perm = await this.check(issuer_actor, row.permission);
+
+            this.log.noticeme('issuer_perm', { row, issuer_perm });
+            if ( ! issuer_perm ) continue;
+
+            return row.extra;
+        }
+        
+        return undefined;
     }
 
     async check_access_token_permission (authorizer, token, permission) {
-        // Authorizer must have permission
-        const authorizer_permission = await this.check(authorizer, permission);
-        if ( ! authorizer_permission ) return false;
-
         const rows = await this.db.read(
             'SELECT * FROM `access_token_permissions` ' +
             'WHERE `token_uid` = ? AND `permission` = ?',
@@ -208,18 +298,7 @@ class PermissionService extends BaseService {
         if ( ! app ) app = await get_app({ name: app_uid });
         const app_id = app.id;
 
-        const parent_perms = [];
-        {
-            // We don't use PermissionUtil.split here because it unescapes
-            // components; we want to keep the components escaped for matching.
-            const parts = permission.split(':');
-
-            // Add sub-permissions
-            for ( let i = 1 ; i < parts.length ; i++ ) {
-                parent_perms.push(parts.slice(0, i + 1).join(':'));
-            }
-        }
-        parent_perms.reverse();
+        const parent_perms = this.get_parent_permissions(permission);
 
         for ( const permission of parent_perms ) {
             // Check hardcoded permissions
@@ -394,12 +473,90 @@ class PermissionService extends BaseService {
         );
     }
 
+    async grant_user_user_permission (actor, username, permission, extra = {}, meta) {
+        this.log.noticeme('input permission: ' + permission);
+        permission = await this._rewrite_permission(permission);
+        this.log.noticeme('output permission: ' + permission);
+        this.log.noticeme('fields', {
+            one_thing: 1,
+            another: 2
+        });
+        const user = await get_user({ username });
+        if ( ! user ) {
+            throw new Error('user not found');
+        }
+
+        // Don't allow granting permissions to yourself
+        if ( user.id === actor.type.user.id ) {
+            throw new Error('cannot grant permissions to yourself');
+        }
+
+        // UPSERT permission
+        await this.db.write(
+            'INSERT INTO `user_to_user_permissions` (`holder_user_id`, `issuer_user_id`, `permission`, `extra`) ' +
+            'VALUES (?, ?, ?, ?) ' +
+            this.db.case({
+                mysql: 'ON DUPLICATE KEY UPDATE `extra` = ?',
+                otherwise: 'ON CONFLICT(`holder_user_id`, `issuer_user_id`, `permission`) DO UPDATE SET `extra` = ?',
+            }),
+            [
+                user.id,
+                actor.type.user.id,
+                permission,
+                JSON.stringify(extra),
+                JSON.stringify(extra),
+            ]
+        );
+
+        // INSERT audit table
+        await this.db.write(
+            'INSERT INTO `audit_user_to_user_permissions` (' +
+            '`holder_user_id`, `holder_user_id_keep`, `issuer_user_id`, `issuer_user_id_keep`, ' +
+            '`permission`, `action`, `reason`) ' +
+            'VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [
+                user.id,
+                user.id,
+                actor.type.user.id,
+                actor.type.user.id,
+                permission,
+                'grant',
+                meta?.reason || 'granted via PermissionService',
+            ]
+        );
+    }
+
+    get_parent_permissions (permission) {
+        const parent_perms = [];
+        {
+            // We don't use PermissionUtil.split here because it unescapes
+            // components; we want to keep the components escaped for matching.
+            const parts = permission.split(':');
+
+            // Add sub-permissions
+            for ( let i = 0 ; i < parts.length ; i++ ) {
+                parent_perms.push(parts.slice(0, i + 1).join(':'));
+            }
+        }
+        parent_perms.reverse();
+        return parent_perms;
+    }
+
+
     register_rewriter (translator) {
         if ( ! (translator instanceof PermissionRewriter) ) {
             throw new Error('translator must be a PermissionRewriter');
         }
 
         this._permission_rewriters.push(translator);
+    }
+
+    register_implicator (implicator) {
+        if ( ! (implicator instanceof PermissionImplicator) ) {
+            throw new Error('implicator must be a PermissionImplicator');
+        }
+
+        this._permission_implicators.push(implicator);
     }
 
     _register_commands (commands) {
@@ -425,6 +582,7 @@ class PermissionService extends BaseService {
 
 module.exports = {
     PermissionRewriter,
+    PermissionImplicator,
     PermissionUtil,
     PermissionService,
 };
