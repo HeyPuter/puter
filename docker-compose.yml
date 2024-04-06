@@ -8,18 +8,18 @@ services:
     build: ./
     restart: unless-stopped
     ports:
-      - '41041:41041'
-    environment:
+      - '41041:4100'
+    # environment:
       # TZ: Europe/Paris
       # CONFIG_PATH: /etc/puter
-      PUID: 1000
-      PGID: 1000
+      # PUID: 1000
+      # PGID: 1000
     volumes:
       - ./puter/config:/etc/puter
       - ./puter/data:/var/puter
       - /etc/hosts:/etc/hosts
     healthcheck:
-      test: wget --no-verbose --tries=1 --spider http://puter.localhost:41041/test || exit 1
+      test: wget --no-verbose --tries=1 --spider http://puter.localhost:4100/test || exit 1
       interval: 30s
       timeout: 3s
       retries: 3
