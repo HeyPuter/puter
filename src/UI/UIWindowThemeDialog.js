@@ -71,7 +71,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
     const state = {};
 
     const slider_ch = (e) => {
-        state[e.meta.label] = e.target.value;
+        state[e.meta.name] = e.target.value;
         svc_theme.apply(state);
     };
 
