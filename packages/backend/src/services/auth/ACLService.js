@@ -76,25 +76,6 @@ class ACLService extends BaseService {
             }
         }
 
-        // Hard rule: if actor is owner, allow
-        // if ( actor.type instanceof UserActorType ) {
-        //     const owner = await fsNode.get('user_id');
-        //     if ( this.verbose ) {
-        //         const user = await get_user({ id: owner });
-        //         this.log.info(
-        //             `user ${user.username} is ` +
-        //             (owner == actor.type.user.id ? '' : 'not ') +
-        //             'owner of ' + await fsNode.get('path'), {
-        //                 actor_user_id: actor.type.user.id,
-        //                 fsnode_user_id: owner,
-        //             }
-        //         );
-        //     }
-        //     if ( owner == actor.type.user.id ) {
-        //         return true;
-        //     }
-        // }
-
         // app-under-user only works if the user also has permission
         if ( actor.type instanceof AppUnderUserActorType ) {
             const user_actor = new Actor({

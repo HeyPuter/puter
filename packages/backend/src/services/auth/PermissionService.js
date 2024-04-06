@@ -221,9 +221,7 @@ class PermissionService extends BaseService {
 
     // TODO: context meta for cycle detection
     async check_user_permission (actor, permission) {
-        this.log.noticeme('check input: ' +  permission);
         permission = await this._rewrite_permission(permission);
-        this.log.noticeme('check output: ' +  permission);
         const parent_perms = this.get_parent_permissions(permission);
 
         // Check implicit permissions
@@ -266,7 +264,6 @@ class PermissionService extends BaseService {
 
             const issuer_perm = await this.check(issuer_actor, row.permission);
 
-            this.log.noticeme('issuer_perm', { row, issuer_perm });
             if ( ! issuer_perm ) continue;
 
             return row.extra;
@@ -474,13 +471,7 @@ class PermissionService extends BaseService {
     }
 
     async grant_user_user_permission (actor, username, permission, extra = {}, meta) {
-        this.log.noticeme('input permission: ' + permission);
         permission = await this._rewrite_permission(permission);
-        this.log.noticeme('output permission: ' + permission);
-        this.log.noticeme('fields', {
-            one_thing: 1,
-            another: 2
-        });
         const user = await get_user({ username });
         if ( ! user ) {
             throw new Error('user not found');
@@ -533,8 +524,6 @@ class PermissionService extends BaseService {
         if ( ! user ) {
             throw new Error('user not found');
         }
-
-        console.log('revoking', user.id, actor.type.user.id, permission)
 
         // DELETE permission
         await this.db.write(
