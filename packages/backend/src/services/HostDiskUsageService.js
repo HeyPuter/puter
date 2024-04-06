@@ -19,7 +19,8 @@ class HostDiskUsageService extends BaseService {
             const mountpoint = this.get_darwin_mountpoint(process.cwd());
             free_space = this.get_disk_capacity_darwin(mountpoint);
         } else if (current_platform == "linux") {
-            this.log.warn('HostDiskUsageService: Linux is not supported yet');
+            const mountpoint = this.get_linux_mountpint(process.cwd());
+            free_space = this.get_disk_capacity_linux(mountpoint);
             // TODO: Implement for linux systems
         } else if (current_platform == "win32") {
             this.log.warn('HostDiskUsageService: Windows is not supported yet');
@@ -38,6 +39,7 @@ class HostDiskUsageService extends BaseService {
 
     // Get the mountpoint/drive of the current working directory in linux
     get_linux_mountpint(directory) {
+        return execSync(`df -P "${directory}" | awk 'NR==2 {print $6}'`, { encoding: 'utf-8' }).trim();
         // TODO: Implement for linux systems
     }
 
@@ -55,6 +57,8 @@ class HostDiskUsageService extends BaseService {
     // Get the free space on the mountpoint/drive in linux
     get_disk_capacity_linux(mountpoint) {
         // TODO: Implement for linux systems
+        const disk_info = execSync(`df -P "${mountpoint}" | awk 'NR==2 {print $4}'`, { encoding: 'utf-8' }).trim().split(' ');
+        return parseInt(disk_info) * 1024;
     }
 
     // Get the free space on the drive in windows
