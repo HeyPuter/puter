@@ -21,12 +21,12 @@ RUN chown -R node:node /opt/puter/app
 USER node
 
 # Install node modules
-RUN npm cache clean --force \
-    && npm install
+# RUN npm cache clean --force
+RUN npm install
 
-EXPOSE 4100
+EXPOSE 41041
 
 HEALTHCHECK  --interval=30s --timeout=3s \
-  CMD wget --no-verbose --tries=1 --spider http://puter.localhost:4100/test || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://puter.localhost:41041/test || exit 1
 
 CMD [ "npm", "start" ]
