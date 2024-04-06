@@ -1128,6 +1128,7 @@ async function deleteUser(user_id){
 }
 
 function subdomain(req){
+    if ( config.experimental_no_subdomain ) return 'api';
     return req.hostname.slice(0, -1 * (config.domain.length + 1));
 }
 

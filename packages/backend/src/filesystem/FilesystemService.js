@@ -34,8 +34,10 @@ const APIError = require('../api/APIError.js');
 const { LLMkdir } = require('./ll_operations/ll_mkdir.js');
 const { LLCWrite, LLOWrite } = require('./ll_operations/ll_write.js');
 const { LLCopy } = require('./ll_operations/ll_copy.js');
-const { PermissionUtil, PermissionRewriter } = require('../services/auth/PermissionService.js');
+const { PermissionUtil, PermissionRewriter, PermissionImplicator } = require('../services/auth/PermissionService.js');
 const { DB_WRITE } = require("../services/database/consts");
+const { UserActorType } = require('../services/auth/Actor');
+const { get_user } = require('../helpers');
 
 class FilesystemService extends AdvancedBase {
     static MODULES = {
@@ -129,6 +131,39 @@ class FilesystemService extends AdvancedBase {
                     throw new Error(`uid is undefined for path ${path}`);
                 }
                 return `fs:${uid}:${rest.join(':')}`;
+            },
+        }));
+        svc_permission.register_implicator(PermissionImplicator.create({
+            matcher: permission => {
+                return permission.startsWith('fs:');
+            },
+            checker: async (actor, permission) => {
+                debugger;
+                if ( !(actor.type instanceof UserActorType) ) {
+                    return undefined;
+                }
+
+                const [_, uid] = PermissionUtil.split(permission);
+                const node = await this.node(new NodeUIDSelector(uid));
+
+                if ( ! await node.exists() ) {
+                    return undefined;
+                }
+
+                const owner_id = await node.get('user_id');
+                
+                // These conditions should never happen
+                if ( ! owner_id || ! actor.type.user.id ) {
+                    throw new Error(
+                        'something unexpected happened'
+                    );
+                }
+
+                if ( owner_id === actor.type.user.id ) {
+                    return {};
+                }
+
+                return undefined;
             },
         }));
     }

@@ -291,7 +291,10 @@ class WebServerService extends BaseService {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
             }
             // Website(s) to allow to connect
-            if ( req.subdomains[0] === 'api' ) {
+            if (
+                config.experimental_no_subdomain ||
+                req.subdomains[req.subdomains.length-1] === 'api'
+            ) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
                 res.setHeader('Access-Control-Allow-Credentials', 'true');
             }
@@ -329,9 +332,13 @@ class WebServerService extends BaseService {
             {
                 id: 'dismiss',
                 description: 'Dismiss the startup message',
-                handler: async () => {
+                handler: async (_, log) => {
+                    if ( ! this.startup_widget ) return;
                     const svc_devConsole = this.services.get('dev-console', { optional: true });
                     if ( svc_devConsole ) svc_devConsole.remove_widget(this.startup_widget);
+                    const lines = this.startup_widget();
+                    for ( const line of lines ) log.log(line);
+                    this.startup_widget = null;
                 }
             }
         ]);

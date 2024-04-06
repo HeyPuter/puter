@@ -1579,8 +1579,13 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
                             dedupeName: dest_path === path.dirname(copy_path),
                     });
 
+                    // remove overwritten item from the DOM
+                    if(resp[0].overwritten?.id){
+                        $(`.item[data-uid=${resp[0].overwritten.id}]`).removeItems();
+                    }
+
                     // copy new path for undo copy
-                    copied_item_paths.push(resp[0].path);
+                    copied_item_paths.push(resp[0].copied.path);
 
                     // skips next loop iteration
                     break;
@@ -1676,8 +1681,13 @@ window.copy_items = function(el_items, dest_path){
                             dedupeName: dest_path === path.dirname(copy_path),
                     })
 
+                    // remove overwritten item from the DOM
+                    if(resp[0].overwritten?.id){
+                        $(`.item[data-uid=${resp.overwritten.id}]`).removeItems();
+                    }
+
                     // copy new path for undo copy
-                    copied_item_paths.push(resp[0].path);
+                    copied_item_paths.push(resp[0].copied.path);
 
                     // skips next loop iteration
                     item_with_same_name_already_exists = false;
@@ -1839,7 +1849,7 @@ window.trigger_download = (paths)=>{
  * @param {*} options 
  */
 window.launch_app = async (options)=>{
-    const uuid = uuidv4();
+    const uuid = options.uuid ?? uuidv4();
     let icon, title, file_signature;
     const window_options = options.window_options ?? {};
 
@@ -1935,6 +1945,11 @@ window.launch_app = async (options)=>{
         // add app_id to URL
         iframe_url.searchParams.append('puter.app.id', app_info.uuid);
 
+        // add parent_app_instance_id to URL
+        if (options.parent_instance_id) {
+            iframe_url.searchParams.append('puter.parent_instance_id', options.parent_instance_id);
+        }
+
         if(file_signature){
             iframe_url.searchParams.append('puter.item.uid', file_signature.uid);
             iframe_url.searchParams.append('puter.item.path', options.file_path ? `~/` + options.file_path.split('/').slice(1).join('/') : file_signature.path);
@@ -1955,23 +1970,20 @@ window.launch_app = async (options)=>{
             iframe_url.searchParams.append('puter.domain', window.app_domain);
         }
 
-        // Add auth_token to GODMODE apps
-        if(app_info.godmode && app_info.godmode === 1){
+        if (app_info.godmode && app_info.godmode === 1){
+            // Add auth_token to GODMODE apps
+
             iframe_url.searchParams.append('puter.auth.token', auth_token);
             iframe_url.searchParams.append('puter.auth.username', window.user.username);
             iframe_url.searchParams.append('puter.domain', window.app_domain);
-        }
-        // App token. Only add token if it's not a GODMODE app since GODMODE apps already have the super token
-        // that has access to everything.
-        else if(options.token){
+        } else if (options.token){
+            // App token. Only add token if it's not a GODMODE app since GODMODE apps already have the super token
+            // that has access to everything.
+
             iframe_url.searchParams.append('puter.auth.token', options.token);
-        }
+        } else {
+            // Try to acquire app token from the server
 
-        if(api_origin)
-            iframe_url.searchParams.append('puter.api_origin', api_origin);
-
-        // Try to acquire app token from the server
-        else{
             let response = await fetch(window.api_origin + "/auth/get-user-app-token", {
                 "headers": {
                     "Content-Type": "application/json",
@@ -1985,6 +1997,9 @@ window.launch_app = async (options)=>{
                 iframe_url.searchParams.append('puter.auth.token', res.token);
             }
         }
+
+        if(api_origin)
+            iframe_url.searchParams.append('puter.api_origin', api_origin);
 
         // Add options.params to URL
         if(options.params){

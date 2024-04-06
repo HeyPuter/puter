@@ -387,21 +387,9 @@ module.exports = class FSNodeContext {
      * @deprecated sharing will use user-to-user permissions
      */
     async fetchShares (force) {
-        if ( this.entry.permissions && ! force ) return;
-
-        const db = this.services.get('database').get(DB_READ, 'filesystem');
-
-        let shares = await db.read(
-            `SELECT share.id as share_id, user.* FROM share
-                INNER JOIN user ON share.recipient_user_id = user.id
-                WHERE share.fsentry_id = ?`,
-            [this.entry.id]
-        );
-        const shares_tidy = [];
-        for ( const share of shares ) {
-            shares_tidy.push({uid: share.share_id, username: share.username, email: share.email});
-        }
-        this.entry.permissions = shares_tidy;
+        // NOOP: this was for legacy sharing functionality;
+        // this is being re-implemented with permissions
+        return;
     }
 
     /**

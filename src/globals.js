@@ -130,6 +130,9 @@ window.launch_apps = [];
 window.launch_apps.recent = []
 window.launch_apps.recommended = []
 
+// Map of { child_instance_id -> { parent_instance_id, launch_msg_id } }
+window.child_launch_callbacks = {};
+
 // Is puter being loaded inside an iframe?
 if (window.location !== window.parent.location) {
     window.is_embedded = true;

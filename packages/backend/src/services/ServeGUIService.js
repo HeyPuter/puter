@@ -25,14 +25,14 @@ class ServeGUIService extends BaseService {
     async ['__on_install.routes-gui'] () {
         const { app } = this.services.get('web-server');
 
+        // is this a puter.site domain?
+        require('../routers/hosting/puter-site')(app);
+
         // Router for all other cases
         app.use(require('../routers/_default'))
 
         // Static files
         app.use(express.static(_path.join(__dirname, '../../public')))
-
-        // is this a puter.site domain?
-        require('../routers/hosting/puter-site')(app);
     }
 }
 

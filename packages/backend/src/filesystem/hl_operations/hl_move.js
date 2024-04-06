@@ -24,6 +24,7 @@ const { HLFilesystemOperation } = require("./definitions");
 const { MkTree } = require("./hl_mkdir");
 const { HLRemove } = require("./hl_remove");
 const { TYPE_DIRECTORY } = require("../FSNodeContext");
+const config = require("../../config");
 
 class HLMove extends HLFilesystemOperation {
     static MODULES = {
@@ -105,7 +106,7 @@ class HLMove extends HLFilesystemOperation {
                 dest_user = source_user;
             await source.fetchSize();
             const item_size = source.entry.size;
-            let capacity = (dest_user.free_storage === undefined || dest_user.free_storage === null) ? config.storage_capacity : dest_user.free_storage
+            let capacity = config.is_storage_limited ? (dest_user.free_storage === undefined || dest_user.free_storage === null) ? config.storage_capacity : dest_user.free_storage : config.available_device_storage;
             if(capacity - await df(dest_user.id) - item_size < 0){
                 throw APIError.create('storage_limit_reached');
             }

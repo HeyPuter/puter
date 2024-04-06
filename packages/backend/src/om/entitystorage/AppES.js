@@ -187,7 +187,10 @@ class AppES extends BaseES {
                 const subdomain = await entity.get('subdomain');
                 const user = Context.get('user');
                 let subdomain_res = await this.db.write(
-                    `INSERT IGNORE INTO subdomains
+                    `INSERT ${this.db.case({
+                        mysql: 'IGNORE',
+                        sqlite: 'OR IGNORE',
+                    })} INTO subdomains
                     (subdomain, user_id, root_dir_id,   uuid) VALUES
                     (        ?,       ?,           ?,      ?)`,
                     [

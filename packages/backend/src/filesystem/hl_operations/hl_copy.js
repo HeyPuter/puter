@@ -23,6 +23,7 @@ const { NodePathSelector, RootNodeSelector } = require("../node/selectors");
 const { HLFilesystemOperation } = require("./definitions");
 const { MkTree } = require("./hl_mkdir");
 const { HLRemove } = require("./hl_remove");
+const config = require("../../config");
 
 class HLCopy extends HLFilesystemOperation {
     static DESCRIPTION = `
@@ -141,7 +142,7 @@ class HLCopy extends HLFilesystemOperation {
             let deset_usage = await sizeService.get_usage(dest_user.id);
 
             const size = await source.fetchSize(values.user);
-            let capacity = (dest_user.free_storage === undefined || dest_user.free_storage === null) ? config.storage_capacity : dest_user.free_storage
+            let capacity = config.is_storage_limited ? (dest_user.free_storage === undefined || dest_user.free_storage === null) ? config.storage_capacity : dest_user.free_storage : config.available_device_storage
             if(capacity - deset_usage - size < 0){
                 throw APIError.create('storage_limit_reached');
             }
@@ -162,6 +163,7 @@ class HLCopy extends HLFilesystemOperation {
             throw APIError('cannot_copy_item_into_itself');
         }
 
+        let overwritten;
         if ( await dest.exists() ) {
             // condition: no overwrite behaviour specified
             if ( ! values.overwrite && ! values.dedupe_name ) {
@@ -188,12 +190,13 @@ class HLCopy extends HLFilesystemOperation {
                 dest = await parent.getChild(target_name);
             }
             else if ( values.overwrite ) {
-                if ( ! await chkperm(dest.entry, options.user.id, 'rm') ) {
+                if ( ! await chkperm(dest.entry, values.user.id, 'rm') ) {
                     throw APIError.create('forbidden');
                 }
 
                 // TODO: This will be LLRemove
                 // TODO: what to do with parent_operation?
+                overwritten = await dest.getSafeEntry();
                 const hl_remove = new HLRemove();
                 await hl_remove.run({
                     target: dest,
@@ -212,7 +215,10 @@ class HLCopy extends HLFilesystemOperation {
 
         await this.copied.awaitStableEntry();
         const response = await this.copied.getSafeEntry({ thumbnail: true });
-        return response;
+        return {
+            copied : response,
+            overwritten
+        };
     }
 }
 

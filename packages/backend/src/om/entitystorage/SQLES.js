@@ -94,7 +94,7 @@ class SQLES extends BaseES {
             }
 
             const values = [];
-            if ( predicate ) values.push(...predicate.values);
+            if ( predicate ) values.push(...(predicate.values || []));
 
             if ( this.debug ) {
                 this.log.info('-> SQL STMT', { stmt, values });
@@ -219,7 +219,7 @@ class SQLES extends BaseES {
             console.log('SQL STMT', stmt);
             console.log('SQL VALS', execute_vals);
 
-            const res = await db.write(
+            const res = await this.db.write(
                 stmt, execute_vals
             );
 
