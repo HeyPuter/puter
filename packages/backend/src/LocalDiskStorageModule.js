@@ -23,6 +23,9 @@ class LocalDiskStorageModule extends AdvancedBase {
         const services = context.get('services');
         const LocalDiskStorageService = require("./services/LocalDiskStorageService");
         services.registerService('local-disk-storage', LocalDiskStorageService);
+
+        const HostDiskUsageService = require('./services/HostDiskUsageService');
+        services.registerService('host-disk-usage', HostDiskUsageService);
     }
 }
 
