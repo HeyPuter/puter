@@ -25,6 +25,7 @@ import UIWindowChangeUsername from '../UIWindowChangeUsername.js'
 import changeLanguage from "../../i18n/i18nChangeLanguage.js"
 import UIWindowConfirmUserDeletion from './UIWindowConfirmUserDeletion.js';
 import UITabAbout from './UITabAbout.js';
+import UIWindowThemeDialog from '../UIWindowThemeDialog.js';
 
 async function UIWindowSettings(options){
     return new Promise(async (resolve) => {
@@ -39,6 +40,7 @@ async function UIWindowSettings(options){
                 h += `<div class="settings-sidebar-item disable-user-select active" data-settings="about" style="background-image: url(${icons['logo-outline.svg']});">${i18n('about')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="usage" style="background-image: url(${icons['speedometer-outline.svg']});">${i18n('usage')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="account" style="background-image: url(${icons['user.svg']});">${i18n('account')}</div>`;
+                h += `<div class="settings-sidebar-item disable-user-select" data-settings="personalization" style="background-image: url(${icons['palette-outline.svg']});">${i18n('personalization')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="language" style="background-image: url(${icons['language.svg']});">${i18n('language')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="clock" style="background-image: url(${icons['clock.svg']});">${i18n('clock')}</div>`;
             h += `</div>`;
@@ -109,6 +111,18 @@ async function UIWindowSettings(options){
                         h += `</div>`;
                     h += `</div>`;
 
+                h += `</div>`;
+
+                // Personalization
+                h += `<div class="settings-content" data-settings="personalization">`;
+                    h += `<h1>${i18n('personalization')}</h1>`;
+                    // change password button
+                    h += `<div class="settings-card">`;
+                        h += `<strong>${i18n('ui_colors')}</strong>`;
+                        h += `<div style="flex-grow:1;">`;
+                            h += `<button class="button change-ui-colors" style="float:right;">${i18n('change_ui_colors')}</button>`;
+                        h += `</div>`;
+                    h += `</div>`;
                 h += `</div>`;
 
                 // Language
@@ -304,6 +318,10 @@ async function UIWindowSettings(options){
 
         $(el_window).find('.change-username').on('click', function (e) {
             UIWindowChangeUsername();
+        })
+
+        $(el_window).find('.change-ui-colors').on('click', function (e) {
+            UIWindowThemeDialog();
         })
 
         $(el_window).on('click', '.settings-sidebar-item', function(){
