@@ -22,6 +22,8 @@ const config = require('../config.js');
 const router = new express.Router();
 const auth = require('../middleware/auth.js');
 
+// TODO: Why is this both a POST and a GET?
+
 // -----------------------------------------------------------------------// 
 // POST /df
 // -----------------------------------------------------------------------//
@@ -35,11 +37,13 @@ router.post('/df', auth, express.json(), async (req, response, next)=>{
         return response.status(400).send({code: 'account_is_not_verified', message: 'Account is not verified'});
     
     const {df} = require('../helpers');
+    const svc_hostDiskUsage = req.services.get('host-disk-usage', { optional: true });
     try{
         // auth
         response.send({
             used: parseInt(await df(req.user.id)),
             capacity: config.is_storage_limited ? (req.user.free_storage === undefined || req.user.free_storage === null) ? config.storage_capacity : req.user.free_storage : config.available_device_storage,
+            ...(svc_hostDiskUsage ? svc_hostDiskUsage.get_extra() : {}),
         });
     }catch(e){
         console.log(e)
@@ -60,11 +64,13 @@ router.get('/df', auth, express.json(), async (req, response, next)=>{
         return response.status(400).send({code: 'account_is_not_verified', message: 'Account is not verified'});
     
     const {df} = require('../helpers');
+    const svc_hostDiskUsage = req.services.get('host-disk-usage', { optional: true });
     try{
         // auth
         response.send({
             used: parseInt(await df(req.user.id)),
             capacity: config.is_storage_limited ? (req.user.free_storage === undefined || req.user.free_storage === null) ? config.storage_capacity : req.user.free_storage : config.available_device_storage,
+            ...(svc_hostDiskUsage ? svc_hostDiskUsage.get_extra() : {}),
         });
     }catch(e){
         console.log(e)
