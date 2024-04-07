@@ -23,10 +23,10 @@
 }
 
 :root {
-    --primary-hue: 231;
-    --primary-saturation: 50%;
-    --primary-lightness: 90%;
-    --primary-alpha: 0.7;
+    --primary-hue: 210;
+    --primary-saturation: 41.18%;
+    --primary-lightness: 93.33%;
+    --primary-alpha: 0.8;
 
     --window-head-hue: var(--primary-hue);
     --window-head-saturation: var(--primary-saturation);
@@ -36,12 +36,12 @@
     --window-sidebar-hue: var(--primary-hue);
     --window-sidebar-saturation: var(--primary-saturation);
     --window-sidebar-lightness: var(--primary-lightness);
-    --window-sidebar-alpha: var(--primary-alpha);
+    --window-sidebar-alpha: calc(min(1, 0.11 + var(--primary-alpha)));
 
     --taskbar-hue: var(--primary-hue);
     --taskbar-saturation: var(--primary-saturation);
     --taskbar-lightness: var(--primary-lightness);
-    --taskbar-alpha: var(--primary-alpha);
+    --taskbar-alpha: calc(0.73 * var(--primary-alpha));
 }
 
 html, body {
