@@ -22,6 +22,28 @@
     user-select: none;
 }
 
+:root {
+    --primary-hue: 231;
+    --primary-saturation: 100%;
+    --primary-lightness: 50%;
+    --primary-alpha: 0.7;
+
+    --window-head-hue: var(--primary-hue);
+    --window-head-saturation: var(--primary-saturation);
+    --window-head-lightness: var(--primary-lightness);
+    --window-head-alpha: var(--primary-alpha);
+
+    --window-sidebar-hue: var(--primary-hue);
+    --window-sidebar-saturation: var(--primary-saturation);
+    --window-sidebar-lightness: var(--primary-lightness);
+    --window-sidebar-alpha: var(--primary-alpha);
+
+    --taskbar-hue: var(--primary-hue);
+    --taskbar-saturation: var(--primary-saturation);
+    --taskbar-lightness: var(--primary-lightness);
+    --taskbar-alpha: var(--primary-alpha);
+}
+
 html, body {
     /* disables two fingers back/forward swipe */
     overscroll-behavior-x: none;
@@ -827,7 +849,12 @@ span.header-sort-icon img {
 .window-head {
     overflow: hidden !important;
     padding: 0;
-    background-color: rgba(231, 238, 245, .95);
+    background-color: hsla(
+        var(--window-head-hue),
+        var(--window-head-saturation),
+        var(--window-head-lightness),
+        calc(0.5 + 0.5 * var(--window-head-alpha))
+    );
     filter: grayscale(80%);
     box-shadow: inset 0px -4px 5px -7px rgb(0 0 0 / 64%);
     display: flex;
@@ -1025,7 +1052,12 @@ span.header-sort-icon img {
     border-right: 1px solid #CCC;
     padding: 15px 10px;
     box-sizing: border-box;
-    background-color: rgba(231, 238, 245, .95);
+    background-color: hsla(
+        var(--window-sidebar-hue),
+        var(--window-sidebar-saturation),
+        var(--window-sidebar-lightness),
+        calc(0.5 + 0.5*var(--window-sidebar-alpha))
+    );
     overflow-y: scroll;
     margin-top: 1px;
 }
@@ -2019,7 +2051,12 @@ label {
     bottom: 0;
     left: 0;
     width: 100%;
-    background-color: rgba(231, 238, 245, .9);
+    background-color: hsla(
+        var(--taskbar-hue),
+        var(--taskbar-saturation),
+        var(--taskbar-lightness),
+        calc(0.5 + 0.5*var(--taskbar-alpha))
+    );
     display: flex;
     justify-content: center;
     z-index: 99999;
@@ -2126,7 +2163,12 @@ label {
 
 @supports ((backdrop-filter: blur())) {
     .taskbar {
-        background-color: #ffffff94;
+        background-color: hsla(
+            var(--taskbar-hue),
+            var(--taskbar-saturation),
+            var(--taskbar-lightness),
+            var(--taskbar-alpha)
+        );
         backdrop-filter: blur(10px);
     }
 
@@ -2646,7 +2688,12 @@ label {
 
 @supports ((backdrop-filter: blur())) {
     .window-head {
-        background-color: rgba(231, 238, 245, .80);
+        background-color: hsla(
+            var(--window-head-hue),
+            var(--window-head-saturation),
+            var(--window-head-lightness),
+            var(--window-head-alpha)
+        );
         backdrop-filter: blur(10px);
     }
 
@@ -2656,7 +2703,13 @@ label {
     }
 
     .window-sidebar {
-        background-color: rgb(231 238 245 / 91%);
+        /* background-color: var(--puter-window-background); */
+        background-color: hsla(
+            var(--window-sidebar-hue),
+            var(--window-sidebar-saturation),
+            var(--window-sidebar-lightness),
+            var(--window-sidebar-alpha)
+        );
         backdrop-filter: blur(10px);
     }
 
