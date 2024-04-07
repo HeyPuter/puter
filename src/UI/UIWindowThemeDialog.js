@@ -84,7 +84,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
     };
 
     Slider({
-        label: i18n('coloration'),
+        label: i18n('hue'),
         name: 'hue', min: 0, max: 360,
         initial: svc_theme.get('hue'),
     })
