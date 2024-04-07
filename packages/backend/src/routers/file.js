@@ -21,6 +21,7 @@ const express = require('express');
 const router = new express.Router();
 const {validate_signature_auth, get_url_from_req, get_descendants, id2path, get_user, sign_file} = require('../helpers');
 const { DB_WRITE } = require('../services/database/consts');
+const { Context } = require('../util/context');
 
 // -----------------------------------------------------------------------//
 // GET /file
@@ -175,6 +176,7 @@ router.get('/file', async (req, res, next)=>{
         res.writeHead(206, headers);
 
         try{
+            const storage = Context.get('storage');
             let stream = await storage.create_read_stream(fsentry[0].uuid, {
                 bucket: fsentry[0].bucket,
                 bucket_region: fsentry[0].bucket_region,

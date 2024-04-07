@@ -21,8 +21,9 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth.js');
 const config = require('../config');
+const { DB_WRITE } = require('../services/database/consts.js');
 
-// -----------------------------------------------------------------------// 
+// -----------------------------------------------------------------------//
 // POST /delete-site
 // -----------------------------------------------------------------------//
 router.post('/delete-site', auth, express.json(), async (req, res, next)=>{
@@ -40,12 +41,12 @@ router.post('/delete-site', auth, express.json(), async (req, res, next)=>{
 
     // modules
     const {} = require('../helpers');
-    const db = require('../db/mysql.js')
+    const db = req.services.get('database').get(DB_WRITE, 'subdomains:legacy');
 
-    await db.promise().execute(
-        `DELETE FROM subdomains WHERE user_id = ? AND uuid = ?`, 
+    await db.write(
+        `DELETE FROM subdomains WHERE user_id = ? AND uuid = ?`,
         [req.user.id, req.body.site_uuid]
-    );  
+    );
     res.send({});
 })
 
