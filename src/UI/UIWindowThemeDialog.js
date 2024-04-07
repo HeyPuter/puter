@@ -48,7 +48,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
 
     const Button = ({ label }) => {
         const el = document.createElement('button');
-        el.textContent = label ?? i18n('reset');
+        el.textContent = label;
         el.classList.add('button', 'button-block');
         return {
             appendTo (parent) {
