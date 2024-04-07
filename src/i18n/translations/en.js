@@ -37,6 +37,7 @@ const en = {
         change_email: "Change Email",
         change_language: "Change Language",
         change_password: "Change Password",
+        change_ui_colors: "Change UI Colors",
         change_username: "Change Username",
         close_all_windows: "Close All Windows",
         close_all_windows_and_log_out: 'Close Windows and Log Out',
@@ -137,6 +138,7 @@ const en = {
         passwords_do_not_match: '`New Password` and `Confirm New Password` do not match.',
         paste: 'Paste',
         paste_into_folder: "Paste Into Folder",
+        personalization: "Personalization",
         pick_name_for_website: "Pick a name for your website:",
         picture: "Picture",
         plural_suffix: 's',
@@ -197,6 +199,7 @@ const en = {
         trash: 'Trash',
         type: 'Type',
         type_confirm_to_delete_account: "Type 'confirm' to delete your account.",
+        ui_colors: "UI Colors",
         undo: 'Undo',
         unlimited: 'Unlimited',
         unzip: "Unzip",
@@ -211,6 +214,7 @@ const en = {
         yes_release_it: 'Yes, Release It',
         you_have_been_referred_to_puter_by_a_friend: "You have been referred to Puter by a friend!",
         zip: "Zip",
+        storage_puter_used: "used by Puter",
     }
 };
 
