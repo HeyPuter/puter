@@ -167,6 +167,7 @@ const en = {
         replace: 'Replace',
         replace_all: 'Replace All',
         resend_confirmation_code: "Re-send Confirmation Code",
+        reset_colors: "Reset Colors",
         restore: "Restore",
         saturation: 'Saturation',
         save_account: 'Save account',

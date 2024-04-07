@@ -46,6 +46,22 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
     });
     const w_body = w.querySelector('.window-body');
 
+    const Button = ({ label }) => {
+        const el = document.createElement('button');
+        el.textContent = label ?? i18n('reset');
+        el.classList.add('button', 'button-block');
+        return {
+            appendTo (parent) {
+                parent.appendChild(el);
+                return this;
+            },
+            onPress (cb) {
+                el.addEventListener('click', cb);
+                return this;
+            },
+        };
+    }
+
     const Slider = ({ name, label, min, max, initial, step }) => {
         label = label ?? name;
         const wrap = document.createElement('div');
@@ -82,6 +98,13 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
         state[e.meta.name] = e.target.value;
         svc_theme.apply(state);
     };
+
+    Button({ label: i18n('reset_colors') })
+        .appendTo(w_body)
+        .onPress(() => {
+            svc_theme.reset();
+        })
+        ;
 
     Slider({
         label: i18n('hue'),

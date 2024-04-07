@@ -5,6 +5,13 @@ const PUTER_THEME_DATA_FILENAME = '~/.__puter_gui.json';
 
 const SAVE_COOLDOWN_TIME = 1000;
 
+const default_values = {
+    sat: 41.18,
+    hue: 210,
+    lig: 93.33,
+    alpha: 0.8,
+};
+
 export class ThemeService extends Service {
     async _init () {
         this.state = {
@@ -56,6 +63,12 @@ export class ThemeService extends Service {
             };
             this.reload_();
         }
+    }
+
+    reset () {
+        this.state = default_values;
+        this.reload_();
+        puter.fs.delete(PUTER_THEME_DATA_FILENAME);
     }
 
     apply (values) {
