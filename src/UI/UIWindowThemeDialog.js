@@ -5,7 +5,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
     const svc_theme = services.get('theme');
 
     const w = await UIWindow({
-        title: null,
+        title: i18n('ui_colors'),
         icon: null,
         uid: null,
         is_dir: false,
@@ -32,7 +32,15 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
         body_css: {
             width: 'initial',
             padding: '20px',
-            'background-color': 'rgba(231, 238, 245, .95)',
+            // 'background-color': `hsla(
+            //     var(--primary-hue),
+            //     calc(max(var(--primary-saturation) - 15%, 0%)),
+            //     calc(min(100%,var(--primary-lightness) + 20%)), .91)`,
+            'background-color': `hsla(
+                var(--primary-hue),
+                var(--primary-saturation),
+                var(--primary-lightness),
+                var(--primary-alpha))`,
             'backdrop-filter': 'blur(3px)',
         }
     });
@@ -41,6 +49,9 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
     const Slider = ({ name, label, min, max, initial, step }) => {
         label = label ?? name;
         const wrap = document.createElement('div');
+        const label_el = document.createElement('label');
+        label_el.textContent = label;
+        wrap.appendChild(label_el);
         const el = document.createElement('input');
         wrap.appendChild(el);
         el.type = 'range';
@@ -49,9 +60,6 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
         el.defaultValue = initial ?? min;
         el.step = step ?? 1;
         el.classList.add('theme-dialog-slider');
-        const label_el = document.createElement('label');
-        label_el.textContent = label;
-        wrap.appendChild(label_el);
 
         return {
             appendTo (parent) {
@@ -76,6 +84,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
     };
 
     Slider({
+        label: i18n('coloration'),
         name: 'hue', min: 0, max: 360,
         initial: svc_theme.get('hue'),
     })
@@ -83,6 +92,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
         .onChange(slider_ch)
         ;
     Slider({
+        label: i18n('saturation'),
         name: 'sat', min: 0, max: 100,
         initial: svc_theme.get('sat'),
     })
@@ -90,6 +100,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
         .onChange(slider_ch)
         ;
     Slider({
+        label: i18n('lightness'),
         name: 'lig', min: 0, max: 100,
         initial: svc_theme.get('lig'),
     })
@@ -97,6 +108,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
         .onChange(slider_ch)
         ;
     Slider({
+        label: i18n('transparency'),
         name: 'alpha', min: 0, max: 1, step: 0.01,
         initial: svc_theme.get('alpha'),
     })
