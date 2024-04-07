@@ -60,7 +60,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
             },
             onChange (cb) {
                 el.addEventListener('input', e => {
-                    e.meta = { label };
+                    e.meta = { name, label };
                     cb(e);
                 });
                 return this;
