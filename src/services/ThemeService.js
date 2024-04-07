@@ -8,10 +8,10 @@ const SAVE_COOLDOWN_TIME = 1000;
 export class ThemeService extends Service {
     async _init () {
         this.state = {
-            sat: 100,
-            hue: 200,
-            lig: 70,
-            alpha: 1,
+            sat: 41.18,
+            hue: 210,
+            lig: 93.33,
+            alpha: 0.8,
         };
         this.root = document.querySelector(':root');
         // this.ss = new CSSStyleSheet();
