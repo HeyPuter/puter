@@ -24,8 +24,8 @@
 
 :root {
     --primary-hue: 231;
-    --primary-saturation: 100%;
-    --primary-lightness: 50%;
+    --primary-saturation: 50%;
+    --primary-lightness: 90%;
     --primary-alpha: 0.7;
 
     --window-head-hue: var(--primary-hue);

@@ -54,10 +54,6 @@ const launch_services = async function () {
     for (const [_, instance] of services_l_) {
         await instance._init();
     }
-
-    setTimeout(() => {
-        UIWindowThemeDialog();
-    }, 1000);
 };
 
 window.initgui = async function(){
