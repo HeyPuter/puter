@@ -93,10 +93,18 @@ const early_init_errors = [
     }
 ];
 
+const newstuff = {
+    // Nullish coalescing operator
+    nco: (...a) => a.reduce((acc, val) => acc == undefined ? val : acc),
+    // Optional chaining
+    oc: (obj, ...keys) => keys.reduce((acc, key) => acc ? acc[key] : undefined, obj),
+    oc_call: (maybe_fn, ...args) => maybe_fn ? maybe_fn(...args) : undefined,
+};1
+
 const _print_error_help = (error_help) => {
     const lines = [];
-    lines.push(error_help.title ?? error_help.text);
-    for ( const note of (error_help.notes ?? []) ) {
+    lines.push(nco(error_help.title, error_help.text));
+    for ( const note of (nco(error_help.notes, [])) ) {
         lines.push(`📝 ${note}`)
     }
     if ( error_help.suggestions ) {
@@ -120,7 +128,7 @@ const _print_error_help = (error_help) => {
         await main();
     } catch (e) {
         for ( const error_help of early_init_errors ) {
-            if ( e?.message?.includes(error_help.text) ) {
+            if ( oc_call(oc(e, message, includes), error_help.text) ) {
                 _print_error_help(error_help);
                 break;
             }
