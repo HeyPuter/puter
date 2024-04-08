@@ -162,7 +162,30 @@ async function UIWindowLogin(options){
                     $(el_window).close();
                 },
                 error: function (err){
-                    $(el_window).find('.login-error-msg').html(err.responseText);
+                    const $errorMessage = $(el_window).find('.login-error-msg');
+                    if (err.status === 404) {
+                        // Don't include the whole 404 page
+                        $errorMessage.html(`Error 404: "${gui_origin}/login" not found`);
+                    } else if (err.responseText) {
+                        $errorMessage.html(err.responseText);
+                    } else {
+                        // No message was returned. *Probably* this means we couldn't reach the server.
+                        // If this is a self-hosted instance, it's probably a configuration issue.
+                        if (app_domain !== 'puter.com') {
+                            $errorMessage.html(`<div style="text-align: left;">
+                                <p>Error reaching "${gui_origin}/login". This is likely to be a configuration issue.</p>
+                                <p>Make sure of the following:</p>
+                                <ul style="padding-left: 2em;">
+                                    <li><code>domain</code> in config.json is set to the domain you're using to access puter</li>
+                                    <li>DNS resolves for the domain, and the <code>api.</code> subdomain on that domain</li>
+                                    <li><code>http_port</code> is set to the port Puter is listening on (<code>auto</code> will use <code>4100</code> unless that port is in use)</li>
+                                    <li><code>pub_port</code> is set to the external port (ex: <code>443</code> if you're using a reverse proxy that serves over https)</li>
+                                </ul>
+                            </div>`);
+                        } else {
+                            $errorMessage.html(`Failed to log in: Error ${err.status}`);
+                        }
+                    }
                     $(el_window).find('.login-error-msg').fadeIn();
                 }
             });	
