@@ -42,6 +42,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
                 var(--primary-lightness),
                 var(--primary-alpha))`,
             'backdrop-filter': 'blur(3px)',
+            'color ': `var(--primary-color)`
         }
     });
     const w_body = w.querySelector('.window-body');
@@ -76,6 +77,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
         el.defaultValue = initial ?? min;
         el.step = step ?? 1;
         el.classList.add('theme-dialog-slider');
+        
 
         return {
             appendTo (parent) {
@@ -96,7 +98,13 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
 
     const slider_ch = (e) => {
         state[e.meta.name] = e.target.value;
+        if (e.meta.name === 'lig' && e.target.value < 50) {
+            state.light_text = true;
+        } else {
+            state.light_text = false;      
+        }
         svc_theme.apply(state);
+        console.log(state);
     };
 
     Button({ label: i18n('reset_colors') })

@@ -27,21 +27,25 @@
     --primary-saturation: 41.18%;
     --primary-lightness: 93.33%;
     --primary-alpha: 0.8;
+    --primary-color: #373e44;
 
     --window-head-hue: var(--primary-hue);
     --window-head-saturation: var(--primary-saturation);
     --window-head-lightness: var(--primary-lightness);
     --window-head-alpha: var(--primary-alpha);
+    --window-head-color: var(--primary-color);
 
     --window-sidebar-hue: var(--primary-hue);
     --window-sidebar-saturation: var(--primary-saturation);
     --window-sidebar-lightness: var(--primary-lightness);
     --window-sidebar-alpha: calc(min(1, 0.11 + var(--primary-alpha)));
+    --window-sidebar-color: var(--primary-color);
 
     --taskbar-hue: var(--primary-hue);
     --taskbar-saturation: var(--primary-saturation);
     --taskbar-lightness: var(--primary-lightness);
     --taskbar-alpha: calc(0.73 * var(--primary-alpha));
+    --taskbar-color: var(--primary-color);
 }
 
 html, body {
