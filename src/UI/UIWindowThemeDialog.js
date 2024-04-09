@@ -42,7 +42,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
                 var(--primary-lightness),
                 var(--primary-alpha))`,
             'backdrop-filter': 'blur(3px)',
-            'color ': `var(--primary-color)`
+            
         }
     });
     const w_body = w.querySelector('.window-body');
@@ -68,6 +68,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
         const wrap = document.createElement('div');
         const label_el = document.createElement('label');
         label_el.textContent = label;
+        label_el.style = "color:var(--primary-color)";
         wrap.appendChild(label_el);
         const el = document.createElement('input');
         wrap.appendChild(el);

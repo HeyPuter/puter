@@ -130,7 +130,7 @@ export class ThemeService extends Service {
         puter.fs.write(PUTER_THEME_DATA_FILENAME, JSON.stringify(
             { colors: this.state },
             undefined,
-            4,
+            5,
         ));
     }
 }
