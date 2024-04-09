@@ -74,11 +74,15 @@ window.addEventListener('message', async (event) => {
         return;
     }
 
-    const iframe_for_app_instance = (instanceID) => {
-        return $(`.window[data-element_uuid="${instanceID}"]`).find('.window-app-iframe').get(0)
+    const window_for_app_instance = (instance_id) => {
+        return $(`.window[data-element_uuid="${instance_id}"]`).get(0);
     };
 
-    const $el_parent_window = $(`.window[data-element_uuid="${event.data.appInstanceID}"]`);
+    const iframe_for_app_instance = (instance_id) => {
+        return $(window_for_app_instance(instance_id)).find('.window-app-iframe').get(0);
+    };
+
+    const $el_parent_window = $(window_for_app_instance(event.data.appInstanceID));
     const parent_window_id = $el_parent_window.attr('data-id');
     const $el_parent_disable_mask = $el_parent_window.find('.window-disable-mask');
     const target_iframe = iframe_for_app_instance(event.data.appInstanceID);
@@ -354,7 +358,7 @@ window.addEventListener('message', async (event) => {
     // setWindowTitle
     //--------------------------------------------------------
     else if(event.data.msg === 'setWindowTitle' && event.data.new_title !== undefined){
-        const el_window = $(`.window[data-element_uuid="${event.data.appInstanceID}"]`).get(0);
+        const el_window = window_for_app_instance(event.data.appInstanceID);
         // set window title
         $(el_window).find(`.window-head-title`).html(html_encode(event.data.new_title));
         // send confirmation to requester window
@@ -1101,6 +1105,6 @@ window.addEventListener('message', async (event) => {
     // exit
     //--------------------------------------------------------
     else if(event.data.msg === 'exit'){
-        $(`.window[data-element_uuid="${event.data.appInstanceID}"]`).close({bypass_iframe_messaging: true});
+        $(window_for_app_instance(event.data.appInstanceID)).close({bypass_iframe_messaging: true});
     }
 });
