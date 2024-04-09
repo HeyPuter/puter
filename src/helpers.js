@@ -1853,6 +1853,10 @@ window.launch_app = async (options)=>{
     let icon, title, file_signature;
     const window_options = options.window_options ?? {};
 
+    if (options.parent_instance_id) {
+        window_options.parent_instance_id = options.parent_instance_id;
+    }
+
     // try to get 3rd-party app info
     let app_info = options.app_obj ?? await get_apps(options.name);
 
