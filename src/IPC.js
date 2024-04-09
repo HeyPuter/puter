@@ -1100,6 +1100,43 @@ window.addEventListener('message', async (event) => {
             contents,
         }, targetAppOrigin);
     }
+    //--------------------------------------------------------
+    // closeApp
+    //--------------------------------------------------------
+    else if (event.data.msg === 'closeApp') {
+        const { appInstanceID, targetAppInstanceID } = event.data;
+
+        const target_window = window_for_app_instance(targetAppInstanceID);
+        if (!target_window) {
+            console.warn(`Failed to close non-existent app ${targetAppInstanceID}`);
+            return;
+        }
+
+        // Check permissions
+        const allowed = (() => {
+            // Parents can close their children
+            if (target_window.dataset['parent_instance_id']) {
+                console.log(`⚠️ Allowing app ${appInstanceID} to close child app ${targetAppInstanceID}`);
+                return true;
+            }
+
+            // God-mode apps can close anything
+            const app_info = await get_apps(app_name);
+            if (app_info.godmode === 1) {
+                console.log(`⚠️ Allowing GODMODE app ${appInstanceID} to close app ${targetAppInstanceID}`);
+                return true;
+            }
+
+            // TODO: What other situations should we allow?
+            return false;
+        })();
+
+        if (allowed) {
+            $(target_window).close();
+        } else {
+            console.warn(`⚠️ App ${appInstanceID} is not permitted to close app ${targetAppInstanceID}`);
+        }
+    }
 
     //--------------------------------------------------------
     // exit
