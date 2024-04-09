@@ -99,10 +99,8 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
 
     const slider_ch = (e) => {
         state[e.meta.name] = e.target.value;
-        if (e.meta.name === 'lig' && e.target.value < 50) {
-            state.light_text = true;
-        } else {
-            state.light_text = false;      
+        if (e.meta.name === 'lig') {
+            state.light_text = e.target.value < 70 ? true : false;
         }
         svc_theme.apply(state);
         console.log(state);

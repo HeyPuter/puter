@@ -895,7 +895,6 @@ span.header-sort-icon img {
     white-space: nowrap;
     overflow: hidden;
     color: var(--window-head-color);
-    opacity: .8;
 }
 
 .window-active .window-head-title {
