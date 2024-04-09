@@ -36,6 +36,7 @@ import PuterDialog from './UI/PuterDialog.js';
 import determine_active_container_parent from './helpers/determine_active_container_parent.js';
 import { ThemeService } from './services/ThemeService.js';
 import UIWindowThemeDialog from './UI/UIWindowThemeDialog.js';
+import { BroadcastService } from './services/BroadcastService.js';
 
 const launch_services = async function () {
     const services_l_ = [];
@@ -49,6 +50,7 @@ const launch_services = async function () {
         services_m_[name] = instance;
     }
 
+    register('broadcast', new BroadcastService());
     register('theme', new ThemeService());
 
     for (const [_, instance] of services_l_) {
