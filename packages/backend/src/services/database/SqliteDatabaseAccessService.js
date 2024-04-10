@@ -41,6 +41,9 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
         this.db = new Database(this.config.path);
 
+        // Database upgrade logic
+        const TARGET_VERSION = 1;
+
         if ( do_setup ) {
             this.log.noticeme(`SETUP: creating database at ${this.config.path}`);
             const sql_files = [
@@ -55,10 +58,8 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 const contents = fs.readFileSync(filename, 'utf8');
                 this.db.exec(contents);
             }
+            await this.db.exec(`PRAGMA user_version = ${TARGET_VERSION};`);
         }
-
-        // Database upgrade logic
-        const TARGET_VERSION = 1;
 
         const [{ user_version }] = await this._read('PRAGMA user_version');
         this.log.info('database version: ' + user_version);
