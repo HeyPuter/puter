@@ -722,7 +722,14 @@ window.mutate_user_preferences = function(user_preferences_delta) {
 window.update_user_preferences = function(user_preferences) {
     window.user_preferences = user_preferences;
     localStorage.setItem('user_preferences', JSON.stringify(user_preferences));
-    window.locale = user_preferences.language ?? 'en';
+    const language = user_preferences.language ?? 'en';
+    window.locale = language;
+
+    // Broadcast locale change to apps
+    const broadcastService = globalThis.services.get('broadcast');
+    broadcastService.sendBroadcast('localeChanged', {
+        language: language,
+    }, { sendToNewAppInstances: true });
 }
 
 window.sendWindowWillCloseMsg = function(iframe_element) {

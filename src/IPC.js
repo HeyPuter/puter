@@ -105,6 +105,9 @@ window.addEventListener('message', async (event) => {
             }, '*');
             delete window.child_launch_callbacks[event.data.appInstanceID];
         }
+
+        // Send any saved broadcasts to the new app
+        globalThis.services.get('broadcast').sendSavedBroadcastsTo(event.data.appInstanceID);
     }
     //-------------------------------------------------
     // windowFocused
