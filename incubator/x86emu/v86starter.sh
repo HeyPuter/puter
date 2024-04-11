@@ -36,5 +36,5 @@ cp -r "$ROOT_DIR/vm/v86/static/debian-9p-rootfs-flat/" "$ROOT_DIR/www/images/9p-
 
 # Start a HTTP server
 cd "$ROOT_DIR/www/" || exit
-echo "Opening a server on port 8080"
-python3 -m http.server 8080
+echo "Opening a server on localhost with port 8080"
+python3 -m http.server -b 127.0.0.1 8080
