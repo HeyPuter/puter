@@ -18,7 +18,7 @@ class InstanceManager {
 	 */
 	constructor(options) {
 		const defaultOptions = {
-			term: true,
+			term: false,
 			screen: false,
 			instanceName: "Host",
 			memory: 1024,
@@ -32,15 +32,18 @@ class InstanceManager {
 		this.instanceNames = [];
 		this.curr_inst = 0;
 		this.instanceNames.push(instanceOptions.instanceName);
-		this.instances[instanceOptions.instanceName] = this.initInstance(instanceOptions);
+		this.instances[instanceOptions.instanceName] = new Instance(instanceOptions);
 	}
 	/**
-	 * Initialize an instance with given options.
+	 * Create an instance with given options and adds it to the pool of instances.
 	 * @param {Object} options - Options for configuring the instance.
 	 * @returns {Promise<Object>} - Resolves with the initialized instance.
 	 */
-	initInstance(options) {
-		return new Instance(options);
+	async createInstance(options) {
+		const instance = new Instance(options);
+		this.instanceNames.push(instance.instanceName);
+		this.instances[instance.instanceName] = instance;
+		return instance;
 	}
 	/**
 	 * Continue running a suspended instance.

@@ -14,19 +14,19 @@ import('./js/InstanceManager.mjs').then(module => {
 	manager.getInstanceByinstName("Host").then(result => {
 		const hostvm = result.vm;
 
-		hostvm.add_listener("emulator-started", function() {
+		hostvm.add_listener("emulator-started", () => {
 			process.stdout.write("Welcome to psl!");
+			hostvm.serial0_send("\n");
 		});
 
-		hostvm.add_listener("serial0-output-byte", function(byte) {
+		hostvm.add_listener("serial0-output-byte", (byte) => {
 			var chr = String.fromCharCode(byte);
 			if (chr <= "~") {
 				process.stdout.write(chr);
 			}
 		});
 
-		process.stdin.on("data", function(c) {
-			// ctrl d
+		process.stdin.on("data", (c) => {
 			if (c === "\u0004") {
 				hostvm.stop();
 				process.stdin.pause();
@@ -36,7 +36,7 @@ import('./js/InstanceManager.mjs').then(module => {
 			}
 		});
 	}).catch(error => {
-		console.log(error);
+		console.error(error);
 		throw Error("Error in getting host inastance, quitting");
 	});
 }).catch(error => {

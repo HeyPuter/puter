@@ -1,4 +1,4 @@
-import * as libv86 from '../third-party/libv86.js';
+import { V86 } from "./V86Wrapper.mjs";
 /**
  * Class representing an Instance of an emulator machine.
  */
@@ -17,7 +17,7 @@ class Instance {
 	 */
 	constructor(options) {
 		const defaultOptions = {
-			term: true,
+			term: false,
 			screen: false,
 			memory: 1024,
 			spawnRoot: undefined,
@@ -29,7 +29,7 @@ class Instance {
 		const instanceOptions = { ...defaultOptions, ...options };
 
 		if (!instanceOptions.remote.endsWith('/'))
-			throw new Error("Remote URL must end with a slash");
+			throw new Error("Instance ctor: Remote URL must end with a slash");
 		if (typeof self !== 'undefined' && self.crypto) {
 			this.instanceID = self.crypto.randomUUID();
 		} else {
@@ -48,8 +48,10 @@ class Instance {
 		if (!(instanceOptions.wsUrl === ""))
 			v86Options.network_relay_url = instanceOptions.wsUrl;
 		if (!((Math.log(v86Options.memory_size) / Math.log(2)) % 1 === 0))
-			throw new Error("Amount of memory provided isn't a power of two");
+			throw new Error("Instance ctor: Amount of memory provided isn't a power of two");
 		if (instanceOptions.screen === true) {
+			if (instanceOptions.spawnRoot === undefined)
+				throw new Error("Instance ctor: spawnRoot is undefined, cannot continue")
 			instanceOptions.spawnRoot.appendChild((() => {
 				const div = document.createElement("div");
 				div.setAttribute("id", instanceOptions.instanceName + '-screen');
@@ -66,7 +68,36 @@ class Instance {
 			})());
 			v86Options.screen_container = document.getElementById(instanceOptions.instanceName + '-screen');
 		}
-		this.vm = new libv86.V86(v86Options);
+		this.vm = new V86(v86Options);
+		if (instanceOptions.term === true) {
+			if (instanceOptions.spawnRoot === undefined)
+				throw new Error("Instance ctor: spawnRoot is undefined, cannot continue")
+			var term = new Terminal({
+				allowTransparency: true,
+			});
+			instanceOptions.spawnRoot.appendChild((() => {
+				const div = document.createElement("div");
+				div.setAttribute("id", instanceOptions.instanceName + '-terminal');
+				return div;
+			})());
+			term.open(document.getElementById(instanceOptions.instanceName + '-terminal'));
+			term.write("Now booting emu, please stand by ...");
+			this.vm.add_listener("emulator-started", () => {
+				// emulator.serial0_send("\nsh networking.sh > /dev/null 2>&1 &\n\n");
+				// emulator.serial0_send("clear\n");
+				term.write("Welcome to psl!");
+				this.vm.serial0_send("\n");
+			});
+			this.vm.add_listener("serial0-output-byte", (byte) => {
+				var chr = String.fromCharCode(byte);
+				if (chr <= "~") {
+					term.write(chr);
+				}
+			});
+			term.onData(data => {
+				this.vm.serial0_send(data);
+			});
+		}
 	}
 }
 
