@@ -174,6 +174,44 @@ class AuthService extends BaseService {
 
     async create_session_ (user, meta = {}) {
         this.log.info(`CREATING SESSION`);
+
+        if ( meta.req ) {
+            const req = meta.req;
+            delete meta.req;
+
+            const ip = this.global_config.fowarded
+                ? req.headers['x-forwarded-for'] ||
+                    req.connection.remoteAddress
+                : req.connection.remoteAddress
+                ;
+        
+            meta.ip = ip;
+
+            meta.server = this.global_config.server_id;
+
+            if ( req.headers['user-agent'] ) {
+                meta.user_agent = req.headers['user-agent'];
+            }
+
+            if ( req.headers['referer'] ) {
+                meta.referer = req.headers['referer'];
+            }
+
+            if ( req.headers['origin'] ) {
+                const origin = this._origin_from_url(req.headers['origin']);
+                if ( origin ) {
+                    meta.origin = origin;
+                }
+            }
+
+            if ( req.headers['host'] ) {
+                const host = this._origin_from_url(req.headers['host']);
+                if ( host ) {
+                    meta.host = host;
+                }
+            }
+        }
+
         const uuid = this.modules.uuidv4();
         await this.db.write(
             'INSERT INTO `sessions` ' +
@@ -197,6 +235,8 @@ class AuthService extends BaseService {
             [uuid],
         );
 
+        session.meta = JSON.parse(session.meta ?? {});
+
         return session;
     }
 
@@ -214,7 +254,7 @@ class AuthService extends BaseService {
         return token;
     }
 
-    async check_session (cur_token) {
+    async check_session (cur_token, meta) {
         const decoded = this.modules.jwt.verify(
             cur_token, this.global_config.jwt_secret
         );
@@ -245,7 +285,7 @@ class AuthService extends BaseService {
 
         // Upgrade legacy token
         // TODO: phase this out
-        const { token } = await this.create_session_token(user);
+        const { token } = await this.create_session_token(user, meta);
         return { user, token };
     }
 
@@ -318,6 +358,7 @@ class AuthService extends BaseService {
             if ( session.uuid === actor.type.session ) {
                 session.current = true;
             }
+            session.meta = JSON.parse(session.meta ?? {});
         });
 
         return sessions;

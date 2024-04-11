@@ -26,6 +26,7 @@ import changeLanguage from "../../i18n/i18nChangeLanguage.js"
 import UIWindowConfirmUserDeletion from './UIWindowConfirmUserDeletion.js';
 import UITabAbout from './UITabAbout.js';
 import UIWindowThemeDialog from '../UIWindowThemeDialog.js';
+import UIWindowManageSessions from '../UIWindowManageSessions.js';
 
 async function UIWindowSettings(options){
     return new Promise(async (resolve) => {
@@ -108,6 +109,14 @@ async function UIWindowSettings(options){
                         h += `<strong style="display: inline-block;">${i18n("delete_account")}</strong>`;
                         h += `<div style="flex-grow:1;">`;
                             h += `<button class="button button-danger delete-account" style="float:right;">${i18n("delete_account")}</button>`;
+                        h += `</div>`;
+                    h += `</div>`;
+
+                    // session manager
+                    h += `<div class="settings-card">`;
+                        h += `<strong>${i18n('sessions')}</strong>`;
+                        h += `<div style="flex-grow:1;">`;
+                            h += `<button class="button manage-sessions" style="float:right;">${i18n('manage_sessions')}</button>`;
                         h += `</div>`;
                     h += `</div>`;
 
@@ -322,6 +331,10 @@ async function UIWindowSettings(options){
 
         $(el_window).find('.change-ui-colors').on('click', function (e) {
             UIWindowThemeDialog();
+        })
+
+        $(el_window).find('.manage-sessions').on('click', function (e) {
+            UIWindowManageSessions();
         })
 
         $(el_window).on('click', '.settings-sidebar-item', function(){

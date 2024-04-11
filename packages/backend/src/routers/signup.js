@@ -247,7 +247,9 @@ module.exports = eggspress(['/signup'], {
     );
 
     // create token for login
-    const token = await svc_auth.create_session_token(user);
+    const token = await svc_auth.create_session_token(user, {
+        req,
+    });
         // jwt.sign({uuid: user_uuid}, config.jwt_secret);
 
     //-------------------------------------------------------------

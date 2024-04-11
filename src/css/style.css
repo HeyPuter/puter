@@ -3703,3 +3703,61 @@ label {
   background: #04AA6D;
   cursor: pointer;
 }
+
+.session-manager-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+    box-sizing: border-box;
+    height: 100% !important;
+}
+
+.session-widget {
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    gap: 4px;
+}
+
+.session-widget-uuid {
+    font-size: 12px;
+    font-weight: 600;
+    color: #9c185b;
+}
+
+.session-widget-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 100px;
+    overflow-y: scroll;
+}
+
+.session-widget-meta-entry {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+
+.session-widget-meta-key {
+    font-size: 12px;
+    color: #666;
+    flex-basis: 40%;
+    flex-shrink: 0;
+}
+
+.session-widget-meta-value {
+    font-size: 12px;
+    color: #666;
+    flex-grow: 1;
+}
+
+.session-widget-actions {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+    justify-content: flex-end;
+}
