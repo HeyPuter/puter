@@ -2,19 +2,21 @@
 
 ROOT_DIR="$(pwd)"
 
-mkdir -p "$ROOT_DIR/vm"
+# This has to be something, that isn't wrapped by a repo with a package.json
+VM_DIR="/tmp/vm"
+
+mkdir -p "$VM_DIR"
 cd "$ROOT_DIR/make_container" || exit
 docker build . -t v86builder
 docker run --name v86build v86builder
-mkdir -p "$ROOT_DIR/vm/v86"
-docker cp v86build:/app/v86 "$ROOT_DIR/vm/"
+docker cp v86build:/app/v86 "$VM_DIR"
 docker rm v86build
 
 # Overwrite v86'd debian Dockerfile with our own
-cat "$ROOT_DIR/imagegen/Dockerfile" > "$ROOT_DIR/vm/v86/tools/docker/debian/Dockerfile"
+cat "$ROOT_DIR/imagegen/Dockerfile" > "$VM_DIR/v86/tools/docker/debian/Dockerfile"
 
 # Navigate to the Dockerfile directory
-cd "$ROOT_DIR/vm/v86/tools/docker/debian" || exit
+cd "$VM_DIR/v86/tools/docker/debian" || exit
 
 # Build the container which will be used to serve v86
 chmod +x build-container.sh
@@ -29,10 +31,10 @@ mkdir -p "$ROOT_DIR/www/third-party"
 mkdir -p "$ROOT_DIR/www/static"
 
 # Copy necessary files to deployment directory
-cp "$ROOT_DIR/vm/v86/build/libv86.js" "$ROOT_DIR/www/third-party/libv86.js"
-cp "$ROOT_DIR/vm/v86/build/v86.wasm" "$ROOT_DIR/www/third-party/v86.wasm"
-cp "$ROOT_DIR/vm/v86/static/debian-state-base.bin" "$ROOT_DIR/www/images/image.bin"
-cp -r "$ROOT_DIR/vm/v86/static/debian-9p-rootfs-flat/" "$ROOT_DIR/www/images/9p-rootfs/"
+cp "$VM_DIR/v86/build/libv86.js" "$ROOT_DIR/www/third-party/libv86.js"
+cp "$VM_DIR/v86/build/v86.wasm" "$ROOT_DIR/www/third-party/v86.wasm"
+cp "$VM_DIR/v86/images/debian-state-base.bin" "$ROOT_DIR/www/static/image.bin"
+cp -r "$VM_DIR/v86/images/debian-9p-rootfs-flat/" "$ROOT_DIR/www/static/9p-rootfs/"
 
 # Start a HTTP server
 cd "$ROOT_DIR/www/" || exit
