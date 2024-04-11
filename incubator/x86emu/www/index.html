@@ -10,87 +10,11 @@
 		import InstanceManager from "./js/InstanceManager.mjs"
 
 		document.addEventListener("DOMContentLoaded", () => {
-			window.manager = new InstanceManager({spawnRoot: document.body, screen: true});
+			window.manager = new InstanceManager({spawnRoot: document.body, term: true});
+			window.manager.createInstance({spawnRoot: document.body, term: true})
 		});
-
-		// var term = new Terminal({
-		// 	allowTransparency: true,
-		// });
-		// term.open(document.getElementById('terminal'));
-		// term.write("Now booting emu, please stand by ...");
-		// var emulator = new V86({
-		// 	// network_relay_url: "ws://localhost:8080/",
-		// 	wasm_path: "./lib/v86.wasm",
-		// 	preserve_mac_from_state_image: true,
-		// 	memory_size: 1024 * 1024 * 1024,
-		// 	vga_memory_size: 8 * 1024 * 1024,
-		// 	initial_state: {url: "./images/image.bin"},
-		// 	filesystem: {baseurl: "./images/9p-rootfs/"},
-		// 	autostart: true,
-		// });
-
-		// emulator.add_listener("emulator-started", function () {
-		// 	// emulator.serial0_send("\nsh networking.sh > /dev/null 2>&1 &\n\n");
-		// 	// emulator.serial0_send("clear\n");
-		// 	term.write("Welcome to psl!");
-		// 	emulator.serial0_send("\n");
-		// });
-
-		// emulator.add_listener("serial0-output-byte", function (byte) {
-		// 	var chr = String.fromCharCode(byte);
-		// 	if (chr <= "~") {
-		// 		term.write(chr);
-		// 	}
-		// });
-
-		// term.onData(data => {
-		// 	emulator.serial0_send(data);
-		// });
-		// var termt = new Terminal({
-		// 	allowTransparency: true,
-		// });
-		// termt.open(document.getElementById('second_terminal'));
-		// termt.write("Now booting, please stand by ...");
-		// var emulatort = new V86({
-		// 	// network_relay_url: "ws://localhost:8080/",
-		// 	wasm_path: "./lib/v86.wasm",
-		// 	preserve_mac_from_state_image: true,
-		// 	memory_size: 512 * 1024 * 1024,
-		// 	vga_memory_size: 8 * 1024 * 1024,
-		// 	initial_state: {url: "./images/image.bin"},
-		// 	filesystem: {baseurl: "./images/9p-rootfs/"},
-		// 	autostart: true,
-		// });
-
-		// emulatort.add_listener("emulator-started", function () {
-		// 	// emulatort.serial0_send("\nsh networking.sh > /dev/null 2>&1 &\n\n");
-		// 	// emulatort.serial0_send("clear\n");
-		// 	termt.write("Welcome to psl!");
-		// 	emulatort.serial0_send("\n");
-		// });
-
-		// emulatort.add_listener("serial0-output-byte", function (byte) {
-		// 	var chr = String.fromCharCode(byte);
-		// 	if (chr <= "~") {
-		// 		termt.write(chr);
-		// 	}
-		// });
-
-		// termt.onData(data => {
-		// 	emulatort.serial0_send(data);
-		// });
-		// emulator.add_listener("net0-send", function (data) {
-		// 	emulatort.bus.send("net0-receive", data);
-		// });
-		// emulatort.add_listener("net0-send", function (data) {
-		// 	emulator.bus.send("net0-receive", data);
-		// });
 	</script>
 </head>
-
 <body>
-	<div id="terminal"></div>
-	<div id="second_terminal"></div>
 </body>
-
 </html>
