@@ -9,6 +9,30 @@ class SelfhostedModule extends AdvancedBase {
 
         const ComplainAboutVersionsService = require('./services/ComplainAboutVersionsService');
         services.registerService('complain-about-versions', ComplainAboutVersionsService);
+
+        const DevWatcherService = require('./services/DevWatcherService');
+        const path_ = require('path');
+        services.registerService('__dev-watcher', DevWatcherService, {
+            root: path_.resolve(__dirname, '../../../'),
+            commands: [
+                {
+                    name: 'puter.js:webpack-watch',
+                    directory: 'packages/puter-dot-js',
+                    command: 'npm',
+                    args: ['run', 'start-webpack'],
+                },
+            ],
+        });
+
+        const ServeStaticFilesService = require("./services/ServceStaticFilesService");
+        services.registerService('__serve-puterjs', ServeStaticFilesService, {
+            directories: [
+                {
+                    prefix: '/sdk',
+                    path: path_.resolve(__dirname, '../../../packages/puter-dot-js/dist'),
+                },
+            ],
+        });
     }
 }
 
