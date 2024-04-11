@@ -1,11 +1,12 @@
+const APIError = require("../../api/APIError");
 const eggspress = require("../../api/eggspress");
 const { UserActorType } = require("../../services/auth/Actor");
 const { Context } = require("../../util/context");
 
-module.exports = eggspress('/auth/list-sessions', {
+module.exports = eggspress('/auth/revoke-session', {
     subdomain: 'api',
     auth2: true,
-    allowedMethods: ['GET'],
+    allowedMethods: ['POST'],
 }, async (req, res, next) => {
     const x = Context.get();
     const svc_auth = x.get('services').get('auth');
@@ -17,7 +18,16 @@ module.exports = eggspress('/auth/list-sessions', {
         throw APIError.create('forbidden');
     }
 
-    const sessions = await svc_auth.list_sessions(actor);
+    // Ensure valid UUID
+    if ( ! req.body.uuid || typeof req.body.uuid !== 'string' ) {
+        throw APIError.create('field_invalid', null, {
+            key: 'uuid',
+            expected: 'string'
+        });
+    }
 
-    res.json(sessions);
+    const sessions = await svc_auth.revoke_session(
+        actor, req.body.uuid);
+
+    res.json({ sessions });
 });

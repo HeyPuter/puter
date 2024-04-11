@@ -89,7 +89,8 @@ router.post('/login', express.json(), body_parser_error_handler, async (req, res
             return res.status(400).send('Incorrect password.')
         // check password
         if(await bcrypt.compare(req.body.password, user.password)){
-            const token = await jwt.sign({uuid: user.uuid}, config.jwt_secret)
+            const svc_auth = req.services.get('auth');
+            const token = await svc_auth.create_session_token(user);
             //set cookie
             // res.cookie(config.cookie_name, token);
             res.cookie(config.cookie_name, token, {
