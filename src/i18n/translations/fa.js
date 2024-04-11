@@ -147,6 +147,7 @@ const fa = {
         size: 'اندازه',
         sort_by: 'مرتب سازی بر اساس',
         start: 'شروع',
+        storage_puter_used: 'استفاده شده توسط Puter',
         taking_longer_than_usual: 'کمی بیشتر از معمول طول می کشد. لطفا صبر کنید...',
         text_document: 'سند متنی',
         tos_fineprint: `با کلیک بر روی 'ایجاد حساب کاربری رایگان' شما با {{link=terms}}شرایط خدمات{{/link}} و {{link=privacy}}سیاست حفظ حریم خصوصی{{/link}} Puter موافقت می کنید.`,

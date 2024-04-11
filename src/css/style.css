@@ -3531,6 +3531,7 @@ label {
 }
 
 #storage-bar {
+    float: left;
     height: 15px;
     background-color: #dbe3ef;
     border-top-left-radius: 3px;
@@ -3538,12 +3539,20 @@ label {
     width: 0;
 }
 
+#storage-bar-host {
+    float: left;
+    height: 15px;
+    background-color: #dbe3ef9c;
+    border-top-left-radius: 3px;
+    border-bottom-left-radius: 3px;
+    width: 0;
+}
+
 #storage-used-percent {
     position: absolute;
-    left: calc(50% - 20px);
     text-align: center;
     display: inline-block;
-    width: 40px;
+    width: 100%;
     font-size: 13px;
 }
 

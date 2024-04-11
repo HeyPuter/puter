@@ -196,6 +196,7 @@ const en = {
         start: 'Start',
         status: "Status",
         storage_usage: "Storage Usage",
+        storage_puter_used: 'used by Puter',
         taking_longer_than_usual: 'Taking a little longer than usual. Please wait...',
         terms: "Terms",
         text_document: 'Text document',
