@@ -60,27 +60,19 @@ class PuterVersionService extends AdvancedBase {
     }
 
     get_version () {
-        let git_version;
         let deploy_timestamp;
         if ( this.config.env === 'dev' ) {
-            // get commit hash from git
-            git_version = this.modules._exec('git describe --tags', {
-                cwd: this.modules._path.join(__dirname, '../../'),
-                encoding: 'utf8',
-            }).trim();
             deploy_timestamp = Date.now();
         } else {
-            // get git version from file
-            const path = this.modules._path.join(__dirname, '../../git_version');
-
-            git_version = this.modules.fs.readFileSync(path, 'utf8').trim();
             deploy_timestamp = Number.parseInt((this.modules.fs.readFileSync(
                 this.modules._path.join(__dirname, '../../deploy_timestamp'),
                 'utf8'
             )).trim());
         }
+        const version = process.env.npm_package_version ||
+            require('../../package.json').version;
         return {
-            version: git_version,
+            version,
             environment: this.config.env,
             location: this.config.server_id,
             deploy_timestamp,
