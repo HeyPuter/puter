@@ -3,7 +3,7 @@
 ROOT_DIR="$(pwd)"
 
 mkdir -p "$ROOT_DIR/vm"
-cd "$ROOT_DIR/vm" || exit
+cd "$ROOT_DIR/make_container" || exit
 docker build . -t v86builder
 docker run --name v86build v86builder
 mkdir -p "$ROOT_DIR/vm/v86"
