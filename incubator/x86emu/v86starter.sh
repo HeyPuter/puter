@@ -5,36 +5,58 @@ ROOT_DIR="$(pwd)"
 # This has to be something, that isn't wrapped by a repo with a package.json
 VM_DIR="/tmp/vm"
 
-mkdir -p "$VM_DIR"
-cd "$ROOT_DIR/make_container" || exit
-docker build . -t v86builder
-docker run --name v86build v86builder
-docker cp v86build:/app/v86 "$VM_DIR"
-docker rm v86build
+# Goes from 1 to 22
+ZSTD_LEVEL=22
 
-# Overwrite v86'd debian Dockerfile with our own
-cat "$ROOT_DIR/imagegen/Dockerfile" > "$VM_DIR/v86/tools/docker/debian/Dockerfile"
+build()
+{
+	mkdir -p "$VM_DIR"
+	rm -rf "$VM_DIR/v86"
+	cd "$ROOT_DIR/make_container" || exit
+	docker build . -t v86builder
+	docker run --name v86build v86builder
+	docker cp v86build:/app/v86 "$VM_DIR"
+	docker rm v86build
 
-# Navigate to the Dockerfile directory
-cd "$VM_DIR/v86/tools/docker/debian" || exit
+	# Overwrite v86'd debian Dockerfile with our own
+	cat "$ROOT_DIR/imagegen/Dockerfile" > "$VM_DIR/v86/tools/docker/debian/Dockerfile"
 
-# Build the container which will be used to serve v86
-chmod +x build-container.sh
-./build-container.sh
+	# Navigate to the Dockerfile directory
+	cd "$VM_DIR/v86/tools/docker/debian" || exit
 
-# Build the state of the VM
-chmod +x build-state.js
-./build-state.js
+	# Build the container which will be used to serve v86
+	chmod +x build-container.sh
+	./build-container.sh
 
-# Make project directories
-mkdir -p "$ROOT_DIR/www/third-party"
-mkdir -p "$ROOT_DIR/www/static"
+	# Build the state of the VM
+	chmod +x build-state.js
+	./build-state.js
 
-# Copy necessary files to deployment directory
-cp "$VM_DIR/v86/build/libv86.js" "$ROOT_DIR/www/third-party/libv86.js"
-cp "$VM_DIR/v86/build/v86.wasm" "$ROOT_DIR/www/third-party/v86.wasm"
-cp "$VM_DIR/v86/images/debian-state-base.bin" "$ROOT_DIR/www/static/image.bin"
-cp -r "$VM_DIR/v86/images/debian-9p-rootfs-flat/" "$ROOT_DIR/www/static/9p-rootfs/"
+	# Compress the generated state image
+	zstd --ultra -$ZSTD_LEVEL < "$VM_DIR/v86/images/debian-state-base.bin" > "$VM_DIR/v86/images/image.bin"
+
+	# Make project directories
+	mkdir -p "$ROOT_DIR/www/third-party"
+	mkdir -p "$ROOT_DIR/www/static"
+
+	# Copy necessary files to deployment directory
+	cp "$VM_DIR/v86/build/libv86.js" "$ROOT_DIR/www/third-party/libv86.js"
+	cp "$VM_DIR/v86/build/v86.wasm" "$ROOT_DIR/www/third-party/v86.wasm"
+	cp "$VM_DIR/v86/images/debian-state-base.bin" "$ROOT_DIR/www/static/image.bin"
+	cp -r "$VM_DIR/v86/images/debian-9p-rootfs-flat/" "$ROOT_DIR/www/static/9p-rootfs/"
+}
+
+if [ ! -d "$VM_DIR/v86" ]
+then
+	build
+else
+	echo "V86 appears to be built"
+	read -p "Do you want to rebuild V86? (yes/no): " rebuild_choice
+	if [ "$rebuild_choice" = "yes" ]; then
+		echo "Rebuilding v86..."
+		build
+	fi
+fi
 
 # Start a HTTP server
 cd "$ROOT_DIR/www/" || exit
