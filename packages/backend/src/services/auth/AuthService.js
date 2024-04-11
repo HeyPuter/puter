@@ -34,6 +34,8 @@ class AuthService extends BaseService {
 
     async _init () {
         this.db = await this.services.get('database').get(DB_WRITE, 'auth');
+
+        this.sessions = {};
     }
 
     async authenticate_from_token (token) {
@@ -43,6 +45,7 @@ class AuthService extends BaseService {
         );
 
         if ( ! decoded.hasOwnProperty('type') ) {
+            throw new Error('legacy token');
             const user = await this.db.requireRead(
                 "SELECT * FROM `user` WHERE `uuid` = ?  LIMIT 1",
                 [decoded.uuid],
@@ -62,6 +65,25 @@ class AuthService extends BaseService {
 
             return new Actor({
                 user_uid: decoded.uuid,
+                type: actor_type,
+            });
+        }
+
+        if ( decoded.type === 'session' ) {
+            const session = this.get_session_(decoded.uuid);
+
+            if ( ! session ) {
+                throw APIError.create('token_auth_failed');
+            }
+
+            const user = await get_user({ uuid: decoded.user_uid });
+
+            const actor_type = new UserActorType({
+                user,
+            });
+
+            return new Actor({
+                user_uid: decoded.user_uid,
                 type: actor_type,
             });
         }
@@ -147,6 +169,72 @@ class AuthService extends BaseService {
         );
 
         return token;
+    }
+
+    async create_session_ (user, meta = {}) {
+        this.log.info(`CREATING SESSION`);
+        const uuid = this.modules.uuidv4();
+        await this.db.write(
+            'INSERT INTO `sessions` ' +
+            '(`uuid`, `user_id`, `meta`) ' +
+            'VALUES (?, ?, ?)',
+            [uuid, user.id, JSON.stringify(meta)],
+        );
+        const session = { uuid, user_uid: user.uuid, meta };
+        this.sessions[uuid] = session;
+        return session;
+    }
+
+    async get_session_ (uuid) {
+        this.log.info(`USING SESSION`);
+        if ( this.sessions[uuid] ) {
+            return this.sessions[uuid];
+        }
+
+        const [session] = await this.db.read(
+            "SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1",
+            [uuid],
+        );
+
+        return session;
+    }
+
+    async create_session_token (user, meta) {
+        const session = await this.create_session_(user, meta);
+
+        const token = this.modules.jwt.sign({
+            type: 'session',
+            version: '0.0.0',
+            uuid: session.uuid,
+            meta: session.meta,
+            user_uid: user.uuid,
+        }, this.global_config.jwt_secret);
+
+        return token;
+    }
+
+    async check_session (cur_token) {
+        const decoded = this.modules.jwt.verify(
+            cur_token, this.global_config.jwt_secret
+        );
+
+        if ( decoded.type && decoded.type !== 'session' ) {
+            // throw APIError.create('token_auth_failed');
+            return {};
+        }
+        
+        const user = await get_user({ uuid: decoded.user_uid });
+        if ( ! user ) {
+            return {};
+        }
+
+        if ( decoded.type ) return { user, token: cur_token };
+
+        this.log.info(`UPGRADING SESSION`);
+
+        // Upgrade legacy token
+        const token = await this.create_session_token(user);
+        return { user, token };
     }
 
     async create_access_token (authorizer, permissions) {
