@@ -10,8 +10,8 @@
 		import InstanceManager from "./js/InstanceManager.mjs"
 
 		document.addEventListener("DOMContentLoaded", () => {
-			window.manager = new InstanceManager({spawnRoot: document.body, term: true});
-			window.manager.createInstance({spawnRoot: document.body, term: true})
+			const manager = new InstanceManager({spawnRoot: document.body, term: true});
+			manager.createInstance({spawnRoot: document.body, term: true});
 		});
 	</script>
 </head>
