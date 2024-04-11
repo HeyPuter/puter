@@ -22,7 +22,6 @@ class PuterAPIService extends BaseService {
     async ['__on_install.routes'] () {
         const { app } = this.services.get('web-server');
 
-        app.use(require('../routers/version'))
         app.use(require('../routers/apps'))
         app.use(require('../routers/query/app'))
         app.use(require('../routers/change_username'))

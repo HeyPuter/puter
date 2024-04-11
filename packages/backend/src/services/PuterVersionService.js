@@ -16,66 +16,26 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
-const { NodeUIDSelector } = require("../filesystem/node/selectors");
-const { get_user } = require("../helpers");
-const { TeePromise } = require("../util/promise");
-const { StreamBuffer } = require("../util/streamutil");
+const BaseService = require("./BaseService");
 
-class PuterVersionService extends AdvancedBase {
-    static MODULES = {
-        _path: require('path'),
-        fs: require('fs'),
-        _exec: require('child_process').execSync,
-        axios: require('axios'),
+class PuterVersionService extends BaseService {
+    async _init () {
+        this.boot_time = Date.now();
     }
 
-    constructor ({ services, config }) {
-        super();
-        this.fs = services.get('filesystem');
-        this.config = config;
-
-        this._init({ config });
-        this.ready_ = new TeePromise();
-    }
-
-    async _init ({ config }) {
-        // this.node = await this.fs.node(new NodeUIDSelector(config.puter_hosted_data.puter_versions));
-        // this.user = await get_user({ username: 'puter' });
-
-        // await this._poll_versions({ config });
-
-        // setInterval(async () => {
-        //     await this._poll_versions({ config });
-        // }, 60 * 1000);
-    }
-
-    // not used anymore - this was for getting version numbers from a file hosted on puter
-    async _poll_versions ({ config }) {
-        const resp = await this.modules.axios.get(
-            config.puter_hosted_data.puter_versions
-        );
-        this.versions_ = resp.data.versions;
-        this.ready_.resolve();
+    async ['__on_install.routes'] () {
+        const { app } = this.services.get('web-server');
+        app.use(require('../routers/version'));
     }
 
     get_version () {
-        let deploy_timestamp;
-        if ( this.config.env === 'dev' ) {
-            deploy_timestamp = Date.now();
-        } else {
-            deploy_timestamp = Number.parseInt((this.modules.fs.readFileSync(
-                this.modules._path.join(__dirname, '../../deploy_timestamp'),
-                'utf8'
-            )).trim());
-        }
         const version = process.env.npm_package_version ||
             require('../../package.json').version;
         return {
             version,
-            environment: this.config.env,
-            location: this.config.server_id,
-            deploy_timestamp,
+            environment: this.global_config.env,
+            location: this.global_config.server_id,
+            deploy_timestamp: this.boot_time,
         };
     }
 }

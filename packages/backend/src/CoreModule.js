@@ -43,6 +43,11 @@ module.exports = CoreModule;
 const install = async ({ services, app }) => {
     const config = require('./config');
 
+    // /!\ IMPORTANT /!\
+    // For new services, put the import immediate above the
+    // call to services.registerService. We'll clean this up
+    // in a future PR.
+
     const { LogService } = require('./services/runtime-analysis/LogService');
     const { PagerService } = require('./services/runtime-analysis/PagerService');
     const { AlarmService } = require('./services/runtime-analysis/AlarmService');
@@ -182,6 +187,8 @@ const install = async ({ services, app }) => {
     const { EventService } = require('./services/EventService');
     services.registerService('event', EventService);
 
+    const { PuterVersionService } = require('./services/PuterVersionService');
+    services.registerService('puter-version', PuterVersionService);
 }
 
 const install_legacy = async ({ services }) => {
@@ -192,7 +199,6 @@ const install_legacy = async ({ services }) => {
     const PerformanceMonitor = require('./monitor/PerformanceMonitor');
     const { OperationTraceService } = require('./services/OperationTraceService');
     const { WSPushService } = require('./services/WSPushService');
-    const { PuterVersionService } = require('./services/PuterVersionService');
     const { ReferralCodeService } = require('./services/ReferralCodeService');
     const { Emailservice } = require('./services/EmailService');
     const { ClientOperationService } = require('./services/ClientOperationService');
@@ -207,7 +213,6 @@ const install_legacy = async ({ services }) => {
     services.registerService('filesystem', FilesystemService);
     services.registerService('operationTrace', OperationTraceService);
     services.registerService('__event-push-ws', WSPushService);
-    services.registerService('puter-version', PuterVersionService);
     services.registerService('referral-code', ReferralCodeService);
     services.registerService('email', Emailservice);
     services.registerService('file-cache', FileCacheService);
