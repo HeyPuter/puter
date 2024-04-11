@@ -97,6 +97,14 @@ window.addEventListener('message', async (event) => {
     if(event.data.msg === 'READY'){
         $(target_iframe).attr('data-appUsesSDK', 'true');
 
+        // Initialize the window according to the config it requested
+        const windowConfig = event.data.windowConfig;
+        if (!windowConfig?.headless) {
+            $el_parent_window.show();
+        } else {
+            console.log('we got a headless app, yay');
+        }
+
         // If we were waiting to launch this as a child app, report to the parent that it succeeded.
         const child_launch_callback = window.child_launch_callbacks[event.data.appInstanceID];
         if (child_launch_callback) {

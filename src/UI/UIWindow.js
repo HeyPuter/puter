@@ -110,6 +110,10 @@ async function UIWindow(options) {
     options.window_css = options.window_css ?? {};
     options.window_class = (options.window_class !== undefined ? ' ' + options.window_class : '');
 
+    // Wait to show app windows until we know if they want to be headless or not.
+    // Explorer is a special case of an app that isn't an iframe, so we have to detect that here too.
+    const delay_showing_window = options.app !== '' && !options.is_dir;
+
     // if only one instance is allowed, bring focus to the window that is already open
     if(options.single_instance && options.app !== ''){
         let $already_open_window =  $(`.window[data-app="${html_encode(options.app)}"]`);
@@ -208,6 +212,7 @@ async function UIWindow(options) {
                         ${options.width !== undefined ? 'width: ' + html_encode(options.width) +'; ':''}
                         ${options.height !== undefined ? 'height: ' + html_encode(options.height) +'; ':''}
                         ${options.border_radius !== undefined ? 'border-radius: ' + html_encode(options.border_radius) +'; ':''}
+                        display: ${delay_showing_window ? 'none' : 'block'};
                     " 
                 >`;
         // window mask
@@ -515,27 +520,29 @@ async function UIWindow(options) {
         });
     }
 
-    // onAppend() - using show() is a hack to make sure window is visible AND onAppend is called when
-    // window is actually appended and usable.
-    $(el_window).show(0, function(e){
-        // if SaveFileDialog, bring focus to the el_savefiledialog_filename and select all
-        if(options.is_saveFileDialog){
-            let item_name = el_savefiledialog_filename.value;
-            const extname = path.extname('/' + item_name);
-            if(extname !== '')
-            el_savefiledialog_filename.setSelectionRange(0, item_name.length - extname.length)
-            else
-                $(el_savefiledialog_filename).select();
-    
-            $(el_savefiledialog_filename).get(0).focus({preventScroll:true});
-        }
-        //set custom window css
-        $(el_window).css(options.window_css);
-        // onAppend()
-        if(options.onAppend && typeof options.onAppend === 'function'){
-            options.onAppend(el_window);
-        }
-    })
+    if (!delay_showing_window) {
+        // onAppend() - using show() is a hack to make sure window is visible AND onAppend is called when
+        // window is actually appended and usable.
+        $(el_window).show(0, function(e){
+            // if SaveFileDialog, bring focus to the el_savefiledialog_filename and select all
+            if(options.is_saveFileDialog){
+                let item_name = el_savefiledialog_filename.value;
+                const extname = path.extname('/' + item_name);
+                if(extname !== '')
+                el_savefiledialog_filename.setSelectionRange(0, item_name.length - extname.length)
+                else
+                    $(el_savefiledialog_filename).select();
+
+                $(el_savefiledialog_filename).get(0).focus({preventScroll:true});
+            }
+            //set custom window css
+            $(el_window).css(options.window_css);
+            // onAppend()
+            if(options.onAppend && typeof options.onAppend === 'function'){
+                options.onAppend(el_window);
+            }
+        });
+    }
 
     if(options.is_saveFileDialog){
         //------------------------------------------------
@@ -960,7 +967,6 @@ async function UIWindow(options) {
         $(el_window).css('top', options.top)
         $(el_window).css('left', options.left)
     }
-    $(el_window).css('display', 'block');
 
     // mousedown on the window body will unselect selected items if neither ctrl nor command are pressed
     $(el_window_body).on('mousedown', function(e){
