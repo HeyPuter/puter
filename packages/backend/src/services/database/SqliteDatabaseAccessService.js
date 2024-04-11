@@ -16,6 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { es_import_promise } = require("../../fun/dev-console-ui-utils");
+const { surrounding_box } = require("../../fun/dev-console-ui-utils");
 const { BaseDatabaseAccessService } = require("./BaseDatabaseAccessService");
 
 class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
@@ -39,24 +41,70 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
         this.db = new Database(this.config.path);
 
+        // Database upgrade logic
+        const TARGET_VERSION = 1;
+
         if ( do_setup ) {
+            this.log.noticeme(`SETUP: creating database at ${this.config.path}`);
             const sql_files = [
                 '0001_create-tables.sql',
                 '0002_add-default-apps.sql',
+                '0003_user-permissions.sql',
             ].map(p => path_.join(__dirname, 'sqlite_setup', p));
             const fs = require('fs');
             for ( const filename of sql_files ) {
+                const basename = path_.basename(filename);
+                this.log.noticeme(`applying ${basename}`);
                 const contents = fs.readFileSync(filename, 'utf8');
                 this.db.exec(contents);
             }
+            await this.db.exec(`PRAGMA user_version = ${TARGET_VERSION};`);
         }
 
-        // Create the tables if they don't exist.
-        const check =
-            `SELECT name FROM sqlite_master WHERE type='table' AND name='fsentries'`;
-        const rows = await this.db.prepare(check).all();
-        if ( rows.length === 0 ) {
-            throw new Error('it works');
+        const [{ user_version }] = await this._read('PRAGMA user_version');
+        this.log.info('database version: ' + user_version);
+
+        const upgrade_files = [];
+
+        if ( user_version <= 0 ) {
+            upgrade_files.push('0003_user-permissions.sql');
+        }
+
+        if ( upgrade_files.length > 0 ) {
+            this.log.noticeme(`Database out of date: ${this.config.path}`);
+            this.log.noticeme(`UPGRADING DATABASE: ${user_version} -> ${TARGET_VERSION}`);
+            this.log.noticeme(`${upgrade_files.length} .sql files to apply`);
+
+            const sql_files = upgrade_files.map(
+                p => path_.join(__dirname, 'sqlite_setup', p)
+            );
+            const fs = require('fs');
+            for ( const filename of sql_files ) {
+                const basename = path_.basename(filename);
+                this.log.noticeme(`applying ${basename}`);
+                const contents = fs.readFileSync(filename, 'utf8');
+                this.db.exec(contents);
+            }
+
+            // Update version number
+            await this.db.exec(`PRAGMA user_version = ${TARGET_VERSION};`);
+
+            // Add sticky notification
+            this.database_update_notice = () => {
+                const lines = [
+                    `Database has been updated!`,
+                    `Current version: ${TARGET_VERSION}`,
+                    `Type sqlite:dismiss to dismiss this message`,
+                ];
+                surrounding_box('33;1', lines);
+                return lines;
+            };
+
+            (async () => {
+                await es_import_promise;
+                const svc_devConsole = this.services.get('dev-console');
+                svc_devConsole.add_widget(this.database_update_notice);
+            })();
         }
     }
 
@@ -148,6 +196,19 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                     }
                 }
             },
+            {
+                id: 'dismiss',
+                description: 'dismiss the database update notice',
+                handler: async (_, log) => {
+                    const svc_devConsole = this.services.get('dev-console');
+                    if ( ! svc_devConsole ) return;
+                    if ( ! this.database_update_notice ) return;
+                    svc_devConsole.remove_widget(this.database_update_notice);
+                    const lines = this.database_update_notice();
+                    for ( const line of lines ) log.log(line);
+                    this.database_update_notice = null;
+                }
+            }
         ])
     }
 }

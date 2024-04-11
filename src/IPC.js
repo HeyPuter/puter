@@ -74,10 +74,18 @@ window.addEventListener('message', async (event) => {
         return;
     }
 
-    const $el_parent_window = $(`.window[data-element_uuid="${event.data.appInstanceID}"]`);
+    const window_for_app_instance = (instance_id) => {
+        return $(`.window[data-element_uuid="${instance_id}"]`).get(0);
+    };
+
+    const iframe_for_app_instance = (instance_id) => {
+        return $(window_for_app_instance(instance_id)).find('.window-app-iframe').get(0);
+    };
+
+    const $el_parent_window = $(window_for_app_instance(event.data.appInstanceID));
     const parent_window_id = $el_parent_window.attr('data-id');
     const $el_parent_disable_mask = $el_parent_window.find('.window-disable-mask');
-    const target_iframe = $(`.window[data-element_uuid="${event.data.appInstanceID}"]`).find('.window-app-iframe').get(0);
+    const target_iframe = iframe_for_app_instance(event.data.appInstanceID);
     const msg_id = event.data.uuid;
     const app_name = $(target_iframe).attr('data-app');
     const app_uuid = $el_parent_window.attr('data-app_uuid');
@@ -88,6 +96,22 @@ window.addEventListener('message', async (event) => {
     //-------------------------------------------------
     if(event.data.msg === 'READY'){
         $(target_iframe).attr('data-appUsesSDK', 'true');
+
+        // If we were waiting to launch this as a child app, report to the parent that it succeeded.
+        const child_launch_callback = window.child_launch_callbacks[event.data.appInstanceID];
+        if (child_launch_callback) {
+            const parent_iframe = iframe_for_app_instance(child_launch_callback.parent_instance_id);
+            // send confirmation to requester window
+            parent_iframe.contentWindow.postMessage({
+                msg: 'childAppLaunched',
+                original_msg_id: child_launch_callback.launch_msg_id,
+                child_instance_id: event.data.appInstanceID,
+            }, '*');
+            delete window.child_launch_callbacks[event.data.appInstanceID];
+        }
+
+        // Send any saved broadcasts to the new app
+        globalThis.services.get('broadcast').sendSavedBroadcastsTo(event.data.appInstanceID);
     }
     //-------------------------------------------------
     // windowFocused
@@ -337,7 +361,7 @@ window.addEventListener('message', async (event) => {
     // setWindowTitle
     //--------------------------------------------------------
     else if(event.data.msg === 'setWindowTitle' && event.data.new_title !== undefined){
-        const el_window = $(`.window[data-element_uuid="${event.data.appInstanceID}"]`).get(0);
+        const el_window = window_for_app_instance(event.data.appInstanceID);
         // set window title
         $(el_window).find(`.window-head-title`).html(html_encode(event.data.new_title));
         // send confirmation to requester window
@@ -496,16 +520,20 @@ window.addEventListener('message', async (event) => {
     // launchApp
     //--------------------------------------------------------
     else if(event.data.msg === 'launchApp'){
-        // launch app
+        // TODO: Determine if the app is allowed to launch child apps? We may want to limit this to prevent abuse.
+        // remember app for launch callback later
+        const child_instance_id = uuidv4();
+        window.child_launch_callbacks[child_instance_id] = {
+            parent_instance_id: event.data.appInstanceID,
+            launch_msg_id: msg_id,
+        };
+        // launch child app
         launch_app({
             name: event.data.app_name ?? app_name,
             args: event.data.args ?? {},
+            parent_instance_id: event.data.appInstanceID,
+            uuid: child_instance_id,
         });
-
-        // send confirmation to requester window
-        target_iframe.contentWindow.postMessage({
-            original_msg_id: msg_id, 
-        }, '*');
     }
     //--------------------------------------------------------
     // readAppDataFile
@@ -1054,11 +1082,69 @@ window.addEventListener('message', async (event) => {
             }
         }
     }
+    //--------------------------------------------------------
+    // messageToApp
+    //--------------------------------------------------------
+    else if (event.data.msg === 'messageToApp') {
+        const { appInstanceID, targetAppInstanceID, targetAppOrigin, contents } = event.data;
+        // TODO: Determine if we should allow the message
+        // TODO: Track message traffic between apps
+
+        // pass on the message
+        const target_iframe = iframe_for_app_instance(targetAppInstanceID);
+        if (!target_iframe) {
+            console.error('Failed to send message to non-existent app', event);
+            return;
+        }
+        target_iframe.contentWindow.postMessage({
+            msg: 'messageToApp',
+            appInstanceID,
+            targetAppInstanceID,
+            contents,
+        }, targetAppOrigin);
+    }
+    //--------------------------------------------------------
+    // closeApp
+    //--------------------------------------------------------
+    else if (event.data.msg === 'closeApp') {
+        const { appInstanceID, targetAppInstanceID } = event.data;
+
+        const target_window = window_for_app_instance(targetAppInstanceID);
+        if (!target_window) {
+            console.warn(`Failed to close non-existent app ${targetAppInstanceID}`);
+            return;
+        }
+
+        // Check permissions
+        const allowed = (() => {
+            // Parents can close their children
+            if (target_window.dataset['parent_instance_id']) {
+                console.log(`⚠️ Allowing app ${appInstanceID} to close child app ${targetAppInstanceID}`);
+                return true;
+            }
+
+            // God-mode apps can close anything
+            const app_info = await get_apps(app_name);
+            if (app_info.godmode === 1) {
+                console.log(`⚠️ Allowing GODMODE app ${appInstanceID} to close app ${targetAppInstanceID}`);
+                return true;
+            }
+
+            // TODO: What other situations should we allow?
+            return false;
+        })();
+
+        if (allowed) {
+            $(target_window).close();
+        } else {
+            console.warn(`⚠️ App ${appInstanceID} is not permitted to close app ${targetAppInstanceID}`);
+        }
+    }
 
     //--------------------------------------------------------
     // exit
     //--------------------------------------------------------
     else if(event.data.msg === 'exit'){
-        $(`.window[data-element_uuid="${event.data.appInstanceID}"]`).close({bypass_iframe_messaging: true});
+        $(window_for_app_instance(event.data.appInstanceID)).close({bypass_iframe_messaging: true});
     }
 });

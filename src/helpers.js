@@ -722,7 +722,14 @@ window.mutate_user_preferences = function(user_preferences_delta) {
 window.update_user_preferences = function(user_preferences) {
     window.user_preferences = user_preferences;
     localStorage.setItem('user_preferences', JSON.stringify(user_preferences));
-    window.locale = user_preferences.language ?? 'en';
+    const language = user_preferences.language ?? 'en';
+    window.locale = language;
+
+    // Broadcast locale change to apps
+    const broadcastService = globalThis.services.get('broadcast');
+    broadcastService.sendBroadcast('localeChanged', {
+        language: language,
+    }, { sendToNewAppInstances: true });
 }
 
 window.sendWindowWillCloseMsg = function(iframe_element) {
@@ -1165,6 +1172,8 @@ window.refresh_item_container = function(el_item_container, options){
     let el_window = $(el_item_container).closest('.window');
     let el_window_head_icon = $(el_window).find('.window-head-icon');
     const loading_spinner = $(el_item_container).find('.explorer-loading-spinner');
+    const error_message = $(el_item_container).find('.explorer-error-message');
+    const empty_message = $(el_item_container).find('.explorer-empty-message');
 
     if(options.fadeInItems)
         $(el_item_container).css('opacity', '0')
@@ -1176,6 +1185,9 @@ window.refresh_item_container = function(el_item_container, options){
     // Hide the loading spinner to avoid the flickering effect if the folder
     // is already loaded.
     $(loading_spinner).hide();
+
+    // Hide the error message in case it's visible
+    $(error_message).hide();
 
     // current timestamp in milliseconds
     let start_ts = new Date().getTime();
@@ -1369,6 +1381,19 @@ window.refresh_item_container = function(el_item_container, options){
         // This makes sure the loading spinner shows up if the request takes longer than 1 second 
         // and stay there for at least 1 second since the flickering is annoying
         (Date.now() - start_ts) > 1000 ? 1000 : 1)
+    }).catch(e => {
+        // clear loading timeout
+        clearTimeout(loading_timeout);
+
+        // hide other messages/indicators
+        $(loading_spinner).hide();
+        $(empty_message).hide();
+
+        // UIAlert('Failed to load directory' + (e && e.message ? ': ' + e.message : ''));
+
+        // show error message
+        $(error_message).html('Failed to load directory' + (e && e.message ? ': ' + e.message : ''));
+        $(error_message).show();
     });
 }    
 
@@ -1561,8 +1586,13 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
                             dedupeName: dest_path === path.dirname(copy_path),
                     });
 
+                    // remove overwritten item from the DOM
+                    if(resp[0].overwritten?.id){
+                        $(`.item[data-uid=${resp[0].overwritten.id}]`).removeItems();
+                    }
+
                     // copy new path for undo copy
-                    copied_item_paths.push(resp[0].path);
+                    copied_item_paths.push(resp[0].copied.path);
 
                     // skips next loop iteration
                     break;
@@ -1658,8 +1688,13 @@ window.copy_items = function(el_items, dest_path){
                             dedupeName: dest_path === path.dirname(copy_path),
                     })
 
+                    // remove overwritten item from the DOM
+                    if(resp[0].overwritten?.id){
+                        $(`.item[data-uid=${resp.overwritten.id}]`).removeItems();
+                    }
+
                     // copy new path for undo copy
-                    copied_item_paths.push(resp[0].path);
+                    copied_item_paths.push(resp[0].copied.path);
 
                     // skips next loop iteration
                     item_with_same_name_already_exists = false;
@@ -1821,9 +1856,13 @@ window.trigger_download = (paths)=>{
  * @param {*} options 
  */
 window.launch_app = async (options)=>{
-    const uuid = uuidv4();
+    const uuid = options.uuid ?? uuidv4();
     let icon, title, file_signature;
     const window_options = options.window_options ?? {};
+
+    if (options.parent_instance_id) {
+        window_options.parent_instance_id = options.parent_instance_id;
+    }
 
     // try to get 3rd-party app info
     let app_info = options.app_obj ?? await get_apps(options.name);
@@ -1917,6 +1956,11 @@ window.launch_app = async (options)=>{
         // add app_id to URL
         iframe_url.searchParams.append('puter.app.id', app_info.uuid);
 
+        // add parent_app_instance_id to URL
+        if (options.parent_instance_id) {
+            iframe_url.searchParams.append('puter.parent_instance_id', options.parent_instance_id);
+        }
+
         if(file_signature){
             iframe_url.searchParams.append('puter.item.uid', file_signature.uid);
             iframe_url.searchParams.append('puter.item.path', options.file_path ? `~/` + options.file_path.split('/').slice(1).join('/') : file_signature.path);
@@ -1937,23 +1981,20 @@ window.launch_app = async (options)=>{
             iframe_url.searchParams.append('puter.domain', window.app_domain);
         }
 
-        // Add auth_token to GODMODE apps
-        if(app_info.godmode && app_info.godmode === 1){
+        if (app_info.godmode && app_info.godmode === 1){
+            // Add auth_token to GODMODE apps
+
             iframe_url.searchParams.append('puter.auth.token', auth_token);
             iframe_url.searchParams.append('puter.auth.username', window.user.username);
             iframe_url.searchParams.append('puter.domain', window.app_domain);
-        }
-        // App token. Only add token if it's not a GODMODE app since GODMODE apps already have the super token
-        // that has access to everything.
-        else if(options.token){
+        } else if (options.token){
+            // App token. Only add token if it's not a GODMODE app since GODMODE apps already have the super token
+            // that has access to everything.
+
             iframe_url.searchParams.append('puter.auth.token', options.token);
-        }
+        } else {
+            // Try to acquire app token from the server
 
-        if(api_origin)
-            iframe_url.searchParams.append('puter.api_origin', api_origin);
-
-        // Try to acquire app token from the server
-        else{
             let response = await fetch(window.api_origin + "/auth/get-user-app-token", {
                 "headers": {
                     "Content-Type": "application/json",
@@ -1967,6 +2008,9 @@ window.launch_app = async (options)=>{
                 iframe_url.searchParams.append('puter.auth.token', res.token);
             }
         }
+
+        if(api_origin)
+            iframe_url.searchParams.append('puter.api_origin', api_origin);
 
         // Add options.params to URL
         if(options.params){

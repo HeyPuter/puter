@@ -45,7 +45,7 @@ class HLStat extends HLFilesystemOperation {
         const svc_acl = context.get('services').get('acl');
         const actor = context.get('actor');
         if ( ! await svc_acl.check(actor, subject, 'read') ) {
-            throw await svc_acl.get_safe_acl_error(actor, subject.entry, 'read');
+            throw await svc_acl.get_safe_acl_error(actor, subject, 'read');
         }
 
         // check permission

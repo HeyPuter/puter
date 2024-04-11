@@ -53,6 +53,11 @@ config.max_subdomains_per_user = 2000;
 config.storage_capacity = 1*1024*1024*1024;
 config.static_hosting_domain = '-static.puter.local';
 
+// Storage limiting is set to false by default
+// Storage available on the mountpoint/drive puter is running is the storage available
+config.is_storage_limited = false;
+config.available_device_storage = null;
+
 config.thumb_width = 80;
 config.thumb_height = 80;
 config.app_max_icon_size = 5*1024*1024;
@@ -100,7 +105,9 @@ const computed_defaults = {
     pub_port: config => config.http_port,
     origin: config => config.protocol + '://' + config.domain +
         (config.pub_port !== 80 && config.pub_port !== 443 ? ':' + config.pub_port : ''),
-    api_base_url: config => config.protocol + '://api.' + config.domain +
+    api_base_url: config => config.experimental_no_subdomain
+        ? config.origin
+        : config.protocol + '://api.' + config.domain +
         (config.pub_port !== 80 && config.pub_port !== 443 ? ':' + config.pub_port : ''),
     social_card: config => `${config.origin}/assets/img/screenshot.png`,
 };

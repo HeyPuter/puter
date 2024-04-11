@@ -33,7 +33,7 @@ class PuterSiteService extends BaseService {
                 root_dir_id: this.config.devtest_directory,
             };
         }
-        const rows = await this.read(
+        const rows = await this.db.read(
             `SELECT * FROM subdomains WHERE subdomain = ? LIMIT 1`,
             [subdomain]
         );

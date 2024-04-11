@@ -1,4 +1,4 @@
-/*
+/**
  * Copyright (C) 2024 Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -16,17 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
-
-class LocalDiskStorageModule extends AdvancedBase {
-    async install (context) {
-        const services = context.get('services');
-        const LocalDiskStorageService = require("./services/LocalDiskStorageService");
-        services.registerService('local-disk-storage', LocalDiskStorageService);
-
-        const HostDiskUsageService = require('./services/HostDiskUsageService');
-        services.registerService('host-disk-usage', HostDiskUsageService);
-    }
-}
-
-module.exports = LocalDiskStorageModule;
+export class Service {
+    //
+};

@@ -59,7 +59,11 @@ module.exports = eggspress('/change_username', {
     // Has the user already changed their username twice this month?
     const rows = await db.read(
         'SELECT COUNT(*) AS `count` FROM `user_update_audit` ' +
-        'WHERE `user_id`=? AND `reason`=? AND `created_at` > DATE_SUB(NOW(), INTERVAL 1 MONTH)',
+        'WHERE `user_id`=? AND `reason`=? AND ' +
+        db.case({
+            mysql: '`created_at` > DATE_SUB(NOW(), INTERVAL 1 MONTH)',
+            sqlite: "`created_at` > datetime('now', '-1 month')",
+        }),
         [ req.user.id, 'change_username' ]
     );
 

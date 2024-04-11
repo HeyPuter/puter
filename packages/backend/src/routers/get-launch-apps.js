@@ -101,6 +101,7 @@ router.get('/get-launch-apps', auth, express.json(), async (req, res, next)=>{
         'plushie-connect',
         'hex-frvr',
         'spider-solitaire',
+        'test',
     ]
 
     // Prepare each app for returning to user by only returning the necessary fields

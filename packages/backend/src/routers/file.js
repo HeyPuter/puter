@@ -19,9 +19,9 @@
 "use strict"
 const express = require('express');
 const router = new express.Router();
-const config = require('../config');
 const {validate_signature_auth, get_url_from_req, get_descendants, id2path, get_user, sign_file} = require('../helpers');
 const { DB_WRITE } = require('../services/database/consts');
+const { Context } = require('../util/context');
 
 // -----------------------------------------------------------------------//
 // GET /file
@@ -39,6 +39,10 @@ router.get('/file', async (req, res, next)=>{
         console.log(e)
         return res.status(403).send(e);
     }
+
+    const log = req.services.get('log-service').create('/file');
+    const errors = req.services.get('error-service').create(log);
+
 
     // modules
     const db = req.services.get('database').get(DB_WRITE, 'filesystem');
@@ -113,13 +117,17 @@ router.get('/file', async (req, res, next)=>{
 
         // stream data from S3
         try{
-            let stream = await storage.create_read_stream({
-                key: fsentry[0].uuid,
+            let stream = await storage.create_read_stream(fsentry[0].uuid, {
                 bucket: fsentry[0].bucket,
                 bucket_region: fsentry[0].bucket_region,
             });
             return stream.pipe(res);
         }catch(e){
+            errors.report('read from storage', {
+                source: e,
+                trace: true,
+                alarm: true,
+            });
             return res.type('application/json').status(500).send({message: 'There was an internal problem reading the file.'});
         }
     }
@@ -167,22 +175,19 @@ router.get('/file', async (req, res, next)=>{
         // HTTP Status 206 for Partial Content
         res.writeHead(206, headers);
 
-        // init S3
-        const s3 = new AWS.S3({
-            accessKeyId: config.s3_access_key,
-            secretAccessKey: config.s3_secret_key,
-            region: fsentry[0].bucket_region,
-        });
-
         try{
-            let stream = await storage.create_read_stream({
-                key: fsentry[0].uuid,
+            const storage = Context.get('storage');
+            let stream = await storage.create_read_stream(fsentry[0].uuid, {
                 bucket: fsentry[0].bucket,
                 bucket_region: fsentry[0].bucket_region,
             });
             return stream.pipe(res);
         }catch(e){
-            console.log(e)
+            errors.report('read from storage', {
+                source: e,
+                trace: true,
+                alarm: true,
+            });
             return res.type('application/json').status(500).send({message: 'There was an internal problem reading the file.'});
         }
     }
