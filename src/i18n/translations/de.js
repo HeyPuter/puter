@@ -146,6 +146,7 @@ const de = {
         size: 'Größe',
         sort_by: 'Sotieren nach',
         start: 'Start',
+        storage_puter_used: 'Verwendet von Puter',
         taking_longer_than_usual: 'Dauert etwas länger als gewöhnlich. Bitte warten...',
         text_document: 'Textdokument',
         tos_fineprint: `Indem Sie auf „Kostenloses Konto erstellen“ klicken, stimmen Sie den {{link=terms}}Nutzungsbedingungen{{/link}} und der {{link=privacy}}Datenschutzerklärung{{/link}} von Puter zu.`,
