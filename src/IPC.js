@@ -1116,9 +1116,9 @@ window.addEventListener('message', async (event) => {
         }
 
         // Check permissions
-        const allowed = (() => {
+        const allowed = await (async () => {
             // Parents can close their children
-            if (target_window.dataset['parent_instance_id']) {
+            if (target_window.dataset['parent_instance_id'] === appInstanceID) {
                 console.log(`⚠️ Allowing app ${appInstanceID} to close child app ${targetAppInstanceID}`);
                 return true;
             }
