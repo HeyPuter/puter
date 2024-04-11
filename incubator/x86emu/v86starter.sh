@@ -39,10 +39,10 @@ build()
 	mkdir -p "$ROOT_DIR/www/third-party"
 	mkdir -p "$ROOT_DIR/www/static"
 
-	# Copy necessary files to deployment directory
+	# Copy/move necessary files to deployment directory
+	mv "$VM_DIR/v86/images/image.bin" "$ROOT_DIR/www/static/image.bin"
 	cp "$VM_DIR/v86/build/libv86.js" "$ROOT_DIR/www/third-party/libv86.js"
 	cp "$VM_DIR/v86/build/v86.wasm" "$ROOT_DIR/www/third-party/v86.wasm"
-	cp "$VM_DIR/v86/images/debian-state-base.bin" "$ROOT_DIR/www/static/image.bin"
 	cp -r "$VM_DIR/v86/images/debian-9p-rootfs-flat/" "$ROOT_DIR/www/static/9p-rootfs/"
 }
 
