@@ -378,7 +378,7 @@ class AuthService extends BaseService {
             if ( session.uuid === actor.type.session ) {
                 session.current = true;
             }
-            session.meta = JSON.parse(session.meta ?? {});
+            session.meta = JSON.parse(session.meta ?? "{}");
         });
 
         return sessions;

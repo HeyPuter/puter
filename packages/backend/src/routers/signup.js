@@ -71,6 +71,11 @@ module.exports = eggspress(['/signup'], {
         const { user, token } = await svc_auth.check_session(
             req.cookies[config.cookie_name]
         );
+        res.cookie(config.cookie_name, token, {
+            sameSite: 'none',
+            secure: true,
+            httpOnly: true,
+        });
         // const decoded = await jwt.verify(token, config.jwt_secret);
         // const user = await get_user({ uuid: decoded.uuid });
         if ( user ) {
