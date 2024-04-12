@@ -159,7 +159,11 @@ class DevLogger {
                 log_lvl, crumbs, message, fields, objects,
             );
         }
-        this.log(stringify_log_entry({
+        const ld = Context.get('logdent', { allow_fallback: true })
+        const prefix = globalThis.dev_console_indent_on
+            ? Array(ld ?? 0).fill('    ').join('')
+            : '';
+        this.log(prefix + stringify_log_entry({
             log_lvl, crumbs, message, fields, objects,
         }));
     }

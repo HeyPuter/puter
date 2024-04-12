@@ -17,35 +17,26 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 "use strict"
+const APIError = require('../api/APIError');
 const {jwt_auth} = require('../helpers');
+const { UserActorType } = require('../services/auth/Actor');
 const { DB_WRITE } = require('../services/database/consts');
 const { Context } = require('../util/context');
+const auth2 = require('./auth2');
 
 const auth = async (req, res, next)=>{
+    let auth2_ok = false;
     try{
-        let auth_res = await jwt_auth(req);
+        // Delegate to new middleware
+        await auth2(req, res, () => { auth2_ok = true; });
+        if ( ! auth2_ok ) return;
 
-        // is account suspended?
-        if(auth_res.user.suspended)
-            return res.status(401).send({error: 'Account suspended'});
-
-        // successful auth
-        req.user = auth_res.user;
-        req.token = auth_res.token;
-
-        // let's add it to the context too
-        try {
-        const x = Context.get();
-        x.set('user', req.user);
-        } catch (e) {
-        console.error(e);
+        // Everything using the old reference to the auth middleware
+        // should only allow session tokens
+        if ( ! (req.actor.type instanceof UserActorType) ) {
+            throw APIError.create('forbidden');
         }
 
-        // record as daily active users
-        const db = req.services.get('database').get(DB_WRITE, 'auth');
-        db.write('UPDATE `user` SET `last_activity_ts` = now() WHERE id=? LIMIT 1', [req.user.id]);
-
-        // go to next
         next();
     }
     // auth failed

@@ -1,0 +1,137 @@
+<html>
+<head>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="../dist/puter.dev.js"></script>
+    <script src="./kv.test.js"></script>
+    <script src="./fs.test.js"></script>
+    <style>
+        #tests {
+            margin-top: 20px;
+        }
+        #run-tests {
+            margin-top: 20px;
+            margin-bottom: 20px;
+            background-color: #4c84af;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        #unselect-all {
+            margin-left: 20px;
+            cursor: pointer;
+        }
+        #select-all {
+            margin-left: 20px;
+            cursor: pointer;
+        }
+        .test-container{
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+    <script>
+    document.addEventListener("DOMContentLoaded", () => {
+
+        window.pass = function(msg) {
+            // $('#tests').append(`<p style="color:green;">${msg}</p>`);
+        }
+
+        window.fail = function(msg) {
+            throw new Error(msg);
+        }
+        
+        // print the test name with checkbox for each test
+        $('#tests').append('<h2>File System Tests</h2>');
+        for (let i = 0; i < fsTests.length; i++) {
+            $('#tests').append(`<div class="test-container" id="fsTests-container-${i}">
+                <input type="checkbox" class="test-checkbox" id="fsTests${i}" checked>
+                <label for="fsTests${i}">${fsTests[i].name}</label><br>
+            </div>`);
+        }
+
+        $('#tests').append('<h2>Key Value Tests</h2>');
+        for (let i = 0; i < kvTests.length; i++) {
+            $('#tests').append(`<div class="test-container" id="kvTests-container-${i}">
+                <input type="checkbox" class="test-checkbox" id="kvTests${i}" checked>
+                <label for="kvTests${i}">${kvTests[i].name}</label><br>
+            </div>`);
+        }
+
+        window.assert = function(condition, message) {
+            if (!condition) {
+                throw new Error(message || "Assertion failed");
+            }
+        }
+
+        async function runTests() {
+            // go through fsTests and run each test
+            for (let i = 0; i < fsTests.length; i++) {
+                if (document.getElementById(`fsTests${i}`).checked) {
+                    try{
+                        await fsTests[i]();
+                        // make this test's container green
+                        $(`#fsTests-container-${i}`).css('background-color', '#85e085');
+
+                    } catch (e) {
+                        console.log(e);
+                        // make this test's container red
+                        $(`#fsTests-container-${i}`).css('background-color', '#ffbfbf');
+                        // message
+                        $(`#fsTests-container-${i}`).append(`<p style="color:#c00000;">${e}</p>`);
+                    }
+                }
+            }
+
+            for (let i = 0; i < kvTests.length; i++) {
+                if (document.getElementById(`kvTests${i}`).checked) {
+                    try{
+                        await kvTests[i]();
+                        // make this test's container green
+                        $(`#kvTests-container-${i}`).css('background-color', '#85e085');
+
+                    } catch (e) {
+                        // make this test's container red
+                        $(`#kvTests-container-${i}`).css('background-color', '#ff8484');
+                        // message
+                        $(`#kvTests-container-${i}`).append(`<p style="color:red;">${e}</p>`);
+                    }
+                }
+            }
+        }
+
+        $('#run-tests').click(() => {
+            runTests();
+        });
+
+        $('#unselect-all').click(() => {
+            for (let i = 0; i < fsTests.length; i++) {
+                $('.test-checkbox').prop('checked', false);
+            }
+        });
+
+        $('#select-all').click(() => {
+            for (let i = 0; i < fsTests.length; i++) {
+                $('.test-checkbox').prop('checked', true);
+            }
+        });
+
+    });
+
+    </script>
+</head>
+<body>
+
+    <nav style="position: fixed; top: 0; width: 100%; background: #EEE; left: 0; padding-left: 10px;">
+        <button id="run-tests">Run Tests</button>
+        <span id="select-all">Select All</span>
+        <span id="unselect-all">Unselect All</span>
+    </nav>
+    <div id="tests" style="margin-top:100px;"></div>
+</body>
+</html>

@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { get_user, get_app } = require("../../helpers");
+const { Context } = require("../../util/context");
 const BaseService = require("../BaseService");
 const { DB_WRITE } = require("../database/consts");
 const { UserActorType, Actor, AppUnderUserActorType, AccessTokenActorType } = require("./Actor");
@@ -183,8 +184,16 @@ class PermissionService extends BaseService {
         return permission;
     }
 
+    async check () {
+        const ld = (Context.get('logdent') ?? 0) + 1;
+        return await Context.get().sub({ logdent: ld }).arun(async () => {
+            const res = await this.check__(...arguments);
+            // this.log.noticeme('RETURN ' + res);
+            return res;
+        });
+    }
 
-    async check (actor, permission) {
+    async check__ (actor, permission) {
         permission = await this._rewrite_permission(permission);
 
         this.log.info(`checking permission ${permission} for actor ${actor.uid}`, {
@@ -210,7 +219,8 @@ class PermissionService extends BaseService {
         if ( actor.type instanceof AppUnderUserActorType ) {
             // NEXT:
             const app_uid = actor.type.app.uid;
-            const user_has_permission = await this.check_user_permission(actor, permission);
+            const user_actor = actor.get_related_actor(UserActorType);
+            const user_has_permission = await this.check_user_permission(user_actor, permission);
             if ( ! user_has_permission ) return undefined;
 
             return await this.check_user_app_permission(actor, app_uid, permission);

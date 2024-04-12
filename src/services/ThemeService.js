@@ -32,7 +32,11 @@ const default_values = {
 };
 
 export class ThemeService extends Service {
+    #broadcastService;
+
     async _init () {
+        this.#broadcastService = globalThis.services.get('broadcast');
+
         this.state = {
             sat: 41.18,
             hue: 210,
@@ -116,6 +120,16 @@ export class ThemeService extends Service {
         this.root.style.setProperty('--primary-lightness', s.lig + '%');
         this.root.style.setProperty('--primary-alpha', s.alpha);
         this.root.style.setProperty('--primary-color', s.light_text ? 'white' : '#373e44');
+
+        // TODO: Should we debounce this to reduce traffic?
+        this.#broadcastService.sendBroadcast('themeChanged', {
+            palette: {
+                primaryHue: s.hue,
+                primarySaturation: s.sat + '%',
+                primaryLightness: s.lig + '%',
+                primaryAlpha: s.alpha,
+            },
+        }, { sendToNewAppInstances: true });
     }   
 
     save_ () {

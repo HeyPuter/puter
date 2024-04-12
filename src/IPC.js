@@ -74,11 +74,15 @@ window.addEventListener('message', async (event) => {
         return;
     }
 
-    const iframe_for_app_instance = (instanceID) => {
-        return $(`.window[data-element_uuid="${instanceID}"]`).find('.window-app-iframe').get(0)
+    const window_for_app_instance = (instance_id) => {
+        return $(`.window[data-element_uuid="${instance_id}"]`).get(0);
     };
 
-    const $el_parent_window = $(`.window[data-element_uuid="${event.data.appInstanceID}"]`);
+    const iframe_for_app_instance = (instance_id) => {
+        return $(window_for_app_instance(instance_id)).find('.window-app-iframe').get(0);
+    };
+
+    const $el_parent_window = $(window_for_app_instance(event.data.appInstanceID));
     const parent_window_id = $el_parent_window.attr('data-id');
     const $el_parent_disable_mask = $el_parent_window.find('.window-disable-mask');
     const target_iframe = iframe_for_app_instance(event.data.appInstanceID);
@@ -105,6 +109,9 @@ window.addEventListener('message', async (event) => {
             }, '*');
             delete window.child_launch_callbacks[event.data.appInstanceID];
         }
+
+        // Send any saved broadcasts to the new app
+        globalThis.services.get('broadcast').sendSavedBroadcastsTo(event.data.appInstanceID);
     }
     //-------------------------------------------------
     // windowFocused
@@ -354,7 +361,7 @@ window.addEventListener('message', async (event) => {
     // setWindowTitle
     //--------------------------------------------------------
     else if(event.data.msg === 'setWindowTitle' && event.data.new_title !== undefined){
-        const el_window = $(`.window[data-element_uuid="${event.data.appInstanceID}"]`).get(0);
+        const el_window = window_for_app_instance(event.data.appInstanceID);
         // set window title
         $(el_window).find(`.window-head-title`).html(html_encode(event.data.new_title));
         // send confirmation to requester window
@@ -1096,11 +1103,48 @@ window.addEventListener('message', async (event) => {
             contents,
         }, targetAppOrigin);
     }
+    //--------------------------------------------------------
+    // closeApp
+    //--------------------------------------------------------
+    else if (event.data.msg === 'closeApp') {
+        const { appInstanceID, targetAppInstanceID } = event.data;
+
+        const target_window = window_for_app_instance(targetAppInstanceID);
+        if (!target_window) {
+            console.warn(`Failed to close non-existent app ${targetAppInstanceID}`);
+            return;
+        }
+
+        // Check permissions
+        const allowed = await (async () => {
+            // Parents can close their children
+            if (target_window.dataset['parent_instance_id'] === appInstanceID) {
+                console.log(`⚠️ Allowing app ${appInstanceID} to close child app ${targetAppInstanceID}`);
+                return true;
+            }
+
+            // God-mode apps can close anything
+            const app_info = await get_apps(app_name);
+            if (app_info.godmode === 1) {
+                console.log(`⚠️ Allowing GODMODE app ${appInstanceID} to close app ${targetAppInstanceID}`);
+                return true;
+            }
+
+            // TODO: What other situations should we allow?
+            return false;
+        })();
+
+        if (allowed) {
+            $(target_window).close();
+        } else {
+            console.warn(`⚠️ App ${appInstanceID} is not permitted to close app ${targetAppInstanceID}`);
+        }
+    }
 
     //--------------------------------------------------------
     // exit
     //--------------------------------------------------------
     else if(event.data.msg === 'exit'){
-        $(`.window[data-element_uuid="${event.data.appInstanceID}"]`).close({bypass_iframe_messaging: true});
+        $(window_for_app_instance(event.data.appInstanceID)).close({bypass_iframe_messaging: true});
     }
 });

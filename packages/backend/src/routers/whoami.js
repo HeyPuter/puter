@@ -54,6 +54,7 @@ const WHOAMI_GET = eggspress('/whoami', {
         is_temp: (req.user.password === null && req.user.email === null),
         taskbar_items: await get_taskbar_items(req.user),
         referral_code: req.user.referral_code,
+        ...(req.new_token ? { token: req.token } : {})
     };
 
     if ( ! is_user ) {
@@ -65,6 +66,7 @@ const WHOAMI_GET = eggspress('/whoami', {
         delete details.desktop_bg_color;
         delete details.desktop_bg_fit;
         delete details.taskbar_items;
+        delete details.token;
     }
 
     res.send(details);
@@ -76,8 +78,19 @@ const WHOAMI_GET = eggspress('/whoami', {
 const WHOAMI_POST = new express.Router();
 WHOAMI_POST.post('/whoami', auth, fs, express.json(), async (req, response, next)=>{
     // check subdomain
-    if(require('../helpers').subdomain(req) !== 'api')
-        next();
+    if(require('../helpers').subdomain(req) !== 'api') {
+        return;
+    }
+
+    const actor = Context.get('actor');
+    if ( ! actor ) {
+        throw Error('actor not found in context');
+    }
+
+    const is_user = actor.type instanceof UserActorType;
+    if ( ! is_user ) {
+        throw Error('actor is not a user');
+    }
 
     let desktop_items = [];
 
