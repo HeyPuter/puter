@@ -240,7 +240,10 @@ class AuthService extends BaseService {
             [uuid],
         );
 
-        session.meta = JSON.parse(session.meta ?? {});
+        session.meta = this.db.case({
+            mysql: () => session.meta,
+            otherwise: () => JSON.parse(session.meta ?? "{}")
+        })();
 
         return session;
     }
@@ -375,10 +378,13 @@ class AuthService extends BaseService {
         );
 
         sessions.forEach(session => {
+            session.meta = this.db.case({
+                mysql: () => session.meta,
+                otherwise: () => JSON.parse(session.meta ?? "{}")
+            })();
             if ( session.uuid === actor.type.session ) {
                 session.current = true;
             }
-            session.meta = JSON.parse(session.meta ?? "{}");
         });
 
         return sessions;
