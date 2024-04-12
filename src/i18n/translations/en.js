@@ -181,6 +181,7 @@ const en = {
         select: "Select",
         selected: 'selected',
         select_color: 'Select color…',
+        sessions: "Sessions",
         send: "Send",
         send_password_recovery_email: "Send Password Recovery Email",
         session_saved: "Thank you for creating an account. This session has been saved.",
