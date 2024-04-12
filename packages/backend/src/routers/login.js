@@ -90,7 +90,7 @@ router.post('/login', express.json(), body_parser_error_handler, async (req, res
         // check password
         if(await bcrypt.compare(req.body.password, user.password)){
             const svc_auth = req.services.get('auth');
-            const token = await svc_auth.create_session_token(user, { req });
+            const { token } = await svc_auth.create_session_token(user, { req });
             //set cookie
             // res.cookie(config.cookie_name, token);
             res.cookie(config.cookie_name, token, {
