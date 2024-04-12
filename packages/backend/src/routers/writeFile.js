@@ -507,7 +507,6 @@ module.exports = eggspress('/writeFile', {
     else{
         // modules
         const {uuid2fsentry, id2path} = require('../helpers')
-        const write = require('../filesystem/operations/write.js');
         const _path = require('path');
 
         // Check if files were uploaded

@@ -97,6 +97,10 @@ if (config.server_id) {
 
 config.contact_email = 'hey@' + config.domain;
 
+// TODO: default value will be changed to false in a future release;
+//       details to follow in a future announcement.
+config.legacy_token_migrate = true;
+
 module.exports = config;
 
 // NEW_CONFIG_LOADING

@@ -25,13 +25,16 @@ const { AppUnderUserActorType, UserActorType, Actor, SystemActorType, AccessToke
 
 class ACLService extends BaseService {
     async check (actor, resource, mode) {
-        const result =  await this._check_fsNode(actor, resource, mode);
-        if ( this.verbose ) console.log('LOGGING ACL CHECK', {
-            actor, mode,
-            // trace: (new Error()).stack,
-            result,
+        const ld = (Context.get('logdent') ?? 0) + 1;
+        return await Context.get().sub({ logdent: ld }).arun(async () => {
+            const result =  await this._check_fsNode(actor, resource, mode);
+            if ( this.verbose ) console.log('LOGGING ACL CHECK', {
+                actor, mode,
+                // trace: (new Error()).stack,
+                result,
+            });
+            return result;
         });
-        return result;
     }
 
     async _check_fsNode (actor, fsNode, mode) {

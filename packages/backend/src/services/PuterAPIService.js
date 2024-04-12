@@ -22,7 +22,6 @@ class PuterAPIService extends BaseService {
     async ['__on_install.routes'] () {
         const { app } = this.services.get('web-server');
 
-        app.use(require('../routers/version'))
         app.use(require('../routers/apps'))
         app.use(require('../routers/query/app'))
         app.use(require('../routers/change_username'))
@@ -33,6 +32,8 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/auth/grant-user-user'));
         app.use(require('../routers/auth/revoke-user-user'));
         app.use(require('../routers/auth/list-permissions'))
+        app.use(require('../routers/auth/list-sessions'))
+        app.use(require('../routers/auth/revoke-session'))
         app.use(require('../routers/auth/check-app'))
         app.use(require('../routers/auth/app-uid-from-origin'))
         app.use(require('../routers/auth/create-access-token'))

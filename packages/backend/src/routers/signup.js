@@ -52,6 +52,7 @@ module.exports = eggspress(['/signup'], {
     const validator = require('validator')
     let uuid_user;
 
+    const svc_auth = Context.get('services').get('auth');
     const svc_authAudit = Context.get('services').get('auth-audit');
     svc_authAudit.record({
         requester: Context.get('requester'),
@@ -67,9 +68,11 @@ module.exports = eggspress(['/signup'], {
 
     // check if user is already logged in
     if ( req.body.is_temp && req.cookies[config.cookie_name] ) {
-        const token = req.cookies[config.cookie_name];
-        const decoded = await jwt.verify(token, config.jwt_secret);
-        const user = await get_user({ uuid: decoded.uuid });
+        const { user, token } = await svc_auth.check_session(
+            req.cookies[config.cookie_name]
+        );
+        // const decoded = await jwt.verify(token, config.jwt_secret);
+        // const user = await get_user({ uuid: decoded.uuid });
         if ( user ) {
             return res.send({
                 token: token,
@@ -233,16 +236,21 @@ module.exports = eggspress(['/signup'], {
         db.write('UPDATE `user` SET `last_activity_ts` = now() WHERE id=? LIMIT 1', [pseudo_user.id]);
         invalidate_cached_user_by_id(pseudo_user.id);
     }
-    // create token for login
-    const token = await jwt.sign({uuid: user_uuid}, config.jwt_secret);
 
     // user id
     // todo if pseudo user, assign directly no need to do another DB lookup
     const user_id = (pseudo_user === undefined) ? insert_res.insertId : pseudo_user.id;
+
     const [user] = await db.read(
         'SELECT * FROM `user` WHERE `id` = ? LIMIT 1',
         [user_id]
     );
+
+    // create token for login
+    const token = await svc_auth.create_session_token(user, {
+        req,
+    });
+        // jwt.sign({uuid: user_uuid}, config.jwt_secret);
 
     //-------------------------------------------------------------
     // email confirmation

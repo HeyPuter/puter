@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const eggspress = require("../../api/eggspress");
-const { get_app } = require("../../helpers");
+const { get_app, get_user } = require("../../helpers");
 const { UserActorType } = require("../../services/auth/Actor");
 const { DB_READ } = require("../../services/database/consts");
 const { Context } = require("../../util/context");
@@ -38,29 +38,73 @@ module.exports = eggspress('/auth/list-permissions', {
 
     const db = x.get('services').get('database').get(DB_READ, 'permissions');
 
-    const permissions = [];
+    const permissions = {};
 
-    const rows = await db.read(
-        'SELECT * FROM `user_to_app_permissions` WHERE user_id=?',
-        [ actor.type.user.id ]
-    );
+    {
+        permissions.myself_to_app = [];
 
-    for ( const row of rows ) {
-        const app = await get_app({ id: row.app_id });
+        const rows = await db.read(
+            'SELECT * FROM `user_to_app_permissions` WHERE user_id=?',
+            [ actor.type.user.id ]
+        );
 
-        delete app.id;
-        delete app.approved_for_listing;
-        delete app.approved_for_opening_items;
-        delete app.godmode;
-        delete app.owner_user_id;
+        for ( const row of rows ) {
+            const app = await get_app({ id: row.app_id });
 
-        const permission = {
-            app,
-            permission: row.permission,
-            extra: row.extra
-        };
+            delete app.id;
+            delete app.approved_for_listing;
+            delete app.approved_for_opening_items;
+            delete app.godmode;
+            delete app.owner_user_id;
 
-        permissions.push(permission);
+            const permission = {
+                app,
+                permission: row.permission,
+                extra: row.extra
+            };
+
+            permissions.myself_to_app.push(permission);
+        }
+    }
+    {
+        permissions.myself_to_user = [];
+
+        const rows = await db.read(
+            'SELECT * FROM `user_to_user_permissions` WHERE issuer_user_id=?',
+            [ actor.type.user.id ]
+        );
+
+        for ( const row of rows ) {
+            const user = await get_user({ id: row.holder_user_id });
+
+            const permission = {
+                user: user.username,
+                permission: row.permission,
+                extra: row.extra
+            };
+
+            permissions.myself_to_user.push(permission);
+        }
+    }
+    {
+        permissions.user_to_myself = [];
+
+        const rows = await db.read(
+            'SELECT * FROM `user_to_user_permissions` WHERE holder_user_id=?',
+            [ actor.type.user.id ]
+        );
+
+        for ( const row of rows ) {
+            const user = await get_user({ id: row.issuer_user_id });
+
+            const permission = {
+                user: user.username,
+                permission: row.permission,
+                extra: row.extra
+            };
+
+            permissions.user_to_myself.push(permission);
+        }
     }
 
     res.json(permissions);

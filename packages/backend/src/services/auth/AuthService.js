@@ -25,6 +25,8 @@ const { DB_WRITE } = require("../database/consts");
 
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 
+const LegacyTokenError = class extends Error {};
+
 class AuthService extends BaseService {
     static MODULES = {
         jwt: require('jsonwebtoken'),
@@ -34,6 +36,8 @@ class AuthService extends BaseService {
 
     async _init () {
         this.db = await this.services.get('database').get(DB_WRITE, 'auth');
+
+        this.sessions = {};
     }
 
     async authenticate_from_token (token) {
@@ -43,6 +47,7 @@ class AuthService extends BaseService {
         );
 
         if ( ! decoded.hasOwnProperty('type') ) {
+            throw new LegacyTokenError();
             const user = await this.db.requireRead(
                 "SELECT * FROM `user` WHERE `uuid` = ?  LIMIT 1",
                 [decoded.uuid],
@@ -62,6 +67,26 @@ class AuthService extends BaseService {
 
             return new Actor({
                 user_uid: decoded.uuid,
+                type: actor_type,
+            });
+        }
+
+        if ( decoded.type === 'session' ) {
+            const session = await this.get_session_(decoded.uuid);
+
+            if ( ! session ) {
+                throw APIError.create('token_auth_failed');
+            }
+
+            const user = await get_user({ uuid: decoded.user_uid });
+
+            const actor_type = new UserActorType({
+                user,
+                session: session.uuid,
+            });
+
+            return new Actor({
+                user_uid: decoded.user_uid,
                 type: actor_type,
             });
         }
@@ -149,6 +174,141 @@ class AuthService extends BaseService {
         return token;
     }
 
+    async create_session_ (user, meta = {}) {
+        this.log.info(`CREATING SESSION`);
+
+        if ( meta.req ) {
+            const req = meta.req;
+            delete meta.req;
+
+            const ip = this.global_config.fowarded
+                ? req.headers['x-forwarded-for'] ||
+                    req.connection.remoteAddress
+                : req.connection.remoteAddress
+                ;
+        
+            meta.ip = ip;
+
+            meta.server = this.global_config.server_id;
+
+            if ( req.headers['user-agent'] ) {
+                meta.user_agent = req.headers['user-agent'];
+            }
+
+            if ( req.headers['referer'] ) {
+                meta.referer = req.headers['referer'];
+            }
+
+            if ( req.headers['origin'] ) {
+                const origin = this._origin_from_url(req.headers['origin']);
+                if ( origin ) {
+                    meta.origin = origin;
+                }
+            }
+
+            if ( req.headers['host'] ) {
+                const host = this._origin_from_url(req.headers['host']);
+                if ( host ) {
+                    meta.host = host;
+                }
+            }
+        }
+
+        meta.created = new Date().toISOString();
+        meta.created_unix = Math.floor(Date.now() / 1000);
+
+        const uuid = this.modules.uuidv4();
+        await this.db.write(
+            'INSERT INTO `sessions` ' +
+            '(`uuid`, `user_id`, `meta`) ' +
+            'VALUES (?, ?, ?)',
+            [uuid, user.id, JSON.stringify(meta)],
+        );
+        const session = { uuid, user_uid: user.uuid, meta };
+        this.sessions[uuid] = session;
+        return session;
+    }
+
+    async get_session_ (uuid) {
+        this.log.info(`USING SESSION`);
+        if ( this.sessions[uuid] ) {
+            return this.sessions[uuid];
+        }
+
+        const [session] = await this.db.read(
+            "SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1",
+            [uuid],
+        );
+
+        session.meta = JSON.parse(session.meta ?? {});
+
+        return session;
+    }
+
+    async create_session_token (user, meta) {
+        const session = await this.create_session_(user, meta);
+
+        const token = this.modules.jwt.sign({
+            type: 'session',
+            version: '0.0.0',
+            uuid: session.uuid,
+            meta: session.meta,
+            user_uid: user.uuid,
+        }, this.global_config.jwt_secret);
+
+        return { session, token };
+    }
+
+    async check_session (cur_token, meta) {
+        const decoded = this.modules.jwt.verify(
+            cur_token, this.global_config.jwt_secret
+        );
+
+        console.log('\x1B[36;1mDECODED SESSION', decoded);
+
+        if ( decoded.type && decoded.type !== 'session' ) {
+            return {};
+        }
+
+        const is_legacy = ! decoded.type;
+        
+        const user = await get_user({ uuid:
+            is_legacy ? decoded.uuid : decoded.user_uid
+        });
+        if ( ! user ) {
+            return {};
+        }
+
+        if ( ! is_legacy ) {
+            // Ensure session exists
+            const session = await this.get_session_(decoded.uuid);
+            if ( ! session ) {
+                return {};
+            }
+
+            // Return the session
+            return { user, token: cur_token };
+        }
+
+        this.log.info(`UPGRADING SESSION`);
+
+        // Upgrade legacy token
+        // TODO: phase this out
+        const { session, token } = await this.create_session_token(user, meta);
+
+        const actor_type = new UserActorType({
+            user,
+            session,
+        });
+
+        const actor = new Actor({
+            user_uid: user.uuid,
+            type: actor_type,
+        });
+
+        return { actor, user, token };
+    }
+
     async create_access_token (authorizer, permissions) {
         const jwt_obj = {};
         const authorizer_obj = {};
@@ -204,6 +364,32 @@ class AuthService extends BaseService {
         }
 
         return jwt;
+    }
+
+    async list_sessions (actor) {
+        // We won't take the cached sessions here because it's
+        // possible the user has sessions on other servers
+        const sessions = await this.db.read(
+            'SELECT uuid, meta FROM `sessions` WHERE `user_id` = ?',
+            [actor.type.user.id],
+        );
+
+        sessions.forEach(session => {
+            if ( session.uuid === actor.type.session ) {
+                session.current = true;
+            }
+            session.meta = JSON.parse(session.meta ?? {});
+        });
+
+        return sessions;
+    }
+
+    async revoke_session (actor, uuid) {
+        delete this.sessions[uuid];
+        await this.db.write(
+            `DELETE FROM sessions WHERE uuid = ? AND user_id = ?`,
+            [uuid, actor.type.user.id]
+        );
     }
 
     async get_user_app_token_from_origin (origin) {
@@ -264,4 +450,5 @@ class AuthService extends BaseService {
 
 module.exports = {
     AuthService,
+    LegacyTokenError,
 };

@@ -41,12 +41,16 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
         this.db = new Database(this.config.path);
 
+        // Database upgrade logic
+        const TARGET_VERSION = 2;
+
         if ( do_setup ) {
             this.log.noticeme(`SETUP: creating database at ${this.config.path}`);
             const sql_files = [
                 '0001_create-tables.sql',
                 '0002_add-default-apps.sql',
                 '0003_user-permissions.sql',
+                '0004_sessions.sql',
             ].map(p => path_.join(__dirname, 'sqlite_setup', p));
             const fs = require('fs');
             for ( const filename of sql_files ) {
@@ -55,10 +59,8 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 const contents = fs.readFileSync(filename, 'utf8');
                 this.db.exec(contents);
             }
+            await this.db.exec(`PRAGMA user_version = ${TARGET_VERSION};`);
         }
-
-        // Database upgrade logic
-        const TARGET_VERSION = 1;
 
         const [{ user_version }] = await this._read('PRAGMA user_version');
         this.log.info('database version: ' + user_version);
@@ -67,6 +69,10 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
         if ( user_version <= 0 ) {
             upgrade_files.push('0003_user-permissions.sql');
+        }
+
+        if ( user_version <= 1 ) {
+            upgrade_files.push('0004_sessions.sql');
         }
 
         if ( upgrade_files.length > 0 ) {

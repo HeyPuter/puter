@@ -722,7 +722,14 @@ window.mutate_user_preferences = function(user_preferences_delta) {
 window.update_user_preferences = function(user_preferences) {
     window.user_preferences = user_preferences;
     localStorage.setItem('user_preferences', JSON.stringify(user_preferences));
-    window.locale = user_preferences.language ?? 'en';
+    const language = user_preferences.language ?? 'en';
+    window.locale = language;
+
+    // Broadcast locale change to apps
+    const broadcastService = globalThis.services.get('broadcast');
+    broadcastService.sendBroadcast('localeChanged', {
+        language: language,
+    }, { sendToNewAppInstances: true });
 }
 
 window.sendWindowWillCloseMsg = function(iframe_element) {
@@ -1852,6 +1859,10 @@ window.launch_app = async (options)=>{
     const uuid = options.uuid ?? uuidv4();
     let icon, title, file_signature;
     const window_options = options.window_options ?? {};
+
+    if (options.parent_instance_id) {
+        window_options.parent_instance_id = options.parent_instance_id;
+    }
 
     // try to get 3rd-party app info
     let app_info = options.app_obj ?? await get_apps(options.name);

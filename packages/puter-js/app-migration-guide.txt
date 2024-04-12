@@ -1,0 +1,12 @@
+all UI function calls from puter should be in the form `puter.ui.<function>`
+    e.g. `puter.showOpenFilePicker` becomes `puter.ui.showOpenFilePicker`
+
+puter.FileSystem.<function> -> puter.fs.<function>
+puter.Router.<function> -> puter.router.<function>
+puter.Apps.<function> -> puter.apps.<function>
+
+puter.setItem -> puter.kv.set
+puter.getItem -> puter.kv.get
+puter.removeItem -> puter.kv.del
+puter.createCloudItem(...) -> new puter.CloudItem(...)
+puter.router.* -> puter.hosting.*

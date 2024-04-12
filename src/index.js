@@ -53,11 +53,9 @@ window.gui = async function(options){
     window.max_item_name_length = options.max_item_name_length ?? 500;
     window.require_email_verification_to_publish_website = options.require_email_verification_to_publish_website ?? true;
 
-    // Add Puter.JS
-    await loadScript('https://js.puter.com/v2/');
-
     // DEV: Load the initgui.js file if we are in development mode
     if(!window.gui_env || window.gui_env === "dev"){
+        await loadScript('/sdk/puter.dev.js');
         await loadScript('/initgui.js', {isModule: true});
     }
     
@@ -65,6 +63,7 @@ window.gui = async function(options){
     // note: the order of the bundles is important
     // note: Build script will prepend `window.gui_env="prod"` to the top of the file
     else if(gui_env === "prod"){
+        await loadScript('https://js.puter.com/v2/');
         // Load the minified bundles
         await loadCSS('/dist/bundle.min.css');
         await loadScript('/dist/bundle.min.js');

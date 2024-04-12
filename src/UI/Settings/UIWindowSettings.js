@@ -25,6 +25,8 @@ import UIWindowChangeUsername from '../UIWindowChangeUsername.js'
 import changeLanguage from "../../i18n/i18nChangeLanguage.js"
 import UIWindowConfirmUserDeletion from './UIWindowConfirmUserDeletion.js';
 import UITabAbout from './UITabAbout.js';
+import UIWindowThemeDialog from '../UIWindowThemeDialog.js';
+import UIWindowManageSessions from '../UIWindowManageSessions.js';
 
 async function UIWindowSettings(options){
     return new Promise(async (resolve) => {
@@ -39,6 +41,7 @@ async function UIWindowSettings(options){
                 h += `<div class="settings-sidebar-item disable-user-select active" data-settings="about" style="background-image: url(${icons['logo-outline.svg']});">${i18n('about')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="usage" style="background-image: url(${icons['speedometer-outline.svg']});">${i18n('usage')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="account" style="background-image: url(${icons['user.svg']});">${i18n('account')}</div>`;
+                h += `<div class="settings-sidebar-item disable-user-select" data-settings="personalization" style="background-image: url(${icons['palette-outline.svg']});">${i18n('personalization')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="language" style="background-image: url(${icons['language.svg']});">${i18n('language')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="clock" style="background-image: url(${icons['clock.svg']});">${i18n('clock')}</div>`;
             h += `</div>`;
@@ -58,10 +61,12 @@ async function UIWindowSettings(options){
                                 <span id="storage-used"></span>
                                 <span> used of </span>
                                 <span id="storage-capacity"></span>
+                                <span id="storage-puter-used-w" style="display:none;">&nbsp;(<span id="storage-puter-used"></span> ${i18n('storage_puter_used')})</span>
                             </div>
                             <div id="storage-bar-wrapper">
                                 <span id="storage-used-percent"></span>
                                 <div id="storage-bar"></div>
+                                <div id="storage-bar-host"></div>
                             </div>
                         </div>`
                 h += `</div>`;
@@ -109,6 +114,26 @@ async function UIWindowSettings(options){
                         h += `</div>`;
                     h += `</div>`;
 
+                    // session manager
+                    h += `<div class="settings-card">`;
+                        h += `<strong>${i18n('sessions')}</strong>`;
+                        h += `<div style="flex-grow:1;">`;
+                            h += `<button class="button manage-sessions" style="float:right;">${i18n('manage_sessions')}</button>`;
+                        h += `</div>`;
+                    h += `</div>`;
+
+                h += `</div>`;
+
+                // Personalization
+                h += `<div class="settings-content" data-settings="personalization">`;
+                    h += `<h1>${i18n('personalization')}</h1>`;
+                    // change password button
+                    h += `<div class="settings-card">`;
+                        h += `<strong>${i18n('ui_colors')}</strong>`;
+                        h += `<div style="flex-grow:1;">`;
+                            h += `<button class="button change-ui-colors" style="float:right;">${i18n('change_ui_colors')}</button>`;
+                        h += `</div>`;
+                    h += `</div>`;
                 h += `</div>`;
 
                 // Language
@@ -247,10 +272,26 @@ async function UIWindowSettings(options){
                 let usage_percentage = (res.used / res.capacity * 100).toFixed(0);
                 usage_percentage = usage_percentage > 100 ? 100 : usage_percentage;
 
-                $('#storage-used').html(byte_format(res.used));
+                let general_used = res.used;
+
+                let host_usage_percentage = 0;
+                if ( res.host_used ) {
+                    $('#storage-puter-used').html(byte_format(res.used));
+                    $('#storage-puter-used-w').show();
+
+                    general_used = res.host_used;
+                    host_usage_percentage = ((res.host_used - res.used) / res.capacity * 100).toFixed(0);
+                }
+
+                $('#storage-used').html(byte_format(general_used));
                 $('#storage-capacity').html(byte_format(res.capacity));
-                $('#storage-used-percent').html(usage_percentage + '%');
+                $('#storage-used-percent').html(
+                    usage_percentage + '%' +
+                    (host_usage_percentage > 0
+                        ? ' / ' + host_usage_percentage + '%' : '')
+                );
                 $('#storage-bar').css('width', usage_percentage + '%');
+                $('#storage-bar-host').css('width', host_usage_percentage + '%');
                 if (usage_percentage >= 100) {
                     $('#storage-bar').css({
                         'border-top-right-radius': '3px',
@@ -304,6 +345,14 @@ async function UIWindowSettings(options){
 
         $(el_window).find('.change-username').on('click', function (e) {
             UIWindowChangeUsername();
+        })
+
+        $(el_window).find('.change-ui-colors').on('click', function (e) {
+            UIWindowThemeDialog();
+        })
+
+        $(el_window).find('.manage-sessions').on('click', function (e) {
+            UIWindowManageSessions();
         })
 
         $(el_window).on('click', '.settings-sidebar-item', function(){

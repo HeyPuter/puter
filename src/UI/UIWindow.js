@@ -185,6 +185,7 @@ async function UIWindow(options) {
                 data-uid ="${options.uid}"
                 data-element_uuid="${options.element_uuid}"
                 data-parent_uuid="${options.parent_uuid}"
+                ${options.parent_instance_id ? `data-parent_instance_id="${options.parent_instance_id}"` : ''}
                 data-id ="${win_id}"
                 data-iframe_msg_uid ="${options.iframe_msg_uid}"
                 data-is_dir ="${options.is_dir}"
@@ -2745,8 +2746,9 @@ $.fn.close = async function(options) {
     options = options || {};
     $(this).each(async function() {
         const el_iframe = $(this).find('.window-app-iframe');
+        const app_uses_sdk = el_iframe.length > 0 && el_iframe.attr('data-appUsesSDK') === 'true';
         // tell child app that this window is about to close, get its response
-        if(el_iframe.length > 0 && el_iframe.attr('data-appUsesSDK') === 'true'){
+        if(app_uses_sdk){
             if(!options.bypass_iframe_messaging){
                 const resp = await sendWindowWillCloseMsg(el_iframe.get(0));
                 if(!resp.msg){
@@ -2819,6 +2821,30 @@ $.fn.close = async function(options) {
             }
             // close child windows
             $(`.window[data-parent_uuid="${window_uuid}"]`).close();
+
+            // notify other apps that we're closing
+            if (app_uses_sdk) {
+                // notify parent app, if we have one, that we're closing
+                const parent_id = this.dataset['parent_instance_id'];
+                const parent = $(`.window[data-element_uuid="${parent_id}"] .window-app-iframe`).get(0);
+                if (parent) {
+                    parent.contentWindow.postMessage({
+                        msg: 'appClosed',
+                        appInstanceID: window_uuid,
+                    }, '*');
+                }
+
+                // notify child apps, if we have them, that we're closing
+                const children = $(`.window[data-parent_instance_id="${window_uuid}"] .window-app-iframe`);
+                children.each((_, child) => {
+                    child.contentWindow.postMessage({
+                        msg: 'appClosed',
+                        appInstanceID: window_uuid,
+                    }, '*');
+                });
+                // TODO: Once other AppConnections exist, those will need notifying too.
+            }
+
             // remove backdrop
             $(this).closest('.window-backdrop').remove();
             // remove DOM element
