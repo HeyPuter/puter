@@ -186,7 +186,7 @@ class AuthService extends BaseService {
                     req.connection.remoteAddress
                 : req.connection.remoteAddress
                 ;
-        
+
             meta.ip = ip;
 
             meta.server = this.global_config.server_id;
@@ -240,6 +240,8 @@ class AuthService extends BaseService {
             [uuid],
         );
 
+        if ( ! session ) return;
+
         session.meta = this.db.case({
             mysql: () => session.meta,
             otherwise: () => JSON.parse(session.meta ?? "{}")
@@ -274,7 +276,7 @@ class AuthService extends BaseService {
         }
 
         const is_legacy = ! decoded.type;
-        
+
         const user = await get_user({ uuid:
             is_legacy ? decoded.uuid : decoded.user_uid
         });
