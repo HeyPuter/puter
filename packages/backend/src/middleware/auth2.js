@@ -97,6 +97,12 @@ const auth2 = async (req, res, next) => {
             req.token = new_info.token;
             req.user = new_info.user;
             req.actor = new_info.actor;
+
+            res.cookie(config.cookie_name, new_info.token, {
+                sameSite: 'none',
+                secure: true,
+                httpOnly: true,
+            });
             next();
             return;
         }
