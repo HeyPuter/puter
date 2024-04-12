@@ -63,8 +63,10 @@ const auth2 = async (req, res, next) => {
 
     if(!token) {
         APIError.create('token_missing').write(res);
+        return;
     } else if (typeof token !== 'string') {
         APIError.create('token_auth_failed').write(res);
+        return;
     } else {
         token = token.replace('Bearer ', '')
     }

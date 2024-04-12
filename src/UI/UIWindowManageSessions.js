@@ -87,6 +87,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions () {
             const resp = await fetch(`${api_origin}/auth/revoke-session`, {
                 method: 'POST',
                 headers: {
+                    Authorization: `Bearer ${puter.authToken}`,
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
@@ -115,6 +116,9 @@ const UIWindowManageSessions = async function UIWindowManageSessions () {
 
     const reload_sessions = async () => {
         const resp = await fetch(`${api_origin}/auth/list-sessions`, {
+            headers: {
+                Authorization: `Bearer ${puter.authToken}`,
+            },
             method: 'GET',
         });
 
