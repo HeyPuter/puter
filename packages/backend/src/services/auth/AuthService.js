@@ -214,6 +214,9 @@ class AuthService extends BaseService {
             }
         }
 
+        meta.created = new Date().toISOString();
+        meta.created_unix = Math.floor(Date.now() / 1000);
+
         const uuid = this.modules.uuidv4();
         await this.db.write(
             'INSERT INTO `sessions` ' +
