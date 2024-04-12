@@ -17,7 +17,7 @@ class SelfhostedModule extends AdvancedBase {
             commands: [
                 {
                     name: 'puter.js:webpack-watch',
-                    directory: 'packages/puter-dot-js',
+                    directory: 'packages/puter-js',
                     command: 'npm',
                     args: ['run', 'start-webpack'],
                 },
@@ -29,7 +29,7 @@ class SelfhostedModule extends AdvancedBase {
             directories: [
                 {
                     prefix: '/sdk',
-                    path: path_.resolve(__dirname, '../../../packages/puter-dot-js/dist'),
+                    path: path_.resolve(__dirname, '../../../packages/puter-js/dist'),
                 },
             ],
         });
