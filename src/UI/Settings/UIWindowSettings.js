@@ -134,14 +134,6 @@ async function UIWindowSettings(options){
                             h += `<button class="button change-ui-colors" style="float:right;">${i18n('change_ui_colors')}</button>`;
                         h += `</div>`;
                     h += `</div>`;
-                    // h += `<div style="display: flex;align-items: center">`
-                    // h += `<span>${i18n('mode')}:</span>`
-                    //     h += `<select class="change-light-mode" style="margin-left: 10px;flex: 1">`
-                    //         h += `<option value="system">${i18n('system')}</option>`
-                    //         h += `<option value="light">${i18n('light')}</option>`
-                    //         h += `<option value="dark">${i18n('dark')}</option>`
-                    //     h += `</select>`
-                    // h += `</div>`
                 h += `</div>`;
 
                 // Language
