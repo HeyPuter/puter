@@ -18,7 +18,23 @@
  */
 const APIError = require("../api/APIError");
 const config = require("../config");
+const { UserActorType } = require("../services/auth/Actor");
+const { LegacyTokenError } = require("../services/auth/AuthService");
 const { Context } = require("../util/context");
+
+// The "/whoami" endpoint is a special case where we want to allow
+// a legacy token to be used for authentication. The "/whoami"
+// endpoint will then return a new token for further requests.
+//
+const is_whoami = (req) => {
+    if ( ! config.legacy_token_migrate ) return;
+
+    if ( req.path !== '/whoami' ) return;
+
+    // const subdomain = req.subdomains[res.subdomains.length - 1];
+    // if ( subdomain !== 'api' ) return;
+    return true;
+}
 
 // TODO: Allow auth middleware to be used without requiring
 // authentication. This will allow us to use the auth middleware
@@ -68,6 +84,20 @@ const auth2 = async (req, res, next) => {
     } catch ( e ) {
         if ( e instanceof APIError ) {
             e.write(res);
+            return;
+        }
+        if ( e instanceof LegacyTokenError && is_whoami(req) ) {
+            const new_info = await svc_auth.check_session(token, {
+                req,
+                from_upgrade: true,
+            })
+            context.set('actor', new_info.actor);
+            context.set('user', new_info.user);
+            req.new_token = new_info.token;
+            req.token = new_info.token;
+            req.user = new_info.user;
+            req.actor = new_info.actor;
+            next();
             return;
         }
         const re = APIError.create('token_auth_failed');

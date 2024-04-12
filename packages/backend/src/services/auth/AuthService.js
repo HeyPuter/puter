@@ -25,6 +25,8 @@ const { DB_WRITE } = require("../database/consts");
 
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 
+const LegacyTokenError = class extends Error {};
+
 class AuthService extends BaseService {
     static MODULES = {
         jwt: require('jsonwebtoken'),
@@ -45,7 +47,7 @@ class AuthService extends BaseService {
         );
 
         if ( ! decoded.hasOwnProperty('type') ) {
-            throw new Error('legacy token');
+            throw new LegacyTokenError();
             const user = await this.db.requireRead(
                 "SELECT * FROM `user` WHERE `uuid` = ?  LIMIT 1",
                 [decoded.uuid],
@@ -251,7 +253,7 @@ class AuthService extends BaseService {
             user_uid: user.uuid,
         }, this.global_config.jwt_secret);
 
-        return token;
+        return { session, token };
     }
 
     async check_session (cur_token, meta) {
@@ -264,13 +266,17 @@ class AuthService extends BaseService {
         if ( decoded.type && decoded.type !== 'session' ) {
             return {};
         }
+
+        const is_legacy = ! decoded.type;
         
-        const user = await get_user({ uuid: decoded.user_uid });
+        const user = await get_user({ uuid:
+            is_legacy ? decoded.uuid : decoded.user_uid
+        });
         if ( ! user ) {
             return {};
         }
 
-        if ( decoded.type ) {
+        if ( ! is_legacy ) {
             // Ensure session exists
             const session = await this.get_session_(decoded.uuid);
             if ( ! session ) {
@@ -285,8 +291,19 @@ class AuthService extends BaseService {
 
         // Upgrade legacy token
         // TODO: phase this out
-        const { token } = await this.create_session_token(user, meta);
-        return { user, token };
+        const { session, token } = await this.create_session_token(user, meta);
+
+        const actor_type = new UserActorType({
+            user,
+            session,
+        });
+
+        const actor = new Actor({
+            user_uid: user.uuid,
+            type: actor_type,
+        });
+
+        return { actor, user, token };
     }
 
     async create_access_token (authorizer, permissions) {
@@ -430,4 +447,5 @@ class AuthService extends BaseService {
 
 module.exports = {
     AuthService,
+    LegacyTokenError,
 };

@@ -366,7 +366,7 @@ window.initgui = async function(){
                 }
                 while(!is_verified)
             }
-            update_auth_data(window.auth_token, whoami);
+            update_auth_data(whoami.token || window.auth_token, whoami);
 
             // -------------------------------------------------------------------------------------
             // Load desktop, only if we're not embedded in a popup
