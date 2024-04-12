@@ -116,6 +116,12 @@ your first step. This user by default has 10GB storage instead of the default
 
 <br/>
 
+##  License
+
+This repository is licensed under AGPL3. However, our SDK (puter.js) is also available under Apache 2.0, as indicated by the license file in that section (packages/puter-dot-js) of this repository.
+
+<br/>
+
 ## FAQ
 
 ### ❓ What's the use case for Puter?

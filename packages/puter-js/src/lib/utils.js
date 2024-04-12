@@ -1,0 +1,436 @@
+/**
+ * Parses a given response text into a JSON object. If the parsing fails due to invalid JSON format,
+ * the original response text is returned.
+ *
+ * @param {string} responseText - The response text to be parsed into JSON. It is expected to be a valid JSON string.
+ * @returns {Object|string} The parsed JSON object if the responseText is valid JSON, otherwise returns the original responseText.
+ * @example
+ * // returns { key: "value" }
+ * parseResponse('{"key": "value"}');
+ *
+ * @example
+ * // returns "Invalid JSON"
+ * parseResponse('Invalid JSON');
+ */
+async function parseResponse(target) {
+    if ( target.responseType === 'blob' ) {
+        // Get content type of the blob
+        const contentType = target.getResponseHeader('content-type');
+        if ( contentType.startsWith('application/json') ) {
+            // If the blob is JSON, parse it
+            const text = await target.response.text();
+            try {
+                return JSON.parse(text);
+            } catch (error) {
+                return text;
+            }
+        }else if ( contentType.startsWith('application/octet-stream') ) {
+            // If the blob is an octet stream, return the blob
+            return target.response;
+        }
+
+        // Otherwise return an ojbect
+        return {
+            success: true,
+            result: target.response,
+        };
+    }
+    const responseText = target.responseText;
+    try {
+        return JSON.parse(responseText);
+    } catch (error) {
+        return responseText;
+    }
+}
+
+/**
+ * A function that generates a UUID (Universally Unique Identifier) using the version 4 format, 
+ * which are random UUIDs. It uses the cryptographic number generator available in modern browsers.
+ *
+ * The generated UUID is a 36 character string (32 alphanumeric characters separated by 4 hyphens). 
+ * It follows the pattern: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx, where x is any hexadecimal digit 
+ * and y is one of 8, 9, A, or B.
+ *
+ * @returns {string} Returns a new UUID v4 string.
+ *
+ * @example
+ * 
+ * let id = this.#uuidv4(); // Generate a new UUID
+ * 
+ */
+function uuidv4(){
+    return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
+        (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+    );
+}
+
+
+/**
+ * Initializes and returns an XMLHttpRequest object configured for a specific API endpoint, method, and headers.
+ *
+ * @param {string} endpoint - The API endpoint to which the request will be sent. This is appended to the API origin URL.
+ * @param {string} APIOrigin - The origin URL of the API. This is prepended to the endpoint.
+ * @param {string} authToken - The authorization token used for accessing the API. This is included in the request headers.
+ * @param {string} [method='post'] - The HTTP method to be used for the request. Defaults to 'post' if not specified.
+ * @param {string} [contentType='application/json;charset=UTF-8'] - The content type of the request. Defaults to
+ *                                                                  'application/json;charset=UTF-8' if not specified.
+ *
+ * @returns {XMLHttpRequest} The initialized XMLHttpRequest object.
+ */
+function initXhr(endpoint, APIOrigin, authToken, method= "post", contentType = "application/json;charset=UTF-8", responseType = undefined) {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, APIOrigin + endpoint, true);
+    xhr.setRequestHeader("Authorization", "Bearer " + authToken);
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.responseType = responseType;
+    return xhr;
+}
+
+/**
+ * Handles an HTTP response by invoking appropriate callback functions and resolving or rejecting a promise.
+ * 
+ * @param {Function} success_cb - An optional callback function for successful responses. It should take a response object
+ *                                as its only argument.
+ * @param {Function} error_cb - An optional callback function for error handling. It should take an error object
+ *                              as its only argument.
+ * @param {Function} resolve_func - A function used to resolve a promise. It should take a response object
+ *                                  as its only argument.
+ * @param {Function} reject_func - A function used to reject a promise. It should take an error object
+ *                                 as its only argument.
+ * @param {Object} response - The HTTP response object from the request. Expected to have 'status' and 'responseText'
+ *                            properties.
+ * 
+ * @returns {void} The function does not return a value but will either resolve or reject a promise based on the
+ *                 response status.
+ */
+async function handle_resp(success_cb, error_cb, resolve_func, reject_func, response){
+    const resp = await parseResponse(response);
+    // error - unauthorized
+    if(response.status === 401){
+        // if error callback is provided, call it
+        if(error_cb && typeof error_cb === 'function')
+            error_cb({status: 401, message: 'Unauthorized'})
+        // reject promise
+        return reject_func({status: 401, message: 'Unauthorized'})
+    }
+    // error - other
+    else if(response.status !== 200){
+        // if error callback is provided, call it
+        if(error_cb && typeof error_cb === 'function')
+            error_cb(resp)
+        // reject promise
+        return reject_func(resp)
+    }
+    // success
+    else{
+        // This is a driver error
+        if(resp.success === false && resp.error?.code === 'permission_denied'){
+            let perm = await puter.ui.requestPermission({permission: 'driver:puter-image-generation:generate'});
+            // try sending again if permission was granted
+            if(perm.granted){
+                // todo repeat request
+            }
+        }
+        // if success callback is provided, call it
+        if(success_cb && typeof success_cb === 'function')
+            success_cb(resp);
+        // resolve with success
+        return resolve_func(resp);
+    }
+}
+
+/**
+ * Handles an error by invoking a specified error callback and then rejecting a promise.
+ * 
+ * @param {Function} error_cb - An optional callback function that is called if it's provided.
+ *                              This function should take an error object as its only argument.
+ * @param {Function} reject_func - A function used to reject a promise. It should take an error object
+ *                                 as its only argument.
+ * @param {Object} error - The error object that is passed to both the error callback and the reject function.
+ * 
+ * @returns {void} The function does not return a value but will call the reject function with the error.
+ */
+function handle_error(error_cb, reject_func, error){
+    // if error callback is provided, call it
+    if(error_cb && typeof error_cb === 'function')
+        error_cb(error)
+    // reject promise
+    return reject_func(error)
+}
+
+function setupXhrEventHandlers(xhr, success_cb, error_cb, resolve_func, reject_func) {
+    // load: success or error
+    xhr.addEventListener('load', function(e){
+        return handle_resp(success_cb, error_cb, resolve_func, reject_func, this, xhr);
+    });
+
+    // error
+    xhr.addEventListener('error', function(e){
+        return handle_error(error_cb, reject_func, this);
+    })
+}
+
+const NOOP = () => {};
+class Valid {
+    static callback (cb) {
+        return (cb && typeof cb === 'function') ? cb : undefined;
+    }
+}
+
+/**
+ * Makes the hybrid promise/callback function for a particular driver method
+ * @param {string[]} arg_defs - argument names (for now; definitions eventually)
+ * @param {string} driverInterface - name of the interface
+ * @param {string} driverMethod - name of the method
+ */
+function make_driver_method(arg_defs, driverInterface, driverMethod, settings = {}) {
+    return async function (...args) {
+        let driverArgs = {};
+        let options = {};
+
+        // Check if the first argument is an object and use it as named parameters
+        if (args.length === 1 && typeof args[0] === 'object' && !Array.isArray(args[0])) {
+            driverArgs = { ...args[0] };
+            options = {
+                success: driverArgs.success,
+                error: driverArgs.error,
+            };
+            // Remove callback functions from driverArgs if they exist
+            delete driverArgs.success;
+            delete driverArgs.error;
+        } else {
+            // Handle as individual arguments
+            arg_defs.forEach((argName, index) => {
+                driverArgs[argName] = args[index];
+            });
+            options = {
+                success: args[arg_defs.length],
+                error: args[arg_defs.length + 1],
+            };
+        }
+
+        // preprocess
+        if(settings.preprocess && typeof settings.preprocess === 'function'){
+            driverArgs = settings.preprocess(driverArgs);
+        }
+
+        return await driverCall(options, driverInterface, driverMethod, driverArgs, settings);
+    };
+}
+
+async function driverCall (options, driverInterface, driverMethod, driverArgs, settings) {
+    const tp = new TeePromise();
+
+    driverCall_(
+        options,
+        tp.resolve.bind(tp),
+        tp.reject.bind(tp),
+        driverInterface,
+        driverMethod,
+        driverArgs,
+        undefined,
+        undefined,
+        settings,
+    );
+
+    return await tp;
+}
+
+// This function encapsulates the logic for sending a driver call request
+async function driverCall_(
+    options = {},
+    resolve_func, reject_func,
+    driverInterface, driverMethod, driverArgs,
+    method,
+    contentType = 'application/json;charset=UTF-8',
+    settings = {},
+) {
+    // If there is no authToken and the environment is web, try authenticating with Puter
+    if(!puter.authToken && puter.env === 'web'){
+        try{
+            await puter.ui.authenticateWithPuter();
+        }catch(e){
+            return reject_func({
+                error: {
+                    code: 'auth_canceled', message: 'Authentication canceled'
+                }
+            })
+        }
+    }
+
+    const success_cb = Valid.callback(options.success) ?? NOOP;
+    const error_cb = Valid.callback(options.error) ?? NOOP;
+    // create xhr object
+    const xhr = initXhr('/drivers/call', puter.APIOrigin, puter.authToken, 'POST', contentType);
+
+    if ( settings.responseType ) {
+        xhr.responseType = settings.responseType;
+    }
+
+    // load: success or error
+    xhr.addEventListener('load', async function(response){
+        const resp = await parseResponse(response.target);
+        // HTTP Error - unauthorized
+        if(response.status === 401 || resp?.code === "token_auth_failed"){
+            if(resp?.code === "token_auth_failed" && puter.env === 'web'){
+                try{
+                    puter.resetAuthToken();
+                    await puter.ui.authenticateWithPuter();
+                }catch(e){
+                    return reject_func({
+                        error: {
+                            code: 'auth_canceled', message: 'Authentication canceled'
+                        }
+                    })
+                }
+            }
+            // if error callback is provided, call it
+            if(error_cb && typeof error_cb === 'function')
+                error_cb({status: 401, message: 'Unauthorized'})
+            // reject promise
+            return reject_func({status: 401, message: 'Unauthorized'})
+        }
+        // HTTP Error - other
+        else if(response.status && response.status !== 200){
+            // if error callback is provided, call it
+            error_cb(resp)
+            // reject promise
+            return reject_func(resp)
+        }
+        // HTTP Success
+        else{
+            // Driver Error: permission denied
+            if(resp.success === false && resp.error?.code === 'permission_denied'){
+                let perm = await puter.ui.requestPermission({permission: 'driver:' + driverInterface + ':' + driverMethod});
+                // try sending again if permission was granted
+                if(perm.granted){
+                    // repeat request with permission granted
+                    return driverCall_(options, resolve_func, reject_func, driverInterface, driverMethod, driverArgs, method, contentType, settings);
+                }else{
+                    // if error callback is provided, call it
+                    error_cb(resp)
+                    // reject promise
+                    return reject_func(resp)
+                }
+            }
+            // Driver Error: other
+            else if(resp.success === false){
+                // if error callback is provided, call it
+                error_cb(resp)
+                // reject promise
+                return reject_func(resp)
+            }
+
+            let result = resp.result !== undefined ? resp.result : resp;
+            if ( settings.transform ) {
+                result = await settings.transform(result);
+            }
+
+            // Success: if callback is provided, call it
+            if(resolve_func.success)
+                success_cb(result);
+            // Success: resolve with the result
+            return resolve_func(result);
+        }
+    });
+
+    // error
+    xhr.addEventListener('error', function(e){
+        return handle_error(error_cb, reject_func, this);
+    })
+
+    // send request
+    xhr.send(JSON.stringify({
+        interface: driverInterface,
+        test_mode: settings?.test_mode, 
+        method: driverMethod,
+        args: driverArgs,
+    }));
+}
+
+class TeePromise {
+    static STATUS_PENDING = {};
+    static STATUS_RUNNING = {};
+    static STATUS_DONE = {};
+    constructor () {
+        this.status_ = this.constructor.STATUS_PENDING;
+        this.donePromise = new Promise((resolve, reject) => {
+            this.doneResolve = resolve;
+            this.doneReject = reject;
+        });
+    }
+    get status () {
+        return this.status_;
+    }
+    set status (status) {
+        this.status_ = status;
+        if ( status === this.constructor.STATUS_DONE ) {
+            this.doneResolve();
+        }
+    }
+    resolve (value) {
+        this.status_ = this.constructor.STATUS_DONE;
+        this.doneResolve(value);
+    }
+    awaitDone () {
+        return this.donePromise;
+    }
+    then (fn, rfn) {
+        return this.donePromise.then(fn, rfn);
+    }
+
+    reject (err) {
+        this.status_ = this.constructor.STATUS_DONE;
+        this.doneReject(err);
+    }
+    
+    /**
+     * @deprecated use then() instead
+     */
+    onComplete(fn) {
+        return this.then(fn);
+    }
+}
+
+async function blob_to_url (blob) {
+    const tp = new TeePromise();
+    const reader = new FileReader();
+    reader.onloadend = () => tp.resolve(reader.result);
+    reader.readAsDataURL(blob);
+    return await tp;
+}
+
+function blobToDataUri(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            resolve(event.target.result);
+        };
+        reader.onerror = function(error) {
+            reject(error);
+        };
+        reader.readAsDataURL(blob);
+    });
+}
+
+function arrayBufferToDataUri(arrayBuffer) {
+    return new Promise((resolve, reject) => {
+        const blob = new Blob([arrayBuffer]);
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            resolve(event.target.result);
+        };
+        reader.onerror = function(error) {
+            reject(error);
+        };
+        reader.readAsDataURL(blob);
+    });
+}
+
+export {parseResponse, uuidv4, handle_resp, handle_error, initXhr, setupXhrEventHandlers, driverCall,
+    TeePromise,
+    make_driver_method,
+    blob_to_url,
+    arrayBufferToDataUri,
+    blobToDataUri,
+};
