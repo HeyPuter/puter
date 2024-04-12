@@ -128,6 +128,7 @@ export class ThemeService extends Service {
                 primarySaturation: s.sat + '%',
                 primaryLightness: s.lig + '%',
                 primaryAlpha: s.alpha,
+                primaryColor: s.light_text ? 'white' : '#373e44',
             },
         }, { sendToNewAppInstances: true });
     }   
