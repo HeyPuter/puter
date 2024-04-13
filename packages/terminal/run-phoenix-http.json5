@@ -1,0 +1,35 @@
+{
+    init: [
+        {
+            pwd: '.',
+            command: 'npx rollup -c rollup.config.js'
+        },
+        {
+            pwd: '../phoenix',
+            command: 'npx rollup -c rollup.config.js'
+        },
+    ],
+    services: [
+        {
+            name: 'term.rollup',
+            pwd: '.',
+            command: 'npx rollup -c rollup.config.js --watch',
+        },
+        {
+            name: 'shell.rollup',
+            command: 'npx rollup -c rollup.config.js --watch',
+            pwd: '../phoenix'
+        },
+        {
+            name: 'term.http',
+            pwd: './dist',
+            command: 'npx http-server -p 8082 -c-1',
+        },
+        {
+            name: 'shell.http',
+            pwd: '../phoenix/dist',
+            // command: 'npx http-server -p 8080 -S -C "{cert}" -K "{key}"',
+            command: 'npx http-server -p 8080 -c-1',
+        },
+    ],
+}

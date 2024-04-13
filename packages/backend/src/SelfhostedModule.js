@@ -21,6 +21,18 @@ class SelfhostedModule extends AdvancedBase {
                     command: 'npm',
                     args: ['run', 'start-webpack'],
                 },
+                {
+                    name: 'terminal:rollup-watch',
+                    directory: 'packages/terminal',
+                    command: 'npx',
+                    args: ['rollup', '-c', 'rollup.config.js', '--watch'],
+                },
+                {
+                    name: 'phoenix:rollup-watch',
+                    directory: 'packages/terminal',
+                    command: 'npx',
+                    args: ['rollup', '-c', 'rollup.config.js', '--watch'],
+                },
             ],
         });
 
@@ -30,6 +42,14 @@ class SelfhostedModule extends AdvancedBase {
                 {
                     prefix: '/sdk',
                     path: path_.resolve(__dirname, '../../../packages/puter-js/dist'),
+                },
+                {
+                    prefix: '/builtin/terminal',
+                    path: path_.resolve(__dirname, '../../../packages/terminal/dist'),
+                },
+                {
+                    prefix: '/builtin/phoenix',
+                    path: path_.resolve(__dirname, '../../../packages/phoenix/dist'),
                 },
             ],
         });
