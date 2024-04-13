@@ -25,6 +25,7 @@ import UIWindowLogin from './UIWindowLogin.js';
 import UIWindowPublishWebsite from './UIWindowPublishWebsite.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
 import new_context_menu_item from '../helpers/new_context_menu_item.js';
+import refresh_item_container from '../helpers/refresh_item_container.js';
 
 const el_body = document.getElementsByTagName('body')[0];
 
