@@ -1,9 +1,3 @@
-# Important notice
-
-This repository is being moved to [the monorepo](https://github.com/HeyPuter/puter).
-
-<hr />
-
 <h2 align="center">Phoenix</h2>
 <h3 align="center">Puter's pure-javascript shell</h3>
 <h3 align="center"><img alt="" src="./doc/readme-gif.gif"></h3>
