@@ -1155,34 +1155,22 @@ async function jwt_auth(req){
         token = token.replace('Bearer ', '')
 
     try{
-        const jwt = require('jsonwebtoken');
-        const decoded = jwt.verify(token, config.jwt_secret)
+        const svc_auth = Context.get('services').get('auth');
+        const actor = await svc_auth.authenticate_from_token(token);
 
-        if ( decoded.type ) {
-            // This is usually not the correct way to throw an APIError;
-            // this is a workaround for the existing error handling in auth,
-            // which is well tested, stable, and legacy (no sense in refactoring)
+        if ( ! actor.type?.constructor?.name === 'UserActorType' ) {
             throw({
                 message: APIError.create('token_unsupported')
                     .serialize(),
             });
         }
 
-        /** @type BaseDatabaseAccessService */
-        const db = services.get('database').get(DB_READ, 'filesystem');
-
-        // in the vast majority of cases looking up a user should succeed unless the request is invalid (rare case),
-        // that's why we first hit up the read replica and if not successful we try the master DB
-        let user = await db.requireRead('SELECT * FROM `user` WHERE `uuid` = ? LIMIT 1', [decoded.uuid]);
-
-        // unsuccessful
-        if(!user[0])
-            throw('');
-        // successful
-        else {
-            return {user: user[0], token: token};
-        }
+        return {
+            user: actor.type.user,
+            token: token,
+        };
     }catch(e){
+        console.log('ERROR', e);
         throw(e.message);
     }
 }
