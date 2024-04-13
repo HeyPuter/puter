@@ -2052,6 +2052,7 @@ window.launch_app = async (options)=>{
             is_maximized: options.maximized,
             is_fullpage: options.is_fullpage,
             ...window_options,
+            show_in_taskbar: app_info.background ? false : window_options?.show_in_taskbar,
         }); 
 
         if ( ! app_info.background ) {
