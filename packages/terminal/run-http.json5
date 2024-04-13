@@ -1,0 +1,14 @@
+{
+    services: [
+        {
+            name: 'term.http',
+            pwd: './dist',
+            command: 'npx http-server -p 8082',
+        },
+        {
+            name: 'term.rollup',
+            pwd: '.',
+            command: 'npx rollup -c rollup.config.js --watch',
+        },
+    ]
+}

@@ -1,0 +1,24 @@
+{
+    services: [
+        {
+            name: 'term.http',
+            pwd: './dist',
+            command: 'npx http-server -p 8082 -S -C "{cert}" -K "{key}"',
+        },
+        {
+            name: 'ansi.http',
+            pwd: '../phoenix/dist',
+            command: 'npx http-server -p 8080 -S -C "{cert}" -K "{key}"',
+        },
+        {
+            name: 'term.rollup',
+            command: 'npx rollup -c rollup.config.js --watch',
+            pwd: '.'
+        },
+        {
+            name: 'ansi.rollup',
+            command: 'npx rollup -c rollup.config.js --watch',
+            pwd: '../phoenix'
+        },
+    ]
+}
