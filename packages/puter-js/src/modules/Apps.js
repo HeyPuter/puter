@@ -63,6 +63,7 @@ class Apps{
                     description: options_raw.description,
                     icon: options_raw.icon,
                     maximize_on_start: options_raw.maximizeOnStart,
+                    background: options_raw.background,
                     filetype_associations: options_raw.filetypeAssociations,
                 }
             };
@@ -85,6 +86,7 @@ class Apps{
                 description: object_raw.description,
                 icon: object_raw.icon,
                 maximize_on_start: object_raw.maximizeOnStart,
+                background: object_raw.background,
                 filetype_associations: object_raw.filetypeAssociations,
             };
 
