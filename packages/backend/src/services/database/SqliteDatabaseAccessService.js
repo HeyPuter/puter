@@ -42,7 +42,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         this.db = new Database(this.config.path);
 
         // Database upgrade logic
-        const TARGET_VERSION = 3;
+        const TARGET_VERSION = 4;
 
         if ( do_setup ) {
             this.log.noticeme(`SETUP: creating database at ${this.config.path}`);
