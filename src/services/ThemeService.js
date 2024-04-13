@@ -28,6 +28,7 @@ const default_values = {
     hue: 210,
     lig: 93.33,
     alpha: 0.8,
+    light_text: false,
 };
 
 export class ThemeService extends Service {
@@ -41,6 +42,7 @@ export class ThemeService extends Service {
             hue: 210,
             lig: 93.33,
             alpha: 0.8,
+            light_text: false,
         };
         this.root = document.querySelector(':root');
         // this.ss = new CSSStyleSheet();
@@ -104,7 +106,7 @@ export class ThemeService extends Service {
 
     get (key) { return this.state[key]; }
 
-    reload_ () {
+    reload_() {
         // debugger;
         const s = this.state;
         // this.ss.replace(`
@@ -117,6 +119,7 @@ export class ThemeService extends Service {
         this.root.style.setProperty('--primary-saturation', s.sat + '%');
         this.root.style.setProperty('--primary-lightness', s.lig + '%');
         this.root.style.setProperty('--primary-alpha', s.alpha);
+        this.root.style.setProperty('--primary-color', s.light_text ? 'white' : '#373e44');
 
         // TODO: Should we debounce this to reduce traffic?
         this.#broadcastService.sendBroadcast('themeChanged', {
@@ -125,9 +128,10 @@ export class ThemeService extends Service {
                 primarySaturation: s.sat + '%',
                 primaryLightness: s.lig + '%',
                 primaryAlpha: s.alpha,
+                primaryColor: s.light_text ? 'white' : '#373e44',
             },
         }, { sendToNewAppInstances: true });
-    }
+    }   
 
     save_ () {
         if ( this.save_cooldown_ ) {
@@ -141,7 +145,7 @@ export class ThemeService extends Service {
         puter.fs.write(PUTER_THEME_DATA_FILENAME, JSON.stringify(
             { colors: this.state },
             undefined,
-            4,
+            5,
         ));
     }
 }

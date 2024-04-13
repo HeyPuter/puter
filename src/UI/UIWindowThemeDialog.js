@@ -42,6 +42,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
                 var(--primary-lightness),
                 var(--primary-alpha))`,
             'backdrop-filter': 'blur(3px)',
+            
         }
     });
     const w_body = w.querySelector('.window-body');
@@ -67,6 +68,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
         const wrap = document.createElement('div');
         const label_el = document.createElement('label');
         label_el.textContent = label;
+        label_el.style = "color:var(--primary-color)";
         wrap.appendChild(label_el);
         const el = document.createElement('input');
         wrap.appendChild(el);
@@ -76,6 +78,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
         el.defaultValue = initial ?? min;
         el.step = step ?? 1;
         el.classList.add('theme-dialog-slider');
+        
 
         return {
             appendTo (parent) {
@@ -96,7 +99,11 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
 
     const slider_ch = (e) => {
         state[e.meta.name] = e.target.value;
+        if (e.meta.name === 'lig') {
+            state.light_text = e.target.value < 60 ? true : false;
+        }
         svc_theme.apply(state);
+        console.log(state);
     };
 
     Button({ label: i18n('reset_colors') })
