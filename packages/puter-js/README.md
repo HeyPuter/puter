@@ -15,25 +15,6 @@
     <a href="https://twitter.com/HeyPuter">X (Twitter)</a>
 </p>
 
-## Installation
-```
-git clone https://github.com/HeyPuter/puter.js.git
-cd puter.js
-npm install
-```
-
-## Run development server
-
-```
-npm start
-```
-
-## Build
-
-```
-npm run build
-```
-
 ### Example
 Make sure the development server is running.
 

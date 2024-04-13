@@ -22,9 +22,7 @@ The shell is a work in progress. The following improvements are considered in-sc
 
 ### In a Browser
 
-You can use the [terminal on Puter](https://puter.com/app/terminal),
-or run from source by following the instructions provided for
-[Puter's terminal emulator](https://github.com/HeyPuter/terminal).
+You can use the [terminal on Puter](https://puter.com/app/terminal), including self-hosted installations.
 
 ### Running in Node
 
