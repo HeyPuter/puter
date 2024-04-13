@@ -1,0 +1,39 @@
+{
+  "name": "dev-ansi-terminal",
+  "version": "0.0.0",
+  "description": "ANSI Terminal for Puter",
+  "main": "exports.js",
+  "scripts": {
+    "test": "mocha ./test"
+  },
+  "author": "Puter Technologies Inc.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^24.1.0",
+    "@rollup/plugin-node-resolve": "^15.0.2",
+    "@rollup/plugin-replace": "^5.0.2",
+    "mocha": "^10.2.0",
+    "rollup": "^3.21.4",
+    "rollup-plugin-copy": "^3.4.0"
+  },
+  "dependencies": {
+    "@pkgjs/parseargs": "^0.11.0",
+    "capture-console": "^1.0.2",
+    "chronokinesis": "^6.0.0",
+    "cli-columns": "^4.0.0",
+    "columnify": "^1.6.0",
+    "fs-mode-to-string": "^0.0.2",
+    "json-query": "^2.2.2",
+    "node-pty": "^1.0.0",
+    "path-browserify": "^1.0.1",
+    "sinon": "^17.0.1",
+    "xterm": "^5.1.0",
+    "xterm-addon-fit": "^0.7.0"
+  },
+  "workspaces": [
+    "packages/pty",
+    "packages/strataparse",
+    "packages/contextlink"
+  ]
+}
