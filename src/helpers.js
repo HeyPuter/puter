@@ -1944,9 +1944,16 @@ window.launch_app = async (options)=>{
         // iframe_url
         //-----------------------------------
         let iframe_url;
+
+        // This can be any trusted URL that won't be used for other apps
+        const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
+
         if(!app_info.index_url){
             iframe_url = new URL('https://'+options.name+'.' + window.app_domain + `/index.html`);
-        }else{
+        } else if ( app_info.index_url.startsWith(BUILTIN_PREFIX) ) {
+            const name = app_info.index_url.slice(BUILTIN_PREFIX.length);
+            iframe_url = new URL(`${gui_origin}/builtin/${name}`);
+        } else {
             iframe_url = new URL(app_info.index_url);
         }
 
@@ -2026,7 +2033,9 @@ window.launch_app = async (options)=>{
         // ...and finally append urm_source=puter.com to the URL
         iframe_url.searchParams.append('urm_source', 'puter.com');
 
-        UIWindow({
+        console.log('backgrounded??', app_info.background);
+
+        const el_win = UIWindow({
             element_uuid: uuid,
             title: title,
             iframe_url: iframe_url.href,
@@ -2039,10 +2048,15 @@ window.launch_app = async (options)=>{
             height: options.maximized ? `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)` : undefined,
             width: options.maximized ? `100%` : undefined,
             app: options.name,
+            is_visible: ! app_info.background,
             is_maximized: options.maximized,
             is_fullpage: options.is_fullpage,
             ...window_options,
         }); 
+
+        if ( ! app_info.background ) {
+            $(el_win).show();
+        }
 
         // send post request to /rao to record app open
         if(options.name !== 'explorer'){

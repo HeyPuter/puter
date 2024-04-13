@@ -51,6 +51,7 @@ module.exports = {
             maxlen: 7000,
         },
         maximize_on_start: 'flag',
+        background: 'flag',
         subdomain: {
             type: 'string',
             transient: true,
