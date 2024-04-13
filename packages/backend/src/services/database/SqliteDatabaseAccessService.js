@@ -52,6 +52,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 '0003_user-permissions.sql',
                 '0004_sessions.sql',
                 '0005_background-apps.sql',
+                '0006_update-apps.sql',
             ].map(p => path_.join(__dirname, 'sqlite_setup', p));
             const fs = require('fs');
             for ( const filename of sql_files ) {
@@ -78,6 +79,10 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
         if ( user_version <= 2 ) {
             upgrade_files.push('0005_background-apps.sql');
+        }
+
+        if ( user_version <= 3 ) {
+            upgrade_files.push('0006_update-apps.sql');
         }
 
         if ( upgrade_files.length > 0 ) {
