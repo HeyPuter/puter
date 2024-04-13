@@ -3738,6 +3738,10 @@ label {
     gap: 4px;
 }
 
+.current-session.session-widget {
+    background-color: #f0f0f0;
+}
+
 .session-widget-uuid {
     font-size: 12px;
     font-weight: 600;

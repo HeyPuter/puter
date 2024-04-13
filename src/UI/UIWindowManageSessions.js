@@ -28,6 +28,9 @@ const UIWindowManageSessions = async function UIWindowManageSessions () {
     const SessionWidget = ({ session }) => {
         const el = document.createElement('div');
         el.classList.add('session-widget');
+        if ( session.current ) {
+            el.classList.add('current-session');
+        }
         el.dataset.uuid = session.uuid;
         // '<pre>' +
         //    JSON.stringify(session, null, 2) +
