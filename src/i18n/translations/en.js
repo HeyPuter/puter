@@ -201,6 +201,7 @@ const en = {
         storage_usage: "Storage Usage",
         storage_puter_used: 'used by Puter',
         taking_longer_than_usual: 'Taking a little longer than usual. Please wait...',
+        task_manager: "Task Manager",
         terms: "Terms",
         text_document: 'Text document',
         tos_fineprint: `By clicking 'Create Free Account' you agree to Puter's {{link=terms}}Terms of Service{{/link}} and {{link=privacy}}Privacy Policy{{/link}}.`,

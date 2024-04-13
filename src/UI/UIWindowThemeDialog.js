@@ -1,4 +1,5 @@
 import UIWindow from "./UIWindow.js";
+import UIWindowColorPicker from "./UIWindowColorPicker.js";
 
 const UIWindowThemeDialog = async function UIWindowThemeDialog () {
     const services = globalThis.services;
@@ -110,6 +111,12 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
         .appendTo(w_body)
         .onPress(() => {
             svc_theme.reset();
+        })
+        ;
+    Button({ label: i18n('reset_colors') })
+        .appendTo(w_body)
+        .onPress(() => {
+            UIWindowColorPicker();
         })
         ;
 

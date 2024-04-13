@@ -3782,3 +3782,54 @@ label {
     gap: 10px;
     justify-content: flex-end;
 }
+
+.taskmgr {
+    box-sizing: border-box;
+
+    --scale: 2pt;
+    --line-color: #6e6e6ebd;
+}
+
+.taskmgr-tasklist {
+    background-color: rgba(255,255,255,0.8);
+    border: 2px inset rgba(127, 127, 127, 0.3);
+}
+
+.taskmgr-indentcell {
+    position: relative;
+    align-items: right;
+    width: calc(10 * var(--scale));
+    height: calc(10 * var(--scale));
+}
+
+.taskmgr-indentcell-trunk {
+    position: absolute;
+    top: 0;
+    left: calc(5 * var(--scale));
+    width: calc(5 * var(--scale));
+    height: calc(10 * var(--scale));
+    border-left: 2px solid var(--line-color);
+}
+
+.taskmgr-indentcell-branch {
+    position: absolute;
+    top: 0;
+    left: calc(5 * var(--scale));
+    width: calc(5 * var(--scale));
+    height: calc(5 * var(--scale));
+    border-left: 2px solid var(--line-color);
+    border-bottom: 2px solid var(--line-color);
+    border-radius: 0 0 0 calc(2.5 * var(--scale));
+}
+
+.taskmgr-task {
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    height: calc(10 * var(--scale));
+    line-height: calc(10 * var(--scale));
+}
+
+.taskmgr-task-title {
+    flex-grow: 1;
+    padding-left: calc(2.5 * var(--scale));
+}
