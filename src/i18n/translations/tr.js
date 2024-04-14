@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
 const tr = {
     name: "Türkçe",
     english_name: "Turkish",
@@ -222,7 +223,7 @@ const tr = {
         visibility: "Görünürlük",
         yes: "Evet",
         yes_release_it: "Evet, Bırak",
-        you_have_been_referred_to_puter_by_a friend: "Bir arkadaşınız tarafından Puter'a yönlendirildiniz!",
+        you_have_been_referred_to_puter_by_a_friend: "Bir arkadaşınız tarafından Puter'a yönlendirildiniz!",
         zip: "Sıkıştır",
         storage_puter_used: "Puter tarafından kullanılıyor",
     }
