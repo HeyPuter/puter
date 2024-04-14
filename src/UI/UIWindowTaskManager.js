@@ -40,6 +40,7 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
         selectable_body: true,
         draggable_body: false,
         allow_context_menu: true,
+        allow_native_ctxmenu: true,
         show_in_taskbar: false,
         window_class: 'window-alert',
         dominant: true,
@@ -115,6 +116,7 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
         el.appendChild(el_title);
 
         return {
+            el () { return el; },
             appendTo (parent) {
                 parent.appendChild(el);
                 return this;
@@ -122,18 +124,72 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
         };
     }
 
-    const el_tasklist = document.createElement('div');
-    el_tasklist.classList.add('taskmgr-tasklist');
+    // https://codepen.io/fomkin/pen/gOgoBVy
+    const Table = ({ headings }) => {
+        const el_table = $(`
+            <table>
+                <thead>
+                    <tr>
+                        ${headings.map(heading =>
+                            `<th><span>${heading}<span></th>`).join('')}
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        `)[0];
+
+        const el_tbody = el_table.querySelector('tbody');
+
+        return {
+            el () { return el_table; },
+            add (el) {
+                if ( typeof el.el === 'function' ) el = el.el();
+                el_tbody.appendChild(el);
+                return this;
+            }
+        };
+    };
+
+    const Row = () => {
+        const el_tr = document.createElement('tr');
+        return {
+            attach (parent) {
+                parent.appendChild(el_tr);
+                return this;
+            },
+            el () { return el_tr; },
+            add (el) {
+                if ( typeof el.el === 'function' ) el = el.el();
+                const el_td = document.createElement('td');
+                el_td.appendChild(el);
+                el_tr.appendChild(el_td);
+                return this;
+            }
+        };
+    };
+
+    const el_taskarea = document.createElement('div');
+    el_taskarea.classList.add('taskmgr-taskarea');
+
+    const tasktable = Table({
+        headings: ['Name', 'Status']
+    });
+
+    el_taskarea.appendChild(tasktable.el());
+
     const iter_tasks = (items, { indent_level }) => {
         for ( let i=0 ; i < items.length; i++ ) {
+            const row = Row();
             const item = items[i];
-            Task({
+            row.add(Task({
                 placement: {
                     indent_level,
                     last_item: i === items.length - 1,
                 },
                 name: item.name
-            }).appendTo(el_tasklist);
+            }));
+            row.add($('<span>open</span>')[0])
+            tasktable.add(row);
             if ( item.children ) {
                 iter_tasks(item.children, {
                     indent_level: indent_level + 1
@@ -142,7 +198,7 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
         }
     };
     iter_tasks(sample_data, { indent_level: 0 });
-    w_body.appendChild(el_tasklist);
+    w_body.appendChild(el_taskarea);
 }
 
 export default UIWindowTaskManager;

@@ -37,6 +37,7 @@ import determine_active_container_parent from './helpers/determine_active_contai
 import { ThemeService } from './services/ThemeService.js';
 import UIWindowThemeDialog from './UI/UIWindowThemeDialog.js';
 import { BroadcastService } from './services/BroadcastService.js';
+import UIWindowTaskManager from './UI/UIWindowTaskManager.js';
 
 const launch_services = async function () {
     const services_l_ = [];
@@ -56,6 +57,8 @@ const launch_services = async function () {
     for (const [_, instance] of services_l_) {
         await instance._init();
     }
+
+    UIWindowTaskManager();
 };
 
 window.initgui = async function(){
