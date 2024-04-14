@@ -187,8 +187,12 @@ function UIItem(options){
         update_explorer_footer_item_count(el_window);
     }
 
-    // position
-    if(!is_auto_arrange_enabled && options.position && $(el_item).closest('.item-container').attr('data-path') === window.desktop_path){
+    // manual positioning
+    if( !is_auto_arrange_enabled && 
+        options.position && 
+        // item is on the desktop (must be desktop itself and not a window, hence the '.desktop' class check)
+        $(el_item).closest('.item-container.desktop').attr('data-path') === window.desktop_path
+    ){
         el_item.style.position = 'absolute';
         el_item.style.left = options.position.left + 'px';
         el_item.style.top = options.position.top + 'px';
