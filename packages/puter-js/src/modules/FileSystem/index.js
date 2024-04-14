@@ -75,31 +75,38 @@ class FileSystem{
 
     bindSocketEvents() {
         this.socket.on('connect', () => {
-            console.log('FileSystem Socket: Connected', this.socket.id);
+            if(puter.debugMode)
+                console.log('FileSystem Socket: Connected', this.socket.id);
         });
 
         this.socket.on('disconnect', () => {
-            console.log('FileSystem Socket: Disconnected');
+            if(puter.debugMode)
+                console.log('FileSystem Socket: Disconnected');
         });
 
         this.socket.on('reconnect', (attempt) => {
-            console.log('FileSystem Socket: Reconnected', this.socket.id);
+            if(puter.debugMode)
+                console.log('FileSystem Socket: Reconnected', this.socket.id);
         });
 
         this.socket.on('reconnect_attempt', (attempt) => {
-            console.log('FileSystem Socket: Reconnection Attemps', attempt);
+            if(puter.debugMode)
+                console.log('FileSystem Socket: Reconnection Attemps', attempt);
         });
 
         this.socket.on('reconnect_error', (error) => {
-            console.log('FileSystem Socket: Reconnection Error', error);
+            if(puter.debugMode)
+                console.log('FileSystem Socket: Reconnection Error', error);
         });
 
         this.socket.on('reconnect_failed', () => {
-            console.log('FileSystem Socket: Reconnection Failed');
+            if(puter.debugMode)
+                console.log('FileSystem Socket: Reconnection Failed');
         });
 
         this.socket.on('error', (error) => {
-            console.error('FileSystem Socket Error:', error);
+            if(puter.debugMode)
+                console.error('FileSystem Socket Error:', error);
         });
     }
 

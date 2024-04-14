@@ -386,7 +386,8 @@ const upload = async function(items, dirPath, options = {}){
                 else{
                     if(!resp || !resp.results || resp.results.length === 0){
                         // no results
-                        console.log('no results');
+                        if(puter.debugMode)
+                            console.log('no results');
                     }
     
                     let items = resp.results;
