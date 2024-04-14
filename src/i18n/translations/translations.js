@@ -37,6 +37,7 @@ import pt from './pt.js';
 import ro from './ro.js';
 import sv from './sv.js';
 import th from './th.js';
+import tr from './tr.js';
 import ur from './ur.js';
 import zh from './zh.js';
 import zhtw from './zhtw.js';
@@ -66,6 +67,7 @@ export default {
     pt,
     sv,
     th,
+    tr,
     zh,
     zhtw,
     ur,
