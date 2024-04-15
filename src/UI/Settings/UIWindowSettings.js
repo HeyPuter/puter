@@ -27,6 +27,7 @@ import AboutTab from './UITabAbout.js';
 import UsageTab from './UITabUsage.js';
 import AccountTab from './UITabAccount.js';
 import PersonalizationTab from './UITabPersonalization.js';
+import LanguageTab from './UITabLanguage.js';
 import UIWindowThemeDialog from '../UIWindowThemeDialog.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
 
@@ -39,7 +40,7 @@ async function UIWindowSettings(options){
             UsageTab,
             AccountTab,
             PersonalizationTab,
-            // LanguageTab,
+            LanguageTab,
             // ClockTab,
         ];
 
@@ -52,7 +53,6 @@ async function UIWindowSettings(options){
             tabs.forEach((tab, i) => {
                 h += `<div class="settings-sidebar-item disable-user-select ${i === 0 ? 'active' : ''}" data-settings="${tab.id}" style="background-image: url(${icons[tab.icon]});">${i18n(tab.title_i18n_key)}</div>`;
             });
-                h += `<div class="settings-sidebar-item disable-user-select" data-settings="language" style="background-image: url(${icons['language.svg']});">${i18n('language')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="clock" style="background-image: url(${icons['clock.svg']});">${i18n('clock')}</div>`;
             h += `</div>`;
 
@@ -64,22 +64,6 @@ async function UIWindowSettings(options){
                         ${tab.html()}
                     </div>`;
             });
-
-                // Language
-                h += `<div class="settings-content" data-settings="language">`;
-                    h += `<h1>${i18n('language')}</h1>`;
-                    // search
-                    h += `<div class="search-container" style="margin-bottom: 10px;">`;
-                        h += `<input type="text" class="search" placeholder="Search">`;
-                    h += `</div>`;
-                    // list of languages
-                    const available_languages = listSupportedLanguages();
-                    h += `<div class="language-list">`;
-                        for (let lang of available_languages) {
-                            h += `<div class="language-item ${window.locale === lang.code ? 'active': ''}" data-lang="${lang.code}" data-english-name="${html_encode(lang.english_name)}">${lang.name}</div>`;
-                        }
-                    h += `</div>`;
-                h += `</div>`;
 
                 // Clock
                 h += `<div class="settings-content" data-settings="clock">`;
@@ -146,45 +130,13 @@ async function UIWindowSettings(options){
             // add active class to content
             $container.find('.settings-content').removeClass('active');
             $content.addClass('active');
-            // if language, focus on search
-            if(settings === 'language'){
-                $content.find('.search').first().focus();
-                // make sure all language items are visible
-                $content.find('.language-item').show();
-                // empty search
-                $content.find('.search').val('');
+
+            // Run on_show handlers
+            const tab = tabs.find((tab) => tab.id === settings);
+            if (tab.on_show) {
+                tab.on_show($content);
             }
         })
-
-        $(el_window).on('click', '.language-item', function(){
-            const $this = $(this);
-            const lang = $this.attr('data-lang');
-            changeLanguage(lang);
-            $this.siblings().removeClass('active');
-            $this.addClass('active');
-            // make sure all other language items are visible
-            $this.closest('.language-list').find('.language-item').show();
-        })
-        
-        $(el_window).on('input', '.search', function(){
-            const $this = $(this);
-            const search = $this.val().toLowerCase();
-            const $container = $this.closest('.settings').find('.settings-content-container');
-            const $content = $container.find('.settings-content.active');
-            const $list = $content.find('.language-list');
-            const $items = $list.find('.language-item');
-            $items.each(function(){
-                const $item = $(this);
-                const lang = $item.attr('data-lang');
-                const name = $item.text().toLowerCase();
-                const english_name = $item.attr('data-english-name').toLowerCase();
-                if(name.includes(search) || lang.includes(search) || english_name.includes(search)){
-                    $item.show();
-                }else{
-                    $item.hide();
-                }
-            })
-        });
 
         $(el_window).on('change', 'select.change-clock-visible', function(e){
             const $this = $(this);  
