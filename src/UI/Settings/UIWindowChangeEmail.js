@@ -17,32 +17,31 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIWindow from './UIWindow.js'
-import update_username_in_gui from '../helpers/update_username_in_gui.js'
+import UIWindow from '../UIWindow.js'
 
-async function UIWindowChangeUsername(options){
+async function UIWindowChangeEmail(options){
     options = options ?? {};
 
     const internal_id = window.uuidv4();
     let h = '';
-    h += `<div class="change-username" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
+    h += `<div class="change-email" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
         // error msg
         h += `<div class="form-error-msg"></div>`;
         // success msg
         h += `<div class="form-success-msg"></div>`;
-        // new username
+        // new email
         h += `<div style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">`;
-            h += `<label for="confirm-new-username-${internal_id}">${i18n('new_username')}</label>`;
-            h += `<input id="confirm-new-username-${internal_id}" type="text" name="new-username" class="new-username" autocomplete="off" />`;
+            h += `<label for="confirm-new-email-${internal_id}">${i18n('new_email')}</label>`;
+            h += `<input id="confirm-new-email-${internal_id}" type="text" name="new-email" class="new-email" autocomplete="off" />`;
         h += `</div>`;
 
-        // Change Username
-        h += `<button class="change-username-btn button button-primary button-block button-normal">${i18n('change_username')}</button>`;
+        // Change Email
+        h += `<button class="change-email-btn button button-primary button-block button-normal">${i18n('change_email')}</button>`;
     h += `</div>`;
 
     const el_window = await UIWindow({
-        title: i18n('change_username'),
-        app: 'change-username',
+        title: i18n('change_email'),
+        app: 'change-email',
         single_instance: true,
         icon: null,
         uid: null,
@@ -62,7 +61,7 @@ async function UIWindowChangeUsername(options){
         dominant: true,
         show_in_taskbar: false,
         onAppend: function(this_window){
-            $(this_window).find(`.new-username`).get(0)?.focus({preventScroll:true});
+            $(this_window).find(`.new-email`).get(0)?.focus({preventScroll:true});
         },
         window_class: 'window-publishWebsite',
         body_css: {
@@ -70,17 +69,17 @@ async function UIWindowChangeUsername(options){
             height: '100%',
             'background-color': 'rgb(245 247 249)',
             'backdrop-filter': 'blur(3px)',
-        },
-        ...options.window_options,
+        },    
+        ...options.window_options
     })
 
-    $(el_window).find('.change-username-btn').on('click', function(e){
+    $(el_window).find('.change-email-btn').on('click', function(e){
         // hide previous error/success msg
         $(el_window).find('.form-success-msg, .form-success-msg').hide();
 
-        const new_username = $(el_window).find('.new-username').val();
+        const new_email = $(el_window).find('.new-email').val();
 
-        if(!new_username){
+        if(!new_email){
             $(el_window).find('.form-error-msg').html(i18n('all_fields_required'));
             $(el_window).find('.form-error-msg').fadeIn();
             return;
@@ -89,12 +88,12 @@ async function UIWindowChangeUsername(options){
         $(el_window).find('.form-error-msg').hide();
 
         // disable button
-        $(el_window).find('.change-username-btn').addClass('disabled');
+        $(el_window).find('.change-email-btn').addClass('disabled');
         // disable input
-        $(el_window).find('.new-username').attr('disabled', true);
+        $(el_window).find('.new-email').attr('disabled', true);
     
         $.ajax({
-            url: api_origin + "/change_username",
+            url: api_origin + "/change_email/start",
             type: 'POST',
             async: true,
             headers: {
@@ -102,31 +101,29 @@ async function UIWindowChangeUsername(options){
             },
             contentType: "application/json",
             data: JSON.stringify({ 
-                new_username: new_username, 
+                new_email: new_email, 
             }),				
             success: function (data){
-                $(el_window).find('.form-success-msg').html(i18n('username_changed'));
+                $(el_window).find('.form-success-msg').html(i18n('email_change_confirmation_sent'));
                 $(el_window).find('.form-success-msg').fadeIn();
                 $(el_window).find('input').val('');
-                // update auth data
-                update_username_in_gui(new_username);
-                // update username
-                window.user.username = new_username;
+                // update email
+                window.user.email = new_email;
                 // enable button
-                $(el_window).find('.change-username-btn').removeClass('disabled');
+                $(el_window).find('.change-email-btn').removeClass('disabled');
                 // enable input
-                $(el_window).find('.new-username').attr('disabled', false);
+                $(el_window).find('.new-email').attr('disabled', false);
             },
             error: function (err){
                 $(el_window).find('.form-error-msg').html(html_encode(err.responseJSON?.message));
                 $(el_window).find('.form-error-msg').fadeIn();
                 // enable button
-                $(el_window).find('.change-username-btn').removeClass('disabled');
+                $(el_window).find('.change-email-btn').removeClass('disabled');
                 // enable input
-                $(el_window).find('.new-username').attr('disabled', false);
+                $(el_window).find('.new-email').attr('disabled', false);
             }
         });	
     })
 }
 
-export default UIWindowChangeUsername
+export default UIWindowChangeEmail

@@ -332,6 +332,14 @@ async function UIDesktop(options){
         refresh_user_data(window.auth_token);
     });
 
+    socket.on('user.email_changed', (msg) => {
+        // don't update if this is the original client that initiated the action
+        if(msg.original_client_socket_id === window.socket.id)
+            return;
+
+        refresh_user_data(window.auth_token);
+    });
+
     socket.on('item.renamed', async (item) => {
         // Notify all apps that are watching this item
         sendItemChangeEventToWatchingApps(item.uid, {

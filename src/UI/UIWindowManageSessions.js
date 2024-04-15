@@ -1,7 +1,9 @@
 import UIAlert from "./UIAlert.js";
 import UIWindow from "./UIWindow.js";
 
-const UIWindowManageSessions = async function UIWindowManageSessions () {
+const UIWindowManageSessions = async function UIWindowManageSessions (options) {
+    options = options ?? {};
+
     const services = globalThis.services;
 
     const w = await UIWindow({
@@ -21,8 +23,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions () {
         dominant: true,
         body_content: '',
         // width: 600,
-        // parent_uuid: options.parent_uuid,
-        // ...options.window_options,
+        ...options.window_options,
     });
 
     const SessionWidget = ({ session }) => {

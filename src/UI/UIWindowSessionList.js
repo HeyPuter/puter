@@ -74,7 +74,7 @@ async function UIWindowSessionList(options){
                 'display': 'flex',
                 'flex-direction': 'column',
                 'justify-content': 'center',
-            }    
+            },
         })
         $(el_window).find('.login-c2a-session-list').on('click', async function(e){
             const login = await UIWindowLogin({

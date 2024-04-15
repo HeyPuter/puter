@@ -35,7 +35,6 @@ import update_title_based_on_uploads from './helpers/update_title_based_on_uploa
 import PuterDialog from './UI/PuterDialog.js';
 import determine_active_container_parent from './helpers/determine_active_container_parent.js';
 import { ThemeService } from './services/ThemeService.js';
-import UIWindowThemeDialog from './UI/UIWindowThemeDialog.js';
 import { BroadcastService } from './services/BroadcastService.js';
 
 const launch_services = async function () {

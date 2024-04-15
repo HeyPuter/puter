@@ -520,6 +520,25 @@ async function UIWindow(options) {
         });
     }
 
+    // =====================================
+    // Center relative to parent window
+    // =====================================
+    if(options.parent_center && options.parent_uuid){
+        const $parent_window = $(`.window[data-element_uuid="${options.parent_uuid}"]`);
+        const parent_window_width = $parent_window.width();
+        const parent_window_height = $parent_window.height();
+        const parent_window_left = $parent_window.offset().left;
+        const parent_window_top = $parent_window.offset().top;
+        const window_height = $(el_window).height();
+        const window_width = $(el_window).width();
+        options.left = parent_window_left + parent_window_width/2 - window_width/2;
+        options.top = parent_window_top + parent_window_height/2 - window_height/2;
+        $(el_window).css({
+            'left': options.left + 'px',
+            'top': options.top + 'px',
+        });
+    }
+
     // onAppend() - using show() is a hack to make sure window is visible AND onAppend is called when
     // window is actually appended and usable.
     // NOTE: there is another is_visible condition below

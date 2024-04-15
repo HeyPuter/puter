@@ -19,8 +19,7 @@
 
 import UIWindow from '../UIWindow.js'
 import UIWindowChangePassword from '../UIWindowChangePassword.js'
-// import UIWindowChangeEmail from './UIWindowChangeEmail.js'
-// import UIWindowDeleteAccount from './UIWindowDeleteAccount.js'
+import UIWindowChangeEmail from './UIWindowChangeEmail.js'
 import UIWindowChangeUsername from '../UIWindowChangeUsername.js'
 import changeLanguage from "../../i18n/i18nChangeLanguage.js"
 import UIWindowConfirmUserDeletion from './UIWindowConfirmUserDeletion.js';
@@ -98,7 +97,7 @@ async function UIWindowSettings(options){
                         h += `<div class="settings-card">`;
                             h += `<div>`;
                                 h += `<strong style="display:block;">${i18n('email')}</strong>`;
-                                h += `<span style="display:block; margin-top:5px;">${user.email}</span>`;
+                                h += `<span class="user-email" style="display:block; margin-top:5px;">${user.email}</span>`;
                             h += `</div>`;
                             h += `<div style="flex-grow:1;">`;
                                 h += `<button class="button change-email" style="margin-bottom: 10px; float:right;">${i18n('change_email')}</button>`;
@@ -106,19 +105,19 @@ async function UIWindowSettings(options){
                         h += `</div>`;
                     }
 
-                    // 'Delete Account' button
-                    h += `<div class="settings-card settings-card-danger">`;
-                        h += `<strong style="display: inline-block;">${i18n("delete_account")}</strong>`;
-                        h += `<div style="flex-grow:1;">`;
-                            h += `<button class="button button-danger delete-account" style="float:right;">${i18n("delete_account")}</button>`;
-                        h += `</div>`;
-                    h += `</div>`;
-
                     // session manager
                     h += `<div class="settings-card">`;
                         h += `<strong>${i18n('sessions')}</strong>`;
                         h += `<div style="flex-grow:1;">`;
                             h += `<button class="button manage-sessions" style="float:right;">${i18n('manage_sessions')}</button>`;
+                        h += `</div>`;
+                    h += `</div>`;
+
+                    // 'Delete Account' button
+                    h += `<div class="settings-card settings-card-danger">`;
+                        h += `<strong style="display: inline-block;">${i18n("delete_account")}</strong>`;
+                        h += `<div style="flex-grow:1;">`;
+                            h += `<button class="button button-danger delete-account" style="float:right;">${i18n("delete_account")}</button>`;
                         h += `</div>`;
                     h += `</div>`;
 
@@ -332,27 +331,64 @@ async function UIWindowSettings(options){
         })
 
         $(el_window).find('.change-password').on('click', function (e) {
-            UIWindowChangePassword();
+            UIWindowChangePassword({
+                window_options:{
+                    parent_uuid: $(el_window).attr('data-element_uuid'),
+                    disable_parent_window: true,
+                    parent_center: true,
+                }
+            });
         })
 
         $(el_window).find('.change-email').on('click', function (e) {
-            UIWindowChangeEmail();
+            console.log('change email', $(el_window).attr('data-element_uuid'));
+            UIWindowChangeEmail({
+                window_options:{
+                    parent_uuid: $(el_window).attr('data-element_uuid'),
+                    disable_parent_window: true,
+                    parent_center: true,
+                }
+            });
         })
 
         $(el_window).find('.delete-account').on('click', function (e) {
-            UIWindowConfirmUserDeletion();
+            UIWindowConfirmUserDeletion({
+                window_options:{
+                    parent_uuid: $(el_window).attr('data-element_uuid'),
+                    disable_parent_window: true,
+                    parent_center: true,
+                }
+            });
         })
 
         $(el_window).find('.change-username').on('click', function (e) {
-            UIWindowChangeUsername();
+            UIWindowChangeUsername({
+                window_options:{
+                    parent_uuid: $(el_window).attr('data-element_uuid'),
+                    disable_parent_window: true,
+                    parent_center: true,
+                }
+            });
         })
 
         $(el_window).find('.change-ui-colors').on('click', function (e) {
-            UIWindowThemeDialog();
+            UIWindowThemeDialog({
+                window_options:{
+                    parent_uuid: $(el_window).attr('data-element_uuid'),
+                    disable_parent_window: true,
+                    parent_center: true,
+                }
+            });
         })
 
         $(el_window).find('.manage-sessions').on('click', function (e) {
-            UIWindowManageSessions();
+            UIWindowManageSessions({
+                window_options:{
+                    parent_uuid: $(el_window).attr('data-element_uuid'),
+                    disable_parent_window: true,
+                    parent_center: true,
+                }
+            });
         })
 
         $(el_window).on('click', '.settings-sidebar-item', function(){
