@@ -23,6 +23,8 @@ const eggspress = require('../api/eggspress.js');
 const APIError = require('../api/APIError.js');
 const { DB_READ, DB_WRITE } = require('../services/database/consts.js');
 
+const config = require('../config.js');
+
 const CHANGE_EMAIL_START = eggspress('/change_email/start', {
     subdomain: 'api',
     auth: true,
@@ -59,18 +61,27 @@ const CHANGE_EMAIL_START = eggspress('/change_email/start', {
     // generate confirmation token
     const token = crypto.randomBytes(4).toString('hex');
 
+    // send confirmation email
+    const svc_email = req.services.get('email');
+    await svc_email.send_email({ email: new_email }, 'email_change_request', {
+        confirm_url: `${config.origin}/change_email/confirm?token=${token}`,
+        username: user.username,
+    });
+
     // update user
     await db.write(
         'UPDATE `user` SET `unconfirmed_change_email` = ?, `change_email_confirm_token` = ? WHERE `id` = ?',
         [new_email, token, user.id]
     );
+
+    res.send({ success: true });
 });
 
 const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
     subdomain: 'api',
     auth: true,
     verified: true,
-    allowedMethods: ['POST'],
+    allowedMethods: ['GET'],
 }, async (req, res, next) => {
     const user = req.user;
     const token = req.body.token;
@@ -94,6 +105,9 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
         'UPDATE `user` SET `email` = ?, `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `id` = ?',
         [new_email, user.id]
     );
+
+    const h = `<p style="text-align:center; color:green;">Your email has been successfully confirmed.</p>`;
+    return res.send(h);
 });
 
 module.exports = app => {

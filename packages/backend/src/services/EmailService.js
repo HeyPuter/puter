@@ -53,6 +53,19 @@ The Puter Team
 </p>
                 `,
             },
+            'email_change_request': {
+                subject: '\u{1f4dd} Confirm your email change',
+                html: `
+<p>Hi there,</p>
+<p>
+We received a request to link this email to the user "{{username}}" on Puter. If you made this request, please click the link below to confirm the change. If you did not make this request, please ignore this email.
+</p>
+
+<p>
+<a href="{{confirm_url}}">Confirm email change</a>
+</p>
+                `,
+            },
         };
 
         this.template_fns = {};
