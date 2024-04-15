@@ -19,3 +19,38 @@
 export class Service {
     //
 };
+
+export class Process {
+    constructor ({ uuid, parent, meta }) {
+        this.uuid = uuid;
+        this.parent = parent;
+        this.meta = meta;
+
+        this._construct();
+    }
+
+    _construct () {}
+
+    get type () {
+        const _to_type_name = (name) => {
+            return name.replace(/Process$/, '').toLowerCase();
+        };
+        return this.type || _to_type_name(this.constructor.name) ||
+            'invalid'
+    }
+};
+
+export class InitProccess extends Process {
+    static created_ = false;
+
+    _construct () {
+        if (InitProccess.created_) {
+            throw new Error('InitProccess already created');
+        }
+
+        InitProccess.created_ = true;
+    }
+}
+
+export class PortalProcess extends Process {};
+export class PseudoProcess extends Process {};

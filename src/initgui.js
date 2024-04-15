@@ -38,6 +38,7 @@ import { ThemeService } from './services/ThemeService.js';
 import UIWindowThemeDialog from './UI/UIWindowThemeDialog.js';
 import { BroadcastService } from './services/BroadcastService.js';
 import UIWindowTaskManager from './UI/UIWindowTaskManager.js';
+import { ProcessService } from './services/ProcessService.js';
 
 const launch_services = async function () {
     const services_l_ = [];
@@ -53,6 +54,7 @@ const launch_services = async function () {
 
     register('broadcast', new BroadcastService());
     register('theme', new ThemeService());
+    register('process', new ProcessService())
 
     for (const [_, instance] of services_l_) {
         await instance._init();

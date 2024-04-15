@@ -1,6 +1,7 @@
 import UIWindow from "./UIWindow.js";
 
 const UIWindowTaskManager = async function UIWindowTaskManager () {
+    const svc_process = globalThis.services.get('process');
     const sample_data = [
         {
             name: 'root',
