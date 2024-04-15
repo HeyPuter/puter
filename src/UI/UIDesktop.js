@@ -1195,7 +1195,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             // Task Manager
             //--------------------------------------------------
             {
-                html: i18n('task-manager'),
+                html: i18n('task_manager'),
                 onClick: async function(){
                     UIWindowTaskManager();
                 }

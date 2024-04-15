@@ -39,6 +39,7 @@ import UIWindowThemeDialog from './UI/UIWindowThemeDialog.js';
 import { BroadcastService } from './services/BroadcastService.js';
 import UIWindowTaskManager from './UI/UIWindowTaskManager.js';
 import { ProcessService } from './services/ProcessService.js';
+import { PROCESS_RUNNING } from './definitions.js';
 
 const launch_services = async function () {
     const services_l_ = [];
@@ -60,7 +61,11 @@ const launch_services = async function () {
         await instance._init();
     }
 
-    UIWindowTaskManager();
+    // Set init process status
+    {
+        const svc_process = globalThis.services.get('process');
+        svc_process.get_init().chstatus(PROCESS_RUNNING);
+    }
 };
 
 window.initgui = async function(){

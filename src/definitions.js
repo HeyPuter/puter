@@ -20,17 +20,37 @@ export class Service {
     //
 };
 
+export const PROCESS_INITIALIZING = { i18n_key: 'initializing' };
+export const PROCESS_RUNNING = { i18n_key: 'running' };
+
+// Something is cloning these objects, so '===' checks don't work.
+// To work around this, the `i` property is used to compare them.
+export const END_SOFT = { i: 0, end: true, i18n_key: 'end_soft' };
+export const END_HARD = { i: 1, end: true, i18n_key: 'end_hard' };
+
 export class Process {
     constructor ({ uuid, parent, name, meta }) {
         this.uuid = uuid;
         this.parent = parent;
         this.name = name;
         this.meta = meta;
+        this.references = {};
+
+        this.status = PROCESS_INITIALIZING;
 
         this._construct();
     }
-
     _construct () {}
+
+    chstatus (status) {
+        this.status = status;
+    }
+
+    is_init () {}
+
+    signal (sig) {
+        this._signal(sig);
+    }
 
     get type () {
         const _to_type_name = (name) => {
@@ -44,6 +64,8 @@ export class Process {
 export class InitProcess extends Process {
     static created_ = false;
 
+    is_init () { return true; }
+
     _construct () {
         this.name = 'Puter';
 
@@ -53,11 +75,38 @@ export class InitProcess extends Process {
 
         InitProcess.created_ = true;
     }
+
+    _signal (sig) {
+        const svc_process = globalThis.services.get('process');
+        for ( const process of svc_process.processes ) {
+            if ( process === this ) continue;
+            process.signal(sig);
+        }
+
+        if ( sig.i !== END_HARD.i ) return;
+
+        // Currently this is the only way to terminate `init`.
+        window.location.reload();
+    }
 }
 
 export class PortalProcess extends Process {
     _construct () { this.type_ = 'app' }
+    _signal (sig) {
+        if ( sig.end ) {
+            $(this.references.el_win).close({
+                bypass_iframe_messaging: sig.i === END_HARD.i
+            });
+        }
+    }
 };
 export class PseudoProcess extends Process {
     _construct () { this.type_ = 'ui' }
+    _signal (sig) {
+        if ( sig.end ) {
+            $(this.references.el_win).close({
+                bypass_iframe_messaging: sig.i === END_HARD.i
+            });
+        }
+    }
 };

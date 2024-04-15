@@ -1,3 +1,6 @@
+import { END_HARD, END_SOFT } from "../definitions.js";
+import UIAlert from "./UIAlert.js";
+import UIContextMenu from "./UIContextMenu.js";
 import UIWindow from "./UIWindow.js";
 
 const UIWindowTaskManager = async function UIWindowTaskManager () {
@@ -5,10 +8,11 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
 
     const w = await UIWindow({
         title: i18n('task_manager'),
-        icon: null,
+        icon: globalThis.icons['cog.svg'],
         uid: null,
         is_dir: false,
         message: 'message',
+        app: 'taskmgr',
         // body_icon: options.body_icon,
         // backdrop: options.backdrop ?? false,
         is_resizable: true,
@@ -17,9 +21,8 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
         selectable_body: true,
         draggable_body: false,
         allow_context_menu: true,
-        allow_native_ctxmenu: true,
+        // allow_native_ctxmenu: true,
         show_in_taskbar: true,
-        window_class: 'window-alert',
         dominant: true,
         body_content: '',
         width: 350,
@@ -153,10 +156,48 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
     el_taskarea.classList.add('taskmgr-taskarea');
 
     const tasktable = Table({
-        headings: ['Name', 'Type', 'Status']
+        headings: [
+            i18n('taskmgr_header_name'),
+            i18n('taskmgr_header_type'),
+            i18n('taskmgr_header_status'),
+        ]
     });
 
     el_taskarea.appendChild(tasktable.el());
+
+    const end_process_ = async (process, force) => {
+        let confirmation;
+
+        if ( process.is_init() ) {
+            if ( ! force ) {
+                confirmation = i18n('close_all_windows_confirm');
+            } else {
+                confirmation = i18n('restart_puter_confirm');
+            }
+        } else if ( force ) {
+            confirmation = i18n('end_process_force_confirm');
+        }
+
+        if ( confirmation ) {
+            const alert_resp = await UIAlert({
+                message: confirmation,
+                buttons:[
+                    {
+                        label: i18n('yes'),
+                        value: true,
+                        type: 'primary',
+                    },
+                    {
+                        label: i18n('no'),
+                        value: false,
+                    },
+                ]
+            })
+            if ( ! alert_resp ) return;
+        }
+
+        process.signal(force ? END_HARD : END_SOFT);
+    }
 
     const iter_tasks = (items, { indent_level, parent_last_item }) => {
         for ( let i=0 ; i < items.length; i++ ) {
@@ -171,9 +212,29 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
                 },
                 name: item.name
             }));
-            row.add($(`<span>${item.type}</span>`)[0])
-            row.add($('<span>open</span>')[0])
+            row.add($(`<span>${i18n('process_type_' + item.type)}</span>`)[0])
+            row.add($(`<span>${i18n('process_status_' + item.status.i18n_key)}</span>`)[0])
             tasktable.add(row);
+
+            $(row.el()).on('contextmenu', () => {
+                UIContextMenu({
+                    parent_element: $(el_taskarea),
+                    items: [
+                        {
+                            html: i18n('close'),
+                            onClick: () => {
+                                end_process_(item);
+                            }
+                        },
+                        {
+                            html: i18n('force_quit'),
+                            onClick: () => {
+                                end_process_(item, true);
+                            }
+                        }
+                    ]
+                });
+            })
 
             const children = svc_process.get_children_of(item.uuid);
             if ( children ) {
