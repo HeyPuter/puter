@@ -28,6 +28,7 @@ import UsageTab from './UITabUsage.js';
 import AccountTab from './UITabAccount.js';
 import PersonalizationTab from './UITabPersonalization.js';
 import LanguageTab from './UITabLanguage.js';
+import ClockTab from './UITabClock.js';
 import UIWindowThemeDialog from '../UIWindowThemeDialog.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
 
@@ -41,7 +42,7 @@ async function UIWindowSettings(options){
             AccountTab,
             PersonalizationTab,
             LanguageTab,
-            // ClockTab,
+            ClockTab,
         ];
 
         let h = '';
@@ -53,7 +54,6 @@ async function UIWindowSettings(options){
             tabs.forEach((tab, i) => {
                 h += `<div class="settings-sidebar-item disable-user-select ${i === 0 ? 'active' : ''}" data-settings="${tab.id}" style="background-image: url(${icons[tab.icon]});">${i18n(tab.title_i18n_key)}</div>`;
             });
-                h += `<div class="settings-sidebar-item disable-user-select" data-settings="clock" style="background-image: url(${icons['clock.svg']});">${i18n('clock')}</div>`;
             h += `</div>`;
 
             // content
@@ -64,19 +64,6 @@ async function UIWindowSettings(options){
                         ${tab.html()}
                     </div>`;
             });
-
-                // Clock
-                h += `<div class="settings-content" data-settings="clock">`;
-                     h += `<h1>${i18n('clock')}</h1>`;
-                     h += `<div style="display: flex;align-items: center">`
-                        h += `<span>${i18n('visibility')}:</span>`
-                        h += `<select class="change-clock-visible" style="margin-left: 10px;flex: 1">`
-                            h += `<option value="auto">${i18n('clock_visible_auto')}</option>`
-                            h += `<option value="hide">${i18n('clock_visible_hide')}</option>`
-                            h += `<option value="show">${i18n('clock_visible_show')}</option>`
-                        h += `</select>`
-                     h += `</div>`
-                h += `</div>`;      
 
             h += `</div>`;
         h += `</div>`;
@@ -137,15 +124,6 @@ async function UIWindowSettings(options){
                 tab.on_show($content);
             }
         })
-
-        $(el_window).on('change', 'select.change-clock-visible', function(e){
-            const $this = $(this);  
-            const value = $this.val();
-
-            window.change_clock_visible(value);
-        })
-
-        window.change_clock_visible();
 
         resolve(el_window);
     });
