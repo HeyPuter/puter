@@ -69,6 +69,8 @@ export class InitProcess extends Process {
     _construct () {
         this.name = 'Puter';
 
+        this.type_ = 'init'; // thanks minify
+
         if (InitProcess.created_) {
             throw new Error('InitProccess already created');
         }
