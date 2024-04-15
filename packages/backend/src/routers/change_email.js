@@ -78,8 +78,6 @@ const CHANGE_EMAIL_START = eggspress('/change_email/start', {
 });
 
 const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
-    auth: true,
-    verified: true,
     allowedMethods: ['GET'],
 }, async (req, res, next) => {
     const user = req.user;
