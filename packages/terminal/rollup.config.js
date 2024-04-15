@@ -45,7 +45,14 @@ export default {
                 { src: 'assets/shell.html', dest: 'dist' },
                 { src: 'assets/normalize.css', dest: 'dist' },
                 { src: 'assets/style.css', dest: 'dist' },
-                { src: 'node_modules/xterm/css/xterm.css', dest: 'dist' },
+
+                // We add this manually because there's no way to be sure
+                // _which_ node_modules directory is the correct one, since
+                // support for workspaces is under-documented and people may
+                // be using package managers other than npm.
+                { src: 'assets/xterm.css', dest: 'dist' },
+                // { src: 'node_modules/xterm/css/xterm.css', dest: 'dist' },
+
                 { src: configFile, dest: 'dist', rename: 'config.js' }
             ]
         }),
