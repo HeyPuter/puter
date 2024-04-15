@@ -40,12 +40,20 @@ class DevWatcherService extends BaseService {
     }
 
     async _init (args) {
-        const { root, commands } = args;
+        this.args = args;
 
         process.on('exit', () => {
             this.exit_all_();
         })
-
+    }
+    
+    // Oh geez we need to wait for the web server to initialize
+    // so that `config.origin` has the actual port in it if the
+    // port is set to `auto` - you have no idea how confusing
+    // this was to debug the first time, like Ahhhhhh!!
+    // but hey at least we have this convenient event listener.
+    async ['__on_ready.webserver'] () {
+        const { root, commands } = this.args;
         for ( const entry of commands ) {
             const { directory } = entry;
             const fullpath = this.modules.path.join(
@@ -65,11 +73,18 @@ class DevWatcherService extends BaseService {
 
     async start_ ({ name, fullpath, command, args, env }) {
         this.log.info(`Starting ${name} in ${fullpath}`);
+        const env_processed = { ...(env ?? {}) };
+        for ( const k in env_processed ) {
+            if ( typeof env_processed[k] !== 'function' ) continue;
+            env_processed[k] = env_processed[k]({
+                global_config: this.global_config
+            });
+        }
         const proc = this.modules.spawn(command, args, {
             shell: true,
             env: {
                 ...process.env,
-                ...(env ?? {}),
+                ...env_processed,
             },
             cwd: fullpath,
         });

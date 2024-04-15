@@ -28,7 +28,7 @@ class SelfhostedModule extends AdvancedBase {
                     command: 'npx',
                     args: ['rollup', '-c', 'rollup.config.js', '--watch'],
                     env: {
-                        PUTER_JS_URL: config.origin + '/sdk/puter.dev.js',
+                        PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
                     }
                 },
                 {
@@ -37,7 +37,7 @@ class SelfhostedModule extends AdvancedBase {
                     command: 'npx',
                     args: ['rollup', '-c', 'rollup.config.js', '--watch'],
                     env: {
-                        PUTER_JS_URL: config.origin + '/sdk/puter.dev.js',
+                        PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
                     }
                 },
             ],
