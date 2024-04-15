@@ -37,6 +37,7 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/auth/check-app'))
         app.use(require('../routers/auth/app-uid-from-origin'))
         app.use(require('../routers/auth/create-access-token'))
+        app.use(require('../routers/auth/delete-own-user'))
         app.use(require('../routers/drivers/call'))
         app.use(require('../routers/drivers/list-interfaces'))
         app.use(require('../routers/drivers/usage'))
