@@ -110,6 +110,11 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
         [new_email, user_id]
     );
 
+    let socketio = require('../socketio.js').getio();
+    if(socketio){
+        socketio.to(user.id).emit('user.email_changed', {})
+    }
+
     const h = `<p style="text-align:center; color:green;">Your email has been successfully confirmed.</p>`;
     return res.send(h);
 });
