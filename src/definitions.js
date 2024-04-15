@@ -36,24 +36,26 @@ export class Process {
         const _to_type_name = (name) => {
             return name.replace(/Process$/, '').toLowerCase();
         };
-        return this.type || _to_type_name(this.constructor.name) ||
+        return this.type_ || _to_type_name(this.constructor.name) ||
             'invalid'
     }
 };
 
-export class InitProccess extends Process {
+export class InitProcess extends Process {
     static created_ = false;
 
     _construct () {
         this.name = 'Puter';
 
-        if (InitProccess.created_) {
+        if (InitProcess.created_) {
             throw new Error('InitProccess already created');
         }
 
-        InitProccess.created_ = true;
+        InitProcess.created_ = true;
     }
 }
 
 export class PortalProcess extends Process {};
-export class PseudoProcess extends Process {};
+export class PseudoProcess extends Process {
+    _construct () { this.type_ = 'ui' }
+};

@@ -1,4 +1,4 @@
-import { InitProccess, Service } from "../definitions.js";
+import { InitProcess, Service } from "../definitions.js";
 
 // The NULL UUID is also the UUID for the init process.
 const NULL_UUID = '00000000-0000-0000-0000-000000000000';
@@ -9,7 +9,7 @@ export class ProcessService extends Service {
         this.processes_map = new Map();
         this.uuid_to_treelist = new Map();
 
-        const root = new InitProccess({
+        const root = new InitProcess({
             uuid: NULL_UUID,
         });
         this.register_(root);

@@ -14,12 +14,11 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
         is_resizable: true,
         is_droppable: false,
         has_head: true,
-        stay_on_top: true,
         selectable_body: true,
         draggable_body: false,
         allow_context_menu: true,
         allow_native_ctxmenu: true,
-        show_in_taskbar: false,
+        show_in_taskbar: true,
         window_class: 'window-alert',
         dominant: true,
         body_content: '',
@@ -154,7 +153,7 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
     el_taskarea.classList.add('taskmgr-taskarea');
 
     const tasktable = Table({
-        headings: ['Name', 'Status']
+        headings: ['Name', 'Type', 'Status']
     });
 
     el_taskarea.appendChild(tasktable.el());
@@ -172,6 +171,7 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
                 },
                 name: item.name
             }));
+            row.add($(`<span>${item.type}</span>`)[0])
             row.add($('<span>open</span>')[0])
             tasktable.add(row);
 
