@@ -47,7 +47,6 @@ const CHANGE_EMAIL_START = eggspress('/change_email/start', {
     }
 
     // check if email is already in use
-    const svc_mysql = req.services.get('mysql');
     const db = req.services.get('database').get(DB_WRITE, 'auth');
     const rows = await db.read(
         'SELECT COUNT(*) AS `count` FROM `user` WHERE `email` = ?',
@@ -80,9 +79,8 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
         throw APIError.create('field_missing', null, { key: 'token' });
     }
 
-    const svc_mysql = req.services.get('mysql');
-    const dbrr = svc_mysql.get(DB_MODE_READ, 'change-email-confirm');
-    const [rows] = await dbrr.promise().query(
+    const db = req.services.get('database').get(DB_WRITE, 'auth');
+    const rows = await db.read(
         'SELECT `unconfirmed_change_email` FROM `user` WHERE `id` = ? AND `change_email_confirm_token` = ?',
         [user.id, token]
     );
@@ -92,7 +90,6 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
 
     const new_email = rows[0].unconfirmed_change_email;
 
-    const db = req.services.get('database').get(DB_WRITE, 'auth');
     await db.write(
         'UPDATE `user` SET `email` = ?, `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `id` = ?',
         [new_email, user.id]
