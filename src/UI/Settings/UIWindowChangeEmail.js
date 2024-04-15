@@ -104,7 +104,7 @@ async function UIWindowChangeEmail(options){
                 new_email: new_email, 
             }),				
             success: function (data){
-                $(el_window).find('.form-success-msg').html(i18n('username_changed'));
+                $(el_window).find('.form-success-msg').html(i18n('email_change_confirmation_sent'));
                 $(el_window).find('.form-success-msg').fadeIn();
                 $(el_window).find('input').val('');
                 // update email

@@ -83,6 +83,7 @@ const en = {
         download_file: 'Download File',
         downloading: "Downloading",
         email: "Email",
+        email_change_confirmation_sent: "A confirmation email has been sent to your new email address. Please check your inbox and follow the instructions to complete the process.",
         email_or_username: "Email or Username",
         empty_trash: 'Empty Trash',
         empty_trash_confirmation: `Are you sure you want to permanently delete the items in Trash?`,
