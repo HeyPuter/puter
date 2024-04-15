@@ -26,6 +26,7 @@ const { DB_READ, DB_WRITE } = require('../services/database/consts.js');
 const config = require('../config.js');
 
 const jwt = require('jsonwebtoken');
+const { invalidate_cached_user_by_id } = require('../helpers.js');
 
 const CHANGE_EMAIL_START = eggspress('/change_email/start', {
     subdomain: 'api',
@@ -110,6 +111,7 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
         [new_email, user_id]
     );
 
+    invalidate_cached_user_by_id(user_id);
     let socketio = require('../socketio.js').getio();
     if(socketio){
         socketio.to(user_id).emit('user.email_changed', {})
