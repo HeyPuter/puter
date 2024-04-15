@@ -25,6 +25,7 @@ import changeLanguage from "../../i18n/i18nChangeLanguage.js"
 import UIWindowConfirmUserDeletion from './UIWindowConfirmUserDeletion.js';
 import AboutTab from './UITabAbout.js';
 import UsageTab from './UITabUsage.js';
+import AccountTab from './UITabAccount.js';
 import UIWindowThemeDialog from '../UIWindowThemeDialog.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
 
@@ -35,7 +36,7 @@ async function UIWindowSettings(options){
         const tabs = [
             AboutTab,
             UsageTab,
-            // AccountTab,
+            AccountTab,
             // PersonalizationTab,
             // LanguageTab,
             // ClockTab,
@@ -50,7 +51,6 @@ async function UIWindowSettings(options){
             tabs.forEach((tab, i) => {
                 h += `<div class="settings-sidebar-item disable-user-select ${i === 0 ? 'active' : ''}" data-settings="${tab.id}" style="background-image: url(${icons[tab.icon]});">${i18n(tab.title_i18n_key)}</div>`;
             });
-                h += `<div class="settings-sidebar-item disable-user-select" data-settings="account" style="background-image: url(${icons['user.svg']});">${i18n('account')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="personalization" style="background-image: url(${icons['palette-outline.svg']});">${i18n('personalization')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="language" style="background-image: url(${icons['language.svg']});">${i18n('language')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="clock" style="background-image: url(${icons['clock.svg']});">${i18n('clock')}</div>`;
@@ -64,59 +64,6 @@ async function UIWindowSettings(options){
                         ${tab.html()}
                     </div>`;
             });
-
-                // Account
-                h += `<div class="settings-content" data-settings="account">`;
-                    h += `<h1>${i18n('account')}</h1>`;
-                    // change password button
-                    h += `<div class="settings-card">`;
-                        h += `<strong>${i18n('password')}</strong>`;
-                        h += `<div style="flex-grow:1;">`;
-                            h += `<button class="button change-password" style="float:right;">${i18n('change_password')}</button>`;
-                        h += `</div>`;
-                    h += `</div>`;
-
-                    // change username button
-                    h += `<div class="settings-card">`;
-                        h += `<div>`;
-                            h += `<strong style="display:block;">${i18n('username')}</strong>`;
-                            h += `<span class="username" style="display:block; margin-top:5px;">${user.username}</span>`;
-                        h += `</div>`;
-                        h += `<div style="flex-grow:1;">`;
-                            h += `<button class="button change-username" style="float:right;">${i18n('change_username')}</button>`;
-                        h += `</div>`
-                    h += `</div>`;
-
-                    // change email button
-                    if(user.email){
-                        h += `<div class="settings-card">`;
-                            h += `<div>`;
-                                h += `<strong style="display:block;">${i18n('email')}</strong>`;
-                                h += `<span class="user-email" style="display:block; margin-top:5px;">${user.email}</span>`;
-                            h += `</div>`;
-                            h += `<div style="flex-grow:1;">`;
-                                h += `<button class="button change-email" style="margin-bottom: 10px; float:right;">${i18n('change_email')}</button>`;
-                            h += `</div>`;
-                        h += `</div>`;
-                    }
-
-                    // session manager
-                    h += `<div class="settings-card">`;
-                        h += `<strong>${i18n('sessions')}</strong>`;
-                        h += `<div style="flex-grow:1;">`;
-                            h += `<button class="button manage-sessions" style="float:right;">${i18n('manage_sessions')}</button>`;
-                        h += `</div>`;
-                    h += `</div>`;
-
-                    // 'Delete Account' button
-                    h += `<div class="settings-card settings-card-danger">`;
-                        h += `<strong style="display: inline-block;">${i18n("delete_account")}</strong>`;
-                        h += `<div style="flex-grow:1;">`;
-                            h += `<button class="button button-danger delete-account" style="float:right;">${i18n("delete_account")}</button>`;
-                        h += `</div>`;
-                    h += `</div>`;
-
-                h += `</div>`;
 
                 // Personalization
                 h += `<div class="settings-content" data-settings="personalization">`;
@@ -200,59 +147,8 @@ async function UIWindowSettings(options){
         const $el_window = $(el_window);
         tabs.forEach(tab => tab.init($el_window));
 
-        $(el_window).find('.change-password').on('click', function (e) {
-            UIWindowChangePassword({
-                window_options:{
-                    parent_uuid: $(el_window).attr('data-element_uuid'),
-                    disable_parent_window: true,
-                    parent_center: true,
-                }
-            });
-        })
-
-        $(el_window).find('.change-email').on('click', function (e) {
-            console.log('change email', $(el_window).attr('data-element_uuid'));
-            UIWindowChangeEmail({
-                window_options:{
-                    parent_uuid: $(el_window).attr('data-element_uuid'),
-                    disable_parent_window: true,
-                    parent_center: true,
-                }
-            });
-        })
-
-        $(el_window).find('.delete-account').on('click', function (e) {
-            UIWindowConfirmUserDeletion({
-                window_options:{
-                    parent_uuid: $(el_window).attr('data-element_uuid'),
-                    disable_parent_window: true,
-                    parent_center: true,
-                }
-            });
-        })
-
-        $(el_window).find('.change-username').on('click', function (e) {
-            UIWindowChangeUsername({
-                window_options:{
-                    parent_uuid: $(el_window).attr('data-element_uuid'),
-                    disable_parent_window: true,
-                    parent_center: true,
-                }
-            });
-        })
-
         $(el_window).find('.change-ui-colors').on('click', function (e) {
             UIWindowThemeDialog({
-                window_options:{
-                    parent_uuid: $(el_window).attr('data-element_uuid'),
-                    disable_parent_window: true,
-                    parent_center: true,
-                }
-            });
-        })
-
-        $(el_window).find('.manage-sessions').on('click', function (e) {
-            UIWindowManageSessions({
                 window_options:{
                     parent_uuid: $(el_window).attr('data-element_uuid'),
                     disable_parent_window: true,
