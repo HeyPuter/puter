@@ -111,8 +111,7 @@ This user will have a randomly generated password, which will be printed
 in the development console.
 A warning will persist in the dev console until this user's
 password is changed. Please login to this user and change the password as
-your first step. This user by default has 10GB storage instead of the default
-(500MB storage) for new/temporary users.
+your first step.
 
 <br/>
 
