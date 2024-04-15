@@ -20,7 +20,7 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
         has_head: true,
         selectable_body: true,
         draggable_body: false,
-        allow_context_menu: true,
+        allow_context_menu: false,
         // allow_native_ctxmenu: true,
         show_in_taskbar: true,
         dominant: true,
