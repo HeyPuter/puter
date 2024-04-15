@@ -63,11 +63,14 @@ class DevWatcherService extends BaseService {
         this.log.info(txt);
     }
 
-    async start_ ({ name, fullpath, command, args }) {
+    async start_ ({ name, fullpath, command, args, env }) {
         this.log.info(`Starting ${name} in ${fullpath}`);
         const proc = this.modules.spawn(command, args, {
             shell: true,
-            env: process.env,
+            env: {
+                ...process.env,
+                ...(env ?? {}),
+            },
             cwd: fullpath,
         });
         this.instances.push({

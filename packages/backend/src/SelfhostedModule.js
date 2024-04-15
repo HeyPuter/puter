@@ -1,4 +1,5 @@
 const { AdvancedBase } = require("puter-js-common");
+const config = require("./config");
 
 class SelfhostedModule extends AdvancedBase {
     async install (context) {
@@ -26,12 +27,18 @@ class SelfhostedModule extends AdvancedBase {
                     directory: 'packages/terminal',
                     command: 'npx',
                     args: ['rollup', '-c', 'rollup.config.js', '--watch'],
+                    env: {
+                        PUTER_JS_URL: config.origin + 'sdk/puter.dev.js',
+                    }
                 },
                 {
                     name: 'phoenix:rollup-watch',
                     directory: 'packages/phoenix',
                     command: 'npx',
                     args: ['rollup', '-c', 'rollup.config.js', '--watch'],
+                    env: {
+                        PUTER_JS_URL: config.origin + 'sdk/puter.dev.js',
+                    }
                 },
             ],
         });

@@ -27,7 +27,7 @@
     "start": "node run-selfhosted.js",
     "build": "node ./build.js",
     "check-translations": "node tools/check-translations.js",
-    "postinstall": "cd packages/phoenix/packages/contextlink && npm install"
+    "postinstall": "cd packages/phoenix && cd packages/contextlink && npm install && cd - && cd packages/strataparse && npm install && cd - && cd packages/pty && npm install"
   },
   "workspaces": [
     "packages/*"
