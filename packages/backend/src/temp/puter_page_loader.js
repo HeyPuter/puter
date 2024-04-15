@@ -25,6 +25,7 @@ const generate_puter_page_html = ({
 
     manifest,
     gui_path,
+    use_bundled_gui,
 
     app_origin,
     api_origin,
@@ -113,6 +114,11 @@ const generate_puter_page_html = ({
 
 <body>
     <script>window.puter_gui_enabled = true;</script>
+    ${
+        use_bundled_gui
+            ? `<script>window.gui_env = 'prod';</script>`
+            : ''
+    }
     ${
         ((env == 'dev' && manifest?.lib_paths)
             ? manifest.lib_paths.map(path => `<script type="text/javascript" src="${path}"></script>\n`)
