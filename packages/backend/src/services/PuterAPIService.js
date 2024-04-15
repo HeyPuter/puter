@@ -42,6 +42,7 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/drivers/list-interfaces'))
         app.use(require('../routers/drivers/usage'))
         app.use(require('../routers/confirm-email'))
+        app.use(require('../routers/down'))
         app.use(require('../routers/contactUs'))
         app.use(require('../routers/delete-site'))
         app.use(require('../routers/get-dev-profile'))
