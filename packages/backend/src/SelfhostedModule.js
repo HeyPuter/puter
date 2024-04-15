@@ -29,7 +29,7 @@ class SelfhostedModule extends AdvancedBase {
                 },
                 {
                     name: 'phoenix:rollup-watch',
-                    directory: 'packages/terminal',
+                    directory: 'packages/phoenix',
                     command: 'npx',
                     args: ['rollup', '-c', 'rollup.config.js', '--watch'],
                 },
