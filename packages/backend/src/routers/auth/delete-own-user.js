@@ -1,7 +1,7 @@
-const eggspress = require("../api/eggspress");
-const { deleteUser, invalidate_cached_user } = require("../helpers");
+const eggspress = require("../../api/eggspress");
+const { deleteUser, invalidate_cached_user } = require("../../helpers");
 
-const config = require("../config");
+const config = require("../../config");
 
 module.exports = eggspress("/delete-own-user", {
     subdomain: "api",
