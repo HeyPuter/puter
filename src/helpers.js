@@ -667,6 +667,11 @@ window.update_auth_data = (auth_token, user)=>{
     if(window.user?.username !== user.username)
         update_username_in_gui(user.username);
 
+    // Has email changed?
+    if(window.user?.email !== user.email && user.email){
+        $('.user-email').html(user.email);
+    }
+
     // update this session's user data
     window.user = user;
     localStorage.setItem('user', JSON.stringify(window.user));

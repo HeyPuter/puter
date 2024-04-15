@@ -20,7 +20,6 @@
 import UIWindow from '../UIWindow.js'
 import UIWindowChangePassword from '../UIWindowChangePassword.js'
 import UIWindowChangeEmail from './UIWindowChangeEmail.js'
-// import UIWindowDeleteAccount from './UIWindowDeleteAccount.js'
 import UIWindowChangeUsername from '../UIWindowChangeUsername.js'
 import changeLanguage from "../../i18n/i18nChangeLanguage.js"
 import UIWindowConfirmUserDeletion from './UIWindowConfirmUserDeletion.js';
@@ -98,7 +97,7 @@ async function UIWindowSettings(options){
                         h += `<div class="settings-card">`;
                             h += `<div>`;
                                 h += `<strong style="display:block;">${i18n('email')}</strong>`;
-                                h += `<span style="display:block; margin-top:5px;">${user.email}</span>`;
+                                h += `<span class="user-email" style="display:block; margin-top:5px;">${user.email}</span>`;
                             h += `</div>`;
                             h += `<div style="flex-grow:1;">`;
                                 h += `<button class="button change-email" style="margin-bottom: 10px; float:right;">${i18n('change_email')}</button>`;
