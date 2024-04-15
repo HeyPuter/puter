@@ -55,7 +55,9 @@ export class InitProcess extends Process {
     }
 }
 
-export class PortalProcess extends Process {};
+export class PortalProcess extends Process {
+    _construct () { this.type_ = 'app' }
+};
 export class PseudoProcess extends Process {
     _construct () { this.type_ = 'ui' }
 };
