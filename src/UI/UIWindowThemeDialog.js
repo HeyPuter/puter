@@ -115,12 +115,6 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
             svc_theme.reset();
         })
         ;
-    Button({ label: i18n('reset_colors') })
-        .appendTo(w_body)
-        .onPress(() => {
-            UIWindowColorPicker();
-        })
-        ;
 
     Slider({
         label: i18n('hue'),
