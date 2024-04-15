@@ -90,8 +90,7 @@ class DBKVStore extends BaseImplementation {
                     VALUES (?, ?, ?, ?, ?) ` +
                     db.case({
                         mysql: 'ON DUPLICATE KEY UPDATE value = ?',
-                        sqlite: ' ',
-                        // sqlite: 'ON CONFLICT(user_id, app, kkey_hash) DO UPDATE SET value = ?',
+                        sqlite: 'ON CONFLICT(user_id, app, kkey_hash) DO UPDATE SET value = excluded.value',
                     }),
                     [
                         user.id, app?.uid ?? 'global', key_hash, key, value,

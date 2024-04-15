@@ -120,7 +120,10 @@ CREATE TABLE `kv` (
   `value` text,
 
   -- 0016
-    `migrated` tinyint(1) DEFAULT '0'
+    `migrated` tinyint(1) DEFAULT '0',
+  
+  -- 0019
+    UNIQUE (user_id, app, kkey_hash)
 );
 
 CREATE TABLE `subdomains` (
