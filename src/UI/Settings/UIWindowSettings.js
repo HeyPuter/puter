@@ -26,6 +26,7 @@ import UIWindowConfirmUserDeletion from './UIWindowConfirmUserDeletion.js';
 import AboutTab from './UITabAbout.js';
 import UsageTab from './UITabUsage.js';
 import AccountTab from './UITabAccount.js';
+import PersonalizationTab from './UITabPersonalization.js';
 import UIWindowThemeDialog from '../UIWindowThemeDialog.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
 
@@ -37,7 +38,7 @@ async function UIWindowSettings(options){
             AboutTab,
             UsageTab,
             AccountTab,
-            // PersonalizationTab,
+            PersonalizationTab,
             // LanguageTab,
             // ClockTab,
         ];
@@ -51,7 +52,6 @@ async function UIWindowSettings(options){
             tabs.forEach((tab, i) => {
                 h += `<div class="settings-sidebar-item disable-user-select ${i === 0 ? 'active' : ''}" data-settings="${tab.id}" style="background-image: url(${icons[tab.icon]});">${i18n(tab.title_i18n_key)}</div>`;
             });
-                h += `<div class="settings-sidebar-item disable-user-select" data-settings="personalization" style="background-image: url(${icons['palette-outline.svg']});">${i18n('personalization')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="language" style="background-image: url(${icons['language.svg']});">${i18n('language')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="clock" style="background-image: url(${icons['clock.svg']});">${i18n('clock')}</div>`;
             h += `</div>`;
@@ -64,18 +64,6 @@ async function UIWindowSettings(options){
                         ${tab.html()}
                     </div>`;
             });
-
-                // Personalization
-                h += `<div class="settings-content" data-settings="personalization">`;
-                    h += `<h1>${i18n('personalization')}</h1>`;
-                    // change password button
-                    h += `<div class="settings-card">`;
-                        h += `<strong>${i18n('ui_colors')}</strong>`;
-                        h += `<div style="flex-grow:1;">`;
-                            h += `<button class="button change-ui-colors" style="float:right;">${i18n('change_ui_colors')}</button>`;
-                        h += `</div>`;
-                    h += `</div>`;
-                h += `</div>`;
 
                 // Language
                 h += `<div class="settings-content" data-settings="language">`;
@@ -146,16 +134,6 @@ async function UIWindowSettings(options){
         });
         const $el_window = $(el_window);
         tabs.forEach(tab => tab.init($el_window));
-
-        $(el_window).find('.change-ui-colors').on('click', function (e) {
-            UIWindowThemeDialog({
-                window_options:{
-                    parent_uuid: $(el_window).attr('data-element_uuid'),
-                    disable_parent_window: true,
-                    parent_center: true,
-                }
-            });
-        })
 
         $(el_window).on('click', '.settings-sidebar-item', function(){
             const $this = $(this);
