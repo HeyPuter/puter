@@ -77,7 +77,7 @@ const CHANGE_EMAIL_START = eggspress('/change_email/start', {
     // update user
     await db.write(
         'UPDATE `user` SET `unconfirmed_change_email` = ?, `change_email_confirm_token` = ? WHERE `id` = ?',
-        [new_email, jwt_token, user.id]
+        [new_email, token, user.id]
     );
 
     res.send({ success: true });
