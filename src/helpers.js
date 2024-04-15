@@ -36,6 +36,7 @@ import update_username_in_gui from './helpers/update_username_in_gui.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import content_type_to_icon from './helpers/content_type_to_icon.js';
 import UIWindowDownloadDirProg from './UI/UIWindowDownloadDirProg.js';
+import { PROCESS_RUNNING, PortalProcess, PseudoProcess } from "./definitions.js";
 
 window.is_auth = ()=>{
     if(localStorage.getItem("auth_token") === null || auth_token === null)
@@ -1680,10 +1681,30 @@ window.launch_app = async (options)=>{
         // add file_signature to options
         file_signature = file_signature.items;
     }
+
+    // -----------------------------------
+    // Create entry to track the "portal"
+    // (portals are processese in Puter's GUI)
+    // -----------------------------------
+
+    let el_win;
+    let process;
+
     //------------------------------------
     // Explorer
     //------------------------------------
     if(options.name === 'explorer'){
+        process = new PseudoProcess({
+            uuid,
+            name: 'explorer',
+            parent: options.parent_instance_id,
+            meta: {
+                launch_options: options,
+                app_info: app_info,
+            }
+        });
+        const svc_process = globalThis.services.get('process');
+        svc_process.register(process);
         if(options.path === window.home_path){
             title = 'Home';
             icon = window.icons['folder-home.svg'];
@@ -1697,7 +1718,7 @@ window.launch_app = async (options)=>{
             title = path.dirname(options.path);
 
         // open window
-        UIWindow({
+        el_win = UIWindow({
             element_uuid: uuid,
             icon: icon,
             path: options.path ?? window.home_path,
@@ -1713,6 +1734,18 @@ window.launch_app = async (options)=>{
     // All other apps
     //------------------------------------
     else{
+        process = new PortalProcess({
+            uuid,
+            name: app_info.name,
+            parent: options.parent_instance_id,
+            meta: {
+                launch_options: options,
+                app_info: app_info,
+            }
+        });
+        const svc_process = globalThis.services.get('process');
+        svc_process.register(process);
+
         //-----------------------------------
         // iframe_url
         //-----------------------------------
@@ -1808,7 +1841,7 @@ window.launch_app = async (options)=>{
 
         console.log('backgrounded??', app_info.background);
 
-        const el_win = UIWindow({
+        el_win = UIWindow({
             element_uuid: uuid,
             title: title,
             iframe_url: iframe_url.href,
@@ -1826,7 +1859,7 @@ window.launch_app = async (options)=>{
             is_fullpage: options.is_fullpage,
             ...window_options,
             show_in_taskbar: app_info.background ? false : window_options?.show_in_taskbar,
-        }); 
+        });
 
         if ( ! app_info.background ) {
             $(el_win).show();
@@ -1859,6 +1892,18 @@ window.launch_app = async (options)=>{
             })
         }
     }
+
+    (async () => {
+        const el = await el_win;
+        console.log('RESOV', el);
+        $(el).on('remove', () => {
+            const svc_process = globalThis.services.get('process');
+            svc_process.unregister(process.uuid);
+        });
+
+        process.references.el_win = el;
+        process.chstatus(PROCESS_RUNNING);
+    })();
 }
 
 window.open_item = async function(options){

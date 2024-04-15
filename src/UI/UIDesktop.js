@@ -35,6 +35,7 @@ import new_context_menu_item from "../helpers/new_context_menu_item.js"
 import refresh_item_container from "../helpers/refresh_item_container.js"
 import changeLanguage from "../i18n/i18nChangeLanguage.js"
 import UIWindowSettings from "./Settings/UIWindowSettings.js"
+import UIWindowTaskManager from "./UIWindowTaskManager.js"
 
 async function UIDesktop(options){
     let h = '';
@@ -1190,12 +1191,21 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
                 }
             },
             //--------------------------------------------------
-            // Change Password
+            // Settings
             //--------------------------------------------------
             {
                 html: i18n('settings'),
                 onClick: async function(){
                     UIWindowSettings();
+                }
+            },
+            //--------------------------------------------------
+            // Task Manager
+            //--------------------------------------------------
+            {
+                html: i18n('task_manager'),
+                onClick: async function(){
+                    UIWindowTaskManager();
                 }
             },
             //--------------------------------------------------
