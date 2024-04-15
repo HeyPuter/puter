@@ -38,7 +38,8 @@ export default {
                     src: 'assets/index.html',
                     dest: 'dist',
                     transform: (contents, name) => {
-                        return contents.toString().replace('__SDK_URL__', globalThis.__CONFIG__.sdk_url);
+                        return contents.toString().replace('__SDK_URL__',
+                            process.env.PUTER_JS_URL ?? globalThis.__CONFIG__.sdk_url);
                     }
                 },
                 { src: 'assets/shell.html', dest: 'dist' },

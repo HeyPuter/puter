@@ -47,10 +47,10 @@ class DevWatcherService extends BaseService {
         })
 
         for ( const entry of commands ) {
-            const { name, directory, command, args } = entry;
+            const { directory } = entry;
             const fullpath = this.modules.path.join(
                 root, directory);
-            this.start_({ name, fullpath, command, args });
+            this.start_({ ...entry, fullpath });
         }
     }
 
