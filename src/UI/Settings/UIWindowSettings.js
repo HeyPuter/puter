@@ -23,7 +23,7 @@ import UIWindowChangeEmail from './UIWindowChangeEmail.js'
 import UIWindowChangeUsername from '../UIWindowChangeUsername.js'
 import changeLanguage from "../../i18n/i18nChangeLanguage.js"
 import UIWindowConfirmUserDeletion from './UIWindowConfirmUserDeletion.js';
-import UITabAbout from './UITabAbout.js';
+import AboutTab from './UITabAbout.js';
 import UIWindowThemeDialog from '../UIWindowThemeDialog.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
 
@@ -31,13 +31,24 @@ async function UIWindowSettings(options){
     return new Promise(async (resolve) => {
         options = options ?? {};
 
+        const tabs = [
+            AboutTab,
+            // UsageTab,
+            // AccountTab,
+            // PersonalizationTab,
+            // LanguageTab,
+            // ClockTab,
+        ];
+
         let h = '';
 
         h += `<div class="settings-container">`;
         h += `<div class="settings">`;
             // side bar
             h += `<div class="settings-sidebar disable-user-select">`;
-                h += `<div class="settings-sidebar-item disable-user-select active" data-settings="about" style="background-image: url(${icons['logo-outline.svg']});">${i18n('about')}</div>`;
+            tabs.forEach((tab, i) => {
+                h += `<div class="settings-sidebar-item disable-user-select ${i === 0 ? 'active' : ''}" data-settings="${tab.id}" style="background-image: url(${icons[tab.icon]});">${i18n(tab.title_i18n_key)}</div>`;
+            });
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="usage" style="background-image: url(${icons['speedometer-outline.svg']});">${i18n('usage')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="account" style="background-image: url(${icons['user.svg']});">${i18n('account')}</div>`;
                 h += `<div class="settings-sidebar-item disable-user-select" data-settings="personalization" style="background-image: url(${icons['palette-outline.svg']});">${i18n('personalization')}</div>`;
@@ -47,9 +58,12 @@ async function UIWindowSettings(options){
 
             // content
             h += `<div class="settings-content-container">`;
-            
-                // About
-                h += UITabAbout();
+
+            tabs.forEach((tab, i) => {
+                h += `<div class="settings-content ${i === 0 ? 'active' : ''}" data-settings="${tab.id}">
+                        ${tab.html()}
+                    </div>`;
+            });
 
                 // Usage
                 h += `<div class="settings-content" data-settings="usage">`;
@@ -202,6 +216,8 @@ async function UIWindowSettings(options){
                 overflow: 'auto'
             }
         });
+        const $el_window = $(el_window);
+        tabs.forEach(tab => tab.init($el_window));
 
         $.ajax({
             url: api_origin + "/drivers/usage",
@@ -298,36 +314,6 @@ async function UIWindowSettings(options){
                     });
                 }
             }
-        })
-
-        // version
-        $.ajax({
-            url: api_origin + "/version",
-            type: 'GET',
-            async: true,
-            contentType: "application/json",
-            headers: {
-                "Authorization": "Bearer " + auth_token
-            },
-            statusCode: {
-                401: function () {
-                    logout();
-                },
-            },
-            success: function (res) {
-                var d = new Date(0);
-                $('.version').html('Version: ' + res.version + ' &bull; ' + 'Server: ' + res.location + ' &bull; ' + 'Deployed: ' + new Date(res.deploy_timestamp));
-            }
-        })
-
-        $(el_window).find('.credits').on('click', function (e) {
-            if($(e.target).hasClass('credits')){
-                $('.credits').get(0).close();
-            }
-        });
-
-        $(el_window).find('.show-credits').on('click', function (e) {
-            $('.credits').get(0).showModal();
         })
 
         $(el_window).find('.change-password').on('click', function (e) {
