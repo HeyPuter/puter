@@ -1683,12 +1683,13 @@ window.launch_app = async (options)=>{
     // -----------------------------------
 
     let el_win;
+    let process;
 
     //------------------------------------
     // Explorer
     //------------------------------------
     if(options.name === 'explorer'){
-        const process = new PseudoProcess({
+        process = new PseudoProcess({
             uuid,
             name: 'explorer',
             parent: options.parent_instance_id,
@@ -1728,7 +1729,7 @@ window.launch_app = async (options)=>{
     // All other apps
     //------------------------------------
     else{
-        const portal = new PortalProcess({
+        process = new PortalProcess({
             uuid,
             name: app_info.name,
             parent: options.parent_instance_id,
@@ -1738,7 +1739,7 @@ window.launch_app = async (options)=>{
             }
         });
         const svc_process = globalThis.services.get('process');
-        svc_process.register(portal);
+        svc_process.register(process);
 
         //-----------------------------------
         // iframe_url
@@ -1887,9 +1888,14 @@ window.launch_app = async (options)=>{
         }
     }
 
-    $(el_win).on('remove', () => {
-        svc_process.unregister(portal.uuid);
-    });
+    (async () => {
+        const el = await el_win;
+        console.log('RESOV', el);
+        $(el).on('remove', () => {
+            const svc_process = globalThis.services.get('process');
+            svc_process.unregister(process.uuid);
+        });
+    })();
 }
 
 window.open_item = async function(options){

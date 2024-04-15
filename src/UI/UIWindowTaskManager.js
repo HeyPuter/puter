@@ -82,11 +82,9 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
 
         for ( let i=0; i < indent_level; i++ ) {
             const last_cell = i === indent_level - 1;
-            console.log('last_cell', last_cell);
-            console.log('last_item', last_item);
             Indent({
                 has_trunk: (last_cell && ( ! last_item )) ||
-                    (!last_cell && !parent_last_item[i]),
+                    (!last_cell && !parent_last_item[i+1]),
                 has_branch: last_cell
             }).appendTo(el);
         }
@@ -127,6 +125,9 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
                 if ( typeof el.el === 'function' ) el = el.el();
                 el_tbody.appendChild(el);
                 return this;
+            },
+            clear () {
+                el_tbody.innerHTML = '';
             }
         };
     };
@@ -159,7 +160,6 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
     el_taskarea.appendChild(tasktable.el());
 
     const iter_tasks = (items, { indent_level, parent_last_item }) => {
-        console.log('aaah', parent_last_item);
         for ( let i=0 ; i < items.length; i++ ) {
             const row = Row();
             const item = items[i];
@@ -186,9 +186,16 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
         }
     };
 
-    const processes = [svc_process.get_init()];
+    const interval = setInterval(() => {
+        tasktable.clear();
+        const processes = [svc_process.get_init()];
+        iter_tasks(processes, { indent_level: 0, parent_last_item: [] });
+    }, 500)
 
-    iter_tasks(processes, { indent_level: 0, parent_last_item: [] });
+    w.on_close = () => {
+        clearInterval(interval);
+    }
+
     w_body.appendChild(el_taskarea);
 }
 

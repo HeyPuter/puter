@@ -53,7 +53,7 @@ export class ProcessService extends Service {
         this.processes_map.delete(uuid);
         this.processes.splice(this.processes.indexOf(process), 1);
 
-        const parent_list = this.uuid_to_treelist.get(process.parent.uuid);
+        const parent_list = this.uuid_to_treelist.get(process.parent);
         parent_list.splice(parent_list.indexOf(process), 1);
 
         const children = this.uuid_to_treelist.get(process.uuid);
