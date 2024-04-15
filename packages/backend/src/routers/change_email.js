@@ -70,7 +70,7 @@ const CHANGE_EMAIL_START = eggspress('/change_email/start', {
     // send confirmation email
     const svc_email = req.services.get('email');
     await svc_email.send_email({ email: new_email }, 'email_change_request', {
-        confirm_url: `${config.origin}/change_email/confirm?token=${token}`,
+        confirm_url: `${config.origin}/change_email/confirm?token=${jwt_token}`,
         username: user.username,
     });
 
