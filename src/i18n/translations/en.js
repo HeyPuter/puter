@@ -125,6 +125,7 @@ const en = {
         name_must_be_string: "Name can only be a string.",
         name_too_long: `Name can not be longer than %% characters.`,
         new: 'New',
+        new_email: 'New Email',
         new_folder: 'New folder',
         new_password: "New Password",
         new_username: "New Username",

@@ -46,10 +46,10 @@ window.puter_gui_enabled = true;
 window.gui = async function(options){
     options = options ?? {};
     // app_origin is deprecated, use gui_origin instead
-    window.gui_origin = options.gui_origin ?? options.app_origin ?? `https://puter.com`;
+    window.gui_origin = `https://puter.com`;
     window.app_domain = options.app_domain ?? new URL(window.gui_origin).hostname;
     window.hosting_domain = options.hosting_domain ?? 'puter.site';
-    window.api_origin = options.api_origin ?? "https://api.puter.com";
+    window.api_origin = "https://api.puter.com";
     window.max_item_name_length = options.max_item_name_length ?? 500;
     window.require_email_verification_to_publish_website = options.require_email_verification_to_publish_website ?? true;
 

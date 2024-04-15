@@ -19,7 +19,7 @@
 
 import UIWindow from '../UIWindow.js'
 import UIWindowChangePassword from '../UIWindowChangePassword.js'
-// import UIWindowChangeEmail from './UIWindowChangeEmail.js'
+import UIWindowChangeEmail from './UIWindowChangeEmail.js'
 // import UIWindowDeleteAccount from './UIWindowDeleteAccount.js'
 import UIWindowChangeUsername from '../UIWindowChangeUsername.js'
 import changeLanguage from "../../i18n/i18nChangeLanguage.js"
@@ -106,19 +106,19 @@ async function UIWindowSettings(options){
                         h += `</div>`;
                     }
 
-                    // 'Delete Account' button
-                    h += `<div class="settings-card settings-card-danger">`;
-                        h += `<strong style="display: inline-block;">${i18n("delete_account")}</strong>`;
-                        h += `<div style="flex-grow:1;">`;
-                            h += `<button class="button button-danger delete-account" style="float:right;">${i18n("delete_account")}</button>`;
-                        h += `</div>`;
-                    h += `</div>`;
-
                     // session manager
                     h += `<div class="settings-card">`;
                         h += `<strong>${i18n('sessions')}</strong>`;
                         h += `<div style="flex-grow:1;">`;
                             h += `<button class="button manage-sessions" style="float:right;">${i18n('manage_sessions')}</button>`;
+                        h += `</div>`;
+                    h += `</div>`;
+
+                    // 'Delete Account' button
+                    h += `<div class="settings-card settings-card-danger">`;
+                        h += `<strong style="display: inline-block;">${i18n("delete_account")}</strong>`;
+                        h += `<div style="flex-grow:1;">`;
+                            h += `<button class="button button-danger delete-account" style="float:right;">${i18n("delete_account")}</button>`;
                         h += `</div>`;
                     h += `</div>`;
 
