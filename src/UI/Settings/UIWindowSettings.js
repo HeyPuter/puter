@@ -332,19 +332,40 @@ async function UIWindowSettings(options){
         })
 
         $(el_window).find('.change-password').on('click', function (e) {
-            UIWindowChangePassword();
+            UIWindowChangePassword({
+                window_options:{
+                    parent_uuid: $(el_window).attr('data-element_uuid'),
+                    disable_parent_window: true,
+                }
+            });
         })
 
         $(el_window).find('.change-email').on('click', function (e) {
-            UIWindowChangeEmail();
+            console.log('change email', $(el_window).attr('data-element_uuid'));
+            UIWindowChangeEmail({
+                window_options:{
+                    parent_uuid: $(el_window).attr('data-element_uuid'),
+                    disable_parent_window: true,
+                }
+            });
         })
 
         $(el_window).find('.delete-account').on('click', function (e) {
-            UIWindowConfirmUserDeletion();
+            UIWindowConfirmUserDeletion({
+                window_options:{
+                    parent_uuid: $(el_window).attr('data-element_uuid'),
+                    disable_parent_window: true,
+                }
+            });
         })
 
         $(el_window).find('.change-username').on('click', function (e) {
-            UIWindowChangeUsername();
+            UIWindowChangeUsername({
+                window_options:{
+                    parent_uuid: $(el_window).attr('data-element_uuid'),
+                    disable_parent_window: true,
+                }
+            });
         })
 
         $(el_window).find('.change-ui-colors').on('click', function (e) {
@@ -352,7 +373,12 @@ async function UIWindowSettings(options){
         })
 
         $(el_window).find('.manage-sessions').on('click', function (e) {
-            UIWindowManageSessions();
+            UIWindowManageSessions({
+                window_options:{
+                    parent_uuid: $(el_window).attr('data-element_uuid'),
+                    disable_parent_window: true,
+                }
+            });
         })
 
         $(el_window).on('click', '.settings-sidebar-item', function(){

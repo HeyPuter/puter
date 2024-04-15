@@ -19,7 +19,9 @@
 
 import UIWindow from '../UIWindow.js'
 
-async function UIWindowChangeEmail(){
+async function UIWindowChangeEmail(options){
+    options = options ?? {};
+
     const internal_id = window.uuidv4();
     let h = '';
     h += `<div class="change-email" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
@@ -67,7 +69,8 @@ async function UIWindowChangeEmail(){
             height: '100%',
             'background-color': 'rgb(245 247 249)',
             'backdrop-filter': 'blur(3px)',
-        }    
+        },    
+        ...options.window_options
     })
 
     $(el_window).find('.change-email-btn').on('click', function(e){
