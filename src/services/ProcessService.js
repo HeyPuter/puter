@@ -15,6 +15,18 @@ export class ProcessService extends Service {
         this.register_(root);
     }
 
+    get_init () {
+        return this.processes_map.get(NULL_UUID);
+    }
+
+    get_children_of (uuid) {
+        if ( ! uuid ) {
+            uuid = NULL_UUID;
+        }
+
+        return this.uuid_to_treelist.get(uuid);
+    }
+
     register (process) {
         this.register_(process);
         this.attach_to_parent_(process);

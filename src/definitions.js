@@ -21,9 +21,10 @@ export class Service {
 };
 
 export class Process {
-    constructor ({ uuid, parent, meta }) {
+    constructor ({ uuid, parent, name, meta }) {
         this.uuid = uuid;
         this.parent = parent;
+        this.name = name;
         this.meta = meta;
 
         this._construct();
@@ -44,6 +45,8 @@ export class InitProccess extends Process {
     static created_ = false;
 
     _construct () {
+        this.name = 'Puter';
+
         if (InitProccess.created_) {
             throw new Error('InitProccess already created');
         }

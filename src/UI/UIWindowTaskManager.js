@@ -2,29 +2,6 @@ import UIWindow from "./UIWindow.js";
 
 const UIWindowTaskManager = async function UIWindowTaskManager () {
     const svc_process = globalThis.services.get('process');
-    const sample_data = [
-        {
-            name: 'root',
-            children: [
-                {
-                    name: 'terminal',
-                    children: [
-                        {
-                            name: 'phoenix'
-                        }
-                    ],
-                    children: [
-                        {
-                            name: 'ai-plugin'
-                        }
-                    ]
-                },
-                {
-                    name: 'editor'
-                }
-            ]
-        }
-    ];
 
     const w = await UIWindow({
         title: i18n('task_manager'),
@@ -95,7 +72,10 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
     };
 
     const Task = ({ placement, name }) => {
-        const { indent_level, last_item } = placement;
+        const {
+            indent_level, last_item,
+            parent_last_item,
+        } = placement;
 
         const el = document.createElement('div');
         el.classList.add('taskmgr-task');
@@ -106,7 +86,7 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
             console.log('last_item', last_item);
             Indent({
                 has_trunk: (last_cell && ( ! last_item )) ||
-                    ! last_cell,
+                    (!last_cell && !parent_last_item[i]),
                 has_branch: last_cell
             }).appendTo(el);
         }
@@ -178,27 +158,37 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
 
     el_taskarea.appendChild(tasktable.el());
 
-    const iter_tasks = (items, { indent_level }) => {
+    const iter_tasks = (items, { indent_level, parent_last_item }) => {
+        console.log('aaah', parent_last_item);
         for ( let i=0 ; i < items.length; i++ ) {
             const row = Row();
             const item = items[i];
+            const last_item = i === items.length - 1;
             row.add(Task({
                 placement: {
+                    parent_last_item,
                     indent_level,
-                    last_item: i === items.length - 1,
+                    last_item,
                 },
                 name: item.name
             }));
             row.add($('<span>open</span>')[0])
             tasktable.add(row);
-            if ( item.children ) {
-                iter_tasks(item.children, {
-                    indent_level: indent_level + 1
+
+            const children = svc_process.get_children_of(item.uuid);
+            if ( children ) {
+                iter_tasks(children, {
+                    indent_level: indent_level + 1,
+                    parent_last_item:
+                        [...parent_last_item, last_item],
                 });
             }
         }
     };
-    iter_tasks(sample_data, { indent_level: 0 });
+
+    const processes = [svc_process.get_init()];
+
+    iter_tasks(processes, { indent_level: 0, parent_last_item: [] });
     w_body.appendChild(el_taskarea);
 }
 

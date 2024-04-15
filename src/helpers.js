@@ -36,7 +36,7 @@ import update_username_in_gui from './helpers/update_username_in_gui.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import content_type_to_icon from './helpers/content_type_to_icon.js';
 import UIWindowDownloadDirProg from './UI/UIWindowDownloadDirProg.js';
-import { PortalProcess } from "./definitions.js";
+import { PortalProcess, PseudoProcess } from "./definitions.js";
 
 window.is_auth = ()=>{
     if(localStorage.getItem("auth_token") === null || auth_token === null)
@@ -1681,16 +1681,6 @@ window.launch_app = async (options)=>{
     // Create entry to track the "portal"
     // (portals are processese in Puter's GUI)
     // -----------------------------------
-    const portal = new PortalProcess({
-        uuid,
-        parent: options.parent_instance_id,
-        meta: {
-            launch_options: options,
-            app_info: app_info,
-        }
-    });
-    const svc_process = globalThis.services.get('process');
-    svc_process.register(portal);
 
     let el_win;
 
@@ -1698,6 +1688,17 @@ window.launch_app = async (options)=>{
     // Explorer
     //------------------------------------
     if(options.name === 'explorer'){
+        const process = new PseudoProcess({
+            uuid,
+            name: 'explorer',
+            parent: options.parent_instance_id,
+            meta: {
+                launch_options: options,
+                app_info: app_info,
+            }
+        });
+        const svc_process = globalThis.services.get('process');
+        svc_process.register(process);
         if(options.path === window.home_path){
             title = 'Home';
             icon = window.icons['folder-home.svg'];
@@ -1727,6 +1728,18 @@ window.launch_app = async (options)=>{
     // All other apps
     //------------------------------------
     else{
+        const portal = new PortalProcess({
+            uuid,
+            name: app_info.name,
+            parent: options.parent_instance_id,
+            meta: {
+                launch_options: options,
+                app_info: app_info,
+            }
+        });
+        const svc_process = globalThis.services.get('process');
+        svc_process.register(portal);
+
         //-----------------------------------
         // iframe_url
         //-----------------------------------
