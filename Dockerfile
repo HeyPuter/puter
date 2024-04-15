@@ -1,3 +1,12 @@
+# /!\ NOTICE /!\
+
+# Many of the developers DO NOT USE the Dockerfile or image.
+# While we do test new changes to Docker configuration, it's
+# possible that future changes to the repo might break it.
+# When changing this file, please try to make it as resiliant
+# to such changes as possible; developers shouldn't need to
+# worry about Docker unless the build/run process changes.
+
 # Build stage
 FROM node:21-alpine AS build
 
@@ -11,12 +20,12 @@ WORKDIR /app
 # Copy package.json and package-lock.json
 COPY package*.json ./
 
+# Copy the source files
+COPY . .
+
 # Install node modules
 RUN npm cache clean --force \
     && npm ci
-
-# Copy the rest of the source files
-COPY . .
 
 # Run the build command if necessary
 RUN npm run build
@@ -39,7 +48,7 @@ WORKDIR /opt/puter/app
 # Copy built artifacts and necessary files from the build stage
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
-COPY package*.json ./
+COPY . .
 
 # Set permissions
 RUN chown -R node:node /opt/puter/app
