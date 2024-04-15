@@ -81,7 +81,7 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
     allowedMethods: ['GET'],
 }, async (req, res, next) => {
     const user = req.user;
-    const token = req.body.token;
+    const token = req.query.token;
 
     if ( ! token ) {
         throw APIError.create('field_missing', null, { key: 'token' });
