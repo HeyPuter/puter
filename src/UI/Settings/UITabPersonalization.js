@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import UIWindowThemeDialog from '../UIWindowThemeDialog.js';
+import UIWindowDesktopBGSettings from '../UIWindowDesktopBGSettings.js';
 
 // About
 export default {
@@ -31,11 +32,26 @@ export default {
                 <div style="flex-grow:1;">
                     <button class="button change-ui-colors" style="float:right;">${i18n('change_ui_colors')}</button>
                 </div>
+            </div>
+            <div class="settings-card">
+                <strong>${i18n('background')}</strong>
+                <div style="flex-grow:1;">
+                    <button class="button change-background" style="float:right;">${i18n('change_desktop_background')}</button>
+                </div>
             </div>`;
     },
     init: ($el_window) => {
         $el_window.find('.change-ui-colors').on('click', function (e) {
             UIWindowThemeDialog({
+                window_options:{
+                    parent_uuid: $el_window.attr('data-element_uuid'),
+                    disable_parent_window: true,
+                    parent_center: true,
+                }
+            });
+        });
+        $el_window.find('.change-background').on('click', function (e) {
+            UIWindowDesktopBGSettings({
                 window_options:{
                     parent_uuid: $el_window.attr('data-element_uuid'),
                     disable_parent_window: true,
