@@ -336,6 +336,7 @@ async function UIWindowSettings(options){
                 window_options:{
                     parent_uuid: $(el_window).attr('data-element_uuid'),
                     disable_parent_window: true,
+                    parent_center: true,
                 }
             });
         })
@@ -346,6 +347,7 @@ async function UIWindowSettings(options){
                 window_options:{
                     parent_uuid: $(el_window).attr('data-element_uuid'),
                     disable_parent_window: true,
+                    parent_center: true,
                 }
             });
         })
@@ -355,6 +357,7 @@ async function UIWindowSettings(options){
                 window_options:{
                     parent_uuid: $(el_window).attr('data-element_uuid'),
                     disable_parent_window: true,
+                    parent_center: true,
                 }
             });
         })
@@ -364,12 +367,19 @@ async function UIWindowSettings(options){
                 window_options:{
                     parent_uuid: $(el_window).attr('data-element_uuid'),
                     disable_parent_window: true,
+                    parent_center: true,
                 }
             });
         })
 
         $(el_window).find('.change-ui-colors').on('click', function (e) {
-            UIWindowThemeDialog();
+            UIWindowThemeDialog({
+                window_options:{
+                    parent_uuid: $(el_window).attr('data-element_uuid'),
+                    disable_parent_window: true,
+                    parent_center: true,
+                }
+            });
         })
 
         $(el_window).find('.manage-sessions').on('click', function (e) {
@@ -377,6 +387,7 @@ async function UIWindowSettings(options){
                 window_options:{
                     parent_uuid: $(el_window).attr('data-element_uuid'),
                     disable_parent_window: true,
+                    parent_center: true,
                 }
             });
         })

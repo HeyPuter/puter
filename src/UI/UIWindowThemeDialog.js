@@ -1,6 +1,7 @@
 import UIWindow from "./UIWindow.js";
 
-const UIWindowThemeDialog = async function UIWindowThemeDialog () {
+const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
+    options = options ?? {};
     const services = globalThis.services;
     const svc_theme = services.get('theme');
 
@@ -43,7 +44,8 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog () {
                 var(--primary-alpha))`,
             'backdrop-filter': 'blur(3px)',
             
-        }
+        },
+        ...options.window_options,
     });
     const w_body = w.querySelector('.window-body');
 
