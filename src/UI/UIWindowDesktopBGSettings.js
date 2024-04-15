@@ -19,7 +19,9 @@
 
 import UIWindow from './UIWindow.js'
 
-async function UIWindowDesktopBGSettings(){
+async function UIWindowDesktopBGSettings(options){
+    options = options ?? {};
+
     return new Promise(async (resolve) => {
         let h = '';
         const original_background_css = $('body').attr('style');
@@ -103,7 +105,8 @@ async function UIWindowDesktopBGSettings(){
                 height: '100%',
                 'background-color': 'rgb(245 247 249)',
                 'backdrop-filter': 'blur(3px)',
-            }    
+            },
+            ...options.window_options,
         })
 
         if(window.desktop_bg_url !== undefined && window.desktop_bg_url !== null){
