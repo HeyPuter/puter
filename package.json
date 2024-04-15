@@ -26,7 +26,8 @@
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
     "start": "node run-selfhosted.js",
     "build": "node ./build.js",
-    "check-translations": "node tools/check-translations.js"
+    "check-translations": "node tools/check-translations.js",
+    "postinstall": "cd packages/phoenix/packages/contextlink && npm install"
   },
   "workspaces": [
     "packages/*"
