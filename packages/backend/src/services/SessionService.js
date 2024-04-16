@@ -114,6 +114,9 @@ class SessionService extends BaseService {
         this.log.tick('UPDATING SESSIONS');
         const now = Date.now();
         const keys = Object.keys(this.sessions);
+
+        const user_updates = {};
+
         for ( const key of keys ) {
             const session = this.sessions[key];
             // if ( now - session.last_store > 5 * MINUTE ) {
@@ -127,7 +130,27 @@ class SessionService extends BaseService {
                     [JSON.stringify(session.meta), unix_ts, session.uuid],
                 );
                 session.last_store = now;
+                if (
+                    ! user_updates[session.user_id] ||
+                    user_updates[session.user_id][1] < session.last_touch
+                ) {
+                    user_updates[session.user_id] = [session.user_id, session.last_touch];
+                }
             }
+        }
+
+        for ( const [user_id, last_touch] of Object.values(user_updates) ) {
+            const sql_ts = (date =>
+                date.toISOString().split('T')[0] + ' '
+                + date.toTimeString().split(' ')[0]
+            )(new Date(last_touch));
+
+            await this.db.write(
+                'UPDATE `user` ' +
+                'SET `last_activity_ts` = ? ' +
+                'WHERE `id` = ? LIMIT 1',
+                [sql_ts, user_id],
+            );
         }
     }
 }
