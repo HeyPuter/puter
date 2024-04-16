@@ -128,6 +128,10 @@ module.exports = class APIError {
                 return `Invalid id`;
             }
         },
+        'invalid_operation': {
+            status: 400,
+            message: ({ operation }) => `Invalid operation: ${quot(operation)}.`,
+        },
         'field_invalid': {
             status: 400,
             message: ({ key, expected, got }) => {
