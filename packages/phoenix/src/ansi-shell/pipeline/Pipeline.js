@@ -202,6 +202,10 @@ export class PreparedCommand {
             in_ = new MemReader(response);
         }
 
+        const internal_input_pipe = new Pipe();
+        const valve = new Coupler(in_, internal_input_pipe.in);
+        in_ = internal_input_pipe.out;
+
         // simple naive implementation for now
         const sig = {
             listeners_: [],
@@ -297,6 +301,7 @@ export class PreparedCommand {
         let exit_code = 0;
         try {
             await execute(ctx);
+            valve.close();
         } catch (e) {
             if ( e instanceof Exit ) {
                 exit_code = e.code;

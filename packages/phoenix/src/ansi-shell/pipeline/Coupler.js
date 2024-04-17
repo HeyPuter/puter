@@ -16,6 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+import { TeePromise } from "../../promise.js";
+
 export class Coupler {
     static description = `
         Connects a read stream to a write stream.
@@ -26,6 +28,7 @@ export class Coupler {
         this.source = source;
         this.target = target;
         this.on_ = true;
+        this.closed_ = new TeePromise();
         this.isDone = new Promise(rslv => {
             this.resolveIsDone = rslv;
         })
@@ -35,10 +38,20 @@ export class Coupler {
     off () { this.on_ = false; }
     on () { this.on_ = true; }
 
+    close () {
+        this.closed_.resolve({
+            value: undefined,
+            done: true,
+        });
+    }
+
     async listenLoop_ () {
         this.active = true;
         for (;;) {
-            const { value, done } = await this.source.read();
+            const { value, done } = await Promise.race([
+                this.closed_,
+                this.source.read(),
+            ]);
             if ( done ) {
                 this.source = null;
                 this.target = null;
