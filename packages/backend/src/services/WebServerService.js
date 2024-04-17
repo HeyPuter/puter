@@ -208,6 +208,24 @@ class WebServerService extends BaseService {
                 responseTime: parseFloat(responseTime),
                 };
                 if ( url.includes('android-icon') ) return;
+
+                // remove `puter.auth.*` query params
+                const safe_url = (u => {
+                    // We need to prepend an arbitrary domain to the URL
+                    const url = new URL('https://example.com' + u);
+                    const search = url.searchParams;
+                    for ( const key of search.keys() ) {
+                        if ( key.startsWith('puter.auth.') ) search.delete(key);
+                    }
+                    return url.pathname + '?' + search.toString();
+                })(fields.url);
+                fields.url = safe_url;
+                // re-write message
+                message = [
+                    fields.method, fields.url,
+                    fields.status, fields.responseTime,
+                ].join(' ');
+
                 const log = this.services.get('log-service').create('morgan');
                 log.info(message, fields);
             }
