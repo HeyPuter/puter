@@ -158,6 +158,7 @@ Puter interacts directly with the DOM and jQuery provides an elegant yet powerfu
 - [Oculus Quest 2](https://twitter.com/HeyPuter/status/1768664081756754012)
 - [Tesla Model S](https://twitter.com/HeyPuter/status/1767971178864587057)
 - [Tesla Model Y](https://twitter.com/HeyPuter/status/1772858333751636310)
+- [Nintendo Switch](https://twitter.com/HeyPuter/status/1780645795240538518)
 - Tesla Model 3
 
 <br/>
