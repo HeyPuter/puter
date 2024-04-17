@@ -219,7 +219,6 @@ class AuthService extends BaseService {
     }
 
     async get_session_ (uuid) {
-        this.log.info(`USING SESSION`);
         return await this.svc_session.get_session(uuid);
     }
 
