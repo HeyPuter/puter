@@ -38,7 +38,7 @@ export class XDocumentPTT {
                     chunk = encoder.encode(chunk);
                 }
                 terminalConnection.postMessage({
-                    $: 'output',
+                    $: 'stdout',
                     data: chunk,
                 });
             }
@@ -52,7 +52,7 @@ export class XDocumentPTT {
                 this.emit('ioctl.set', message);
                 return;
             }
-            if (message.$ === 'input') {
+            if (message.$ === 'stdin') {
                 this.readController.enqueue(message.data);
                 return;
             }

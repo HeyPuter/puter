@@ -16,6 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+import { Exit } from '../coreutils/coreutil_lib/exit.js';
+import { signals } from '../../ansi-shell/signals.js';
+
 const BUILT_IN_APPS = [
     'explorer',
 ];
@@ -31,8 +34,7 @@ export class PuterAppCommandProvider {
                 // TODO: Parameters and options?
                 async execute(ctx) {
                     const args = {}; // TODO: Passed-in parameters and options would go here
-                    // NOTE: No await here, because launchApp() currently only resolves for Puter SDK apps.
-                    puter.ui.launchApp(id, args);
+                    await puter.ui.launchApp(id, args);
                 }
             };
         }
@@ -57,8 +59,55 @@ export class PuterAppCommandProvider {
             // TODO: Parameters and options?
             async execute(ctx) {
                 const args = {}; // TODO: Passed-in parameters and options would go here
-                // NOTE: No await here, yet, because launchApp() currently only resolves for Puter SDK apps.
-                puter.ui.launchApp(name, args);
+                const child = await puter.ui.launchApp(name, args);
+
+                // Wait for app to close.
+                const app_close_promise = new Promise((resolve, reject) => {
+                    child.on('close', () => {
+                        // TODO: Exit codes for apps
+                        resolve({ done: true });
+                    });
+                });
+
+                // Wait for SIGINT
+                const sigint_promise = new Promise((resolve, reject) => {
+                    ctx.externs.sig.on((signal) => {
+                        if (signal === signals.SIGINT) {
+                            child.close();
+                            reject(new Exit(130));
+                        }
+                    });
+                });
+
+                // We don't connect stdio to non-SDK apps, because they won't make use of it.
+                if (child.usesSDK) {
+                    const decoder = new TextDecoder();
+                    child.on('message', message => {
+                        if (message.$ === 'stdout') {
+                            ctx.externs.out.write(decoder.decode(message.data));
+                        }
+                    });
+
+                    // Repeatedly copy data from stdin to the child, while it's running.
+                    // DRY: Initially copied from PathCommandProvider
+                    let data, done;
+                    const next_data = async () => {
+                        // FIXME: This waits for one more read() after we finish.
+                        ({ value: data, done } = await Promise.race([
+                            app_close_promise, sigint_promise, ctx.externs.in_.read(),
+                        ]));
+                        if (data) {
+                            child.postMessage({
+                                $: 'stdin',
+                                data: data,
+                            });
+                            if (!done) setTimeout(next_data, 0);
+                        }
+                    };
+                    setTimeout(next_data, 0);
+                }
+
+                return Promise.race([ app_close_promise, sigint_promise ]);
             }
         };
     }
