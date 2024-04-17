@@ -1845,6 +1845,7 @@ window.launch_app = async (options)=>{
             element_uuid: uuid,
             title: title,
             iframe_url: iframe_url.href,
+            params: options.params ?? undefined,
             icon: icon,
             window_class: 'window-app',
             update_window_url: true,

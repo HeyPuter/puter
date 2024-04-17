@@ -172,6 +172,14 @@ async function UIWindow(options) {
 
     // Window
     let zindex = options.stay_on_top ? (99999999 + last_window_zindex + 1 + ' !important') : last_window_zindex;
+    let user_set_url_params = [];
+    if (options.params !== undefined) {
+        for (let key in options.params) {
+            user_set_url_params.push(key + "=" + options.params[key]);
+        }
+        user_set_url_params = '?'+ user_set_url_params.join('&');
+
+    }
     h += `<div class="window window-active 
                         ${options.cover_page ? 'window-cover-page' : ''}
                         ${options.uid !== undefined ? 'window-'+options.uid : ''} 
@@ -206,6 +214,7 @@ async function UIWindow(options) {
                 data-sort_order ="${options.sort_order ?? 'asc'}"
                 data-multiselectable = "${options.selectable_body}"
                 data-update_window_url = "${options.update_window_url}"
+                data-user_set_url_params = "${user_set_url_params}"
                 data-initial_zindex = "${zindex}"
                 style=" z-index: ${zindex}; 
                         ${options.width !== undefined ? 'width: ' + html_encode(options.width) +'; ':''}
@@ -3154,7 +3163,7 @@ $.fn.focusWindow = function(event) {
         //change window URL
         const update_window_url = $(this).attr('data-update_window_url');
         if(update_window_url === 'true' || update_window_url === null){
-            window.history.replaceState({window_id: $(this).attr('data-id')}, '', '/app/'+$(this).attr('data-app'));
+            window.history.replaceState({window_id: $(this).attr('data-id')}, '', '/app/'+$(this).attr('data-app')+$(this).attr('data-user_set_url_params'));
             document.title = $(this).attr('data-name');
         }
         $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).addClass('taskbar-item-active');
