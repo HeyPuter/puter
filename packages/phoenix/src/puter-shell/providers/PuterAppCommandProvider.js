@@ -23,43 +23,37 @@ const BUILT_IN_APPS = [
     'explorer',
 ];
 
+const lookup_app = async (id) => {
+    if (BUILT_IN_APPS.includes(id)) {
+        return { success: true, path: null };
+    }
+
+    const request = await fetch(`${puter.APIOrigin}/drivers/call`, {
+        "headers": {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${puter.authToken}`,
+        },
+        "body": JSON.stringify({ interface: 'puter-apps', method: 'read', args: { id: { name: id } } }),
+        "method": "POST",
+    });
+
+    const { success, result } = await request.json();
+    return { success, path: result?.index_url };
+};
+
 export class PuterAppCommandProvider {
 
     async lookup (id) {
-        // Built-in apps will not be returned by the fetch query below, so we handle them separately.
-        if (BUILT_IN_APPS.includes(id)) {
-            return {
-                name: id,
-                path: 'Built-in Puter app',
-                // TODO: Parameters and options?
-                async execute(ctx) {
-                    const args = {}; // TODO: Passed-in parameters and options would go here
-                    await puter.ui.launchApp(id, args);
-                }
-            };
-        }
-
-        const request = await fetch(`${puter.APIOrigin}/drivers/call`, {
-            "headers": {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${puter.authToken}`,
-            },
-            "body": JSON.stringify({ interface: 'puter-apps', method: 'read', args: { id: { name: id } } }),
-            "method": "POST",
-        });
-
-        const { success, result } = await request.json();
-
+        const { success, path } = await lookup_app(id);
         if (!success) return;
 
-        const { name, index_url } = result;
         return {
-            name,
-            path: index_url,
+            name: id,
+            path: path ?? 'Built-in Puter app',
             // TODO: Parameters and options?
             async execute(ctx) {
                 const args = {}; // TODO: Passed-in parameters and options would go here
-                const child = await puter.ui.launchApp(name, args);
+                const child = await puter.ui.launchApp(id, args);
 
                 // Wait for app to close.
                 const app_close_promise = new Promise((resolve, reject) => {
