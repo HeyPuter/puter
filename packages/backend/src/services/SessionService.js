@@ -58,7 +58,10 @@ class SessionService extends BaseService {
 
     async get_session_ (uuid) {
         let session = this.sessions[uuid];
-        if ( session ) return session;
+        if ( session ) {
+            session.last_touch = Date.now();
+            return session;
+        }
         ;[session] = await this.db.read(
             "SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1",
             [uuid],
