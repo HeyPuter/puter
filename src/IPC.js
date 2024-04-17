@@ -74,14 +74,6 @@ window.addEventListener('message', async (event) => {
         return;
     }
 
-    const window_for_app_instance = (instance_id) => {
-        return $(`.window[data-element_uuid="${instance_id}"]`).get(0);
-    };
-
-    const iframe_for_app_instance = (instance_id) => {
-        return $(window_for_app_instance(instance_id)).find('.window-app-iframe').get(0);
-    };
-
     const $el_parent_window = $(window_for_app_instance(event.data.appInstanceID));
     const parent_window_id = $el_parent_window.attr('data-id');
     const $el_parent_disable_mask = $el_parent_window.find('.window-disable-mask');

@@ -3513,3 +3513,13 @@ window.change_clock_visible = (clock_visible) => {
 
     $('select.change-clock-visible').val(window.user_preferences.clock_visible);
 }
+
+// Finds the `.window` element for the given app instance ID
+window.window_for_app_instance = (instance_id) => {
+    return $(`.window[data-element_uuid="${instance_id}"]`).get(0);
+};
+
+// Finds the `iframe` element for the given app instance ID
+window.iframe_for_app_instance = (instance_id) => {
+    return $(window_for_app_instance(instance_id)).find('.window-app-iframe').get(0);
+};
