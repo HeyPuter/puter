@@ -22,7 +22,7 @@
     "webpack-cli": "^5.1.1"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "mocha ./packages/phoenix/test ./packages/phoenix/packages/contextlink/test",
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
     "start": "node run-selfhosted.js",
     "build": "node ./build.js",
