@@ -24,8 +24,7 @@ class SessionService extends BaseService {
             // TODO: change to 5 minutes or configured value
             asyncSafeSetInterval(async () => {
                 await this._update_sessions();
-            }, 1000);
-            // }, 2 * MINUTE);
+            }, 2 * MINUTE);
         })();
     }
 
@@ -119,8 +118,7 @@ class SessionService extends BaseService {
 
         for ( const key of keys ) {
             const session = this.sessions[key];
-            // if ( now - session.last_store > 5 * MINUTE ) {
-            if ( now - session.last_store > 20 * SECOND ) {
+            if ( now - session.last_store > 5 * MINUTE ) {
                 this.log.debug('storing session meta: ' + session.uuid);
                 const unix_ts = Math.floor(now / 1000);
                 await this.db.write(
