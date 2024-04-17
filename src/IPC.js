@@ -90,17 +90,7 @@ window.addEventListener('message', async (event) => {
         $(target_iframe).attr('data-appUsesSDK', 'true');
 
         // If we were waiting to launch this as a child app, report to the parent that it succeeded.
-        const child_launch_callback = window.child_launch_callbacks[event.data.appInstanceID];
-        if (child_launch_callback) {
-            const parent_iframe = iframe_for_app_instance(child_launch_callback.parent_instance_id);
-            // send confirmation to requester window
-            parent_iframe.contentWindow.postMessage({
-                msg: 'childAppLaunched',
-                original_msg_id: child_launch_callback.launch_msg_id,
-                child_instance_id: event.data.appInstanceID,
-            }, '*');
-            delete window.child_launch_callbacks[event.data.appInstanceID];
-        }
+        window.report_app_launched(event.data.appInstanceID, { uses_sdk: true });
 
         // Send any saved broadcasts to the new app
         globalThis.services.get('broadcast').sendSavedBroadcastsTo(event.data.appInstanceID);
