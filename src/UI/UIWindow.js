@@ -2853,27 +2853,7 @@ $.fn.close = async function(options) {
             $(`.window[data-parent_uuid="${window_uuid}"]`).close();
 
             // notify other apps that we're closing
-            if (app_uses_sdk) {
-                // notify parent app, if we have one, that we're closing
-                const parent_id = this.dataset['parent_instance_id'];
-                const parent = $(`.window[data-element_uuid="${parent_id}"] .window-app-iframe`).get(0);
-                if (parent) {
-                    parent.contentWindow.postMessage({
-                        msg: 'appClosed',
-                        appInstanceID: window_uuid,
-                    }, '*');
-                }
-
-                // notify child apps, if we have them, that we're closing
-                const children = $(`.window[data-parent_instance_id="${window_uuid}"] .window-app-iframe`);
-                children.each((_, child) => {
-                    child.contentWindow.postMessage({
-                        msg: 'appClosed',
-                        appInstanceID: window_uuid,
-                    }, '*');
-                });
-                // TODO: Once other AppConnections exist, those will need notifying too.
-            }
+            window.report_app_closed(window_uuid);
 
             // remove backdrop
             $(this).closest('.window-backdrop').remove();

@@ -1899,6 +1899,15 @@ window.launch_app = async (options)=>{
         $(el).on('remove', () => {
             const svc_process = globalThis.services.get('process');
             svc_process.unregister(process.uuid);
+
+            // If it's a non-sdk app, report that it launched and closed.
+            // FIXME: This is awkward. Really, we want some way of knowing when it's launched and reporting that immediately instead.
+            const $app_iframe = $(el).find('.window-app-iframe');
+            if ($app_iframe.attr('data-appUsesSdk') !== 'true') {
+                window.report_app_launched(process.uuid, { uses_sdk: false });
+                // We also have to report an extra close event because the real one was sent already
+                window.report_app_closed(process.uuid);
+            }
         });
 
         process.references.el_win = el;
@@ -3538,4 +3547,30 @@ window.report_app_launched = (instance_id, { uses_sdk = true }) => {
         }, '*');
         delete window.child_launch_callbacks[instance_id];
     }
-}
+};
+
+// Run any callbacks to say that the app has closed
+window.report_app_closed = (instance_id) => {
+    const el_window = window_for_app_instance(instance_id);
+
+    // notify parent app, if we have one, that we're closing
+    const parent_id = el_window.dataset['parent_instance_id'];
+    const parent = $(`.window[data-element_uuid="${parent_id}"] .window-app-iframe`).get(0);
+    if (parent) {
+        parent.contentWindow.postMessage({
+            msg: 'appClosed',
+            appInstanceID: instance_id,
+        }, '*');
+    }
+
+    // notify child apps, if we have them, that we're closing
+    const children = $(`.window[data-parent_instance_id="${instance_id}"] .window-app-iframe`);
+    children.each((_, child) => {
+        child.contentWindow.postMessage({
+            msg: 'appClosed',
+            appInstanceID: instance_id,
+        }, '*');
+    });
+
+    // TODO: Once other AppConnections exist, those will need notifying too.
+};
