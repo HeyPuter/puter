@@ -19,8 +19,9 @@
 import { Context } from "contextlink";
 import { SyncLinesReader } from '../../src/ansi-shell/ioutil/SyncLinesReader.js';
 import { CommandStdinDecorator } from '../../src/ansi-shell/pipeline/iowrappers.js';
+import { ReadableStream, WritableStream } from 'stream/web'
 
-export class WritableStringStream extends WritableStream {
+class WritableStringStream extends WritableStream {
     constructor() {
         super({
             write: (chunk) => {
@@ -42,8 +43,23 @@ export class WritableStringStream extends WritableStream {
 
 // TODO: Flesh this out as needed.
 export const MakeTestContext = (command, { positionals = [],  values = {}, stdinInputs = [], env = {} }) => {
+    // This is a replacement to ReadableStream.from() in earlier Node versions
+    // Sourece: https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream#convert_an_iterator_or_async_iterator_to_a_stream
+    function iteratorToStream(iterator) {
+        return new ReadableStream({
+            async pull(controller) {
+                const { value, done } = await iterator.next();
 
-    let in_ = ReadableStream.from(stdinInputs).getReader();
+                if (done) {
+                    controller.close();
+                } else {
+                    controller.enqueue(value);
+                }
+            },
+        });
+    }
+
+    let in_ = iteratorToStream(stdinInputs.values()).getReader();
     if (command.input?.syncLines) {
         in_ = new SyncLinesReader({ delegate: in_ });
     }
