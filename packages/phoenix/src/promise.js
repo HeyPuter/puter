@@ -41,3 +41,17 @@ export class TeePromise {
         return this.then(fn);
     }
 }
+
+/**
+ * raceCase is like Promise.race except it takes an object instead of
+ * an array, and returns the key of the promise that resolves first
+ * as well as the value that it resolved to.
+ * 
+ * @param {Object.<string, Promise>} promise_map 
+ * 
+ * @returns {Promise.<[string, any]>}
+ */
+export const raceCase = async (promise_map) => {
+    return Promise.race(Object.entries(promise_map).map(
+        ([key, promise]) => promise.then(value => [key, value])));
+};
