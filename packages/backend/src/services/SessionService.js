@@ -1,4 +1,4 @@
-const { invalidate_cached_user } = require("../helpers");
+const { invalidate_cached_user, get_user } = require("../helpers");
 const { asyncSafeSetInterval } = require("../util/promise");
 const { MINUTE, SECOND } = require("../util/time");
 const BaseService = require("./BaseService");
@@ -50,6 +50,7 @@ class SessionService extends BaseService {
             last_store: Date.now(),
             uuid,
             user_uid: user.uuid,
+            user_id: user.id,
             meta,
         };
         this.sessions[uuid] = session;
@@ -73,6 +74,8 @@ class SessionService extends BaseService {
             mysql: () => session.meta,
             otherwise: () => JSON.parse(session.meta ?? "{}")
         })();
+        const user = await get_user(session.user_id);
+        session.user_uid = user?.uuid;
         this.sessions[uuid] = session;
         return session;
     }
