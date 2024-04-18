@@ -1,3 +1,4 @@
+const { invalidate_cached_user } = require("../helpers");
 const { asyncSafeSetInterval } = require("../util/promise");
 const { MINUTE, SECOND } = require("../util/time");
 const BaseService = require("./BaseService");
@@ -152,6 +153,10 @@ class SessionService extends BaseService {
                 'WHERE `id` = ? LIMIT 1',
                 [sql_ts, user_id],
             );
+            const user = kv.get('users:id:' + user_id);
+            if ( user ) {
+                user.last_activity_ts = sql_ts;
+            }
         }
     }
 }

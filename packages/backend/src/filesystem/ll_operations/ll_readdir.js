@@ -17,9 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require("../../api/APIError");
-const { chkperm, get_descendants } = require("../../helpers");
-const { TYPE_DIRECTORY } = require("../FSNodeContext");
-const { NodeUIDSelector, NodeRawEntrySelector } = require("../node/selectors");
+const { RootNodeSelector } = require("../node/selectors");
+const { NodeUIDSelector, NodeChildSelector } = require("../node/selectors");
 const { LLFilesystemOperation } = require("./definitions");
 
 class LLReadDir extends LLFilesystemOperation {
@@ -42,27 +41,14 @@ class LLReadDir extends LLFilesystemOperation {
         const svc_fsentry = svc.get('fsEntryService');
         const svc_fs = svc.get('filesystem');
 
-        if (
-            subject.isRoot ||
-            (await subject.isUserDirectory() && subject.name !== user.username)
-        ) {
-            this.checkpoint('before call to get_descendants')
-            const entries = await get_descendants(
-                await subject.get('path'),
-                user,
-                1, true,
-            )
-            this.checkpoint('after call to get_descendants')
-
-            const children = await Promise.all(entries.map(async entry => {
-                const node = await svc_fs.node(new NodeRawEntrySelector(entry));
-                node.found_thumbnail = false;
-                return node;
-            }))
-
-            this.checkpoint('after get children (2)');
-
-            return children;
+        if ( subject.isRoot ) {
+            if ( ! actor.type.user ) return [];
+            return [
+                await svc_fs.node(new NodeChildSelector(
+                    new RootNodeSelector(),
+                    actor.type.user.username,
+                ))
+            ];
         }
 
         this.checkpoint('before get direct descendants')

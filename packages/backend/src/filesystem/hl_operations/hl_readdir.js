@@ -24,7 +24,7 @@ const { HLFilesystemOperation } = require("./definitions");
 
 class HLReadDir extends HLFilesystemOperation {
     async _run () {
-        const { subject, user, no_thumbs, no_assocs } = this.values;
+        const { subject, user, no_thumbs, no_assocs, actor } = this.values;
 
         if ( ! await subject.exists() ) {
             throw APIError.create('subject_does_not_exist');

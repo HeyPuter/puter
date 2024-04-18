@@ -1147,7 +1147,7 @@ async function jwt_auth(req){
     else if(req.handshake && req.handshake.query && req.handshake.query.auth_token)
         token = req.handshake.query.auth_token;
 
-    if(!token)
+    if(!token || token === 'null')
         throw('No auth token found');
     else if (typeof token !== 'string')
         throw('token must be a string.')
