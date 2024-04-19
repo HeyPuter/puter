@@ -24,6 +24,7 @@ class DevConsoleService extends BaseService {
         this.static_lines = [];
         this.widgets = [];
         this.identifiers = {};
+        this.has_updates = false;
     }
 
     turn_on_the_warning_lights () {
@@ -39,6 +40,7 @@ class DevConsoleService extends BaseService {
         if ( opt_id ) {
             this.identifiers[opt_id] = outputter;
         }
+        this.mark_updated();
     }
 
     remove_widget (id_or_outputter) {
@@ -46,9 +48,11 @@ class DevConsoleService extends BaseService {
             id_or_outputter = this.identifiers[id_or_outputter];
         }
         this.widgets = this.widgets.filter(w => w !== id_or_outputter);
+        this.mark_updated();
     }
 
     update_ () {
+        const initialOutput = [...this.static_lines];
         this.static_lines = [];
         // if a widget throws an error we MUST remove it;
         // it's probably a stack overflow because it's printing.
@@ -64,9 +68,20 @@ class DevConsoleService extends BaseService {
             output = Array.isArray(output) ? output : [output];
             this.static_lines.push(...output);
         }
+        if (!this.arrays_equal(initialOutput, this.static_lines)) {
+            this.mark_updated();  // Update only if outputs have changed
+        }
         for ( const w of to_remove ) {
             this.remove_widget(w);
         }
+    }
+
+    arrays_equal (a, b) {
+        return a.length === b.length && a.every((val, index) => val === b[index]);
+    }
+
+    mark_updated () {
+        this.has_updates = true;
     }
 
     async _init () {
@@ -146,7 +161,10 @@ class DevConsoleService extends BaseService {
         };
 
         setInterval(() => {
-            this._redraw();
+            if (this.has_updates) {
+                this._redraw();
+                this.has_updates = false;
+            }
         }, 2000);
 
         consoleLogManager.decorate_all(({ replace }, ...args) => {
