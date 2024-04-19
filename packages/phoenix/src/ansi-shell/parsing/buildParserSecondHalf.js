@@ -54,7 +54,6 @@ class ReducePrimitivesPStratumImpl {
             let text = '';
             for ( const item of contents.results ) {
                 if ( item.$ === 'string.segment' ) {
-                    // console.log('segment?', item.text)
                     text += item.text;
                     continue;
                 }
@@ -86,7 +85,6 @@ class ShellConstructsPStratumImpl {
                 node.commands = [];
             },
             exit ({ node }) {
-                console.log('!!!!!',this.stack_top.node)
                 if ( this.stack_top?.node?.$ === 'script' ) {
                     this.stack_top.node.statements.push(node);
                 }
@@ -96,7 +94,6 @@ class ShellConstructsPStratumImpl {
             },
             next ({ value, lexer }) {
                 if ( value.$ === 'op.line-terminator' ) {
-                    console.log('the stack??', this.stack)
                     this.pop();
                     return;
                 }
@@ -189,7 +186,6 @@ class ShellConstructsPStratumImpl {
             },
             next ({ value, lexer }) {
                 if ( value.$ === 'op.line-terminator' ) {
-                    console.log('well, got here')
                     this.pop();
                     return;
                 }
@@ -223,9 +219,7 @@ class ShellConstructsPStratumImpl {
                 this.stack_top.node.components.push(...node.components);
             },
             next ({ node, value, lexer }) {
-                console.log('WHAT THO', node)
                 if ( value.$ === 'op.line-terminator' && node.quote === null ) {
-                    console.log('well, got here')
                     this.pop();
                     return;
                 }
@@ -292,7 +286,6 @@ class ShellConstructsPStratumImpl {
 
         const lexer = api.delegate;
 
-        console.log('THE NODE', this.stack[0].node);
         // return { done: true, value: { $: 'test' } };
 
         for ( let i=0 ; i < 500 ; i++ ) {
@@ -306,15 +299,12 @@ class ShellConstructsPStratumImpl {
             }
 
             const { state, node } = this.stack_top;
-            console.log('value?', value, done)
-            console.log('state?', state.name);
 
             state.next.call(this, { lexer, value, node, state });
 
             // if ( done ) break;
         }
 
-        console.log('THE NODE', this.stack[0]);
 
         this.done_ = true;
         return { done: false, value: this.stack[0].node };
@@ -433,7 +423,6 @@ export const buildParserSecondHalf = (sp, { multiline } = {}) => {
 
     // sp.add(new ReducePrimitivesPStratumImpl());
     if ( multiline ) {
-        console.log('USING MULTILINE');
         sp.add(new MultilinePStratumImpl());
     } else {
         sp.add(new ShellConstructsPStratumImpl());

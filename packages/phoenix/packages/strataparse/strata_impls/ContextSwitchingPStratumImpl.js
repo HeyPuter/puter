@@ -22,7 +22,6 @@ export default class ContextSwitchingPStratumImpl {
     constructor ({ contexts, entry }) {
         this.contexts = { ...contexts };
         for ( const key in this.contexts ) {
-            console.log('parsers?', this.contexts[key]);
             const new_array = [];
             for ( const parser of this.contexts[key] ) {
                 if ( parser.hasOwnProperty('transition') ) {
@@ -44,7 +43,6 @@ export default class ContextSwitchingPStratumImpl {
         this.lastvalue = null;
     }
     get stack_top () {
-        console.log('stack top?', this.stack[this.stack.length - 1])
         return this.stack[this.stack.length - 1];
     }
     get current_context () {
@@ -55,7 +53,6 @@ export default class ContextSwitchingPStratumImpl {
         const lexer = api.delegate;
 
         const context = this.current_context;
-        console.log('context?', context);
         for ( const spec of context ) {
             {
                 const { done, value } = lexer.look();
@@ -64,7 +61,6 @@ export default class ContextSwitchingPStratumImpl {
                     throw new Error('infinite loop');
                 }
                 this.lastvalue = value;
-                console.log('last value?', value, done);
                 if ( done ) return { done };
             }
 
@@ -76,7 +72,6 @@ export default class ContextSwitchingPStratumImpl {
             }
 
             const subLexer = lexer.fork();
-            // console.log('spec?', spec);
             const result = parser.parse(subLexer);
             if ( result.status === ParseResult.UNRECOGNIZED ) {
                 continue;
@@ -84,11 +79,9 @@ export default class ContextSwitchingPStratumImpl {
             if ( result.status === ParseResult.INVALID ) {
                 return { done: true, value: result };
             }
-            console.log('RESULT', result, spec)
             if ( ! peek ) lexer.join(subLexer);
 
             if ( transition ) {
-                console.log('GOT A TRANSITION')
                 if ( transition.pop ) this.stack.pop();
                 if ( transition.to ) this.stack.push({
                     context_name: transition.to,
@@ -97,7 +90,6 @@ export default class ContextSwitchingPStratumImpl {
 
             if ( result.value.$discard || peek ) return this.next(api);
 
-            console.log('PROVIDING VALUE', result.value);
             return { done: false, value: result.value };
         }
 

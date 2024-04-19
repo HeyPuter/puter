@@ -38,11 +38,6 @@ class Token {
             throw new Error('expected token node');
         }
 
-        console.log('ast has cst?',
-            ast,
-            ast.components?.[0]?.$cst
-        )
-
         return new Token(ast);
     }
     constructor (ast) {
@@ -53,20 +48,15 @@ class Token {
         // If the only components are of type 'symbol' and 'string.segment'
         // then we can statically resolve the value of the token.
 
-        console.log('checking viability of static resolve', this.ast)
-
         const isStatic = this.ast.components.every(c => {
             return c.$ === 'symbol' || c.$ === 'string.segment';
         });
 
         if ( ! isStatic ) return;
 
-        console.log('doing static thing', this.ast)
-
         // TODO: Variables can also be statically resolved, I think...
         let value = '';
         for ( const component of this.ast.components ) {
-            console.log('component', component);
             value += component.text;
         }
 
@@ -113,7 +103,6 @@ export class PreparedCommand {
         
         // TODO: check that node for command name is of a
         //       supported type - maybe use adapt pattern
-        console.log('ast?', ast);
         const cmd = command_token.maybeStaticallyResolve(ctx);
 
         const { commands } = ctx.registries;
@@ -124,16 +113,13 @@ export class PreparedCommand {
             : command_token;
 
         if ( command === undefined ) {
-            console.log('command token?', command_token);
             throw new ConcreteSyntaxError(
                 `no command: ${JSON.stringify(cmd)}`,
                 command_token.$cst,
             );
-            throw new Error('no command: ' + JSON.stringify(cmd));
         }
 
         // TODO: test this
-        console.log('ast?', ast);
         const inputRedirect = ast.inputRedirects.length > 0 ? (() => {
             const token = Token.createFromAST(ctx, ast.inputRedirects[0]);
             return token.maybeStaticallyResolve(ctx) ?? token;
@@ -172,7 +158,6 @@ export class PreparedCommand {
         // command to run.
         if ( command instanceof Token ) {
             const cmd = await command.resolve(this.ctx);
-            console.log('RUNNING CMD?', cmd)
             const { commandProvider } = this.ctx.externs;
             command = await commandProvider.lookup(cmd, { ctx: this.ctx });
             if ( command === undefined ) {
@@ -327,23 +312,16 @@ export class PreparedCommand {
 
         // TODO: need write command from puter-shell before this can be done
         for ( let i=0 ; i < this.outputRedirects.length ; i++ ) {
-            console.log('output redirect??', this.outputRedirects[i]);
             const { filesystem } = this.ctx.platform;
             const outputRedirect = this.outputRedirects[i];
             const dest_path = outputRedirect instanceof Token
                 ? await outputRedirect.resolve(this.ctx)
                 : outputRedirect;
             const path = resolveRelativePath(ctx.vars, dest_path);
-            console.log('it should work?', {
-                path,
-                outputMemWriters,
-            })
             // TODO: error handling here
 
             await filesystem.write(path, outputMemWriters[i].getAsBlob());
         }
-
-        console.log('OUTPUT WRITERS', outputMemWriters);
     }
 }
 
@@ -405,7 +383,6 @@ export class Pipeline {
             commandPromises.push(command.execute());
         }
         await Promise.all(commandPromises);
-        console.log('PIPELINE DONE');
 
         await coupler.isDone;
     }

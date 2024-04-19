@@ -1839,8 +1839,6 @@ window.launch_app = async (options)=>{
         // ...and finally append urm_source=puter.com to the URL
         iframe_url.searchParams.append('urm_source', 'puter.com');
 
-        console.log('backgrounded??', app_info.background);
-
         el_win = UIWindow({
             element_uuid: uuid,
             title: title,
@@ -1895,7 +1893,6 @@ window.launch_app = async (options)=>{
 
     (async () => {
         const el = await el_win;
-        console.log('RESOV', el);
         $(el).on('remove', () => {
             const svc_process = globalThis.services.get('process');
             svc_process.unregister(process.uuid);

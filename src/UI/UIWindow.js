@@ -2773,7 +2773,6 @@ window.sidebar_item_droppable = (el_window)=>{
 // closes a window
 $.fn.close = async function(options) {
     options = options || {};
-    console.log(options);
     $(this).each(async function() {
         const el_iframe = $(this).find('.window-app-iframe');
         const app_uses_sdk = el_iframe.length > 0 && el_iframe.attr('data-appUsesSDK') === 'true';
