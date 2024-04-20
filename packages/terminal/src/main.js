@@ -41,27 +41,14 @@ class XTermIO {
     }
 
     async handleKeyBeforeProcess (evt) {
-        console.log(
-            'right this event might be up or down so it\'s necessary to determine which',
-            evt,
-        );
         if ( evt.key === 'V' && evt.ctrlKey && evt.shiftKey && evt.type === 'keydown' ) {
             const clipboard = navigator.clipboard;
             const text = await clipboard.readText();
-            console.log(
-                'this is the relevant text for this thing that is the thing that is the one that is here',
-                text,
-            );
             this.pty.out.write(text);
         }
     }
 
     handleKey ({ key, domEvent }) {
-        console.log(
-            'key event happened',
-            key,
-            domEvent,
-        );
         const pty = this.pty;
 
         const handlers = {

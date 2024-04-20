@@ -14,7 +14,11 @@ class AppConnection extends EventListener {
     // Whether the target app is open
     #isOpen;
 
-    constructor(messageTarget, appInstanceID, targetAppInstanceID) {
+    // Whether the target app uses the Puter SDK, and so accepts messages
+    // (Closing and close events will still function.)
+    #usesSDK;
+
+    constructor(messageTarget, appInstanceID, targetAppInstanceID, usesSDK) {
         super([
             'message', // The target sent us something with postMessage()
             'close',   // The target app was closed
@@ -23,6 +27,7 @@ class AppConnection extends EventListener {
         this.appInstanceID = appInstanceID;
         this.targetAppInstanceID = targetAppInstanceID;
         this.#isOpen = true;
+        this.#usesSDK = usesSDK;
 
         // TODO: Set this.#puterOrigin to the puter origin
 
@@ -54,9 +59,18 @@ class AppConnection extends EventListener {
         });
     }
 
+    // Does the target app use the Puter SDK? If not, certain features will be unavailable.
+    get usesSDK() { return this.#usesSDK; }
+
+    // Send a message to the target app. Requires the target to use the Puter SDK.
     postMessage(message) {
         if (!this.#isOpen) {
             console.warn('Trying to post message on a closed AppConnection');
+            return;
+        }
+
+        if (!this.#usesSDK) {
+            console.warn('Trying to post message to a non-SDK app');
             return;
         }
 
@@ -155,7 +169,7 @@ class UI extends EventListener {
         }
 
         if (this.parentInstanceID) {
-            this.#parentAppConnection = new AppConnection(this.messageTarget, this.appInstanceID, this.parentInstanceID);
+            this.#parentAppConnection = new AppConnection(this.messageTarget, this.appInstanceID, this.parentInstanceID, true);
         }
 
         // Tell the host environment that this app is using the Puter SDK and is ready to receive messages,
@@ -374,7 +388,7 @@ class UI extends EventListener {
                 }
                 else if (e.data.msg === 'childAppLaunched') {
                     // execute callback with a new AppConnection to the child
-                    const connection = new AppConnection(this.messageTarget, this.appInstanceID, e.data.child_instance_id);
+                    const connection = new AppConnection(this.messageTarget, this.appInstanceID, e.data.child_instance_id, e.data.uses_sdk);
                     this.#callbackFunctions[e.data.original_msg_id](connection);
                 }
                 else{

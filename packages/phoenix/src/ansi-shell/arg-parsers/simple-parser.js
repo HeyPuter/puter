@@ -22,11 +22,6 @@ import { DEFAULT_OPTIONS } from '../../puter-shell/coreutils/coreutil_lib/help.j
 export default {
     name: 'simple-parser',
     async process (ctx, spec) {
-        console.log({
-            ...spec,
-            args: ctx.locals.args
-        });
-
         // Insert standard options
         spec.options = Object.assign(spec.options || {}, DEFAULT_OPTIONS);
 

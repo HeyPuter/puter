@@ -53,7 +53,7 @@ export class XDocumentANSIShell {
                 return;
             }
 
-            if (message.$ === 'output') {
+            if (message.$ === 'stdout') {
                 ptt.out.write(message.data);
                 return;
             }
@@ -69,7 +69,7 @@ export class XDocumentANSIShell {
             for ( ;; ) {
                 const chunk = (await ptt.in.read()).value;
                 shell.postMessage({
-                    $: 'input',
+                    $: 'stdin',
                     data: chunk,
                 });
             }

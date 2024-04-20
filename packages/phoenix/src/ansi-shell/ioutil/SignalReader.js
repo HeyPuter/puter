@@ -48,7 +48,6 @@ export class SignalReader extends ProxyReader {
 
         // show hex for debugging
         // console.log(value.split('').map(c => c.charCodeAt(0).toString(16)).join(' '));
-        console.log('value??', value)
 
         for ( const [key, signal] of mapping ) {
             if ( tmp_value.includes(key) ) {

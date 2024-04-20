@@ -96,7 +96,6 @@ const ReadlineProcessorBuilder = builder => builder
             externs.out.write(externs.prompt);
             externs.out.write(vars.result);
             const invCurPos = vars.result.length - vars.cursor;
-            console.log(invCurPos)
             if ( invCurPos !== 0 ) {
                 externs.out.write(`\x1B[${invCurPos}D`);
             }
@@ -111,8 +110,6 @@ const ReadlineProcessorBuilder = builder => builder
                 }
             }));
             // NEXT: get tab completer for input state
-            console.log('input state', inputState);
-            
             let completer = null;
             if ( inputState.$ === 'redirect' ) {
                 completer = new FileCompleter();
@@ -141,7 +138,6 @@ const ReadlineProcessorBuilder = builder => builder
             const applyCompletion = txt => {
                 const p1 = vars.result.slice(0, vars.cursor);
                 const p2 = vars.result.slice(vars.cursor);
-                console.log({ p1, p2 });
                 vars.result = p1 + txt + p2;
                 vars.cursor += txt.length;
                 externs.out.write(txt);

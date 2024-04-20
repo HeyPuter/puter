@@ -23,7 +23,6 @@ export default class StrUntilParserImpl {
     parse (lexer) {
         let text = '';
         for ( ;; ) {
-            console.log('B')
             let { done, value } = lexer.look();
 
             if ( done ) break;
@@ -40,8 +39,6 @@ export default class StrUntilParserImpl {
         }
 
         if ( text.length === 0 ) return;
-
-        console.log('test?', text)
 
         return { $: 'until', text };
     }
