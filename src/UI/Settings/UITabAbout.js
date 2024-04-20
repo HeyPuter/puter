@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { fetchServerInfo } from '../../services/VersionService.js';
+
 // About
 export default {
     id: 'about',
@@ -92,24 +94,15 @@ export default {
             </div>`;
     },
     init: ($el_window) => {
-        // version
-        $.ajax({
-            url: api_origin + "/version",
-            type: 'GET',
-            async: true,
-            contentType: "application/json",
-            headers: {
-                "Authorization": "Bearer " + auth_token
-            },
-            statusCode: {
-                401: function () {
-                    logout();
-                },
-            },
-            success: function (res) {
-                var d = new Date(0);
-                $el_window.find('.version').html('Version: ' + res.version + ' &bull; ' + 'Server: ' + res.location + ' &bull; ' + 'Deployed: ' + new Date(res.deploy_timestamp));
-            }
+        // server and version infomration
+        fetchServerInfo(api_origin, auth_token)
+        .then(res => {
+            const deployed_date = new Date(res.deployTimestamp).toLocaleString();
+            $el_window.find('.version').html(`Version: ${res.version} &bull; Server: ${res.location} &bull; Deployed: ${deployed_date}`);
+        })
+        .catch(error => {
+            console.error("Failed to fetch server info:", error);
+            $el_window.find('.version').html("Failed to load version information.");
         });
 
         $el_window.find('.credits').on('click', function (e) {
