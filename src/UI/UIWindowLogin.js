@@ -20,7 +20,6 @@
 import UIWindow from './UIWindow.js'
 import UIWindowSignup from './UIWindowSignup.js'
 import UIWindowRecoverPassword from './UIWindowRecoverPassword.js'
-import { fetchServerInfo } from '../services/VersionService.js';
 
 async function UIWindowLogin(options){
     options = options ?? {};
@@ -73,9 +72,9 @@ async function UIWindowLogin(options){
         h += `</div>`;
 
         // server and version infomration
-        fetchServerInfo(api_origin, auth_token)
+        puter.os.version()
         .then(res => {
-            const deployed_date = new Date(res.deployTimestamp).toLocaleString();
+            const deployed_date = new Date(res.deploy_timestamp).toLocaleString();
             $("#version-placeholder").html(`Version: ${res.version} &bull; Server: ${res.location} &bull; Deployed: ${deployed_date}`);
         })
         .catch(() => {

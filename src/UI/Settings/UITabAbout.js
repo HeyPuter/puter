@@ -17,8 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { fetchServerInfo } from '../../services/VersionService.js';
-
 // About
 export default {
     id: 'about',
@@ -95,9 +93,9 @@ export default {
     },
     init: ($el_window) => {
         // server and version infomration
-        fetchServerInfo(api_origin, auth_token)
+        puter.os.version()
         .then(res => {
-            const deployed_date = new Date(res.deployTimestamp).toLocaleString();
+            const deployed_date = new Date(res.deploy_timestamp).toLocaleString();
             $el_window.find('.version').html(`Version: ${res.version} &bull; Server: ${res.location} &bull; Deployed: ${deployed_date}`);
         })
         .catch(error => {
