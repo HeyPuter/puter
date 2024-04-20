@@ -61,9 +61,7 @@ export class Coupler {
             console.log('result?', which, result);
             const { value, done } = result;
             if ( done ) {
-                if ( which === 'closed' ) {
-                    cancel();
-                }
+                cancel();
                 this.source = null;
                 this.target = null;
                 this.active = false;

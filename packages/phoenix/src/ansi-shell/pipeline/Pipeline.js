@@ -187,10 +187,6 @@ export class PreparedCommand {
             in_ = new MemReader(response);
         }
 
-        const internal_input_pipe = new Pipe();
-        const valve = new Coupler(in_, internal_input_pipe.in);
-        in_ = internal_input_pipe.out;
-
         // simple naive implementation for now
         const sig = {
             listeners_: [],
@@ -288,7 +284,6 @@ export class PreparedCommand {
             console.log(`awaiting execute for ${command.name}`)
             await execute(ctx);
             console.log(`DONE execute for ${command.name}`)
-            valve.close();
         } catch (e) {
             if ( e instanceof Exit ) {
                 exit_code = e.code;
@@ -353,6 +348,11 @@ export class Pipeline {
         let nextIn = ctx.externs.in;
         let lastPipe = null;
 
+        // Create valve to close input pipe when done
+        const pipeline_input_pipe = new Pipe();
+        const valve = new Coupler(nextIn, pipeline_input_pipe.in);
+        nextIn = pipeline_input_pipe.out;
+
         // TOOD: this will eventually defer piping of certain
         //       sub-pipelines to the Puter Shell.
 
@@ -392,5 +392,7 @@ export class Pipeline {
         console.log('|AWAIT COUPLER');
         await coupler.isDone;
         console.log('|DONE AWAIT COUPLER');
+
+        valve.close();
     }
 }
