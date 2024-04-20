@@ -47,20 +47,22 @@ export class Coupler {
     async listenLoop_ () {
         this.active = true;
         for (;;) {
-            let canceller = () => {};
+            let cancel = () => {};
             let promise;
             if ( this.source.read_with_cancel !== undefined ) {
-                ({ canceller, promise } = this.source.read_with_cancel());
+                ({ cancel, promise } = this.source.read_with_cancel());
             } else {
                 promise = this.source.read();
             }
-            const [which, { value, done }] = await raceCase({
+            const [which, result] = await raceCase({
                 source: promise,
                 closed: this.closed_,
             });
+            console.log('result?', which, result);
+            const { value, done } = result;
             if ( done ) {
                 if ( which === 'closed' ) {
-                    canceller();
+                    cancel();
                 }
                 this.source = null;
                 this.target = null;
@@ -69,6 +71,7 @@ export class Coupler {
                 break;
             }
             if ( this.on_ ) {
+                if ( ! value ) debugger;
                 await this.target.write(value);
             }
         }

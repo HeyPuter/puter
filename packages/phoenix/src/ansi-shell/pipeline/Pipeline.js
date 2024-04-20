@@ -285,7 +285,9 @@ export class PreparedCommand {
 
         let exit_code = 0;
         try {
+            console.log(`awaiting execute for ${command.name}`)
             await execute(ctx);
+            console.log(`DONE execute for ${command.name}`)
             valve.close();
         } catch (e) {
             if ( e instanceof Exit ) {
@@ -304,10 +306,12 @@ export class PreparedCommand {
                 );
                 ctx.locals.exit = -1;
             }
+            if ( ! (e instanceof Exit) ) console.error(e);
         }
 
         // ctx.externs.in?.close?.();
         // ctx.externs.out?.close?.();
+        console.log(`calling close for ${command.name}`, ctx.externs.out);
         await ctx.externs.out.close();
 
         // TODO: need write command from puter-shell before this can be done
@@ -382,8 +386,11 @@ export class Pipeline {
             const command = preparedCommands[i];
             commandPromises.push(command.execute());
         }
+        console.log('command promises', commandPromises);
         await Promise.all(commandPromises);
 
+        console.log('|AWAIT COUPLER');
         await coupler.isDone;
+        console.log('|DONE AWAIT COUPLER');
     }
 }

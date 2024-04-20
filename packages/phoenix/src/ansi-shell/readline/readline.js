@@ -58,6 +58,7 @@ const ReadlineProcessorBuilder = builder => builder
 
         const byteBuffer = new Uint8Array(1);
         await externs.in_.read(byteBuffer);
+        console.log('got a byte!', byteBuffer[0]);
         locals.byteBuffer = byteBuffer;
         locals.byte = byteBuffer[0];
     })
