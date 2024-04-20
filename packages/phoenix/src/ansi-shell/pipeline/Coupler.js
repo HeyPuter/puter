@@ -58,7 +58,6 @@ export class Coupler {
                 source: promise,
                 closed: this.closed_,
             });
-            console.log('result?', which, result);
             const { value, done } = result;
             if ( done ) {
                 cancel();

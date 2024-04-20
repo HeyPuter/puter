@@ -70,21 +70,17 @@ class Channel {
                 }
                 called++;
                 const chunk = this.chunks_.shift();
-                console.log('shifted off chunk', chunk);
                 ( chunk === DONE ? done : data ).resolve(chunk);
                 this.off('write', on_data);
                 this.emit_consume_();
             }
         };
 
-        console.log('this case', this.chunks_.length);
-
         this.on('write', on_data);
         on_data();
 
         const to_return = {
             cancel: () => {
-                console.log('cancel called');
                 this.off('write', on_data);
                 cancel.resolve();
             },
@@ -95,7 +91,6 @@ class Channel {
             }),
         };
 
-        console.log('to_return?', to_return);
         return to_return;
     }
 
@@ -105,12 +100,8 @@ class Channel {
     }
 
     pushback (...chunks) {
-        console.log('pushing back...', chunks)
         for ( let i = chunks.length - 1; i >= 0; i-- ) {
-            console.log('unshifting ', i, chunks[i]);
-            console.log('chunks_ before unshift', this.chunks_.length);
             this.chunks_.unshift(chunks[i]);
-            console.log('chunks_ after unshift', this.chunks_.length);
 
         }
         this.emit_write_();
@@ -146,11 +137,9 @@ export class BetterReader {
     async intake_ () {
         const { value, done } = await this.delegate.read();
         if ( done ) {
-        console.log('writing to channel <DONE>');
             this.channel_.write(DONE);
             return;
         }
-        console.log('writing to channel', value);
         this.channel_.write(value);
     }
 
@@ -181,13 +170,11 @@ export class BetterReader {
 
             };
         }
-        console.log('!!!');
 
         const final_promise = new TeePromise();
         let current_cancel_ = () => {};
 
         (async () => {
-            console.log('STARTING BUFFER READ');
             let n_read = 0;
             const chunks = [];
             while ( n_read < opt_buffer.length ) {
@@ -195,7 +182,6 @@ export class BetterReader {
                 current_cancel_ = cancel;
 
                 let [which, chunk] = await promise;
-                console.log('which', which, 'chunk', chunk)
                 if ( which === 'done' ) {
                     break;
                 }
@@ -209,13 +195,9 @@ export class BetterReader {
                     chunk = chunk.subarray(0, diff);
                 }
                 chunks.push(chunk);
-                console.log('calling set', chunk, n_read, opt_buffer.length);
                 opt_buffer.set(chunk, n_read);
                 n_read += chunk.length;
             }
-
-            console.log('RESOLVING', opt_buffer);
-            console.log('-- and channel?', this.channel_.chunks_.length);
 
             final_promise.resolve({ n_read });
         })();
@@ -226,104 +208,11 @@ export class BetterReader {
             },
             promise: final_promise,
         };
-
-        // --- everything below this line is being removed ---
-
-        /*
-        if ( ! opt_buffer && this.chunks_.length === 0 ) {
-            const chunk = await this.delegate.read();
-            if ( cancel_state?.cancelled ) {
-                // push the chunk back onto the queue
-                console.log('aaa', chunk);
-                this.chunks_.push(chunk);
-                return this._create_cancel_response();
-            }
-            return {
-                chunk,
-                debug_meta: { source: 'delegate' },
-            };
-        }
-
-        const chunk = await this.getChunk_();
-        console.log('what we got', chunk);
-        if ( cancel_state?.cancelled ) {
-            // push the chunk back onto the queue
-            console.log('bbb', chunk);
-            this.chunks_.push(chunk);
-            return this._create_cancel_response();
-        }
-
-        if ( ! opt_buffer ) {
-            return { chunk, debug_meta: { source: 'stored chunks', returning: 'chunk' } };
-        }
-
-        if ( ! chunk ) {
-            return { n_read: 0, debug_meta: { source: 'nothing', returning: 'byte count' } };
-        }
-
-        console.log('ccc', chunk);
-        this.chunks_.push(chunk);
-
-        let itermax = 20;
-        while ( this.getTotalBytesReady_() < opt_buffer.length ) {
-            if ( --itermax < 0 ) {
-                throw new Error('too many iterations');
-            }
-            console.log('iter b');
-            const read_chunk = await this.getChunk_();
-            if ( cancel_state?.cancelled ) {
-                // push the chunk back onto the queue
-                console.log('ddd', chunk);
-                this.chunks_.push(read_chunk);
-                return this._create_cancel_response();
-            }
-            if ( ! read_chunk ) {
-                break;
-            }
-            console.log('adding chunk', read_chunk)
-            this.chunks_.push(read_chunk);
-        }
-
-        let offset = 0;
-        while ( this.chunks_.length > 0 && offset < opt_buffer.length ) {
-            console.log('iter a')
-            let item = this.chunks_.shift();
-            if ( item === undefined ) {
-                console.log('undefined <A>', this.chunks_);
-                break;
-            }
-            if ( item.value === undefined ) {
-                console.log('undefined <B>', item, this.chunks_);
-                break;
-            }
-            const is_done = item.done;
-            item = item.value;
-            if ( offset + item.length > opt_buffer.length ) {
-                const diff = opt_buffer.length - offset;
-                this.chunks_.unshift({
-                    done: is_done,
-                    value: item.subarray(diff),
-                });
-                item = item.subarray(0, diff);
-            }
-            opt_buffer.set(item, offset);
-            offset += item.length;
-        }
-
-        return {
-            n_read: offset,
-            debug_meta: { source: 'stored chunks', returning: 'byte count' },
-        };
-        /**/
     }
 
     read_with_cancel (opt_buffer) {
-        console.log('read with cancel called');
         const o = this.read_and_get_info(opt_buffer);
         const { cancel, promise } = o;
-        promise.then(v => {
-            console.log('promise resolved', v);
-        });
         // const promise = (async () => {
         //     const { chunk, n_read } = await this.read_and_get_info(opt_buffer, cancel_state);
         //     return opt_buffer ? n_read : chunk;
@@ -347,19 +236,16 @@ export class BetterReader {
                 delegate: delegate_read,
                 buffer_not_empty: this.waitUntilDataAvailable(),
             });
-            console.log('which?', which);
             if (which === 'delegate') {
                 return result;
             }
 
             // There's a chunk in the buffer now, so we can use the regular path.
             // But first, make sure that once the delegate read completes, we save the chunk.
-            console.log('result', result)
             this.chunks_.push(result);
         }
 
         const len = this.getTotalBytesReady_();
-        console.log('len', len);
         const merged = new Uint8Array(len);
         let offset = 0;
         for ( const item of this.chunks_ ) {
@@ -374,7 +260,6 @@ export class BetterReader {
 
     getTotalBytesReady_ () {
         return this.chunks_.reduce((sum, chunk) => {
-            console.log('sum', sum, 'chunk', chunk);
             return sum + chunk.value.length
         }, 0);
     }
