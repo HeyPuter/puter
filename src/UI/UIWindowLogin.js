@@ -20,6 +20,7 @@
 import UIWindow from './UIWindow.js'
 import UIWindowSignup from './UIWindowSignup.js'
 import UIWindowRecoverPassword from './UIWindowRecoverPassword.js'
+import { fetchServerInfo } from '../services/VersionService.js';
 
 async function UIWindowLogin(options){
     options = options ?? {};
@@ -59,6 +60,8 @@ async function UIWindowLogin(options){
                     h += `<button class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
                     // password recovery
                     h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>`;
+                    // server and version info
+                    h += `<div id="version-placeholder" class="version" style="text-align:center;"></div>`;
                 h += `</form>`;
             h += `</div>`;
             // create account link
@@ -68,6 +71,16 @@ async function UIWindowLogin(options){
                 h += `</div>`;
             }
         h += `</div>`;
+
+        // server and version infomration
+        fetchServerInfo(api_origin, auth_token)
+        .then(res => {
+            const deployed_date = new Date(res.deployTimestamp).toLocaleString();
+            $("#version-placeholder").html(`Version: ${res.version} &bull; Server: ${res.location} &bull; Deployed: ${deployed_date}`);
+        })
+        .catch(() => {
+            $("#version-placeholder").html("Failed to load version or server information.");
+        });
         
         const el_window = await UIWindow({
             title: null,

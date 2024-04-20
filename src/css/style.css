@@ -3601,6 +3601,11 @@ label {
     height: 12px;
 }
 
+.version#version-placeholder {
+    margin-top: 10px;
+    margin-bottom: 0;
+}
+
 .version:hover {
     opacity: 1;
 }
