@@ -214,7 +214,7 @@ async function UIWindow(options) {
                 data-sort_order ="${options.sort_order ?? 'asc'}"
                 data-multiselectable = "${options.selectable_body}"
                 data-update_window_url = "${options.update_window_url}"
-                data-user_set_url_params = "${user_set_url_params}"
+                data-user_set_url_params = "${html_encode(user_set_url_params)}"
                 data-initial_zindex = "${zindex}"
                 style=" z-index: ${zindex}; 
                         ${options.width !== undefined ? 'width: ' + html_encode(options.width) +'; ':''}
