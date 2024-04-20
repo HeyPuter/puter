@@ -152,6 +152,7 @@ Puter interacts directly with the DOM and jQuery provides an elegant yet powerfu
 ## #DoesItRunPuter
 
 - [Minecraft](https://twitter.com/HeyPuter/status/1771957571496092036) | [video](https://www.youtube.com/watch?v=GIowZUXkg5g)
+- [Samsung Watch](https://twitter.com/CharmunkDev/status/1781501714543030554)
 - [PlayStation 4](https://twitter.com/HeyPuter/status/1767978053014270059)
 - [Skyworth TV](https://twitter.com/ericalexdube/status/1767983049277411564)
 - [A Fridge!](https://twitter.com/HeyPuter/status/1778890003797745842)
@@ -159,7 +160,7 @@ Puter interacts directly with the DOM and jQuery provides an elegant yet powerfu
 - [Tesla Model S](https://twitter.com/HeyPuter/status/1767971178864587057)
 - [Tesla Model Y](https://twitter.com/HeyPuter/status/1772858333751636310)
 - [Nintendo Switch](https://twitter.com/HeyPuter/status/1780645795240538518)
-- Tesla Model 3
+- [Tesla Model 3](https://twitter.com/EricLighthall/status/1781479732997214501)
 
 <br/>
 
