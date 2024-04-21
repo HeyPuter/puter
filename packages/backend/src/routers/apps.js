@@ -38,7 +38,7 @@ router.get('/apps', auth, express.json({limit: '50mb'}), async (req, res, next)=
 
     const db = req.services.get('database').get(DB_READ, 'apps');
 
-    let apps_res = await dbrr.read(
+    let apps_res = await db.read(
         `SELECT * FROM apps WHERE owner_user_id = ? ORDER BY timestamp DESC`,
         [req.user.id]
     );
