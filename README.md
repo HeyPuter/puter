@@ -1,6 +1,6 @@
 <h3 align="center"><img width="80" alt="Puter.com, The Personal Cloud Computer: All your files, apps, and games in one place accessible from anywhere at any time." src="https://assets.puter.site/puter-logo.png"></h3>
 
-<h3 align="center">The Internet OS! Free, Open-Source, and Self-Hostable!</h3>
+<h3 align="center">The Internet OS! Free, Open-Source, and Self-Hostable.</h3>
 
 <p align="center">
     <a href="https://puter.com/"><strong>« LIVE DEMO »</strong></a>
@@ -157,10 +157,10 @@ Puter interacts directly with the DOM and jQuery provides an elegant yet powerfu
 - [Skyworth TV](https://twitter.com/ericalexdube/status/1767983049277411564)
 - [A Fridge!](https://twitter.com/HeyPuter/status/1778890003797745842)
 - [Oculus Quest 2](https://twitter.com/HeyPuter/status/1768664081756754012)
+- [Tesla Model 3](https://twitter.com/EricLighthall/status/1781479732997214501)
 - [Tesla Model S](https://twitter.com/HeyPuter/status/1767971178864587057)
 - [Tesla Model Y](https://twitter.com/HeyPuter/status/1772858333751636310)
 - [Nintendo Switch](https://twitter.com/HeyPuter/status/1780645795240538518)
-- [Tesla Model 3](https://twitter.com/EricLighthall/status/1781479732997214501)
 
 <br/>
 
