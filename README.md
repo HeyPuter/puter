@@ -161,6 +161,7 @@ Puter interacts directly with the DOM and jQuery provides an elegant yet powerfu
 - [Tesla Model S](https://twitter.com/HeyPuter/status/1767971178864587057)
 - [Tesla Model Y](https://twitter.com/HeyPuter/status/1772858333751636310)
 - [Nintendo Switch](https://twitter.com/HeyPuter/status/1780645795240538518)
+- [Steam Deck](https://twitter.com/everythingSung/status/1782162352403828793)
 
 <br/>
 
