@@ -469,6 +469,9 @@ async function UIWindow(options) {
     const el_openfiledialog_open_btn = document.querySelector(`#window-${win_id} .openfiledialog-open-btn`);
     const el_directorypicker_select_btn = document.querySelector(`#window-${win_id} .directorypicker-select-btn`);
 
+    // disable menubar by default
+    $(el_window).find('.window-menubar').hide();
+
     if(options.is_maximized){
         // save original size and position
         $(el_window).attr({

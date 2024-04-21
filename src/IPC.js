@@ -366,25 +366,66 @@ window.addEventListener('message', async (event) => {
         console.log('hydrated value', value);
 
         // Show menubar
-        $(el_window).find('.window-menubar').show();
+        const $menubar = $(el_window).find('.window-menubar')
+        $menubar.show();
 
         // Add menubar items
+        let current = null;
+        let state_open = false;
         const add_items = (parent, items) => {
             for (const item of items) {
-                const el_item = $(`<div class="window-menubar-item">${item.label}</div>`);
+                const el_item = $(`<div class="window-menubar-item"><span>${item.label}</span></div>`);
+                const parent_element = el_item.parent()[0];
                 el_item.on('click', () => {
+                    if ( state_open ) {
+                        state_open = false;
+                        current && current.cancel();
+                        return;
+                    }
                     if (item.action) {
                         item.action();
                     } else if (item.items) {
-                        UIContextMenu({
+                        state_open = true;
+                        const pos = el_item[0].getBoundingClientRect();
+                        current = UIContextMenu({
+                            parent_element,
+                            position: {top: pos.top + 28, left: pos.left},
+
                             items: item.items,
                         });
+                        // const some_current = current;
+                        // some_current.onClose = () => {
+                        //     some_current.onClose = null;
+                        //     if ( some_current === current ) {
+                        //         state_open = false;
+                        //     }
+                        // };
                     }
                 });
-                $(el_window).find('.window-menubar').append(el_item);
+                el_item.on('mouseover', () => {
+                    if ( ! state_open ) return;
+                    if (item.items) {
+                        current && current.cancel();
+                        const pos = el_item[0].getBoundingClientRect();
+                        current = UIContextMenu({
+                            parent_element,
+                            position: {top: pos.top + 28, left: pos.left},
+
+                            items: item.items,
+                        });
+                        // const some_current = current;
+                        // some_current.onClose = () => {
+                        //     some_current.onClose = null;
+                        //     if ( some_current === current ) {
+                        //         state_open = false;
+                        //     }
+                        // };
+                    }
+                });
+                $menubar.append(el_item);
             }
         };
-        add_items($(el_window).find('.window-menubar'), value.items);
+        add_items($menubar, value.items);
     }
     //--------------------------------------------------------
     // setWindowWidth

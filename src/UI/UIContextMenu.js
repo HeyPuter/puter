@@ -130,6 +130,13 @@ function UIContextMenu(options){
     // mark other context menus as inactive
     $('.context-menu').not(contextMenu).removeClass('context-menu-active');
 
+    const fade_remove = () => {
+        $(`#context-menu-${menu_id}, .context-menu[data-element-id="${$(this).closest('.context-menu').attr('data-parent-id')}"]`).fadeOut(200, function(){
+            $(contextMenu).remove();
+        });
+        options.onClose && options.onClose();
+    };
+
     // An item is clicked
     $(`#context-menu-${menu_id} > li:not(.context-menu-item-disabled)`).on('click', function (e) {
         
@@ -145,9 +152,7 @@ function UIContextMenu(options){
         }
         // close menu and, if exists, its parent
         if(!$(this).hasClass('context-menu-item-submenu')){
-            $(`#context-menu-${menu_id}, .context-menu[data-element-id="${$(this).closest('.context-menu').attr('data-parent-id')}"]`).fadeOut(200, function(){
-                $(contextMenu).remove();
-            });
+            fade_remove();
         }
         return false;
     });
@@ -252,7 +257,17 @@ function UIContextMenu(options){
         e.preventDefault();
         e.stopPropagation();
         return false;
-    })    
+    })
+
+    return {
+        cancel: () => {
+            console.log('but it dont work')
+            fade_remove();
+        },
+        set onClose (fn) {
+            options.onClose = fn;
+        }
+    };
 }
 
 window.select_ctxmenu_item = function ($ctxmenu_item){
