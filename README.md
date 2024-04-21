@@ -178,3 +178,4 @@ Icons by [Elementary Icons](https://github.com/elementary/icons) under GPL-3.0 l
 Icons by [Tabler Icons](https://tabler.io/) under MIT license.
 
 Icons by [bootstrap-icons](https://icons.getbootstrap.com/) under MIT license.
+ 
