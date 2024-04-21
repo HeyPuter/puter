@@ -117,7 +117,7 @@ your first step.
 
 ##  License
 
-This repository is licensed under AGPL3. However, our SDK (puter.js) is also available under Apache 2.0, as indicated by the license file in that section (packages/puter-dot-js) of this repository.
+This repository is licensed under AGPL-3.0; However, our SDK (puter.js) is also available under Apache 2.0, as indicated by the license file in that section (packages/puter-js) of this repository.
 
 <br/>
 
