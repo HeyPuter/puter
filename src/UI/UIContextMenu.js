@@ -130,11 +130,11 @@ function UIContextMenu(options){
     // mark other context menus as inactive
     $('.context-menu').not(contextMenu).removeClass('context-menu-active');
 
+    let cancel_options_ = null;
     const fade_remove = () => {
         $(`#context-menu-${menu_id}, .context-menu[data-element-id="${$(this).closest('.context-menu').attr('data-parent-id')}"]`).fadeOut(200, function(){
             $(contextMenu).remove();
         });
-        options.onClose && options.onClose();
     };
 
     // An item is clicked
@@ -242,6 +242,7 @@ function UIContextMenu(options){
     }
 
     $(contextMenu).on("remove", function () {
+        if ( options.onClose ) options.onClose(cancel_options_);
         // when removing, make parent scrollable again
         if(options.parent_element){
             $(options.parent_element).parent().removeClass('children-have-open-contextmenu');
@@ -260,8 +261,8 @@ function UIContextMenu(options){
     })
 
     return {
-        cancel: () => {
-            console.log('but it dont work')
+        cancel: (cancel_options) => {
+            cancel_options_ = cancel_options;
             fade_remove();
         },
         set onClose (fn) {
