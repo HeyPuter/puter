@@ -265,6 +265,13 @@ async function UIWindow(options) {
                 h += `<div draggable="false" title="Desktop" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-desktop.svg'])}">Desktop</div>`;
                 h += `<div draggable="false" title="Videos" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-videos.svg'])}">Videos</div>`;
             h += `</div>`;
+
+        }
+
+        // Menubar
+        {
+            h += `<div class="window-menubar">`;
+            h += `</div>`;
         }
 
         // Navbar

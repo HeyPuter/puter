@@ -739,6 +739,10 @@ span.header-sort-icon img {
     text-shadow: none;
 }
 
+.window-menubar {
+    display: none;
+}
+
 .explorer-empty-message {
     text-align: center;
     margin-top: 20px;

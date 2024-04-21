@@ -27,6 +27,7 @@ import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
 import UIPrompt from './UI/UIPrompt.js';
 import download from './helpers/download.js';
 import path from "./lib/path.js";
+import UIContextMenu from './UI/UIContextMenu.js';
 
 /**
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI) aand each other using the postMessage API.
@@ -350,6 +351,40 @@ window.addEventListener('message', async (event) => {
         target_iframe.contentWindow.postMessage({
             original_msg_id: msg_id, 
         }, '*');
+    }
+    //--------------------------------------------------------
+    // setMenubar
+    //--------------------------------------------------------
+    else if(event.data.msg === 'setMenubar') {
+        const el_window = window_for_app_instance(event.data.appInstanceID);
+
+        console.error(`EXPERIMENTAL: setMenubar is a work-in-progress`);
+        const hydrator = puter.util.rpc.getHydrator({
+            target: target_iframe.contentWindow,
+        });
+        const value = hydrator.hydrate(event.data.value);
+        console.log('hydrated value', value);
+
+        // Show menubar
+        $(el_window).find('.window-menubar').show();
+
+        // Add menubar items
+        const add_items = (parent, items) => {
+            for (const item of items) {
+                const el_item = $(`<div class="window-menubar-item">${item.label}</div>`);
+                el_item.on('click', () => {
+                    if (item.action) {
+                        item.action();
+                    } else if (item.items) {
+                        UIContextMenu({
+                            items: item.items,
+                        });
+                    }
+                });
+                $(el_window).find('.window-menubar').append(el_item);
+            }
+        };
+        add_items($(el_window).find('.window-menubar'), value.items);
     }
     //--------------------------------------------------------
     // setWindowWidth

@@ -139,6 +139,10 @@ function UIContextMenu(options){
             event.value = options.items[$(this).attr("data-action")]['val'] ?? undefined;
             options.items[$(this).attr("data-action")].onClick(event);
         }
+        // "action" - onClick without un-clonable pointer event
+        else if(options.items[$(this).attr("data-action")].action && typeof options.items[$(this).attr("data-action")].action === 'function'){
+            options.items[$(this).attr("data-action")].action();
+        }
         // close menu and, if exists, its parent
         if(!$(this).hasClass('context-menu-item-submenu')){
             $(`#context-menu-${menu_id}, .context-menu[data-element-id="${$(this).closest('.context-menu').attr('data-parent-id')}"]`).fadeOut(200, function(){
