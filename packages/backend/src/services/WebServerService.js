@@ -336,6 +336,13 @@ class WebServerService extends BaseService {
             // res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
             res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
             // Pass to next layer of middleware
+
+            // disable iframes on the main domain
+            if ( req.hostname === config.domain ) {
+                // disable iframes
+                res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+            }
+
             next();
         });
 
