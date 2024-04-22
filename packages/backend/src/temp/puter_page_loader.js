@@ -161,7 +161,11 @@ const generate_puter_page_html = ({
     <!-- Initialize GUI when document is loaded -->
     <script>
     window.addEventListener('load', function() {
-        gui(${JSON.stringify(gui_params)});
+        gui(${
+            // TODO: override JSON.stringify to ALWAYS to this...
+            //       this should be an opt-OUT, not an opt-IN!
+            JSON.stringify(gui_params).replace(/</g, '\\u003c')
+        });
     });
     </script>
     <div id="templates" style="display: none;"></div>
