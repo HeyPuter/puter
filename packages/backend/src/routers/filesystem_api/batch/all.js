@@ -203,18 +203,9 @@ module.exports = eggspress('/batch', {
             if ( fieldname === 'operation' ) {
                 const op_spec = JSON.parse(value);
                 batch_exe.total++;
-                // if ( operation_requires_file(op_spec) ) {
-                console.log(`WAITING FOR FILE ${op_spec.op}`)
                 pending_operations.push(op_spec);
                 response_promises.push(null);
                 return;
-                // }
-
-                // console.log(`EXEUCING OP ${op_spec.op}`)
-                // response_promises.push(
-                //     batch_exe.exec_op(req, op_spec)
-                // );
-                // return;
             }
 
             req.body[fieldname] = value;
@@ -306,9 +297,7 @@ module.exports = eggspress('/batch', {
     //-------------------------------------------------------------
     // Awaiting responses
     //-------------------------------------------------------------
-    console.log('still_reading AWAITING');
     await still_reading;
-    console.log('still_reading RESOLVED');
 
     if ( request_error ) {
         return;
