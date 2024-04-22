@@ -191,7 +191,6 @@ module.exports = eggspress('/batch', {
             }
 
             if ( fieldname === 'fileinfo' ) {
-                console.log('PARSING FILEINFO???', value);
                 fileinfos.push(JSON.parse(value));
                 return;
             }
@@ -210,7 +209,6 @@ module.exports = eggspress('/batch', {
 
             req.body[fieldname] = value;
         } catch (e) {
-            console.log('GOT REQUEST ERROR', e);
             request_error = e;
             req.unpipe(busboy);
             res.set("Connection", "close");
