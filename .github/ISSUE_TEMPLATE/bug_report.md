@@ -15,7 +15,8 @@ assignees: ''
 
 **Addition Information or Screenshots (if applicable)**
 
-**Tooling**
+**Deployment**
+- [ ] Production (puter.com)
 - [ ] Development (`npm run start`)
 - [ ] Docker (via `docker run`)
 - [ ] Docker (via `docker-compose`)
