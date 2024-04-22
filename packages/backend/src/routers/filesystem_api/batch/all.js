@@ -136,9 +136,32 @@ module.exports = eggspress('/batch', {
     let total_tbd = true;
 
     const on_first_file = () => {
+        if ( request_error ) {
+            return;
+        }
+
         // log fileinfos
         console.log('HERE ARE THE FILEINFOS');
         console.log(JSON.stringify(fileinfos, null, 2));
+
+        const indexes_to_remove = [];
+
+        for ( let i=0 ; i < pending_operations.length ; i++ ) {
+            const op_spec = pending_operations[i];
+            if ( ! operation_requires_file(op_spec) ) {
+                indexes_to_remove.push(i);
+                console.log(`EXEUCING OP ${op_spec.op}`)
+                response_promises.push(
+                    batch_exe.exec_op(req, op_spec)
+                );
+            }
+        }
+
+        for ( let i=indexes_to_remove.length-1 ; i >= 0 ; i-- ) {
+            const index = indexes_to_remove[i];
+            pending_operations.splice(index, 1)[0];
+            response_promises.splice(index, 1);
+        }
     }
 
 
@@ -150,48 +173,58 @@ module.exports = eggspress('/batch', {
     });
 
     const still_reading = new TeePromise();
+    let request_error = null;
 
     busboy.on('field', (fieldname, value, details) => {
-        if ( details.fieldnameTruncated ) {
-            throw new Error('fieldnameTruncated');
-        }
-        if ( details.valueTruncated ) {
-            throw new Error('valueTruncated');
-        }
+        try {
+            if ( details.fieldnameTruncated ) {
+                throw new Error('fieldnameTruncated');
+            }
+            if ( details.valueTruncated ) {
+                throw new Error('valueTruncated');
+            }
 
-        if ( expected_metadata.hasOwnProperty(fieldname) ) {
-            expected_metadata[fieldname] = value;
-            req.body[fieldname] = value;
-            return;
-        }
+            if ( expected_metadata.hasOwnProperty(fieldname) ) {
+                expected_metadata[fieldname] = value;
+                req.body[fieldname] = value;
+                return;
+            }
 
-        if ( fieldname === 'fileinfo' ) {
-            fileinfos.push(JSON.parse(value));
-            return;
-        }
+            if ( fieldname === 'fileinfo' ) {
+                console.log('PARSING FILEINFO???', value);
+                fileinfos.push(JSON.parse(value));
+                return;
+            }
 
-        if ( ! frame ) {
-            create_frame();
-        }
+            if ( ! frame ) {
+                create_frame();
+            }
 
-        if ( fieldname === 'operation' ) {
-            const op_spec = JSON.parse(value);
-            batch_exe.total++;
-            if ( operation_requires_file(op_spec) ) {
+            if ( fieldname === 'operation' ) {
+                const op_spec = JSON.parse(value);
+                batch_exe.total++;
+                // if ( operation_requires_file(op_spec) ) {
                 console.log(`WAITING FOR FILE ${op_spec.op}`)
                 pending_operations.push(op_spec);
                 response_promises.push(null);
                 return;
+                // }
+
+                // console.log(`EXEUCING OP ${op_spec.op}`)
+                // response_promises.push(
+                //     batch_exe.exec_op(req, op_spec)
+                // );
+                // return;
             }
 
-            console.log(`EXEUCING OP ${op_spec.op}`)
-            response_promises.push(
-                batch_exe.exec_op(req, op_spec)
-            );
-            return;
+            req.body[fieldname] = value;
+        } catch (e) {
+            console.log('GOT REQUEST ERROR', e);
+            request_error = e;
+            req.unpipe(busboy);
+            res.set("Connection", "close");
+            res.sendStatus(400);
         }
-
-        req.body[fieldname] = value;
     });
 
     let i = 0;
@@ -273,7 +306,14 @@ module.exports = eggspress('/batch', {
     //-------------------------------------------------------------
     // Awaiting responses
     //-------------------------------------------------------------
+    console.log('still_reading AWAITING');
     await still_reading;
+    console.log('still_reading RESOLVED');
+
+    if ( request_error ) {
+        return;
+    }
+
     log.noticeme('WAITING ON OPERATIONS')
     let responsePromises = response_promises;
     // let responsePromises = batch_exe.responsePromises;
