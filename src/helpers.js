@@ -1836,8 +1836,8 @@ window.launch_app = async (options)=>{
         // Add options.args to URL
         iframe_url.searchParams.append('puter.args', JSON.stringify(options.args ?? {}));
 
-        // ...and finally append urm_source=puter.com to the URL
-        iframe_url.searchParams.append('urm_source', 'puter.com');
+        // ...and finally append utm_source=puter.com to the URL
+        iframe_url.searchParams.append('utm_source', 'puter.com');
 
         el_win = UIWindow({
             element_uuid: uuid,
