@@ -379,6 +379,9 @@ window.addEventListener('message', async (event) => {
             });
         };
 
+        // This array will store the menubar button elements
+        const menubar_buttons = [];
+
         // Add menubar items
         let current = null;
         let current_i = null;
@@ -390,6 +393,12 @@ window.addEventListener('message', async (event) => {
                     current && current.cancel({ meta: 'menubar' });
                 }
             }
+
+            // Set this menubar button as active
+            menubar_buttons.forEach(el => el.removeClass('active'));
+            menubar_buttons[i].addClass('active');
+
+            // Open the context menu
             const ctxMenu = UIContextMenu({
                 parent_element,
                 position: {top: pos.top + 28, left: pos.left},
@@ -401,9 +410,8 @@ window.addEventListener('message', async (event) => {
             current_i = i;
 
             ctxMenu.onClose = (cancel_options) => {
-                console.log('MAYBE???', cancel_options);
                 if ( cancel_options?.meta === 'menubar' ) return;
-                console.log('YES???');
+                menubar_buttons.forEach(el => el.removeClass('active'));
                 ctxMenu.onClose = null;
                 current_i = null;
                 current = null;
@@ -450,6 +458,7 @@ window.addEventListener('message', async (event) => {
                     });
                 });
                 $menubar.append(el_item);
+                menubar_buttons.push(el_item);
             }
         };
         add_items($menubar, value.items);

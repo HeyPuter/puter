@@ -766,7 +766,8 @@ span.header-sort-icon img {
     border-radius: calc(1.5 * var(--scale));
 }
 
-.window-menubar-item:hover > span {
+.window-menubar-item:hover > span,
+.window-menubar-item.active > span {
     background-color: var(--select-color);
     color: white;
 }
