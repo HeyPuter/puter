@@ -28,5 +28,5 @@ jobs:
           commit-message: Update release branch
           title: Merge Release Auto-PR
           body: Merging this PR will invoke release actions
-          base: release
+          branch: release
           branch: auto-update/release
