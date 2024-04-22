@@ -1,0 +1,25 @@
+{
+  "name": "@putersh/terminal-emulator",
+  "version": "0.0.0",
+  "description": "ANSI Terminal for Puter",
+  "main": "exports.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Puter Technologies Inc.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^24.1.0",
+    "@rollup/plugin-node-resolve": "^15.0.2",
+    "@rollup/plugin-replace": "^5.0.2",
+    "http-server": "^14.1.1",
+    "mocha": "^10.2.0",
+    "rollup": "^3.21.4",
+    "rollup-plugin-copy": "^3.4.0"
+  },
+  "dependencies": {
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.7.0"
+  }
+}

@@ -53,10 +53,15 @@ router.post('/set-pass-using-token', express.json(), async (req, res, next)=>{
         return res.status(400).send(`Password must be at least ${config.min_pass_length} characters long.`)
 
     try{
-        await db.write(
+        const info = await db.write(
             'UPDATE user SET password=?, pass_recovery_token=NULL WHERE `uuid` = ? AND pass_recovery_token = ?',
             [await bcrypt.hash(req.body.password, 8), req.body.user_id, req.body.token]
         );
+
+        if ( ! info?.anyRowsAffected ) {
+            return res.status(400).send('Invalid token or user_id.');
+        }
+
         invalidate_cached_user_by_id(req.body.user_id);
 
         return res.send('Password successfully updated.')

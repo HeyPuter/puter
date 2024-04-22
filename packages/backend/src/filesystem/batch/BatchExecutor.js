@@ -85,6 +85,12 @@ class BatchExecutor extends AdvancedBase {
             if ( ! x ) throw new Error('no context');
 
             try {
+                if ( ! command_cls ) {
+                    throw APIError.create('invalid_operation', null, {
+                        operation: op.op,
+                    });
+                }
+
                 if ( file ) workUnit.checkpoint(
                     'about to run << ' +
                     (file.originalname ?? file.name) +

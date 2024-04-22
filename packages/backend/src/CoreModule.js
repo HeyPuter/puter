@@ -189,6 +189,9 @@ const install = async ({ services, app }) => {
 
     const { PuterVersionService } = require('./services/PuterVersionService');
     services.registerService('puter-version', PuterVersionService);
+
+    const { SessionService } = require('./services/SessionService');
+    services.registerService('session', SessionService);
 }
 
 const install_legacy = async ({ services }) => {

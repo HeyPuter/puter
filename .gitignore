@@ -9,4 +9,4 @@ dist/
 .env
 # this is for jetbrain IDEs
 .idea/
-puter
+/puter

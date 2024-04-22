@@ -25,6 +25,7 @@ import UIWindowLogin from './UIWindowLogin.js';
 import UIWindowPublishWebsite from './UIWindowPublishWebsite.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
 import new_context_menu_item from '../helpers/new_context_menu_item.js';
+import refresh_item_container from '../helpers/refresh_item_container.js';
 
 const el_body = document.getElementsByTagName('body')[0];
 
@@ -110,6 +111,8 @@ async function UIWindow(options) {
     options.window_css = options.window_css ?? {};
     options.window_class = (options.window_class !== undefined ? ' ' + options.window_class : '');
 
+    options.is_visible = options.is_visible ?? true;
+
     // if only one instance is allowed, bring focus to the window that is already open
     if(options.single_instance && options.app !== ''){
         let $already_open_window =  $(`.window[data-app="${html_encode(options.app)}"]`);
@@ -169,6 +172,14 @@ async function UIWindow(options) {
 
     // Window
     let zindex = options.stay_on_top ? (99999999 + last_window_zindex + 1 + ' !important') : last_window_zindex;
+    let user_set_url_params = [];
+    if (options.params !== undefined) {
+        for (let key in options.params) {
+            user_set_url_params.push(key + "=" + options.params[key]);
+        }
+        user_set_url_params = '?'+ user_set_url_params.join('&');
+
+    }
     h += `<div class="window window-active 
                         ${options.cover_page ? 'window-cover-page' : ''}
                         ${options.uid !== undefined ? 'window-'+options.uid : ''} 
@@ -203,6 +214,7 @@ async function UIWindow(options) {
                 data-sort_order ="${options.sort_order ?? 'asc'}"
                 data-multiselectable = "${options.selectable_body}"
                 data-update_window_url = "${options.update_window_url}"
+                data-user_set_url_params = "${html_encode(user_set_url_params)}"
                 data-initial_zindex = "${zindex}"
                 style=" z-index: ${zindex}; 
                         ${options.width !== undefined ? 'width: ' + html_encode(options.width) +'; ':''}
@@ -489,7 +501,9 @@ async function UIWindow(options) {
         $(el_window_head_icon).attr('src', window.icons['shared.svg']);
     }
     // focus on this window and deactivate other windows
-    $(el_window).focusWindow();
+    if ( options.is_visible ) {
+        $(el_window).focusWindow();
+    }
 
     if (animate_window_opening) {
         // animate window opening
@@ -515,27 +529,49 @@ async function UIWindow(options) {
         });
     }
 
+    // =====================================
+    // Center relative to parent window
+    // =====================================
+    if(options.parent_center && options.parent_uuid){
+        const $parent_window = $(`.window[data-element_uuid="${options.parent_uuid}"]`);
+        const parent_window_width = $parent_window.width();
+        const parent_window_height = $parent_window.height();
+        const parent_window_left = $parent_window.offset().left;
+        const parent_window_top = $parent_window.offset().top;
+        const window_height = $(el_window).height();
+        const window_width = $(el_window).width();
+        options.left = parent_window_left + parent_window_width/2 - window_width/2;
+        options.top = parent_window_top + parent_window_height/2 - window_height/2;
+        $(el_window).css({
+            'left': options.left + 'px',
+            'top': options.top + 'px',
+        });
+    }
+
     // onAppend() - using show() is a hack to make sure window is visible AND onAppend is called when
     // window is actually appended and usable.
-    $(el_window).show(0, function(e){
-        // if SaveFileDialog, bring focus to the el_savefiledialog_filename and select all
-        if(options.is_saveFileDialog){
-            let item_name = el_savefiledialog_filename.value;
-            const extname = path.extname('/' + item_name);
-            if(extname !== '')
-            el_savefiledialog_filename.setSelectionRange(0, item_name.length - extname.length)
-            else
-                $(el_savefiledialog_filename).select();
-    
-            $(el_savefiledialog_filename).get(0).focus({preventScroll:true});
-        }
-        //set custom window css
-        $(el_window).css(options.window_css);
-        // onAppend()
-        if(options.onAppend && typeof options.onAppend === 'function'){
-            options.onAppend(el_window);
-        }
-    })
+    // NOTE: there is another is_visible condition below
+    if ( options.is_visible ) {
+        $(el_window).show(0, function(e){
+            // if SaveFileDialog, bring focus to the el_savefiledialog_filename and select all
+            if(options.is_saveFileDialog){
+                let item_name = el_savefiledialog_filename.value;
+                const extname = path.extname('/' + item_name);
+                if(extname !== '')
+                el_savefiledialog_filename.setSelectionRange(0, item_name.length - extname.length)
+                else
+                    $(el_savefiledialog_filename).select();
+        
+                $(el_savefiledialog_filename).get(0).focus({preventScroll:true});
+            }
+            //set custom window css
+            $(el_window).css(options.window_css);
+            // onAppend()
+            if(options.onAppend && typeof options.onAppend === 'function'){
+                options.onAppend(el_window);
+            }
+        });
+    }
 
     if(options.is_saveFileDialog){
         //------------------------------------------------
@@ -960,7 +996,9 @@ async function UIWindow(options) {
         $(el_window).css('top', options.top)
         $(el_window).css('left', options.left)
     }
-    $(el_window).css('display', 'block');
+    if ( options.is_visible ) {
+        $(el_window).css('display', 'block');
+    }
 
     // mousedown on the window body will unselect selected items if neither ctrl nor command are pressed
     $(el_window_body).on('mousedown', function(e){
@@ -2823,27 +2861,7 @@ $.fn.close = async function(options) {
             $(`.window[data-parent_uuid="${window_uuid}"]`).close();
 
             // notify other apps that we're closing
-            if (app_uses_sdk) {
-                // notify parent app, if we have one, that we're closing
-                const parent_id = this.dataset['parent_instance_id'];
-                const parent = $(`.window[data-element_uuid="${parent_id}"] .window-app-iframe`).get(0);
-                if (parent) {
-                    parent.contentWindow.postMessage({
-                        msg: 'appClosed',
-                        appInstanceID: window_uuid,
-                    }, '*');
-                }
-
-                // notify child apps, if we have them, that we're closing
-                const children = $(`.window[data-parent_instance_id="${window_uuid}"] .window-app-iframe`);
-                children.each((_, child) => {
-                    child.contentWindow.postMessage({
-                        msg: 'appClosed',
-                        appInstanceID: window_uuid,
-                    }, '*');
-                });
-                // TODO: Once other AppConnections exist, those will need notifying too.
-            }
+            window.report_app_closed(window_uuid);
 
             // remove backdrop
             $(this).closest('.window-backdrop').remove();
@@ -3124,7 +3142,7 @@ $.fn.focusWindow = function(event) {
         //change window URL
         const update_window_url = $(this).attr('data-update_window_url');
         if(update_window_url === 'true' || update_window_url === null){
-            window.history.replaceState({window_id: $(this).attr('data-id')}, '', '/app/'+$(this).attr('data-app'));
+            window.history.replaceState({window_id: $(this).attr('data-id')}, '', '/app/'+$(this).attr('data-app')+$(this).attr('data-user_set_url_params'));
             document.title = $(this).attr('data-name');
         }
         $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).addClass('taskbar-item-active');

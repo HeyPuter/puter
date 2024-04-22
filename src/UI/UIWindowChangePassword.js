@@ -19,7 +19,9 @@
 
 import UIWindow from './UIWindow.js'
 
-async function UIWindowChangePassword(){
+async function UIWindowChangePassword(options){
+    options = options ?? {};
+
     const internal_id = window.uuidv4();
     let h = '';
     h += `<div class="change-password" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
@@ -77,7 +79,8 @@ async function UIWindowChangePassword(){
             height: '100%',
             'background-color': 'rgb(245 247 249)',
             'backdrop-filter': 'blur(3px)',
-        }    
+        },
+        ...options.window_options,   
     })
 
     $(el_window).find('.change-password-btn').on('click', function(e){

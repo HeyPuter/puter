@@ -1,6 +1,6 @@
 <h3 align="center"><img width="80" alt="Puter.com, The Personal Cloud Computer: All your files, apps, and games in one place accessible from anywhere at any time." src="https://assets.puter.site/puter-logo.png"></h3>
 
-<h3 align="center">The Internet OS! Free, Open-Source, and Self-Hostable!</h3>
+<h3 align="center">The Internet OS! Free, Open-Source, and Self-Hostable.</h3>
 
 <p align="center">
     <a href="https://puter.com/"><strong>« LIVE DEMO »</strong></a>
@@ -15,6 +15,8 @@
     <a href="https://reddit.com/r/puter">Reddit</a>
     ·
     <a href="https://twitter.com/HeyPuter">X (Twitter)</a>
+    ·
+    <a href="https://hackerone.com/puter_h1b">Bug Bounty</a>
 </p>
 
 <h3 align="center"><img width="700" style="border-radius:5px;" alt="screenshot" src="https://assets.puter.site/puter.com-screenshot-2.webp"></h3>
@@ -111,14 +113,13 @@ This user will have a randomly generated password, which will be printed
 in the development console.
 A warning will persist in the dev console until this user's
 password is changed. Please login to this user and change the password as
-your first step. This user by default has 10GB storage instead of the default
-(500MB storage) for new/temporary users.
+your first step.
 
 <br/>
 
 ##  License
 
-This repository is licensed under AGPL3. However, our SDK (puter.js) is also available under Apache 2.0, as indicated by the license file in that section (packages/puter-dot-js) of this repository.
+This repository is licensed under AGPL-3.0; However, our SDK (puter.js) is also available under Apache 2.0, as indicated by the license file in that section (packages/puter-js) of this repository.
 
 <br/>
 
@@ -153,12 +154,16 @@ Puter interacts directly with the DOM and jQuery provides an elegant yet powerfu
 ## #DoesItRunPuter
 
 - [Minecraft](https://twitter.com/HeyPuter/status/1771957571496092036) | [video](https://www.youtube.com/watch?v=GIowZUXkg5g)
+- [Samsung Watch](https://twitter.com/CharmunkDev/status/1781501714543030554)
 - [PlayStation 4](https://twitter.com/HeyPuter/status/1767978053014270059)
 - [Skyworth TV](https://twitter.com/ericalexdube/status/1767983049277411564)
+- [A Fridge!](https://twitter.com/HeyPuter/status/1778890003797745842)
 - [Oculus Quest 2](https://twitter.com/HeyPuter/status/1768664081756754012)
+- [Tesla Model 3](https://twitter.com/EricLighthall/status/1781479732997214501)
 - [Tesla Model S](https://twitter.com/HeyPuter/status/1767971178864587057)
 - [Tesla Model Y](https://twitter.com/HeyPuter/status/1772858333751636310)
-- Tesla Model 3
+- [Nintendo Switch](https://twitter.com/HeyPuter/status/1780645795240538518)
+- [Steam Deck](https://twitter.com/everythingSung/status/1782162352403828793)
 
 <br/>
 

@@ -69,7 +69,6 @@ class AI{
             testMode = true;
         }
     
-        console.log(args, options);
         return await utils.make_driver_method(['source'], 'puter-ocr', 'recognize', {
             test_mode: testMode ?? false,
             transform: async (result) => {

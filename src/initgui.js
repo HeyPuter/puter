@@ -35,8 +35,10 @@ import update_title_based_on_uploads from './helpers/update_title_based_on_uploa
 import PuterDialog from './UI/PuterDialog.js';
 import determine_active_container_parent from './helpers/determine_active_container_parent.js';
 import { ThemeService } from './services/ThemeService.js';
-import UIWindowThemeDialog from './UI/UIWindowThemeDialog.js';
 import { BroadcastService } from './services/BroadcastService.js';
+import UIWindowTaskManager from './UI/UIWindowTaskManager.js';
+import { ProcessService } from './services/ProcessService.js';
+import { PROCESS_RUNNING } from './definitions.js';
 
 const launch_services = async function () {
     const services_l_ = [];
@@ -52,15 +54,24 @@ const launch_services = async function () {
 
     register('broadcast', new BroadcastService());
     register('theme', new ThemeService());
+    register('process', new ProcessService())
 
     for (const [_, instance] of services_l_) {
         await instance._init();
+    }
+
+    // Set init process status
+    {
+        const svc_process = globalThis.services.get('process');
+        svc_process.get_init().chstatus(PROCESS_RUNNING);
     }
 };
 
 window.initgui = async function(){
     let url = new URL(window.location);
     url = url.href;
+
+    let picked_a_user_for_sdk_login = false;
 
     // update SDK if auth_token is different from the one in the SDK
     if(window.auth_token && puter.authToken !== window.auth_token)
@@ -168,13 +179,16 @@ window.initgui = async function(){
                 await getUserAppToken(openerOrigin);
         }
         else if(action === 'sign-in' && is_auth()){
-            if(await UIWindowSessionList({
+            picked_a_user_for_sdk_login = await UIWindowSessionList({
                 reload_on_success: false,
                 draggable_body: false,
                 has_head: false,
                 cover_page: true,
-            }))
+            });
+
+            if(picked_a_user_for_sdk_login){
                 await getUserAppToken(openerOrigin);
+            }
 
         }
     }
@@ -252,7 +266,7 @@ window.initgui = async function(){
         let response = await checkUserSiteRelationship(openerOrigin);
         window.userAppToken = response.token;
 
-        if(logged_in_users.length > 0 && (!userAppToken || url_query_params.get('request_auth') )){
+        if(!picked_a_user_for_sdk_login && logged_in_users.length > 0 && (!userAppToken || url_query_params.get('request_auth') )){
             await UIWindowSessionList({
                 reload_on_success: false,
                 draggable_body: false,

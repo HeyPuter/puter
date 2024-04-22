@@ -48,6 +48,9 @@ window.puter = (function() {
         // Event handling properties
         eventHandlers = {};
 
+        // debug flag
+        debugMode = false;
+
         // --------------------------------------------
         // Constructor
         // --------------------------------------------
@@ -306,7 +309,6 @@ window.puter = (function() {
             }
         }
     }
-
 
     // Create a new Puter object and return it
     const puterobj = new Puter();

@@ -15,32 +15,13 @@
     <a href="https://twitter.com/HeyPuter">X (Twitter)</a>
 </p>
 
-## Installation
-```
-git clone https://github.com/HeyPuter/puter.js.git
-cd puter.js
-npm install
-```
-
-## Run development server
-
-```
-npm start
-```
-
-## Build
-
-```
-npm run build
-```
-
 ### Example
 Make sure the development server is running.
 
 ```html
 <html>
 <body>
-    <script src="http://127.0.0.1:8080/dist/puter.dev.js"></script>
+    <script src="http://puter.localhost:4100/sdk/puter.dev.js"></script>
     <script>
         // Loading ...
         puter.print(`Loading...`);

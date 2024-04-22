@@ -24,7 +24,7 @@ const { HLFilesystemOperation } = require("./definitions");
 
 class HLReadDir extends HLFilesystemOperation {
     async _run () {
-        const { subject, user, no_thumbs, no_assocs } = this.values;
+        const { subject, user, no_thumbs, no_assocs, actor } = this.values;
 
         if ( ! await subject.exists() ) {
             throw APIError.create('subject_does_not_exist');
@@ -49,12 +49,12 @@ class HLReadDir extends HLFilesystemOperation {
                 await child.fetchSubdomains(user);
             }
             const fs = require('fs');
-            fs.appendFileSync('/tmp/children.log',
-                JSON.stringify({
-                    no_thumbs,
-                    no_assocs,
-                    entry: child.entry,
-                }) + '\n');
+            // fs.appendFileSync('/tmp/children.log',
+            //     JSON.stringify({
+            //         no_thumbs,
+            //         no_assocs,
+            //         entry: child.entry,
+            //     }) + '\n');
             return await child.getSafeEntry({ thumbnail: ! no_thumbs });
         }));
     }

@@ -1,7 +1,9 @@
 import UIAlert from "./UIAlert.js";
 import UIWindow from "./UIWindow.js";
 
-const UIWindowManageSessions = async function UIWindowManageSessions () {
+const UIWindowManageSessions = async function UIWindowManageSessions (options) {
+    options = options ?? {};
+
     const services = globalThis.services;
 
     const w = await UIWindow({
@@ -21,13 +23,15 @@ const UIWindowManageSessions = async function UIWindowManageSessions () {
         dominant: true,
         body_content: '',
         // width: 600,
-        // parent_uuid: options.parent_uuid,
-        // ...options.window_options,
+        ...options.window_options,
     });
 
     const SessionWidget = ({ session }) => {
         const el = document.createElement('div');
         el.classList.add('session-widget');
+        if ( session.current ) {
+            el.classList.add('current-session');
+        }
         el.dataset.uuid = session.uuid;
         // '<pre>' +
         //    JSON.stringify(session, null, 2) +
@@ -87,6 +91,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions () {
             const resp = await fetch(`${api_origin}/auth/revoke-session`, {
                 method: 'POST',
                 headers: {
+                    Authorization: `Bearer ${puter.authToken}`,
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
@@ -115,6 +120,9 @@ const UIWindowManageSessions = async function UIWindowManageSessions () {
 
     const reload_sessions = async () => {
         const resp = await fetch(`${api_origin}/auth/list-sessions`, {
+            headers: {
+                Authorization: `Bearer ${puter.authToken}`,
+            },
             method: 'GET',
         });
 

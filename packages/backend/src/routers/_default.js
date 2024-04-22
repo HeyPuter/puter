@@ -300,6 +300,7 @@ router.all('*', async function(req, res, next) {
 
                     app_origin: APP_ORIGIN,
                     api_origin: API_ORIGIN,
+                    use_bundled_gui: config.use_bundled_gui,
 
                     manifest,
                     gui_path: config.assets.gui,

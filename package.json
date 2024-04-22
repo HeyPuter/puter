@@ -1,6 +1,6 @@
 {
   "name": "puter.com",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "author": "Puter Technologies Inc.",
   "license": "AGPL-3.0-only",
   "description": "Desktop environment in the browser!",
@@ -22,11 +22,12 @@
     "webpack-cli": "^5.1.1"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "mocha ./packages/phoenix/test ./packages/phoenix/packages/contextlink/test",
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
     "start": "node run-selfhosted.js",
     "build": "node ./build.js",
-    "check-translations": "node tools/check-translations.js"
+    "check-translations": "node tools/check-translations.js",
+    "postinstall": "cd packages/phoenix && cd packages/contextlink && npm install && cd - && cd packages/strataparse && npm install && cd - && cd packages/pty && npm install"
   },
   "workspaces": [
     "packages/*"

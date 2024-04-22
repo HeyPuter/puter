@@ -98,6 +98,7 @@ module.exports = eggspress('/readdir', {
         no_thumbs,
         no_assocs,
         user: req.user,
+        actor: req.actor,
     });
 
     // check for duplicate names

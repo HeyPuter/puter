@@ -36,6 +36,7 @@ class AuthService extends BaseService {
 
     async _init () {
         this.db = await this.services.get('database').get(DB_WRITE, 'auth');
+        this.svc_session = await this.services.get('session');
 
         this.sessions = {};
     }
@@ -186,7 +187,7 @@ class AuthService extends BaseService {
                     req.connection.remoteAddress
                 : req.connection.remoteAddress
                 ;
-        
+
             meta.ip = ip;
 
             meta.server = this.global_config.server_id;
@@ -214,35 +215,11 @@ class AuthService extends BaseService {
             }
         }
 
-        meta.created = new Date().toISOString();
-        meta.created_unix = Math.floor(Date.now() / 1000);
-
-        const uuid = this.modules.uuidv4();
-        await this.db.write(
-            'INSERT INTO `sessions` ' +
-            '(`uuid`, `user_id`, `meta`) ' +
-            'VALUES (?, ?, ?)',
-            [uuid, user.id, JSON.stringify(meta)],
-        );
-        const session = { uuid, user_uid: user.uuid, meta };
-        this.sessions[uuid] = session;
-        return session;
+        return await this.svc_session.create_session(user, meta);
     }
 
     async get_session_ (uuid) {
-        this.log.info(`USING SESSION`);
-        if ( this.sessions[uuid] ) {
-            return this.sessions[uuid];
-        }
-
-        const [session] = await this.db.read(
-            "SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1",
-            [uuid],
-        );
-
-        session.meta = JSON.parse(session.meta ?? {});
-
-        return session;
+        return await this.svc_session.get_session(uuid);
     }
 
     async create_session_token (user, meta) {
@@ -271,7 +248,7 @@ class AuthService extends BaseService {
         }
 
         const is_legacy = ! decoded.type;
-        
+
         const user = await get_user({ uuid:
             is_legacy ? decoded.uuid : decoded.user_uid
         });
@@ -307,6 +284,18 @@ class AuthService extends BaseService {
         });
 
         return { actor, user, token };
+    }
+
+    async remove_session_by_token (token) {
+        const decoded = this.modules.jwt.verify(
+            token, this.global_config.jwt_secret
+        );
+
+        if ( decoded.type !== 'session' ) {
+            return;
+        }
+
+        await this.svc_session.remove_session(decoded.uuid);
     }
 
     async create_access_token (authorizer, permissions) {
@@ -367,19 +356,35 @@ class AuthService extends BaseService {
     }
 
     async list_sessions (actor) {
+        const seen = new Set();
+        const sessions = [];
+
+        const cache_sessions = this.svc_session.get_user_sessions(actor.type.user);
+        for ( const session of cache_sessions ) {
+            seen.add(session.uuid);
+            sessions.push(session);
+        }
+
         // We won't take the cached sessions here because it's
         // possible the user has sessions on other servers
-        const sessions = await this.db.read(
+        const db_sessions = await this.db.read(
             'SELECT uuid, meta FROM `sessions` WHERE `user_id` = ?',
             [actor.type.user.id],
         );
 
-        sessions.forEach(session => {
+        for ( const session of db_sessions ) {
+            if ( seen.has(session.uuid) ) {
+                continue;
+            }
+            session.meta = this.db.case({
+                mysql: () => session.meta,
+                otherwise: () => JSON.parse(session.meta ?? "{}")
+            })();
             if ( session.uuid === actor.type.session ) {
                 session.current = true;
             }
-            session.meta = JSON.parse(session.meta ?? {});
-        });
+            sessions.push(session);
+        };
 
         return sessions;
     }

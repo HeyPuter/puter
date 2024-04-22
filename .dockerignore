@@ -1,4 +1,4 @@
 .dockerignore
 Dockerfile
 node_modules
-puter
+/puter

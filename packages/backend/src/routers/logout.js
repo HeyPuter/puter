@@ -31,6 +31,16 @@ router.post('/logout', auth, express.json(), async (req, res, next)=>{
         next();
     // delete cookie
     res.clearCookie(config.cookie_name);
+    // delete session
+    (async () => {
+        if ( ! req.token ) return;
+        try {
+            const svc_auth = req.services.get('auth');
+            await svc_auth.remove_session_by_token(req.token);
+        } catch (e) {
+            console.log(e);
+        }
+    })()
     //---------------------------------------------------------
     // DANGER ZONE: delete temp user and all its data
     //---------------------------------------------------------

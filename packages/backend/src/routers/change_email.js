@@ -23,6 +23,11 @@ const eggspress = require('../api/eggspress.js');
 const APIError = require('../api/APIError.js');
 const { DB_READ, DB_WRITE } = require('../services/database/consts.js');
 
+const config = require('../config.js');
+
+const jwt = require('jsonwebtoken');
+const { invalidate_cached_user_by_id } = require('../helpers.js');
+
 const CHANGE_EMAIL_START = eggspress('/change_email/start', {
     subdomain: 'api',
     auth: true,
@@ -47,7 +52,6 @@ const CHANGE_EMAIL_START = eggspress('/change_email/start', {
     }
 
     // check if email is already in use
-    const svc_mysql = req.services.get('mysql');
     const db = req.services.get('database').get(DB_WRITE, 'auth');
     const rows = await db.read(
         'SELECT COUNT(*) AS `count` FROM `user` WHERE `email` = ?',
@@ -59,32 +63,42 @@ const CHANGE_EMAIL_START = eggspress('/change_email/start', {
 
     // generate confirmation token
     const token = crypto.randomBytes(4).toString('hex');
+    const jwt_token = jwt.sign({
+        user_id: user.id,
+        token,
+    }, config.jwt_secret, { expiresIn: '24h' });
+
+    // send confirmation email
+    const svc_email = req.services.get('email');
+    await svc_email.send_email({ email: new_email }, 'email_change_request', {
+        confirm_url: `${config.origin}/change_email/confirm?token=${jwt_token}`,
+        username: user.username,
+    });
 
     // update user
     await db.write(
         'UPDATE `user` SET `unconfirmed_change_email` = ?, `change_email_confirm_token` = ? WHERE `id` = ?',
         [new_email, token, user.id]
     );
+
+    res.send({ success: true });
 });
 
 const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
-    subdomain: 'api',
-    auth: true,
-    verified: true,
-    allowedMethods: ['POST'],
+    allowedMethods: ['GET'],
 }, async (req, res, next) => {
-    const user = req.user;
-    const token = req.body.token;
+    const jwt_token = req.query.token;
 
-    if ( ! token ) {
+    if ( ! jwt_token ) {
         throw APIError.create('field_missing', null, { key: 'token' });
     }
 
-    const svc_mysql = req.services.get('mysql');
-    const dbrr = svc_mysql.get(DB_MODE_READ, 'change-email-confirm');
-    const [rows] = await dbrr.promise().query(
+    const { token, user_id } = jwt.verify(jwt_token, config.jwt_secret);
+
+    const db = req.services.get('database').get(DB_WRITE, 'auth');
+    const rows = await db.read(
         'SELECT `unconfirmed_change_email` FROM `user` WHERE `id` = ? AND `change_email_confirm_token` = ?',
-        [user.id, token]
+        [user_id, token]
     );
     if ( rows.length === 0 ) {
         throw APIError.create('token_invalid');
@@ -92,11 +106,19 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
 
     const new_email = rows[0].unconfirmed_change_email;
 
-    const db = req.services.get('database').get(DB_WRITE, 'auth');
     await db.write(
         'UPDATE `user` SET `email` = ?, `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `id` = ?',
-        [new_email, user.id]
+        [new_email, user_id]
     );
+
+    invalidate_cached_user_by_id(user_id);
+    let socketio = require('../socketio.js').getio();
+    if(socketio){
+        socketio.to(user_id).emit('user.email_changed', {})
+    }
+
+    const h = `<p style="text-align:center; color:green;">Your email has been successfully confirmed.</p>`;
+    return res.send(h);
 });
 
 module.exports = app => {

@@ -25,6 +25,7 @@ const generate_puter_page_html = ({
 
     manifest,
     gui_path,
+    use_bundled_gui,
 
     app_origin,
     api_origin,
@@ -54,6 +55,8 @@ const generate_puter_page_html = ({
     const asset_dir = env === 'dev'
         ? '/src' : '/dist' ;
     // const asset_dir = '/dist';
+
+    const bundled = env != 'dev' || use_bundled_gui;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -104,7 +107,7 @@ const generate_puter_page_html = ({
 
     <!-- Files from JSON (may be empty) -->
     ${
-        ((env == 'dev' && manifest?.css_paths)
+        ((!bundled && manifest?.css_paths)
             ? manifest.css_paths.map(path => `<link rel="stylesheet" href="${path}">\n`)
             : []).join('')
     }
@@ -114,7 +117,12 @@ const generate_puter_page_html = ({
 <body>
     <script>window.puter_gui_enabled = true;</script>
     ${
-        ((env == 'dev' && manifest?.lib_paths)
+        use_bundled_gui
+            ? `<script>window.gui_env = 'prod';</script>`
+            : ''
+    }
+    ${
+        ((!bundled && manifest?.lib_paths)
             ? manifest.lib_paths.map(path => `<script type="text/javascript" src="${path}"></script>\n`)
             : []).join('')
     }
@@ -123,7 +131,7 @@ const generate_puter_page_html = ({
     window.icons = {};
 
     ${(() => {
-        if ( !(env == 'dev' && manifest) ) return '';
+        if ( !(!bundled && manifest) ) return '';
         const html = [];
         fs_.readdirSync(path_.join(gui_path, 'src/icons')).forEach(file => {
             // skip dotfiles
@@ -144,16 +152,20 @@ const generate_puter_page_html = ({
     </script>
 
     ${
-        ((env == 'dev' && manifest?.js_paths)
+        ((!bundled && manifest?.js_paths)
             ? manifest.js_paths.map(path => `<script type="module" src="${path}"></script>\n`)
             : []).join('')
     }
     <!-- Load the GUI script -->
-    <script ${ env == 'dev' ? ' type="module"' : ''} src="${(env == 'dev' && manifest?.index) || '/dist/gui.js'}"></script>
+    <script ${ !bundled ? ' type="module"' : ''} src="${(!bundled && manifest?.index) || '/dist/gui.js'}"></script>
     <!-- Initialize GUI when document is loaded -->
     <script>
     window.addEventListener('load', function() {
-        gui(${JSON.stringify(gui_params)});
+        gui(${
+            // TODO: override JSON.stringify to ALWAYS to this...
+            //       this should be an opt-OUT, not an opt-IN!
+            JSON.stringify(gui_params).replace(/</g, '\\u003c')
+        });
     });
     </script>
     <div id="templates" style="display: none;"></div>

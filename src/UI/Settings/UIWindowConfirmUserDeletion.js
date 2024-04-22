@@ -63,6 +63,7 @@ async function UIWindowConfirmUserDeletion(options){
                 backgroundColor: 'white',
                 color: 'black',
             },
+            ...options.window_options,
         });
 
         $(el_window).find('.generic-close-window-button').on('click', function(){

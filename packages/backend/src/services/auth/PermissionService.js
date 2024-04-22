@@ -207,7 +207,7 @@ class PermissionService extends BaseService {
 
         if ( actor.type instanceof AccessTokenActorType ) {
             // Authorizer must have permission
-            const authorizer_permission = await this.check(authorizer, permission);
+            const authorizer_permission = await this.check(actor.type.authorizer, permission);
             if ( ! authorizer_permission ) return false;
 
             return await this.check_access_token_permission(

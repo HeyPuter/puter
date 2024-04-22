@@ -120,7 +120,8 @@ window.fsTests = [
                 throw("testFSWrite failed to delete file:", error);
             }
         } catch (error) {
-            console.log(error);
+            if(puter.debugMode)
+                console.log(error);
             throw("testFSWrite failed:", error);
         }    
     },
@@ -598,7 +599,6 @@ window.fsTests = [
             let randName = puter.randName();
             for(let i = 0; i < naughtyStrings.length; i++) {
                 let filename = randName + naughtyStrings[i];
-                console.log(filename);
                 let result = await puter.fs.write(filename, 'testValue');
                 assert(result.uid, "Failed to write to file");
                 // check name
