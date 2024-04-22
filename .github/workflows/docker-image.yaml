@@ -5,7 +5,7 @@ name: Docker Image CI
 # branch called `main`.
 on:
   push:
-    branches: ['main']
+    branches: ['release']
   
 
 # Defines two custom environment variables for the workflow. These are used

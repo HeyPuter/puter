@@ -1,0 +1,40 @@
+name: Maintain Release Merge PR
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  update-release-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Git
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+      - name: Check for existing PR
+        id: find-pr
+        uses: juliangruber/find-pull-request-action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          branch: release
+      - uses: actions/checkout@v4
+        if: steps.find-pr.outputs.number == ''
+        with:
+          ref: release
+      - name: Reset release branch
+        if: steps.find-pr.outputs.number == ''
+        run: |
+          git fetch origin main:main
+          git reset --hard main
+      - name: Create/Update PR
+        if: steps.find-pr.outputs.number == ''
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: Update release branch
+          title: Merge Release Auto-PR
+          body: Merging this PR will invoke release actions          
+          branch: auto-update/release
