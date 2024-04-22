@@ -28,5 +28,10 @@ jobs:
           commit-message: Update release branch
           title: Merge Release Auto-PR
           body: Merging this PR will invoke release actions
-          branch: release
+
+          # none of these are in docs; I'm just guessing
+          # because there MUST be a way to set this!
+          target: release
+          target-branch: release
+          
           branch: auto-update/release
