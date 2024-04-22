@@ -369,6 +369,16 @@ window.addEventListener('message', async (event) => {
         const $menubar = $(el_window).find('.window-menubar')
         $menubar.show();
 
+        const sanitize_items = items => {
+            return items.map(item => {
+                return {
+                    html: item.label,
+                    action: item.action,
+                    items: item.items && sanitize_items(item.items),
+                };
+            });
+        };
+
         // Add menubar items
         let current = null;
         let current_i = null;
@@ -383,7 +393,7 @@ window.addEventListener('message', async (event) => {
             const ctxMenu = UIContextMenu({
                 parent_element,
                 position: {top: pos.top + 28, left: pos.left},
-                items,
+                items: sanitize_items(items),
             });
 
             state_open = true;
@@ -404,7 +414,8 @@ window.addEventListener('message', async (event) => {
             for (let i=0; i < items.length; i++) {
                 const I = i;
                 const item = items[i];
-                const el_item = $(`<div class="window-menubar-item"><span>${item.label}</span></div>`);
+                const label = html_encode(item.label);
+                const el_item = $(`<div class="window-menubar-item"><span>${label}</span></div>`);
                 const parent_element = el_item.parent()[0];
                 el_item.on('click', () => {
                     if ( state_open ) {
