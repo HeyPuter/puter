@@ -50,7 +50,7 @@ function UIAlert(options){
         // icon
         h += `<img class="window-alert-icon" src="${html_encode(options.body_icon)}">`;
         // message
-        h += `<div class="window-alert-message">${options.message}</div>`;
+        h += `<div class="window-alert-message">${html_encode(options.message)}</div>`;
         // buttons
         if(options.buttons && options.buttons.length > 0){
             h += `<div style="overflow:hidden; margin-top:20px;">`;
