@@ -817,7 +817,6 @@ async function UIDesktop(options){
     //-------------------------------------------
     if(!is_embedded && !window.is_fullpage_mode){
         refresh_item_container(el_desktop, {fadeInItems: true})
-        window.launch_download_from_url();
     }
 
     // -------------------------------------------

@@ -24,7 +24,6 @@ import UIItem from './UI/UIItem.js'
 import UIWindow from './UI/UIWindow.js'
 import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
-import UIWindowConfirmDownload from './UI/UIWindowConfirmDownload.js';
 import UIWindowCopyProgress from './UI/UIWindowCopyProgress.js';
 import UIWindowMoveProgress from './UI/UIWindowMoveProgress.js';
 import UIWindowNewFolderProgress from './UI/UIWindowNewFolderProgress.js';
@@ -1095,80 +1094,6 @@ window.show_save_account_notice_if_needed = function(message){
             }
         }
     })
-}
-
-window.launch_download_from_url = async function(){
-    // get url query params
-    const url_query_params = new URLSearchParams(window.location.search);
-
-    // is this download?
-    if(url_query_params.has('download')){
-        let url = url_query_params.get('download');
-        let name = url_query_params.get('name');
-        let is_dir = url_query_params.get('is_dir');
-        let url_obj;
-
-        // if url doesn't have a protocol, add http://
-        if(!url.startsWith('http://') && !url.startsWith('https://')){
-            url = 'http://' + url;
-        }
-
-        // parse url
-        try{
-            url_obj = new URL(url);
-        }catch(e){
-            UIAlert("Invalid download URL.");
-            return;
-        }
-
-        // get hostname from url
-        let hostname = url_obj.hostname;
-
-        // name
-        if(!name)
-            name = url.split('/').pop().split('#')[0].split('?')[0];
-
-        // determine file type from url
-        let file_type = mime.getType(name);
-
-        // confirm download
-        if(await UIWindowConfirmDownload({url: url, name: name, source: hostname, type: file_type, is_dir: is_dir})){
-            // download progress tracker
-            let dl_op_id = operation_id++;
-
-            // upload progress tracker defaults
-            window.progress_tracker[dl_op_id] = [];
-            window.progress_tracker[dl_op_id][0] = {};
-            window.progress_tracker[dl_op_id][0].total = 0;
-            window.progress_tracker[dl_op_id][0].ajax_uploaded = 0;
-            window.progress_tracker[dl_op_id][0].cloud_uploaded = 0;
-
-            const progress_window = await UIWindowDownloadProgress({operation_id: dl_op_id, item_name: name});
-
-            const res = await download({
-                url: url, 
-                name: name,
-                dest_path: desktop_path, 
-                auth_token: auth_token, 
-                api_origin: api_origin,
-                dedupe_name: true,
-                overwrite: false,
-                operation_id: dl_op_id,
-                item_upload_id: 0,
-                success: function(res){
-                    $(progress_window).close();
-                },
-                error: function(err){
-                    UIAlert(err && err.message ? err.message : "Download failed.");
-                    $(progress_window).close();
-                }
-            });
-
-            // clear window URL
-            window.history.pushState(null, document.title, '/');
-        }
-        
-    }
 }
 
 window.onpopstate = (event) => {
