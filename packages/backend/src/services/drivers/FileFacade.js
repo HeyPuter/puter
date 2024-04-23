@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { Context } = require("../../util/context");
 const { MultiValue } = require("../../util/multivalue");
 const { stream_to_buffer } = require("../../util/streamutil");

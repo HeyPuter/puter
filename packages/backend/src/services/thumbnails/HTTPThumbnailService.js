@@ -22,7 +22,7 @@
 const axios = require('axios');
 
 const { TeePromise } = require("../../util/promise");
-const { AdvancedBase } = require('puter-js-common');
+const { AdvancedBase } = require('@heyputer/puter-js-common');
 const FormData = require("form-data");
 const { stream_to_the_void, buffer_to_stream } = require('../../util/streamutil');
 const BaseService = require('../BaseService');

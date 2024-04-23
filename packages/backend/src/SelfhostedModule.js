@@ -1,4 +1,4 @@
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const config = require("./config");
 
 class SelfhostedModule extends AdvancedBase {

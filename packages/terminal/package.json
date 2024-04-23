@@ -1,5 +1,5 @@
 {
-  "name": "@putersh/terminal-emulator",
+  "name": "@heyputer/terminal",
   "version": "0.0.0",
   "description": "ANSI Terminal for Puter",
   "main": "exports.js",

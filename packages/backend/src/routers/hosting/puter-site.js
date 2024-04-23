@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const api_error_handler = require("../../api/api_error_handler");
 const config = require("../../config");
 const { get_user, get_app, id2path } = require("../../helpers");
