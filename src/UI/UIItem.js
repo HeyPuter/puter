@@ -19,7 +19,6 @@
 
 import UIWindowPublishWebsite from './UIWindowPublishWebsite.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
-import UIWindowGetCopyLink from './UIWindowGetCopyLink.js';
 import UIWindowSaveAccount from './UIWindowSaveAccount.js';
 import UIPopover from './UIPopover.js';
 import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js';
@@ -1130,37 +1129,6 @@ function UIItem(options){
                             trigger_download([options.path]);
                     }
                 });                
-            }
-
-
-            // -------------------------------------------
-            // Get Copy Link
-            // -------------------------------------------
-            if(!is_trashed && !is_trash && (options.associated_app_name === null || options.associated_app_name === undefined)){
-                menu_items.push({
-                    html: i18n('get_copy_link'),
-                    onClick: async function(){
-                        if(window.user.is_temp && 
-                            !await UIWindowSaveAccount({
-                                message: i18n('save_account_to_get_copy_link'),
-                                send_confirmation_code: true,
-                                window_options: {
-                                    backdrop: true,
-                                    close_on_backdrop_click: false,
-                                }                                
-                            }))
-                            return;
-                        else if(!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired())
-                            return;
-
-                        UIWindowGetCopyLink({
-                            name: $(el_item).attr('data-name'),
-                            uid: $(el_item).attr('data-uid'),
-                            path: $(el_item).attr('data-path'),
-                            is_dir: options.is_dir,
-                        });
-                    }
-                });
             }
             // -------------------------------------------
             // Zip
