@@ -126,6 +126,17 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 svc_devConsole.add_widget(this.database_update_notice);
             })();
         }
+
+        const svc_serverHealth = this.services.get('server-health');
+
+        svc_serverHealth.add_check('sqlite', async () => {
+            const [{ user_version }] = await this._requireRead('PRAGMA user_version');
+            if ( user_version !== TARGET_VERSION ) {
+                throw new Error(
+                    `Database version mismatch: expected ${TARGET_VERSION}, ` +
+                    `got ${user_version}`);
+            }
+        });
     }
 
     async _read (query, params = []) {

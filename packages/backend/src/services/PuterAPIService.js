@@ -71,6 +71,7 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/sites'))
         // app.use(require('../routers/filesystem_api/stat'))
         app.use(require('../routers/suggest_apps'))
+        app.use(require('../routers/healthcheck'))
         app.use(require('../routers/test'))
         app.use(require('../routers/update-taskbar-items'))
         require('../routers/whoami')(app);
