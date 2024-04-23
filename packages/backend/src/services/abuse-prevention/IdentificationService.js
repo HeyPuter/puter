@@ -68,6 +68,10 @@ class Requester {
         return puter_origins.includes(this.origin);
     }
 
+    get rl_identifier () {
+        return this.ip_forwarded || this.ip;
+    }
+
     serialize () {
         return {
             ua: this.ua,

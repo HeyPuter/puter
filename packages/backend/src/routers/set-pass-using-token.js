@@ -52,6 +52,11 @@ router.post('/set-pass-using-token', express.json(), async (req, res, next)=>{
     else if(req.body.password.length < config.min_pass_length)
         return res.status(400).send(`Password must be at least ${config.min_pass_length} characters long.`)
 
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('set-pass-using-token') ) {
+        return res.status(429).send('Too many requests.');
+    }
+
     try{
         const info = await db.write(
             'UPDATE user SET password=?, pass_recovery_token=NULL WHERE `uuid` = ? AND pass_recovery_token = ?',

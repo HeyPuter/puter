@@ -70,6 +70,11 @@ router.post('/save_account', auth, express.json(), async (req, res, next)=>{
     else if(req.body.password.length < config.min_pass_length)
         return res.status(400).send(`Password must be at least ${config.min_pass_length} characters long.`)
 
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('save-account') ) {
+        return res.status(429).send('Too many requests.');
+    }
+
     // duplicate username check, do this only if user has supplied a new username
     if(req.body.username !== req.user.username && await username_exists(req.body.username))
         return res.status(400).send('This username already exists in our database. Please use another one.');
