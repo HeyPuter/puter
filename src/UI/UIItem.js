@@ -649,6 +649,7 @@ function UIItem(options){
                 UIAlert(`The name ".." is not allowed, because it is a reserved name. Please choose another name.`)
             }
 
+            // TODO: what does truncate_filename return, HTML or text?
             $(el_item_name).html(truncate_filename(options.name, TRUNCATE_LENGTH).replaceAll(' ', '&nbsp;'));
             $(el_item_name).show();
             $(el_item_name_editor).val($(el_item).attr('data-name'));

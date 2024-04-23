@@ -22,8 +22,9 @@ import UIPopover from './UIPopover.js'
 
 async function UIWindowGetCopyLink(options){
     let h = '';
-    let copy_btn_text = 'Copy Link';
-    let copied_btn_text = 'Copied!';
+    // TODO i18n
+    let copy_btn_text = 'Copy Link'; // HTML, not text!
+    let copied_btn_text = 'Copied!'; // HTML, not text!
     const signature = await puter.fs.sign(null, {uid: options.uid, action: 'read'})
     const url = `${gui_origin}/?name=${encodeURIComponent(options.name)}&is_dir=${encodeURIComponent(options.is_dir)}&download=${encodeURIComponent(signature.items.read_url)}`;
 

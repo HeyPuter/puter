@@ -80,7 +80,7 @@ async function UIWindowChangeEmail(options){
         const new_email = $(el_window).find('.new-email').val();
 
         if(!new_email){
-            $(el_window).find('.form-error-msg').html(i18n('all_fields_required'));
+            $(el_window).find('.form-error-msg').text(i18n('all_fields_required'));
             $(el_window).find('.form-error-msg').fadeIn();
             return;
         }
@@ -104,7 +104,7 @@ async function UIWindowChangeEmail(options){
                 new_email: new_email, 
             }),				
             success: function (data){
-                $(el_window).find('.form-success-msg').html(i18n('email_change_confirmation_sent'));
+                $(el_window).find('.form-success-msg').text(i18n('email_change_confirmation_sent'));
                 $(el_window).find('.form-success-msg').fadeIn();
                 $(el_window).find('input').val('');
                 // update email
@@ -115,6 +115,7 @@ async function UIWindowChangeEmail(options){
                 $(el_window).find('.new-email').attr('disabled', false);
             },
             error: function (err){
+                // TODO: Any differences between $().html(html_encode(...)) and $().text(...)?
                 $(el_window).find('.form-error-msg').html(html_encode(err.responseJSON?.message));
                 $(el_window).find('.form-error-msg').fadeIn();
                 // enable button

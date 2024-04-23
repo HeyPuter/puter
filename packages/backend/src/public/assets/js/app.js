@@ -43,7 +43,7 @@ $('#login-submit-btn').on('click', function(){
             window.location.replace("/");
         },
         error: function (err){
-            $('#login-error-msg').html(err.responseText);
+            $('#login-error-msg').text(err.responseText);
             $('#login-error-msg').fadeIn();
         }
     });
@@ -77,7 +77,7 @@ $('#pass-recovery-submit-btn').on('click', function(e){
             $('.pass-recovery-email-sent').fadeIn();
         },
         error: function (err){
-            $('#login-error-msg').html(err.responseText);
+            $('#login-error-msg').text(err.responseText);
             $('#login-error-msg').fadeIn();
         }
     });
@@ -124,7 +124,7 @@ $('.signup-btn').on('click', function (e) {
             window.location.replace("/");
         },
         error: function (err) {
-            $('#signup-error-msg').html(err.responseText);
+            $('#signup-error-msg').text(err.responseText);
             $('#signup-error-msg').fadeIn();
             // re-enable 'Create Account' button
             $('.signup-btn').prop('disabled', false);
@@ -166,7 +166,7 @@ $('#set-new-pass-submit-btn').on('click', function (e) {
             $('#password').val('')
         },
         error: function (err) {
-            $('.error-msg').html(err.responseText);
+            $('.error-msg').text(err.responseText);
             $('.error-msg').fadeIn();
             // re-enable 'Create Account' button
             $('#set-new-pass-submit-btn').prop('disabled', false);

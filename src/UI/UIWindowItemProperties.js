@@ -117,19 +117,19 @@ async function UIWindowItemProperties(item_name, item_path, item_uid, left, top,
                 $(el_window).find('[data-tab="versions"]').hide();
             }
             // name
-            $(el_window).find('.item-prop-val-name').html(fsentry.name);
+            $(el_window).find('.item-prop-val-name').text(fsentry.name);
             // path
-            $(el_window).find('.item-prop-val-path').html(item_path);
+            $(el_window).find('.item-prop-val-path').text(item_path);
             // original name & path
             if(fsentry.metadata){
                 try{
                     let metadata = JSON.parse(fsentry.metadata);
                     if(metadata.original_name){
-                        $(el_window).find('.item-prop-val-original-name').html(metadata.original_name);
+                        $(el_window).find('.item-prop-val-original-name').text(metadata.original_name);
                         $(el_window).find('.item-prop-original-name').show();
                     }
                     if(metadata.original_path){
-                        $(el_window).find('.item-prop-val-original-path').html(metadata.original_path);
+                        $(el_window).find('.item-prop-val-original-path').text(metadata.original_path);
                         $(el_window).find('.item-prop-original-path').show();
                     }
                 }catch(e){}
@@ -137,8 +137,12 @@ async function UIWindowItemProperties(item_name, item_path, item_uid, left, top,
 
             // shortcut to
             if(fsentry.shortcut_to && fsentry.shortcut_to_path){
-                $(el_window).find('.item-prop-val-shortcut-to').html(fsentry.shortcut_to_path);
+                $(el_window).find('.item-prop-val-shortcut-to').text(fsentry.shortcut_to_path);
             }
+
+            // `.html()` instead of `.text()` looks okay below since the fsentry
+            // properties used won't contain HTML special characters.
+
             // uid
             $(el_window).find('.item-prop-val-uid').html(fsentry.id);
             // type

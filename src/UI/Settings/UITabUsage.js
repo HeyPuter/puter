@@ -113,16 +113,16 @@ export default {
 
                 let host_usage_percentage = 0;
                 if ( res.host_used ) {
-                    $('#storage-puter-used').html(byte_format(res.used));
+                    $('#storage-puter-used').text(byte_format(res.used));
                     $('#storage-puter-used-w').show();
 
                     general_used = res.host_used;
                     host_usage_percentage = ((res.host_used - res.used) / res.capacity * 100).toFixed(0);
                 }
 
-                $('#storage-used').html(byte_format(general_used));
-                $('#storage-capacity').html(byte_format(res.capacity));
-                $('#storage-used-percent').html(
+                $('#storage-used').text(byte_format(general_used));
+                $('#storage-capacity').text(byte_format(res.capacity));
+                $('#storage-used-percent').text(
                     usage_percentage + '%' +
                     (host_usage_percentage > 0
                         ? ' / ' + host_usage_percentage + '%' : '')

@@ -26,7 +26,8 @@ function UIWindowEmailConfirmationRequired(options){
         let final_code = '';
         let is_checking_code = false;
 
-        const submit_btn_txt = 'Confirm Email'
+        // TODO i18n
+        const submit_btn_txt = 'Confirm Email'; // HTML, not text!
         let h = '';
         h += `<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>`;
         h += `<div style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; color: #3e5362;">`;
@@ -140,7 +141,7 @@ function UIWindowEmailConfirmationRequired(options){
                         }
                     },
                     error: function(res){
-                        $(el_window).find('.error').html(res.responseJSON.error);
+                        $(el_window).find('.error').text(res.responseJSON.error);
                         $(el_window).find('.error').fadeIn();
                         $(el_window).find('.digit-input').val('');
                         $(el_window).find('.digit-input').first().focus();

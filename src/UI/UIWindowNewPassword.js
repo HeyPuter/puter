@@ -85,12 +85,12 @@ async function UIWindowNewPassword(options){
             const confirm_new_password = $(el_window).find('.confirm-new-password').val();
 
             if(new_password === '' || confirm_new_password === ''){
-                $(el_window).find('.form-error-msg').html('All fields are required.');
+                $(el_window).find('.form-error-msg').text('All fields are required.');
                 $(el_window).find('.form-error-msg').fadeIn();
                 return;
             }
             else if(new_password !== confirm_new_password){
-                $(el_window).find('.form-error-msg').html('`New Password` and `Confirm New Password` do not match.');
+                $(el_window).find('.form-error-msg').text('`New Password` and `Confirm New Password` do not match.');
                 $(el_window).find('.form-error-msg').fadeIn();
                 return;
             }
@@ -133,7 +133,7 @@ async function UIWindowNewPassword(options){
                     });
                 },
                 error: function (err){
-                    $(el_window).find('.form-error-msg').html(err.responseText);
+                    $(el_window).find('.form-error-msg').text(err.responseText);
                     $(el_window).find('.form-error-msg').fadeIn();
                 }
             });	

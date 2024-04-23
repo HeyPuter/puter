@@ -96,7 +96,7 @@ async function UIWindowFinalizeUserDeletion(options){
             // if user is temporary, check if they typed 'confirm'
             if(user.is_temp){
                 if($(el_window).find('.confirm-temporary-user-deletion').val() !== 'confirm'){
-                    $(el_window).find('.error-message').html(i18n('type_confirm_to_delete_account'), false);
+                    $(el_window).find('.error-message').text(i18n('type_confirm_to_delete_account'), false);
                     $(el_window).find('.error-message').show();
                     return;
                 }
@@ -104,7 +104,7 @@ async function UIWindowFinalizeUserDeletion(options){
             // otherwise, check if password is correct
             else{
                 if($(el_window).find('.confirm-user-deletion-password').val() === ''){
-                    $(el_window).find('.error-message').html(i18n('all_fields_required'), false);
+                    $(el_window).find('.error-message').text(i18n('all_fields_required'), false);
                     $(el_window).find('.error-message').show();
                     return;
                 }
@@ -127,7 +127,7 @@ async function UIWindowFinalizeUserDeletion(options){
                         logout();
                     },
                     400: function(){
-                        $(el_window).find('.error-message').html(i18n('incorrect_password'));
+                        $(el_window).find('.error-message').text(i18n('incorrect_password'));
                         $(el_window).find('.error-message').show();
                     }
                 },
@@ -139,7 +139,7 @@ async function UIWindowFinalizeUserDeletion(options){
                         logout();
                     }
                     else{
-                        $(el_window).find('.error-message').html(data.error);
+                        $(el_window).find('.error-message').text(data.error);
                         $(el_window).find('.error-message').show();
 
                     }

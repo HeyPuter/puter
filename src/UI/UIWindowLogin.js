@@ -75,7 +75,9 @@ async function UIWindowLogin(options){
         puter.os.version()
         .then(res => {
             const deployed_date = new Date(res.deploy_timestamp).toLocaleString();
-            $("#version-placeholder").html(`Version: ${res.version} &bull; Server: ${res.location} &bull; Deployed: ${deployed_date}`);
+            const txt_version = res.version;
+            const txt_location = res.location;
+            $("#version-placeholder").html(`Version: ${txt_version} &bull; Server: ${txt_location} &bull; Deployed: ${deployed_date}`);
         })
         .catch(() => {
             $("#version-placeholder").html("Failed to load version or server information.");
@@ -177,9 +179,9 @@ async function UIWindowLogin(options){
                     const $errorMessage = $(el_window).find('.login-error-msg');
                     if (err.status === 404) {
                         // Don't include the whole 404 page
-                        $errorMessage.html(`Error 404: "${gui_origin}/login" not found`);
+                        $errorMessage.text(`Error 404: "${gui_origin}/login" not found`);
                     } else if (err.responseText) {
-                        $errorMessage.html(err.responseText);
+                        $errorMessage.text(err.responseText);
                     } else {
                         // No message was returned. *Probably* this means we couldn't reach the server.
                         // If this is a self-hosted instance, it's probably a configuration issue.
@@ -195,7 +197,7 @@ async function UIWindowLogin(options){
                                 </ul>
                             </div>`);
                         } else {
-                            $errorMessage.html(`Failed to log in: Error ${err.status}`);
+                            $errorMessage.html(`Failed to log in: Error ${html_encode(err.status)}`);
                         }
                     }
                     $(el_window).find('.login-error-msg').fadeIn();

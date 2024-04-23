@@ -2617,6 +2617,7 @@ window.update_window_path = async function(el_window, target_path){
             $(el_window_navbar_up_btn).removeClass('window-navbar-btn-disabled');
 
         $(el_window_item_container).attr('data-path', target_path);
+        // TODO: What does `navbar_path` return - html or text?
         $(el_window).find('.window-navbar-path').html(navbar_path(target_path, window.user.username));
         
         // empty body to be filled with the results of /readdir
