@@ -9,6 +9,7 @@ import Auth from './modules/Auth.js';
 import FSItem from './modules/FSItem.js';
 import * as utils from './lib/utils.js';
 import path from './lib/path.js';
+import Util from './modules/Util.js';
 
 window.puter = (function() {
     'use strict';
@@ -168,6 +169,9 @@ window.puter = (function() {
 
         // Initialize submodules
         initSubmodules = function(){
+            // Util
+            this.util = new Util();
+
             // Auth
             this.auth = new Auth(this.authToken, this.APIOrigin, this.appID, this.env);
             // OS
@@ -175,7 +179,7 @@ window.puter = (function() {
             // FileSystem
             this.fs = new FileSystem(this.authToken, this.APIOrigin, this.appID, this.env);
             // UI
-            this.ui = new UI(this.appInstanceID, this.parentInstanceID, this.appID, this.env);
+            this.ui = new UI(this.appInstanceID, this.parentInstanceID, this.appID, this.env, this.util);
             // Hosting
             this.hosting = new Hosting(this.authToken, this.APIOrigin, this.appID, this.env);
             // Apps

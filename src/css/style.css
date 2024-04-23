@@ -46,6 +46,11 @@
     --taskbar-lightness: var(--primary-lightness);
     --taskbar-alpha: calc(0.73 * var(--primary-alpha));
     --taskbar-color: var(--primary-color);
+
+    --select-hue: 213.05;
+    --select-saturation: 74.22%;
+    --select-lightness: 55.88%;
+    --select-color: hsl(var(--select-hue), var(--select-saturation), var(--select-lightness));
 }
 
 html, body {
@@ -737,6 +742,34 @@ span.header-sort-icon img {
 .window-body .item-name-editor {
     color: rgb(73, 73, 73);
     text-shadow: none;
+}
+
+.window-menubar {
+    display: flex;
+    box-sizing: border-box;
+    overflow: hidden;
+    border-bottom: 1px solid #e3e3e3;
+    background-color: #fafafa;
+    --scale: 2pt;
+    padding: 0 2pt;
+}
+
+.window-menubar-item {
+    padding: calc(1.4 * var(--scale)) 0;
+    font-size: calc(5 * var(--scale));
+}
+
+.window-menubar-item span {
+    display: inline-block;
+    padding: calc(1.6 * var(--scale)) calc(4 * var(--scale));
+    font-size: calc(5 * var(--scale));
+    border-radius: calc(1.5 * var(--scale));
+}
+
+.window-menubar-item:hover > span,
+.window-menubar-item.active > span {
+    background-color: var(--select-color);
+    color: white;
 }
 
 .explorer-empty-message {
@@ -1489,7 +1522,7 @@ span.header-sort-icon img {
 }
 
 .context-menu .context-menu-item-active {
-    background-color: rgb(59 134 226);
+    background-color: var(--select-color);
     color: white;
     border-radius: 4px;
 }

@@ -149,7 +149,19 @@ class UI extends EventListener {
         this.#callbackFunctions[msg_id] = resolve;
     }
 
-    constructor (appInstanceID, parentInstanceID, appID, env) {
+    #postMessageWithObject = function(name, value) {
+        const dehydrator = this.util.rpc.getDehydrator({
+            target: this.messageTarget
+        });
+        this.messageTarget?.postMessage({
+            msg: name,
+            env: this.env,
+            appInstanceID: this.appInstanceID,
+            value: dehydrator.dehydrate(value),
+        }, '*');
+    }
+
+    constructor (appInstanceID, parentInstanceID, appID, env, util) {
         const eventNames = [
             'localeChanged',
             'themeChanged',
@@ -160,6 +172,7 @@ class UI extends EventListener {
         this.parentInstanceID = parentInstanceID;
         this.appID = appID;
         this.env = env;
+        this.util = util;
 
         if(this.env === 'app'){
             this.messageTarget = window.parent;
@@ -639,6 +652,10 @@ class UI extends EventListener {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('setWindowPosition', resolve, { x, y });
         })
+    }
+
+    setMenubar = function(spec) {
+        this.#postMessageWithObject('setMenubar', spec);
     }
 
     /**

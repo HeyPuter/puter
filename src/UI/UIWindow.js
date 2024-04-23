@@ -265,6 +265,13 @@ async function UIWindow(options) {
                 h += `<div draggable="false" title="Desktop" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-desktop.svg'])}">Desktop</div>`;
                 h += `<div draggable="false" title="Videos" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-videos.svg'])}">Videos</div>`;
             h += `</div>`;
+
+        }
+
+        // Menubar
+        {
+            h += `<div class="window-menubar">`;
+            h += `</div>`;
         }
 
         // Navbar
@@ -461,6 +468,9 @@ async function UIWindow(options) {
     const el_filedialog_cancel_btn = document.querySelector(`#window-${win_id} .filedialog-cancel-btn`);
     const el_openfiledialog_open_btn = document.querySelector(`#window-${win_id} .openfiledialog-open-btn`);
     const el_directorypicker_select_btn = document.querySelector(`#window-${win_id} .directorypicker-select-btn`);
+
+    // disable menubar by default
+    $(el_window).find('.window-menubar').hide();
 
     if(options.is_maximized){
         // save original size and position

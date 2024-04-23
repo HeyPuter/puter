@@ -119,16 +119,30 @@ function UIContextMenu(options){
     else
         y_pos = start_y;
 
-    // Show ContextMenu
-    $(contextMenu).delay(100).show(0)
     // In the right position (the mouse)
-    .css({
+    $(contextMenu).css({
         top: y_pos + "px",
         left: x_pos + "px"
     });
+    // Show ContextMenu
+    if ( options?.delay === false ) {
+        $(contextMenu).show(0);
+    } else {
+        $(contextMenu).delay(100).show(0);
+    }
 
     // mark other context menus as inactive
     $('.context-menu').not(contextMenu).removeClass('context-menu-active');
+
+    let cancel_options_ = null;
+    const fade_remove = () => {
+        $(`#context-menu-${menu_id}, .context-menu[data-element-id="${$(this).closest('.context-menu').attr('data-parent-id')}"]`).fadeOut(200, function(){
+            $(contextMenu).remove();
+        });
+    };
+    const remove = () => {
+        $(contextMenu).remove();
+    };
 
     // An item is clicked
     $(`#context-menu-${menu_id} > li:not(.context-menu-item-disabled)`).on('click', function (e) {
@@ -139,11 +153,13 @@ function UIContextMenu(options){
             event.value = options.items[$(this).attr("data-action")]['val'] ?? undefined;
             options.items[$(this).attr("data-action")].onClick(event);
         }
+        // "action" - onClick without un-clonable pointer event
+        else if(options.items[$(this).attr("data-action")].action && typeof options.items[$(this).attr("data-action")].action === 'function'){
+            options.items[$(this).attr("data-action")].action();
+        }
         // close menu and, if exists, its parent
         if(!$(this).hasClass('context-menu-item-submenu')){
-            $(`#context-menu-${menu_id}, .context-menu[data-element-id="${$(this).closest('.context-menu').attr('data-parent-id')}"]`).fadeOut(200, function(){
-                $(contextMenu).remove();
-            });
+            fade_remove();
         }
         return false;
     });
@@ -233,6 +249,7 @@ function UIContextMenu(options){
     }
 
     $(contextMenu).on("remove", function () {
+        if ( options.onClose ) options.onClose(cancel_options_);
         // when removing, make parent scrollable again
         if(options.parent_element){
             $(options.parent_element).parent().removeClass('children-have-open-contextmenu');
@@ -248,7 +265,21 @@ function UIContextMenu(options){
         e.preventDefault();
         e.stopPropagation();
         return false;
-    })    
+    })
+
+    return {
+        cancel: (cancel_options) => {
+            cancel_options_ = cancel_options;
+            if ( cancel_options.fade === false ) {
+                remove();
+            } else {
+                fade_remove();
+            }
+        },
+        set onClose (fn) {
+            options.onClose = fn;
+        }
+    };
 }
 
 window.select_ctxmenu_item = function ($ctxmenu_item){
