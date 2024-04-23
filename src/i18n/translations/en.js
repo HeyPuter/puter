@@ -72,6 +72,7 @@ const en = {
         clock_visible_show: 'Show - Always visible',
         clock_visible_auto: 'Auto - Default, visible only in full-screen mode.',
         date_modified: 'Date modified',
+        default: 'Default',
         delete: 'Delete',
         delete_account: "Delete Account",
         delete_permanently: "Delete Permanently",
