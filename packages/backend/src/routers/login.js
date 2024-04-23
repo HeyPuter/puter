@@ -60,11 +60,10 @@ router.post('/login', express.json(), body_parser_error_handler, async (req, res
     else if(req.body.email && !validator.isEmail(req.body.email))
         return res.status(400).send('Invalid email.')
 
-    // Increment & check rate limit
-    if(kv.incr(`login|${req.ip}|${req.body.email ?? req.body.username}`) > 10)
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('login') ) {
         return res.status(429).send('Too many requests.');
-    // Set expiry for rate limit
-    kv.expire(`login|${req.ip}|${req.body.email ?? req.body.username}`, 60*10, 'NX')
+    }
 
     try{
         let user;

@@ -192,6 +192,9 @@ const install = async ({ services, app }) => {
 
     const { SessionService } = require('./services/SessionService');
     services.registerService('session', SessionService);
+
+    const { EdgeRateLimitService } = require('./services/abuse-prevention/EdgeRateLimitService');
+    services.registerService('edge-rate-limit', EdgeRateLimitService);
 }
 
 const install_legacy = async ({ services }) => {

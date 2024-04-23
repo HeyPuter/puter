@@ -44,6 +44,11 @@ module.exports = eggspress(['/signup'], {
     if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
         next();
 
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('signup') ) {
+        return res.status(429).send('Too many requests.');
+    }
+
     // modules
     const db = req.services.get('database').get(DB_WRITE, 'auth');
     const bcrypt = require('bcrypt')

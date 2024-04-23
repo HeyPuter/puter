@@ -45,6 +45,11 @@ router.post('/passwd', auth, express.json(), async (req, res, next)=>{
     else if (typeof req.body.new_pass !== 'string')
         return res.status(400).send('new_pass must be a string.')
 
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('passwd') ) {
+        return res.status(429).send('Too many requests.');
+    }
+
     try{
         // check old_pass
         const isMatch = await bcrypt.compare(req.body.old_pass, req.user.password)
