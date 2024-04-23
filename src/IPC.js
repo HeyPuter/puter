@@ -387,11 +387,12 @@ window.addEventListener('message', async (event) => {
         let current_i = null;
         let state_open = false;
         const open_menu = ({ i, pos, parent_element, items }) => {
+            let delay = true;
             if ( state_open ) {
                 if ( current_i === i ) return;
-                if ( current_i !== i ) {
-                    current && current.cancel({ meta: 'menubar' });
-                }
+
+                delay = false;
+                current && current.cancel({ meta: 'menubar', fade: false });
             }
 
             // Set this menubar button as active
@@ -400,6 +401,7 @@ window.addEventListener('message', async (event) => {
 
             // Open the context menu
             const ctxMenu = UIContextMenu({
+                delay,
                 parent_element,
                 position: {top: pos.top + 28, left: pos.left},
                 items: sanitize_items(items),
