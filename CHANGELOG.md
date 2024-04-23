@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.0](https://github.com/HeyPuter/puter/compare/v2.1.1...v2.2.0) (2024-04-23)
+
+
+### Features
+
+* add /healthcheck endpoint ([c166560](https://github.com/HeyPuter/puter/commit/c166560ff4ab5a453d3ec4f97326c995deb7f522))
+* allow apps to add a menubar via puter.js ([331d9e7](https://github.com/HeyPuter/puter/commit/331d9e75428ec7609394f59b1755374c7340f83e))
+
 ## [2.1.1](https://github.com/HeyPuter/puter/compare/v2.1.0...v2.1.1) (2024-04-22)
 
 
