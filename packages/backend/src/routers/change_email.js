@@ -51,6 +51,11 @@ const CHANGE_EMAIL_START = eggspress('/change_email/start', {
             key: 'new_email', expected: 'a valid email address' });
     }
 
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('change-email-start') ) {
+        return res.status(429).send('Too many requests.');
+    }
+
     // check if email is already in use
     const db = req.services.get('database').get(DB_WRITE, 'auth');
     const rows = await db.read(
@@ -91,6 +96,11 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
 
     if ( ! jwt_token ) {
         throw APIError.create('field_missing', null, { key: 'token' });
+    }
+
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('change-email-confirm') ) {
+        return res.status(429).send('Too many requests.');
     }
 
     const { token, user_id } = jwt.verify(jwt_token, config.jwt_secret);

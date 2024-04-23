@@ -51,6 +51,12 @@ router.post('/send-pass-recovery-email', express.json(), body_parser_error_handl
     else if(req.body.email && !validator.isEmail(req.body.email))
         return res.status(400).send('Invalid email.')
 
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('send-pass-recovery-email') ) {
+        return res.status(429).send('Too many requests.');
+    }
+
+
     try{
         let user;
         // see if username exists
