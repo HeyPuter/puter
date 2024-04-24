@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import path_ from "path-browserify";
+import path_ from "node:path";
 import child_process from "node:child_process";
 import stream from "node:stream";
 import { signals } from '../../ansi-shell/signals.js';
@@ -167,9 +167,9 @@ function makeCommand(id, executablePath) {
 
 async function findCommandsInPath(id, ctx, firstOnly) {
     const PATH = ctx.env['PATH'];
-    if (!PATH)
+    if (!PATH || id.includes(path_.sep))
         return;
-    const pathDirectories = PATH.split(':');
+    const pathDirectories = PATH.split(path_.delimiter);
 
     const results = [];
 
