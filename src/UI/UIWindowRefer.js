@@ -108,7 +108,7 @@ async function UIWindowRefer(options){
             document.execCommand('copy');
         }
 
-        $(this).html(i18n('copying'));
+        $(this).html(i18n('link_copied'));
         setTimeout(function(){
             $(copy_btn).html(i18n('copy_link'));
         }, 1000);

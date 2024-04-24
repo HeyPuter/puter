@@ -119,6 +119,7 @@ const en = {
         language: "Language",
         license: "License",
         lightness: 'Lightness',
+        link_copied: "Link copied",
         loading: 'Loading',
         log_in: "Log In",
         log_into_another_account_anyway: 'Log into another account anyway',
