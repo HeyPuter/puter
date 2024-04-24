@@ -23,6 +23,10 @@ class EdgeRateLimitService extends BaseService {
                 limit: 10,
                 window: HOUR,
             },
+            ['confirm-email']: {
+                limit: 10,
+                window: HOUR,
+            },
             ['send-pass-recovery-email']: {
                 limit: 10,
                 window: HOUR,

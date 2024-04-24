@@ -34,6 +34,11 @@ router.post('/confirm-email', auth, express.json(), async (req, res, next)=>{
     if(!req.body.code)
         req.status(400).send('code is required');
 
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('confirm-email') ) {
+        return res.status(429).send('Too many requests.');
+    }
+
     // Modules
     const db = req.services.get('database').get(DB_WRITE, 'auth');
 
