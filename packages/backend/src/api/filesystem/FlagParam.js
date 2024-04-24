@@ -16,6 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const APIError = require('../../api/APIError');
+
 module.exports = class FlagParam {
     constructor (srckey, options) {
         this.srckey = srckey;
