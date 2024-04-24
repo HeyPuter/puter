@@ -82,7 +82,7 @@ function initXhr(endpoint, APIOrigin, authToken, method= "post", contentType = "
     xhr.open(method, APIOrigin + endpoint, true);
     xhr.setRequestHeader("Authorization", "Bearer " + authToken);
     xhr.setRequestHeader("Content-Type", contentType);
-    xhr.responseType = responseType;
+    xhr.responseType = responseType ?? '';
     return xhr;
 }
 
