@@ -1264,7 +1264,7 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
             let copy_path = clipboard[i].path;
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
-            $(progwin).find('.copy-from').html(copy_path);
+            $(progwin).find('.copy-from').html(html_encode(copy_path));
             do{
                 if(overwrite)
                     item_with_same_name_already_exists = false;
@@ -1368,7 +1368,7 @@ window.copy_items = function(el_items, dest_path){
             let copy_path = $(el_items[i]).attr('data-path');
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
-            $(progwin).find('.copy-from').html(copy_path);
+            $(progwin).find('.copy-from').html(html_encode(copy_path));
 
             do{
                 if(overwrite)
@@ -2210,7 +2210,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
                 // --------------------------------------------------------
                 // update progress window with current item being moved
                 // --------------------------------------------------------
-                $(progwin).find('.move-from').html(path_to_show_on_progwin);
+                $(progwin).find('.move-from').html(html_encode(path_to_show_on_progwin));
 
                 // execute move
                 let resp = await puter.fs.move({

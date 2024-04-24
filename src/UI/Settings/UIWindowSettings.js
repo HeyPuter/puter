@@ -18,19 +18,12 @@
  */
 
 import UIWindow from '../UIWindow.js'
-import UIWindowChangePassword from '../UIWindowChangePassword.js'
-import UIWindowChangeEmail from './UIWindowChangeEmail.js'
-import UIWindowChangeUsername from '../UIWindowChangeUsername.js'
-import changeLanguage from "../../i18n/i18nChangeLanguage.js"
-import UIWindowConfirmUserDeletion from './UIWindowConfirmUserDeletion.js';
 import AboutTab from './UITabAbout.js';
 import UsageTab from './UITabUsage.js';
 import AccountTab from './UITabAccount.js';
 import PersonalizationTab from './UITabPersonalization.js';
 import LanguageTab from './UITabLanguage.js';
 import ClockTab from './UITabClock.js';
-import UIWindowThemeDialog from '../UIWindowThemeDialog.js';
-import UIWindowManageSessions from '../UIWindowManageSessions.js';
 
 async function UIWindowSettings(options){
     return new Promise(async (resolve) => {

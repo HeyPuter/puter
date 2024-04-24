@@ -139,7 +139,7 @@ async function UIWindowFinalizeUserDeletion(options){
                         logout();
                     }
                     else{
-                        $(el_window).find('.error-message').html(data.error);
+                        $(el_window).find('.error-message').html(html_encode(data.error));
                         $(el_window).find('.error-message').show();
 
                     }

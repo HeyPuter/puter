@@ -244,7 +244,7 @@ const refresh_item_container = function(el_item_container, options){
         $(empty_message).hide();
 
         // show error message
-        $(error_message).html('Failed to load directory' + (e && e.message ? ': ' + e.message : ''));
+        $(error_message).html('Failed to load directory' + html_encode((e && e.message ? ': ' + e.message : '')));
         $(error_message).show();
     });
 }    

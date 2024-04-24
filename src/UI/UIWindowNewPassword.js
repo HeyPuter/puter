@@ -139,7 +139,7 @@ async function UIWindowNewPassword(options){
                     });
                 },
                 error: function (err){
-                    $(el_window).find('.form-error-msg').html(err.responseText);
+                    $(el_window).find('.form-error-msg').html(html_encode(err.responseText));
                     $(el_window).find('.form-error-msg').fadeIn();
                 }
             });	

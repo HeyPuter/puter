@@ -115,7 +115,7 @@ function UIWindowRecoverPassword(options){
                     })           
                 },
                 error: function (err){
-                    $(el_window).find('.error').html(err.responseText);
+                    $(el_window).find('.error').html(html_encode(err.responseText));
                     $(el_window).find('.error').fadeIn();
                 },
                 complete: function(){

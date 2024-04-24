@@ -140,7 +140,7 @@ function UIWindowEmailConfirmationRequired(options){
                         }
                     },
                     error: function(res){
-                        $(el_window).find('.error').html(res.responseJSON.error);
+                        $(el_window).find('.error').html(html_encode(res.responseJSON.error));
                         $(el_window).find('.error').fadeIn();
                         $(el_window).find('.digit-input').val('');
                         $(el_window).find('.digit-input').first().focus();

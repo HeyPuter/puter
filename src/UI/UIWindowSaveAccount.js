@@ -160,7 +160,7 @@ async function UIWindowSaveAccount(options){
                     })
                 },
                 error: function (err){
-                    $(el_window).find('.signup-error-msg').html(err.responseText);
+                    $(el_window).find('.signup-error-msg').html(html_encode(err.responseText));
                     $(el_window).find('.signup-error-msg').fadeIn();
                     // re-enable 'Create Account' button
                     $(el_window).find('.signup-btn').prop('disabled', false);
