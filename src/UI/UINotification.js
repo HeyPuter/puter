@@ -25,7 +25,7 @@ function UINotification(options){
     let h = '';
     h += `<div id="ui-notification__${global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
         h += `<img class="notification-close" src="${html_encode(window.icons['close.svg'])}">`;
-        h += options.content;
+        h += html_encode(options.content);
     h += `</div>`;
 
     $('body').append(h);

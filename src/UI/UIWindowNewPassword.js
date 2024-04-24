@@ -30,8 +30,6 @@ async function UIWindowNewPassword(options){
         h += `<div class="change-password" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
             // error msg
             h += `<div class="form-error-msg"></div>`;
-            // success msg
-            h += `<div class="form-success-msg"></div>`;
             // new password
             h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
                 h += `<label for="new-password-${internal_id}">${i18n('new_password')}</label>`;
@@ -84,13 +82,21 @@ async function UIWindowNewPassword(options){
             const new_password = $(el_window).find('.new-password').val();
             const confirm_new_password = $(el_window).find('.confirm-new-password').val();
 
-            if(new_password === '' || confirm_new_password === ''){
+            if(!new_password || !confirm_new_password){
                 $(el_window).find('.form-error-msg').html('All fields are required.');
                 $(el_window).find('.form-error-msg').fadeIn();
                 return;
             }
             else if(new_password !== confirm_new_password){
                 $(el_window).find('.form-error-msg').html('`New Password` and `Confirm New Password` do not match.');
+                $(el_window).find('.form-error-msg').fadeIn();
+                return;
+            }
+
+            // check password strength
+            const pass_strength = check_password_strength(new_password);
+            if(!pass_strength.overallPass){
+                $(el_window).find('.form-error-msg').html(i18n('password_strength_error'));
                 $(el_window).find('.form-error-msg').fadeIn();
                 return;
             }

@@ -114,7 +114,7 @@ function UIWindowSignup(options){
                 'justify-content': 'center',
                 'align-items': 'center',
                 padding: '30px 10px 10px 10px',
-            }    
+            }
         })
 
         $(el_window).find('.login-c2a-clickable').on('click', async function(e){
@@ -132,17 +132,48 @@ function UIWindowSignup(options){
         })
 
         $(el_window).find('.signup-btn').on('click', function(e){
-            // todo do some basic validation client-side
-
             //Username
             let username = $(el_window).find('.username').val();
+
+            if(!username){
+                $(el_window).find('.signup-error-msg').html(i18n('username_required'));
+                $(el_window).find('.signup-error-msg').fadeIn();
+                return;
+            }
         
             //Email
             let email = $(el_window).find('.email').val();
-        
+
+            // must have an email
+            if(!email){
+                $(el_window).find('.signup-error-msg').html(i18n('email_required'));
+                $(el_window).find('.signup-error-msg').fadeIn();
+                return;
+            }
+            // must be a valid email
+            else if(!is_email(email)){
+                $(el_window).find('.signup-error-msg').html(i18n('email_invalid'));
+                $(el_window).find('.signup-error-msg').fadeIn();
+                return;
+            }
+
             //Password
             let password = $(el_window).find('.password').val();
-            
+
+            // must have a password
+            if(!password){
+                $(el_window).find('.signup-error-msg').html(i18n('password_required'));
+                $(el_window).find('.signup-error-msg').fadeIn();
+                return;
+            }
+            // check password strength
+            const pass_strength = check_password_strength(password);
+            if(!pass_strength.overallPass){
+                $(el_window).find('.signup-error-msg').html(i18n('password_strength_error'));
+                $(el_window).find('.signup-error-msg').fadeIn();
+                return;
+            }
+
             //xyzname
             let p102xyzname = $(el_window).find('.p102xyzname').val();
 
@@ -186,7 +217,7 @@ function UIWindowSignup(options){
                 error: function (err){
                     $(el_window).find('.signup-error-msg').html(err.responseText);
                     $(el_window).find('.signup-error-msg').fadeIn();
-                    // re-enable 'Create Account' button
+                    // re-enable 'Create Account' button so user can try again
                     $(el_window).find('.signup-btn').prop('disabled', false);
                 }
             });

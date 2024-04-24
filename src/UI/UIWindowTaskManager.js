@@ -34,10 +34,6 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
         body_css: {
             width: 'initial',
             padding: '20px',
-            // 'background-color': `hsla(
-            //     var(--primary-hue),
-            //     calc(max(var(--primary-saturation) - 15%, 0%)),
-            //     calc(min(100%,var(--primary-lightness) + 20%)), .91)`,
             'background-color': `hsla(
                 var(--primary-hue),
                 var(--primary-saturation),

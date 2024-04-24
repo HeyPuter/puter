@@ -27,10 +27,8 @@ import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowCopyProgress from './UI/UIWindowCopyProgress.js';
 import UIWindowMoveProgress from './UI/UIWindowMoveProgress.js';
 import UIWindowNewFolderProgress from './UI/UIWindowNewFolderProgress.js';
-import UIWindowDownloadProgress from './UI/UIWindowDownloadProgress.js';
 import UIWindowUploadProgress from './UI/UIWindowUploadProgress.js';
 import UIWindowProgressEmptyTrash from './UI/UIWindowProgressEmptyTrash.js';
-import download from './helpers/download.js';
 import update_username_in_gui from './helpers/update_username_in_gui.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import content_type_to_icon from './helpers/content_type_to_icon.js';
@@ -3497,3 +3495,53 @@ window.report_app_closed = (instance_id) => {
 
     // TODO: Once other AppConnections exist, those will need notifying too.
 };
+
+window.check_password_strength = (password) => {
+    // Define criteria for password strength
+    const criteria = {
+        minLength: 8,
+        hasUpperCase: /[A-Z]/.test(password),
+        hasLowerCase: /[a-z]/.test(password),
+        hasNumber: /\d/.test(password),
+        hasSpecialChar: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)
+    };
+
+    let overallPass = true;
+
+    // Initialize report object
+    let criteria_report = {
+        minLength: {
+            message: `Password must be at least ${criteria.minLength} characters long`,
+            pass: password.length >= criteria.minLength,
+        },
+        hasUpperCase: {
+            message: 'Password must contain at least one uppercase letter',
+            pass: criteria.hasUpperCase,
+        },
+        hasLowerCase: {
+            message: 'Password must contain at least one lowercase letter',
+            pass: criteria.hasLowerCase,
+        },
+        hasNumber: {
+            message: 'Password must contain at least one number',
+            pass: criteria.hasNumber,
+        },
+        hasSpecialChar: {
+            message: 'Password must contain at least one special character',
+            pass: criteria.hasSpecialChar,
+        },
+    };
+
+    // Check overall pass status and add messages
+    for (let criterion in criteria) {
+        if (!criteria_report[criterion].pass) {
+            overallPass = false;
+            break;
+        }
+    }
+
+    return {
+        overallPass: overallPass,
+        report: criteria_report,
+    };
+}

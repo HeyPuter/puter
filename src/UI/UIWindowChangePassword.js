@@ -88,21 +88,31 @@ async function UIWindowChangePassword(options){
         const new_password = $(el_window).find('.new-password').val();
         const confirm_new_password = $(el_window).find('.confirm-new-password').val();
 
-        let data;
+        // hide success message
+        $(el_window).find('.form-success-msg').hide();
 
-        if(current_password === '' || new_password === '' || confirm_new_password === ''){
+        // check if all fields are filled
+        if(!current_password || !new_password || !confirm_new_password){
             $(el_window).find('.form-error-msg').html('All fields are required.');
             $(el_window).find('.form-error-msg').fadeIn();
             return;
         }
+        // check if new password and confirm new password are the same
         else if(new_password !== confirm_new_password){
             $(el_window).find('.form-error-msg').html(i18n('passwords_do_not_match'));
             $(el_window).find('.form-error-msg').fadeIn();
             return;
         }
-        
+        // check password strength
+        const pass_strength = check_password_strength(new_password);
+        if(!pass_strength.overallPass){
+            $(el_window).find('.form-error-msg').html(i18n('password_strength_error'));
+            $(el_window).find('.form-error-msg').fadeIn();
+            return;
+        }
+
         $(el_window).find('.form-error-msg').hide();
-    
+
         $.ajax({
             url: api_origin + "/passwd",
             type: 'POST',
