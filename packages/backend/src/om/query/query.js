@@ -50,6 +50,15 @@ class Eq extends Predicate {
     }
 }
 
+class Like extends Predicate {
+    async check (entity) {
+        // Convert SQL LIKE pattern to RegExp
+        // TODO: Support escaping the pattern characters
+        const regex = new RegExp(this.value.replaceAll('%', '.*').replaceAll('_', '.'), 'i');
+        return regex.test(await entity.get(this.key));
+    }
+}
+
 Predicate.prototype.and = function (other) {
     return new And({ children: [this, other] });
 }
@@ -105,4 +114,5 @@ module.exports = {
     And,
     Or,
     Eq,
+    Like,
 };
