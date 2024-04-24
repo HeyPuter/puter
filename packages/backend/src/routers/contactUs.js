@@ -46,6 +46,11 @@ router.post('/contactUs', auth, express.json(), async (req, res, next)=>{
     else if(req.body.message.length > 100000)
         return res.status(400).send({message: 'message is too long'})
 
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('contact-us') ) {
+        return res.status(429).send('Too many requests.');
+    }
+
     // modules
     const db = req.services.get('database').get(DB_WRITE, 'feedback');
 

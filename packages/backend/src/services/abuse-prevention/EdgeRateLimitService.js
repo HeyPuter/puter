@@ -15,7 +15,7 @@ class EdgeRateLimitService extends BaseService {
                 limit: 10,
                 window: 15 * MINUTE,
             },
-            ['contactUs']: {
+            ['contact-us']: {
                 limit: 10,
                 window: 15 * MINUTE,
             },
