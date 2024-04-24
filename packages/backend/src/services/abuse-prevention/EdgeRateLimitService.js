@@ -15,6 +15,10 @@ class EdgeRateLimitService extends BaseService {
                 limit: 10,
                 window: 15 * MINUTE,
             },
+            ['contactUs']: {
+                limit: 10,
+                window: 15 * MINUTE,
+            },
             ['send-confirm-email']: {
                 limit: 10,
                 window: HOUR,
