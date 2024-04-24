@@ -1756,6 +1756,9 @@ window.launch_app = async (options)=>{
             }
         }
 
+        // Add locale to URL
+        iframe_url.searchParams.append('puter.locale', window.locale);
+
         // Add options.args to URL
         iframe_url.searchParams.append('puter.args', JSON.stringify(options.args ?? {}));
 
