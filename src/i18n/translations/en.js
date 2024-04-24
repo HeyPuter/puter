@@ -87,6 +87,7 @@ const en = {
         downloading: "Downloading",
         email: "Email",
         email_change_confirmation_sent: "A confirmation email has been sent to your new email address. Please check your inbox and follow the instructions to complete the process.",
+        email_invalid: 'Email is invalid.',
         email_or_username: "Email or Username",
         email_required: 'Email is required.',
         empty_trash: 'Empty Trash',
