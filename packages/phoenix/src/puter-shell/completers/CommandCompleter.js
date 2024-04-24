@@ -25,15 +25,12 @@ export class CommandCompleter {
             return [];
         }
 
-        const completions = [];
-
-        // TODO: Match executable names as well as builtins
-        for ( const commandName of Object.keys(builtins) ) {
-            if ( commandName.startsWith(query) ) {
-                completions.push(commandName.slice(query.length));
-            }
-        }
-
-        return completions;
+        return (await ctx.externs.commandProvider.complete(query, { ctx }))
+            // Remove any duplicate results
+            .filter((item, pos, self) => self.indexOf(item) === pos)
+            // TODO: Sort completions?
+            // Remove the `query` part of each result, as that's what is expected
+            // TODO: Supply whole results instead?
+            .map(it => it.slice(query.length));
     }
 }

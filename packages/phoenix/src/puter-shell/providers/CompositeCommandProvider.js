@@ -42,4 +42,15 @@ export class CompositeCommandProvider {
         if ( results.length === 0 ) return undefined;
         return results;
     }
+
+    async complete (...a) {
+        const query = a[0];
+        if (query === '') return [];
+
+        const results = [];
+        for (const provider of this.providers) {
+            results.push(...await provider.complete(...a));
+        }
+        return results;
+    }
 }

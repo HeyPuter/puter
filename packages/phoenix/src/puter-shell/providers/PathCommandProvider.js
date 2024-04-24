@@ -200,4 +200,26 @@ export class PathCommandProvider {
     async lookupAll(id, { ctx }) {
         return findCommandsInPath(id, ctx, false);
     }
+
+    async complete(query, { ctx }) {
+        if (query === '') return [];
+
+        const PATH = ctx.env['PATH'];
+        if (!PATH)
+            return [];
+        const path_directories = PATH.split(path_.delimiter);
+
+        const results = [];
+
+        for (const dir of path_directories) {
+            const dir_entries = await ctx.platform.filesystem.readdir(dir);
+            for (const dir_entry of dir_entries) {
+                if (dir_entry.name.startsWith(query)) {
+                    results.push(dir_entry.name);
+                }
+            }
+        }
+
+        return results;
+    }
 }
