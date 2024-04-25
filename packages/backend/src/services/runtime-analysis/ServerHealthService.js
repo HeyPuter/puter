@@ -79,8 +79,9 @@ class ServerHealthService extends BaseService {
     init_service_checks_ () {
         const svc_alarm = this.services.get('alarm');
         asyncSafeSetInterval(async () => {
+            this.log.tick('service checks');
             const check_failures = [];
-            for ( const { name, fn } of this.checks_ ) {
+            for ( const { name, fn, chainable } of this.checks_ ) {
                 const p_timeout = new TeePromise();
                 const timeout = setTimeout(() => {
                     p_timeout.reject(new Error('Health check timed out'));
@@ -93,7 +94,7 @@ class ServerHealthService extends BaseService {
                     clearTimeout(timeout);
                 } catch ( err ) {
                     // Trigger an alarm if this check isn't already in the failure list
-                    
+
                     if ( this.failures_.some(v => v.name === name) ) {
                         return;
                     }
@@ -104,6 +105,15 @@ class ServerHealthService extends BaseService {
                         { error: err }
                     );
                     check_failures.push({ name });
+
+                    // Run the on_fail handlers
+                    for ( const fn of chainable.on_fail_ ) {
+                        try {
+                            await fn(err);
+                        } catch ( e ) {
+                            this.log.error(`Error in on_fail handler for ${name}`, e);
+                        }
+                    }
                 }
             }
 
@@ -124,7 +134,15 @@ class ServerHealthService extends BaseService {
     }
 
     add_check (name, fn) {
-        this.checks_.push({ name, fn });
+        const chainable = {
+            on_fail_: [],
+        };
+        chainable.on_fail = (fn) => {
+            chainable.on_fail_.push(fn);
+            return chainable;
+        };
+        this.checks_.push({ name, fn, chainable });
+        return chainable;
     }
 
     get_status () {

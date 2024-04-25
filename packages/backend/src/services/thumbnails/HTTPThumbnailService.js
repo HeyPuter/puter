@@ -104,6 +104,21 @@ class HTTPThumbnailService extends BaseService {
         }
     }
 
+    async _init () {
+        const services = this.services;
+        const svc_serverHealth = services.get('server-health');
+
+        svc_serverHealth.add_check('thumbnail-ping', async () => {
+            this.log.noticeme('THUMBNAIL PING');
+            await axios.request(
+                {
+                    method: 'get',
+                    url: `${this.host_}/ping`,
+                }
+            );
+        });
+    }
+
     get host_ () {
         return this.config.host || 'http://127.0.0.1:3101';
     }
