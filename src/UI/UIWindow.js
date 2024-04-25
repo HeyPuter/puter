@@ -311,11 +311,15 @@ async function UIWindow(options) {
                 h += `<iframe tabindex="-1"
                         data-app="${html_encode(options.app)}"
                         class="window-app-iframe" 
-                        allowtransparency="true" allowpaymentrequest="true" allowfullscreen="true"
-                        frameborder="0" webkitallowfullscreen="webkitallowfullscreen" mozallowfullscreen="mozallowfullscreen"
+                        frameborder="0" 
                         ${options.iframe_url ? 'src="'+ html_encode(options.iframe_url)+'"' : ''}
                         ${options.iframe_srcdoc ? 'srcdoc="'+ html_encode(options.iframe_srcdoc) +'"' : ''}
-                        allow = "accelerometer; camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; web-share; fullscreen;"
+                        allow = "accelerometer; camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; fullscreen;"
+                        allowtransparency="true"
+                        allowpaymentrequest="true" 
+                        allowfullscreen="true"
+                        webkitallowfullscreen="webkitallowfullscreen" 
+                        mozallowfullscreen="mozallowfullscreen"
                         sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts allow-top-navigation-by-user-activation allow-downloads allow-presentation allow-storage-access-by-user-activation"></iframe>`;
             }
             // custom body

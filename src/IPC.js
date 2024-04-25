@@ -103,7 +103,6 @@ window.addEventListener('message', async (event) => {
     // windowFocused
     //-------------------------------------------------
     else if(event.data.msg === 'windowFocused'){
-        console.log('windowFocused');
     }
     //--------------------------------------------------------
     // ALERT

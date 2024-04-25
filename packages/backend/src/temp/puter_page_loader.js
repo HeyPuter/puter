@@ -75,9 +75,6 @@ const generate_puter_page_html = ({
     <meta property="og:description" content="${e((short_description).replace(/\n/g, " "))}">
     <meta property="og:image" content="${asset_dir}/images/screenshot.png">
 
-    <!-- disable iframes -->
-    <meta http-equiv="X-Frame-Options" content="sameorigin">
-
     <!-- Twitter meta tags -->
     <meta name="twitter:card" content="summary_large_image">
     <meta property="twitter:domain" content="puter.com">
