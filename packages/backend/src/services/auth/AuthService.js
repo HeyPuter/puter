@@ -391,10 +391,7 @@ class AuthService extends BaseService {
 
     async revoke_session (actor, uuid) {
         delete this.sessions[uuid];
-        await this.db.write(
-            `DELETE FROM sessions WHERE uuid = ? AND user_id = ?`,
-            [uuid, actor.type.user.id]
-        );
+        this.svc_session.remove_session(uuid);
     }
 
     async get_user_app_token_from_origin (origin) {
