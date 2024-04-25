@@ -20,6 +20,7 @@ const { AdvancedBase } = require("@heyputer/puter-js-common");
 
 class StorageService extends AdvancedBase {
     constructor ({ services }) {
+        super(services);
         //
     }
 }

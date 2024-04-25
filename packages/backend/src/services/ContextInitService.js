@@ -52,7 +52,7 @@ class ContextInitService extends BaseService {
             key, value,
         });
     }
-    register_async_factory (key, factory) {
+    register_async_factory (key, async_factory) {
         this.mw.register_initializer({
             key, async_factory,
         });
