@@ -91,7 +91,7 @@ class LLRead extends LLFilesystemOperation {
                 const context = a.iget('context');
                 const svc_fileCache = context.get('services').get('file-cache');
 
-                const { fsNode } = a.values();
+                const { fsNode, offset, length } = a.values();
 
                 const maybe_buffer = await svc_fileCache.try_get(fsNode, a.log);
                 if ( maybe_buffer ) {

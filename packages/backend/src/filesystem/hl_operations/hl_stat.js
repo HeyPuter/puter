@@ -19,6 +19,7 @@
 const { chkperm } = require("../../helpers");
 const { Context } = require("../../util/context");
 const { HLFilesystemOperation } = require("./definitions");
+const { APIError } = require('../../api/APIError');
 
 class HLStat extends HLFilesystemOperation {
     static MODULES = {
