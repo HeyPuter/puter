@@ -45,7 +45,7 @@ module.exports = eggspress('/open_item', {
     const subject = req.values.subject;
 
     const actor = Context.get('actor');
-    if ( ! actor.type instanceof UserActorType ) {
+    if ( ! (actor.type instanceof UserActorType) ) {
         throw APIError.create('forbidden');
     }
 

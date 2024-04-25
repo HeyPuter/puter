@@ -34,7 +34,7 @@ module.exports = eggspress('/sign', {
     allowedMethods: ['POST'],
 }, async (req, res, next)=>{
     const actor = Context.get('actor');
-    if ( ! actor.type instanceof UserActorType ) {
+    if ( ! (actor.type instanceof UserActorType) ) {
         throw APIError.create('forbidden');
     }
 

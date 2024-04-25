@@ -19,7 +19,7 @@
 "use strict"
 const express = require('express');
 const router = new express.Router();
-const {get_taskbar_items, username_exists, send_email_verification_code, send_email_verification_token, invalidate_cached_user} = require('../helpers');
+const {get_taskbar_items, username_exists, send_email_verification_code, send_email_verification_token, invalidate_cached_user, get_user } = require('../helpers');
 const auth = require('../middleware/auth.js');
 const config = require('../config');
 const { Context } = require('../util/context');
