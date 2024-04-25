@@ -52,6 +52,10 @@ function UIAlert(options){
         santized_message = santized_message.replace(/&lt;strong&gt;/g, '<strong>');
         santized_message = santized_message.replace(/&lt;\/strong&gt;/g, '</strong>');
 
+        // replace sanitized <p> with <p>
+        santized_message = santized_message.replace(/&lt;p&gt;/g, '<p>');
+        santized_message = santized_message.replace(/&lt;\/p&gt;/g, '</p>');
+
         let h = '';
         // icon
         h += `<img class="window-alert-icon" src="${html_encode(options.body_icon)}">`;
