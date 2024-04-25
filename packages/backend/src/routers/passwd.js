@@ -18,7 +18,7 @@
  */
 "use strict"
 const express = require('express');
-const { invalidate_cached_user } = require('../helpers');
+const { invalidate_cached_user, get_user } = require('../helpers');
 const router = new express.Router();
 const auth = require('../middleware/auth.js');
 const { DB_WRITE } = require('../services/database/consts');
@@ -51,8 +51,9 @@ router.post('/passwd', auth, express.json(), async (req, res, next)=>{
     }
 
     try{
+        const user = await get_user({ id: req.user.id, force: true });
         // check old_pass
-        const isMatch = await bcrypt.compare(req.body.old_pass, req.user.password)
+        const isMatch = await bcrypt.compare(req.body.old_pass, user.password)
         if(!isMatch)
             return res.status(400).send('old_pass does not match your current password.')
         // check new_pass length

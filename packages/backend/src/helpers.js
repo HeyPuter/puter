@@ -184,7 +184,7 @@ async function id2uuid(id){
 
     const cached = options.cached ?? true;
 
-    if ( cached ) {
+    if ( cached && ! options.force ) {
         if (options.username) user = kv.get('users:username:' + options.username);
         else if (options.email) user = kv.get('users:email:' + options.email);
         else if (options.uuid) user = kv.get('users:uuid:' + options.uuid);
@@ -194,16 +194,18 @@ async function id2uuid(id){
         if ( user ) return user;
     }
 
-    if(options.username)
-        user = await db.read("SELECT * FROM `user` WHERE `username` = ? LIMIT 1", [options.username]);
-    else if(options.email)
-        user = await db.read("SELECT * FROM `user` WHERE `email` = ? LIMIT 1", [options.email]);
-    else if(options.uuid)
-        user = await db.read("SELECT * FROM `user` WHERE `uuid` = ? LIMIT 1", [options.uuid]);
-    else if(options.id)
-        user = await db.read("SELECT * FROM `user` WHERE `id` = ? LIMIT 1", [options.id]);
-    else if(options.referral_code)
-        user = await db.read("SELECT * FROM `user` WHERE `referral_code` = ? LIMIT 1", [options.referral_code]);
+    if ( ! options.force ) {
+        if(options.username)
+            user = await db.read("SELECT * FROM `user` WHERE `username` = ? LIMIT 1", [options.username]);
+        else if(options.email)
+            user = await db.read("SELECT * FROM `user` WHERE `email` = ? LIMIT 1", [options.email]);
+        else if(options.uuid)
+            user = await db.read("SELECT * FROM `user` WHERE `uuid` = ? LIMIT 1", [options.uuid]);
+        else if(options.id)
+            user = await db.read("SELECT * FROM `user` WHERE `id` = ? LIMIT 1", [options.id]);
+        else if(options.referral_code)
+            user = await db.read("SELECT * FROM `user` WHERE `referral_code` = ? LIMIT 1", [options.referral_code]);
+    }
 
     if(!user || !user[0]){
         if(options.username)
