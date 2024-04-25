@@ -143,7 +143,7 @@ module.exports = eggspress('/drivers/usage', {
         // usages.apps.push(usage);
     }
 
-    for ( k in usages.apps ) {
+    for ( const k in usages.apps ) {
         usages.apps[k] = Object.values(usages.apps[k]);
     }
 
