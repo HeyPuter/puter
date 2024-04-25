@@ -251,7 +251,7 @@ module.exports = eggspress(['/signup'], {
     // todo if pseudo user, assign directly no need to do another DB lookup
     const user_id = (pseudo_user === undefined) ? insert_res.insertId : pseudo_user.id;
 
-    const [user] = await db.read(
+    const [user] = await db.pread(
         'SELECT * FROM `user` WHERE `id` = ? LIMIT 1',
         [user_id]
     );
