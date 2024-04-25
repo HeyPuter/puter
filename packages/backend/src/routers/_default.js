@@ -402,7 +402,7 @@ router.all('*', async function(req, res, next) {
             });
         } catch (e) {
             console.error('error from sendFile', e);
-            return res.status(err.statusCode).send('Error /apps/')
+            return res.status(e.statusCode).send('Error /apps/')
         }
     }
     // --------------------------------------
