@@ -1947,7 +1947,7 @@ window.open_item = async function(options){
     //----------------------------------------------------------------
     // Does the user have a preference for this file type?
     //----------------------------------------------------------------
-    else if(user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`]) {
+    else if(!is_dir && user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`]) {
         launch_app({
             name: user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`],
             file_path: item_path,
