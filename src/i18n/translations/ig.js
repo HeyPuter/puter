@@ -249,7 +249,6 @@ const ig = {
         yes_release_it: 'Ee, Hapụ ya',
         you_have_been_referred_to_puter_by_a_friend: "Otu enyi zigara gị na Puter!",
         zip: "Zip",
-        storage_puter_used: "nke Puter na-eji",
     }
 };
 

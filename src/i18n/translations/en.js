@@ -255,7 +255,6 @@ const en = {
         yes_release_it: 'Yes, Release It',
         you_have_been_referred_to_puter_by_a_friend: "You have been referred to Puter by a friend!",
         zip: "Zip",
-        storage_puter_used: "used by Puter",
     }
 };
 
