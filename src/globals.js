@@ -24,6 +24,7 @@ window.window_nav_history = {};
 window.window_nav_history_current_position = {};
 window.progress_tracker = [];
 window.upload_item_global_id = 0;
+window.app_instance_ids = new Set();
 
 window.download_progress = [];
 window.download_item_global_id = 0;

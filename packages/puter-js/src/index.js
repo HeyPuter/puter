@@ -112,10 +112,11 @@ window.puter = (function() {
             // The default APIOrigin is https://api.puter.com. However, if the URL contains a `puter.api_origin` query parameter,
             // then that value is used as the APIOrigin. If the URL contains a `puter.domain` query parameter, then the APIOrigin
             // is constructed as `https://api.<puter.domain>`.
+            // This should only be done when the SDK is running in 'app' mode.
             this.APIOrigin = this.defaultAPIOrigin;
-            if(URLParams.has('puter.api_origin')){
+            if(URLParams.has('puter.api_origin') && this.env === 'app'){
                 this.APIOrigin = decodeURIComponent(URLParams.get('puter.api_origin'));
-            }else if(URLParams.has('puter.domain')){
+            }else if(URLParams.has('puter.domain') && this.env === 'app'){
                 this.APIOrigin = 'https://api.' + URLParams.get('puter.domain');
             }
 

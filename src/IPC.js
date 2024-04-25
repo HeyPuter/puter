@@ -71,7 +71,10 @@ window.addEventListener('message', async (event) => {
 
     // `appInstanceID` is required
     if(!event.data.appInstanceID){
-        console.log(`appInstanceID is needed`);
+        console.error(`appInstanceID is needed`);
+        return;
+    }else if(!window.app_instance_ids.has(event.data.appInstanceID)){
+        console.error(`appInstanceID is invalid`);
         return;
     }
 
@@ -165,7 +168,6 @@ window.addEventListener('message', async (event) => {
                 center: event.data.options.center,
                 show_in_taskbar: event.data.options.show_in_taskbar,                    
                 iframe_srcdoc: event.data.options.content,
-                iframe_url: event.data.options.url,
                 parent_uuid: event.data.appInstanceID,
             })
         }

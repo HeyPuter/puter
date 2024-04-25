@@ -1762,6 +1762,10 @@ window.launch_app = async (options)=>{
         // ...and finally append utm_source=puter.com to the URL
         iframe_url.searchParams.append('utm_source', 'puter.com');
 
+        // register app_instance_uid
+        window.app_instance_ids.add(uuid);
+
+        // open window
         el_win = UIWindow({
             element_uuid: uuid,
             title: title,
