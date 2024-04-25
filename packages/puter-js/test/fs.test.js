@@ -1,3 +1,5 @@
+/* eslint-disable */
+// TODO: Make these more compatible with eslint
 naughtyStrings = [
     "文件.txt",               // Chinese characters
     "файл.txt",              // Cyrillic characters
