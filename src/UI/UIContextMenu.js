@@ -135,8 +135,8 @@ function UIContextMenu(options){
     $('.context-menu').not(contextMenu).removeClass('context-menu-active');
 
     let cancel_options_ = null;
-    const fade_remove = () => {
-        $(`#context-menu-${menu_id}, .context-menu[data-element-id="${$(this).closest('.context-menu').attr('data-parent-id')}"]`).fadeOut(200, function(){
+    const fade_remove = (item) => {
+        $(`#context-menu-${menu_id}, .context-menu[data-element-id="${$(item).closest('.context-menu').attr('data-parent-id')}"]`).fadeOut(200, function(){
             $(contextMenu).remove();
         });
     };
@@ -159,7 +159,7 @@ function UIContextMenu(options){
         }
         // close menu and, if exists, its parent
         if(!$(this).hasClass('context-menu-item-submenu')){
-            fade_remove();
+            fade_remove(this);
         }
         return false;
     });
