@@ -307,7 +307,9 @@ async function UIWindow(options) {
                 style="${!options.has_head ? ' height: 100%;' : ''}">`;
             // iframe, for apps
             if(options.iframe_url || options.iframe_srcdoc){
-                // iframe
+                // <iframe>
+                // Important: we don't allow allow-same-origin when iframe_srcdoc is used because this would allow the iframe to access the parent window's DOM, localStorage, etc.
+                // this is a security risk and must be avoided.
                 h += `<iframe tabindex="-1"
                         data-app="${html_encode(options.app)}"
                         class="window-app-iframe" 
@@ -320,7 +322,7 @@ async function UIWindow(options) {
                         allowfullscreen="true"
                         webkitallowfullscreen="webkitallowfullscreen" 
                         mozallowfullscreen="mozallowfullscreen"
-                        sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts allow-top-navigation-by-user-activation allow-downloads allow-presentation allow-storage-access-by-user-activation"></iframe>`;
+                        sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox ${options.iframe_srcdoc ? '' : 'allow-same-origin'} allow-scripts allow-top-navigation-by-user-activation allow-downloads allow-presentation allow-storage-access-by-user-activation"></iframe>`;
             }
             // custom body
             else if(options.body_content !== undefined){
