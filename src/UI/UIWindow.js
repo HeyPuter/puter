@@ -177,8 +177,8 @@ async function UIWindow(options) {
         for (let key in options.params) {
             user_set_url_params.push(key + "=" + options.params[key]);
         }
-        user_set_url_params = '?'+ user_set_url_params.join('&');
-
+        if(user_set_url_params.length > 0)
+            user_set_url_params = '?'+ user_set_url_params.join('&');
     }
     h += `<div class="window window-active 
                         ${options.cover_page ? 'window-cover-page' : ''}
