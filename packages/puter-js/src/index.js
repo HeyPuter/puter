@@ -69,11 +69,24 @@ window.puter = (function() {
             else
                 this.env = 'web';
 
-            // there are some specific situations where puter is definitely loaded in GUI mode
+            // There are some specific situations where puter is definitely loaded in GUI mode
             // we're going to check for those situations here so that we don't break anything unintentionally
             // if navigator URL's hostname is 'puter.com'
-            if(window.location.hostname === 'puter.com'){
-                this.env = 'gui';
+            if(this.env !== 'gui'){
+                // Retrieve the hostname from the URL: Remove the trailing dot if it exists. This is to handle the case where the URL is, for example, `https://puter.com.` (note the trailing dot).
+                // This is necessary because the trailing dot can cause the hostname to not match the expected value. 
+                let hostname = location.hostname.replace(/\.$/, '');
+
+                // Create a new URL object with the URL string
+                const url = new URL(this.defaultGUIOrigin);
+
+                // Extract hostname from the URL object
+                const gui_hostname = url.hostname;
+
+                // If the hostname matches the GUI hostname, then the SDK is running in the GUI environment
+                if(hostname === gui_hostname){
+                    this.env = 'gui';
+                }
             }
 
             // Get the 'args' from the URL. This is used to pass arguments to the app.

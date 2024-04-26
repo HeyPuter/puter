@@ -36,7 +36,6 @@ import PuterDialog from './UI/PuterDialog.js';
 import determine_active_container_parent from './helpers/determine_active_container_parent.js';
 import { ThemeService } from './services/ThemeService.js';
 import { BroadcastService } from './services/BroadcastService.js';
-import UIWindowTaskManager from './UI/UIWindowTaskManager.js';
 import { ProcessService } from './services/ProcessService.js';
 import { PROCESS_RUNNING } from './definitions.js';
 
