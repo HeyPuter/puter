@@ -114,7 +114,10 @@ router.post('/send-pass-recovery-email', express.json(), body_parser_error_handl
         });
 
         // Send response
-	return res.send({message: `If the email address exists in our database. A recovery email will be sent to <strong>${user.email}</strong>`});
+        if(req.body.username)
+            return res.send({message: `Password recovery sent to the email associated with <strong>${user.username}</strong>. Please check your email for instructions on how to reset your password.`});
+        else
+            return res.send({message: `Password recovery email sent to <strong>${user.email}</strong>. Please check your email for instructions on how to reset your password.`});
 
     }catch(e){
         console.log(e)
