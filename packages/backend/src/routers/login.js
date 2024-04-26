@@ -71,13 +71,13 @@ router.post('/login', express.json(), body_parser_error_handler, async (req, res
         if(req.body.username){
             user = await get_user({ username: req.body.username, cached: false });
             if(!user)
-                return res.status(400).send('Username not found.')
+                return res.status(400).send('Invalid credentials.')
         }
         // log in using email
         else if(validator.isEmail(req.body.email)){
             user = await get_user({ email: req.body.email, cached: false });
             if(!user)
-                return res.status(400).send('Email not found.')
+                return res.status(400).send('Invalid credentials.')
         }
         // is user suspended?
         if(user.suspended)
@@ -85,7 +85,7 @@ router.post('/login', express.json(), body_parser_error_handler, async (req, res
         // pseudo user?
         // todo make this better, maybe ask them to create an account or send them an activation link
         if(user.password === null)
-            return res.status(400).send('Incorrect password.')
+            return res.status(400).send('Invalid credentials.')
         // check password
         if(await bcrypt.compare(req.body.password, user.password)){
             const svc_auth = req.services.get('auth');
@@ -110,7 +110,7 @@ router.post('/login', express.json(), body_parser_error_handler, async (req, res
                 }
             })
         }else{
-            return res.status(400).send('Incorrect password.')
+            return res.status(400).send('Invalid credentials.')
         }
     }catch(e){
         return res.status(400).send(e);
