@@ -79,6 +79,11 @@ const CHANGE_EMAIL_START = eggspress('/change_email/start', {
         confirm_url: `${config.origin}/change_email/confirm?token=${jwt_token}`,
         username: user.username,
     });
+    const old_email = user.email;
+    // TODO: NotificationService
+    await svc_email.send_email({ email: old_email }, 'email_change_notification', {
+        new_email: new_email,
+    });
 
     // update user
     await db.write(
