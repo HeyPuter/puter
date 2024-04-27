@@ -54,6 +54,11 @@ module.exports = eggspress('/change_username', {
     if(await username_exists(req.body.new_username))
         throw APIError.create('username_already_in_use', null, { username: req.body.new_username });
 
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('change-email-start') ) {
+        return res.status(429).send('Too many requests.');
+    }
+
     const db = Context.get('services').get('database').get(DB_WRITE, 'auth');
 
     // Has the user already changed their username twice this month?
