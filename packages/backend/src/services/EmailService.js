@@ -66,6 +66,17 @@ We received a request to link this email to the user "{{username}}" on Puter. If
 </p>
                 `,
             },
+            'email_change_notification': {
+                subject: '\u{1f4dd} Notification of email change',
+                html: `
+<p>Hi there,</p>
+<p>
+We're sending an email to let you know about a change to your account.
+We have sent a confirmation to "{{new_email}}" to confirm an email change request.
+If this was not you, please contact support@puter.com immediately.
+</p>
+                `,
+            },
         };
 
         this.template_fns = {};

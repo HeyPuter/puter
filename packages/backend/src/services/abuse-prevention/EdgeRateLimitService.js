@@ -8,7 +8,7 @@ class EdgeRateLimitService extends BaseService {
     _construct () {
         this.scopes = {
             ['login']: {
-                limit: 3,
+                limit: 10,
                 window: 15 * MINUTE,
             },
             ['signup']: {
