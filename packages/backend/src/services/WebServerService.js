@@ -298,8 +298,8 @@ class WebServerService extends BaseService {
             // Parse the Host header to isolate the hostname (strip out port if present)
             const hostName = hostHeader.split(':')[0].trim().toLowerCase();
 
-            // Check if the hostname matches any of the allowed domains
-            if (allowedDomains.some(allowedDomain => hostName.endsWith(allowedDomain))) {
+            // Check if the hostname matches any of the allowed domains or is a subdomain of an allowed domain
+            if (allowedDomains.some(allowedDomain => hostName === allowedDomain || hostName.endsWith('.' + allowedDomain))) {
                 next(); // Proceed if the host is valid
             } else {
                 return res.status(400).send('Invalid Host header.');
