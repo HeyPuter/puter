@@ -283,6 +283,29 @@ class WebServerService extends BaseService {
             return next();
         });
 
+        // Validate host header against allowed domains to prevent host header injection
+        // https://www.owasp.org/index.php/Host_Header_Injection
+        app.use((req, res, next)=>{
+            const allowedDomains = [config.domain.toLowerCase(), config.static_hosting_domain.toLowerCase()];
+
+            // Retrieve the Host header and ensure it's in a valid format
+            const hostHeader = req.headers.host;
+
+            if (!hostHeader) {
+                return res.status(400).send('Missing Host header.');
+            }
+
+            // Parse the Host header to isolate the hostname (strip out port if present)
+            const hostName = hostHeader.split(':')[0].trim().toLowerCase();
+
+            // Check if the hostname matches any of the allowed domains
+            if (allowedDomains.some(allowedDomain => hostName === allowedDomain)) {
+                next(); // Proceed if the host is valid
+            } else {
+                return res.status(400).send('Invalid Host header.');
+            }
+        })
+
         app.use(express.json({limit: '50mb'}));
 
         const cookieParser = require('cookie-parser');
