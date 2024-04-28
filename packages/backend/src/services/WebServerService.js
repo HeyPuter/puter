@@ -299,7 +299,7 @@ class WebServerService extends BaseService {
             const hostName = hostHeader.split(':')[0].trim().toLowerCase();
 
             // Check if the hostname matches any of the allowed domains
-            if (allowedDomains.some(allowedDomain => hostName === allowedDomain)) {
+            if (allowedDomains.some(allowedDomain => hostName.endsWith(allowedDomain))) {
                 next(); // Proceed if the host is valid
             } else {
                 return res.status(400).send('Invalid Host header.');
