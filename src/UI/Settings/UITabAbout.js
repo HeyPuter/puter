@@ -96,7 +96,7 @@ export default {
         puter.os.version()
         .then(res => {
             const deployed_date = new Date(res.deploy_timestamp).toLocaleString();
-            $el_window.find('.version').html(`Version: ${html_encode(res.version)} &bull; Server: ${html_encode(res.location)} &bull; Deployed: ${deployed_date}`);
+            $el_window.find('.version').html(`Version: ${html_encode(res.version)} &bull; Server: ${html_encode(res.location)} &bull; Deployed: ${html_encode(deployed_date)}`);
         })
         .catch(error => {
             console.error("Failed to fetch server info:", error);

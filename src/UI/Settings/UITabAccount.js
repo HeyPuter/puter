@@ -44,7 +44,7 @@ export default {
         h += `<div class="settings-card">`;
             h += `<div>`;
                 h += `<strong style="display:block;">${i18n('username')}</strong>`;
-                h += `<span class="username" style="display:block; margin-top:5px;">${user.username}</span>`;
+                h += `<span class="username" style="display:block; margin-top:5px;">${html_encode(user.username)}</span>`;
             h += `</div>`;
             h += `<div style="flex-grow:1;">`;
                 h += `<button class="button change-username" style="float:right;">${i18n('change_username')}</button>`;
@@ -56,7 +56,7 @@ export default {
             h += `<div class="settings-card">`;
                 h += `<div>`;
                     h += `<strong style="display:block;">${i18n('email')}</strong>`;
-                    h += `<span class="user-email" style="display:block; margin-top:5px;">${user.email}</span>`;
+                    h += `<span class="user-email" style="display:block; margin-top:5px;">${html_encode(user.email)}</span>`;
                 h += `</div>`;
                 h += `<div style="flex-grow:1;">`;
                     h += `<button class="button change-email" style="float:right;">${i18n('change_email')}</button>`;
@@ -104,7 +104,6 @@ export default {
         });
 
         $el_window.find('.change-email').on('click', function (e) {
-            console.log('change email', $el_window.attr('data-element_uuid'));
             UIWindowChangeEmail({
                 window_options:{
                     parent_uuid: $el_window.attr('data-element_uuid'),
