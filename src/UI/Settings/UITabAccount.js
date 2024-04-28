@@ -59,7 +59,7 @@ export default {
                     h += `<span class="user-email" style="display:block; margin-top:5px;">${user.email}</span>`;
                 h += `</div>`;
                 h += `<div style="flex-grow:1;">`;
-                    h += `<button class="button change-email" style="margin-bottom: 10px; float:right;">${i18n('change_email')}</button>`;
+                    h += `<button class="button change-email" style="float:right;">${i18n('change_email')}</button>`;
                 h += `</div>`;
             h += `</div>`;
         }
