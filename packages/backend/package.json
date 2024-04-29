@@ -28,6 +28,7 @@
     "composite-error": "^1.0.2",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.6",
+    "dedent": "^1.5.3",
     "express": "^4.18.2",
     "file-type": "^18.5.0",
     "form-data": "^4.0.0",

@@ -1547,56 +1547,16 @@ async function generate_system_fsentries(user){
 }
 
 function send_email_verification_code(email_confirm_code, email){
-    const nodemailer = require("nodemailer");
-
-    // send email notif
-    let transporter = nodemailer.createTransport({
-        host: config.smtp_server,
-        port: config.smpt_port,
-        secure: true, // STARTTLS
-        auth: {
-            user: config.smtp_username,
-            pass: config.smtp_password,
-        },
-    });
-
-    transporter.sendMail({
-        from: '"Puter" no-reply@puter.com', // sender address
-        to: email, // list of receivers
-        subject: `${hyphenize_confirm_code(email_confirm_code)} is your confirmation code`, // Subject line
-        html: `<p>Hi there,</p>
-            <p><strong>${hyphenize_confirm_code(email_confirm_code)}</strong> is your email confirmation code.</p>
-            <p>Sincerely,</p>
-            <p>Puter</p>
-        `,
-    });
+    const svc_email = Context.get('services').get('email');
+    svc_email.send_email({ email }, 'email_verification_code', {
+        code: hyphenize_confirm_code(email_confirm_code),
+    })
 }
 
 function send_email_verification_token(email_confirm_token, email, user_uuid){
-    const nodemailer = require("nodemailer");
-
-    // send email notif
-    let transporter = nodemailer.createTransport({
-        host: config.smtp_server,
-        port: config.smpt_port,
-        secure: true, // STARTTLS
-        auth: {
-            user: config.smtp_username,
-            pass: config.smtp_password,
-        },
-    });
-
-    let link = `${config.origin}/confirm-email-by-token?user_uuid=${user_uuid}&token=${email_confirm_token}`;
-    transporter.sendMail({
-        from: '"Puter" no-reply@puter.com', // sender address
-        to: email, // list of receivers
-        subject: `Please confirm your email`, // Subject line
-        html: `<p>Hi there,</p>
-            <p>Please confirm your email address using this link: <strong><a href="${link}">${link}</a></strong>.</p>
-            <p>Sincerely,</p>
-            <p>Puter</p>
-        `,
-    });
+    const svc_email = Context.get('services').get('email');
+    const link = `${config.origin}/confirm-email-by-token?user_uuid=${user_uuid}&token=${email_confirm_token}`;
+    svc_email.send_email({ email }, 'email_verification_link', { link });
 }
 
 async function generate_random_username(){

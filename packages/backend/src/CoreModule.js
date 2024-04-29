@@ -195,6 +195,9 @@ const install = async ({ services, app }) => {
 
     const { EdgeRateLimitService } = require('./services/abuse-prevention/EdgeRateLimitService');
     services.registerService('edge-rate-limit', EdgeRateLimitService);
+
+    const { Emailservice } = require('./services/EmailService');
+    services.registerService('email', Emailservice);
 }
 
 const install_legacy = async ({ services }) => {
@@ -206,7 +209,6 @@ const install_legacy = async ({ services }) => {
     const { OperationTraceService } = require('./services/OperationTraceService');
     const { WSPushService } = require('./services/WSPushService');
     const { ReferralCodeService } = require('./services/ReferralCodeService');
-    const { Emailservice } = require('./services/EmailService');
     const { ClientOperationService } = require('./services/ClientOperationService');
     const { EngPortalService } = require('./services/EngPortalService');
     const { AppInformationService } = require('./services/AppInformationService');
@@ -220,7 +222,6 @@ const install_legacy = async ({ services }) => {
     services.registerService('operationTrace', OperationTraceService);
     services.registerService('__event-push-ws', WSPushService);
     services.registerService('referral-code', ReferralCodeService);
-    services.registerService('email', Emailservice);
     services.registerService('file-cache', FileCacheService);
     services.registerService('client-operation', ClientOperationService);
     services.registerService('app-information', AppInformationService);

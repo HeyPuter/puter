@@ -71,20 +71,8 @@ router.post('/contactUs', auth, express.json(), async (req, res, next)=>{
         let user = await get_user({id: req.user.id});
 
         // send email to support
-        const nodemailer = require("nodemailer");
-
-        // send email notif
-        let transporter = nodemailer.createTransport({
-            host: config.smtp_server,
-            port: config.smpt_port,
-            secure: true, // STARTTLS
-            auth: {
-                user: config.smtp_username,
-                pass: config.smtp_password,
-            },
-        });
-
-        transporter.sendMail({
+        const svc_email = req.services.get('email');
+        svc_email.sendMail({
             from: '"Puter" no-reply@puter.com', // sender address
             to: 'support@puter.com', // list of receivers
             replyTo: user.email === null ? undefined : user.email,

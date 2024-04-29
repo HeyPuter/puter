@@ -86,31 +86,12 @@ router.post('/send-pass-recovery-email', express.json(), body_parser_error_handl
         );
         invalidate_cached_user(user);
 
-        // prepare email
-        let transporter = nodemailer.createTransport({
-            host: config.smtp_server,
-            port: config.smpt_port,
-            secure: true, // STARTTLS
-            auth: {
-                user: config.smtp_username,
-                pass: config.smtp_password,
-            },
-        });
-
         // create link
         const rec_link = config.origin + '/action/set-new-password?user=' + user.uuid + '&token=' + token;
 
-        // send email
-        transporter.sendMail({
-            from: 'no-reply@puter.com', // sender address
-            to: user.email, // list of receivers
-            subject: "Password Recovery", // Subject line
-            html: `
-            <p>Hi there,</p>
-            <p>A password recovery request was issued for your account, please follow the link below to reset your password:</p>
-            <p><a href="${rec_link}">${rec_link}</a></p>
-            <p>Sincerely,</p>
-            <p>Puter</p>`,
+        const svc_email = req.services.get('email');
+        await svc_email.send_email({ email: user.email }, 'email_password_recovery', {
+            link: rec_link,
         });
 
         // Send response
