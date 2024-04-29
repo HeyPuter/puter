@@ -93,6 +93,16 @@ const early_init_errors = [
     }
 ];
 
+// null coalescing operator
+const nco = (...args) => {
+    for ( const arg of args ) {
+        if ( arg !== undefined && arg !== null ) {
+            return arg;
+        }
+    }
+    return undefined;
+}
+
 const _print_error_help = (error_help) => {
     const lines = [];
     lines.push(nco(error_help.title, error_help.text));
