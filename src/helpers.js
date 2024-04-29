@@ -667,7 +667,7 @@ window.update_auth_data = (auth_token, user)=>{
 
     // Has email changed?
     if(window.user?.email !== user.email && user.email){
-        $('.user-email').html(user.email);
+        $('.user-email').html(html_encode(user.email));
     }
 
     // update this session's user data
