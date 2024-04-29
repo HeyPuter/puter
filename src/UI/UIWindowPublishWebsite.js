@@ -26,7 +26,7 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
         // success
         h += `<div class="window-publishWebsite-success">`;
             h += `<img src="${html_encode(window.icons['c-check.svg'])}" style="width:80px; height:80px; display: block; margin:10px auto;">`;
-            h += `<p style="text-align:center;">${i18n('dir_published_as_website', `<strong>${target_dir_name}</strong>`, false)}<p>`;
+            h += `<p style="text-align:center;">${i18n('dir_published_as_website', `<strong>${html_encode(target_dir_name)}</strong>`, false)}<p>`;
             h += `<p style="text-align:center;"><a class="publishWebsite-published-link" target="_blank"></a><img class="publishWebsite-published-link-icon" src="${html_encode(window.icons['launch.svg'])}"></p>`;
             h += `<button class="button button-normal button-block button-primary publish-window-ok-btn" style="margin-top:20px;">OK</button>`;
         h+= `</div>`;
@@ -37,10 +37,10 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
             // subdomain
             h += `<div style="overflow: hidden;">`;
                 h += `<label style="margin-bottom: 10px;">${i18n('pick_name_for_website')}</label>`;
-                h += `<div style="font-family: monospace;">https://<input class="publish-website-subdomain" style="width:235px;" type="text" autocomplete="subdomain" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>.${window.hosting_domain}</div>`;
+                h += `<div style="font-family: monospace;">https://<input class="publish-website-subdomain" style="width:235px;" type="text" autocomplete="subdomain" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>.${html_encode(window.hosting_domain)}</div>`;
             h += `</div>`;
             // uid
-            h += `<input class="publishWebsiteTargetDirUID" type="hidden" value="${target_dir_uid}"/>`;
+            h += `<input class="publishWebsiteTargetDirUID" type="hidden" value="${html_encode(target_dir_uid)}"/>`;
             // Publish
             h += `<button class="publish-btn button button-action button-block button-normal">${i18n('publish')}</button>`
         h += `</form>`;
