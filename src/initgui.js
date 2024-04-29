@@ -38,6 +38,7 @@ import { ThemeService } from './services/ThemeService.js';
 import { BroadcastService } from './services/BroadcastService.js';
 import { ProcessService } from './services/ProcessService.js';
 import { PROCESS_RUNNING } from './definitions.js';
+import { LocaleService } from './services/LocaleService.js';
 
 const launch_services = async function () {
     const services_l_ = [];
@@ -53,10 +54,11 @@ const launch_services = async function () {
 
     register('broadcast', new BroadcastService());
     register('theme', new ThemeService());
-    register('process', new ProcessService())
+    register('process', new ProcessService());
+    register('locale', new LocaleService());
 
     for (const [_, instance] of services_l_) {
-        await instance._init();
+        await instance.init();
     }
 
     // Set init process status
@@ -140,6 +142,10 @@ window.initgui = async function(){
         // Puter is in fullpage mode.
         window.is_fullpage_mode = true;
     }
+
+
+    // Launch services before any UI is rendered
+    await launch_services();
 
     //--------------------------------------------------------------------------------------
     // Is GUI embedded in a popup?
@@ -1983,8 +1989,6 @@ window.initgui = async function(){
         // go to home page
         window.location.replace("/");
     });    
-
-    await launch_services();
 }
 
 function requestOpenerOrigin() {

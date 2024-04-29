@@ -31,6 +31,10 @@ class EdgeRateLimitService extends BaseService {
                 limit: 10,
                 window: HOUR,
             },
+            ['verify-pass-recovery-token']: {
+                limit: 10,
+                window: 15 * MINUTE,
+            },
             ['set-pass-using-token']: {
                 limit: 10,
                 window: HOUR,

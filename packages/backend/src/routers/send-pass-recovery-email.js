@@ -23,6 +23,8 @@ const { body_parser_error_handler, get_user, invalidate_cached_user } = require(
 const config = require('../config');
 const { DB_WRITE } = require('../services/database/consts');
 
+const jwt = require('jsonwebtoken');
+
 // -----------------------------------------------------------------------//
 // POST /send-pass-recovery-email
 // -----------------------------------------------------------------------//
@@ -86,8 +88,16 @@ router.post('/send-pass-recovery-email', express.json(), body_parser_error_handl
         );
         invalidate_cached_user(user);
 
+        // create jwt
+        const jwt_token = jwt.sign({
+            user_uid: user.uuid,
+            token,
+            // email change invalidates password recovery
+            email: user.email,
+        }, config.jwt_secret, { expiresIn: '1h' });
+
         // create link
-        const rec_link = config.origin + '/action/set-new-password?user=' + user.uuid + '&token=' + token;
+        const rec_link = config.origin + '/action/set-new-password?token=' + jwt_token;
 
         const svc_email = req.services.get('email');
         await svc_email.send_email({ email: user.email }, 'email_password_recovery', {

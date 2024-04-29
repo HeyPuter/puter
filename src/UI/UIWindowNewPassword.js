@@ -45,6 +45,42 @@ async function UIWindowNewPassword(options){
             h += `<button class="change-password-btn button button-primary button-block button-normal">${i18n('set_new_password')}</button>`;
         h += `</div>`;
 
+        const response = await fetch(api_origin + "/verify-pass-recovery-token", {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                token: options.token,
+            })
+        });
+
+        if( response.status !== 200 ) {
+            if ( response.status === 429 ) {
+                await UIAlert({
+                    message: i18n('password_recovery_rate_limit', [], false),
+                });
+                return;
+            }
+
+            if ( response.status === 400 ) {
+                await UIAlert({
+                    message: i18n('password_recovery_token_invalid', [], false),
+                });
+                return;
+            }
+
+            await UIAlert({
+                message: i18n('password_recovery_unknown_error', [], false),
+            });
+            return;
+        }
+
+        const response_data = await response.json();
+        console.log('response_data', response_data);
+        let time_remaining = response_data.time_remaining;
+
+
         const el_window = await UIWindow({
             title: 'Set New Password',
             app: 'change-passowrd',
@@ -77,6 +113,26 @@ async function UIWindowNewPassword(options){
                 'backdrop-filter': 'blur(3px)',
             }    
         })
+
+        const expiration_clock = setInterval(() => {
+            time_remaining -= 1;
+            if( time_remaining <= 0 ) {
+                clearInterval(expiration_clock);
+                $(el_window).find('.change-password-btn').prop('disabled', true);
+                $(el_window).find('.change-password-btn').html('Token Expired');
+                return;
+            }
+
+            const svc_locale = globalThis.services.get('locale');
+            const countdown = svc_locale.format_duration(time_remaining);
+
+            $(el_window).find('.change-password-btn').html(`Set New Password (${countdown})`);
+        }, 1000);
+        el_window.on_close = () => {
+            clearInterval(expiration_clock);
+        };
+
+
 
         $(el_window).find('.change-password-btn').on('click', function(e){
             const new_password = $(el_window).find('.new-password').val();
@@ -111,7 +167,6 @@ async function UIWindowNewPassword(options){
                 data: JSON.stringify({
                     password: new_password,
                     token: options.token,
-                    user_id: options.user,
                 }),                    
                 success: async function (data){
                     $(el_window).close();

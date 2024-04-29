@@ -17,7 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export class Service {
-    //
+    init (...a) {
+        if ( ! this._init ) return;
+        return this._init(...a)
+    }
 };
 
 export const PROCESS_INITIALIZING = { i18n_key: 'initializing' };
