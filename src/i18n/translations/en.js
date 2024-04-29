@@ -201,6 +201,7 @@ const en = {
         save_session: 'Save session',
         save_session_c2a: 'Create an account to save your current session and avoid losing your work.',
         scan_qr_c2a: 'Scan the code below to log into this session from other devices',
+        scan_qr_generic: 'Scan this QR code using your phone or another device',
         seconds: 'seconds',
         select: "Select",
         selected: 'selected',
