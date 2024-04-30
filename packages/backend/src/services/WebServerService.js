@@ -337,7 +337,6 @@ class WebServerService extends BaseService {
                 req.subdomains[req.subdomains.length-1] === 'api'
             ) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
-                res.setHeader('Access-Control-Allow-Credentials', 'true');
             }
 
             // Request methods to allow
