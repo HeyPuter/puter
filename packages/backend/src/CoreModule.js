@@ -201,6 +201,9 @@ const install = async ({ services, app }) => {
 
     const { TokenService } = require('./services/auth/TokenService');
     services.registerService('token', TokenService);
+
+    const { OTPService } = require('./services/auth/OTPService');
+    services.registerService('otp', OTPService);
 }
 
 const install_legacy = async ({ services }) => {

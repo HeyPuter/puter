@@ -331,6 +331,10 @@ module.exports = class APIError {
             status: 403,
             message: 'Attempted to create an access token with no permissions.',
         },
+        'invalid_action': {
+            status: 400,
+            message: ({ action }) => `Invalid action: ${quot(action)}.`,
+        },
 
         // Object Mapping
         'field_not_allowed_for_create': {

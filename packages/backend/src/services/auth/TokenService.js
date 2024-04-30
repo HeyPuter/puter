@@ -127,6 +127,8 @@ class TokenService extends BaseService {
     }
 
     _compress_payload (context, payload) {
+        if ( ! context ) return payload;
+
         const fullkey_to_info = context.fullkey_to_info;
 
         const compressed = {};
@@ -154,6 +156,8 @@ class TokenService extends BaseService {
     }
 
     _decompress_payload (context, payload) {
+        if ( ! context ) return payload;
+
         const fullkey_to_info = context.fullkey_to_info;
         const short_to_fullkey = context.short_to_fullkey;
 

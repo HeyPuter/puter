@@ -22,6 +22,35 @@ const router = new express.Router();
 const { get_user, body_parser_error_handler } = require('../helpers');
 const config = require('../config');
 
+
+const complete_ = async ({ req, res, user }) => {
+    const svc_auth = req.services.get('auth');
+    const { token } = await svc_auth.create_session_token(user, { req });
+
+    //set cookie
+    // res.cookie(config.cookie_name, token);
+    res.cookie(config.cookie_name, token, {
+        sameSite: 'none',
+        secure: true,
+        httpOnly: true,
+    });
+
+    // send response
+    console.log('200 response?');
+    return res.send({
+        proceed: true,
+        next_step: 'complete',
+        token: token,
+        user:{
+            username: user.username,
+            uuid: user.uuid,
+            email: user.email,
+            email_confirmed: user.email_confirmed,
+            is_temp: (user.password === null && user.email === null),
+        }
+    })
+};
+
 // -----------------------------------------------------------------------//
 // POST /file
 // -----------------------------------------------------------------------//
@@ -32,7 +61,6 @@ router.post('/login', express.json(), body_parser_error_handler, async (req, res
 
     // modules
     const bcrypt = require('bcrypt')
-    const jwt = require('jsonwebtoken')
     const validator = require('validator')
 
     // either username or email must be provided
@@ -88,34 +116,82 @@ router.post('/login', express.json(), body_parser_error_handler, async (req, res
             return res.status(400).send('Incorrect password.')
         // check password
         if(await bcrypt.compare(req.body.password, user.password)){
-            const svc_auth = req.services.get('auth');
-            const { token } = await svc_auth.create_session_token(user, { req });
-            //set cookie
-            // res.cookie(config.cookie_name, token);
-            res.cookie(config.cookie_name, token, {
-                sameSite: 'none',
-                secure: true,
-                httpOnly: true,
-            });
+            // We create a JWT that can ONLY be used on the endpoint that
+            // accepts the OTP code.
+            if ( user.otp_secret ) {
+                const svc_token = req.services.get('token');
+                const otp_jwt_token = svc_token.sign('otp', {
+                    user_uid: user.uuid,
+                }, { expiresIn: '5m' });
 
-            // send response
-            return res.send({
-                token: token,
-                user:{
-                    username: user.username,
-                    uuid: user.uuid,
-                    email: user.email,
-                    email_confirmed: user.email_confirmed,
-                    is_temp: (user.password === null && user.email === null),
-                }
-            })
+                return res.status(202).send({
+                    proceed: true,
+                    next_step: 'otp',
+                    otp_jwt_token: otp_jwt_token,
+                });
+            }
+
+            console.log('UMM?');
+            return await complete_({ req, res, user });
         }else{
             return res.status(400).send('Incorrect password.')
         }
     }catch(e){
+        console.error(e);
         return res.status(400).send(e);
     }
 
 })
 
-module.exports = router
+router.post('/login/otp', express.json(), body_parser_error_handler, async (req, res, next) => {
+    // either api. subdomain or no subdomain
+    if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
+        next();
+
+    if ( ! req.body.token ) {
+        return res.status(400).send('token is required.');
+    }
+
+    if ( ! req.body.code ) {
+        return res.status(400).send('code is required.');
+    }
+
+    const svc_token = req.services.get('token');
+    let decoded; try {
+        decoded = svc_token.verify('otp', req.body.token);
+    } catch ( e ) {
+        return res.status(400).send('Invalid token.');
+    }
+
+    if ( ! decoded.user_uid ) {
+        return res.status(400).send('Invalid token.');
+    }
+
+    const user = await get_user({ uuid: decoded.user_uid, cached: false });
+    if ( ! user ) {
+        return res.status(400).send('User not found.');
+    }
+
+    const svc_otp = req.services.get('otp');
+    if ( ! svc_otp.verify(user.otp_secret, req.body.code) ) {
+
+        // THIS MAY BE COUNTER-INTUITIVE
+        //
+        // A successfully handled request, with the correct format,
+        // but incorrect credentials when NOT using the HTTP
+        // authentication framework provided by RFC 7235, SHOULD
+        // return status 200.
+        //
+        // Source: I asked Julian Reschke in an email, and then he
+        // contributed to this discussion:
+        // https://stackoverflow.com/questions/32752578
+
+        return res.status(200).send({
+            proceed: false,
+        });
+    }
+
+    return await complete_({ req, res, user });
+});
+
+module.exports = router;
