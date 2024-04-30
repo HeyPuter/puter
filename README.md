@@ -19,6 +19,11 @@
     <a href="https://hackerone.com/puter_h1b">Bug Bounty</a>
 </p>
 
+<p align="center">
+    <a href="https://news.ycombinator.com/item?id=39597030"><img style="width: 200px;" alt="#1 on Hacker News" src="https://hackernews-badge.vercel.app/api?id=39597030" /></a>
+    <a href="https://news.ycombinator.com/item?id=33838179"><img style="width: 200px;" alt="#1 on Hacker News" src="https://hackernews-badge.vercel.app/api?id=33838179" /></a>
+</p>
+
 <h3 align="center"><img width="700" style="border-radius:5px;" alt="screenshot" src="https://assets.puter.site/puter.com-screenshot-2.webp"></h3>
 
 <br/>
