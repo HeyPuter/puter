@@ -198,6 +198,9 @@ const install = async ({ services, app }) => {
 
     const { Emailservice } = require('./services/EmailService');
     services.registerService('email', Emailservice);
+
+    const { TokenService } = require('./services/auth/TokenService');
+    services.registerService('token', TokenService);
 }
 
 const install_legacy = async ({ services }) => {
