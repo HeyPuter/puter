@@ -39,6 +39,12 @@ class AuthService extends BaseService {
         this.svc_session = await this.services.get('session');
 
         this.sessions = {};
+
+        const svc_token = await this.services.get('token');
+        this.modules.jwt = {
+            sign: (payload, _, options) => svc_token.sign('auth', payload, options),
+            verify: (token, _) => svc_token.verify('auth', token),
+        };
     }
 
     async authenticate_from_token (token) {
@@ -229,7 +235,7 @@ class AuthService extends BaseService {
             type: 'session',
             version: '0.0.0',
             uuid: session.uuid,
-            meta: session.meta,
+            // meta: session.meta,
             user_uid: user.uuid,
         }, this.global_config.jwt_secret);
 
