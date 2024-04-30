@@ -25,8 +25,15 @@ defv = o => {
     };
 };
 
-const uuid_compression = {
+const uuid_compression = prefix => ({
     encode: v => {
+        if ( prefix ) {
+            if ( ! v.startsWith(prefix) ) {
+                throw new Error(`Expected ${prefix} prefix`);
+            }
+            v = v.slice(prefix.length);
+        }
+
         const undecorated = v.replace(/-/g, "");
         const base64 = Buffer
             .from(undecorated, 'hex')
@@ -40,7 +47,7 @@ const uuid_compression = {
         const undecorated = Buffer
             .from(v, 'base64')
             .toString('hex');
-        return [
+        return (prefix ?? '') + [
             undecorated.slice(0, 8),
             undecorated.slice(8, 12),
             undecorated.slice(12, 16),
@@ -48,13 +55,13 @@ const uuid_compression = {
             undecorated.slice(20),
         ].join('-');
     }
-};
+});
 
 const compression = {
     auth: def({
         uuid: {
             short: 'u',
-            ...uuid_compression,
+            ...uuid_compression(),
         },
         version: 'v',
         type: {
@@ -67,11 +74,11 @@ const compression = {
         },
         user_uid: {
             short: 'uu',
-            ...uuid_compression,
+            ...uuid_compression(),
         },
         app_uid: {
             short: 'au',
-            ...uuid_compression,
+            ...uuid_compression('app-'),
         },
     }),
 };
@@ -97,6 +104,7 @@ class TokenService extends BaseService {
         const secret = this.secret;
 
         const context = this.compression[scope];
+        console.log('original payload', payload)
         const compressed_payload = this._compress_payload(context, payload);
 
         return jwt.sign(compressed_payload, secret, options);
@@ -111,9 +119,11 @@ class TokenService extends BaseService {
         const context = this.compression[scope];
         const payload = jwt.verify(token, secret);
 
-        console.log('payloda', payload)
+        console.log('payload', payload)
 
-        return this._decompress_payload(context, payload);
+        const decoded = this._decompress_payload(context, payload);
+        console.log('decoded', decoded);
+        return decoded;
     }
 
     _compress_payload (context, payload) {
