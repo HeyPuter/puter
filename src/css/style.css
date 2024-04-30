@@ -3410,7 +3410,7 @@ label {
     flex: 1;
     padding: 20px 30px;
     height: 500px;
-    overflow-y: scroll;
+    overflow-y: auto;
 }
 
 .settings-content {
