@@ -36,7 +36,7 @@ Puter is an advanced, open-source internet operating system designed to be featu
 
 ## Getting Started
 
-After reading this section, please proceed to **Self-Hosting** and **Configuration** below.
+After reading this section, please proceed to [**Self-Hosting**](#%EF%B8%8F-self-hosting-%EF%B8%8F) and [**Configuration**](#configuration) below.
 Read these instructions carefully or you may see errors due to
 an invalid setup.
 
