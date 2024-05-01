@@ -104,7 +104,7 @@ async function UIWindowChangePassword(options){
             return;
         }
         // check password strength
-        const pass_strength = check_password_strength(new_password);
+        const pass_strength = window.check_password_strength(new_password);
         if(!pass_strength.overallPass){
             $(el_window).find('.form-error-msg').html(i18n('password_strength_error'));
             $(el_window).find('.form-error-msg').fadeIn();
@@ -114,11 +114,11 @@ async function UIWindowChangePassword(options){
         $(el_window).find('.form-error-msg').hide();
 
         $.ajax({
-            url: api_origin + "/passwd",
+            url: window.api_origin + "/passwd",
             type: 'POST',
             async: true,
             headers: {
-                "Authorization": "Bearer "+auth_token
+                "Authorization": "Bearer "+window.auth_token
             },
             contentType: "application/json",
             data: JSON.stringify({ 
