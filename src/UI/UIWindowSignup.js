@@ -151,7 +151,7 @@ function UIWindowSignup(options){
                 return;
             }
             // must be a valid email
-            else if(!is_email(email)){
+            else if(!window.is_email(email)){
                 $(el_window).find('.signup-error-msg').html(i18n('email_invalid'));
                 $(el_window).find('.signup-error-msg').fadeIn();
                 return;
@@ -167,7 +167,7 @@ function UIWindowSignup(options){
                 return;
             }
             // check password strength
-            const pass_strength = check_password_strength(password);
+            const pass_strength = window.check_password_strength(password);
             if(!pass_strength.overallPass){
                 $(el_window).find('.signup-error-msg').html(i18n('password_strength_error'));
                 $(el_window).find('.signup-error-msg').fadeIn();
@@ -185,7 +185,7 @@ function UIWindowSignup(options){
                 headers = window.custom_headers;
 
             $.ajax({
-                url: gui_origin + "/signup",
+                url: window.gui_origin + "/signup",
                 type: 'POST',
                 async: true,
                 headers: headers,
@@ -200,7 +200,7 @@ function UIWindowSignup(options){
                     p102xyzname: p102xyzname,
                 }),
                 success: async function (data){
-                    update_auth_data(data.token, data.user)
+                    window.update_auth_data(data.token, data.user)
                     
                     //send out the login event
                     if(options.reload_on_success){
