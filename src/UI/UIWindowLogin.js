@@ -20,6 +20,7 @@
 import UIWindow from './UIWindow.js'
 import UIWindowSignup from './UIWindowSignup.js'
 import UIWindowRecoverPassword from './UIWindowRecoverPassword.js'
+import UIWindowVerificationCode from './UIWindowVerificationCode.js';
 
 async function UIWindowLogin(options){
     options = options ?? {};
@@ -163,7 +164,12 @@ async function UIWindowLogin(options){
                 headers: headers,
                 contentType: "application/json",
                 data: data,				
-                success: function (data){
+                success: async function (data){
+                    if ( data.next_step === 'otp' ) {
+                        const value = await UIWindowVerificationCode();
+                        console.log('got value', value);
+                    }
+
                     window.update_auth_data(data.token, data.user);
                     
                     if(options.reload_on_success){

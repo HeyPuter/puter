@@ -1946,6 +1946,10 @@ label {
     cursor: pointer;
 }
 
+.send-conf-code {
+    cursor: pointer;
+}
+
 .email-confirm-code-hyphen {
     display: inline-block;
     width: 14%;
@@ -1954,7 +1958,19 @@ label {
     font-weight: 300;
 }
 
+.confirm-code-hyphen {
+    display: inline-block;
+    width: 14%;
+    text-align: center;
+    font-size: 40px;
+    font-weight: 300;
+}
+
 .send-conf-email:hover, .conf-email-log-out:hover {
+    text-decoration: underline;
+}
+
+.send-conf-code:hover {
     text-decoration: underline;
 }
 
