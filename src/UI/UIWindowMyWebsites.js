@@ -153,7 +153,7 @@ $(document).on('click', '.mywebsites-site-setting', function(e){
                     }
                 
                     $.ajax({
-                        url: api_origin + "/delete-site",
+                        url: window.api_origin + "/delete-site",
                         type: 'POST',
                         data: JSON.stringify({ 
                             site_uuid: $(e.target).attr('data-site-uuid'),
@@ -161,11 +161,11 @@ $(document).on('click', '.mywebsites-site-setting', function(e){
                         async: false,
                         contentType: "application/json",
                         headers: {
-                            "Authorization": "Bearer "+auth_token
+                            "Authorization": "Bearer "+window.auth_token
                         },
                         statusCode: {
                             401: function () {
-                                logout();
+                                window.logout();
                             },
                         },        
                         success: function (){ 
