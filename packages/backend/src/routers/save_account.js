@@ -85,11 +85,6 @@ router.post('/save_account', auth, express.json(), async (req, res, next)=>{
     // get pseudo user, if exists
     let pseudo_user = await db.read(`SELECT * FROM user WHERE email = ? AND password IS NULL`, [req.body.email]);
     pseudo_user = pseudo_user[0];
-    // get uuid user, if exists
-    if(req.body.uuid){
-        uuid_user = await db.read(`SELECT * FROM user WHERE uuid = ? LIMIT 1`, [req.body.uuid]);
-        uuid_user = uuid_user[0];
-    }
 
     // send_confirmation_code
     req.body.send_confirmation_code = req.body.send_confirmation_code ?? true;
