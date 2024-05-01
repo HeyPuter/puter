@@ -5,6 +5,7 @@
 // The implementation of this in packages/backend might not
 // work in older versions of node, so we instead re-implement
 // it here.
+import console from 'node:console';
 import process from 'node:process';
 
 const surrounding_box = (col, lines) => {
