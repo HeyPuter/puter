@@ -20,7 +20,7 @@
 function UIContextMenu(options){
     $('.window-active .window-app-iframe').css('pointer-events', 'none');
 
-    const menu_id = global_element_id++;
+    const menu_id = window.global_element_id++;
 
     let h = '';
     h += `<div 
@@ -114,8 +114,8 @@ function UIContextMenu(options){
     // Y position
     let y_pos;
     // is the menu going to go out of the window from the bottom?
-    if( (start_y + menu_height) > (window.innerHeight - taskbar_height - 10))
-        y_pos = window.innerHeight - menu_height - taskbar_height - 10;
+    if( (start_y + menu_height) > (window.innerHeight - window.taskbar_height - 10))
+        y_pos = window.innerHeight - menu_height - window.taskbar_height - 10;
     else
         y_pos = start_y;
 
@@ -257,7 +257,7 @@ function UIContextMenu(options){
             $(options.parent_element).css('overflow', 'scroll');
             $(options.parent_element).removeClass('has-open-contextmenu');
             if($(options.parent_element).hasClass('taskbar-item')){
-                make_taskbar_sortable()
+                window.make_taskbar_sortable()
             }
         }
     })
