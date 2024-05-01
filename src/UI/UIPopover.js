@@ -25,19 +25,19 @@ function UIPopover(options){
 
     $('.window-active .window-app-iframe').css('pointer-events', 'none');
 
-    global_element_id++;
+    window.global_element_id++;
 
     options.content = options.content ?? '';
 
     let h = '';
-    h += `<div id="popover-${global_element_id}" class="popover">`;
+    h += `<div id="popover-${window.global_element_id}" class="popover">`;
         h += options.content;
     h += `</div>`;
 
     $('body').append(h);
 
 
-    const el_popover = document.getElementById(`popover-${global_element_id}`);
+    const el_popover = document.getElementById(`popover-${window.global_element_id}`);
 
     $(el_popover).show(0, function(e){
         // options.onAppend()
@@ -73,7 +73,7 @@ function UIPopover(options){
         // Y position
         const popover_height = options.height ?? $(el_popover).height();
         if(options.center_horizontally){
-            y_pos = options.top ?? (window.innerHeight - (taskbar_height + popover_height + 10));
+            y_pos = options.top ?? (window.innerHeight - (window.taskbar_height + popover_height + 10));
         }else{
             y_pos = options.top ?? ($(options.snapToElement).offset().top + $(options.snapToElement).height() + 5);
         }
