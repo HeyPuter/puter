@@ -64,7 +64,7 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
         width: 450,
         dominant: true,
         onAppend: function(this_window){
-            $(this_window).find(`.publish-website-subdomain`).val(generate_identifier());
+            $(this_window).find(`.publish-website-subdomain`).val(window.generate_identifier());
             $(this_window).find(`.publish-website-subdomain`).get(0).focus({preventScroll:true});
         },
         window_class: 'window-publishWebsite',
@@ -91,8 +91,8 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
         puter.hosting.create(
             subdomain, 
             target_dir_path).then((res)=>{
+                let url = 'https://' + subdomain + '.' + window.hosting_domain + '/';
                 $(el_window).find('.window-publishWebsite-form').hide(100, function(){
-                    let url = 'https://' + subdomain + '.' + window.hosting_domain + '/';
                     $(el_window).find('.publishWebsite-published-link').attr('href', url);
                     $(el_window).find('.publishWebsite-published-link').text(url);
                     $(el_window).find('.window-publishWebsite-success').show(100)
@@ -107,7 +107,7 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
                     $(this).attr('data-website_url', url + $(this).attr('data-path').substring(target_dir_path.length));
                 })
 
-                update_sites_cache();
+                window.update_sites_cache();
             }).catch((err)=>{
                 err = err.error;
                 $(el_window).find('.publish-website-error-msg').html(
