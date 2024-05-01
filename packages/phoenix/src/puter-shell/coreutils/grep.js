@@ -78,7 +78,7 @@ export default {
             }
         }
         
-        const do_grep_line = async ( line ) => {
+        const do_grep_line = async ( line, lineNumber ) => {
             if ( line.endsWith('\n') ) line = line.slice(0, -1);
             const re = new RegExp(
                 pattern,
@@ -97,10 +97,9 @@ export default {
             );
 
             if ( lxor(values['invert-match'], re.test(line)) ) {
-                const lineNumber = values['line-number'] ? i + 1 : '';
-                const lineToPrint =
-                        lineNumber ? lineNumber + ':' : '' +
-                        line;
+                const lineToPrint = values['line-number']
+                    ? `${lineNumber + 1}:${line}`
+                    : line;
                     
                 console.log(`LINE{${lineToPrint}}`);
                 await ctx.externs.out.write(lineToPrint + '\n');
@@ -111,7 +110,7 @@ export default {
             for ( let i=0 ; i < lines.length ; i++ ) {
                 const line = lines[i];
 
-                await do_grep_line(line);
+                await do_grep_line(line, i);
             }
         }
 
@@ -139,10 +138,10 @@ export default {
 
         for ( let file of files ) {
             if ( file === '-' ) {
-                for ( ;; ) {
+                for ( let i = 0; ; i++) {
                     const { value, done } = await ctx.externs.in_.read();
                     if ( done ) break;
-                    await do_grep_line(value);
+                    await do_grep_line(value, i);
                 }
             } else {
                 file = resolveRelativePath(ctx.vars, file);
