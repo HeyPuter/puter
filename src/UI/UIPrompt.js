@@ -23,7 +23,7 @@ function UIPrompt(options){
     // set sensible defaults
     if(arguments.length > 0){
         // if first argument is a string, then assume it is the message
-        if(isString(arguments[0])){
+        if(window.isString(arguments[0])){
             options = {};
             options.message = arguments[0];
         }
