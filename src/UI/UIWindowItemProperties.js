@@ -132,7 +132,9 @@ async function UIWindowItemProperties(item_name, item_path, item_uid, left, top,
                         $(el_window).find('.item-prop-val-original-path').text(metadata.original_path);
                         $(el_window).find('.item-prop-original-path').show();
                     }
-                }catch(e){}
+                }catch(e){
+                    // Ignored
+                }
             }
 
             // shortcut to
@@ -144,7 +146,7 @@ async function UIWindowItemProperties(item_name, item_path, item_uid, left, top,
             // type
             $(el_window).find('.item-prop-val-type').html(fsentry.is_dir ? 'Directory' : (fsentry.type === null ? '-' : fsentry.type));
             // size
-            $(el_window).find('.item-prop-val-size').html(fsentry.size === null || fsentry.size === undefined  ? '-' : byte_format(fsentry.size));
+            $(el_window).find('.item-prop-val-size').html(fsentry.size === null || fsentry.size === undefined  ? '-' : window.byte_format(fsentry.size));
             // modified
             $(el_window).find('.item-prop-val-modified').html(fsentry.modified === 0 ? '-' : timeago.format(fsentry.modified*1000));
             // created
@@ -152,7 +154,7 @@ async function UIWindowItemProperties(item_name, item_path, item_uid, left, top,
             // subdomains
             if(fsentry.subdomains && fsentry.subdomains.length > 0 ){
                 fsentry.subdomains.forEach(subdomain => {
-                    $(el_window).find('.item-prop-val-websites').append(`<p class="item-prop-website-entry" data-uuid="${html_encode(subdomain.uuid)}" style="margin-bottom:5px; margin-top:5px;"><a target="_blank" href="${html_encode(subdomain.address)}">${html_encode(subdomain.address)}</a> (<span class="disassociate-website-link" data-uuid="${html_encode(subdomain.uuid)}" data-subdomain="${extractSubdomain(subdomain.address)}">disassociate</span>)</p>`);
+                    $(el_window).find('.item-prop-val-websites').append(`<p class="item-prop-website-entry" data-uuid="${html_encode(subdomain.uuid)}" style="margin-bottom:5px; margin-top:5px;"><a target="_blank" href="${html_encode(subdomain.address)}">${html_encode(subdomain.address)}</a> (<span class="disassociate-website-link" data-uuid="${html_encode(subdomain.uuid)}" data-subdomain="${window.extractSubdomain(subdomain.address)}">disassociate</span>)</p>`);
                 });
             }
             else{
