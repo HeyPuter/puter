@@ -31,6 +31,8 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
             `UPDATE user SET otp_secret = ? WHERE uuid = ?`,
             [result.secret, user.uuid]
         );
+        // update cached user
+        req.user.otp_secret = result.secret;
         return result;
     };
 

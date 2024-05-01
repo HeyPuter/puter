@@ -21,6 +21,8 @@ import UIWindow from './UIWindow.js'
 import UIWindowSignup from './UIWindowSignup.js'
 import UIWindowRecoverPassword from './UIWindowRecoverPassword.js'
 import UIWindowVerificationCode from './UIWindowVerificationCode.js';
+import TeePromise from '../util/TeePromise.js';
+import UIAlert from './UIAlert.js';
 
 async function UIWindowLogin(options){
     options = options ?? {};
@@ -165,10 +167,44 @@ async function UIWindowLogin(options){
                 contentType: "application/json",
                 data: data,				
                 success: async function (data){
+                    let p = Promise.resolve();
                     if ( data.next_step === 'otp' ) {
-                        const value = await UIWindowVerificationCode();
-                        console.log('got value', value);
+                        p = new TeePromise();
+                        UIWindowVerificationCode({
+                            title_key: 'confirm_code_2fa_title',
+                            instruction_key: 'confirm_code_2fa_instruction',
+                            submit_btn_key: 'confirm_code_2fa_submit_btn',
+                            on_value: async ({ actions, win, value }) => {
+                                try {
+                                    const resp = await fetch(`${api_origin}/login/otp`, {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                        },
+                                        body: JSON.stringify({
+                                            token: data.otp_jwt_token,
+                                            code: value,
+                                        }),
+                                    });
+
+                                    data = await resp.json();
+
+                                    if ( ! data.proceed ) {
+                                        actions.clear();
+                                        actions.show_error(i18n('confirm_code_generic_incorrect'));
+                                        return;
+                                    }
+
+                                    $(win).close();
+                                    p.resolve();
+                                } catch (e) {
+                                    actions.show_error(e.message ?? i18n('error_unknown_cause'));
+                                }
+                            },
+                        });
                     }
+
+                    await p;
 
                     window.update_auth_data(data.token, data.user);
                     

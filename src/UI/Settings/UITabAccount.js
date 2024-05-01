@@ -64,14 +64,6 @@ export default {
             h += `</div>`;
         }
 
-        // session manager
-        h += `<div class="settings-card">`;
-            h += `<strong>${i18n('sessions')}</strong>`;
-            h += `<div style="flex-grow:1;">`;
-                h += `<button class="button manage-sessions" style="float:right;">${i18n('manage_sessions')}</button>`;
-            h += `</div>`;
-        h += `</div>`;
-
         // 'Delete Account' button
         h += `<div class="settings-card settings-card-danger">`;
             h += `<strong style="display: inline-block;">${i18n("delete_account")}</strong>`;

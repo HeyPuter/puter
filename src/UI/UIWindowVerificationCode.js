@@ -7,7 +7,6 @@ const UIWindowVerificationCode = async function UIWindowVerificationCode ( optio
     let is_checking_code = false;
 
     const html_title = i18n(options.title_key || 'confirm_code_generic_title');
-    const html_confirm = i18n(options.confirm_key || 'confirm_code_generic_confirm');
     const html_instruction = i18n(options.instruction_key || 'confirm_code_generic_instruction');
     const submit_btn_txt = i18n(options.submit_btn_key || 'confirm_code_generic_submit');
 
@@ -29,9 +28,6 @@ const UIWindowVerificationCode = async function UIWindowVerificationCode ( optio
             </fieldset>`;
             h += `<button type="submit" class="button button-block button-primary code-confirm-btn" style="margin-top:10px;" disabled>${submit_btn_txt}</button>`;
         h += `</form>`;
-        h += `<div style="text-align:center; padding:10px; font-size:14px; margin-top:10px;">`;
-            h += `<span class="send-conf-code">what is this text</span>`;
-        h += `</div>`;
     h += `</div>`;
 
     const el_window = await UIWindow({
@@ -69,10 +65,22 @@ const UIWindowVerificationCode = async function UIWindowVerificationCode ( optio
         }
     });
 
-
-    const p = new TeePromise();
-    
     $(el_window).find('.digit-input').first().focus();
+
+    const actions = {
+        clear: () => {
+            final_code = '';
+            $(el_window).find('.code-confirm-btn').prop('disabled', false);
+            $(el_window).find('.code-confirm-btn').html(submit_btn_txt);
+            $(el_window).find('.digit-input').val('');
+            $(el_window).find('.digit-input').first().focus();
+            
+        },
+        show_error: (msg) => {
+            $(el_window).find('.error').html(html_encode(msg));
+            $(el_window).find('.error').fadeIn();
+        }
+    };
 
     $(el_window).find('.code-confirm-btn').on('click submit', function(e){
         e.preventDefault();
@@ -92,7 +100,11 @@ const UIWindowVerificationCode = async function UIWindowVerificationCode ( optio
 
         setTimeout(() => {
             console.log('final code', final_code);
-            p.resolve(final_code);
+            options.on_value({
+                actions,
+                value: final_code,
+                win: el_window
+            });
         }, 1000);
     })
 
