@@ -45,7 +45,7 @@ async function UIWindowNewPassword(options){
             h += `<button class="change-password-btn button button-primary button-block button-normal">${i18n('set_new_password')}</button>`;
         h += `</div>`;
 
-        const response = await fetch(api_origin + "/verify-pass-recovery-token", {
+        const response = await fetch(window.api_origin + "/verify-pass-recovery-token", {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -150,7 +150,7 @@ async function UIWindowNewPassword(options){
             }
 
             // check password strength
-            const pass_strength = check_password_strength(new_password);
+            const pass_strength = window.check_password_strength(new_password);
             if(!pass_strength.overallPass){
                 $(el_window).find('.form-error-msg').html(i18n('password_strength_error'));
                 $(el_window).find('.form-error-msg').fadeIn();
@@ -160,7 +160,7 @@ async function UIWindowNewPassword(options){
             $(el_window).find('.form-error-msg').hide();
         
             $.ajax({
-                url: api_origin + "/set-pass-using-token",
+                url: window.api_origin + "/set-pass-using-token",
                 type: 'POST',
                 async: true,
                 contentType: "application/json",
