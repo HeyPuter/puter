@@ -71,7 +71,7 @@ async function UIWindowDownloadProgress(options){
 
     // cancel download button clicked
     $(el_window).find('.download-cancel-btn').on('click', function(){
-        operation_cancelled[options.operation_id] = true;
+        window.operation_cancelled[options.operation_id] = true;
         $(el_window).close();
     })
 
