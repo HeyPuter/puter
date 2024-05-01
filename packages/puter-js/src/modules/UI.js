@@ -415,8 +415,8 @@ class UI extends EventListener {
             // Item Watch response
             else if(e.data.msg === "itemChanged" && e.data.data && e.data.data.uid){
                 //excute callback
-                if(itemWatchCallbackFunctions[e.data.data.uid] && typeof itemWatchCallbackFunctions[e.data.data.uid] === 'function')
-                    itemWatchCallbackFunctions[e.data.data.uid](e.data.data);
+                if(this.itemWatchCallbackFunctions[e.data.data.uid] && typeof this.itemWatchCallbackFunctions[e.data.data.uid] === 'function')
+                    this.itemWatchCallbackFunctions[e.data.data.uid](e.data.data);
             }
             // Broadcasts
             else if (e.data.msg === 'broadcast') {
