@@ -21,6 +21,7 @@
  */
 export class PTT {
     constructor(pty) {
+        const encoder = new TextEncoder();
         this.readableStream = new ReadableStream({
             start: controller => {
                 this.readController = controller;
