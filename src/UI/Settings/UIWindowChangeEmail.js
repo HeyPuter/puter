@@ -93,11 +93,11 @@ async function UIWindowChangeEmail(options){
         $(el_window).find('.new-email').attr('disabled', true);
     
         $.ajax({
-            url: api_origin + "/change_email/start",
+            url: window.api_origin + "/change_email/start",
             type: 'POST',
             async: true,
             headers: {
-                "Authorization": "Bearer "+auth_token
+                "Authorization": "Bearer "+window.auth_token
             },
             contentType: "application/json",
             data: JSON.stringify({ 

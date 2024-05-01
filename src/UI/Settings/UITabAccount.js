@@ -31,7 +31,7 @@ export default {
         let h = `<h1>${i18n('account')}</h1>`;
 
         // change password button
-        if(!user.is_temp){
+        if(!window.user.is_temp){
             h += `<div class="settings-card">`;
                 h += `<strong>${i18n('password')}</strong>`;
                 h += `<div style="flex-grow:1;">`;
@@ -44,7 +44,7 @@ export default {
         h += `<div class="settings-card">`;
             h += `<div>`;
                 h += `<strong style="display:block;">${i18n('username')}</strong>`;
-                h += `<span class="username" style="display:block; margin-top:5px;">${html_encode(user.username)}</span>`;
+                h += `<span class="username" style="display:block; margin-top:5px;">${html_encode(window.user.username)}</span>`;
             h += `</div>`;
             h += `<div style="flex-grow:1;">`;
                 h += `<button class="button change-username" style="float:right;">${i18n('change_username')}</button>`;
@@ -52,11 +52,11 @@ export default {
         h += `</div>`;
 
         // change email button
-        if(user.email){
+        if(window.user.email){
             h += `<div class="settings-card">`;
                 h += `<div>`;
                     h += `<strong style="display:block;">${i18n('email')}</strong>`;
-                    h += `<span class="user-email" style="display:block; margin-top:5px;">${html_encode(user.email)}</span>`;
+                    h += `<span class="user-email" style="display:block; margin-top:5px;">${html_encode(window.user.email)}</span>`;
                 h += `</div>`;
                 h += `<div style="flex-grow:1;">`;
                     h += `<button class="button change-email" style="float:right;">${i18n('change_email')}</button>`;

@@ -42,16 +42,16 @@ export default {
     },
     init: ($el_window) => {
         $.ajax({
-            url: api_origin + "/drivers/usage",
+            url: window.api_origin + "/drivers/usage",
             type: 'GET',
             async: true,
             contentType: "application/json",
             headers: {
-                "Authorization": "Bearer " + auth_token
+                "Authorization": "Bearer " + window.auth_token
             },
             statusCode: {
                 401: function () {
-                    logout();
+                    window.logout();
                 },
             },
             success: function (res) {
@@ -93,16 +93,16 @@ export default {
 
         // df
         $.ajax({
-            url: api_origin + "/df",
+            url: window.api_origin + "/df",
             type: 'GET',
             async: true,
             contentType: "application/json",
             headers: {
-                "Authorization": "Bearer " + auth_token
+                "Authorization": "Bearer " + window.auth_token
             },
             statusCode: {
                 401: function () {
-                    logout();
+                    window.logout();
                 },
             },
             success: function (res) {
@@ -113,15 +113,15 @@ export default {
 
                 let host_usage_percentage = 0;
                 if ( res.host_used ) {
-                    $('#storage-puter-used').html(byte_format(res.used));
+                    $('#storage-puter-used').html(window.byte_format(res.used));
                     $('#storage-puter-used-w').show();
 
                     general_used = res.host_used;
                     host_usage_percentage = ((res.host_used - res.used) / res.capacity * 100).toFixed(0);
                 }
 
-                $('#storage-used').html(byte_format(general_used));
-                $('#storage-capacity').html(byte_format(res.capacity));
+                $('#storage-used').html(window.byte_format(general_used));
+                $('#storage-capacity').html(window.byte_format(res.capacity));
                 $('#storage-used-percent').html(
                     usage_percentage + '%' +
                     (host_usage_percentage > 0
