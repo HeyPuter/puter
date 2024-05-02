@@ -79,7 +79,7 @@ window.initgui = async function(){
         puter.setAuthToken(window.auth_token);
     // update SDK if api_origin is different from the one in the SDK
     if(window.api_origin && puter.APIOrigin !== window.api_origin)
-        puter.setAPIOrigin(api_origin);
+        puter.setAPIOrigin(window.api_origin);
 
     // Checks the type of device the user is on (phone, tablet, or desktop).
     // Depending on the device type, it sets a class attribute on the body tag 
@@ -115,9 +115,9 @@ window.initgui = async function(){
 
         // get query params, any param that doesn't start with 'puter.' will be passed to the app
         window.app_query_params = {};
-        for (let [key, value] of url_query_params) {
+        for (let [key, value] of window.url_query_params) {
             if(!key.startsWith('puter.'))
-                app_query_params[key] = value;
+                window.app_query_params[key] = value;
         }
     }
 
@@ -133,9 +133,9 @@ window.initgui = async function(){
     // Determine if we are in full-page mode
     // i.e. https://puter.com/app/<app_name>/?puter.fullpage=true
     //--------------------------------------------------------------------------------------
-    if(url_query_params.has('puter.fullpage') && (url_query_params.get('puter.fullpage') === 'false' || url_query_params.get('puter.fullpage') === '0')){
+    if(window.url_query_params.has('puter.fullpage') && (window.url_query_params.get('puter.fullpage') === 'false' || window.url_query_params.get('puter.fullpage') === '0')){
         window.is_fullpage_mode = false;
-    }else if(url_query_params.has('puter.fullpage') && (url_query_params.get('puter.fullpage') === 'true' || url_query_params.get('puter.fullpage') === '1')){
+    }else if(window.url_query_params.has('puter.fullpage') && (window.url_query_params.get('puter.fullpage') === 'true' || window.url_query_params.get('puter.fullpage') === '1')){
         // In fullpage mode, we want to hide the taskbar for better UX
         window.taskbar_height = 0;
 
@@ -151,7 +151,7 @@ window.initgui = async function(){
     // Is GUI embedded in a popup?
     // i.e. https://puter.com/?embedded_in_popup=true
     //--------------------------------------------------------------------------------------
-    if(url_query_params.has('embedded_in_popup') && (url_query_params.get('embedded_in_popup') === 'true' || url_query_params.get('embedded_in_popup') === '1')){
+    if(window.url_query_params.has('embedded_in_popup') && (window.url_query_params.get('embedded_in_popup') === 'true' || window.url_query_params.get('embedded_in_popup') === '1')){
         window.embedded_in_popup = true;
         $('body').addClass('embedded-in-popup');
 
@@ -161,16 +161,16 @@ window.initgui = async function(){
         // if no referrer, request it from the opener via messaging
         if(!document.referrer){
             try{
-                openerOrigin = await requestOpenerOrigin();
+                window.openerOrigin = await requestOpenerOrigin();
             }catch(e){
                 throw new Error('No referrer found');
             }
         }
 
         // this is the referrer in terms of user acquisition
-        window.referrerStr = openerOrigin;
+        window.referrerStr = window.openerOrigin;
 
-        if(action === 'sign-in' && !is_auth()){
+        if(action === 'sign-in' && !window.is_auth()){
             // show signup window
             if(await UIWindowSignup({
                 reload_on_success: false,
@@ -181,9 +181,9 @@ window.initgui = async function(){
                     cover_page: true,
                 }
             }))
-                await getUserAppToken(openerOrigin);
+                await window.getUserAppToken(window.openerOrigin);
         }
-        else if(action === 'sign-in' && is_auth()){
+        else if(action === 'sign-in' && window.is_auth()){
             picked_a_user_for_sdk_login = await UIWindowSessionList({
                 reload_on_success: false,
                 draggable_body: false,
@@ -192,7 +192,7 @@ window.initgui = async function(){
             });
 
             if(picked_a_user_for_sdk_login){
-                await getUserAppToken(openerOrigin);
+                await window.getUserAppToken(window.openerOrigin);
             }
 
         }
@@ -202,8 +202,8 @@ window.initgui = async function(){
     // Get user referral code from URL query params
     // i.e. https://puter.com/?r=123456
     //--------------------------------------------------------------------------------------
-    if(url_query_params.has('r')){
-        window.referral_code = url_query_params.get('r');
+    if(window.url_query_params.has('r')){
+        window.referral_code = window.url_query_params.get('r');
         // remove 'r' from URL
         window.history.pushState(null, document.title, '/');    
         // show referral notice, this will be used later if Desktop is loaded
@@ -215,9 +215,9 @@ window.initgui = async function(){
     // Action: Request Permission
     //--------------------------------------------------------------------------------------
     if(action === 'request-permission'){
-        let app_uid = url_query_params.get('app_uid');
-        let origin = openerOrigin ?? url_query_params.get('origin');
-        let permission = url_query_params.get('permission');
+        let app_uid = window.url_query_params.get('app_uid');
+        let origin = window.openerOrigin ?? window.url_query_params.get('origin');
+        let permission = window.url_query_params.get('permission');
 
         let granted = await UIWindowRequestPermission({
             app_uid: app_uid,
@@ -225,7 +225,7 @@ window.initgui = async function(){
             permission: permission,
         });
 
-        let messageTarget = embedded_in_popup ? window.opener : window.parent;
+        let messageTarget = window.embedded_in_popup ? window.opener : window.parent;
         messageTarget.postMessage({
             msg: "permissionGranted", 
             granted: granted,
@@ -235,8 +235,8 @@ window.initgui = async function(){
     // Action: Password recovery
     //--------------------------------------------------------------------------------------
     else if(action === 'set-new-password'){
-        let user = url_query_params.get('user');
-        let token = url_query_params.get('token');
+        let user = window.url_query_params.get('user');
+        let token = window.url_query_params.get('token');
 
         await UIWindowNewPassword({
             user: user,
@@ -267,11 +267,11 @@ window.initgui = async function(){
     // if yes, we need to get the user app token and send it to the opener
     // if not, we need to ask the user for confirmation before proceeding BUT only if the action is a file-picker action
     // -------------------------------------------------------------------------------------
-    if(window.embedded_in_popup && openerOrigin){
-        let response = await checkUserSiteRelationship(openerOrigin);
+    if(window.embedded_in_popup && window.openerOrigin){
+        let response = await window.checkUserSiteRelationship(window.openerOrigin);
         window.userAppToken = response.token;
 
-        if(!picked_a_user_for_sdk_login && logged_in_users.length > 0 && (!userAppToken || url_query_params.get('request_auth') )){
+        if(!picked_a_user_for_sdk_login && window.logged_in_users.length > 0 && (!window.userAppToken || window.url_query_params.get('request_auth') )){
             await UIWindowSessionList({
                 reload_on_success: false,
                 draggable_body: false,
@@ -281,11 +281,11 @@ window.initgui = async function(){
         }
         // if not and action is show-open-file-picker, we need confirmation before proceeding
         if(action === 'show-open-file-picker' || action === 'show-save-file-picker' || action === 'show-directory-picker'){
-            if(!userAppToken){
+            if(!window.userAppToken){
                 let is_confirmed = await PuterDialog();
                 
                 if(is_confirmed === false){
-                    if(!is_auth()){
+                    if(!window.is_auth()){
                         window.first_visit_ever = false;
                         localStorage.removeItem("has_visited_before", true);
                     }
@@ -299,14 +299,14 @@ window.initgui = async function(){
     // -------------------------------------------------------------------------------------
     // `auth_token` provided in URL, use it to log in
     // -------------------------------------------------------------------------------------
-    else if(url_query_params.has('auth_token')){
-        let query_param_auth_token = url_query_params.get('auth_token');
+    else if(window.url_query_params.has('auth_token')){
+        let query_param_auth_token = window.url_query_params.get('auth_token');
 
         try{
             whoami = await puter.os.user();
         }catch(e){
             if(e.status === 401){
-                logout();
+                window.logout();
                 return;
             }
         }
@@ -328,7 +328,7 @@ window.initgui = async function(){
             // show login progress window
             UIWindowLoginInProgress({user_info: whoami});
             // update auth data
-            update_auth_data(query_param_auth_token, whoami);
+            window.update_auth_data(query_param_auth_token, whoami);
         }
         // remove auth_token from URL
         window.history.pushState(null, document.title, '/');
@@ -360,7 +360,7 @@ window.initgui = async function(){
     // -------------------------------------------------------------------------------------
     // Authed
     // -------------------------------------------------------------------------------------
-    if(is_auth()){
+    if(window.is_auth()){
         // try to get user data using /whoami, only if that data is missing
         if(!whoami){
             try{
@@ -385,14 +385,14 @@ window.initgui = async function(){
                 }
                 while(!is_verified)
             }
-            update_auth_data(whoami.token || window.auth_token, whoami);
+            window.update_auth_data(whoami.token || window.auth_token, whoami);
 
             // -------------------------------------------------------------------------------------
             // Load desktop, only if we're not embedded in a popup
             // -------------------------------------------------------------------------------------
             if(!window.embedded_in_popup){
-                await get_auto_arrange_data()
-                puter.fs.stat(desktop_path, async function(desktop_fsentry){
+                await window.get_auto_arrange_data()
+                puter.fs.stat(window.desktop_path, async function(desktop_fsentry){
                     UIDesktop({desktop_fsentry: desktop_fsentry});
                 })
             }
@@ -400,9 +400,9 @@ window.initgui = async function(){
             // If embedded in a popup, send the token to the opener and close the popup
             // -------------------------------------------------------------------------------------
             else{
-                let msg_id = url_query_params.get('msg_id');
+                let msg_id = window.url_query_params.get('msg_id');
                 try{
-                    let data = await getUserAppToken(new URL(openerOrigin).origin);
+                    let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
                     // This is an implicit app and the app_uid is sent back from the server
                     // we cache it here so that we can use it later
                     window.host_app_uid = data.app_uid;
@@ -412,9 +412,9 @@ window.initgui = async function(){
                         success: true,
                         token: data.token,
                         app_uid: data.app_uid,
-                        username: user.username,
+                        username: window.user.username,
                         msg_id: msg_id,
-                    }, openerOrigin);
+                    }, window.openerOrigin);
                     // close popup
                     if(!action || action==='sign-in'){
                         window.close();
@@ -427,7 +427,7 @@ window.initgui = async function(){
                         success: false,
                         token: null,
                         msg_id: msg_id,
-                    }, openerOrigin);
+                    }, window.openerOrigin);
                     // close popup
                     window.close();
                     window.open('','_self').close();
@@ -435,13 +435,13 @@ window.initgui = async function(){
 
                 let app_uid;
     
-                if(openerOrigin){
-                    app_uid = await getAppUIDFromOrigin(openerOrigin);
+                if(window.openerOrigin){
+                    app_uid = await window.getAppUIDFromOrigin(window.openerOrigin);
                     window.host_app_uid = app_uid;
                 }
     
                 if(action === 'show-open-file-picker'){
-                    let options = url_query_params.get('options');
+                    let options = window.url_query_params.get('options');
                     options = JSON.parse(options ?? '{}');
 
                     // Open dialog
@@ -505,7 +505,7 @@ window.initgui = async function(){
                 // Action: Show Save File Dialog
                 //--------------------------------------------------------------------------------------
                 else if(action === 'show-save-file-picker'){
-                    let allowed_file_types = url_query_params.get('allowed_file_types');
+                    let allowed_file_types = window.url_query_params.get('allowed_file_types');
 
                     // send 'sendMeFileData' event to parent
                     window.opener.postMessage({
@@ -627,13 +627,13 @@ window.initgui = async function(){
 
                                 // done
                                 let busy_duration = (Date.now() - busy_init_ts);
-                                if( busy_duration >= busy_indicator_hide_delay){
+                                if( busy_duration >= window.busy_indicator_hide_delay){
                                     $(el_filedialog_window).close();   
                                 }else{
                                     setTimeout(() => {
                                         // close this dialog
                                         $(el_filedialog_window).close();  
-                                    }, Math.abs(busy_indicator_hide_delay - busy_duration));
+                                    }, Math.abs(window.busy_indicator_hide_delay - busy_duration));
                                 }
                             }
                         });
@@ -644,7 +644,7 @@ window.initgui = async function(){
             // ----------------------------------------------------------
             // Get user's sites
             // ----------------------------------------------------------
-            update_sites_cache();
+            window.update_sites_cache();
         } 
     }
     // -------------------------------------------------------------------------------------
@@ -653,13 +653,13 @@ window.initgui = async function(){
     // because it's not visible anyway and it's a waste of bandwidth
     // -------------------------------------------------------------------------------------
     if(!window.is_fullpage_mode && !window.embedded_in_popup){
-        refresh_desktop_background();
+        window.refresh_desktop_background();
     }
     // -------------------------------------------------------------------------------------
     // Un-authed but not first visit -> try to log in/sign up
     // -------------------------------------------------------------------------------------
-    if(!is_auth() && !first_visit_ever){
-        if(logged_in_users.length > 0){
+    if(!window.is_auth() && !window.first_visit_ever){
+        if(window.logged_in_users.length > 0){
             UIWindowSessionList();
         }
         else{
@@ -676,7 +676,7 @@ window.initgui = async function(){
     // -------------------------------------------------------------------------------------
     // Un-authed and first visit ever -> create temp user
     // -------------------------------------------------------------------------------------
-    else if(!is_auth() && first_visit_ever){
+    else if(!window.is_auth() && window.first_visit_ever){
         let referrer;
         try{
             referrer = new URL(window.location.href).pathname;
@@ -690,10 +690,10 @@ window.initgui = async function(){
         window.referrerStr = referrer;
 
         // in case there is also a referrer query param, add it to the referrer URL
-        if(url_query_params.has('ref')){
+        if(window.url_query_params.has('ref')){
             if(!referrer)
                 referrer = '/';
-            referrer += '?ref=' + html_encode(url_query_params.get('ref'));
+            referrer += '?ref=' + html_encode(window.url_query_params.get('ref'));
         }
 
         
@@ -701,7 +701,7 @@ window.initgui = async function(){
         if(window.custom_headers)
             headers = window.custom_headers;
         $.ajax({
-            url: gui_origin + "/signup",
+            url: window.gui_origin + "/signup",
             type: 'POST',
             async: true,
             headers: headers,
@@ -712,7 +712,7 @@ window.initgui = async function(){
                 is_temp: true,
             }),
             success: async function (data){
-                update_auth_data(data.token, data.user);
+                window.update_auth_data(data.token, data.user);
                 document.dispatchEvent(new Event("login", { bubbles: true})); 
             },
             error: function (err){
@@ -725,7 +725,7 @@ window.initgui = async function(){
     }
 
     // if there is at least one window open (only non-Explorer windows), ask user for confirmation when navigating away
-    if(feature_flags.prompt_user_when_navigation_away_from_puter){
+    if(window.feature_flags.prompt_user_when_navigation_away_from_puter){
         window.onbeforeunload = function(){
             if($(`.window:not(.window[data-app="explorer"])`).length > 0)
                 return true;
@@ -743,8 +743,8 @@ window.initgui = async function(){
         // Load desktop, if not embedded in a popup
         // -------------------------------------------------------------------------------------
         if(!window.embedded_in_popup){
-            await get_auto_arrange_data();
-            puter.fs.stat(desktop_path, function (desktop_fsentry) {
+            await window.get_auto_arrange_data();
+            puter.fs.stat(window.desktop_path, function (desktop_fsentry) {
                 UIDesktop({ desktop_fsentry: desktop_fsentry });
             })
         }
@@ -752,10 +752,10 @@ window.initgui = async function(){
         // If embedded in a popup, send the 'ready' event to referrer and close the popup
         // -------------------------------------------------------------------------------------
         else{
-            let msg_id = url_query_params.get('msg_id');
+            let msg_id = window.url_query_params.get('msg_id');
             try{
 
-                let data = await getUserAppToken(new URL(openerOrigin).origin);
+                let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
                 // This is an implicit app and the app_uid is sent back from the server
                 // we cache it here so that we can use it later
                 window.host_app_uid = data.app_uid;
@@ -765,9 +765,9 @@ window.initgui = async function(){
                     success: true,
                     msg_id: msg_id,
                     token: data.token,
-                    username: user.username,
+                    username: window.user.username,
                     app_uid: data.app_uid,
-                }, openerOrigin);
+                }, window.openerOrigin);
                 // close popup
                 if(!action || action==='sign-in'){
                     window.close();
@@ -780,7 +780,7 @@ window.initgui = async function(){
                     msg_id: msg_id,
                     success: false,
                     token: null,
-                }, openerOrigin);
+                }, window.openerOrigin);
                 // close popup
                 window.close();
                 window.open('','_self').close();
@@ -789,8 +789,8 @@ window.initgui = async function(){
 
             let app_uid;
 
-            if(openerOrigin){
-                app_uid = await getAppUIDFromOrigin(openerOrigin);
+            if(window.openerOrigin){
+                app_uid = await window.getAppUIDFromOrigin(window.openerOrigin);
                 window.host_app_uid = app_uid;
             }
 
@@ -798,7 +798,7 @@ window.initgui = async function(){
             // Action: Show Open File Picker
             //--------------------------------------------------------------------------------------
             if(action === 'show-open-file-picker'){
-                let options = url_query_params.get('options');
+                let options = window.url_query_params.get('options');
                 options = JSON.parse(options ?? '{}');
 
                 // Open dialog
@@ -861,7 +861,7 @@ window.initgui = async function(){
             // Action: Show Save File Dialog
             //--------------------------------------------------------------------------------------
             else if(action === 'show-save-file-picker'){
-                let allowed_file_types = url_query_params.get('allowed_file_types');
+                let allowed_file_types = window.url_query_params.get('allowed_file_types');
 
                 // send 'sendMeFileData' event to parent
                 window.opener.postMessage({
@@ -984,13 +984,13 @@ window.initgui = async function(){
 
                             // done
                             let busy_duration = (Date.now() - busy_init_ts);
-                            if( busy_duration >= busy_indicator_hide_delay){
+                            if( busy_duration >= window.busy_indicator_hide_delay){
                                 $(el_filedialog_window).close();   
                             }else{
                                 setTimeout(() => {
                                     // close this dialog
                                     $(el_filedialog_window).close();  
-                                }, Math.abs(busy_indicator_hide_delay - busy_duration));
+                                }, Math.abs(window.busy_indicator_hide_delay - busy_duration));
                             }
                         }
 
@@ -1018,7 +1018,7 @@ window.initgui = async function(){
         // If .item-container clicked, unselect all its item children
         if($(e.target).hasClass('item-container') && !e.ctrlKey && !e.metaKey){
             $(e.target).children('.item-selected').removeClass('item-selected');
-            update_explorer_footer_selected_items_count(e.target);
+            window.update_explorer_footer_selected_items_count(e.target);
         }
 
         // If the clicked element is not a context menu, remove all context menus
@@ -1054,21 +1054,21 @@ window.initgui = async function(){
 
         // update active_item_container
         if($(e.target).hasClass('item-container')){
-            active_item_container = e.target;
+            window.active_item_container = e.target;
         }else{
             let ic = $(e.target).closest('.item-container')
             if(ic.length > 0){
-                active_item_container = ic.get(0);
+                window.active_item_container = ic.get(0);
             }else{
                 let pp = $(e.target).find('.item-container')
                 if(pp.length > 0){
-                    active_item_container = pp.get(0);
+                    window.active_item_container = pp.get(0);
                 }
             }
         }
 
         //active element
-        active_element = e.target;
+        window.active_element = e.target;
     });
 
     $(document).bind('keydown', async function(e){
@@ -1176,13 +1176,13 @@ window.initgui = async function(){
                 // if no item is selected and down arrow is pressed, select the first item
                 if($('.context-menu-active .context-menu-item-active').length === 0 && (e.which === 40)){
                     let selected_item = $('.context-menu-active .context-menu-item').get(0);
-                    select_ctxmenu_item(selected_item);
+                    window.select_ctxmenu_item(selected_item);
                     return false;
                 }
                 // if no item is selected and up arrow is pressed, select the last item
                 else if($('.context-menu-active .context-menu-item-active').length === 0 && (e.which === 38)){
                     let selected_item = $('.context-menu .context-menu-item').get($('.context-menu .context-menu-item').length - 1);
-                    select_ctxmenu_item(selected_item);
+                    window.select_ctxmenu_item(selected_item);
                     return false;
                 }
                 // if an item is selected and down arrow is pressed, select the next enabled item
@@ -1195,7 +1195,7 @@ window.initgui = async function(){
                         new_selected_item_index = new_selected_item_index + 1;
                         new_selected_item = $('.context-menu-active .context-menu-item').get(new_selected_item_index);
                     }
-                    select_ctxmenu_item(new_selected_item);
+                    window.select_ctxmenu_item(new_selected_item);
                     return false;
                 }
                 // if an item is selected and up arrow is pressed, select the previous enabled item
@@ -1208,7 +1208,7 @@ window.initgui = async function(){
                         new_selected_item_index = new_selected_item_index - 1;
                         new_selected_item = $('.context-menu-active .context-menu-item').get(new_selected_item_index);
                     }
-                    select_ctxmenu_item(new_selected_item);
+                    window.select_ctxmenu_item(new_selected_item);
                     return false;
                 }
                 // if right arrow is pressed, open the submenu by triggering a mouseover event
@@ -1219,7 +1219,7 @@ window.initgui = async function(){
                     if($(selected_item).hasClass('context-menu-item-submenu') === true){
                         $(selected_item).removeClass('context-menu-item-active');
                         $(selected_item).addClass('context-menu-item-active-blurred');
-                        select_ctxmenu_item($('.context-menu[data-is-submenu="true"] .context-menu-item').get(0));
+                        window.select_ctxmenu_item($('.context-menu[data-is-submenu="true"] .context-menu-item').get(0));
                     }
                     return false;
                 }
@@ -1252,27 +1252,27 @@ window.initgui = async function(){
             else if(!$(focused_el).is('input') && !$(focused_el).is('textarea') && (e.which === 37 || e.which === 38 || e.which === 39 || e.which === 40)){
                 let item_width = 110, item_height = 110, selected_item;
                 // select first item in container if none is selected
-                if($(active_item_container).find('.item-selected').length === 0){
-                    selected_item = $(active_item_container).find('.item').get(0);
-                    active_element = selected_item;
-                    $(active_item_container).find('.item-selected').removeClass('item-selected');
+                if($(window.active_item_container).find('.item-selected').length === 0){
+                    selected_item = $(window.active_item_container).find('.item').get(0);
+                    window.active_element = selected_item;
+                    $(window.active_item_container).find('.item-selected').removeClass('item-selected');
                     $(selected_item).addClass('item-selected');
                     return false;
                 }
                 // if Shift key is pressed and ONE item is already selected, pick that item
-                else if($(active_item_container).find('.item-selected').length === 1 && e.shiftKey){
-                    selected_item = $(active_item_container).find('.item-selected').get(0);
+                else if($(window.active_item_container).find('.item-selected').length === 1 && e.shiftKey){
+                    selected_item = $(window.active_item_container).find('.item-selected').get(0);
                 }
                 // if Shift key is pressed and MORE THAN ONE item is selected, pick the latest active item
-                else if($(active_item_container).find('.item-selected').length > 1 && e.shiftKey){
-                    selected_item = $(active_element).hasClass('item') ? active_element : $(active_element).closest('.item').get(0);
+                else if($(window.active_item_container).find('.item-selected').length > 1 && e.shiftKey){
+                    selected_item = $(window.active_element).hasClass('item') ? window.active_element : $(window.active_element).closest('.item').get(0);
                 }
                 // otherwise if an item is selected, pick that item
-                else if($(active_item_container).find('.item-selected').length === 1){
-                    selected_item = $(active_item_container).find('.item-selected').get(0);
+                else if($(window.active_item_container).find('.item-selected').length === 1){
+                    selected_item = $(window.active_item_container).find('.item-selected').get(0);
                 }
                 else{
-                    selected_item = $(active_element).hasClass('item') ? active_element : $(active_element).closest('.item').get(0);
+                    selected_item = $(window.active_element).hasClass('item') ? window.active_element : $(window.active_element).closest('.item').get(0);
                 }
                 
                 // override the default behavior of ctrl/meta key
@@ -1320,7 +1320,7 @@ window.initgui = async function(){
                 let next_item;
                 for (let index = 0; index < elements_at_next_pos.length; index++) {
                     const elem_at_next_pos = elements_at_next_pos[index];
-                    if($(elem_at_next_pos).hasClass('item') && $(elem_at_next_pos).closest('.item-container').is(active_item_container)){
+                    if($(elem_at_next_pos).hasClass('item') && $(elem_at_next_pos).closest('.item-container').is(window.active_item_container)){
                         next_item = elem_at_next_pos;
                         break;
                     }
@@ -1328,10 +1328,10 @@ window.initgui = async function(){
                 
                 if(next_item){
                     selected_item = next_item;
-                    active_element = next_item;
+                    window.active_element = next_item;
                     // if ctrl or meta key is not pressed, unselect all items
                     if(!e.shiftKey){
-                        $(active_item_container).find('.item').removeClass('item-selected');
+                        $(window.active_item_container).find('.item').removeClass('item-selected');
                     }
                     $(next_item).addClass('item-selected');
                     window.latest_selected_item = next_item;
@@ -1387,7 +1387,7 @@ window.initgui = async function(){
         // Permanent delete bypassing trash after alert
         //-----------------------------------------------------------------------
         if((e.keyCode === 46 && e.shiftKey) || (e.altKey && e.metaKey && e.keyCode === 8)) {
-            let $selected_items = $(active_element).closest(`.item-container`).find(`.item-selected`);
+            let $selected_items = $(window.active_element).closest(`.item-container`).find(`.item-selected`);
             if($selected_items.length > 0){
                 const alert_resp = await UIAlert({
                     message: i18n('confirm_delete_multiple_items'),
@@ -1404,7 +1404,7 @@ window.initgui = async function(){
                 if((alert_resp) === 'Delete'){
                     for (let index = 0; index < $selected_items.length; index++) {
                         const element = $selected_items[index];
-                        await delete_item(element);
+                        await window.delete_item(element);
                     }
                 }    
             }
@@ -1416,7 +1416,7 @@ window.initgui = async function(){
         //-----------------------------------------------------------------------
         if(e.keyCode === 46 || (e.keyCode === 8 && (e.ctrlKey || e.metaKey))) {
             // permanent delete?
-            let $selected_items = $(active_element).closest(`.item-container`).find(`.item-selected[data-path^="${trash_path + '/'}"]`);
+            let $selected_items = $(window.active_element).closest(`.item-container`).find(`.item-selected[data-path^="${window.trash_path + '/'}"]`);
             if($selected_items.length > 0){
                 const alert_resp = await UIAlert({
                     message: i18n('confirm_delete_multiple_items'),
@@ -1433,27 +1433,27 @@ window.initgui = async function(){
                 if((alert_resp) === 'Delete'){
                     for (let index = 0; index < $selected_items.length; index++) {
                         const element = $selected_items[index];
-                        await delete_item(element);
+                        await window.delete_item(element);
                     }  
-                    const trash = await puter.fs.stat(trash_path);
+                    const trash = await puter.fs.stat(window.trash_path);
                     if(window.socket){
                         window.socket.emit('trash.is_empty', {is_empty: trash.is_empty});
                     }
 
                     if(trash.is_empty){
                         $(`[data-app="trash"]`).find('.taskbar-icon > img').attr('src', window.icons['trash.svg']);
-                        $(`.item[data-path="${html_encode(trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
-                        $(`.window[data-path="${html_encode(trash_path)}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
+                        $(`.item[data-path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
+                        $(`.window[data-path="${html_encode(window.trash_path)}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
                     }
                 }    
             }
             // regular delete?
             else{
-                $selected_items = $(active_element).closest('.item-container').find('.item-selected');
+                $selected_items = $(window.active_element).closest('.item-container').find('.item-selected');
                 if($selected_items.length > 0){
                     // Only delete the items if we're not renaming one.
                     if ($selected_items.children('.item-name-editor-active').length === 0) {
-                        move_items($selected_items, trash_path);
+                        window.move_items($selected_items, window.trash_path);
                     }
                 }
             }
@@ -1464,27 +1464,27 @@ window.initgui = async function(){
         // A letter or number is pressed and there is no context menu open: search items by name
         //-----------------------------------------------------------------------
         if(!e.ctrlKey && !e.metaKey && !$(focused_el).is('input') && !$(focused_el).is('textarea') && $('.context-menu').length === 0){
-            if(keypress_item_seach_term !== '')
-                clearTimeout(keypress_item_seach_buffer_timeout);
+            if(window.keypress_item_seach_term !== '')
+                clearTimeout(window.keypress_item_seach_buffer_timeout);
             
-            keypress_item_seach_buffer_timeout = setTimeout(()=>{
-                keypress_item_seach_term = '';
+            window.keypress_item_seach_buffer_timeout = setTimeout(()=>{
+                window.keypress_item_seach_term = '';
             }, 700);
 
-            keypress_item_seach_term += e.key.toLocaleLowerCase();
+            window.keypress_item_seach_term += e.key.toLocaleLowerCase();
 
             let matches= [];
-            const selected_items = $(active_item_container).find(`.item-selected`).not('.item-disabled').first();
+            const selected_items = $(window.active_item_container).find(`.item-selected`).not('.item-disabled').first();
 
             // if one item is selected and the selected item matches the search term, don't continue search and select this item again
-            if(selected_items.length === 1 && $(selected_items).attr('data-name').toLowerCase().startsWith(keypress_item_seach_term)){
+            if(selected_items.length === 1 && $(selected_items).attr('data-name').toLowerCase().startsWith(window.keypress_item_seach_term)){
                 return false;
             }
 
             // search for matches
-            let haystack = $(active_item_container).find(`.item`).not('.item-disabled');
+            let haystack = $(window.active_item_container).find(`.item`).not('.item-disabled');
             for(let j=0; j < haystack.length; j++){
-                if($(haystack[j]).attr('data-name').toLowerCase().startsWith(keypress_item_seach_term)){
+                if($(haystack[j]).attr('data-name').toLowerCase().startsWith(window.keypress_item_seach_term)){
                     matches.push(haystack[j])
                 }
             }
@@ -1502,11 +1502,11 @@ window.initgui = async function(){
                     matches.splice(0, match_index+1);
                 }
                 // deselect all selected sibling items
-                $(active_item_container).find(`.item-selected`).removeClass('item-selected');
+                $(window.active_item_container).find(`.item-selected`).removeClass('item-selected');
                 // select matching item
                 $(matches[0]).not('.item-disabled').addClass('item-selected');
                 matches[0].scrollIntoView(false);
-                update_explorer_footer_selected_items_count($(active_element).closest('.window'));
+                window.update_explorer_footer_selected_items_count($(window.active_element).closest('.window'));
             }
 
             return false;
@@ -1515,27 +1515,27 @@ window.initgui = async function(){
         // A letter or number is pressed and there is a context menu open: search items by name
         //-----------------------------------------------------------------------
         else if(!e.ctrlKey && !e.metaKey && !$(focused_el).is('input') && !$(focused_el).is('textarea') && $('.context-menu').length > 0){
-            if(keypress_item_seach_term !== '')
-                clearTimeout(keypress_item_seach_buffer_timeout);
+            if(window.keypress_item_seach_term !== '')
+                clearTimeout(window.keypress_item_seach_buffer_timeout);
             
-            keypress_item_seach_buffer_timeout = setTimeout(()=>{
-                keypress_item_seach_term = '';
+            window.keypress_item_seach_buffer_timeout = setTimeout(()=>{
+                window.keypress_item_seach_term = '';
             }, 700);
 
-            keypress_item_seach_term += e.key.toLocaleLowerCase();
+            window.keypress_item_seach_term += e.key.toLocaleLowerCase();
 
             let matches= [];
             const selected_items = $('.context-menu').find(`.context-menu-item-active`).first();
 
             // if one item is selected and the selected item matches the search term, don't continue search and select this item again
-            if(selected_items.length === 1 && $(selected_items).text().toLowerCase().startsWith(keypress_item_seach_term)){
+            if(selected_items.length === 1 && $(selected_items).text().toLowerCase().startsWith(window.keypress_item_seach_term)){
                 return false;
             }
 
             // search for matches
             let haystack = $('.context-menu-active').find(`.context-menu-item`);
             for(let j=0; j < haystack.length; j++){
-                if($(haystack[j]).text().toLowerCase().startsWith(keypress_item_seach_term)){
+                if($(haystack[j]).text().toLowerCase().startsWith(window.keypress_item_seach_term)){
                     matches.push(haystack[j])
                 }
             }
@@ -1557,7 +1557,7 @@ window.initgui = async function(){
                 // select matching item
                 $(matches[0]).addClass('context-menu-item-active');
                 // matches[0].scrollIntoView(false);
-                // update_explorer_footer_selected_items_count($(active_element).closest('.window'));
+                // update_explorer_footer_selected_items_count($(window.active_element).closest('.window'));
             }
 
             return false;
@@ -1578,16 +1578,16 @@ window.initgui = async function(){
         // ctrl/command + a, will select all items on desktop and windows
         //-----------------------------------------------------------------------------
         if((e.ctrlKey || e.metaKey) && e.which === 65 && !$(focused_el).is('input') && !$(focused_el).is('textarea')){
-            let $parent_container = $(active_element).closest('.item-container');
+            let $parent_container = $(window.active_element).closest('.item-container');
             if($parent_container.length === 0)
-                $parent_container = $(active_element).find('.item-container');
+                $parent_container = $(window.active_element).find('.item-container');
 
             if($parent_container.attr('data-multiselectable') === 'false')
                 return false;
 
             if($parent_container){
                 $($parent_container).find('.item').not('.item-disabled').addClass('item-selected');
-                update_explorer_footer_selected_items_count($parent_container.closest('.window'));
+                window.update_explorer_footer_selected_items_count($parent_container.closest('.window'));
             }
 
             return false;
@@ -1597,9 +1597,9 @@ window.initgui = async function(){
         // ctrl + w, will close the active window
         //-----------------------------------------------------------------------------
         if(e.ctrlKey && e.which === 87){
-            let $parent_window = $(active_element).closest('.window');
+            let $parent_window = $(window.active_element).closest('.window');
             if($parent_window.length === 0)
-                $parent_window = $(active_element).find('.window');
+                $parent_window = $(window.active_element).find('.window');
 
 
             if($parent_window !== null){
@@ -1612,28 +1612,28 @@ window.initgui = async function(){
         // ctrl/command + c, will copy selected items on the active element to the clipboard
         //-----------------------------------------------------------------------------
         if((e.ctrlKey || e.metaKey) && e.which === 67 && 
-            $(mouseover_window).attr('data-is_dir') !== 'false' && 
-            $(mouseover_window).attr('data-path') !== trash_path && 
+            $(window.mouseover_window).attr('data-is_dir') !== 'false' &&
+            $(window.mouseover_window).attr('data-path') !== window.trash_path &&
             !$(focused_el).is('input') && 
             !$(focused_el).is('textarea')){
             let $selected_items;
 
-            let parent_container = $(active_element).closest('.item-container');
+            let parent_container = $(window.active_element).closest('.item-container');
             if(parent_container.length === 0)
-                parent_container = $(active_element).find('.item-container');
+                parent_container = $(window.active_element).find('.item-container');
 
             if(parent_container !== null){
                 $selected_items = $(parent_container).find('.item-selected');
                 if($selected_items.length > 0){
-                    clipboard = [];
-                    clipboard_op = 'copy';
+                    window.clipboard = [];
+                    window.clipboard_op = 'copy';
                     $selected_items.each(function() {
                         // error if trash is being copied
-                        if($(this).attr('data-path') === trash_path){
+                        if($(this).attr('data-path') === window.trash_path){
                             return;
                         }
                         // add to clipboard
-                        clipboard.push({path: $(this).attr('data-path'), uid: $(this).attr('data-uid'), metadata: $(this).attr('data-metadata')});
+                        window.clipboard.push({path: $(this).attr('data-path'), uid: $(this).attr('data-uid'), metadata: $(this).attr('data-metadata')});
                     })
                 }
             }
@@ -1645,17 +1645,17 @@ window.initgui = async function(){
         //-----------------------------------------------------------------------------
         if((e.ctrlKey || e.metaKey) && e.which === 88 && !$(focused_el).is('input') && !$(focused_el).is('textarea')){
             let $selected_items;
-            let parent_container = $(active_element).closest('.item-container');
+            let parent_container = $(window.active_element).closest('.item-container');
             if(parent_container.length === 0)
-                parent_container = $(active_element).find('.item-container');
+                parent_container = $(window.active_element).find('.item-container');
 
             if(parent_container !== null){
                 $selected_items = $(parent_container).find('.item-selected');
                 if($selected_items.length > 0){
-                    clipboard = [];
-                    clipboard_op = 'move';
+                    window.clipboard = [];
+                    window.clipboard_op = 'move';
                     $selected_items.each(function() {
-                        clipboard.push($(this).attr('data-path'));
+                        window.clipboard.push($(this).attr('data-path'));
                     })
                 }
             }
@@ -1665,7 +1665,7 @@ window.initgui = async function(){
         // Open
         // Enter key on a selected item will open it
         //-----------------------------------------------------------------------
-        if(e.which === 13 && !$(focused_el).is('input') && !$(focused_el).is('textarea') && (Date.now() - last_enter_pressed_to_rename_ts) >200
+        if(e.which === 13 && !$(focused_el).is('input') && !$(focused_el).is('textarea') && (Date.now() - window.last_enter_pressed_to_rename_ts) >200
             // prevent firing twice, because this will be fired on both keyup and keydown
             && e.type === 'keydown'){
             let $selected_items;
@@ -1679,7 +1679,7 @@ window.initgui = async function(){
             if($('.launch-app-selected').length > 0){
                 // close launch menu
                 $(".launch-popover").fadeOut(200, function(){
-                    launch_app({
+                    window.launch_app({
                         name: $('.launch-app-selected').attr('data-name'),
                     }) 
                     $(".launch-popover").remove();
@@ -1702,7 +1702,7 @@ window.initgui = async function(){
                 $(selected_item).trigger('click');
                 if($('.context-menu[data-is-submenu="true"]').length > 0){
                     let selected_item = $('.context-menu[data-is-submenu="true"] .context-menu-item').get(0);
-                    select_ctxmenu_item(selected_item);
+                    window.select_ctxmenu_item(selected_item);
                 }
 
                 return false;
@@ -1710,11 +1710,11 @@ window.initgui = async function(){
             // ---------------------------------------------
             // if this is a selected item, open it
             // ---------------------------------------------
-            else if(active_item_container){
-                $selected_items = $(active_item_container).find('.item-selected');
+            else if(window.active_item_container){
+                $selected_items = $(window.active_item_container).find('.item-selected');
                 if($selected_items.length > 0){
                     $selected_items.each(function() {
-                        open_item({
+                        window.open_item({
                             item: this, 
                             new_window: e.metaKey || e.ctrlKey,
                         });        
@@ -1733,7 +1733,7 @@ window.initgui = async function(){
             let target_path, target_el;
 
             // continue only if there is something in the clipboard
-            if(clipboard.length === 0)
+            if(window.clipboard.length === 0)
                 return;
 
             let parent_container = determine_active_container_parent();
@@ -1742,13 +1742,13 @@ window.initgui = async function(){
                 target_el = parent_container;
                 target_path = $(parent_container).attr('data-path');
                 // don't allow pasting in Trash
-                if((target_path === trash_path || target_path.startsWith(trash_path + '/')) && clipboard_op !== 'move')
+                if((target_path === window.trash_path || target_path.startsWith(window.trash_path + '/')) && window.clipboard_op !== 'move')
                     return;
                 // execute clipboard operation
-                if(clipboard_op === 'copy')
-                    copy_clipboard_items(target_path);
-                else if(clipboard_op === 'move')
-                    move_clipboard_items(target_el, target_path);
+                if(window.clipboard_op === 'copy')
+                    window.copy_clipboard_items(target_path);
+                else if(window.clipboard_op === 'move')
+                    window.move_clipboard_items(target_el, target_path);
             }
             return false;
         }
@@ -1757,40 +1757,40 @@ window.initgui = async function(){
         // ctrl/command + z, will undo last action
         //-----------------------------------------------------------------------------
         if((e.ctrlKey || e.metaKey) && e.which === 90){
-            undo_last_action();
+            window.undo_last_action();
             return false;
         }
     });
 
     // update mouse position coordinates
     $(document).mousemove(function(event){
-        mouseX = event.clientX;
-        mouseY = event.clientY;
+        window.mouseX = event.clientX;
+        window.mouseY = event.clientY;
         
         // mouse in top-left corner of screen
-        if((mouseX < 150 && mouseY < toolbar_height + 20) || (mouseX < 20 && mouseY < 150))
-            current_active_snap_zone = 'nw';
+        if((window.mouseX < 150 && window.mouseY < window.toolbar_height + 20) || (window.mouseX < 20 && window.mouseY < 150))
+            window.current_active_snap_zone = 'nw';
         // mouse in left edge of screen
-        else if(mouseX < 20 && mouseY >= 150 && mouseY < desktop_height - 150)
-            current_active_snap_zone = 'w';
+        else if(window.mouseX < 20 && window.mouseY >= 150 && window.mouseY < window.desktop_height - 150)
+            window.current_active_snap_zone = 'w';
         // mouse in bottom-left corner of screen
-        else if(mouseX < 20 && mouseY > desktop_height - 150)
-            current_active_snap_zone = 'sw';
+        else if(window.mouseX < 20 && window.mouseY > window.desktop_height - 150)
+            window.current_active_snap_zone = 'sw';
         // mouse in right edge of screen
-        else if(mouseX > desktop_width - 20 && mouseY >= 150 && mouseY < desktop_height - 150)
-            current_active_snap_zone = 'e';
+        else if(window.mouseX > window.desktop_width - 20 && window.mouseY >= 150 && window.mouseY < window.desktop_height - 150)
+            window.current_active_snap_zone = 'e';
         // mouse in top-right corner of screen
-        else if((mouseX > desktop_width - 150 && mouseY < toolbar_height + 20) || (mouseX > desktop_width - 20 && mouseY < 150))
-            current_active_snap_zone = 'ne';
+        else if((window.mouseX > window.desktop_width - 150 && window.mouseY < window.toolbar_height + 20) || (window.mouseX > window.desktop_width - 20 && window.mouseY < 150))
+            window.current_active_snap_zone = 'ne';
         // mouse in bottom-right corner of screen
-        else if(mouseX > desktop_width - 20 && mouseY >= desktop_height - 150)
-            current_active_snap_zone = 'se';
+        else if(window.mouseX > window.desktop_width - 20 && window.mouseY >= window.desktop_height - 150)
+            window.current_active_snap_zone = 'se';
         // mouse in top edge of screen
-        else if(mouseY < toolbar_height + 20 && mouseX >= 150 && mouseX < desktop_width - 150)
-            current_active_snap_zone =  'n';
+        else if(window.mouseY < window.toolbar_height + 20 && window.mouseX >= 150 && window.mouseX < window.desktop_width - 150)
+            window.current_active_snap_zone =  'n';
         // not in any snap zone
         else
-            current_active_snap_zone = undefined;
+            window.current_active_snap_zone = undefined;
 
         // mouseover_window
         var windows = document.getElementsByClassName("window");
@@ -1799,7 +1799,7 @@ window.initgui = async function(){
             let highest_window_zindex = 0;
             for(let i=0; i<windows.length; i++){
                 const rect = windows[i].getBoundingClientRect();
-                if( mouseX > rect.x &&  mouseX < (rect.x + rect.width) && mouseY > rect.y &&  mouseY < (rect.y + rect.height)){
+                if( window.mouseX > rect.x &&  window.mouseX < (rect.x + rect.width) && window.mouseY > rect.y &&  window.mouseY < (rect.y + rect.height)){
                     if(parseInt($(windows[i]).css('z-index')) >= highest_window_zindex){
                         active_win = windows[i];
                         highest_window_zindex = parseInt($(windows[i]).css('z-index'));
@@ -1816,7 +1816,7 @@ window.initgui = async function(){
             let highest_window_zindex = 0;
             for(let i=0; i<item_containers.length; i++){
                 const rect = item_containers[i].getBoundingClientRect();
-                if( mouseX > rect.x &&  mouseX < (rect.x + rect.width) && mouseY > rect.y &&  mouseY < (rect.y + rect.height)){
+                if( window.mouseX > rect.x &&  window.mouseX < (rect.x + rect.width) && window.mouseY > rect.y &&  window.mouseY < (rect.y + rect.height)){
                     let active_container_zindex = parseInt($(item_containers[i]).closest('.window').css('z-index'));
                     if( !isNaN(active_container_zindex) && active_container_zindex >= highest_window_zindex){
                         active_ic = item_containers[i];
@@ -1837,8 +1837,8 @@ window.initgui = async function(){
             return;
 
         // if mouse is clicked on a window, activate it
-        if(mouseover_window !== undefined){
-            $(mouseover_window).focusWindow(e);
+        if(window.mouseover_window !== undefined){
+            $(window.mouseover_window).focusWindow(e);
         }
     })
 
@@ -1873,7 +1873,7 @@ window.initgui = async function(){
         if(items?.length>0){
             let parent_container = determine_active_container_parent();
             if(parent_container){
-                upload_items(items, $(parent_container).attr('data-path'));
+                window.upload_items(items, $(parent_container).attr('data-path'));
             }
         }
 
@@ -1931,9 +1931,9 @@ window.initgui = async function(){
                     default_username: window.user.username
                 });
                 if(saved)
-                    logout();
+                    window.logout();
             }else if (alert_resp === 'log_out'){
-                logout();
+                window.logout();
             }
             else{
                 return;
@@ -1943,12 +1943,12 @@ window.initgui = async function(){
         // logout
         try{
             await $.ajax({
-                url: gui_origin + "/logout",
+                url: window.gui_origin + "/logout",
                 type: 'POST',
                 async: true,
                 contentType: "application/json",
                 headers: {
-                    "Authorization": "Bearer " + auth_token
+                    "Authorization": "Bearer " + window.auth_token
                 },
                 statusCode: {
                     401: function () {
@@ -1956,7 +1956,7 @@ window.initgui = async function(){
                 },
             })
         }catch(e){
-
+            // Ignored
         }
 
         // remove this user from the array of logged_in_users
