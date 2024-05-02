@@ -35,7 +35,7 @@ const new_context_menu_item = function(dirname, append_to_element){
                 html: i18n('new_folder'),
                 icon: `<img src="${html_encode(window.icons['folder.svg'])}" class="ctx-item-icon">`,
                 onClick: function(){
-                    create_folder(dirname, append_to_element);
+                    window.create_folder(dirname, append_to_element);
                 }
             },
             // divider
@@ -45,7 +45,7 @@ const new_context_menu_item = function(dirname, append_to_element){
                 html: i18n('text_document'),
                 icon: `<img src="${html_encode(window.icons['file-text.svg'])}" class="ctx-item-icon">`,
                 onClick: async function(){
-                    create_file({dirname: dirname, append_to_element: append_to_element, name: 'New File.txt'});
+                    window.create_file({dirname: dirname, append_to_element: append_to_element, name: 'New File.txt'});
                 }
             },
             // HTML Document
@@ -53,7 +53,7 @@ const new_context_menu_item = function(dirname, append_to_element){
                 html: i18n('html_document'),
                 icon: `<img src="${html_encode(window.icons['file-html.svg'])}" class="ctx-item-icon">`,
                 onClick: async function(){
-                    create_file({dirname: dirname, append_to_element: append_to_element, name: 'New File.html'});
+                    window.create_file({dirname: dirname, append_to_element: append_to_element, name: 'New File.html'});
                 }
             },
             // JPG Image
@@ -67,7 +67,7 @@ const new_context_menu_item = function(dirname, append_to_element){
                     canvas.height = 600;
                     
                     canvas.toBlob((blob) =>{
-                        create_file({dirname: dirname, append_to_element: append_to_element, name: 'New Image.jpg', content: blob});
+                        window.create_file({dirname: dirname, append_to_element: append_to_element, name: 'New Image.jpg', content: blob});
                     });
                 }
             },

@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import path from '../lib/path.js';
 import UIItem from '../UI/UIItem.js';
 
 const refresh_item_container = function(el_item_container, options){
@@ -80,10 +81,10 @@ const refresh_item_container = function(el_item_container, options){
         $(el_item_container).attr('data-sort_order', fsentry.sort_order ?? 'asc');
         // update layout
         if(el_window && el_window.length > 0)
-            update_window_layout(el_window, fsentry.layout);
+            window.update_window_layout(el_window, fsentry.layout);
         //
         if(fsentry.layout === 'details'){
-            update_details_layout_sort_visuals(el_window, fsentry.sort_by, fsentry.sort_order);
+            window.update_details_layout_sort_visuals(el_window, fsentry.sort_by, fsentry.sort_order);
         }
     });
 
@@ -121,7 +122,7 @@ const refresh_item_container = function(el_item_container, options){
             }
 
             // trash icon
-            if(container_path === trash_path && el_window_head_icon){
+            if(container_path === window.trash_path && el_window_head_icon){
                 if(fsentries.length > 0){
                     $(el_window_head_icon).attr('src', window.icons['trash-full.svg']);
                 }else{
@@ -160,22 +161,23 @@ const refresh_item_container = function(el_item_container, options){
                         metadata = JSON.parse(fsentry.metadata);
                     }
                     catch(e){
+                        // Ignored
                     }
                 }
 
                 const item_path = fsentry.path ?? path.join($(el_window).attr('data-path'), fsentry.name);
                 // render any item but Trash/AppData
-                if(item_path !== trash_path && item_path !== appdata_path){
+                if(item_path !== window.trash_path && item_path !== window.appdata_path){
                     // if this is trash, get original name from item metadata
                     fsentry.name = (metadata && metadata.original_name !== undefined) ? metadata.original_name : fsentry.name;
-                    const position = desktop_item_positions[fsentry.uid] ?? undefined;
+                    const position = window.desktop_item_positions[fsentry.uid] ?? undefined;
                     UIItem({
                         appendTo: el_item_container,
                         uid: fsentry.uid,
                         immutable: fsentry.immutable,
                         associated_app_name: fsentry.associated_app?.name,
                         path: item_path,
-                        icon: await item_icon(fsentry),
+                        icon: await window.item_icon(fsentry),
                         name: (metadata && metadata.original_name !== undefined) ? metadata.original_name : fsentry.name,
                         is_dir: fsentry.is_dir,
                         multiselectable: !is_openFileDialog,
@@ -204,7 +206,7 @@ const refresh_item_container = function(el_item_container, options){
                         appendTo: el_item_container,
                         uid: trash.id,
                         immutable: trash.immutable,
-                        path: trash_path,
+                        path: window.trash_path,
                         icon: {image: (trash.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg']), type: 'icon'},
                         name: trash.name,
                         is_dir: trash.is_dir,
@@ -213,15 +215,15 @@ const refresh_item_container = function(el_item_container, options){
                         is_trash: true,
                         sortable: false,
                     });
-                    sort_items(el_item_container, $(el_item_container).attr('data-sort_by'), $(el_item_container).attr('data-sort_order'));
+                    window.sort_items(el_item_container, $(el_item_container).attr('data-sort_by'), $(el_item_container).attr('data-sort_order'));
                 }catch(e){
-            
+                    // Ignored
                 }            
             }
             // sort items
-            sort_items(
-                el_item_container, 
-                $(el_item_container).attr('data-sort_by'), 
+            window.sort_items(
+                el_item_container,
+                $(el_item_container).attr('data-sort_by'),
                 $(el_item_container).attr('data-sort_order')
             );
 
@@ -230,7 +232,7 @@ const refresh_item_container = function(el_item_container, options){
 
             // update footer item count if this is an explorer window
             if(el_window)
-                update_explorer_footer_item_count(el_window);
+                window.update_explorer_footer_item_count(el_window);
         },
         // This makes sure the loading spinner shows up if the request takes longer than 1 second 
         // and stay there for at least 1 second since the flickering is annoying
