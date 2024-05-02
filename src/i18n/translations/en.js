@@ -46,6 +46,8 @@ const en = {
         change_always_open_with: "Do you want to always open this type of file with",
         color: 'Color',
         hue: 'Hue',
+        confirm_2fa_setup: 'I have added the code to my authenticator app',
+        confirm_2fa_recovery: 'I have saved my recovery codes',
         confirm_account_for_free_referral_storage_c2a: 'Create an account and confirm your email address to receive 1 GB of free storage. Your friend will get 1 GB of free storage too.',
         confirm_code_generic_incorrect: "Incorrect Code.",
         confirm_code_generic_title: "Enter Confirmation Code",

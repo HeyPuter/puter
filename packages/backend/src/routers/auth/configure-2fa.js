@@ -24,7 +24,7 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
 
     const db = await x.get('services').get('database').get(DB_WRITE, '2fa');
 
-    actions.enable = async () => {
+    actions.setup = async () => {
         const svc_otp = x.get('services').get('otp');
         const result = svc_otp.create_secret();
         await db.write(
@@ -36,9 +36,19 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
         return result;
     };
 
+    actions.enable = async () => {
+        await db.write(
+            `UPDATE user SET otp_enabled = 1 WHERE uuid = ?`,
+            [user.uuid]
+        );
+        // update cached user
+        req.user.otp_enabled = 1;
+        return {};
+    };
+
     actions.disable = async () => {
         await db.write(
-            `UPDATE user SET otp_secret = NULL WHERE uuid = ?`,
+            `UPDATE user SET otp_enabled = 0 WHERE uuid = ?`,
             [user.uuid]
         );
         return { success: true };

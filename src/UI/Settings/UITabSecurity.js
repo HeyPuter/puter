@@ -46,7 +46,7 @@ export default {
     },
     init: ($el_window) => {
         $el_window.find('.enable-2fa').on('click', async function (e) {
-            const resp = await fetch(`${api_origin}/auth/configure-2fa/enable`, {
+            const resp = await fetch(`${api_origin}/auth/configure-2fa/setup`, {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${puter.authToken}`,
@@ -56,10 +56,27 @@ export default {
             });
             const data = await resp.json();
 
-            UIWindowQR({
+            const confirmation = await UIWindowQR({
                 message_i18n_key: 'scan_qr_2fa',
                 text: data.url,
                 text_below: data.secret,
+                confirmations: [
+                    i18n('confirm_2fa_setup'),
+                    i18n('confirm_2fa_recovery'),
+                ],
+            });
+
+            console.log('confirmation?', confirmation);
+
+            if ( ! confirmation ) return;
+
+            await fetch(`${api_origin}/auth/configure-2fa/enable`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${puter.authToken}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({}),
             });
 
             $el_window.find('.enable-2fa').hide();

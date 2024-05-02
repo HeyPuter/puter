@@ -118,7 +118,7 @@ router.post('/login', express.json(), body_parser_error_handler, async (req, res
         if(await bcrypt.compare(req.body.password, user.password)){
             // We create a JWT that can ONLY be used on the endpoint that
             // accepts the OTP code.
-            if ( user.otp_secret ) {
+            if ( user.otp_enabled ) {
                 const svc_token = req.services.get('token');
                 const otp_jwt_token = svc_token.sign('otp', {
                     user_uid: user.uuid,

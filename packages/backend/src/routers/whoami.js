@@ -56,7 +56,7 @@ const WHOAMI_GET = eggspress('/whoami', {
         is_temp: (req.user.password === null && req.user.email === null),
         taskbar_items: await get_taskbar_items(req.user),
         referral_code: req.user.referral_code,
-        otp: !! req.user.otp_secret,
+        otp: !! req.user.otp_enabled,
         ...(req.new_token ? { token: req.token } : {})
     };
 
