@@ -2606,11 +2606,55 @@ label {
     justify-content: center;
     flex-direction: column;
     align-items: center;
-    height: 520px;
 }
 
 .otp-qr-code img {
     width: 355px;
+    margin-bottom: 20px;
+}
+
+.recovery-codes {
+    border: 1px solid #ccc;
+    padding: 20px;
+    margin: 20px auto;
+    width: 90%;
+    max-width: 600px;
+    background-color: #f9f9f9;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.recovery-codes h2 {
+    text-align: center;
+    font-size: 18px;
+    color: #333;
+    margin-bottom: 15px;
+}
+
+.recovery-codes-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 10px; /* Adds space between grid items */
+    padding: 0;
+}
+
+.recovery-code {
+    background-color: #fff;
+    border: 1px solid #ddd;
+    padding: 10px;
+    text-align: center;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+}
+
+.qr-code-checkbox {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.qr-code-checkbox input[type=checkbox] {
+    margin: 0;
 }
 
 .perm-title {

@@ -64,9 +64,9 @@ export default {
                     i18n('confirm_2fa_setup'),
                     i18n('confirm_2fa_recovery'),
                 ],
+                recovery_codes: data.codes,
+                has_confirm_and_cancel: true,
             });
-
-            console.log('confirmation?', confirmation);
 
             if ( ! confirmation ) return;
 

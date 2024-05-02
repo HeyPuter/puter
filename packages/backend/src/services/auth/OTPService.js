@@ -26,6 +26,16 @@ class OTPService extends BaseService {
         };
     }
 
+    create_recovery_code () {
+        const require = this.require;
+        const crypto = require('crypto');
+        const { encode } = require('hi-base32');
+
+        const buffer = crypto.randomBytes(6);
+        const code = encode(buffer).replace(/=/g, "").substring(0, 8);
+        return code;
+    }
+
     verify (secret, code) {
         const require = this.require;
         const otpauth = require('otpauth');

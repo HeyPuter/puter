@@ -20,6 +20,8 @@
 import TeePromise from '../util/TeePromise.js';
 import UIWindow from './UIWindow.js'
 
+let checkbox_id_ = 0;
+
 async function UIWindowQR(options){
     const confirmations = options.confirmations || [];
 
@@ -36,24 +38,45 @@ async function UIWindowQR(options){
         }</h1>`;
     h += `</div>`;
 
+    if ( options.recovery_codes ) {
+        h += `<div class="recovery-codes">`;
+            h += `<h2 style="text-align: center; font-size: 16px; padding: 10px; font-weight: 400; margin: -10px 10px 20px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">${
+                i18n('recovery_codes')
+            }</h2>`;
+            h += `<div class="recovery-codes-list">`;
+                for ( let i=0 ; i < options.recovery_codes.length ; i++ ) {
+                    h += `<div class="recovery-code">${
+                        html_encode(options.recovery_codes[i])
+                    }</div>`;
+                }
+            h += `</div>`;
+        h += `</div>`;
+    }
+
     for ( let i=0 ; i < confirmations.length ; i++ ) {
         const confirmation = confirmations[i];
         // checkbox
         h += `<div class="qr-code-checkbox">`;
-            h += `<input type="checkbox" name="confirmation_${i}">`;
-            h += `<label for="confirmation_${i}">${confirmation}</label>`;
+            h += `<input type="checkbox" id="checkbox_${++checkbox_id_}" name="confirmation_${i}">`;
+            h += `<label for="checkbox_${checkbox_id_}">${confirmation}</label>`;
         h += `</div>`;
     }
 
     // h += `<button class="code-confirm-btn" style="margin: 20px auto; display: block; width: 100%; padding: 10px; font-size: 16px; font-weight: 400; background-color: #007bff; color: #fff; border: none; border-radius: 5px; cursor: pointer;">${
     //     i18n('confirm')
     // }</button>`;
-    h += `<button type="submit" class="button button-block button-primary code-confirm-btn" style="margin-top:10px;" disabled>${
-        i18n('confirm')
-    }</button>`;
-    h += `<button type="submit" class="button button-block button-secondary code-cancel-btn" style="margin-top:10px;">${
-        i18n('cancel')
-    }</button>`;
+    if ( options.has_confirm_and_cancel ) {
+        h += `<button type="submit" class="button button-block button-primary code-confirm-btn" style="margin-top:10px;" disabled>${
+            i18n('confirm')
+        }</button>`;
+        h += `<button type="submit" class="button button-block button-secondary code-cancel-btn" style="margin-top:10px;">${
+            i18n('cancel')
+        }</button>`;
+    } else {
+        h += `<button type="submit" class="button button-block button-primary code-confirm-btn" style="margin-top:10px;">${
+            i18n('done')
+        }</button>`;
+    }
 
     const el_window = await UIWindow({
         title: 'Instant Login!',

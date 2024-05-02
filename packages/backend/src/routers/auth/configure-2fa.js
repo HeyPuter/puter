@@ -26,13 +26,24 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
 
     actions.setup = async () => {
         const svc_otp = x.get('services').get('otp');
+
+        // generate secret
         const result = svc_otp.create_secret();
+
+        // generate recovery codes
+        result.codes = [];
+        for ( let i = 0; i < 10; i++ ) {
+            result.codes.push(svc_otp.create_recovery_code());
+        }
+
+        // update user
         await db.write(
-            `UPDATE user SET otp_secret = ? WHERE uuid = ?`,
-            [result.secret, user.uuid]
+            `UPDATE user SET otp_secret = ?, otp_recovery_codes = ? WHERE uuid = ?`,
+            [result.secret, result.codes.join(','), user.uuid]
         );
-        // update cached user
         req.user.otp_secret = result.secret;
+        req.user.otp_recovery_codes = result.codes.join(',');
+
         return result;
     };
 
@@ -48,7 +59,7 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
 
     actions.disable = async () => {
         await db.write(
-            `UPDATE user SET otp_enabled = 0 WHERE uuid = ?`,
+            `UPDATE user SET otp_enabled = 0, otp_recovery_codes = '' WHERE uuid = ?`,
             [user.uuid]
         );
         return { success: true };
