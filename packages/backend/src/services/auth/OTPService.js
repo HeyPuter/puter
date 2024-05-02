@@ -7,14 +7,14 @@ class OTPService extends BaseService {
         ['hi-base32']: require('hi-base32'),
     }
 
-    create_secret () {
+    create_secret (label) {
         const require = this.require;
         const otpauth = require('otpauth');
 
         const secret = this.gen_otp_secret_();
         const totp = new otpauth.TOTP({
             issuer: 'puter.com',
-            label: 'Puter Auth',
+            label,
             algorithm: 'SHA1',
             digits: 6,
             secret,
@@ -36,13 +36,13 @@ class OTPService extends BaseService {
         return code;
     }
 
-    verify (secret, code) {
+    verify (label, secret, code) {
         const require = this.require;
         const otpauth = require('otpauth');
 
         const totp = new otpauth.TOTP({
             issuer: 'puter.com',
-            label: 'Puter Auth',
+            label,
             algorithm: 'SHA1',
             digits: 6,
             secret,

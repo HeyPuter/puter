@@ -173,7 +173,7 @@ router.post('/login/otp', express.json(), body_parser_error_handler, async (req,
     }
 
     const svc_otp = req.services.get('otp');
-    if ( ! svc_otp.verify(user.otp_secret, req.body.code) ) {
+    if ( ! svc_otp.verify(user.username, user.otp_secret, req.body.code) ) {
 
         // THIS MAY BE COUNTER-INTUITIVE
         //

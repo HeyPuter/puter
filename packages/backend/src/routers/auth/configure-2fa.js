@@ -28,7 +28,7 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
         const svc_otp = x.get('services').get('otp');
 
         // generate secret
-        const result = svc_otp.create_secret();
+        const result = svc_otp.create_secret(user.username);
 
         // generate recovery codes
         result.codes = [];
