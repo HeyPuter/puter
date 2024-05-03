@@ -13,7 +13,7 @@ import Placeholder from "../util/Placeholder.js"
 export default async function UIComponentWindow (options) {
     const placeholder = Placeholder();
 
-    await UIWindow({
+    const win = await UIWindow({
         ...options,
 
         body_content: placeholder.html,
@@ -22,4 +22,6 @@ export default async function UIComponentWindow (options) {
     options.component.attach(placeholder);
     options.component.focus();
     console.log('UIComponentWindow', options.component);
+
+    return win;
 }

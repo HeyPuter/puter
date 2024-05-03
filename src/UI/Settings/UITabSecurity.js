@@ -48,7 +48,14 @@ export default {
     init: ($el_window) => {
         $el_window.find('.enable-2fa').on('click', async function (e) {
 
-            UIWindow2FASetup();
+            const { promise } = await UIWindow2FASetup();
+            const tfa_was_enabled = await promise;
+
+            if ( tfa_was_enabled ) {
+                $el_window.find('.enable-2fa').hide();
+                $el_window.find('.disable-2fa').show();
+                $el_window.find('.user-otp-state').text(i18n('two_factor_enabled'));
+            }
 
             return;
 
