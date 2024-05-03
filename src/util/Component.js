@@ -31,7 +31,10 @@ export class Component extends HTMLElement {
 
             const listener_key = `property.${key}`;
             if ( property_values[listener_key] ) {
-                this.values_[key].sub(property_values[listener_key]);
+                this.values_[key].sub((value, more) => {
+                    more = { ...more, component: this };
+                    property_values[listener_key](value, more);
+                });
             }
         }
 

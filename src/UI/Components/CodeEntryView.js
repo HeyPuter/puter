@@ -3,6 +3,7 @@ import { Component } from "../../util/Component.js";
 export default class CodeEntryView extends Component {
     static PROPERTIES = {
         value: {},
+        error: {},
         is_checking_code: {},
     }
 
@@ -69,6 +70,11 @@ export default class CodeEntryView extends Component {
 
     on_ready ({ listen }) {
         let is_checking_code = false;
+
+        listen('error', (error) => {
+            if ( ! error ) return $(this.dom_).find('.error').hide();
+            $(this.dom_).find('.error').text(error).show();
+        });
 
         $(this.dom_).find('.digit-input').first().focus();
 

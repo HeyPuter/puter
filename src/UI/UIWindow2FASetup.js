@@ -22,6 +22,7 @@
 import CodeEntryView from "./Components/CodeEntryView.js";
 import Flexer from "./Components/Flexer.js";
 import QRCodeView from "./Components/QRCode.js";
+import RecoveryCodesView from "./Components/RecoveryCodesView.js";
 import StepView from "./Components/StepView.js";
 import TestView from "./Components/TestView.js";
 import UIComponentWindow from "./UIComponentWindow.js";
@@ -37,7 +38,25 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     });
     const data = await resp.json();
 
+    const check_code_ = async function check_code_ (value) {
+        const resp = await fetch(`${api_origin}/auth/configure-2fa/test`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${puter.authToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                code: value,
+            }),
+        });
+
+        const data = await resp.json();
+
+        return data.ok;
+    };
+
     let stepper;
+    let code_entry;
     const component =
         new StepView({
             _ref: me => stepper = me,
@@ -48,15 +67,26 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                             value: data.url,
                         }),
                         new CodeEntryView({
-                            [`property.value`] (value) {
+                            async [`property.value`] (value, { component }) {
                                 console.log('value? ', value)
+
+                                if ( ! await check_code_(value) ) {
+                                    component.set('error', 'Invalid code');
+                                    return;
+                                }
+
                                 stepper.next();
                             }
                         }),
-                        new TestView(),
                     ]
                 }),
-                new TestView(),
+                new Flexer({
+                    children: [
+                        new RecoveryCodesView({
+                            values: data.codes,
+                        }),
+                    ]
+                }),
             ]
         })
         ;
