@@ -1,3 +1,4 @@
+import UIWindow2FASetup from "../UIWindow2FASetup.js";
 import UIWindowQR from "../UIWindowQR.js";
 
 export default {
@@ -46,6 +47,11 @@ export default {
     },
     init: ($el_window) => {
         $el_window.find('.enable-2fa').on('click', async function (e) {
+
+            UIWindow2FASetup();
+
+            return;
+
             const resp = await fetch(`${api_origin}/auth/configure-2fa/setup`, {
                 method: 'POST',
                 headers: {

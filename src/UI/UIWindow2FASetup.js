@@ -19,5 +19,32 @@
 
 */
 
+import Flexer from "./Components/Flexer.js";
+import QRCodeView from "./Components/QRCode.js";
+import UIComponentWindow from "./UIComponentWindow.js";
+
 const UIWindow2FASetup = async function UIWindow2FASetup () {
+    const resp = await fetch(`${api_origin}/auth/configure-2fa/setup`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${puter.authToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+    });
+    const data = await resp.json();
+
+    const component = new Flexer({
+        children: [
+            new QRCodeView({
+                value: data.url,
+            })
+        ]
+    });
+
+    UIComponentWindow({
+        component,
+    });
 }
+
+export default UIWindow2FASetup;
