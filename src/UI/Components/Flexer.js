@@ -7,22 +7,36 @@ import { Component } from "../../util/Component.js";
 export default class Flexer extends Component {
     static PROPERTIES = {
         children: {},
+        gap: { value: '20pt' },
     }
+
+    static CSS = `
+        :host > div {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+    `;
 
     create_template ({ template }) {
         // TODO: The way we handle loading assets doesn't work well
         // with web components, so for now it goes in the template.
         $(template).html(`
-            <slot name="inside"></slot>
+            <div><slot name="inside"></slot></div>
         `);
     }
 
-    on_ready () {
+    on_ready ({ listen }) {
         console.log('Flexer on_ready called');
         for ( const child of this.get('children') ) {
             child.setAttribute('slot', 'inside');
             child.attach(this);
         }
+
+        listen('gap', gap => {
+            console.log('gap called', gap);
+            $(this.dom_).find('div').first().css('gap', gap);
+        });
     }
 }
 

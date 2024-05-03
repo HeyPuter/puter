@@ -477,6 +477,9 @@ async function UIWindow(options) {
     const el_openfiledialog_open_btn = document.querySelector(`#window-${win_id} .openfiledialog-open-btn`);
     const el_directorypicker_select_btn = document.querySelector(`#window-${win_id} .directorypicker-select-btn`);
 
+    // attach optional event listeners
+    el_window.on_before_exit = options.on_before_exit;
+
     // disable menubar by default
     $(el_window).find('.window-menubar').hide();
 
@@ -2811,6 +2814,12 @@ $.fn.close = async function(options) {
                     return false;
                 }
             }
+        }
+
+        console.log('deos ')
+        if ( this.on_before_exit ) {
+            console.log('this happens??');
+            if ( ! await this.on_before_exit() ) return false;
         }
 
         // Process window close if this is a window

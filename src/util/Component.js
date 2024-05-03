@@ -4,6 +4,10 @@ export class Component extends HTMLElement {
     // Render modes
     static NO_SHADOW = Symbol('no-shadow');
 
+    static TODO = [
+        'value bindings for create_template',
+    ]
+
     constructor (property_values) {
         super();
 
