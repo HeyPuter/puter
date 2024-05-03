@@ -104,7 +104,7 @@ const echo_escapes = {
             caller.output(NUL);
             return;
         }
-        caller.output(String.fromCharCode(Number.parseInt(hexchars, 8)));
+        caller.output(String.fromCharCode(Number.parseInt(octchars, 8)));
     },
     '\\': caller => caller.output('\\'),
 };

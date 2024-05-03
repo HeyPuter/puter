@@ -681,7 +681,7 @@ const get_descendants_0 = async (path, user, depth, return_thumbnail = false) =>
             [user.id]
         );
         // users that have shared files/dirs with this user
-        sharing_users = await db.read(
+        const sharing_users = await db.read(
             `SELECT DISTINCT(owner_user_id), user.username
                 FROM share
                 INNER JOIN user ON user.id = share.owner_user_id
@@ -719,7 +719,7 @@ const get_descendants_0 = async (path, user, depth, return_thumbnail = false) =>
             return [];
 
         // shared files/dirs with this user
-        shared_fsentries = await db.read(
+        const shared_fsentries = await db.read(
             `SELECT
                 fsentries.id, fsentries.user_id, fsentries.uuid, fsentries.parent_uid, fsentries.bucket, fsentries.bucket_region,
                 fsentries.name, fsentries.shortcut_to, fsentries.is_shortcut, fsentries.metadata, fsentries.is_dir, fsentries.modified,
@@ -899,7 +899,7 @@ const get_descendants = async (...args) => {
         if ( ! result || ! result[0] ) {
             errors.report('id2path.select', {
                 alarm: true,
-                message: `no result for ${entry_uid}: ${e.message}`,
+                message: `no result for ${entry_uid}`,
                 extra: {
                     entry_uid,
                 }
@@ -953,12 +953,12 @@ function cp(source_path, dest_path, user, overwrite, change_name, check_perms = 
     throw new Error(`legacy copy function called`);
 }
 
-isString =  function (variable) {
+function isString(variable) {
     return typeof variable === 'string' || variable instanceof String;
 }
 
 // checks to see if given variable is an object
-isObject = function (variable) {
+function isObject(variable) {
     return variable !== null && typeof variable === 'object';
 }
 
@@ -1809,7 +1809,7 @@ async function get_taskbar_items(user) {
         try {
             taskbar_items_from_db = JSON.parse(user.taskbar_items);
         }catch(e){
-
+            // ignore errors
         }
     }
 

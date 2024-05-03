@@ -71,7 +71,7 @@ async function UIWindowCopyProgress(options){
     });
 
     $(el_window).find('.copy-cancel-btn').on('click', function(e){
-        operation_cancelled[options.operation_id] = true;
+        window.operation_cancelled[options.operation_id] = true;
         $(el_window).close();
     })
 

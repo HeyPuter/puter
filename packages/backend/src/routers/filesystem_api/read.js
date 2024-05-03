@@ -74,15 +74,4 @@ module.exports = eggspress('/read', {
     res.set('Content-Type', 'application/octet-stream');
 
     stream.pipe(res);
-
-    return;
-
-    const filesystem = req.services.get('filesystem');
-    await filesystem.read(req.fs, res, {
-        ...req.values,
-        user: req.user,
-        version_id: req.query.version_id,
-        line_count,
-        byte_count,
-    });
 });

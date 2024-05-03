@@ -34,7 +34,7 @@ module.exports = eggspress('/sign', {
     allowedMethods: ['POST'],
 }, async (req, res, next)=>{
     const actor = Context.get('actor');
-    if ( ! actor.type instanceof UserActorType ) {
+    if ( ! (actor.type instanceof UserActorType) ) {
         throw APIError.create('forbidden');
     }
 
@@ -62,7 +62,8 @@ module.exports = eggspress('/sign', {
 
         app = await get_app({ uid: req.body.app_uid });
         if ( ! app ) {
-            throw APIError.create('no_suitable_app', null, { entry_name: subject.entry.name });
+            // FIXME: subject.entry.name isn't available here
+            throw APIError.create('no_suitable_app', null); //, { entry_name: subject.entry.name });
         }
         // Generate user-app token
         const svc_auth = Context.get('services').get('auth');
@@ -111,7 +112,7 @@ module.exports = eggspress('/sign', {
 
         const svc_acl = Context.get('services').get('acl');
         if ( ! await svc_acl.check(actor, node, 'see') ) {
-            throw await svc_acl.get_safe_acl_error(actor, subject, 'see');
+            throw await svc_acl.get_safe_acl_error(actor, node, 'see');
         }
 
         if ( app !== null ) {

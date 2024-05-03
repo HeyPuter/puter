@@ -66,18 +66,6 @@ module.exports = eggspress('/copy', {
         x.set(operationTraceSvc.ckey('frame'), frame);
     }
 
-    // TEMP: Testing copy with its own sql queue
-    if ( false ) {
-        const x = Context.get();
-        const svc = new ProxyContainer(x.get('services'));
-        const s = new DatabaseFSEntryService({
-            services: x.get('services'),
-            label: 'Copy-DatabaseFSEntryService',
-        });
-        svc.set('systemFSEntryService', s);
-        x.set('services', svc);
-    }
-
     const log = req.services.get('log-service').create('copy');
     const filesystem = req.services.get('filesystem');
 
@@ -103,7 +91,6 @@ module.exports = eggspress('/copy', {
             source: req.values.source,
             new_name: req.body.new_name,
 
-            new_name: req.body.new_name,
             overwrite: req.body.overwrite ?? false,
             dedupe_name,
 

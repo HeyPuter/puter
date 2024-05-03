@@ -83,7 +83,7 @@ export class ANSIShell extends EventTarget {
         Object.defineProperty(this.env, 'PWD', {
             enumerable: true,
             get: () => this.variables.pwd,
-            set: v => this.variables.pwd = v
+            set: v => { this.variables.pwd = v }
         })
         Object.defineProperty(this.env, 'ROWS', {
             enumerable: true,

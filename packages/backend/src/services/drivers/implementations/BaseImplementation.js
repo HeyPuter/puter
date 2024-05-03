@@ -60,6 +60,7 @@ class BaseImplementation extends AdvancedBase {
 
     async _sla_enforcement (method) {
         const context = Context.get();
+        const services = context.get('services');
         const method_key = `${this.constructor.ID}:${method}`;
         const svc_sla = services.get('sla');
 

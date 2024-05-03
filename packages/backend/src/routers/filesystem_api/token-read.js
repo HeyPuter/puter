@@ -49,12 +49,10 @@ module.exports = eggspress('/token-read', {
     const actor = await svc_auth.authenticate_from_token(access_jwt);
 
     if ( ! actor ) {
-        throw new Error('A');
         throw APIError.create('token_auth_failed');
     }
 
     if ( ! (actor.type instanceof AccessTokenActorType) ) {
-        throw new Error('B');
         throw APIError.create('token_auth_failed');
     }
 
@@ -98,16 +96,5 @@ module.exports = eggspress('/token-read', {
     res.setHeader('Content-Type', mime_type);
 
     stream.pipe(res);
-
-    return;
-
-    const filesystem = req.services.get('filesystem');
-    await filesystem.read(req.fs, res, {
-        ...req.values,
-        user: req.user,
-        version_id: req.query.version_id,
-        line_count,
-        byte_count,
-    });
 });
 

@@ -19,7 +19,7 @@
 "use strict"
 const express = require('express');
 const router = new express.Router();
-const {get_taskbar_items, username_exists, send_email_verification_code, send_email_verification_token, invalidate_cached_user} = require('../helpers');
+const {get_taskbar_items, username_exists, send_email_verification_code, send_email_verification_token, invalidate_cached_user, get_user } = require('../helpers');
 const auth = require('../middleware/auth.js');
 const config = require('../config');
 const { Context } = require('../util/context');
@@ -85,11 +85,6 @@ router.post('/save_account', auth, express.json(), async (req, res, next)=>{
     // get pseudo user, if exists
     let pseudo_user = await db.read(`SELECT * FROM user WHERE email = ? AND password IS NULL`, [req.body.email]);
     pseudo_user = pseudo_user[0];
-    // get uuid user, if exists
-    if(req.body.uuid){
-        uuid_user = await db.read(`SELECT * FROM user WHERE uuid = ? LIMIT 1`, [req.body.uuid]);
-        uuid_user = uuid_user[0];
-    }
 
     // send_confirmation_code
     req.body.send_confirmation_code = req.body.send_confirmation_code ?? true;

@@ -165,7 +165,7 @@ async function UIWindowDesktopBGSettings(options){
             // /set-desktop-bg
             try{
                 $.ajax({
-                    url: api_origin + "/set-desktop-bg",
+                    url: window.api_origin + "/set-desktop-bg",
                     type: 'POST',
                     data: JSON.stringify({ 
                         url: window.desktop_bg_url,
@@ -175,17 +175,18 @@ async function UIWindowDesktopBGSettings(options){
                     async: true,
                     contentType: "application/json",
                     headers: {
-                        "Authorization": "Bearer "+auth_token
+                        "Authorization": "Bearer "+window.auth_token
                     },
                     statusCode: {
                         401: function () {
-                            logout();
+                            window.logout();
                         },
                     },
                 })
                 $(el_window).close();
                 resolve(true);    
             }catch(err){
+                // Ignore
             }
         })
 

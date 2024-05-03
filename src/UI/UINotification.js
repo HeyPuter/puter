@@ -18,12 +18,12 @@
  */
 
 function UINotification(options){
-    global_element_id++;
+    window.global_element_id++;
 
     options.content = options.content ?? '';
 
     let h = '';
-    h += `<div id="ui-notification__${global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
+    h += `<div id="ui-notification__${window.global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
         h += `<img class="notification-close" src="${html_encode(window.icons['close.svg'])}">`;
         h += html_encode(options.content);
     h += `</div>`;
@@ -31,7 +31,7 @@ function UINotification(options){
     $('body').append(h);
 
 
-    const el_notification = document.getElementById(`ui-notification__${global_element_id}`);
+    const el_notification = document.getElementById(`ui-notification__${window.global_element_id}`);
 
     $(el_notification).show(0, function(e){
         // options.onAppend()
@@ -44,7 +44,7 @@ function UINotification(options){
     $(el_notification).delay(100).show(0).
     // In the right position (the mouse)
     css({
-        top: toolbar_height + 15,
+        top: window.toolbar_height + 15,
     });
 
     return el_notification;
@@ -52,9 +52,10 @@ function UINotification(options){
 
 $(document).on('click', '.notification', function(e){
     if($(e.target).hasClass('notification')){
-        if(options.click && typeof options.click === 'function'){
-            options.click(e);
-        }
+        // TODO: options isn't available here
+        // if(options.click && typeof options.click === 'function'){
+        //     options.click(e);
+        // }
         window.close_notification(e.target);
     }else{
         window.close_notification($(e.target).closest('.notification'));

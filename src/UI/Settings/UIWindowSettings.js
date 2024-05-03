@@ -45,7 +45,7 @@ async function UIWindowSettings(options){
             // side bar
             h += `<div class="settings-sidebar disable-user-select">`;
             tabs.forEach((tab, i) => {
-                h += `<div class="settings-sidebar-item disable-user-select ${i === 0 ? 'active' : ''}" data-settings="${tab.id}" style="background-image: url(${icons[tab.icon]});">${i18n(tab.title_i18n_key)}</div>`;
+                h += `<div class="settings-sidebar-item disable-user-select ${i === 0 ? 'active' : ''}" data-settings="${tab.id}" style="background-image: url(${window.icons[tab.icon]});">${i18n(tab.title_i18n_key)}</div>`;
             });
             h += `</div>`;
 
@@ -82,7 +82,6 @@ async function UIWindowSettings(options){
             allow_user_select: true,
             backdrop: false,
             width: 800,
-            height: 500,
             height: 'auto',
             dominant: true,
             show_in_taskbar: false,

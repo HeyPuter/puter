@@ -71,7 +71,7 @@ async function UIWindowMoveProgress(options){
     });
 
     $(el_window).find('.move-cancel-btn').on('click', function(e){
-        operation_cancelled[options.operation_id] = true;
+        window.operation_cancelled[options.operation_id] = true;
         $(el_window).close();
     })
 

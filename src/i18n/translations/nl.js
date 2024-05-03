@@ -99,7 +99,6 @@ const nl = {
 		license: "Licentie",
 		loading: 'Laden',
 		log_in: "Inloggen",
-		log_into_another_account_anyway: 'Log into another account anyway',
 		log_into_another_account_anyway: 'Alsnog met ander account inloggen',
 		log_out: 'Uitloggen',
 		move: 'Verplaatsen',

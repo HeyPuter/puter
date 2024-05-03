@@ -255,7 +255,7 @@ class WebServerService extends BaseService {
                 onFinished(res, () => {
                     if ( res.statusCode !== 500 ) return;
                     if ( req.__error_handled ) return;
-                    const alarm = services.get('alarm');
+                    const alarm = this.services.get('alarm');
                     alarm.create('responded-500', 'server sent a 500 response', {
                         error: req.__error_source,
                         url: req.url,

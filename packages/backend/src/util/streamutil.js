@@ -365,7 +365,7 @@ const stuck_detector_stream = (source, {
     return stream;
 }
 
-string_to_stream = (str, chunk_size) => {
+const string_to_stream = (str, chunk_size) => {
     const s = new Readable();
     s._read = () => {}; // redundant? see update below
     // split string into chunks

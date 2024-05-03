@@ -76,12 +76,12 @@ async function UIWindowQR(options){
             if(message)
                 $(this).prop('disabled', true);
             $.ajax({
-                url: api_origin + "/contactUs",
+                url: window.api_origin + "/contactUs",
                 type: 'POST',
                 async: true,
                 contentType: "application/json",
                 headers: {
-                    "Authorization": "Bearer "+auth_token
+                    "Authorization": "Bearer "+window.auth_token
                 },    
                 data: JSON.stringify({ 
                     message: message,

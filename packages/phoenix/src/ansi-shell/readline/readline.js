@@ -151,11 +151,7 @@ const ReadlineProcessorBuilder = builder => builder
 
             if ( completions.length > 1 ) {
                 let inCommon = '';
-                for ( let i=0 ; true ; i++ ) {
-                    if ( ! completions.every(completion => {
-                        return completion.length > i;
-                    }) ) break;
-
+                for ( let i=0 ; completions.every(completion => completion.length > i) ; i++ ) {
                     let matches = true;
 
                     const chrFirst = completions[0][i];

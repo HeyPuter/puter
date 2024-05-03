@@ -119,10 +119,6 @@ class TypeSpec extends BasicBase {
 
     equals (other) {
         return this.raw.$ === other.raw.$;
-        // for ( k in this.raw ) {
-        //     if ( this.raw[k] !== other.raw[k] ) return false;
-        // }
-        return true;
     }
 
     toString () {

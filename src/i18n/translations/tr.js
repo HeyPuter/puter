@@ -225,7 +225,6 @@ const tr = {
         yes_release_it: "Evet, Bırak",
         you_have_been_referred_to_puter_by_a_friend: "Bir arkadaşınız tarafından Puter'a yönlendirildiniz!",
         zip: "Sıkıştır",
-        storage_puter_used: "Puter tarafından kullanılıyor",
     }
 };
 

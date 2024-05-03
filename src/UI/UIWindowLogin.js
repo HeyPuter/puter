@@ -138,7 +138,7 @@ async function UIWindowLogin(options){
             const password = $(el_window).find('.password').val();
             let data;
         
-            if(is_email(email_username)){
+            if(window.is_email(email_username)){
                 data = JSON.stringify({ 
                     email: email_username, 
                     password: password
@@ -157,14 +157,14 @@ async function UIWindowLogin(options){
                 headers = window.custom_headers;
     
             $.ajax({
-                url: gui_origin + "/login",
+                url: window.gui_origin + "/login",
                 type: 'POST',
                 async: false,
                 headers: headers,
                 contentType: "application/json",
                 data: data,				
                 success: function (data){
-                    update_auth_data(data.token, data.user);
+                    window.update_auth_data(data.token, data.user);
                     
                     if(options.reload_on_success){
                         window.onbeforeunload = null;
@@ -177,15 +177,15 @@ async function UIWindowLogin(options){
                     const $errorMessage = $(el_window).find('.login-error-msg');
                     if (err.status === 404) {
                         // Don't include the whole 404 page
-                        $errorMessage.html(`Error 404: "${gui_origin}/login" not found`);
+                        $errorMessage.html(`Error 404: "${window.gui_origin}/login" not found`);
                     } else if (err.responseText) {
                         $errorMessage.html(html_encode(err.responseText));
                     } else {
                         // No message was returned. *Probably* this means we couldn't reach the server.
                         // If this is a self-hosted instance, it's probably a configuration issue.
-                        if (app_domain !== 'puter.com') {
+                        if (window.app_domain !== 'puter.com') {
                             $errorMessage.html(`<div style="text-align: left;">
-                                <p>Error reaching "${gui_origin}/login". This is likely to be a configuration issue.</p>
+                                <p>Error reaching "${window.gui_origin}/login". This is likely to be a configuration issue.</p>
                                 <p>Make sure of the following:</p>
                                 <ul style="padding-left: 2em;">
                                     <li><code>domain</code> in config.json is set to the domain you're using to access puter</li>

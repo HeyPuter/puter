@@ -41,6 +41,7 @@ class PuterDriverProxy extends AdvancedBase {
     }
 
     constructor ({ target }) {
+        super();
         this.target = target;
     }
 

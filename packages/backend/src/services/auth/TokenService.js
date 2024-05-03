@@ -1,6 +1,6 @@
 const BaseService = require("../BaseService");
 
-def = o => {
+const def = o => {
     for ( let k in o ) {
         if ( typeof o[k] === 'string' ) {
             o[k] = { short: o[k] };
@@ -15,7 +15,7 @@ def = o => {
     };
 }
 
-defv = o => {
+const defv = o => {
     return {
         to_short: o,
         to_long: Object.keys(o).reduce((acc, key) => {

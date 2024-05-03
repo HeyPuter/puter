@@ -62,7 +62,7 @@ class PuterSiteMiddleware extends AdvancedBase {
             req.subdomains[0] === 'devtest' ? 'devtest' :
             req.hostname.slice(0, -1 * (config.static_hosting_domain.length + 1));
 
-        let path = (req.baseUrl + req.path) ?? 'index.html';
+        let path = (req.baseUrl + req.path) || 'index.html';
 
         const context = Context.get();
         const services = context.get('services');

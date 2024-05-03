@@ -26,6 +26,7 @@ const Busboy = require('busboy');
 const { BatchExecutor } = require("../../../filesystem/batch/BatchExecutor");
 const { TeePromise } = require("../../../util/promise");
 const { EWMA, MovingMode } = require("../../../util/opmath");
+const { get_app } = require('../../../helpers');
 
 const commands = require('../../../filesystem/batch/commands.js').commands;
 
@@ -221,28 +222,6 @@ module.exports = eggspress('/batch', {
     let ps = [];
 
     busboy.on('file', async (fieldname, stream, detais) => {
-        if (false) {
-            ended[i] = false;
-            ps[i] = new TeePromise();
-            const this_i = i;
-            stream.on('end', () => {
-                ps[this_i].resolve();
-                ended[this_i] = true;
-                batch_widget.ec++;
-            });
-            if ( i > 0 ) {
-                if ( ! ended[i-1] ) {
-                    batch_widget.sc++;
-                    // stream.pause();
-                    batch_widget.wc++;
-                    await Promise.all(Array(i).fill(0).map((_, j) => ps[j]));
-                    batch_widget.wc--;
-                    // stream.resume();
-                }
-            }
-            i++;
-        }
-
         if ( batch_exe.total_tbd ) {
             batch_exe.total_tbd = false;
             batch_widget.ic = pending_operations.length;

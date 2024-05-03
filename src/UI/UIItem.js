@@ -39,7 +39,7 @@ function UIItem(options){
         return;
     }
 
-    const item_id = global_element_id++;
+    const item_id = window.global_element_id++;
     let last_mousedown_ts = 999999999999999;
     let rename_cancelled = false;
 
@@ -59,7 +59,7 @@ function UIItem(options){
     options.sort_container_after_append = (options.sort_container_after_append !== undefined ? options.sort_container_after_append : false);
     const is_shared_with_me = (options.path !== '/'+window.user.username && !options.path.startsWith('/'+window.user.username+'/'));
 
-    let website_url = determine_website_url(options.path);
+    let website_url = window.determine_website_url(options.path);
 
     // do a quick check to see if the target parent has any file type restrictions
     const appendto_allowed_file_types = $(options.appendTo).attr('data-allowed_file_types')
@@ -101,7 +101,7 @@ function UIItem(options){
         h += `</div>`;
         // size
         h += `<div class="item-attr item-attr--size">`;
-            h += `<span>${options.size ? byte_format(options.size) : '-'}</span>`;
+            h += `<span>${options.size ? window.byte_format(options.size) : '-'}</span>`;
         h += `</div>`;
         // type
         h += `<div class="item-attr item-attr--type">`;
@@ -158,7 +158,7 @@ function UIItem(options){
         h += `</div>`;
 
         // name
-        h += `<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${options.is_trash ? i18n('trash') : html_encode(truncate_filename(options.name, TRUNCATE_LENGTH)).replaceAll(' ', '&nbsp;')}</span>`
+        h += `<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${options.is_trash ? i18n('trash') : html_encode(window.truncate_filename(options.name, window.TRUNCATE_LENGTH)).replaceAll(' ', '&nbsp;')}</span>`
         // name editor
         h += `<textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${html_encode(options.name)}</textarea>`
     h += `</div>`;
@@ -168,14 +168,14 @@ function UIItem(options){
 
     // updte item_container
     const item_container = $(options.appendTo).closest('.item-container');
-    show_or_hide_empty_folder_message(item_container);
+    window.show_or_hide_empty_folder_message(item_container);
 
     // get all the elements needed
     const el_item = document.getElementById(`item-${item_id}`);
     const el_item_name = document.querySelector(`#item-${item_id} > .item-name`);
     const el_item_icon = document.querySelector(`#item-${item_id} .item-icon`);
     const el_item_name_editor = document.querySelector(`#item-${item_id} > .item-name-editor`);
-    const is_trashed = $(el_item).attr('data-path').startsWith(trash_path + '/');
+    const is_trashed = $(el_item).attr('data-path').startsWith(window.trash_path + '/');
 
     // update parent window's explorer item count if applicable
     if(options.appendTo !== undefined){
@@ -183,11 +183,11 @@ function UIItem(options){
         if(!$(el_window).hasClass('.window'))
             el_window = $(el_window).closest('.window');
 
-        update_explorer_footer_item_count(el_window);
+        window.update_explorer_footer_item_count(el_window);
     }
 
     // manual positioning
-    if( !is_auto_arrange_enabled && 
+    if( !window.is_auto_arrange_enabled &&
         options.position && 
         // item is on the desktop (must be desktop itself and not a window, hence the '.desktop' class check)
         $(el_item).closest('.item-container.desktop').attr('data-path') === window.desktop_path
@@ -214,7 +214,7 @@ function UIItem(options){
                 $(el_item).removeClass('item-selected');
                 // if files were dropped...
                 if(e.dataTransfer?.items?.length > 0){
-                    upload_items( e.dataTransfer.items, $(el_item).attr('data-path'))
+                    window.upload_items( e.dataTransfer.items, $(el_item).attr('data-path'))
                 }
 
                 e.stopPropagation();
@@ -333,13 +333,13 @@ function UIItem(options){
             }
 
             // send drag event to iframe if mouse is inside iframe
-            if(mouseover_window){
-                const $app_iframe = $(mouseover_window).find('.window-app-iframe');
-                if(!$(mouseover_window).hasClass('window-disabled') && $app_iframe.length > 0){
+            if(window.mouseover_window){
+                const $app_iframe = $(window.mouseover_window).find('.window-app-iframe');
+                if(!$(window.mouseover_window).hasClass('window-disabled') && $app_iframe.length > 0){
                     var rect = $app_iframe.get(0).getBoundingClientRect();
                     // if mouse is inside iframe, send drag message to iframe
-                    if(mouseX > rect.left && mouseX < rect.right && mouseY > rect.top && mouseY < rect.bottom){
-                        $app_iframe.get(0).contentWindow.postMessage({msg: "drag", x: (mouseX - rect.left), y: (mouseY - rect.top)}, '*');
+                    if(window.mouseX > rect.left && window.mouseX < rect.right && window.mouseY > rect.top && window.mouseY < rect.bottom){
+                        $app_iframe.get(0).contentWindow.postMessage({msg: "drag", x: (window.mouseX - rect.left), y: (window.mouseY - rect.top)}, '*');
                     }
                 }
             }
@@ -347,16 +347,16 @@ function UIItem(options){
         stop: function(event, ui){
             // Allow rearranging only if item is on desktop, not trash container, auto arrange is disabled and item is not dropped into another item
             if($(el_item).closest('.item-container').attr('data-path') === window.desktop_path && 
-                !is_auto_arrange_enabled && $(el_item).attr('data-path') !== trash_path && !ui.helper.data('dropped') &&
+                !window.is_auto_arrange_enabled && $(el_item).attr('data-path') !== window.trash_path && !ui.helper.data('dropped') &&
                 // Item must be dropped on the Desktop and not on the taskbar
-                mouseover_window === undefined && ui.position.top <= window.desktop_height - window.taskbar_height - 15){
+                window.mouseover_window === undefined && ui.position.top <= window.desktop_height - window.taskbar_height - 15){
     
                 el_item.style.position = 'absolute';
                 el_item.style.left = ui.position.left + 'px';
                 el_item.style.top = ui.position.top + 'px';
                 $('.ui-draggable-dragging').remove();
-                desktop_item_positions[$(el_item).attr('data-uid')] = ui.position;
-                save_desktop_item_positions()
+                window.desktop_item_positions[$(el_item).attr('data-uid')] = ui.position;
+                window.save_desktop_item_positions()
             }
 
             $('.item-selected-clone').remove();
@@ -380,7 +380,7 @@ function UIItem(options){
         tolerance: 'pointer',
         drop: async function( event, ui ) {
             // Check if hovering over an item that is VISIBILE
-            if($(event.target).closest('.window').attr('data-id') !== $(mouseover_window).attr('data-id'))
+            if($(event.target).closest('.window').attr('data-id') !== $(window.mouseover_window).attr('data-id'))
                 return;
 
             // If ctrl is pressed and source is Trashed, cancel whole operation
@@ -424,7 +424,7 @@ function UIItem(options){
                 // open each item
                 for (let i = 0; i < items_to_open.length; i++) {
                     const item = items_to_open[i];
-                    launch_app({ 
+                    window.launch_app({
                         name: options.associated_app_name, 
                         file_path: item.path,
                         // app_obj: open_item_meta.suggested_apps[0],
@@ -445,14 +445,14 @@ function UIItem(options){
                 // If ctrl key is down, copy items. Except if target or source is Trash
                 if(event.ctrlKey){
                     if(options.is_dir && $(el_item).attr('data-path') !== window.trash_path )
-                        copy_items(items_to_move, $(el_item).attr('data-path'))
+                        window.copy_items(items_to_move, $(el_item).attr('data-path'))
                     else if(!options.is_dir)
-                        copy_items(items_to_move, path.dirname($(el_item).attr('data-path')));
+                        window.copy_items(items_to_move, path.dirname($(el_item).attr('data-path')));
                 }
                 // If alt key is down, create shortcut items
                 else if(event.altKey && window.feature_flags.create_shortcut){
                     items_to_move.forEach((item_to_move) => {
-                        create_shortcut(
+                        window.create_shortcut(
                             path.basename($(item_to_move).attr('data-path')), 
                             $(item_to_move).attr('data-is_dir') === '1', 
                             options.is_dir ? $(el_item).attr('data-path') : path.dirname($(el_item).attr('data-path')), 
@@ -465,10 +465,10 @@ function UIItem(options){
                 // Otherwise, move items
                 else if(options.is_dir){
                     if($(el_item).closest('.item-container').attr('data-path') === window.desktop_path){
-                        delete desktop_item_positions[$(el_item).attr('data-uid')];
-                        save_desktop_item_positions()
+                        delete window.desktop_item_positions[$(el_item).attr('data-uid')];
+                        window.save_desktop_item_positions()
                     }
-                    move_items(items_to_move, $(el_item).attr('data-shortcut_to_path') !== '' ? $(el_item).attr('data-shortcut_to_path') : $(el_item).attr('data-path'));
+                    window.move_items(items_to_move, $(el_item).attr('data-shortcut_to_path') !== '' ? $(el_item).attr('data-shortcut_to_path') : $(el_item).attr('data-path'));
                 }
             }
 
@@ -480,7 +480,7 @@ function UIItem(options){
         over: function(event, ui){
             // Check hovering over an item that is VISIBILE
             const $event_parent_win = $(event.target).closest('.window')
-            if( $event_parent_win.length > 0 && $event_parent_win.attr('data-id') !== $(mouseover_window).attr('data-id'))
+            if( $event_parent_win.length > 0 && $event_parent_win.attr('data-id') !== $(window.mouseover_window).attr('data-id'))
                 return;
             // Don't do anything if the dragged item is NOT a UIItem
             if(!$(ui.draggable).hasClass('item'))
@@ -522,7 +522,7 @@ function UIItem(options){
             if($(e.target).hasClass('item-name-editor'))
                 return false;
     
-            open_item({
+            window.open_item({
                 item: el_item, 
                 maximized: true,
             });
@@ -537,7 +537,7 @@ function UIItem(options){
             if($(e.target).hasClass('item-name-editor'))
                 return false;
     
-            open_item({
+            window.open_item({
                 item: el_item, 
                 new_window: e.metaKey || e.ctrlKey,
             });
@@ -576,7 +576,7 @@ function UIItem(options){
         else{
             $(this).addClass('item-selected')
         }
-        update_explorer_footer_selected_items_count($el_parent_window)
+        window.update_explorer_footer_selected_items_count($el_parent_window)
     });
     // --------------------------------------------------------
     // Click
@@ -593,7 +593,7 @@ function UIItem(options){
         // CTRL/Command key is pressed or clicking an item that is already selected
         if(!e.ctrlKey && !e.metaKey){
             $(this).closest('.item-container').find('.item-selected').not(this).removeClass('item-selected');
-            update_explorer_footer_selected_items_count($el_parent_window)
+            window.update_explorer_footer_selected_items_count($el_parent_window)
         }
         //----------------------------------------------------------------
         // On an OpenFileDialog?
@@ -648,7 +648,7 @@ function UIItem(options){
                 UIAlert(`The name ".." is not allowed, because it is a reserved name. Please choose another name.`)
             }
 
-            $(el_item_name).html(truncate_filename(options.name, TRUNCATE_LENGTH).replaceAll(' ', '&nbsp;'));
+            $(el_item_name).html(window.truncate_filename(options.name, window.TRUNCATE_LENGTH).replaceAll(' ', '&nbsp;'));
             $(el_item_name).show();
             $(el_item_name_editor).val($(el_item).attr('data-name'));
             $(el_item_name_editor).hide();
@@ -658,7 +658,7 @@ function UIItem(options){
         $(el_item_name_editor).removeClass('item-name-editor-active');
 
         // Perform rename request
-        rename_file(options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url);
+        window.rename_file(options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url);
     }
     
     // --------------------------------------------------------
@@ -675,8 +675,8 @@ function UIItem(options){
             e.preventDefault();
             $(el_item_name_editor).blur();
             $(el_item).addClass('item-selected');
-            last_enter_pressed_to_rename_ts = Date.now();
-            update_explorer_footer_selected_items_count($(el_item).closest('.item-container'));
+            window.last_enter_pressed_to_rename_ts = Date.now();
+            window.update_explorer_footer_selected_items_count($(el_item).closest('.item-container'));
             return false;
         }
     })
@@ -715,7 +715,7 @@ function UIItem(options){
             setTimeout(() => {
                 if(!skip_a_rename_click && (Date.now() - last_mousedown_ts) > 400){
                     if (!e.ctrlKey && !e.metaKey)
-                        activate_item_name_editor(el_item)
+                        window.activate_item_name_editor(el_item)
                     last_mousedown_ts = 0
                 }else{
                     last_mousedown_ts = Date.now() + 500;
@@ -760,7 +760,7 @@ function UIItem(options){
         // Multiple items selected
         // -------------------------------------------------------
         if($selected_items.length > 1){
-            const are_trashed = $selected_items.attr('data-path').startsWith(trash_path + '/');
+            const are_trashed = $selected_items.attr('data-path').startsWith(window.trash_path + '/');
             menu_items = []
             // -------------------------------------------
             // Restore
@@ -772,7 +772,7 @@ function UIItem(options){
                         $selected_items.each(function() {
                             const ell = this;
                             let metadata = $(ell).attr('data-metadata') === '' ? {} : JSON.parse($(ell).attr('data-metadata'))
-                            move_items([ell], path.dirname(metadata.original_path));
+                            window.move_items([ell], path.dirname(metadata.original_path));
                         })
                     }
                 });
@@ -793,7 +793,7 @@ function UIItem(options){
                             items.push($selected_items[index]);
                         }
 
-                        zipItems(items, path.dirname($(el_item).attr('data-path')), true);
+                        window.zipItems(items, path.dirname($(el_item).attr('data-path')), true);
                     }
                 });
                 // -------------------------------------------
@@ -807,7 +807,7 @@ function UIItem(options){
                             items.push($selected_items[index]);
                         }
 
-                        zipItems(items, path.dirname($(el_item).attr('data-path')), false);
+                        window.zipItems(items, path.dirname($(el_item).attr('data-path')), false);
                     }
                 });
                 // -------------------------------------------
@@ -872,9 +872,9 @@ function UIItem(options){
                         if((alert_resp) === 'Delete'){
                             for (let index = 0; index < $selected_items.length; index++) {
                                 const element = $selected_items[index];
-                                await delete_item(element);
+                                await window.delete_item(element);
                             }
-                            const trash = await puter.fs.stat(trash_path);
+                            const trash = await puter.fs.stat(window.trash_path);
 
                             // update other clients
                             if(window.socket){
@@ -882,8 +882,8 @@ function UIItem(options){
                             }
 
                             if(trash.is_empty){
-                                $(`.item[data-path="${html_encode(trash_path)}" i], .item[data-shortcut_to_path="${trash_path}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
-                                $(`.window[data-path="${html_encode(trash_path)}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
+                                $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${window.trash_path}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
+                                $(`.window[data-path="${html_encode(window.trash_path)}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
                             }            
                         }
                     }
@@ -903,7 +903,7 @@ function UIItem(options){
                                 base_dir = window.desktop_path;
                             }
                             // create shortcut
-                            create_shortcut(
+                            window.create_shortcut(
                                 path.basename($(this).attr('data-path')), 
                                 $(this).attr('data-is_dir') === '1', 
                                 base_dir, 
@@ -922,7 +922,7 @@ function UIItem(options){
                 menu_items.push({
                     html: i18n('delete'),
                     onClick: async function(){
-                        move_items($selected_items, trash_path);
+                        window.move_items($selected_items, window.trash_path);
                     }
                 });
             }
@@ -933,7 +933,7 @@ function UIItem(options){
         // One item selected
         // -------------------------------------------------------   
         else{
-            const is_trash = $(el_item).attr('data-path') === trash_path || $(el_item).attr('data-shortcut_to_path') === trash_path;
+            const is_trash = $(el_item).attr('data-path') === window.trash_path || $(el_item).attr('data-shortcut_to_path') === window.trash_path;
             menu_items = [];
             // -------------------------------------------
             // Open
@@ -942,7 +942,7 @@ function UIItem(options){
                 menu_items.push({
                     html: i18n('open'),
                     onClick: function(){
-                        open_item({item: el_item});
+                        window.open_item({item: el_item});
                     }
                 });
 
@@ -959,7 +959,7 @@ function UIItem(options){
                 let items = [];
                 if(!options.suggested_apps || options.suggested_apps.length === 0){
                     // try to find suitable apps
-                    const suitable_apps = await suggest_apps_for_fsentry({
+                    const suitable_apps = await window.suggest_apps_for_fsentry({
                         uid: options.uid,
                         path: options.path,
                     });
@@ -981,12 +981,12 @@ function UIItem(options){
                             onClick: async function(){
                                 var extension = path.extname($(el_item).attr('data-path')).toLowerCase();
                                 if(
-                                    user_preferences[`default_apps${extension}`] !== suggested_app.name 
+                                    window.user_preferences[`default_apps${extension}`] !== suggested_app.name
                                     && 
                                     (
-                                        (!user_preferences[`default_apps${extension}`] && index > 0)
+                                        (!window.user_preferences[`default_apps${extension}`] && index > 0)
                                         || 
-                                        (user_preferences[`default_apps${extension}`])
+                                        (window.user_preferences[`default_apps${extension}`])
                                     )
                                 ){
                                     const alert_resp = await UIAlert({
@@ -1004,11 +1004,11 @@ function UIItem(options){
                                         ]
                                     })
                                     if((alert_resp) === 'yes'){
-                                        user_preferences['default_apps' + extension] = suggested_app.name;
-                                        window.mutate_user_preferences(user_preferences);
+                                        window.user_preferences['default_apps' + extension] = suggested_app.name;
+                                        window.mutate_user_preferences(window.user_preferences);
                                     }
                                 }
-                                launch_app({ 
+                                window.launch_app({
                                     name: suggested_app.name,
                                     file_path: $(el_item).attr('data-path'),
                                     window_title: $(el_item).attr('data-name'),
@@ -1044,7 +1044,7 @@ function UIItem(options){
                     html: i18n('open_in_new_window'),
                     onClick: function(){
                         if(options.is_dir){
-                            open_item({item: el_item, new_window: true})
+                            window.open_item({item: el_item, new_window: true})
                         }
                     }
                 });
@@ -1090,7 +1090,7 @@ function UIItem(options){
                     html: i18n('deploy_as_app'),
                     disabled: !options.is_dir,
                     onClick: async function () {
-                        launch_app({
+                        window.launch_app({
                             name: 'dev-center',
                             file_path: $(el_item).attr('data-path'),
                             file_uid: $(el_item).attr('data-uid'),
@@ -1111,7 +1111,7 @@ function UIItem(options){
                 menu_items.push({
                     html: i18n('empty_trash'),
                     onClick: async function(){
-                        empty_trash();
+                        window.empty_trash();
                     }
                 });
             }
@@ -1124,9 +1124,9 @@ function UIItem(options){
                     disabled: options.is_dir && !window.feature_flags.download_directory,
                     onClick: async function(){
                         if(options.is_dir)
-                            zipItems(el_item, path.dirname($(el_item).attr('data-path')), true);
+                            window.zipItems(el_item, path.dirname($(el_item).attr('data-path')), true);
                         else
-                            trigger_download([options.path]);
+                            window.trigger_download([options.path]);
                     }
                 });                
             }
@@ -1137,7 +1137,7 @@ function UIItem(options){
                 menu_items.push({
                     html: i18n('zip'),
                     onClick: function(){
-                        zipItems(el_item, path.dirname($(el_item).attr('data-path')), false);
+                        window.zipItems(el_item, path.dirname($(el_item).attr('data-path')), false);
                     }
                 })
             }
@@ -1177,7 +1177,7 @@ function UIItem(options){
                     html: i18n('restore'),
                     onClick: async function(){
                         let metadata = $(el_item).attr('data-metadata') === '' ? {} : JSON.parse($(el_item).attr('data-metadata'))
-                        move_items([el_item], path.dirname(metadata.original_path));
+                        window.move_items([el_item], path.dirname(metadata.original_path));
                     }
                 });
             }
@@ -1216,12 +1216,12 @@ function UIItem(options){
             if($(el_item).attr('data-is_dir') === '1' && !is_trashed && !is_trash){
                 menu_items.push({
                     html: i18n('paste_into_folder'),
-                    disabled: clipboard.length > 0 ? false : true,
+                    disabled: window.clipboard.length > 0 ? false : true,
                     onClick: function(){
-                        if(clipboard_op === 'copy')
-                            copy_clipboard_items($(el_item).attr('data-path'), null);
-                        else if(clipboard_op === 'move')
-                            move_clipboard_items(null, $(el_item).attr('data-path'))
+                        if(window.clipboard_op === 'copy')
+                            window.copy_clipboard_items($(el_item).attr('data-path'), null);
+                        else if(window.clipboard_op === 'move')
+                            window.move_clipboard_items(null, $(el_item).attr('data-path'))
                     }
                 })
             }
@@ -1244,7 +1244,7 @@ function UIItem(options){
                             base_dir = window.desktop_path;
                         }
 
-                        create_shortcut(
+                        window.create_shortcut(
                             path.basename($(el_item).attr('data-path')), 
                             options.is_dir, 
                             base_dir, 
@@ -1262,7 +1262,7 @@ function UIItem(options){
                 menu_items.push({
                     html: i18n('delete'),
                     onClick: async function(){
-                        move_items([el_item], trash_path);
+                        window.move_items([el_item], window.trash_path);
                     }
                 });
             }
@@ -1287,17 +1287,17 @@ function UIItem(options){
                         })
 
                         if((alert_resp) === 'Delete'){
-                            await delete_item(el_item);
+                            await window.delete_item(el_item);
                             // check if trash is empty
-                            const trash = await puter.fs.stat(trash_path);
+                            const trash = await puter.fs.stat(window.trash_path);
                             // update other clients
                             if(window.socket){
                                 window.socket.emit('trash.is_empty', {is_empty: trash.is_empty});
                             }
                             // update this client
                             if(trash.is_empty){
-                                $(`.item[data-path="${html_encode(trash_path)}" i], .item[data-shortcut_to_path="${html_encode(trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
-                                $(`.window[data-path="${trash_path}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
+                                $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
+                                $(`.window[data-path="${window.trash_path}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
                             }            
                         }
                     }
@@ -1310,7 +1310,7 @@ function UIItem(options){
                 menu_items.push({
                     html: i18n('rename'),
                     onClick: function(){
-                        activate_item_name_editor(el_item)
+                        window.activate_item_name_editor(el_item)
                     }
                 });
             }
@@ -1370,10 +1370,10 @@ function UIItem(options){
     })
 
     if(options.sort_container_after_append){
-        sort_items(options.appendTo, $(el_item).closest('.item-container').attr('data-sort_by'), $(el_item).closest('.item-container').attr('data-sort_order'));
+        window.sort_items(options.appendTo, $(el_item).closest('.item-container').attr('data-sort_by'), $(el_item).closest('.item-container').attr('data-sort_order'));
     }
     if(options.editable){
-        activate_item_name_editor(el_item)
+        window.activate_item_name_editor(el_item)
     }
 }
 
@@ -1430,7 +1430,7 @@ $(document).on('contextmenu', '.item-has-website-url-badge', async function(e){
                 onClick: async function(){
                     const website_url = $(e.target).closest('.item').attr('data-website_url');
                     if(website_url){
-                        await copy_to_clipboard(website_url);
+                        await window.copy_to_clipboard(website_url);
                     }  
                 }
             },
@@ -1514,7 +1514,7 @@ $.fn.removeItems = async function(options) {
     $(this).each(async function() {
         const parent_container = $(this).closest('.item-container');
         $(this).remove();
-        show_or_hide_empty_folder_message(parent_container);
+        window.show_or_hide_empty_folder_message(parent_container);
     });
 
     return this;

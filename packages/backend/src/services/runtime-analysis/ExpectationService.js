@@ -91,12 +91,13 @@ class ExpectationService extends BaseService {
 
     purgeExpectations_ () {
         return;
-        for ( let i=0 ; i < this.expectations_.length ; i++ ) {
-            if ( this.expectations_[i].check() ) {
-                this.expectations_[i] = null;
-            }
-        }
-        this.expectations_ = this.expectations_.filter(v => v !== null);
+        // TODO: Re-enable this
+        // for ( let i=0 ; i < this.expectations_.length ; i++ ) {
+        //     if ( this.expectations_[i].check() ) {
+        //         this.expectations_[i] = null;
+        //     }
+        // }
+        // this.expectations_ = this.expectations_.filter(v => v !== null);
     }
 
     expect_eventually ({ workUnit, checkpoint }) {

@@ -118,7 +118,7 @@ class BatchExecutor extends AdvancedBase {
                         alarm: true,
                     });
 
-                    e = APIError.adapt(e);
+                    e = APIError.adapt(e); // eslint-disable-line no-ex-assign
                 }
 
                 // Consume stream if there's a file

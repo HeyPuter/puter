@@ -127,7 +127,7 @@ async function UIWindowSaveAccount(options){
             $(el_window).find('.signup-btn').prop('disabled', true);
 
             $.ajax({
-                url: api_origin + "/save_account",
+                url: window.api_origin + "/save_account",
                 type: 'POST',
                 async: true,
                 contentType: "application/json",
@@ -139,10 +139,10 @@ async function UIWindowSaveAccount(options){
                     send_confirmation_code: options.send_confirmation_code,
                 }),
                 headers: {
-                    "Authorization": "Bearer "+auth_token
+                    "Authorization": "Bearer "+window.auth_token
                 },        
-                success: async function (data){                    
-                    update_auth_data(data.token, data.user)
+                success: async function (data){
+                    window.update_auth_data(data.token, data.user)
 
                     //close this window
                     if(data.user.email_confirmation_required){

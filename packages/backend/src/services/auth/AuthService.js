@@ -55,27 +55,6 @@ class AuthService extends BaseService {
 
         if ( ! decoded.hasOwnProperty('type') ) {
             throw new LegacyTokenError();
-            const user = await this.db.requireRead(
-                "SELECT * FROM `user` WHERE `uuid` = ?  LIMIT 1",
-                [decoded.uuid],
-            );
-
-            if ( ! user[0] ) {
-                throw APIError.create('token_auth_failed');
-            }
-
-            if ( user[0].suspended ) {
-                throw APIError.create('account_suspended');
-            }
-
-            const actor_type = new UserActorType({
-                user: user[0],
-            });
-
-            return new Actor({
-                user_uid: decoded.uuid,
-                type: actor_type,
-            });
         }
 
         if ( decoded.type === 'session' ) {

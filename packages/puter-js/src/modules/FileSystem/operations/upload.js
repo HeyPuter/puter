@@ -60,8 +60,6 @@ const upload = async function(items, dirPath, options = {}){
             for(let i=0; i<items.length; i++){
                 if(items[i] instanceof DataTransferItem || items[i] instanceof DataTransferItemList){
                     seemsToBeParsedDataTransferItems = true;
-                }else{
-                    
                 }
             }
         }
@@ -171,6 +169,7 @@ const upload = async function(items, dirPath, options = {}){
                     return reject({code: 'NOT_ENOUGH_SPACE', message: 'Not enough storage space available.'});
                 }
             }catch(e){
+                // Ignored
             }
         }
     

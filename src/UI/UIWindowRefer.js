@@ -22,7 +22,7 @@ import UIPopover from './UIPopover.js'
 
 async function UIWindowRefer(options){
     let h = '';
-    const url = `${gui_origin}/?r=${user.referral_code}`;
+    const url = `${window.gui_origin}/?r=${window.user.referral_code}`;
 
     h += `<div>`;
         h += `<div class="qr-code-window-close-btn generic-close-window-button disable-user-select"> &times; </div>`;
@@ -70,7 +70,7 @@ async function UIWindowRefer(options){
     $(el_window).find('.window-body .downloadable-link').val(url);
 
     $(el_window).find('.window-body .share-copy-link-on-social').on('click', function(e){    
-        const social_links = socialLink({url: url, title: i18n('refer_friends_social_media_c2a'), description: i18n('refer_friends_social_media_c2a')});
+        const social_links = window.socialLink({url: url, title: i18n('refer_friends_social_media_c2a'), description: i18n('refer_friends_social_media_c2a')});
 
         let social_links_html = ``;
         social_links_html += `<div style="padding: 10px;">`;

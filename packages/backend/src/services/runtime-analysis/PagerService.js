@@ -18,6 +18,7 @@
  */
 const pdjs = require('@pagerduty/pdjs');
 const BaseService = require('../BaseService');
+const util = require('util');
 
 class PagerService extends BaseService {
     async _construct () {

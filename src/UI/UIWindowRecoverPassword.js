@@ -81,14 +81,14 @@ function UIWindowRecoverPassword(options){
         $(el_window).find('.send-recovery-email').on('click', function(e){
             let email, username;
             let input = $(el_window).find('.pass-recovery-username-or-email').val();
-            if(is_email(input))
+            if(window.is_email(input))
                 email = input;
             else
                 username = input;
 
             // todo validation before sending
             $.ajax({
-                url: api_origin + "/send-pass-recovery-email",
+                url: window.api_origin + "/send-pass-recovery-email",
                 type: 'POST',
                 async: true,
                 contentType: "application/json",
@@ -98,7 +98,7 @@ function UIWindowRecoverPassword(options){
                 }),    
                 statusCode: {
                     401: function () {
-                        logout();
+                        window.logout();
                     },
                 },        
                 success: async function (res){

@@ -42,7 +42,7 @@ async function UIWindowFontPicker(options){
     // set sensible defaults
     if(arguments.length > 0){
         // if first argument is a string, then assume it is the default color
-        if(isString(arguments[0])){
+        if(window.isString(arguments[0])){
             options = {};
             options.default = arguments[0];
         }
@@ -92,7 +92,7 @@ async function UIWindowFontPicker(options){
             onAppend: function(window){
                 let active_font = $(window).find('.font-selector-active');
                 if(active_font.length > 0){
-                    scrollParentToChild($(window).find('.font-list').get(0), active_font.get(0));
+                    window.scrollParentToChild($(window).find('.font-list').get(0), active_font.get(0));
                 }
             },
             window_class: 'window-login',

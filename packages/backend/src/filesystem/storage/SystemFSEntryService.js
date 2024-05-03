@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { PuterPath } = require("../lib/PuterPath");
+const _path = require('path');
 
 // Redis keys:
 // <env>:<service>:<class>:<type>:<property>:<id>

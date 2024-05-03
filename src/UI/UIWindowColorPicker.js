@@ -23,7 +23,7 @@ async function UIWindowColorPicker(options){
     // set sensible defaults
     if(arguments.length > 0){
         // if first argument is a string, then assume it is the default color
-        if(isString(arguments[0])){
+        if(window.isString(arguments[0])){
             options = {};
             options.default = arguments[0];
         }

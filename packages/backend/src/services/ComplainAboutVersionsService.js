@@ -27,7 +27,7 @@ class ComplainAboutVersionsService extends BaseService {
 
         if ( ! current_version_data ) {
             this.log.warn(
-                `failed to check ${current_version} in the EOL database`
+                `failed to check ${major} in the EOL database`
             );
             return;
         }
