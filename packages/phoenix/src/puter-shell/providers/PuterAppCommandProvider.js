@@ -114,4 +114,34 @@ export class PuterAppCommandProvider {
         }
         return undefined;
     }
+
+    async complete (query, { ctx }) {
+        if (query === '') return [];
+
+        const results = [];
+
+        for (const app_name of BUILT_IN_APPS) {
+            if (app_name.startsWith(query)) {
+                results.push(app_name);
+            }
+        }
+
+        const request = await fetch(`${puter.APIOrigin}/drivers/call`, {
+            "headers": {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${puter.authToken}`,
+            },
+            "body": JSON.stringify({ interface: 'puter-apps', method: 'select', args: { predicate: [ 'name-like', query + '%' ] } }),
+            "method": "POST",
+        });
+
+        const json = await request.json();
+        if (json.success) {
+            for (const app of json.result) {
+                results.push(app.name);
+            }
+        }
+
+        return results;
+    }
 }

@@ -22,7 +22,7 @@ const { BaseES } = require("./BaseES");
 const APIError = require("../../api/APIError");
 const { Entity } = require("./Entity");
 const { WeakConstructorTrait } = require("../../traits/WeakConstructorTrait");
-const { And, Or, Eq, Predicate, Null, PredicateUtil } = require("../query/query");
+const { And, Or, Eq, Like, Null, Predicate, PredicateUtil } = require("../query/query");
 const { DB_WRITE } = require("../../services/database/consts");
 
 class RawCondition extends AdvancedBase {
@@ -351,6 +351,22 @@ class SQLES extends BaseES {
                 const col_name = options.column_name ?? prop.name;
 
                 const sql = `${col_name} = ?`;
+                const values = [value];
+
+                return new RawCondition({ sql, values });
+            }
+
+            if ( om_query instanceof Like ) {
+                const key = om_query.key;
+                let value = om_query.value;
+                const prop = this.om.properties[key];
+
+                value = await prop.sql_reference(value);
+
+                const options = prop.descriptor.sql ?? {};
+                const col_name = options.column_name ?? prop.name;
+
+                const sql = `${col_name} LIKE ?`;
                 const values = [value];
 
                 return new RawCondition({ sql, values });

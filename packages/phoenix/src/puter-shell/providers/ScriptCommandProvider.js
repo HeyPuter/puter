@@ -64,4 +64,9 @@ export class ScriptCommandProvider {
         }
         return undefined;
     }
+
+    async complete (query, { ctx }) {
+        // TODO: Implement this
+        return [];
+    }
 }
