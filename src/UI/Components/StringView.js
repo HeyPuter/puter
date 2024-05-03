@@ -8,6 +8,7 @@ export default class StringView extends Component {
     static PROPERTIES = {
         text: { value: '' },
         heading: { value: 0 },
+        no_html_encode: { value: false },
     }
 
     static CSS = /*css*/`
@@ -26,7 +27,9 @@ export default class StringView extends Component {
         const either = ({ heading, text }) => {
             console.log('---', { heading, text });
             const wrapper_nodeName = heading ? 'h' + heading : 'span';
-            $(this.dom_).find('span').html(`<${wrapper_nodeName}>${html_encode(text)}</${wrapper_nodeName}>`);
+            $(this.dom_).find('span').html(`<${wrapper_nodeName}>${
+                this.get('no_html_encode') ? text : html_encode(text)
+            }</${wrapper_nodeName}>`);
         };
         listen('heading', heading => {
             either({ heading, text: this.get('text') });

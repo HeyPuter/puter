@@ -40,7 +40,7 @@ export default class ConfirmationsView extends Component {
                         `;
                     }).join('')
                 }
-                <span class="looks-good">Looks good!</span>
+                <span class="looks-good">${i18n('looks_good')}</span>
             </div>
         `);
     }

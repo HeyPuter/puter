@@ -95,21 +95,22 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                     children: [
                         new StepHeading({
                             symbol: '1',
-                            text: 'Open Authenticator App',
+                            text: i18n('setup2fa_1_step_heading'),
                         }),
                         new StringView({
-                            text: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla ornare augue eu est pharetra, non faucibus eros finibus. Morbi metus sapien, pretium consequat erat eu, accumsan imperdiet metus. Donec varius libero tellus, malesuada rhoncus nunc viverra eget. Quisque ultrices scelerisque ante. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec non purus varius, molestie nibh vitae, elementum urna. Suspendisse ultricies porta gravida. Nulla eu consequat mi, id mattis leo.',
+                            text: i18n('setup2fa_1_instructions', [], false),
+                            no_html_encode: true,
                         }),
                         new StepHeading({
                             symbol: '2',
-                            text: 'Scan This QR Code',
+                            text: i18n('setup2fa_2_step_heading')
                         }),
                         new QRCodeView({
                             value: data.url,
                         }),
                         new StepHeading({
                             symbol: '3',
-                            text: 'Enter Verification Code',
+                            text: i18n('setup2fa_3_step_heading')
                         }),
                         new CodeEntryView({
                             _ref: me => code_entry = me,
@@ -133,26 +134,28 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                     children: [
                         new StepHeading({
                             symbol: '4',
-                            text: 'Copy Recovery Codes',
+                            text: i18n('setup2fa_4_step_heading')
                         }),
                         new StringView({
-                            text: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla ornare augue eu est pharetra, non faucibus eros finibus. Morbi metus sapien, pretium consequat erat eu, accumsan imperdiet metus. Donec varius libero tellus, malesuada rhoncus nunc viverra eget. Quisque ultrices scelerisque ante. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec non purus varius, molestie nibh vitae, elementum urna. Suspendisse ultricies porta gravida. Nulla eu consequat mi, id mattis leo.',
+                            text: i18n('setup2fa_4_instructions', [], false)
                         }),
                         new RecoveryCodesView({
                             values: data.codes,
                         }),
                         new StepHeading({
                             symbol: '5',
-                            text: 'Confirm Recovery Codes',
+                            text: i18n('setup2fa_5_step_heading')
                         }),
                         new ConfirmationsView({
                             confirmations: [
-                                'I have copied the recovery codes',
+                                i18n('setup2fa_5_confirmation_1'),
+                                i18n('setup2fa_5_confirmation_2'),
                             ],
                             confirmed: done_enabled,
                         }),
                         new Button({
                             enabled: done_enabled,
+                            label: i18n('setup2fa_5_button'),
                             on_click: async () => {
                                 await enable_2fa_();
                                 stepper.next();
