@@ -126,6 +126,7 @@ const ko = {
         publish: "게시",
         publish_as_website: '웹사이트로 게시',
         recent: "최근",
+        recommended: "추천",
         recover_password: "비밀번호 찾기",
         refer_friends_c2a: "Puter에서 계정을 생성하고 확인한 친구마다 1GB를 받으십시오. 친구도 1GB를 받게 됩니다!",
         refer_friends_social_media_c2a: `Puter.com에서 1GB의 무료 저장 공간을 받으십시오!`,

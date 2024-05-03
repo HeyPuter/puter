@@ -180,6 +180,7 @@ const en = {
         puter_description: `Puter is a privacy-first personal cloud to keep all your files, apps, and games in one
         secure place, accessible from anywhere at any time.`,
         recent: "Recent",
+        recommended: "Recommended",
         recover_password: "Recover Password",
         refer_friends_c2a: "Get 1 GB for every friend who creates and confirms an account on Puter. Your friend will get 1 GB too!",
         refer_friends_social_media_c2a: `Get 1 GB of free storage on Puter.com!`,

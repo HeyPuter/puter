@@ -118,8 +118,7 @@ async function UITaskbar(options){
             // -------------------------------------------
             if(window.launch_apps.recommended.length > 0){
                 // heading
-                apps_str += `<h1 class="start-section-heading start-section-heading-recommended" style="${window.launch_apps.recent.length > 0 ? 'padding-top: 30px;' : ''}">Recommended</h1>`;
-
+                apps_str += `<h1 class="start-section-heading start-section-heading-recommended" style="${window.launch_apps.recent.length > 0 ? 'padding-top: 30px;' : ''}">${i18n('recommended')}</h1>`;
                 // apps
                 apps_str += `<div class="launch-apps-recommended">`;
                 for (let index = 0; index < window.launch_apps.recommended.length; index++) {
