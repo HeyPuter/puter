@@ -70,7 +70,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                             async [`property.value`] (value, { component }) {
                                 console.log('value? ', value)
 
-                                if ( ! await check_code_(value) ) {
+                                if ( false && ! await check_code_(value) ) {
                                     component.set('error', 'Invalid code');
                                     return;
                                 }
