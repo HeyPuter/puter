@@ -68,6 +68,10 @@ export default class CodeEntryView extends Component {
         `);
     }
 
+    on_focus () {
+        $(this.dom_).find('.digit-input').first().focus();
+    }
+
     on_ready ({ listen }) {
         let is_checking_code = false;
 
@@ -75,8 +79,6 @@ export default class CodeEntryView extends Component {
             if ( ! error ) return $(this.dom_).find('.error').hide();
             $(this.dom_).find('.error').text(error).show();
         });
-
-        $(this.dom_).find('.digit-input').first().focus();
 
         $(this.dom_).find('.code-confirm-btn').on('click submit', function(e){
             e.preventDefault();

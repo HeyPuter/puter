@@ -19,6 +19,10 @@ export default class StepView extends Component {
         `);
     }
 
+    on_focus () {
+        this.children[this.get('position')].focus();
+    }
+
     on_ready ({ listen }) {
         for ( const child of this.get('children') ) {
             child.setAttribute('slot', 'inside');
@@ -38,6 +42,7 @@ export default class StepView extends Component {
 
             // show the child at the current position
             $(this.children[position]).show();
+            this.children[position].focus();
         });
 
         // now that we're ready, show the wrapper

@@ -42,6 +42,36 @@ export class Component extends HTMLElement {
         if ( property_values && property_values.hasOwnProperty('_ref') ) {
             property_values._ref(this);
         }
+
+        // Setup focus handling
+        if ( property_values && property_values[`event.focus`] ) {
+            const on_focus_ = this.on_focus;
+            this.on_focus = (...a) => {
+                property_values[`event.focus`]();
+                on_focus_ && on_focus_(...a);
+            }
+        }
+        this.addEventListener('focus', () => {
+            console.log('got the event?');
+            if ( this.on_focus ) {
+                this.on_focus();
+            }
+        });
+    }
+
+    focus () {
+        super.focus();
+        // Apparently the 'focus' event only fires when the element is focused
+        // by other means than calling .focus() on it, so this isn't redundant.
+
+        // We use a 0ms timeout to ensure that the focus event has been
+        // processed before we call on_focus, which may rely on the focus
+        // event having been processed (and typically does).
+        setTimeout(() => {
+            if ( this.on_focus ) {
+                this.on_focus();
+            }
+        }, 0);
     }
 
     get (key) {

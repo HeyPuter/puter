@@ -67,6 +67,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                             value: data.url,
                         }),
                         new CodeEntryView({
+                            _ref: me => code_entry = me,
                             async [`property.value`] (value, { component }) {
                                 console.log('value? ', value)
 
@@ -78,7 +79,10 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                                 stepper.next();
                             }
                         }),
-                    ]
+                    ],
+                    ['event.focus'] () {
+                        code_entry.focus();
+                    }
                 }),
                 new Flexer({
                     children: [

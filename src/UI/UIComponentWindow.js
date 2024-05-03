@@ -48,4 +48,6 @@ export default async function UIComponentWindow (options) {
     })
 
     options.component.attach(placeholder);
+    options.component.focus();
+    console.log('UIComponentWindow', options.component);
 }
