@@ -22,6 +22,8 @@
 import CodeEntryView from "./Components/CodeEntryView.js";
 import Flexer from "./Components/Flexer.js";
 import QRCodeView from "./Components/QRCode.js";
+import StepView from "./Components/StepView.js";
+import TestView from "./Components/TestView.js";
 import UIComponentWindow from "./UIComponentWindow.js";
 
 const UIWindow2FASetup = async function UIWindow2FASetup () {
@@ -35,18 +37,29 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     });
     const data = await resp.json();
 
-    const component = new Flexer({
-        children: [
-            new QRCodeView({
-                value: data.url,
-            }),
-            new CodeEntryView({
-                on_update () {
-                    // NEXT
-                }
-            }),
-        ]
-    });
+    let stepper;
+    const component =
+        new StepView({
+            _ref: me => stepper = me,
+            children: [
+                new Flexer({
+                    children: [
+                        new QRCodeView({
+                            value: data.url,
+                        }),
+                        new CodeEntryView({
+                            [`property.value`] (value) {
+                                console.log('value? ', value)
+                                stepper.next();
+                            }
+                        }),
+                        new TestView(),
+                    ]
+                }),
+                new TestView(),
+            ]
+        })
+        ;
 
     UIComponentWindow({
         component,

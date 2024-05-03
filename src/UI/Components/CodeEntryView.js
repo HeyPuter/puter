@@ -76,8 +76,8 @@ export default class CodeEntryView extends Component {
             e.preventDefault();
             e.stopPropagation();
 
-            $(this.dom_).find('.code-confirm-btn').prop('disabled', true);
-            $(this.dom_).find('.error').hide();
+            $(this).prop('disabled', true);
+            $(this).closest('.error').hide();
             
             // Check if already checking code to prevent multiple requests
             if(is_checking_code)
@@ -86,7 +86,7 @@ export default class CodeEntryView extends Component {
             is_checking_code = true;
 
             // set animation
-            $(this.dom_).find('.code-confirm-btn').html(`<svg style="width:20px; margin-top: 5px;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#fff" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#eee" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`);
+            $(this).html(`<svg style="width:20px; margin-top: 5px;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#fff" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#eee" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`);
         })
 
         // Elements
@@ -126,10 +126,10 @@ export default class CodeEntryView extends Component {
             for(let i=0; i< numberCodeInputs.length; i++){
                 current_code += numberCodeInputs[i].value;
             }
-            this.set('value', current_code);
 
             // Automatically submit if 6 digits entered
             if(current_code.length === 6){
+                this.set('value', current_code);
                 $(this.dom_).find('.code-confirm-btn').prop('disabled', false);
                 $(this.dom_).find('.code-confirm-btn').trigger('click');
             }

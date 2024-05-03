@@ -18,8 +18,6 @@ export default class QRCodeView extends Component {
     `
 
     create_template ({ template }) {
-        // TODO: The way we handle loading assets doesn't work well
-        // with web components, so for now it goes in the template.
         $(template).html(`
             <div class="qr-code opt-qr-code">
             </div>

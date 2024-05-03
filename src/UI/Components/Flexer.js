@@ -19,7 +19,6 @@ export default class Flexer extends Component {
 
     on_ready () {
         console.log('Flexer on_ready called');
-        debugger;
         for ( const child of this.get('children') ) {
             child.setAttribute('slot', 'inside');
             child.attach(this);

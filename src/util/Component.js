@@ -24,8 +24,20 @@ export class Component extends HTMLElement {
             let initial_value;
             if ( property_values && key in property_values ) {
                 initial_value = property_values[key];
+            } else if ( this.constructor.PROPERTIES[key].value !== undefined ) {
+                initial_value = this.constructor.PROPERTIES[key].value;
             }
             this.values_[key] = ValueHolder.adapt(initial_value);
+
+            const listener_key = `property.${key}`;
+            if ( property_values[listener_key] ) {
+                this.values_[key].sub(property_values[listener_key]);
+            }
+        }
+
+        // Convenience for setting a property while composing components
+        if ( property_values && property_values.hasOwnProperty('_ref') ) {
+            property_values._ref(this);
         }
     }
 
