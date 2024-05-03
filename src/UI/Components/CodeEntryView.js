@@ -16,9 +16,15 @@ export default class CodeEntryView extends Component {
             color: #3e5362;
         }
 
+        fieldset[name=number-code] {
+            display: flex;
+            justify-content: space-between;
+            gap: 5px;
+        }
+
         .digit-input {
             box-sizing: border-box;
-            width: 12.89%;
+            flex-grow: 1;
             height: 50px;
             font-size: 25px;
             text-align: center;
@@ -36,7 +42,7 @@ export default class CodeEntryView extends Component {
 
         .confirm-code-hyphen {
             display: inline-block;
-            width: 14%;
+            flex-grow: 2;
             text-align: center;
             font-size: 40px;
             font-weight: 300;
