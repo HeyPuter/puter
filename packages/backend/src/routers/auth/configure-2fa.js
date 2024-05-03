@@ -73,6 +73,8 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
             `UPDATE user SET otp_enabled = 0, otp_recovery_codes = '' WHERE uuid = ?`,
             [user.uuid]
         );
+        // update cached user
+        req.user.otp_enabled = 0;
         return { success: true };
     };
 
