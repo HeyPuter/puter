@@ -22,15 +22,32 @@ export class Component extends HTMLElement {
         }
     }
 
+    get (key) {
+        return this.values_[key].get();
+    }
+
     connectedCallback () {
         console.log('connectedCallback called')
         this.on_ready && this.on_ready(this.get_api_());
     }
 
-    attach (placeholder) {
+    attach (destination) {
         const el = this.create_element_();
         this.dom_.appendChild(el);
-        placeholder.replaceWith(this);
+
+        if ( destination instanceof HTMLElement ) {
+            destination.appendChild(this);
+            return;
+        }
+
+        if ( destination.$ === 'placeholder' ) {
+            destination.replaceWith(this);
+            return;
+        }
+
+        // TODO: generalize displaying errors about a value;
+        //   always show: typeof value, value.toString()
+        throw new Error(`Unknown destination type: ${destination}`);
     }
 
     place (slot_name, child_node) {

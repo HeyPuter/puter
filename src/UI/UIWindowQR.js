@@ -19,6 +19,7 @@
 
 import Placeholder from '../util/Placeholder.js';
 import TeePromise from '../util/TeePromise.js';
+import Flexer from './Components/Flexer.js';
 import QRCodeView from './Components/QRCode.js';
 import UIWindow from './UIWindow.js'
 
@@ -129,8 +130,15 @@ async function UIWindowQR(options){
     const component_qr = new QRCodeView({
         value: options.text
     });
-    console.log('test', component_qr);
-    component_qr.attach(placeholder_qr);
+
+    const component_flexer = new Flexer({
+        children: [
+            component_qr,
+        ]
+    });
+
+    // component_qr.attach(placeholder_qr);
+    component_flexer.attach(placeholder_qr);
     // placeholder_qr.replaceWith($(`<h1>test</h1>`).get(0));
 
     if ( false ) {

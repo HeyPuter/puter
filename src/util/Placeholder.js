@@ -21,6 +21,7 @@
 const Placeholder = () => {
     const id = Placeholder.get_next_id_();
     return {
+        $: 'placeholder',
         html: `<div id="${id}"></div>`,
         id,
         replaceWith: (el) => {

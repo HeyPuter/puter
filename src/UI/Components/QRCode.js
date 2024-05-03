@@ -27,6 +27,7 @@ export default class QRCodeView extends Component {
     }
 
     on_ready ({ listen }) {
+        console.log('QRCodeView on_ready called');
         listen('value', value => {
             console.log('got value', value);
             // $(this.dom_).find('.qr-code').empty();
@@ -43,5 +44,5 @@ export default class QRCodeView extends Component {
 if ( ! window.__component_qr_code ) {
     window.__component_qr_code = true;
 
-    customElements.define('qr-code', QRCodeView);
+    customElements.define('c-qr-code', QRCodeView);
 }
