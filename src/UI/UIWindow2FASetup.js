@@ -19,6 +19,7 @@
 
 */
 
+import CodeEntryView from "./Components/CodeEntryView.js";
 import Flexer from "./Components/Flexer.js";
 import QRCodeView from "./Components/QRCode.js";
 import UIComponentWindow from "./UIComponentWindow.js";
@@ -38,7 +39,12 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
         children: [
             new QRCodeView({
                 value: data.url,
-            })
+            }),
+            new CodeEntryView({
+                on_update () {
+                    // NEXT
+                }
+            }),
         ]
     });
 

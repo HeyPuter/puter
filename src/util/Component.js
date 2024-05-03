@@ -1,10 +1,17 @@
 import ValueHolder from "./ValueHolder.js";
 
 export class Component extends HTMLElement {
+    // Render modes
+    static NO_SHADOW = Symbol('no-shadow');
+
     constructor (property_values) {
         super();
 
-        this.dom_ = this.attachShadow({ mode: 'open' });
+        if ( this.constructor.RENDER_MODE === Component.NO_SHADOW ) {
+            this.dom_ = this;
+        } else {
+            this.dom_ = this.attachShadow({ mode: 'open' });
+        }
 
         this.values_ = {};
 
@@ -24,6 +31,10 @@ export class Component extends HTMLElement {
 
     get (key) {
         return this.values_[key].get();
+    }
+
+    set (key, value) {
+        this.values_[key].set(value);
     }
 
     connectedCallback () {

@@ -1,0 +1,183 @@
+import { Component } from "../../util/Component.js";
+
+export default class CodeEntryView extends Component {
+    static PROPERTIES = {
+        value: {},
+        is_checking_code: {},
+    }
+
+    static RENDER_MODE = Component.NO_SHADOW;
+
+    static CSS = /*css*/`
+        .wrapper {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            color: #3e5362;
+        }
+
+        .digit-input {
+            box-sizing: border-box;
+            width: 12.89%;
+            height: 50px;
+            font-size: 25px;
+            text-align: center;
+            border-radius: 0.5rem;
+            -moz-appearance: textfield;
+            border: 2px solid #9b9b9b;
+            color: #485660;
+        }
+
+        .digit-input::-webkit-outer-spin-button,
+        .digit-input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        .confirm-code-hyphen {
+            display: inline-block;
+            width: 14%;
+            text-align: center;
+            font-size: 40px;
+            font-weight: 300;
+        }
+    `
+
+    create_template ({ template }) {
+        // TODO: static member for strings
+        const submit_btn_txt = i18n('confirm_code_generic_submit');
+
+        $(template).html(/*html*/`
+            <div class="wrapper">
+                <form>
+                    <div class="error"></div>
+                    <fieldset name="number-code" style="border: none; padding:0;" data-number-code-form>
+                        <input class="digit-input" type="number" min='0' max='9' name='number-code-0' data-number-code-input='0' required />
+                        <input class="digit-input" type="number" min='0' max='9' name='number-code-1' data-number-code-input='1' required />
+                        <input class="digit-input" type="number" min='0' max='9' name='number-code-2' data-number-code-input='2' required />
+                        <span class="confirm-code-hyphen">-</span>
+                        <input class="digit-input" type="number" min='0' max='9' name='number-code-3' data-number-code-input='3' required />
+                        <input class="digit-input" type="number" min='0' max='9' name='number-code-4' data-number-code-input='4' required />
+                        <input class="digit-input" type="number" min='0' max='9' name='number-code-5' data-number-code-input='5' required />
+                    </fieldset>
+                    <button type="submit" class="button button-block button-primary code-confirm-btn" style="margin-top:10px;" disabled>${
+                        submit_btn_txt
+                    }</button>
+                </form>
+            </div>
+        `);
+    }
+
+    on_ready ({ listen }) {
+        let is_checking_code = false;
+
+        $(this.dom_).find('.digit-input').first().focus();
+
+        $(this.dom_).find('.code-confirm-btn').on('click submit', function(e){
+            e.preventDefault();
+            e.stopPropagation();
+
+            $(this.dom_).find('.code-confirm-btn').prop('disabled', true);
+            $(this.dom_).find('.error').hide();
+            
+            // Check if already checking code to prevent multiple requests
+            if(is_checking_code)
+                return;
+            // Confirm button
+            is_checking_code = true;
+
+            // set animation
+            $(this.dom_).find('.code-confirm-btn').html(`<svg style="width:20px; margin-top: 5px;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#fff" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#eee" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`);
+        })
+
+        // Elements
+        const numberCodeForm = this.dom_.querySelector('[data-number-code-form]');
+        const numberCodeInputs = [...numberCodeForm.querySelectorAll('[data-number-code-input]')];
+
+        // Event listeners
+        numberCodeForm.addEventListener('input', ({ target }) => {
+            if(!target.value.length) { return target.value = null; }
+            const inputLength = target.value.length;
+            let currentIndex = Number(target.dataset.numberCodeInput);
+            if(inputLength === 2){
+                const inputValues = target.value.split('');
+                target.value = inputValues[0];
+            }
+            else if (inputLength > 1) {
+                const inputValues = target.value.split('');
+
+                inputValues.forEach((value, valueIndex) => {
+                    const nextValueIndex = currentIndex + valueIndex;
+
+                    if (nextValueIndex >= numberCodeInputs.length) { return; }
+
+                    numberCodeInputs[nextValueIndex].value = value;
+                });
+                currentIndex += inputValues.length - 2;
+            }
+
+            const nextIndex = currentIndex + 1;
+
+            if (nextIndex < numberCodeInputs.length) {
+                numberCodeInputs[nextIndex].focus();
+            }
+
+            // Concatenate all inputs into one string to create the final code
+            let current_code = '';
+            for(let i=0; i< numberCodeInputs.length; i++){
+                current_code += numberCodeInputs[i].value;
+            }
+            this.set('value', current_code);
+
+            // Automatically submit if 6 digits entered
+            if(current_code.length === 6){
+                $(this.dom_).find('.code-confirm-btn').prop('disabled', false);
+                $(this.dom_).find('.code-confirm-btn').trigger('click');
+            }
+        });
+
+        numberCodeForm.addEventListener('keydown', (e) => {
+            const { code, target } = e;
+
+            const currentIndex = Number(target.dataset.numberCodeInput);
+            const previousIndex = currentIndex - 1;
+            const nextIndex = currentIndex + 1;
+
+            const hasPreviousIndex = previousIndex >= 0;
+            const hasNextIndex = nextIndex <= numberCodeInputs.length - 1
+
+            switch (code) {
+                case 'ArrowLeft':
+                case 'ArrowUp':
+                    if (hasPreviousIndex) {
+                        numberCodeInputs[previousIndex].focus();
+                    }
+                    e.preventDefault();
+                    break;
+
+                case 'ArrowRight':
+                case 'ArrowDown':
+                    if (hasNextIndex) {
+                        numberCodeInputs[nextIndex].focus();
+                    }
+                    e.preventDefault();
+                    break;
+                case 'Backspace':
+                    if (!e.target.value.length && hasPreviousIndex) {
+                        numberCodeInputs[previousIndex].value = null;
+                        numberCodeInputs[previousIndex].focus();
+                    }
+                    break;
+                default:
+                    break;
+            }
+        });
+    }
+}
+
+// TODO: This is necessary because files can be loaded from
+// both `/src/UI` and `/UI` in the URL; we need to fix that
+if ( ! window.__component_codeEntryView ) {
+    window.__component_codeEntryView = true;
+
+    customElements.define('c-code-entry-view', CodeEntryView);
+}
