@@ -2613,6 +2613,10 @@ label {
     margin-bottom: 20px;
 }
 
+.otp-as-text {
+    margin: 20px 0;
+}
+
 .recovery-codes {
     border: 1px solid #ccc;
     padding: 20px;

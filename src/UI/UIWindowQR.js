@@ -17,7 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import Placeholder from '../util/Placeholder.js';
 import TeePromise from '../util/TeePromise.js';
+import QRCodeView from './Components/QRCode.js';
 import UIWindow from './UIWindow.js'
 
 let checkbox_id_ = 0;
@@ -29,6 +31,8 @@ async function UIWindowQR(options){
 
     options = options ?? {};
 
+    const placeholder_qr = Placeholder();
+
     let h = '';
     // close button containing the multiplication sign
     // h += `<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>`;
@@ -37,6 +41,16 @@ async function UIWindowQR(options){
             i18n(options.message_i18n_key || 'scan_qr_generic')
         }</h1>`;
     h += `</div>`;
+
+    h += placeholder_qr.html;
+
+    if ( options.text_alternative ) {
+        h += `<div class="otp-as-text">`;
+            h += `<p style="text-align: center; font-size: 16px; padding: 10px; font-weight: 400; margin: -10px 10px 20px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">${
+                html_encode(options.text_alternative)
+            }</p>`;
+        h += `</div>`;
+    }
 
     if ( options.recovery_codes ) {
         h += `<div class="recovery-codes">`;
@@ -112,6 +126,14 @@ async function UIWindowQR(options){
         },
     })
 
+    const component_qr = new QRCodeView({
+        value: options.text
+    });
+    console.log('test', component_qr);
+    component_qr.attach(placeholder_qr);
+    // placeholder_qr.replaceWith($(`<h1>test</h1>`).get(0));
+
+    if ( false ) {
     // generate auth token QR code
     new QRCode($(el_window).find('.otp-qr-code').get(0), {
         text: options.text,
@@ -121,6 +143,7 @@ async function UIWindowQR(options){
         colorLight : "#ffffff",
         correctLevel : QRCode.CorrectLevel.H
     });
+}
 
     if ( confirmations.length > 0 ) {
         $(el_window).find('.code-confirm-btn').prop('disabled', true);

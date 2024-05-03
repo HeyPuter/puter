@@ -59,7 +59,7 @@ export default {
             const confirmation = await UIWindowQR({
                 message_i18n_key: 'scan_qr_2fa',
                 text: data.url,
-                text_below: data.secret,
+                text_alternative: data.secret,
                 confirmations: [
                     i18n('confirm_2fa_setup'),
                     i18n('confirm_2fa_recovery'),
