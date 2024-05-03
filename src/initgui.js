@@ -81,6 +81,16 @@ window.initgui = async function(){
     if(window.api_origin && puter.APIOrigin !== window.api_origin)
         puter.setAPIOrigin(window.api_origin);
 
+    // Print the version to the console
+    puter.os.version()
+    .then(res => {
+        const deployed_date = new Date(res.deploy_timestamp).toLocaleString();
+        console.log(`Version: ${(res.version)} | Server: ${(res.location)} | Deployed: ${(deployed_date)}`);
+    })
+    .catch(error => {
+        console.error("Failed to fetch server info:", error);
+    });
+
     // Checks the type of device the user is on (phone, tablet, or desktop).
     // Depending on the device type, it sets a class attribute on the body tag 
     // to style or script the page differently for each device type.
