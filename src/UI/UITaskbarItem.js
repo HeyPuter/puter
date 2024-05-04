@@ -113,17 +113,33 @@ function UITaskbarItem(options){
         // -------------------------------------------
         if(menu_items.length > 0)
             menu_items.push('-');
-
         //------------------------------------------
         // New Window
         //------------------------------------------
-        if(options.app){
+        if(options.app && options.app !== 'trash'){
             menu_items.push({
                 html: 'New Window',
                 val: $(this).attr('data-id'),
                 onClick: function(){
+                    // is trash?
                     window.launch_app({
                         name: options.app,
+                        maximized: (isMobile.phone || isMobile.tablet),
+                    })
+                }
+            })
+        }
+        //------------------------------------------
+        // Open Trash
+        //------------------------------------------
+        else if(options.app && options.app === 'trash'){
+            menu_items.push({
+                html: 'Open Trash',
+                val: $(this).attr('data-id'),
+                onClick: function(){
+                    window.launch_app({
+                        name: options.app,
+                        path: window.trash_path,
                         maximized: (isMobile.phone || isMobile.tablet),
                     })
                 }
@@ -145,7 +161,6 @@ function UITaskbarItem(options){
                 }
             })
         }
-
         //------------------------------------------
         // Remove from Taskbar
         //------------------------------------------

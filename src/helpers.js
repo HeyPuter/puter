@@ -1534,7 +1534,6 @@ window.move_clipboard_items = function (el_target_container, target_path){
  * let filePaths = ['/path/to/file1.txt', '/path/to/file2.png'];
  * window.trigger_download(filePaths);
  */
-
 window.trigger_download = (paths)=>{
     let urls = [];
     for (let index = 0; index < paths.length; index++) {
@@ -1619,7 +1618,7 @@ window.launch_app = async (options)=>{
     //------------------------------------
     // Explorer
     //------------------------------------
-    if(options.name === 'explorer'){
+    if(options.name === 'explorer' || options.name === 'trash'){
         process = new PseudoProcess({
             uuid,
             name: 'explorer',
@@ -1637,6 +1636,7 @@ window.launch_app = async (options)=>{
         }
         else if(options.path === window.trash_path){
             title = 'Trash';
+            icon = window.icons['trash.svg'];
         }
         else if(!options.path)
             title = window.root_dirname;
