@@ -68,6 +68,35 @@ const launch_services = async function () {
     }
 };
 
+// This code snippet addresses the issue flagged by Lighthouse regarding the use of 
+// passive event listeners to enhance scrolling performance. It provides custom 
+// implementations for touchstart, touchmove, wheel, and mousewheel events in jQuery. 
+// By setting the 'passive' option appropriately, it ensures that default browser 
+// behavior is prevented when necessary, thereby improving page scroll performance.
+// More info: https://stackoverflow.com/a/62177358
+if(jQuery){
+    jQuery.event.special.touchstart = {
+        setup: function( _, ns, handle ) {
+            this.addEventListener("touchstart", handle, { passive: !ns.includes("noPreventDefault") });
+        }
+    };
+    jQuery.event.special.touchmove = {
+        setup: function( _, ns, handle ) {
+            this.addEventListener("touchmove", handle, { passive: !ns.includes("noPreventDefault") });
+        }
+    };
+    jQuery.event.special.wheel = {
+        setup: function( _, ns, handle ){
+            this.addEventListener("wheel", handle, { passive: true });
+        }
+    };
+    jQuery.event.special.mousewheel = {
+        setup: function( _, ns, handle ){
+            this.addEventListener("mousewheel", handle, { passive: true });
+        }
+    };    
+}
+
 window.initgui = async function(){
     let url = new URL(window.location);
     url = url.href;
@@ -84,7 +113,7 @@ window.initgui = async function(){
     // Print the version to the console
     puter.os.version()
     .then(res => {
-        const deployed_date = new Date(res.deploy_timestamp).toLocaleString();
+        const deployed_date = new Date(res.deploy_timestamp);        
         console.log(`Version: ${(res.version)} | Server: ${(res.location)} | Deployed: ${(deployed_date)}`);
     })
     .catch(error => {

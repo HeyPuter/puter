@@ -972,7 +972,7 @@ async function UIDesktop(options){
         }
     }
 
-    $(el_desktop).on('mousedown touchstart', function(e){
+    $(el_desktop).on('mousedown touchstart', { passive: true }, function(e){
         // dimiss touchstart on regular devices
         if(e.type==='taphold' && !isMobile.phone && !isMobile.tablet)
             return;
