@@ -16,6 +16,9 @@ export default class StringView extends Component {
             margin: 0;
             color: hsl(220, 25%, 31%);
         }
+        span {
+            color: #3b4863;
+        }
     `;
 
     create_template ({ template }) {

@@ -176,31 +176,9 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
 
     win = await UIComponentWindow({
         component,
-        on_before_exit: async () => {
-            // If stepper was exhausted, we can close the window
-            if ( stepper.get('done') ) return true;
-
-            // Otherwise the user is trying to cancel the setup
-            const will_close = await UIAlert({
-                message: i18n('cancel_2fa_setup'),
-                buttons: [
-                    {
-                        label: i18n('yes'),
-                        value: true,
-                        type: 'primary',
-                    },
-                    {
-                        label: i18n('no'),
-                        value: false,
-                    },
-                ]
-            });
-
-            if ( will_close ) {
-                promise.resolve(false);
-                return true;
-            }
-        },
+        // on_before_exit: async () => {
+        //     return true;
+        // },
 
         title: '2FA Setup',
         app: 'instant-login',
@@ -223,6 +201,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
         dominant: true,
         show_in_taskbar: false,
         draggable_body: true,
+        center: true,
         onAppend: function(this_window){
         },
         window_class: 'window-qr',
