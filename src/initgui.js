@@ -2092,3 +2092,10 @@ $(window).on("resize", function () {
         top: top2 / ratio,
     });
 });
+
+$(document).on('contextmenu', '.disable-context-menu', function(e){
+    if($(e.target).hasClass('disable-context-menu') ){
+        e.preventDefault();
+        return false;
+    }
+})
