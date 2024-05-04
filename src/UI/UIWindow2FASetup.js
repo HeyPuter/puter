@@ -176,9 +176,12 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
 
     win = await UIComponentWindow({
         component,
-        // on_before_exit: async () => {
-        //     return true;
-        // },
+        on_before_exit: async () => {
+            if ( ! stepper.get('done') ) {
+                promise.resolve(false);
+            }
+            return true
+        },
 
         title: '2FA Setup',
         app: 'instant-login',
