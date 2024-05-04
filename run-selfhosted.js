@@ -68,7 +68,7 @@ const main = async () => {
     k.add_module(new DatabaseModule());
     k.add_module(new PuterDriversModule());
     k.add_module(new LocalDiskStorageModule());
-    k.add_module(new SelfhostedModule()),
+    k.add_module(new SelfhostedModule());
     k.boot();
 };
 
