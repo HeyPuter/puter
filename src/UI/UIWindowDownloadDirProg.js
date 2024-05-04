@@ -28,7 +28,7 @@ async function UIWindowDownloadDirProg(options){
     h += `<p style="text-align:left; padding-left:20px; padding-right:20px; overflow:hidden; width: 310px; text-overflow: ellipsis; white-space: nowrap; float:left; font-size:14px;" class="dir-dl-status">${options.defaultText ?? i18n('preparing')}</p>`;
 
     const el_window = await UIWindow({
-        title: 'Instant Login!',
+        title: 'Download Directory Progress',
         app: 'instant-login',
         single_instance: true,
         icon: null,

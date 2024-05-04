@@ -9,6 +9,7 @@ export default class StepView extends Component {
 
     static CSS = `
         #wrapper { display: none }
+        * { -webkit-font-smoothing: antialiased;}
     `;
 
     create_template ({ template }) {

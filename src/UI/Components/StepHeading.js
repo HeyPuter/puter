@@ -27,19 +27,20 @@ export default class StepHeading extends Component {
             display: flex;
             justify-content: center;
             align-items: center;
-            width: 30px;
-            height: 30px;
+            width: 25px;
+            height: 25px;
             border-radius: 50%;
             background-color: #3e5362;
             color: #FFFFFF;
-            font-size: 20px;
+            font-size: 15px;
             font-weight: 700;
         }
 
         .text {
-            margin-left: 20px;
-            font-size: 30px;
+            margin-left: 10px;
+            font-size: 18px;
             color: hsl(220, 25%, 31%);
+            font-weight: 500;
         }
     `
 

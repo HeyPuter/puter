@@ -15,6 +15,10 @@ export default class QRCodeView extends Component {
             flex-direction: column;
             align-items: center;
         }
+        .qr-code img {
+            width: 150px;
+            margin-bottom: 20px;
+        }
     `
 
     create_template ({ template }) {

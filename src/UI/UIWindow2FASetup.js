@@ -202,7 +202,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
             }
         },
 
-        title: 'Instant Login!',
+        title: '2FA Setup',
         app: 'instant-login',
         single_instance: true,
         icon: null,
