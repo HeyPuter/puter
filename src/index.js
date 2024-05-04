@@ -56,7 +56,7 @@ window.gui = async function(options){
     // DEV: Load the initgui.js file if we are in development mode
     if(!window.gui_env || window.gui_env === "dev"){
         await window.loadScript('/sdk/puter.dev.js');
-        await window.loadScript('/initgui.js', {isModule: true});
+        await window.loadScript(`${options.asset_dir}/initgui.js`, {isModule: true});
     }
     
     // PROD: load the minified bundles if we are in production mode
