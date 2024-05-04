@@ -20,9 +20,12 @@
 import UIWindow from './UIWindow.js'
 import UIWindowSignup from './UIWindowSignup.js'
 import UIWindowRecoverPassword from './UIWindowRecoverPassword.js'
-import UIWindowVerificationCode from './UIWindowVerificationCode.js';
 import TeePromise from '../util/TeePromise.js';
 import UIAlert from './UIAlert.js';
+import UIComponentWindow from './UIComponentWindow.js';
+import Flexer from './Components/Flexer.js';
+import CodeEntryView from './Components/CodeEntryView.js';
+import JustHTML from './Components/JustHTML.js';
 
 async function UIWindowLogin(options){
     options = options ?? {};
@@ -170,38 +173,60 @@ async function UIWindowLogin(options){
                     let p = Promise.resolve();
                     if ( data.next_step === 'otp' ) {
                         p = new TeePromise();
-                        UIWindowVerificationCode({
-                            title_key: 'confirm_code_2fa_title',
-                            instruction_key: 'confirm_code_2fa_instruction',
-                            submit_btn_key: 'confirm_code_2fa_submit_btn',
-                            on_value: async ({ actions, win, value }) => {
-                                try {
-                                    const resp = await fetch(`${api_origin}/login/otp`, {
-                                        method: 'POST',
-                                        headers: {
-                                            'Content-Type': 'application/json',
-                                        },
-                                        body: JSON.stringify({
-                                            token: data.otp_jwt_token,
-                                            code: value,
-                                        }),
-                                    });
+                        let code_entry;
+                        let win;
+                        const component = new Flexer({
+                            children: [
+                                new JustHTML({
+                                    html: /*html*/`
+                                        <h3 style="text-align:center; font-weight: 500; font-size: 20px;">Enter 2FA Code</h3>
+                                        <p style="text-align:center; padding: 0 20px;">Enter the 6-digit code from your authenticator app.</p>
+                                    `
+                                }),
+                                new CodeEntryView({
+                                    _ref: me => code_entry = me,
+                                    async [`property.value`] (value, { component }) {
+                                        const resp = await fetch(`${api_origin}/login/otp`, {
+                                            method: 'POST',
+                                            headers: {
+                                                'Content-Type': 'application/json',
+                                            },
+                                            body: JSON.stringify({
+                                                token: data.otp_jwt_token,
+                                                code: value,
+                                            }),
+                                        });
 
-                                    data = await resp.json();
+                                        data = await resp.json();
 
-                                    if ( ! data.proceed ) {
-                                        actions.clear();
-                                        actions.show_error(i18n('confirm_code_generic_incorrect'));
-                                        return;
+                                        if ( ! data.proceed ) {
+                                            actions.clear();
+                                            actions.show_error(i18n('confirm_code_generic_incorrect'));
+                                            return;
+                                        }
+
+                                        $(win).close();
+                                        p.resolve();
                                     }
-
-                                    $(win).close();
-                                    p.resolve();
-                                } catch (e) {
-                                    actions.show_error(e.message ?? i18n('error_unknown_cause'));
-                                }
+                                }),
+                            ],
+                            ['event.focus'] () {
+                                code_entry.focus();
+                            }
+                        });
+                        win = await UIComponentWindow({
+                            component,
+                            width: 500,
+                            backdrop: true,
+                            body_css: {
+                                width: 'initial',
+                                height: '100%',
+                                'background-color': 'rgb(245 247 249)',
+                                'backdrop-filter': 'blur(3px)',
+                                padding: '20px',
                             },
                         });
+                        component.focus();
                     }
 
                     await p;
