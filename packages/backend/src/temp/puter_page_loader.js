@@ -56,6 +56,8 @@ const generate_puter_page_html = ({
         ? '/src' : '/dist' ;
     // const asset_dir = '/dist';
 
+    gui_params.asset_dir = asset_dir;
+
     const bundled = env != 'dev' || use_bundled_gui;
 
     return `<!DOCTYPE html>
