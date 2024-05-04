@@ -39,7 +39,6 @@ import { BroadcastService } from './services/BroadcastService.js';
 import { ProcessService } from './services/ProcessService.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { LocaleService } from './services/LocaleService.js';
-import UIWindow2FASetup from './UI/UIWindow2FASetup.js';
 
 const launch_services = async function () {
     const services_l_ = [];
@@ -67,10 +66,6 @@ const launch_services = async function () {
         const svc_process = globalThis.services.get('process');
         svc_process.get_init().chstatus(PROCESS_RUNNING);
     }
-
-    setTimeout(() => {
-        UIWindow2FASetup();
-    }, 1000);
 };
 
 // This code snippet addresses the issue flagged by Lighthouse regarding the use of 
