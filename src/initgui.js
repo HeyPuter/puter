@@ -114,7 +114,7 @@ window.initgui = async function(){
     puter.os.version()
     .then(res => {
         const deployed_date = new Date(res.deploy_timestamp);        
-        console.log(`Version: ${(res.version)} | Server: ${(res.location)} | Deployed: ${(deployed_date)}`);
+        console.log(`Your Puter information:\n• Version: ${(res.version)}\n• Server: ${(res.location)}\n• Deployed: ${(deployed_date)}`);
     })
     .catch(error => {
         console.error("Failed to fetch server info:", error);

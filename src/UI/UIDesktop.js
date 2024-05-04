@@ -52,7 +52,7 @@ async function UIDesktop(options){
     });
       
     window.socket.on('connect', function(){
-        console.log('GUI Socket: Connected', window.socket.id);
+        // console.log('GUI Socket: Connected', window.socket.id);
     });
 
     window.socket.on('reconnect', function(){

@@ -2597,7 +2597,7 @@ window.refresh_desktop_background = function(){
     }
     // default background
     else{
-        let wallpaper = (window.gui_env === 'prod') ? '/dist/images/wallpaper.webp' :  '/images/wallpaper.webp';
+        let wallpaper = (window.gui_env === 'prod') ? '/dist/images/wallpaper.webp' :  '/src/images/wallpaper.webp';
         window.set_desktop_background({
             url: wallpaper,
             fit: 'cover',

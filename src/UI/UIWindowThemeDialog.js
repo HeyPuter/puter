@@ -106,7 +106,6 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
             state.light_text = e.target.value < 60 ? true : false;
         }
         svc_theme.apply(state);
-        console.log(state);
     };
 
     Button({ label: i18n('reset_colors') })
