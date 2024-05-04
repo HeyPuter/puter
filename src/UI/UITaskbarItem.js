@@ -148,7 +148,7 @@ function UITaskbarItem(options){
         //------------------------------------------
         // Empty Trash
         //------------------------------------------
-        if(options.app === 'trash' && options.name === 'Trash'){
+        if(options.app && options.app === 'trash'){
             // divider
             menu_items.push('-');
 
