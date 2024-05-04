@@ -158,7 +158,8 @@ router.post('/save_account', auth, express.json(), async (req, res, next)=>{
     }
 
     // create token for login
-    const token = await jwt.sign({uuid: user_uuid}, config.jwt_secret);
+    const svc_auth = req.services.get('auth');
+    const { token } = await svc_auth.create_session_token(req.user, { req });
 
     // user id
     // todo if pseudo user, assign directly no need to do another DB lookup
