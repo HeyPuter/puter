@@ -3723,6 +3723,17 @@ fieldset[name=number-code] {
     background: #ffecec;
     color: rgb(215 2 2);
 }
+.settings-card-success{
+    border-color: #08bf4e;
+    background: #e6ffed;
+    color: #03933a;
+}
+
+.settings-card-warning {
+    border-color: #f0a500;
+    background: #fff7e6;
+    color: #c98900;
+}
 
 .error-message {
     display: none;

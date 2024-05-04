@@ -28,7 +28,7 @@ export default {
 
         // configure 2FA
         if(!user.is_temp){
-            h += `<div class="settings-card">`;
+            h += `<div class="settings-card ${user.otp ? 'settings-card-success' : 'settings-card-warning'}">`;
                 h += `<div>`;
                     h += `<strong style="display:block;">${i18n('two_factor')}</strong>`;
                     h += `<span class="user-otp-state" style="display:block; margin-top:5px;">${
@@ -41,7 +41,6 @@ export default {
                 h += `</div>`;
             h += `</div>`;
         }
-
 
         return h;
     },
