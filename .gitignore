@@ -5,7 +5,13 @@ node_modules/
 license.config.json
 license-header.txt
 dist/
-.vscode/
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
 .env
 # this is for jetbrain IDEs
 .idea/
