@@ -36,6 +36,7 @@ import nn from './nn.js';
 import pl from './pl.js';
 import pt from './pt.js';
 import ro from './ro.js';
+import ru from './ru.js';
 import sv from './sv.js';
 import th from './th.js';
 import tr from './tr.js';
@@ -65,6 +66,7 @@ export default {
     nl,
     nn,
     ro,
+    ru,
     pl,
     pt,
     sv,
