@@ -1,7 +1,7 @@
 # Puter - Common Javascript Module
 
 This is a small module for javascript which you might call a
-"langauge tool"; it adds some behavior to make javascript classes
+"language tool"; it adds some behavior to make javascript classes
 more flexible, with an aim to avoid any significant complexity.
 
 Each class in this module is best described as an _idea_:
@@ -9,7 +9,7 @@ Each class in this module is best described as an _idea_:
 ### BasicBase
 
 **BasicBase** is the idea that there should be a common way to
-see the inheretence chain of the current instance, and obtain
+see the inheritance chain of the current instance, and obtain
 merged objects and arrays from static members of these classes.
 
 ### TraitBase
