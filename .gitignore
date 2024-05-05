@@ -8,9 +8,10 @@ dist/
 
 # VS Code
 .vscode/**/*
+!.vscode/extensions.json
+!.vscode/launch.json
 !.vscode/settings.json
 !.vscode/tasks.json
-!.vscode/launch.json
 
 .env
 # this is for jetbrain IDEs
