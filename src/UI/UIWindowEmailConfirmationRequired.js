@@ -26,7 +26,8 @@ function UIWindowEmailConfirmationRequired(options){
         let final_code = '';
         let is_checking_code = false;
 
-        const submit_btn_txt = 'Confirm Email'
+        const submit_btn_txt = 'Confirm Email';
+
         let h = '';
         h += `<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>`;
         h += `<div style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; color: #3e5362;">`;

@@ -46,7 +46,17 @@ const en = {
         change_always_open_with: "Do you want to always open this type of file with",
         color: 'Color',
         hue: 'Hue',
+        confirm_2fa_setup: 'I have added the code to my authenticator app',
+        confirm_2fa_recovery: 'I have saved my recovery codes in a secure location',
         confirm_account_for_free_referral_storage_c2a: 'Create an account and confirm your email address to receive 1 GB of free storage. Your friend will get 1 GB of free storage too.',
+        confirm_code_generic_incorrect: "Incorrect Code.",
+        confirm_code_generic_too_many_requests: "Too many requests. Please wait a few minutes.",
+        confirm_code_generic_submit: "Submit Code",
+        confirm_code_generic_try_again: "Try Again",
+        confirm_code_generic_title: "Enter Confirmation Code",
+        confirm_code_2fa_instruction: "Enter the 6-digit code from your authenticator app.",
+        confirm_code_2fa_submit_btn: "Submit",
+        confirm_code_2fa_title: "Enter 2FA Code",
         confirm_delete_multiple_items: 'Are you sure you want to permanently delete these items?',
         confirm_delete_single_item: 'Do you want to permanently delete this item?',
         confirm_open_apps_log_out: 'You have open apps. Are you sure you want to log out?',
@@ -81,6 +91,8 @@ const en = {
         desktop_background_fit: "Fit",
         developers: "Developers",
         dir_published_as_website: `%strong% has been published to:`,
+        disable_2fa: 'Disable 2FA',
+        disable_2fa_confirm: "Are you sure you want to disable 2FA?",
         disassociate_dir: "Disassociate Directory",
         download: 'Download',
         download_file: 'Download File',
@@ -93,10 +105,13 @@ const en = {
         empty_trash: 'Empty Trash',
         empty_trash_confirmation: `Are you sure you want to permanently delete the items in Trash?`,
         emptying_trash: 'Emptying Trash…',
+        enable_2fa: 'Enable 2FA',
         end_hard: "End Hard",
         end_process_force_confirm: "Are you sure you want to force-quit this process?",
         end_soft: "End Soft",
+        enlarged_qr_code: "Enlarged QR Code",
         enter_password_to_confirm_delete_user: "Enter your password to confirm account deletion",
+        error_unknown_cause: "An unknown error occurred.",
         feedback: "Feedback",
         feedback_c2a: "Please use the form below to send us your feedback, comments, and bug reports.",
         feedback_sent_confirmation: "Thank you for contacting us. If you have an email associated with your account, you will hear back from us as soon as possible.",
@@ -124,6 +139,7 @@ const en = {
         log_in: "Log In",
         log_into_another_account_anyway: 'Log into another account anyway',
         log_out: 'Log Out',
+        looks_good: "Looks good!",
         manage_sessions: "Manage Sessions",
         move: 'Move',
         moving: "Moving",
@@ -166,6 +182,7 @@ const en = {
         powered_by_puter_js: `Powered by {{link=docs}}Puter.js{{/link}}`,
         preparing: "Preparing...",
         preparing_for_upload: "Preparing for upload...",
+        print: 'Print',
         privacy: "Privacy",
         proceed_to_login: 'Proceed to login',
         proceed_with_account_deletion: "Proceed with Account Deletion",
@@ -201,9 +218,11 @@ const en = {
         save_account_to_publish: 'Please create an account to proceed.',
         save_session: 'Save session',
         save_session_c2a: 'Create an account to save your current session and avoid losing your work.',
-        scan_qr_c2a: 'Scan the code below to log into this session from other devices',
+        scan_qr_c2a: 'Scan the code below\nto log into this session from other devices',
+        scan_qr_2fa: 'Scan the QR code with your authenticator app',
         scan_qr_generic: 'Scan this QR code using your phone or another device',
         seconds: 'seconds',
+        security: "Security",
         select: "Select",
         selected: 'selected',
         select_color: 'Select color…',
@@ -221,6 +240,7 @@ const en = {
         signing_in: "Signing in…",
         size: 'Size',
         skip: 'Skip',
+        something_went_wrong: "Something went wrong.",
         sort_by: 'Sort by',
         start: 'Start',
         status: "Status",
@@ -236,6 +256,9 @@ const en = {
         tos_fineprint: `By clicking 'Create Free Account' you agree to Puter's {{link=terms}}Terms of Service{{/link}} and {{link=privacy}}Privacy Policy{{/link}}.`,
         transparency: "Transparency",
         trash: 'Trash',
+        two_factor: 'Two Factor Authentication',
+        two_factor_disabled: '2FA Disabled',
+        two_factor_enabled: '2FA Enabled',
         type: 'Type',
         type_confirm_to_delete_account: "Type 'confirm' to delete your account.",
         ui_colors: "UI Colors",
@@ -256,6 +279,35 @@ const en = {
         yes_release_it: 'Yes, Release It',
         you_have_been_referred_to_puter_by_a_friend: "You have been referred to Puter by a friend!",
         zip: "Zip",
+
+        // === 2FA Setup ===
+        setup2fa_1_step_heading: 'Open your authenticator app',      
+        setup2fa_1_instructions: `
+            You can use any authenticator app that supports the Time-based One-Time Password (TOTP) protocol.
+            There are many to choose from, but if you're unsure
+            <a target="_blank" href="https://authy.com/download">Authy</a>
+            is a solid choice for Android and iOS.
+        `,
+        setup2fa_2_step_heading: 'Scan the QR code',
+        setup2fa_3_step_heading: 'Enter the 6-digit code',
+        setup2fa_4_step_heading: 'Copy your recovery codes',
+        setup2fa_4_instructions: `
+            These recovery codes are the only way to access your account if you lose your phone or can't use your authenticator app.
+            Make sure to store them in a safe place.
+        `,
+        setup2fa_5_step_heading: 'Confirm 2FA setup',
+        setup2fa_5_confirmation_1: 'I have saved my recovery codes in a secure location',
+        setup2fa_5_confirmation_2: 'I am ready to enable 2FA',
+        setup2fa_5_button: 'Enable 2FA',
+
+        // === 2FA Login ===
+        login2fa_otp_title: 'Enter 2FA Code',
+        login2fa_otp_instructions: 'Enter the 6-digit code from your authenticator app.',
+        login2fa_recovery_title: 'Enter a recovery code',
+        login2fa_recovery_instructions: 'Enter one of your recovery codes to access your account.',
+        login2fa_use_recovery_code: 'Use a recovery code',
+        login2fa_recovery_back: 'Back',
+        login2fa_recovery_placeholder: 'XXXXXXXX',
     }
 };
 

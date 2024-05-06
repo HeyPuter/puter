@@ -104,7 +104,6 @@ class TokenService extends BaseService {
         const secret = this.secret;
 
         const context = this.compression[scope];
-        console.log('original payload', payload)
         const compressed_payload = this._compress_payload(context, payload);
 
         return jwt.sign(compressed_payload, secret, options);
@@ -119,14 +118,13 @@ class TokenService extends BaseService {
         const context = this.compression[scope];
         const payload = jwt.verify(token, secret);
 
-        console.log('payload', payload)
-
         const decoded = this._decompress_payload(context, payload);
-        console.log('decoded', decoded);
         return decoded;
     }
 
     _compress_payload (context, payload) {
+        if ( ! context ) return payload;
+
         const fullkey_to_info = context.fullkey_to_info;
 
         const compressed = {};
@@ -154,6 +152,8 @@ class TokenService extends BaseService {
     }
 
     _decompress_payload (context, payload) {
+        if ( ! context ) return payload;
+
         const fullkey_to_info = context.fullkey_to_info;
         const short_to_fullkey = context.short_to_fullkey;
 

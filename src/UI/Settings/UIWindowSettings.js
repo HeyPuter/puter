@@ -21,6 +21,7 @@ import UIWindow from '../UIWindow.js'
 import AboutTab from './UITabAbout.js';
 import UsageTab from './UITabUsage.js';
 import AccountTab from './UITabAccount.js';
+import SecurityTab from './UITabSecurity.js';
 import PersonalizationTab from './UITabPersonalization.js';
 import LanguageTab from './UITabLanguage.js';
 import ClockTab from './UITabClock.js';
@@ -33,6 +34,7 @@ async function UIWindowSettings(options){
             AboutTab,
             UsageTab,
             AccountTab,
+            SecurityTab,
             PersonalizationTab,
             LanguageTab,
             ClockTab,

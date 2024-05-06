@@ -1946,15 +1946,31 @@ label {
     cursor: pointer;
 }
 
+.send-conf-code {
+    cursor: pointer;
+}
+
 .email-confirm-code-hyphen {
     display: inline-block;
-    width: 14%;
+    flex-grow: 1;
+    text-align: center;
+    font-size: 40px;
+    font-weight: 300;
+}
+
+.confirm-code-hyphen {
+    display: inline-block;
+    flex-grow: 1;
     text-align: center;
     font-size: 40px;
     font-weight: 300;
 }
 
 .send-conf-email:hover, .conf-email-log-out:hover {
+    text-decoration: underline;
+}
+
+.send-conf-code:hover {
     text-decoration: underline;
 }
 
@@ -2509,9 +2525,17 @@ label {
 }
 
 /* UIWindowEmailConfirmationRequired */
+fieldset[name=number-code] {
+    min-width: 0; /* Fix for Firefox */
+    display: flex;
+    justify-content: space-between;
+    gap: 5px;
+}
+
 .digit-input {
+    min-width: 0; /* Fix for Firefox */
     box-sizing: border-box;
-    width: 12.89%;
+    flex-grow: 1;
     height: 50px;
     font-size: 25px;
     text-align: center;
@@ -2590,11 +2614,25 @@ label {
     justify-content: center;
     flex-direction: column;
     align-items: center;
-    height: 520px;
 }
 
 .otp-qr-code img {
     width: 355px;
+    margin-bottom: 20px;
+}
+
+.otp-as-text {
+    margin: 20px 0;
+}
+
+.qr-code-checkbox {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.qr-code-checkbox input[type=checkbox] {
+    margin: 0;
 }
 
 .perm-title {
@@ -3686,6 +3724,17 @@ label {
     border-color: #f0080866;
     background: #ffecec;
     color: rgb(215 2 2);
+}
+.settings-card-success{
+    border-color: #08bf4e;
+    background: #e6ffed;
+    color: #03933a;
+}
+
+.settings-card-warning {
+    border-color: #f0a500;
+    background: #fff7e6;
+    color: #c98900;
 }
 
 .error-message {
