@@ -178,6 +178,7 @@ async function UIWindowLogin(options){
                     if ( data.next_step === 'otp' ) {
                         p = new TeePromise();
                         let code_entry;
+                        let recovery_entry;
                         let win;
                         let stepper;
                         const otp_option = new Flexer({
@@ -196,6 +197,7 @@ async function UIWindowLogin(options){
                                     _ref: me => code_entry = me,
                                     async [`property.value`] (value, { component }) {
                                         let error_i18n_key = 'something_went_wrong';
+                                        if ( ! value ) return;
                                         try {
                                             const resp = await fetch(`${api_origin}/login/otp`, {
                                                 method: 'POST',
@@ -236,8 +238,11 @@ async function UIWindowLogin(options){
                                 }),
                                 new Button({
                                     label: i18n('login2fa_use_recovery_code'),
+                                    style: 'link',
                                     on_click: async () => {
                                         stepper.next();
+                                        code_entry.set('value', undefined);
+                                        code_entry.set('error', undefined);
                                     }
                                 })
                             ],
@@ -258,7 +263,9 @@ async function UIWindowLogin(options){
                                     `
                                 }),
                                 new RecoveryCodeEntryView({
+                                    _ref: me => recovery_entry = me,
                                     async [`property.value`] (value, { component }) {
+                                        if ( ! value ) return;
                                         console.log('token?', data.otp_jwt_token);
                                         console.log('what about the rest of the data?', data);
                                         const resp = await fetch(`${api_origin}/login/recovery-code`, {
@@ -287,8 +294,11 @@ async function UIWindowLogin(options){
                                 }),
                                 new Button({
                                     label: i18n('login2fa_recovery_back'),
+                                    style: 'link',
                                     on_click: async () => {
                                         stepper.back();
+                                        recovery_entry.set('value', undefined);
+                                        recovery_entry.set('error', undefined);
                                     }
                                 })
                             ]
@@ -299,7 +309,9 @@ async function UIWindowLogin(options){
                         win = await UIComponentWindow({
                             component,
                             width: 500,
+                            height: 410,
                             backdrop: true,
+                            is_resizable: false,
                             body_css: {
                                 width: 'initial',
                                 height: '100%',

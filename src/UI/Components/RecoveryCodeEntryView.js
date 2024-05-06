@@ -68,6 +68,13 @@ export default class RecoveryCodeEntryView extends Component {
             $(this.dom_).find('.error').text(error).show();
         });
 
+        listen('value', (value) => {
+            // clear input
+            if ( value === undefined ) {
+                $(this.dom_).find('input').val('');
+            }
+        });
+
         const input = $(this.dom_).find('input');
         input.on('input', () => {
             if ( input.val().length === this.get('length') ) {

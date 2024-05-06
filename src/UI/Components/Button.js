@@ -5,6 +5,7 @@ export default class Button extends Component {
         label: { value: 'Test Label' },
         on_click: { value: null },
         enabled: { value: true },
+        style: { value: 'primary' }
     }
 
     static RENDER_MODE = Component.NO_SHADOW;
@@ -14,14 +15,36 @@ export default class Button extends Component {
             margin: 0;
             color: hsl(220, 25%, 31%);
         }
+        .link-button {
+            background: none;
+            border: none;
+            color: #3b4863;
+            text-decoration: none;
+            cursor: pointer;
+            text-align: center;
+            display: block;
+            width: 100%;
+        }
+        .link-button:hover {
+            text-decoration: underline;
+        }
     `;
 
     create_template ({ template }) {
+        if ( this.get('style') === 'link' ) {
+            $(template).html(/*html*/`
+                <button type="submit" class="link-button code-confirm-btn" style="margin-top:10px;" disabled>${
+                    html_encode(this.get('label'))
+                }</button>
+            `);
+            return;
+        }
         $(template).html(/*html*/`
-            <button type="submit" class="button button-block button-primary code-confirm-btn" style="margin-top:10px;" disabled>${
+            <button type="submit" class="button button-block button-${this.get('style')} code-confirm-btn" style="margin-top:10px;" disabled>${
                 html_encode(this.get('label'))
             }</button>
         `);
+
     }
 
     on_ready ({ listen }) {

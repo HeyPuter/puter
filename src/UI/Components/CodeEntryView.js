@@ -84,6 +84,14 @@ export default class CodeEntryView extends Component {
             $(this.dom_).find('.error').text(error).show();
         });
 
+        listen('value', value => {
+            // clear the inputs
+            if ( value === undefined ) {
+                $(this.dom_).find('.digit-input').val('');
+                return;
+            }
+        })
+
         listen('is_checking_code', (is_checking_code, { old_value }) => {
             if ( old_value === is_checking_code ) return;
             if ( old_value === undefined ) return;
