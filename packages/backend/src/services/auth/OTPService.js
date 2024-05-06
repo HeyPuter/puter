@@ -48,8 +48,12 @@ class OTPService extends BaseService {
             secret,
         });
 
-        const ok = totp.validate({ token: code });
-        return ok;
+        const allowed = [-1, 0, 1];
+
+        const delta = totp.validate({ token: code });
+        if ( delta === null ) return false;
+        if ( ! allowed.includes(delta) ) return false;
+        return true;
     }
 
     gen_otp_secret_ () {

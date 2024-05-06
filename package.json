@@ -43,7 +43,6 @@
     ]
   },
   "dependencies": {
-    "otpauth": "9.2.4",
     "uuid": "^9.0.1"
   }
 }
