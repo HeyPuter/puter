@@ -210,8 +210,11 @@ async function UIWindowLogin(options){
 
                                         if ( ! next_data.proceed ) {
                                             component.set('error', i18n('confirm_code_generic_incorrect'));
+                                            component.set('is_checking_code', false);
                                             return;
                                         }
+
+                                        component.set('is_checking_code', false);
 
                                         data = next_data;
 

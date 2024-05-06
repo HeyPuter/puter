@@ -133,7 +133,7 @@ export class Component extends HTMLElement {
         return {
             listen: (name, callback) => {
                 this.values_[name].sub(callback);
-                callback(this.values_[name].get());
+                callback(this.values_[name].get(), {});
             }
         };
     }

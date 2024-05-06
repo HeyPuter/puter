@@ -51,6 +51,7 @@ const en = {
         confirm_account_for_free_referral_storage_c2a: 'Create an account and confirm your email address to receive 1 GB of free storage. Your friend will get 1 GB of free storage too.',
         confirm_code_generic_incorrect: "Incorrect Code.",
         confirm_code_generic_submit: "Submit Code",
+        confirm_code_generic_try_again: "Try Again",
         confirm_code_generic_title: "Enter Confirmation Code",
         confirm_code_2fa_instruction: "Enter the 6-digit code from your authenticator app.",
         confirm_code_2fa_submit_btn: "Submit",

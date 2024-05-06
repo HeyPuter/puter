@@ -119,8 +119,10 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
 
                                 if ( ! await check_code_(value) ) {
                                     component.set('error', 'Invalid code');
+                                    component.set('is_checking_code', false);
                                     return;
                                 }
+                                component.set('is_checking_code', false);
 
                                 stepper.next();
                             }

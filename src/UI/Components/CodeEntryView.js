@@ -79,28 +79,43 @@ export default class CodeEntryView extends Component {
     }
 
     on_ready ({ listen }) {
-        let is_checking_code = false;
-
         listen('error', (error) => {
             if ( ! error ) return $(this.dom_).find('.error').hide();
             $(this.dom_).find('.error').text(error).show();
         });
 
+        listen('is_checking_code', (is_checking_code, { old_value }) => {
+            if ( old_value === is_checking_code ) return;
+            if ( old_value === undefined ) return;
+
+            const $button = $(this.dom_).find('.code-confirm-btn');
+
+            if ( is_checking_code ) {
+                // set animation
+                $button.prop('disabled', true);
+                $button.html(`<svg style="width:20px; margin-top: 5px;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#fff" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#eee" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`);
+                return;
+            }
+
+            const submit_btn_txt = i18n('confirm_code_generic_try_again');
+            $button.html(submit_btn_txt);
+            $button.prop('disabled', false);
+        });
+
+        const that = this;
         $(this.dom_).find('.code-confirm-btn').on('click submit', function(e){
             e.preventDefault();
             e.stopPropagation();
 
-            $(this).prop('disabled', true);
-            $(this).closest('.error').hide();
-            
-            // Check if already checking code to prevent multiple requests
-            if(is_checking_code)
-                return;
-            // Confirm button
-            is_checking_code = true;
+            const $button = $(this);
 
-            // set animation
-            $(this).html(`<svg style="width:20px; margin-top: 5px;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#fff" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#eee" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`);
+            $button.prop('disabled', true);
+            $button.closest('.error').hide();
+
+            that.set('is_checking_code', true);
+            
+            // force update to trigger the listener
+            that.set('value', that.get('value'));
         })
 
         // Elements
@@ -109,8 +124,7 @@ export default class CodeEntryView extends Component {
 
         // Event listeners
         numberCodeForm.addEventListener('input', ({ target }) => {
-            if(!target.value.length) { return target.value = null; }
-            const inputLength = target.value.length;
+            const inputLength = target.value.length || 0;
             let currentIndex = Number(target.dataset.numberCodeInput);
             if(inputLength === 2){
                 const inputValues = target.value.split('');
@@ -141,11 +155,16 @@ export default class CodeEntryView extends Component {
                 current_code += numberCodeInputs[i].value;
             }
 
+            const submit_btn_txt = i18n('confirm_code_generic_submit');
+            $(this.dom_).find('.code-confirm-btn').html(submit_btn_txt);
+
             // Automatically submit if 6 digits entered
             if(current_code.length === 6){
-                this.set('value', current_code);
                 $(this.dom_).find('.code-confirm-btn').prop('disabled', false);
-                $(this.dom_).find('.code-confirm-btn').trigger('click');
+                this.set('value', current_code);
+                this.set('is_checking_code', true);
+            } else {
+                $(this.dom_).find('.code-confirm-btn').prop('disabled', true);
             }
         });
 
