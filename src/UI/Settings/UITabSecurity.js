@@ -1,3 +1,4 @@
+import UIAlert from "../UIAlert.js";
 import UIWindow2FASetup from "../UIWindow2FASetup.js";
 import UIWindowQR from "../UIWindowQR.js";
 
@@ -99,6 +100,22 @@ export default {
         });
 
         $el_window.find('.disable-2fa').on('click', async function (e) {
+            const confirmation = i18n('disable_2fa_confirm');
+            const alert_resp = await UIAlert({
+                message: confirmation,
+                buttons:[
+                    {
+                        label: i18n('yes'),
+                        value: true,
+                        type: 'primary',
+                    },
+                    {
+                        label: i18n('no'),
+                        value: false,
+                    },
+                ]
+            })
+            if ( ! alert_resp ) return;
             const resp = await fetch(`${api_origin}/auth/configure-2fa/disable`, {
                 method: 'POST',
                 headers: {

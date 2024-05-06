@@ -91,6 +91,7 @@ const en = {
         developers: "Developers",
         dir_published_as_website: `%strong% has been published to:`,
         disable_2fa: 'Disable 2FA',
+        disable_2fa_confirm: "Are you sure you want to disable 2FA?",
         disassociate_dir: "Disassociate Directory",
         download: 'Download',
         download_file: 'Download File',
