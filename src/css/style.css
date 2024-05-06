@@ -2526,12 +2526,14 @@ label {
 
 /* UIWindowEmailConfirmationRequired */
 fieldset[name=number-code] {
+    min-width: 0; /* Fix for Firefox */
     display: flex;
     justify-content: space-between;
     gap: 5px;
 }
 
 .digit-input {
+    min-width: 0; /* Fix for Firefox */
     box-sizing: border-box;
     flex-grow: 1;
     height: 50px;
