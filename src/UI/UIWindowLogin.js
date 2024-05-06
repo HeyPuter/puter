@@ -265,31 +265,41 @@ async function UIWindowLogin(options){
                                 new RecoveryCodeEntryView({
                                     _ref: me => recovery_entry = me,
                                     async [`property.value`] (value, { component }) {
+                                        let error_i18n_key = 'something_went_wrong';
                                         if ( ! value ) return;
-                                        console.log('token?', data.otp_jwt_token);
-                                        console.log('what about the rest of the data?', data);
-                                        const resp = await fetch(`${api_origin}/login/recovery-code`, {
-                                            method: 'POST',
-                                            headers: {
-                                                'Content-Type': 'application/json',
-                                            },
-                                            body: JSON.stringify({
-                                                token: data.otp_jwt_token,
-                                                code: value,
-                                            }),
-                                        });
+                                        try {
+                                            const resp = await fetch(`${api_origin}/login/recovery-code`, {
+                                                method: 'POST',
+                                                headers: {
+                                                    'Content-Type': 'application/json',
+                                                },
+                                                body: JSON.stringify({
+                                                    token: data.otp_jwt_token,
+                                                    code: value,
+                                                }),
+                                            });
 
-                                        const next_data = await resp.json();
+                                            if ( resp.status === 429 ) {
+                                                error_i18n_key = 'confirm_code_generic_too_many_requests';
+                                                throw new Error('expected error');
+                                            }
 
-                                        if ( ! next_data.proceed ) {
-                                            component.set('error', i18n('confirm_code_generic_incorrect'));
-                                            return;
+                                            const next_data = await resp.json();
+
+                                            if ( ! next_data.proceed ) {
+                                                error_i18n_key = 'confirm_code_generic_incorrect';
+                                                throw new Error('expected error');
+                                            }
+
+                                            data = next_data;
+
+                                            $(win).close();
+                                            p.resolve();
+                                        } catch (e) {
+                                            // keeping this log; useful in screenshots
+                                            console.log('2FA Recovery Error', e);
+                                            component.set('error', i18n(error_i18n_key));
                                         }
-
-                                        data = next_data;
-
-                                        $(win).close();
-                                        p.resolve();
                                     }
                                 }),
                                 new Button({
