@@ -67,8 +67,8 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
         const user = req.user;
         const svc_otp = x.get('services').get('otp');
         const code = req.body.code;
-        const delta = svc_otp.verify(user.username, user.otp_secret, code);
-        return { ok: delta !== null, delta };
+        const ok = svc_otp.verify(user.username, user.otp_secret, code);
+        return { ok };
     };
 
     actions.enable = async () => {
