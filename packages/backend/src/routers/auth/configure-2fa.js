@@ -72,6 +72,11 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
     };
 
     actions.enable = async () => {
+        const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+        if ( ! svc_edgeRateLimit.check('enable-2fa') ) {
+            return res.status(429).send('Too many requests.');
+        }
+
         await db.write(
             `UPDATE user SET otp_enabled = 1 WHERE uuid = ?`,
             [user.uuid]

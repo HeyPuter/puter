@@ -149,6 +149,11 @@ router.post('/login/otp', express.json(), body_parser_error_handler, async (req,
     if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
         next();
 
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('login-otp') ) {
+        return res.status(429).send('Too many requests.');
+    }
+
     if ( ! req.body.token ) {
         return res.status(400).send('token is required.');
     }
@@ -199,6 +204,11 @@ router.post('/login/recovery-code', express.json(), body_parser_error_handler, a
     // either api. subdomain or no subdomain
     if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
         next();
+
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('login-recovery') ) {
+        return res.status(429).send('Too many requests.');
+    }
 
     if ( ! req.body.token ) {
         return res.status(400).send('token is required.');

@@ -55,6 +55,19 @@ class EdgeRateLimitService extends BaseService {
                 limit: 10,
                 window: HOUR,
             },
+            ['login-otp']: {
+                limit: 15,
+                window: 30 * MINUTE,
+            },
+            ['login-recovery']: {
+                limit: 10,
+                window: HOUR,
+            },
+            ['enable-2fa']: {
+                limit: 10,
+                window: HOUR,
+            }
+            
         };
         this.requests = new Map();
     }
