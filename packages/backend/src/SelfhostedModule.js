@@ -1,7 +1,7 @@
 const { AdvancedBase } = require("@heyputer/puter-js-common");
 const config = require("./config");
 
-class SelfhostedModule extends AdvancedBase {
+class SelfHostedModule extends AdvancedBase {
     async install (context) {
         const services = context.get('services');
 
@@ -63,4 +63,4 @@ class SelfhostedModule extends AdvancedBase {
     }
 }
 
-module.exports = SelfhostedModule;
+module.exports = SelfHostedModule;

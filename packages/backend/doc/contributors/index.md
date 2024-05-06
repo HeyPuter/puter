@@ -55,7 +55,7 @@ If your answer is the second, you should find a way to
 In my experience, the harder I think about the correct way to implement
 something, the bigger a mistake I'm going to make; ***unless*** a big part
 of the reason I'm thinking so hard is because I want to find a solution
-that reduces complexity and has the right maintanence trade-off.
+that reduces complexity and has the right maintenance trade-off.
 There's no easy solution for this so just keep it in mind; there are some
 things we might write 2 times, 3 times, even more times over before we
 really get it right and *that's okay*; sometimes part of doing useful work is

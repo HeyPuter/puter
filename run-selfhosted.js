@@ -29,7 +29,7 @@ const surrounding_box = (col, lines) => {
     // Keeping track of WHY certain versions don't work
     const ver_info = [
         { under: 14, reasons: ['optional chaining is not available'] },
-        { under: 16, reasons: ['diskusage package ABI mismatch'] },
+        { under: 16, reasons: ['disk usage package ABI mismatch'] },
     ];
 
     const lowest_allowed = Math.max(...ver_info.map(r => r.under));
@@ -59,7 +59,7 @@ const main = async () => {
         DatabaseModule,
         PuterDriversModule,
         LocalDiskStorageModule,
-        SelfhostedModule
+        SelfHostedModule
     } = (await import('@heyputer/backend')).default;
 
     console.log('kerne', Kernel);
@@ -68,7 +68,7 @@ const main = async () => {
     k.add_module(new DatabaseModule());
     k.add_module(new PuterDriversModule());
     k.add_module(new LocalDiskStorageModule());
-    k.add_module(new SelfhostedModule());
+    k.add_module(new SelfHostedModule());
     k.boot();
 };
 
