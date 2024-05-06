@@ -51,7 +51,6 @@ export default class RecoveryCodeEntryView extends Component {
                 <form>
                     <div class="error"></div>
                     <fieldset name="recovery-code" style="border: none; padding:0;" data-recovery-code-form>
-                        <legend style="display:none;">${i18n('login2fa_recovery_code')}</legend>
                         <input type="text" class="recovery-code-input" placeholder="${i18n('login2fa_recovery_placeholder')}" maxlength="${this.get('length')}" required>
                     </fieldset>
                 </form>
