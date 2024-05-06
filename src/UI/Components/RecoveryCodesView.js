@@ -9,6 +9,9 @@ export default class RecoveryCodesView extends Component {
 
     static CSS = /*css*/`
         .recovery-codes {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
             border: 1px solid #ccc;
             padding: 20px;
             margin: 20px auto;
@@ -41,13 +44,24 @@ export default class RecoveryCodesView extends Component {
             font-size: 12px;
             letter-spacing: 1px;
         }
+
+        .actions {
+            flex-direction: row-reverse;
+            display: flex;
+            gap: 10px;
+        }
     `
 
 
     create_template ({ template }) {
         $(template).html(`
+            <iframe name="print_frame" width="0" height="0" frameborder="0" src="about:blank"></iframe>
             <div class="recovery-codes">
                 <div class="recovery-codes-list">
+                </div>
+                <div class="actions">
+                    <button class="button" data-action="copy">${i18n('copy')}</button>
+                    <button class="button" data-action="print">${i18n('print')}</button>
                 </div>
             </div>
         `);
@@ -60,6 +74,19 @@ export default class RecoveryCodesView extends Component {
                     <div class="recovery-code">${html_encode(value)}</div>
                 `);
             }
+        });
+
+        $(this.dom_).find('[data-action="copy"]').on('click', () => {
+            const codes = this.get('values').join('\n');
+            navigator.clipboard.writeText(codes);
+        });
+
+        $(this.dom_).find('[data-action="print"]').on('click', () => {
+            const target = $(this.dom_).find('.recovery-codes-list')[0];
+            const print_frame = $(this.dom_).find('iframe[name="print_frame"]')[0];
+            print_frame.contentWindow.document.body.innerHTML = target.outerHTML;
+            print_frame.contentWindow.window.focus();
+            print_frame.contentWindow.window.print();
         });
     }
 }

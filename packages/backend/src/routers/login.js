@@ -21,6 +21,7 @@ const express = require('express');
 const router = new express.Router();
 const { get_user, body_parser_error_handler } = require('../helpers');
 const config = require('../config');
+const { DB_WRITE } = require('../services/database/consts');
 
 
 const complete_ = async ({ req, res, user }) => {
@@ -190,6 +191,70 @@ router.post('/login/otp', express.json(), body_parser_error_handler, async (req,
             proceed: false,
         });
     }
+
+    return await complete_({ req, res, user });
+});
+
+router.post('/login/recovery-code', express.json(), body_parser_error_handler, async (req, res, next) => {
+    // either api. subdomain or no subdomain
+    if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
+        next();
+
+    if ( ! req.body.token ) {
+        return res.status(400).send('token is required.');
+    }
+
+    if ( ! req.body.code ) {
+        return res.status(400).send('code is required.');
+    }
+
+    const svc_token = req.services.get('token');
+    let decoded; try {
+        decoded = svc_token.verify('otp', req.body.token);
+    } catch ( e ) {
+        return res.status(400).send('Invalid token.');
+    }
+
+    if ( ! decoded.user_uid ) {
+        return res.status(400).send('Invalid token.');
+    }
+
+    const user = await get_user({ uuid: decoded.user_uid, cached: false });
+    if ( ! user ) {
+        return res.status(400).send('User not found.');
+    }
+
+    const code = req.body.code;
+
+    const crypto = require('crypto');
+
+    const codes = user.otp_recovery_codes.split(',');
+    const hashed_code = crypto
+        .createHash('sha256')
+        .update(code)
+        .digest('base64')
+        // We're truncating the hash for easier storage, so we have 128
+        // bits of entropy instead of 256. This is plenty for recovery
+        // codes, which have only 48 bits of entropy to begin with.
+        .slice(0, 22);
+
+    if ( ! codes.includes(hashed_code) ) {
+        return res.status(200).send({
+            proceed: false,
+        });
+    }
+
+    // Remove the code from the list
+    const index = codes.indexOf(hashed_code);
+    codes.splice(index, 1);
+    
+    // update user
+    const db = req.services.get('database').get(DB_WRITE, '2fa');
+    await db.write(
+        `UPDATE user SET otp_recovery_codes = ? WHERE uuid = ?`,
+        [codes.join(','), user.uuid]
+    );
+    user.otp_recovery_codes = codes.join(',');
 
     return await complete_({ req, res, user });
 });

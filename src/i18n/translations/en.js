@@ -50,6 +50,7 @@ const en = {
         confirm_2fa_recovery: 'I have saved my recovery codes in a secure location',
         confirm_account_for_free_referral_storage_c2a: 'Create an account and confirm your email address to receive 1 GB of free storage. Your friend will get 1 GB of free storage too.',
         confirm_code_generic_incorrect: "Incorrect Code.",
+        confirm_code_generic_submit: "Submit Code",
         confirm_code_generic_title: "Enter Confirmation Code",
         confirm_code_2fa_instruction: "Enter the 6-digit code from your authenticator app.",
         confirm_code_2fa_submit_btn: "Submit",
@@ -178,6 +179,7 @@ const en = {
         powered_by_puter_js: `Powered by {{link=docs}}Puter.js{{/link}}`,
         preparing: "Preparing...",
         preparing_for_upload: "Preparing for upload...",
+        print: 'Print',
         privacy: "Privacy",
         proceed_to_login: 'Proceed to login',
         proceed_with_account_deletion: "Proceed with Account Deletion",
@@ -293,6 +295,15 @@ const en = {
         setup2fa_5_confirmation_1: 'I have saved my recovery codes in a secure location',
         setup2fa_5_confirmation_2: 'I am ready to enable 2FA',
         setup2fa_5_button: 'Enable 2FA',
+
+        // === 2FA Login ===
+        login2fa_otp_title: 'Enter 2FA Code',
+        login2fa_otp_instructions: 'Enter the 6-digit code from your authenticator app.',
+        login2fa_recovery_title: 'Enter a recovery code',
+        login2fa_recovery_instructions: 'Enter one of your recovery codes to access your account.',
+        login2fa_use_recovery_code: 'Use a recovery code',
+        login2fa_recovery_back: 'Back',
+        login2fa_recovery_placeholder: 'XXXXXXXX',
     }
 };
 

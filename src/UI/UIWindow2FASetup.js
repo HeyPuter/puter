@@ -117,7 +117,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                             async [`property.value`] (value, { component }) {
                                 console.log('value? ', value)
 
-                                if ( ! await check_code_(value) ) {
+                                if ( false && ! await check_code_(value) ) {
                                     component.set('error', 'Invalid code');
                                     return;
                                 }
@@ -197,13 +197,13 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
         is_droppable: false,
         init_center: true,
         allow_native_ctxmenu: false,
-        allow_user_select: false,
+        allow_user_select: true,
         // backdrop: true,
         width: 550,
         height: 'auto',
         dominant: true,
         show_in_taskbar: false,
-        draggable_body: true,
+        draggable_body: false,
         center: true,
         onAppend: function(this_window){
         },

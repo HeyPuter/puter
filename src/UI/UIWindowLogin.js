@@ -26,6 +26,10 @@ import UIComponentWindow from './UIComponentWindow.js';
 import Flexer from './Components/Flexer.js';
 import CodeEntryView from './Components/CodeEntryView.js';
 import JustHTML from './Components/JustHTML.js';
+import StepView from './Components/StepView.js';
+import TestView from './Components/TestView.js';
+import Button from './Components/Button.js';
+import RecoveryCodeEntryView from './Components/RecoveryCodeEntryView.js';
 
 async function UIWindowLogin(options){
     options = options ?? {};
@@ -175,12 +179,17 @@ async function UIWindowLogin(options){
                         p = new TeePromise();
                         let code_entry;
                         let win;
-                        const component = new Flexer({
+                        let stepper;
+                        const otp_option = new Flexer({
                             children: [
                                 new JustHTML({
                                     html: /*html*/`
-                                        <h3 style="text-align:center; font-weight: 500; font-size: 20px;">Enter 2FA Code</h3>
-                                        <p style="text-align:center; padding: 0 20px;">Enter the 6-digit code from your authenticator app.</p>
+                                        <h3 style="text-align:center; font-weight: 500; font-size: 20px;">${
+                                            i18n('login2fa_otp_title')
+                                        }</h3>
+                                        <p style="text-align:center; padding: 0 20px;">${
+                                            i18n('login2fa_otp_instructions')
+                                        }</p>
                                     `
                                 }),
                                 new CodeEntryView({
@@ -197,22 +206,80 @@ async function UIWindowLogin(options){
                                             }),
                                         });
 
-                                        data = await resp.json();
+                                        const next_data = await resp.json();
 
-                                        if ( ! data.proceed ) {
-                                            actions.clear();
-                                            actions.show_error(i18n('confirm_code_generic_incorrect'));
+                                        if ( ! next_data.proceed ) {
+                                            component.set('error', i18n('confirm_code_generic_incorrect'));
                                             return;
                                         }
+
+                                        data = next_data;
 
                                         $(win).close();
                                         p.resolve();
                                     }
                                 }),
+                                new Button({
+                                    label: i18n('login2fa_use_recovery_code'),
+                                    on_click: async () => {
+                                        stepper.next();
+                                    }
+                                })
                             ],
                             ['event.focus'] () {
                                 code_entry.focus();
                             }
+                        });
+                        const recovery_option = new Flexer({
+                            children: [
+                                new JustHTML({
+                                    html: /*html*/`
+                                        <h3 style="text-align:center; font-weight: 500; font-size: 20px;">${
+                                            i18n('login2fa_recovery_title')
+                                        }</h3>
+                                        <p style="text-align:center; padding: 0 20px;">${
+                                            i18n('login2fa_recovery_instructions')
+                                        }</p>
+                                    `
+                                }),
+                                new RecoveryCodeEntryView({
+                                    async [`property.value`] (value, { component }) {
+                                        console.log('token?', data.otp_jwt_token);
+                                        console.log('what about the rest of the data?', data);
+                                        const resp = await fetch(`${api_origin}/login/recovery-code`, {
+                                            method: 'POST',
+                                            headers: {
+                                                'Content-Type': 'application/json',
+                                            },
+                                            body: JSON.stringify({
+                                                token: data.otp_jwt_token,
+                                                code: value,
+                                            }),
+                                        });
+
+                                        const next_data = await resp.json();
+
+                                        if ( ! next_data.proceed ) {
+                                            component.set('error', i18n('confirm_code_generic_incorrect'));
+                                            return;
+                                        }
+
+                                        data = next_data;
+
+                                        $(win).close();
+                                        p.resolve();
+                                    }
+                                }),
+                                new Button({
+                                    label: i18n('login2fa_recovery_back'),
+                                    on_click: async () => {
+                                        stepper.back();
+                                    }
+                                })
+                            ]
+                        });
+                        const component = stepper = new StepView({
+                            children: [otp_option, recovery_option],
                         });
                         win = await UIComponentWindow({
                             component,

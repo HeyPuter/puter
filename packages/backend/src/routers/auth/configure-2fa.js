@@ -36,13 +36,26 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
             result.codes.push(svc_otp.create_recovery_code());
         }
 
+        const hashed_recovery_codes = result.codes.map(code => {
+            const crypto = require('crypto');
+            const hash = crypto
+                .createHash('sha256')
+                .update(code)
+                .digest('base64')
+                // We're truncating the hash for easier storage, so we have 128
+                // bits of entropy instead of 256. This is plenty for recovery
+                // codes, which have only 48 bits of entropy to begin with.
+                .slice(0, 22);
+            return hash;
+        });
+
         // update user
         await db.write(
             `UPDATE user SET otp_secret = ?, otp_recovery_codes = ? WHERE uuid = ?`,
-            [result.secret, result.codes.join(','), user.uuid]
+            [result.secret, hashed_recovery_codes.join(','), user.uuid]
         );
         req.user.otp_secret = result.secret;
-        req.user.otp_recovery_codes = result.codes.join(',');
+        req.user.otp_recovery_codes = hashed_recovery_codes.join(',');
 
         return result;
     };
