@@ -28,7 +28,7 @@ export default {
 
         // configure 2FA
         if(!user.is_temp){
-            h += `<div class="settings-card ${user.otp ? 'settings-card-success' : 'settings-card-warning'}">`;
+            h += `<div class="settings-card settings-card-security ${user.otp ? 'settings-card-success' : 'settings-card-warning'}">`;
                 h += `<div>`;
                     h += `<strong style="display:block;">${i18n('two_factor')}</strong>`;
                     h += `<span class="user-otp-state" style="display:block; margin-top:5px;">${
@@ -54,6 +54,8 @@ export default {
                 $el_window.find('.enable-2fa').hide();
                 $el_window.find('.disable-2fa').show();
                 $el_window.find('.user-otp-state').text(i18n('two_factor_enabled'));
+                $el_window.find('.settings-card-security').removeClass('settings-card-warning');
+                $el_window.find('.settings-card-security').addClass('settings-card-success');
             }
 
             return;
@@ -109,6 +111,8 @@ export default {
             $el_window.find('.enable-2fa').show();
             $el_window.find('.disable-2fa').hide();
             $el_window.find('.user-otp-state').text(i18n('two_factor_disabled'));
+            $el_window.find('.settings-card-security').removeClass('settings-card-success');
+            $el_window.find('.settings-card-security').addClass('settings-card-warning');
         });
     }
 }
