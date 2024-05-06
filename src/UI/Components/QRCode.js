@@ -40,9 +40,7 @@ export default class QRCodeView extends Component {
     }
 
     on_ready ({ listen }) {
-        console.log('QRCodeView on_ready called');
         listen('value', value => {
-            console.log('got value', value);
             // $(this.dom_).find('.qr-code').empty();
             new QRCode($(this.dom_).find('.qr-code').get(0), {
                 text: value,

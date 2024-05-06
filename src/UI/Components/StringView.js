@@ -28,7 +28,6 @@ export default class StringView extends Component {
     on_ready ({ listen }) {
         // TODO: listener composition, to avoid this
         const either = ({ heading, text }) => {
-            console.log('---', { heading, text });
             const wrapper_nodeName = heading ? 'h' + heading : 'span';
             $(this.dom_).find('span').html(`<${wrapper_nodeName}>${
                 this.get('no_html_encode') ? text : html_encode(text)

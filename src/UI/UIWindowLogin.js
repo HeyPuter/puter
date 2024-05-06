@@ -227,7 +227,8 @@ async function UIWindowLogin(options){
                                             $(win).close();
                                             p.resolve();
                                         } catch (e) {
-                                            console.log('error object', e)
+                                            // keeping this log; useful in screenshots
+                                            console.log('2FA Login Error', e);
                                             component.set('error', i18n(error_i18n_key));
                                             component.set('is_checking_code', false);
                                         }

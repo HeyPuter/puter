@@ -2816,9 +2816,7 @@ $.fn.close = async function(options) {
             }
         }
 
-        console.log('deos ')
         if ( this.on_before_exit ) {
-            console.log('this happens??');
             if ( ! await this.on_before_exit() ) return false;
         }
 

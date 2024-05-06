@@ -27,14 +27,12 @@ export default class Flexer extends Component {
     }
 
     on_ready ({ listen }) {
-        console.log('Flexer on_ready called');
         for ( const child of this.get('children') ) {
             child.setAttribute('slot', 'inside');
             child.attach(this);
         }
 
         listen('gap', gap => {
-            console.log('gap called', gap);
             $(this.dom_).find('div').first().css('gap', gap);
         });
     }
@@ -45,6 +43,5 @@ export default class Flexer extends Component {
 if ( ! window.__component_flexer ) {
     window.__component_flexer = true;
 
-    console.log('this is here');
     customElements.define('c-flexer', Flexer);
 }

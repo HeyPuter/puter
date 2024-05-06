@@ -56,7 +56,6 @@ export class Component extends HTMLElement {
             }
         }
         this.addEventListener('focus', () => {
-            console.log('got the event?');
             if ( this.on_focus ) {
                 this.on_focus();
             }
@@ -87,7 +86,6 @@ export class Component extends HTMLElement {
     }
 
     connectedCallback () {
-        console.log('connectedCallback called')
         this.on_ready && this.on_ready(this.get_api_());
     }
 

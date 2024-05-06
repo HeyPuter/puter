@@ -115,8 +115,6 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                         new CodeEntryView({
                             _ref: me => code_entry = me,
                             async [`property.value`] (value, { component }) {
-                                console.log('value? ', value)
-
                                 if ( ! await check_code_(value) ) {
                                     component.set('error', 'Invalid code');
                                     component.set('is_checking_code', false);
@@ -172,7 +170,8 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     stepper.values_['done'].sub(value => {
         if ( ! value ) return;
         $(win).close();
-        console.log('WE GOT HERE')
+        // Write "2FA enabled" in green in the console
+        console.log('%c2FA enabled', 'color: green');
         promise.resolve(true);
     })
 
