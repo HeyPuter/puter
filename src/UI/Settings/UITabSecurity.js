@@ -60,43 +60,6 @@ export default {
             }
 
             return;
-
-            const resp = await fetch(`${api_origin}/auth/configure-2fa/setup`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${puter.authToken}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({}),
-            });
-            const data = await resp.json();
-
-            const confirmation = await UIWindowQR({
-                message_i18n_key: 'scan_qr_2fa',
-                text: data.url,
-                text_alternative: data.secret,
-                confirmations: [
-                    i18n('confirm_2fa_setup'),
-                    i18n('confirm_2fa_recovery'),
-                ],
-                recovery_codes: data.codes,
-                has_confirm_and_cancel: true,
-            });
-
-            if ( ! confirmation ) return;
-
-            await fetch(`${api_origin}/auth/configure-2fa/enable`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${puter.authToken}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({}),
-            });
-
-            $el_window.find('.enable-2fa').hide();
-            $el_window.find('.disable-2fa').show();
-            $el_window.find('.user-otp-state').text(i18n('two_factor_enabled'));
         });
 
         $el_window.find('.disable-2fa').on('click', async function (e) {
