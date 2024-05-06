@@ -54,7 +54,7 @@
     "nodemailer": "^6.9.3",
     "on-finished": "^2.4.1",
     "openai": "^4.20.1",
-    "otpauth": "^9.2.3",
+    "otpauth": "^9.2.4",
     "prompt-sync": "^4.2.0",
     "recursive-readdir": "^2.2.3",
     "response-time": "^2.3.2",
