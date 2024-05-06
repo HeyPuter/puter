@@ -66,6 +66,11 @@ export default {
             const confirmation = i18n('disable_2fa_confirm');
             const alert_resp = await UIAlert({
                 message: confirmation,
+                window_options: {
+                    parent_uuid: $el_window.attr('data-element_uuid'),
+                    disable_parent_window: true,
+                    parent_center: true,
+                },
                 buttons:[
                     {
                         label: i18n('yes'),
@@ -73,7 +78,7 @@ export default {
                         type: 'primary',
                     },
                     {
-                        label: i18n('no'),
+                        label: i18n('cancel'),
                         value: false,
                     },
                 ]
