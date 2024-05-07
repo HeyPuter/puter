@@ -83,6 +83,12 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
         );
         // update cached user
         req.user.otp_enabled = 1;
+
+        const svc_email = req.services.get('email');
+        await svc_email.send_email({ email: user.email }, 'enabled_2fa', {
+            username: user.username,
+        });
+
         return {};
     };
 
@@ -93,6 +99,12 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
         );
         // update cached user
         req.user.otp_enabled = 0;
+
+        const svc_email = req.services.get('email');
+        await svc_email.send_email({ email: user.email }, 'disabled_2fa', {
+            username: user.username,
+        });
+
         return { success: true };
     };
 
