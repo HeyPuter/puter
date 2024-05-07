@@ -1538,7 +1538,7 @@ window.trigger_download = (paths)=>{
     let urls = [];
     for (let index = 0; index < paths.length; index++) {
         urls.push({
-            download: window.api_origin + "/down?path=" + paths[index] + "&auth_token=" + window.auth_token,
+            download: window.api_origin + "/down?path=" + paths[index],
             filename: path.basename(paths[index]),
         });
     }
