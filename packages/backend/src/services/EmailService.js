@@ -69,6 +69,17 @@ If this was not you, please contact support@puter.com immediately.
 </p>
         `,
     },
+    'password_change_notification': {
+        subject: '\u{1f511} Password change notification',
+        html: /*html*/`
+        <p>Hi there,</p>
+        <p>
+        We're sending an email to let you know about a change to your account.
+        Your password was recently changed. If this was not you, please contact
+        support@puter.com immediately.
+        </p>
+        `,
+    },
     'email_verification_code': {
         subject: `{{code}} is your confirmation code`,
         html: /*html*/`
