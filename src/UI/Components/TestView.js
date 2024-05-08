@@ -1,4 +1,4 @@
-import { Component } from "../../util/Component.js";
+import { Component, defineComponent } from "../../util/Component.js";
 
 /**
  * A simple component when you just need to test something.
@@ -19,10 +19,4 @@ export default class TestView extends Component {
     }
 }
 
-// TODO: This is necessary because files can be loaded from
-// both `/src/UI` and `/UI` in the URL; we need to fix that
-if ( ! window.__component_testView ) {
-    window.__component_testView = true;
-
-    customElements.define('c-test-view', TestView);
-}
+defineComponent('c-test-view', TestView);

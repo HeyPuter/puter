@@ -1,4 +1,4 @@
-import { Component } from "../../util/Component.js";
+import { Component, defineComponent } from "../../util/Component.js";
 
 export default class RecoveryCodeEntryView extends Component {
     static PROPERTIES = {
@@ -84,4 +84,4 @@ export default class RecoveryCodeEntryView extends Component {
     }
 }
 
-customElements.define('c-recovery-code-entry', RecoveryCodeEntryView);
+defineComponent('c-recovery-code-entry', RecoveryCodeEntryView);

@@ -1,4 +1,4 @@
-import { Component } from "../../util/Component.js";
+import { Component, defineComponent } from "../../util/Component.js";
 
 /**
  * A simple component that displays a string in the
@@ -42,10 +42,4 @@ export default class StringView extends Component {
     }
 }
 
-// TODO: This is necessary because files can be loaded from
-// both `/src/UI` and `/UI` in the URL; we need to fix that
-if ( ! window.__component_stringView ) {
-    window.__component_stringView = true;
-
-    customElements.define('c-string-view', StringView);
-}
+defineComponent('c-string-view', StringView);

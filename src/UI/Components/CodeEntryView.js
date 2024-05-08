@@ -1,4 +1,4 @@
-import { Component } from "../../util/Component.js";
+import { Component, defineComponent } from "../../util/Component.js";
 
 export default class CodeEntryView extends Component {
     static PROPERTIES = {
@@ -215,10 +215,4 @@ export default class CodeEntryView extends Component {
     }
 }
 
-// TODO: This is necessary because files can be loaded from
-// both `/src/UI` and `/UI` in the URL; we need to fix that
-if ( ! window.__component_codeEntryView ) {
-    window.__component_codeEntryView = true;
-
-    customElements.define('c-code-entry-view', CodeEntryView);
-}
+defineComponent('c-code-entry-view', CodeEntryView);

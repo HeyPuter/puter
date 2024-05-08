@@ -136,3 +136,11 @@ export class Component extends HTMLElement {
         };
     }
 }
+
+export const defineComponent = (name, component) => {
+    // TODO: This is necessary because files can be loaded from
+    // both `/src/UI` and `/UI` in the URL; we need to fix that
+    if ( ! customElements.get(name) ) {
+        customElements.define(name, component);
+    }
+};

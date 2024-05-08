@@ -1,4 +1,4 @@
-import { Component } from "../../util/Component.js";
+import { Component, defineComponent } from "../../util/Component.js";
 
 export default class StepView extends Component {
     static PROPERTIES = {
@@ -64,10 +64,4 @@ export default class StepView extends Component {
     }
 }
 
-// TODO: This is necessary because files can be loaded from
-// both `/src/UI` and `/UI` in the URL; we need to fix that
-if ( ! window.__component_stepView ) {
-    window.__component_stepView = true;
-
-    customElements.define('c-step-view', StepView);
-}
+defineComponent('c-step-view', StepView);

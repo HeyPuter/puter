@@ -1,4 +1,4 @@
-import { Component } from "../../util/Component.js";
+import { Component, defineComponent } from "../../util/Component.js";
 import UIComponentWindow from "../UIComponentWindow.js";
 
 export default class QRCodeView extends Component {
@@ -78,10 +78,4 @@ export default class QRCodeView extends Component {
     }
 }
 
-// TODO: This is necessary because files can be loaded from
-// both `/src/UI` and `/UI` in the URL; we need to fix that
-if ( ! window.__component_qr_code ) {
-    window.__component_qr_code = true;
-
-    customElements.define('c-qr-code', QRCodeView);
-}
+defineComponent('c-qr-code', QRCodeView);

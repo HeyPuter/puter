@@ -1,4 +1,4 @@
-import { Component } from "../../util/Component.js";
+import { Component, defineComponent } from "../../util/Component.js";
 
 /**
  * Allows a flex layout of composed components to be
@@ -38,10 +38,4 @@ export default class Flexer extends Component {
     }
 }
 
-// TODO: This is necessary because files can be loaded from
-// both `/src/UI` and `/UI` in the URL; we need to fix that
-if ( ! window.__component_flexer ) {
-    window.__component_flexer = true;
-
-    customElements.define('c-flexer', Flexer);
-}
+defineComponent('c-flexer', Flexer);

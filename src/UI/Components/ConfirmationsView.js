@@ -1,4 +1,4 @@
-import { Component } from "../../util/Component.js";
+import { Component, defineComponent } from "../../util/Component.js";
 
 /**
  * Display a list of checkboxes for the user to confirm.
@@ -58,10 +58,4 @@ export default class ConfirmationsView extends Component {
     }
 }
 
-// TODO: This is necessary because files can be loaded from
-// both `/src/UI` and `/UI` in the URL; we need to fix that
-if ( ! window.__component_confirmationsView ) {
-    window.__component_confirmationsView = true;
-
-    customElements.define('c-confirmations-view', ConfirmationsView);
-}
+defineComponent('c-confirmations-view', ConfirmationsView);
