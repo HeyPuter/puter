@@ -1,4 +1,4 @@
-import { Component } from "../../util/Component.js";
+import { Component, defineComponent } from "../../util/Component.js";
 
 export default class RecoveryCodesView extends Component {
     static PROPERTIES = {
@@ -91,10 +91,4 @@ export default class RecoveryCodesView extends Component {
     }
 }
 
-// TODO: This is necessary because files can be loaded from
-// both `/src/UI` and `/UI` in the URL; we need to fix that
-if ( ! window.__component_recoveryCodesView ) {
-    window.__component_recoveryCodesView = true;
-
-    customElements.define('c-recovery-codes-view', RecoveryCodesView);
-}
+defineComponent('c-recovery-codes-view', RecoveryCodesView);

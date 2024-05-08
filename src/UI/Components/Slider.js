@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { Component } from "../../util/Component.js";
+import { Component, defineComponent } from "../../util/Component.js";
 
 /**
  * Slider: A labeled slider input.
@@ -105,10 +105,4 @@ export default class Slider extends Component {
     }
 }
 
-// TODO: This is necessary because files can be loaded from
-// both `/src/UI` and `/UI` in the URL; we need to fix that
-if ( ! window.__component_slider ) {
-    window.__component_slider = true;
-
-    customElements.define('c-slider', Slider);
-}
+defineComponent('c-slider', Slider);

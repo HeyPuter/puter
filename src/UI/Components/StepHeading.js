@@ -1,4 +1,4 @@
-import { Component } from "../../util/Component.js";
+import { Component, defineComponent } from "../../util/Component.js";
 
 /**
  * StepHeading renders a heading with a leading symbol.
@@ -58,10 +58,4 @@ export default class StepHeading extends Component {
     }
 }
 
-// TODO: This is necessary because files can be loaded from
-// both `/src/UI` and `/UI` in the URL; we need to fix that
-if ( ! window.__component_stepHeading ) {
-    window.__component_stepHeading = true;
-
-    customElements.define('c-step-heading', StepHeading);
-}
+defineComponent('c-step-heading', StepHeading);

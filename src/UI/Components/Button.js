@@ -1,4 +1,4 @@
-import { Component } from "../../util/Component.js";
+import { Component, defineComponent } from "../../util/Component.js";
 
 export default class Button extends Component {
     static PROPERTIES = {
@@ -64,10 +64,4 @@ export default class Button extends Component {
     }
 }
 
-// TODO: This is necessary because files can be loaded from
-// both `/src/UI` and `/UI` in the URL; we need to fix that
-if ( ! window.__component_button ) {
-    window.__component_button = true;
-
-    customElements.define('c-button', Button);
-}
+defineComponent('c-button', Button);
