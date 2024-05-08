@@ -674,9 +674,15 @@ window.update_auth_data = (auth_token, user)=>{
         $('.user-email').html(html_encode(user.email));
     }
 
+    const to_storable_user = user => {
+        const storable_user = {...user};
+        delete storable_user.taskbar_items;
+        return storable_user;
+    };
+
     // update this session's user data
     window.user = user;
-    localStorage.setItem('user', JSON.stringify(window.user));
+    localStorage.setItem('user', JSON.stringify(to_storable_user(user)));
 
     // re-initialize the Puter.js objects with the new auth token
     puter.setAuthToken(auth_token, window.api_origin)
@@ -699,7 +705,8 @@ window.update_auth_data = (auth_token, user)=>{
             window.logged_in_users.push(userobj);
         }
         // update local storage
-        localStorage.setItem('logged_in_users', JSON.stringify(window.logged_in_users));
+        localStorage.setItem('logged_in_users', JSON.stringify(
+            window.logged_in_users.map(to_storable_user)));
     }
 
     window.desktop_path = '/' + window.user.username + '/Desktop';
