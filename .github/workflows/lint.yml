@@ -1,6 +1,6 @@
-# This workflow runs the tools/check-translations.js script to make sure that the translation data is valid.
+# Lint PRs and pushes to the main branch
 
-name: Check Translations
+name: Lint
 
 env:
   NODE_VERSION: 21.x
@@ -13,7 +13,7 @@ on:
     branches: [ "main" ]
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,5 +24,10 @@ jobs:
         node-version: ${{ env.NODE_VERSION }}
         cache: 'npm'
         cache-dependency-path: ./package-lock.json
-    - run: npm ci
-    - run: npm run check-translations
+    - name: Install dependencies
+      run: npm ci
+    - name: Run ESLint
+      run: npx eslint
+    - name: Check translations
+      if: '!cancelled()'
+      run: npm run check-translations
