@@ -8,6 +8,7 @@ export default {
     icon: 'shield.svg',
     html: () => {
         let h = `<h1>${i18n('security')}</h1>`;
+        let user = window.user;
 
         // change password button
         if(!user.is_temp){
@@ -84,7 +85,7 @@ export default {
                 ]
             })
             if ( ! alert_resp ) return;
-            const resp = await fetch(`${api_origin}/auth/configure-2fa/disable`, {
+            const resp = await fetch(`${window.api_origin}/auth/configure-2fa/disable`, {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${puter.authToken}`,
