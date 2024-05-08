@@ -122,7 +122,7 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
     const new_email = rows[0].unconfirmed_change_email;
 
     await db.write(
-        'UPDATE `user` SET `email` = ?, `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `id` = ?',
+        'UPDATE `user` SET `email` = ?, `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL, `pass_recovery_token` = NULL WHERE `id` = ?',
         [new_email, user_id]
     );
 
