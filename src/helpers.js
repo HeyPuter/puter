@@ -25,7 +25,6 @@ import UIWindow from './UI/UIWindow.js'
 import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowCopyProgress from './UI/UIWindowCopyProgress.js';
-import UIWindowMoveProgress from './UI/UIWindowMoveProgress.js';
 import update_username_in_gui from './helpers/update_username_in_gui.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import content_type_to_icon from './helpers/content_type_to_icon.js';
@@ -2132,7 +2131,12 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
     // only show progress window if it takes longer than 2s to move
     let progwin;
     let progwin_timeout = setTimeout(async () => {
-        progwin = await UIWindowMoveProgress({operation_id: move_op_id});
+        progwin = await UIWindowProgress({
+            operation_id: move_op_id,
+            on_cancel: () => {
+                window.operation_cancelled[move_op_id] = true;
+            },
+        });
     }, 2000);
 
     // storing moved items for undo ability
@@ -2218,7 +2222,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
 
                 // moving an item into a trashed directory? deny.
                 else if(dest_path.startsWith(window.trash_path)){
-                    $(progwin).close();
+                    progwin?.close();
                     UIAlert('Cannot move items into a deleted folder.');
                     return;
                 }
@@ -2237,7 +2241,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
                 // --------------------------------------------------------
                 // update progress window with current item being moved
                 // --------------------------------------------------------
-                $(progwin).find('.move-from').html(html_encode(path_to_show_on_progwin));
+                progwin?.set_status(i18n('moving') + ' ' + html_encode(path_to_show_on_progwin));
 
                 // execute move
                 let resp = await puter.fs.move({
@@ -2444,7 +2448,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
 
     if(progwin){
         setTimeout(() => {
-            $(progwin).close();   
+            progwin.close();
         }, window.copy_progress_hide_delay);
     }
 }
