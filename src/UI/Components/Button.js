@@ -39,8 +39,9 @@ export default class Button extends Component {
             `);
             return;
         }
+        // TODO: Replace hack for 'small' with a better way to configure button classes.
         $(template).html(/*html*/`
-            <button type="submit" class="button button-block button-${this.get('style')}" style="margin-top:10px;" disabled>${
+            <button type="submit" class="button ${this.get('style') !== 'small' ? 'button-block' : ''} button-${this.get('style')}" style="margin-top:10px;" disabled>${
                 html_encode(this.get('label'))
             }</button>
         `);
