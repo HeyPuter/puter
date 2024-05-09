@@ -250,7 +250,7 @@ class FileCacheService extends AdvancedBase {
         const path = this._get_path(tracker.key);
         console.log(`precache fetch key I guess?`, tracker.key);
         const data = this.precache.get(tracker.key);
-        console.log(`path and data: ${path} ${data}`);
+        // console.log(`path and data: ${path} ${data}`);
         await fs.promises.writeFile(path, data);
         this.precache.delete(tracker.key);
         tracker.phase = FileTracker.PHASE_DISK;
