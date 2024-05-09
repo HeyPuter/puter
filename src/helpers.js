@@ -27,7 +27,6 @@ import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import update_username_in_gui from './helpers/update_username_in_gui.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import content_type_to_icon from './helpers/content_type_to_icon.js';
-import UIWindowDownloadDirProg from './UI/UIWindowDownloadDirProg.js';
 import { PROCESS_RUNNING, PortalProcess, PseudoProcess } from "./definitions.js";
 import UIWindowProgress from './UI/UIWindowProgress.js';
 
@@ -2965,14 +2964,14 @@ window.zipItems = async function(el_items, targetDirPath, download = true) {
     let progwin, progwin_timeout;
     // only show progress window if it takes longer than 500ms to download
     progwin_timeout = setTimeout(async () => {
-        progwin = await UIWindowDownloadDirProg();
+        progwin = await UIWindowProgress();
     }, 500);
 
     for (const el_item of el_items) {
         let targetPath = $(el_item).attr('data-path');
         // if directory, zip the directory
         if($(el_item).attr('data-is_dir') === '1'){
-            $(progwin).find('.dir-dl-status').html(`Reading <strong>${html_encode(targetPath)}</strong>`);
+            progwin?.set_status(i18n('reading_file', targetPath));
             // Recursively read the directory
             let children = await readDirectoryRecursive(targetPath);
 
@@ -2985,7 +2984,7 @@ window.zipItems = async function(el_items, targetDirPath, download = true) {
                     relativePath = path.basename(targetPath) + '/' + child.relativePath;
 
                 // update progress window
-                $(progwin).find('.dir-dl-status').html(`Zipping <strong>${html_encode(relativePath)}</strong>`);
+                progwin?.set_status(i18n('zipping_file', relativePath));
                 
                 // read file content
                 let content = await puter.fs.read(child.path);
@@ -3034,17 +3033,18 @@ window.zipItems = async function(el_items, targetDirPath, download = true) {
             // close progress window
             clearTimeout(progwin_timeout);
             setTimeout(() => {
-                $(progwin).close();   
+                progwin?.close();
             }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
         })
         .catch(function (err) {
             // close progress window
             clearTimeout(progwin_timeout);
             setTimeout(() => {
-                $(progwin).close();   
+                progwin?.close();
             }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
 
             // handle errors
+            // TODO: Display in progress dialog
             console.error("Error in zipping files: ", err);
         });
 }
@@ -3087,7 +3087,7 @@ window.unzipItem = async function(itemPath) {
     let progwin, progwin_timeout;
     // only show progress window if it takes longer than 500ms to download
     progwin_timeout = setTimeout(async () => {
-        progwin = await UIWindowDownloadDirProg();
+        progwin = await UIWindowProgress();
     }, 500);
 
     const zip = new JSZip();
@@ -3109,7 +3109,7 @@ window.unzipItem = async function(itemPath) {
         // close progress window
         clearTimeout(progwin_timeout);
         setTimeout(() => {
-            $(progwin).close();   
+            progwin?.close();
         }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
 
     }).catch(function (e) {
@@ -3117,7 +3117,7 @@ window.unzipItem = async function(itemPath) {
         // close progress window
         clearTimeout(progwin_timeout);
         setTimeout(() => {
-            $(progwin).close();   
+            progwin?.close();
         }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
     })
 }
