@@ -26,7 +26,6 @@ import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowCopyProgress from './UI/UIWindowCopyProgress.js';
 import UIWindowMoveProgress from './UI/UIWindowMoveProgress.js';
-import UIWindowProgressEmptyTrash from './UI/UIWindowProgressEmptyTrash.js';
 import update_username_in_gui from './helpers/update_username_in_gui.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import content_type_to_icon from './helpers/content_type_to_icon.js';
@@ -2790,7 +2789,8 @@ window.empty_trash = async function(){
     let progwin;
     let op_id = window.uuidv4();
     let progwin_timeout = setTimeout(async () => {
-        progwin = await UIWindowProgressEmptyTrash({operation_id: op_id});
+        progwin = await UIWindowProgress({operation_id: op_id});
+        progwin.set_status(i18n('emptying_trash'));
     }, 500);
 
     await puter.fs.delete({
@@ -2814,13 +2814,13 @@ window.empty_trash = async function(){
             // close progress window
             clearTimeout(progwin_timeout);
             setTimeout(() => {
-                $(progwin).close();   
+                progwin?.close();
             }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - init_ts)));
         },
         error: async function (err){
             clearTimeout(progwin_timeout);
             setTimeout(() => {
-                $(progwin).close();   
+                progwin?.close();
             }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - init_ts)));
         }
     });
