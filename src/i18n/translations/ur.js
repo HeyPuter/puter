@@ -83,7 +83,7 @@ const ur = {
         log_in: "لاگ ان",
         log_out: 'لاگ آؤٹ',
         move: 'منتقل کریں',
-        moving: "منتقل ہو رہا ہے ",
+        moving_file: "منتقل ہو رہا ہے %%",
         my_websites: "میری ویب سائٹیں ",
         name: 'نام',
         name_cannot_be_empty: 'نام خالی نہیں ہو سکتا',

@@ -126,7 +126,7 @@ const ig = {
         log_out: 'pụọ',
         manage_sessions: "Jikwaa Oge",
         move: 'Bugharịa',
-        moving: "Na Bugharịa",
+        moving_file: "Na Bugharịa %%",
         my_websites: "Weebụsaịtị m",
         name: 'Aha',
         name_cannot_be_empty: 'Aha enweghị ike ịbụ ihe efu.',

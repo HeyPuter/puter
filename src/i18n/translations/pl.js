@@ -92,7 +92,7 @@ const pl = {
         log_into_another_account_anyway: 'Zaloguj się do innego konta mimo wszystko',
         log_out: 'Wyloguj się',
         move: 'Przenieś',
-        moving: "Przenoszenie",
+        moving_file: "Przenoszenie %%",
         my_websites: "Moje strony",
         name: 'Nazwa',
         name_cannot_be_empty: 'Nazwa nie może być pusta.',

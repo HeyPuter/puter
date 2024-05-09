@@ -83,7 +83,7 @@ const da = {
         log_in: "Log ind",
         log_out: "Log ud",
         move: "Flyt",
-        moving: "Flytter",
+        moving_file: "Flytter %%",
         my_websites: "Mine websteder",
         name: "Navn",
         name_cannot_be_empty: "Navn kan ikke være tomt.",

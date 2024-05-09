@@ -91,7 +91,7 @@ const ko = {
         log_in: "로그인",
         log_out: '로그아웃',
         move: '이동',
-        moving: "이동 중",
+        moving_file: "이동 중 %%",
         my_websites: "내 웹사이트",
         name: '이름',
         name_cannot_be_empty: '이름은 비워둘 수 없습니다.',

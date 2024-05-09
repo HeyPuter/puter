@@ -83,7 +83,7 @@ const ar = {
 		log_in: "تسجيل الدخول",
 		log_out: 'تسجيل خروج',
 		move: 'يتحرك',
-		moving: "متحرك ",
+		moving_file: "متحرك %%",
 		my_websites: "مواقعي الإلكترونية ",
 		name: 'اسم',
 		name_cannot_be_empty: 'لا يمكن أن يكون الاسم فارغًا',

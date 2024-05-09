@@ -126,7 +126,7 @@ const ru = {
         log_out: 'Выйти',
         manage_sessions: "Управление Сеансами",
         move: 'Переместить',
-        moving: "Перемещается",
+        moving_file: "Перемещается %%",
         my_websites: "Мои Сайты",
         name: 'Имя',
         name_cannot_be_empty: 'Имя не может быть пустым.',

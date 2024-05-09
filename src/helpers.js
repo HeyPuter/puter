@@ -2199,6 +2199,8 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
                 // indicates whether this is a recycling operation
                 let recycling = false;
 
+                let status_i18n_string = 'moving_file';
+
                 // --------------------------------------------------------
                 // Trashing
                 // --------------------------------------------------------
@@ -2209,6 +2211,8 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
                         original_path: $(el_item).attr('data-path'),
                         trashed_ts: Math.round(Date.now() / 1000),
                     };
+
+                    status_i18n_string = 'deleting_file';
 
                     // update other clients
                     if(window.socket)
@@ -2241,7 +2245,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
                 // --------------------------------------------------------
                 // update progress window with current item being moved
                 // --------------------------------------------------------
-                progwin?.set_status(i18n('moving') + ' ' + html_encode(path_to_show_on_progwin));
+                progwin?.set_status(i18n(status_i18n_string, path_to_show_on_progwin));
 
                 // execute move
                 let resp = await puter.fs.move({

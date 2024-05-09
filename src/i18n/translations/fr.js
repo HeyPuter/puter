@@ -82,7 +82,7 @@ const fr = {
         log_in: "Se connecter",
         log_out: "Se déconnecter",
         move: "Déplacer",
-        moving: "Déplacement en cours",
+        moving_file: "Déplacement en cours %%",
         my_websites: "Mes sites web",
         name: "Nom",
         name_cannot_be_empty: "Le nom ne peut pas être vide.",
