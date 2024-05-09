@@ -70,6 +70,7 @@ const en = {
         copy: 'Copy',
         copy_link: "Copy Link",
         copying: "Copying",
+        copying_file: "Copying %%",
         cover: 'Cover',
         create_account: "Create Account",
         create_free_account: "Create Free Account",

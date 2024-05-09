@@ -24,7 +24,6 @@ import UIItem from './UI/UIItem.js'
 import UIWindow from './UI/UIWindow.js'
 import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
-import UIWindowCopyProgress from './UI/UIWindowCopyProgress.js';
 import update_username_in_gui from './helpers/update_username_in_gui.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import content_type_to_icon from './helpers/content_type_to_icon.js';
@@ -1273,8 +1272,13 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
         // only show progress window if it takes longer than 2s to copy
         let progwin;
         let progwin_timeout = setTimeout(async () => {
-            progwin = await UIWindowCopyProgress({operation_id: copy_op_id});
-        }, 2000);
+            progwin = await UIWindowProgress({
+                operation_id: copy_op_id,
+                on_cancel: () => {
+                    window.operation_cancelled[copy_op_id] = true;
+                },
+            });
+        }, 0);
 
         const copied_item_paths = []
 
@@ -1282,7 +1286,8 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
             let copy_path = window.clipboard[i].path;
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
-            $(progwin).find('.copy-from').html(html_encode(copy_path));
+            progwin?.set_status(i18n('copying_file', copy_path));
+
             do{
                 if(overwrite)
                     item_with_same_name_already_exists = false;
@@ -1350,14 +1355,16 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
         clearTimeout(progwin_timeout);
 
         let copy_duration = (Date.now() - copy_progress_window_init_ts);
-        if(progwin && copy_duration >= window.copy_progress_hide_delay){
-            $(progwin).close();   
-        }else if(progwin){
-            setTimeout(() => {
+        if (progwin) {
+            if (copy_duration >= window.copy_progress_hide_delay) {
+                progwin.close();
+            } else {
                 setTimeout(() => {
-                    $(progwin).close();   
-                }, Math.abs(window.copy_progress_hide_delay - copy_duration));
-            })
+                    setTimeout(() => {
+                        progwin.close();
+                    }, Math.abs(window.copy_progress_hide_delay - copy_duration));
+                });
+            }
         }
     })();
 }
@@ -1377,7 +1384,12 @@ window.copy_items = function(el_items, dest_path){
         // only show progress window if it takes longer than 2s to copy
         let progwin;
         let progwin_timeout = setTimeout(async () => {
-            progwin = await UIWindowCopyProgress({operation_id: copy_op_id});
+            progwin = await UIWindowProgress({
+                operation_id: copy_op_id,
+                on_cancel: () => {
+                    window.operation_cancelled[copy_op_id] = true;
+                },
+            });
         }, 2000);
 
         const copied_item_paths = []
@@ -1386,7 +1398,7 @@ window.copy_items = function(el_items, dest_path){
             let copy_path = $(el_items[i]).attr('data-path');
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
-            $(progwin).find('.copy-from').html(html_encode(copy_path));
+            progwin?.set_status(i18n('copying_file', copy_path));
 
             do{
                 if(overwrite)
@@ -1455,14 +1467,16 @@ window.copy_items = function(el_items, dest_path){
         clearTimeout(progwin_timeout);
 
         let copy_duration = (Date.now() - copy_progress_window_init_ts);
-        if(progwin && copy_duration >= window.copy_progress_hide_delay){
-            $(progwin).close();   
-        }else if(progwin){
-            setTimeout(() => {
+        if (progwin) {
+            if (copy_duration >= window.copy_progress_hide_delay) {
+                progwin.close();
+            } else {
                 setTimeout(() => {
-                    $(progwin).close();   
-                }, Math.abs(window.copy_progress_hide_delay - copy_duration));
-            })
+                    setTimeout(() => {
+                        progwin.close();
+                    }, Math.abs(window.copy_progress_hide_delay - copy_duration));
+                });
+            }
         }
     })()
 }
