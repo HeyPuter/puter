@@ -26,7 +26,6 @@ import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowCopyProgress from './UI/UIWindowCopyProgress.js';
 import UIWindowMoveProgress from './UI/UIWindowMoveProgress.js';
-import UIWindowNewFolderProgress from './UI/UIWindowNewFolderProgress.js';
 import UIWindowProgressEmptyTrash from './UI/UIWindowProgressEmptyTrash.js';
 import update_username_in_gui from './helpers/update_username_in_gui.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
@@ -1166,7 +1165,14 @@ window.create_folder = async(basedir, appendto_element)=>{
 
     // only show progress window if it takes longer than 500ms to create folder
     let progwin_timeout = setTimeout(async () => {
-        progwin = await UIWindowNewFolderProgress({operation_id: newfolder_op_id});
+        progwin = await UIWindowProgress({
+            operation_id: newfolder_op_id,
+            // TODO: Implement cancellation.
+            // on_cancel: () => {
+            //     window.operation_cancelled[newfolder_op_id] = true;
+            // },
+        });
+        progwin.set_status(i18n('taking_longer_than_usual'));
     }, 500);
 
     // create folder
@@ -1190,14 +1196,16 @@ window.create_folder = async(basedir, appendto_element)=>{
 
                 // done
                 let newfolder_duration = (Date.now() - newfolder_progress_window_init_ts);
-                if( progwin && newfolder_duration >= window.copy_progress_hide_delay){
-                    $(progwin).close();   
-                }else if(progwin){
-                    setTimeout(() => {
+                if (progwin) {
+                    if (newfolder_duration >= window.copy_progress_hide_delay) {
+                        progwin.close();
+                    } else {
                         setTimeout(() => {
-                            $(progwin).close();   
-                        }, Math.abs(window.copy_progress_hide_delay - newfolder_duration));
-                    })
+                            setTimeout(() => {
+                                progwin.close();
+                            }, Math.abs(window.copy_progress_hide_delay - newfolder_duration));
+                        });
+                    }
                 }
             }
         });
