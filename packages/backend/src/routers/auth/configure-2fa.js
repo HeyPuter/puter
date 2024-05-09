@@ -1,5 +1,6 @@
 const APIError = require("../../api/APIError");
 const eggspress = require("../../api/eggspress");
+const { get_user } = require("../../helpers");
 const { UserActorType } = require("../../services/auth/Actor");
 const { DB_WRITE } = require("../../services/database/consts");
 const { Context } = require("../../util/context");
@@ -25,6 +26,12 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
     const db = await x.get('services').get('database').get(DB_WRITE, '2fa');
 
     actions.setup = async () => {
+        const user = await get_user({ id: req.user.id, force: true });
+
+        if ( user.otp_enabled ) {
+            throw APIError.create('2fa_already_enabled');
+        }
+
         const svc_otp = x.get('services').get('otp');
 
         // generate secret
@@ -56,6 +63,8 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
         );
         req.user.otp_secret = result.secret;
         req.user.otp_recovery_codes = hashed_recovery_codes.join(',');
+        user.otp_secret = result.secret;
+        user.otp_recovery_codes = hashed_recovery_codes.join(',');
 
         return result;
     };
@@ -75,6 +84,12 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
         const svc_edgeRateLimit = req.services.get('edge-rate-limit');
         if ( ! svc_edgeRateLimit.check('enable-2fa') ) {
             return res.status(429).send('Too many requests.');
+        }
+
+        const user = await get_user({ id: req.user.id, force: true });
+
+        if ( user.otp_enabled ) {
+            throw APIError.create('2fa_already_enabled');
         }
 
         await db.write(

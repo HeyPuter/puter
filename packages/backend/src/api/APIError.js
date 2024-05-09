@@ -335,6 +335,10 @@ module.exports = class APIError {
             status: 400,
             message: ({ action }) => `Invalid action: ${quot(action)}.`,
         },
+        '2fa_already_enabled': {
+            status: 409,
+            message: '2FA is already enabled.',
+        },
 
         // Object Mapping
         'field_not_allowed_for_create': {
