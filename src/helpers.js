@@ -27,13 +27,13 @@ import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowCopyProgress from './UI/UIWindowCopyProgress.js';
 import UIWindowMoveProgress from './UI/UIWindowMoveProgress.js';
 import UIWindowNewFolderProgress from './UI/UIWindowNewFolderProgress.js';
-import UIWindowUploadProgress from './UI/UIWindowUploadProgress.js';
 import UIWindowProgressEmptyTrash from './UI/UIWindowProgressEmptyTrash.js';
 import update_username_in_gui from './helpers/update_username_in_gui.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import content_type_to_icon from './helpers/content_type_to_icon.js';
 import UIWindowDownloadDirProg from './UI/UIWindowDownloadDirProg.js';
 import { PROCESS_RUNNING, PortalProcess, PseudoProcess } from "./definitions.js";
+import UIWindowProgress from './UI/UIWindowProgress.js';
 
 window.is_auth = ()=>{
     if(localStorage.getItem("auth_token") === null || window.auth_token === null)
@@ -2685,25 +2685,28 @@ window.upload_items = async function(items, dest_path){
             init: async(operation_id, xhr)=>{
                 opid = operation_id;
                 // create upload progress window
-                upload_progress_window = await UIWindowUploadProgress({operation_id: operation_id});
-                // cancel btn
-                $(upload_progress_window).find('.upload-cancel-btn').on('click', function(e){
-                    $(upload_progress_window).close();
-                    window.show_save_account_notice_if_needed();
-                    xhr.abort();
-                })
+                upload_progress_window = await UIWindowProgress({
+                    title: i18n('upload'),
+                    icon: window.icons[`app-icon-uploader.svg`],
+                    operation_id: operation_id,
+                    show_progress: true,
+                    on_cancel: () => {
+                        window.show_save_account_notice_if_needed();
+                        xhr.abort();
+                    },
+                });
                 // add to active_uploads
                 window.active_uploads[opid] = 0;
             },
             // start
             start: async function(){
                 // change upload progress window message to uploading
-                $(upload_progress_window).find('.upload-progress-msg').html(`Uploading (<span class="upload-progress-percent">0%</span>)`);
+                upload_progress_window.set_status('Uploading');
+                upload_progress_window.set_progress(0);
             },
             // progress
             progress: async function(operation_id, op_progress){
-                $(`[data-upload-operation-id="${operation_id}"]`).find('.upload-progress-bar').css( 'width', op_progress+'%');
-                $(`[data-upload-operation-id="${operation_id}"]`).find('.upload-progress-percent').html(op_progress+'%');
+                upload_progress_window.set_progress(op_progress);
                 // update active_uploads
                 window.active_uploads[opid] = op_progress;
                 // update title if window is not visible
@@ -2731,7 +2734,7 @@ window.upload_items = async function(items, dest_path){
                 // close progress window after a bit of delay for a better UX
                 setTimeout(() => {
                     setTimeout(() => {
-                        $(upload_progress_window).close();
+                        upload_progress_window.close();
                         window.show_save_account_notice_if_needed();
                     }, Math.abs(window.upload_progress_hide_delay));
                 })
@@ -2740,7 +2743,8 @@ window.upload_items = async function(items, dest_path){
             },
             // error
             error: async function(err){
-                $(upload_progress_window).close();  
+                // TODO: Display error in progress dialog
+                upload_progress_window.close();
                 // UIAlert(err?.message ?? 'An error occurred while uploading.');
                 // remove from active_uploads
                 delete window.active_uploads[opid];
