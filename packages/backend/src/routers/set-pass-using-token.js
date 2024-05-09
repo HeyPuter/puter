@@ -68,7 +68,7 @@ router.post('/set-pass-using-token', express.json(), async (req, res, next)=>{
 
     try{
         const info = await db.write(
-            'UPDATE user SET password=?, pass_recovery_token=NULL WHERE `uuid` = ? AND pass_recovery_token = ?',
+            'UPDATE user SET password=?, pass_recovery_token=NULL, change_email_confirm_token=NULL WHERE `uuid` = ? AND pass_recovery_token = ?',
             [await bcrypt.hash(req.body.password, 8), user_uid, token],
         );
 
