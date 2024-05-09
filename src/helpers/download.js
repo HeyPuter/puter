@@ -109,9 +109,6 @@ const download = function(options){
             let batch_progress = ((batch_download_progress[0].cloud_uploaded + batch_download_progress[0].downloaded)/batch_download_progress[0].total * 100).toFixed(0);
             batch_progress = batch_progress > 100 ? 100 : batch_progress;
 
-            // Update the progress bar
-            $(`[data-download-operation-id="${options.operation_id}"]`).find('.download-progress-bar').css( 'width', batch_progress+'%');
-
             // If download is finished resolve promise
             if((item_progress >= 1 || item_progress === 0) && item){
                 // For a better UX, resolve 0.5 second after operation is finished.
