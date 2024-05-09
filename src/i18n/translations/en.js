@@ -65,6 +65,7 @@ const en = {
         confirm_delete_user_title: "Delete Account?",
         confirm_session_revoke: "Are you sure you want to revoke this session?",
         contact_us: "Contact Us",
+        contact_us_verification_required: "You must have a verified email address to to use this.",
         contain: 'Contain',
         continue: "Continue",
         copy: 'Copy',
