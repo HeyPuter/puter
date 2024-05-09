@@ -2625,16 +2625,6 @@ fieldset[name=number-code] {
     margin: 20px 0;
 }
 
-.qr-code-checkbox {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-}
-
-.qr-code-checkbox input[type=checkbox] {
-    margin: 0;
-}
-
 .perm-title {
     text-align: center;
     margin-top: 0;
