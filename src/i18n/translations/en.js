@@ -114,6 +114,7 @@ const en = {
         enlarged_qr_code: "Enlarged QR Code",
         enter_password_to_confirm_delete_user: "Enter your password to confirm account deletion",
         error_unknown_cause: "An unknown error occurred.",
+        error_uploading_files: "Failed to upload files",
         feedback: "Feedback",
         feedback_c2a: "Please use the form below to send us your feedback, comments, and bug reports.",
         feedback_sent_confirmation: "Thank you for contacting us. If you have an email associated with your account, you will hear back from us as soon as possible.",
