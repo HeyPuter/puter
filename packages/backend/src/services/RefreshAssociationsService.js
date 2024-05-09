@@ -20,7 +20,7 @@ const { Context } = require("../util/context");
 const BaseService = require("./BaseService");
 
 class RefreshAssociationsService extends BaseService {
-    async ['__on_boot.services-initialized'] () {
+    async ['__on_boot.consolidation'] () {
         const { refresh_associations_cache } = require('../helpers');
 
         await Context.allow_fallback(async () => {
