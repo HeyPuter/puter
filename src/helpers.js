@@ -27,6 +27,7 @@ import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import update_username_in_gui from './helpers/update_username_in_gui.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import content_type_to_icon from './helpers/content_type_to_icon.js';
+import truncate_filename from './helpers/truncate_filename.js';
 import { PROCESS_RUNNING, PortalProcess, PseudoProcess } from "./definitions.js";
 import UIWindowProgress from './UI/UIWindowProgress.js';
 
@@ -112,34 +113,6 @@ window.is_email = (email) => {
     const re = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
     return re.test(String(email).toLowerCase());
 }
-
-/**
- * A function that truncates a file name if it exceeds a certain length, while preserving the file extension. 
- * An ellipsis character '…' is added to indicate the truncation. If the original filename is short enough, 
- * it is returned unchanged.
- *
- * @param {string} input - The original filename to be potentially truncated.
- * @param {number} max_length - The maximum length for the filename. If the original filename (excluding the extension) exceeds this length, it will be truncated.
- *
- * @returns {string} The truncated filename with preserved extension if original filename is too long; otherwise, the original filename.
- *
- * @example
- *
- * let truncatedFilename = window.truncate_filename('really_long_filename.txt', 10); 
- * // truncatedFilename would be something like 'really_lo…me.txt'
- *
- */
-window.truncate_filename = (input, max_length)=>{
-    const extname = path.extname('/' + input);
-
-    if ((input.length - 15)  > max_length){
-        if(extname !== '')
-            return input.substring(0, max_length) + '…' + input.slice(-1 * (extname.length + 2));
-        else
-            return input.substring(0, max_length) + '…';
-    }
-    return input;
-};
 
 /**
  * A function that scrolls the parent element so that the child element is in view. 
@@ -3146,7 +3119,7 @@ window.rename_file = async(options, new_name, old_name, old_path, el_item, el_it
             }
 
             // Set new item name
-            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name`).html(html_encode(window.truncate_filename(new_name, window.TRUNCATE_LENGTH)).replaceAll(' ', '&nbsp;'));
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name`).html(html_encode(truncate_filename(new_name)).replaceAll(' ', '&nbsp;'));
             $(el_item_name).show();
 
             // Hide item name editor
@@ -3213,7 +3186,7 @@ window.rename_file = async(options, new_name, old_name, old_path, el_item, el_it
         },
         error: function (err){
             // reset to old name
-            $(el_item_name).text(window.truncate_filename(options.name, window.TRUNCATE_LENGTH));
+            $(el_item_name).text(truncate_filename(options.name));
             $(el_item_name).show();
 
             // hide item name editor
@@ -3423,7 +3396,7 @@ window.get_html_element_from_options = async function(options){
         h += `</div>`;
 
         // name
-        h += `<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${html_encode(window.truncate_filename(options.name, window.TRUNCATE_LENGTH)).replaceAll(' ', '&nbsp;')}</span>`
+        h += `<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${html_encode(truncate_filename(options.name)).replaceAll(' ', '&nbsp;')}</span>`
         // name editor
         h += `<textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${html_encode(options.name)}</textarea>`
     h += `</div>`;

@@ -25,6 +25,7 @@ import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequir
 import UIContextMenu from './UIContextMenu.js'
 import UIAlert from './UIAlert.js'
 import path from "../lib/path.js"
+import truncate_filename from '../helpers/truncate_filename.js';
 
 function UIItem(options){
     const matching_appendto_count = $(options.appendTo).length;
@@ -158,7 +159,7 @@ function UIItem(options){
         h += `</div>`;
 
         // name
-        h += `<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${options.is_trash ? i18n('trash') : html_encode(window.truncate_filename(options.name, window.TRUNCATE_LENGTH)).replaceAll(' ', '&nbsp;')}</span>`
+        h += `<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${options.is_trash ? i18n('trash') : html_encode(truncate_filename(options.name)).replaceAll(' ', '&nbsp;')}</span>`
         // name editor
         h += `<textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${html_encode(options.name)}</textarea>`
     h += `</div>`;
@@ -648,7 +649,7 @@ function UIItem(options){
                 UIAlert(`The name ".." is not allowed, because it is a reserved name. Please choose another name.`)
             }
 
-            $(el_item_name).html(window.truncate_filename(options.name, window.TRUNCATE_LENGTH).replaceAll(' ', '&nbsp;'));
+            $(el_item_name).html(truncate_filename(options.name).replaceAll(' ', '&nbsp;'));
             $(el_item_name).show();
             $(el_item_name_editor).val($(el_item).attr('data-name'));
             $(el_item_name_editor).hide();

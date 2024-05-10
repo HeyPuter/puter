@@ -36,6 +36,7 @@ import refresh_item_container from "../helpers/refresh_item_container.js"
 import changeLanguage from "../i18n/i18nChangeLanguage.js"
 import UIWindowSettings from "./Settings/UIWindowSettings.js"
 import UIWindowTaskManager from "./UIWindowTaskManager.js"
+import truncate_filename from '../helpers/truncate_filename.js';
 
 async function UIDesktop(options){
     let h = '';
@@ -150,7 +151,7 @@ async function UIDesktop(options){
 
         // Update matching items
         // set new item name
-        $(`.item[data-uid='${html_encode(item.uid)}'] .item-name`).html(html_encode(window.truncate_filename(item.name, window.TRUNCATE_LENGTH)).replaceAll(' ', '&nbsp;'));
+        $(`.item[data-uid='${html_encode(item.uid)}'] .item-name`).html(html_encode(truncate_filename(item.name)).replaceAll(' ', '&nbsp;'));
 
         // Set new icon
         const new_icon = (item.is_dir ? window.icons['folder.svg'] : (await window.item_icon(item)).image);
@@ -354,7 +355,7 @@ async function UIDesktop(options){
 
         // Update matching items
         // Set new item name
-        $(`.item[data-uid='${html_encode(item.uid)}'] .item-name`).html(html_encode(window.truncate_filename(item.name, window.TRUNCATE_LENGTH)).replaceAll(' ', '&nbsp;'));
+        $(`.item[data-uid='${html_encode(item.uid)}'] .item-name`).html(html_encode(truncate_filename(item.name)).replaceAll(' ', '&nbsp;'));
 
         // Set new icon
         const new_icon = (item.is_dir ? window.icons['folder.svg'] : (await window.item_icon(item)).image);
