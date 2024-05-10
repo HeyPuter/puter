@@ -83,7 +83,7 @@ const it = {
         log_in: "Accedi",
         log_out: 'Disconnettiti',
         move: 'Sposta',
-        moving: "Spostamento in corso",
+        moving_file: "Spostamento in corso %%",
         my_websites: "I miei siti web",
         name: 'Nome',
         name_cannot_be_empty: 'Il nome non può essere vuoto.',

@@ -83,7 +83,7 @@ const hy = {
         log_in: "Մուտք գործել",
         log_out: "Դուրս գալ",
         move: "Տեղափոխել",
-        moving: "Տեղափոխվում է",
+        moving_file: "Տեղափոխվում է %%",
         my_websites: "Իմ կայքերը",
         name: "Անուն",
         name_cannot_be_empty: "Անվան դաշտը չի կառող լինել դատարկ։",

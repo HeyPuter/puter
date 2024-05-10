@@ -83,7 +83,7 @@ const sv = {
         log_in: "Logga in",
         log_out: "Logga ut",
         move: "Flytta",
-        moving: "Flyttar",
+        moving_file: "Flyttar %%",
         my_websites: "Mina webbplatser",
         name: "Namn",
         name_cannot_be_empty: "Namn kan inte vara tomt.",

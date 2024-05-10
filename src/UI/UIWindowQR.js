@@ -88,14 +88,7 @@ async function UIWindowQR(options){
         ]
     });
 
-    // component_qr.attach(placeholder_qr);
     component_flexer.attach(placeholder_qr);
-    // placeholder_qr.replaceWith($(`<h1>test</h1>`).get(0));
-
-    $(el_window).find('.qr-code-checkbox input').on('change', () => {
-        const all_checked = $(el_window).find('.qr-code-checkbox input').toArray().every(el => el.checked);
-        $(el_window).find('.code-confirm-btn').prop('disabled', !all_checked);
-    });
 }
 
 export default UIWindowQR

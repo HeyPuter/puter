@@ -83,7 +83,7 @@ const de = {
         log_in: "Einloggen",
         log_out: 'Ausloggen',
         move: 'Verschieben',
-        moving: "Verschiebe",
+        moving_file: "Verschiebe %%",
         my_websites: "Meine Webseiten",
         name: 'Name',
         name_cannot_be_empty: 'Name kann nicht leer sein.',

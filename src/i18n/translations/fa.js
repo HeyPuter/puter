@@ -84,7 +84,7 @@ const fa = {
         log_in: "ورود",
         log_out: 'خروج',
         move: 'انتقال',
-        moving: "انتقال",
+        moving_file: "انتقال %%",
         my_websites: "وبسایت های من",
         name: 'نام',
         name_cannot_be_empty: 'نام نمی تواند خالی باشد.',

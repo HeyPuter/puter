@@ -2086,6 +2086,7 @@ async function UIWindow(options) {
                             html: i18n('empty_trash'),
                             disabled: false,
                             onClick: async function(){
+                                // TODO: Merge this with window.empty_trash()
                                 const alert_resp = await UIAlert({
                                     message: i18n('empty_trash_confirmation'),
                                     buttons:[

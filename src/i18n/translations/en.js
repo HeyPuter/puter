@@ -71,6 +71,7 @@ const en = {
         copy: 'Copy',
         copy_link: "Copy Link",
         copying: "Copying",
+        copying_file: "Copying %%",
         cover: 'Cover',
         create_account: "Create Account",
         create_free_account: "Create Free Account",
@@ -87,6 +88,7 @@ const en = {
         delete: 'Delete',
         delete_account: "Delete Account",
         delete_permanently: "Delete Permanently",
+        deleting_file: "Deleting %%",
         deploy_as_app: 'Deploy as app',
         descending: 'Descending',
         desktop_background_fit: "Fit",
@@ -113,6 +115,7 @@ const en = {
         enlarged_qr_code: "Enlarged QR Code",
         enter_password_to_confirm_delete_user: "Enter your password to confirm account deletion",
         error_unknown_cause: "An unknown error occurred.",
+        error_uploading_files: "Failed to upload files",
         feedback: "Feedback",
         feedback_c2a: "Please use the form below to send us your feedback, comments, and bug reports.",
         feedback_sent_confirmation: "Thank you for contacting us. If you have an email associated with your account, you will hear back from us as soon as possible.",
@@ -143,7 +146,7 @@ const en = {
         looks_good: "Looks good!",
         manage_sessions: "Manage Sessions",
         move: 'Move',
-        moving: "Moving",
+        moving_file: "Moving %%",
         my_websites: "My Websites",
         name: 'Name',
         name_cannot_be_empty: 'Name cannot be empty.',
@@ -197,6 +200,7 @@ const en = {
         publish_as_website: 'Publish as website',
         puter_description: `Puter is a privacy-first personal cloud to keep all your files, apps, and games in one
         secure place, accessible from anywhere at any time.`,
+        reading_file: "Reading %strong%",
         recent: "Recent",
         recommended: "Recommended",
         recover_password: "Recover Password",
@@ -280,6 +284,7 @@ const en = {
         yes_release_it: 'Yes, Release It',
         you_have_been_referred_to_puter_by_a_friend: "You have been referred to Puter by a friend!",
         zip: "Zip",
+        zipping_file: "Zipping %strong%",
 
         // === 2FA Setup ===
         setup2fa_1_step_heading: 'Open your authenticator app',      

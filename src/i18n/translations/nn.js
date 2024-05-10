@@ -83,7 +83,7 @@ const nn = {
         log_in: "Logg inn",
         log_out: "Logg ut",
         move: "Flytt",
-        moving: "Flyttar",
+        moving_file: "Flyttar %%",
         my_websites: "Mine nettstader",
         name: "Namn",
         name_cannot_be_empty: "Namn kan ikkje vere tomt.",

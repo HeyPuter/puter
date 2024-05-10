@@ -116,7 +116,7 @@ const tr = {
         log_out: "Çıkış Yap",
         manage_sessions: "Oturumları Yönet",
         move: "Taşı",
-        moving: "Taşınıyor",
+        moving_file: "Taşınıyor %%",
         my_websites: "Web Sitelerim",
         name: "Ad",
         name_cannot_be_empty: "Ad boş olamaz.",

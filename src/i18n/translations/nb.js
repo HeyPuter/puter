@@ -92,7 +92,7 @@ const nb = {
         log_into_another_account_anyway: 'Logg inn på en annen bruker uansett',
         log_out: "Logg ut",
         move: "Flytt",
-        moving: "Flytter",
+        moving_file: "Flytter %%",
         my_websites: "Mine nettsteder",
         name: "Navn",
         name_cannot_be_empty: "Navn kan ikke være tomt.",

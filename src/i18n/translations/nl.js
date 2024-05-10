@@ -102,7 +102,7 @@ const nl = {
 		log_into_another_account_anyway: 'Alsnog met ander account inloggen',
 		log_out: 'Uitloggen',
 		move: 'Verplaatsen',
-		moving: "Aan het verplaatsen",
+		moving_file: "Aan het verplaatsen %%",
 		my_websites: "Mijn Websites",
 		name: 'Naam',
 		name_cannot_be_empty: 'Naam kan niet leeg zijn.',

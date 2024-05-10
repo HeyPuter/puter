@@ -33,14 +33,15 @@ export default class Button extends Component {
     create_template ({ template }) {
         if ( this.get('style') === 'link' ) {
             $(template).html(/*html*/`
-                <button type="submit" class="link-button code-confirm-btn" style="margin-top:10px;" disabled>${
+                <button type="submit" class="link-button" style="margin-top:10px;" disabled>${
                     html_encode(this.get('label'))
                 }</button>
             `);
             return;
         }
+        // TODO: Replace hack for 'small' with a better way to configure button classes.
         $(template).html(/*html*/`
-            <button type="submit" class="button button-block button-${this.get('style')} code-confirm-btn" style="margin-top:10px;" disabled>${
+            <button type="submit" class="button ${this.get('style') !== 'small' ? 'button-block' : ''} button-${this.get('style')}" style="margin-top:10px;" disabled>${
                 html_encode(this.get('label'))
             }</button>
         `);

@@ -2625,16 +2625,6 @@ fieldset[name=number-code] {
     margin: 20px 0;
 }
 
-.qr-code-checkbox {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-}
-
-.qr-code-checkbox input[type=checkbox] {
-    margin: 0;
-}
-
 .perm-title {
     text-align: center;
     margin-top: 0;
@@ -2718,17 +2708,19 @@ fieldset[name=number-code] {
     }
 }
 
-.upload-progress-bar-container, .download-progress-bar-container {
+.progress-bar-container {
+    box-sizing: border-box;
     width: 100%;
-    height: 15px;
+    height: 17px;
     border: 1px solid rgb(40 109 157);
+    border-radius: 3px;
     background-color: white;
     box-shadow: inset -1px 3px 4px #dfdfdf;
 }
 
-.upload-progress-bar, .download-progress-bar {
+.progress-bar {
     width: 0;
-    height: 15px;
+    height: 100%;
     background-color: rgb(0 137 255);
     transition: 0.4s width;
     background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.05));

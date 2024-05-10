@@ -24,16 +24,11 @@ import UIItem from './UI/UIItem.js'
 import UIWindow from './UI/UIWindow.js'
 import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
-import UIWindowCopyProgress from './UI/UIWindowCopyProgress.js';
-import UIWindowMoveProgress from './UI/UIWindowMoveProgress.js';
-import UIWindowNewFolderProgress from './UI/UIWindowNewFolderProgress.js';
-import UIWindowUploadProgress from './UI/UIWindowUploadProgress.js';
-import UIWindowProgressEmptyTrash from './UI/UIWindowProgressEmptyTrash.js';
 import update_username_in_gui from './helpers/update_username_in_gui.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import content_type_to_icon from './helpers/content_type_to_icon.js';
-import UIWindowDownloadDirProg from './UI/UIWindowDownloadDirProg.js';
 import { PROCESS_RUNNING, PortalProcess, PseudoProcess } from "./definitions.js";
+import UIWindowProgress from './UI/UIWindowProgress.js';
 
 window.is_auth = ()=>{
     if(localStorage.getItem("auth_token") === null || window.auth_token === null)
@@ -1166,7 +1161,14 @@ window.create_folder = async(basedir, appendto_element)=>{
 
     // only show progress window if it takes longer than 500ms to create folder
     let progwin_timeout = setTimeout(async () => {
-        progwin = await UIWindowNewFolderProgress({operation_id: newfolder_op_id});
+        progwin = await UIWindowProgress({
+            operation_id: newfolder_op_id,
+            // TODO: Implement cancellation.
+            // on_cancel: () => {
+            //     window.operation_cancelled[newfolder_op_id] = true;
+            // },
+        });
+        progwin.set_status(i18n('taking_longer_than_usual'));
     }, 500);
 
     // create folder
@@ -1190,14 +1192,16 @@ window.create_folder = async(basedir, appendto_element)=>{
 
                 // done
                 let newfolder_duration = (Date.now() - newfolder_progress_window_init_ts);
-                if( progwin && newfolder_duration >= window.copy_progress_hide_delay){
-                    $(progwin).close();   
-                }else if(progwin){
-                    setTimeout(() => {
+                if (progwin) {
+                    if (newfolder_duration >= window.copy_progress_hide_delay) {
+                        progwin.close();
+                    } else {
                         setTimeout(() => {
-                            $(progwin).close();   
-                        }, Math.abs(window.copy_progress_hide_delay - newfolder_duration));
-                    })
+                            setTimeout(() => {
+                                progwin.close();
+                            }, Math.abs(window.copy_progress_hide_delay - newfolder_duration));
+                        });
+                    }
                 }
             }
         });
@@ -1267,8 +1271,13 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
         // only show progress window if it takes longer than 2s to copy
         let progwin;
         let progwin_timeout = setTimeout(async () => {
-            progwin = await UIWindowCopyProgress({operation_id: copy_op_id});
-        }, 2000);
+            progwin = await UIWindowProgress({
+                operation_id: copy_op_id,
+                on_cancel: () => {
+                    window.operation_cancelled[copy_op_id] = true;
+                },
+            });
+        }, 0);
 
         const copied_item_paths = []
 
@@ -1276,7 +1285,8 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
             let copy_path = window.clipboard[i].path;
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
-            $(progwin).find('.copy-from').html(html_encode(copy_path));
+            progwin?.set_status(i18n('copying_file', copy_path));
+
             do{
                 if(overwrite)
                     item_with_same_name_already_exists = false;
@@ -1344,14 +1354,16 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
         clearTimeout(progwin_timeout);
 
         let copy_duration = (Date.now() - copy_progress_window_init_ts);
-        if(progwin && copy_duration >= window.copy_progress_hide_delay){
-            $(progwin).close();   
-        }else if(progwin){
-            setTimeout(() => {
+        if (progwin) {
+            if (copy_duration >= window.copy_progress_hide_delay) {
+                progwin.close();
+            } else {
                 setTimeout(() => {
-                    $(progwin).close();   
-                }, Math.abs(window.copy_progress_hide_delay - copy_duration));
-            })
+                    setTimeout(() => {
+                        progwin.close();
+                    }, Math.abs(window.copy_progress_hide_delay - copy_duration));
+                });
+            }
         }
     })();
 }
@@ -1371,7 +1383,12 @@ window.copy_items = function(el_items, dest_path){
         // only show progress window if it takes longer than 2s to copy
         let progwin;
         let progwin_timeout = setTimeout(async () => {
-            progwin = await UIWindowCopyProgress({operation_id: copy_op_id});
+            progwin = await UIWindowProgress({
+                operation_id: copy_op_id,
+                on_cancel: () => {
+                    window.operation_cancelled[copy_op_id] = true;
+                },
+            });
         }, 2000);
 
         const copied_item_paths = []
@@ -1380,7 +1397,7 @@ window.copy_items = function(el_items, dest_path){
             let copy_path = $(el_items[i]).attr('data-path');
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
-            $(progwin).find('.copy-from').html(html_encode(copy_path));
+            progwin?.set_status(i18n('copying_file', copy_path));
 
             do{
                 if(overwrite)
@@ -1449,14 +1466,16 @@ window.copy_items = function(el_items, dest_path){
         clearTimeout(progwin_timeout);
 
         let copy_duration = (Date.now() - copy_progress_window_init_ts);
-        if(progwin && copy_duration >= window.copy_progress_hide_delay){
-            $(progwin).close();   
-        }else if(progwin){
-            setTimeout(() => {
+        if (progwin) {
+            if (copy_duration >= window.copy_progress_hide_delay) {
+                progwin.close();
+            } else {
                 setTimeout(() => {
-                    $(progwin).close();   
-                }, Math.abs(window.copy_progress_hide_delay - copy_duration));
-            })
+                    setTimeout(() => {
+                        progwin.close();
+                    }, Math.abs(window.copy_progress_hide_delay - copy_duration));
+                });
+            }
         }
     })()
 }
@@ -2125,7 +2144,12 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
     // only show progress window if it takes longer than 2s to move
     let progwin;
     let progwin_timeout = setTimeout(async () => {
-        progwin = await UIWindowMoveProgress({operation_id: move_op_id});
+        progwin = await UIWindowProgress({
+            operation_id: move_op_id,
+            on_cancel: () => {
+                window.operation_cancelled[move_op_id] = true;
+            },
+        });
     }, 2000);
 
     // storing moved items for undo ability
@@ -2188,6 +2212,8 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
                 // indicates whether this is a recycling operation
                 let recycling = false;
 
+                let status_i18n_string = 'moving_file';
+
                 // --------------------------------------------------------
                 // Trashing
                 // --------------------------------------------------------
@@ -2198,6 +2224,8 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
                         original_path: $(el_item).attr('data-path'),
                         trashed_ts: Math.round(Date.now() / 1000),
                     };
+
+                    status_i18n_string = 'deleting_file';
 
                     // update other clients
                     if(window.socket)
@@ -2211,7 +2239,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
 
                 // moving an item into a trashed directory? deny.
                 else if(dest_path.startsWith(window.trash_path)){
-                    $(progwin).close();
+                    progwin?.close();
                     UIAlert('Cannot move items into a deleted folder.');
                     return;
                 }
@@ -2230,7 +2258,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
                 // --------------------------------------------------------
                 // update progress window with current item being moved
                 // --------------------------------------------------------
-                $(progwin).find('.move-from').html(html_encode(path_to_show_on_progwin));
+                progwin?.set_status(i18n(status_i18n_string, path_to_show_on_progwin));
 
                 // execute move
                 let resp = await puter.fs.move({
@@ -2437,7 +2465,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
 
     if(progwin){
         setTimeout(() => {
-            $(progwin).close();   
+            progwin.close();
         }, window.copy_progress_hide_delay);
     }
 }
@@ -2685,25 +2713,28 @@ window.upload_items = async function(items, dest_path){
             init: async(operation_id, xhr)=>{
                 opid = operation_id;
                 // create upload progress window
-                upload_progress_window = await UIWindowUploadProgress({operation_id: operation_id});
-                // cancel btn
-                $(upload_progress_window).find('.upload-cancel-btn').on('click', function(e){
-                    $(upload_progress_window).close();
-                    window.show_save_account_notice_if_needed();
-                    xhr.abort();
-                })
+                upload_progress_window = await UIWindowProgress({
+                    title: i18n('upload'),
+                    icon: window.icons[`app-icon-uploader.svg`],
+                    operation_id: operation_id,
+                    show_progress: true,
+                    on_cancel: () => {
+                        window.show_save_account_notice_if_needed();
+                        xhr.abort();
+                    },
+                });
                 // add to active_uploads
                 window.active_uploads[opid] = 0;
             },
             // start
             start: async function(){
                 // change upload progress window message to uploading
-                $(upload_progress_window).find('.upload-progress-msg').html(`Uploading (<span class="upload-progress-percent">0%</span>)`);
+                upload_progress_window.set_status('Uploading');
+                upload_progress_window.set_progress(0);
             },
             // progress
             progress: async function(operation_id, op_progress){
-                $(`[data-upload-operation-id="${operation_id}"]`).find('.upload-progress-bar').css( 'width', op_progress+'%');
-                $(`[data-upload-operation-id="${operation_id}"]`).find('.upload-progress-percent').html(op_progress+'%');
+                upload_progress_window.set_progress(op_progress);
                 // update active_uploads
                 window.active_uploads[opid] = op_progress;
                 // update title if window is not visible
@@ -2731,7 +2762,7 @@ window.upload_items = async function(items, dest_path){
                 // close progress window after a bit of delay for a better UX
                 setTimeout(() => {
                     setTimeout(() => {
-                        $(upload_progress_window).close();
+                        upload_progress_window.close();
                         window.show_save_account_notice_if_needed();
                     }, Math.abs(window.upload_progress_hide_delay));
                 })
@@ -2740,8 +2771,7 @@ window.upload_items = async function(items, dest_path){
             },
             // error
             error: async function(err){
-                $(upload_progress_window).close();  
-                // UIAlert(err?.message ?? 'An error occurred while uploading.');
+                upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
                 // remove from active_uploads
                 delete window.active_uploads[opid];
             },
@@ -2778,7 +2808,8 @@ window.empty_trash = async function(){
     let progwin;
     let op_id = window.uuidv4();
     let progwin_timeout = setTimeout(async () => {
-        progwin = await UIWindowProgressEmptyTrash({operation_id: op_id});
+        progwin = await UIWindowProgress({operation_id: op_id});
+        progwin.set_status(i18n('emptying_trash'));
     }, 500);
 
     await puter.fs.delete({
@@ -2802,13 +2833,13 @@ window.empty_trash = async function(){
             // close progress window
             clearTimeout(progwin_timeout);
             setTimeout(() => {
-                $(progwin).close();   
+                progwin?.close();
             }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - init_ts)));
         },
         error: async function (err){
             clearTimeout(progwin_timeout);
             setTimeout(() => {
-                $(progwin).close();   
+                progwin?.close();
             }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - init_ts)));
         }
     });
@@ -2931,14 +2962,14 @@ window.zipItems = async function(el_items, targetDirPath, download = true) {
     let progwin, progwin_timeout;
     // only show progress window if it takes longer than 500ms to download
     progwin_timeout = setTimeout(async () => {
-        progwin = await UIWindowDownloadDirProg();
+        progwin = await UIWindowProgress();
     }, 500);
 
     for (const el_item of el_items) {
         let targetPath = $(el_item).attr('data-path');
         // if directory, zip the directory
         if($(el_item).attr('data-is_dir') === '1'){
-            $(progwin).find('.dir-dl-status').html(`Reading <strong>${html_encode(targetPath)}</strong>`);
+            progwin?.set_status(i18n('reading_file', targetPath));
             // Recursively read the directory
             let children = await readDirectoryRecursive(targetPath);
 
@@ -2951,7 +2982,7 @@ window.zipItems = async function(el_items, targetDirPath, download = true) {
                     relativePath = path.basename(targetPath) + '/' + child.relativePath;
 
                 // update progress window
-                $(progwin).find('.dir-dl-status').html(`Zipping <strong>${html_encode(relativePath)}</strong>`);
+                progwin?.set_status(i18n('zipping_file', relativePath));
                 
                 // read file content
                 let content = await puter.fs.read(child.path);
@@ -3000,17 +3031,18 @@ window.zipItems = async function(el_items, targetDirPath, download = true) {
             // close progress window
             clearTimeout(progwin_timeout);
             setTimeout(() => {
-                $(progwin).close();   
+                progwin?.close();
             }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
         })
         .catch(function (err) {
             // close progress window
             clearTimeout(progwin_timeout);
             setTimeout(() => {
-                $(progwin).close();   
+                progwin?.close();
             }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
 
             // handle errors
+            // TODO: Display in progress dialog
             console.error("Error in zipping files: ", err);
         });
 }
@@ -3053,7 +3085,7 @@ window.unzipItem = async function(itemPath) {
     let progwin, progwin_timeout;
     // only show progress window if it takes longer than 500ms to download
     progwin_timeout = setTimeout(async () => {
-        progwin = await UIWindowDownloadDirProg();
+        progwin = await UIWindowProgress();
     }, 500);
 
     const zip = new JSZip();
@@ -3075,7 +3107,7 @@ window.unzipItem = async function(itemPath) {
         // close progress window
         clearTimeout(progwin_timeout);
         setTimeout(() => {
-            $(progwin).close();   
+            progwin?.close();
         }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
 
     }).catch(function (e) {
@@ -3083,7 +3115,7 @@ window.unzipItem = async function(itemPath) {
         // close progress window
         clearTimeout(progwin_timeout);
         setTimeout(() => {
-            $(progwin).close();   
+            progwin?.close();
         }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
     })
 }
