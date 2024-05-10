@@ -83,8 +83,28 @@ class TaskManagerTable extends Component {
         this.table.attach(this.dom_.querySelector('.taskmgr-taskarea'));
 
         listen('tasks', tasks => {
-            // TODO: Update DOM instead of replacing the entire table
-            this.table.set('rows', this.#iter_tasks(tasks, { indent_level: 0, is_last_item_stack: [] }));
+            const row_data = this.#iter_tasks(tasks, { indent_level: 0, is_last_item_stack: [] });
+            const new_uuids = row_data.map(it => it.uuid);
+
+            const old_rows = this.table.get('rows');
+
+            const rows = [];
+            for (const data of row_data) {
+                // Try to reuse old row
+                const old_row = old_rows.find(it => data.uuid === it.get('uuid'));
+                if (old_row) {
+                    for (const property in data) {
+                        old_row.set(property, data[property]);
+                    }
+                    rows.push(old_row);
+                    continue;
+                }
+
+                // Create a new row
+                rows.push(new TaskManagerRow(data));
+            }
+
+            this.table.set('rows', rows);
         });
     }
 
@@ -117,13 +137,13 @@ class TaskManagerTable extends Component {
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
             const is_last_item = i === items.length - 1;
-            rows.push(new TaskManagerRow({
+            rows.push({
                 name: item.name,
                 uuid: item.uuid,
                 process_type: item.type,
                 process_status: item.status.i18n_key,
                 indentation: this.#calculate_indent_string(indent_level, is_last_item_stack, is_last_item),
-            }));
+            });
 
             const children = this.#svc_process.get_children_of(item.uuid);
             if (children) {
