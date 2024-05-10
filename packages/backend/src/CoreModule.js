@@ -204,6 +204,9 @@ const install = async ({ services, app }) => {
 
     const { OTPService } = require('./services/auth/OTPService');
     services.registerService('otp', OTPService);
+
+    const { UserProtectedEndpointsService } = require("./services/web/UserProtectedEndpointsService");
+    services.registerService('__user-protected-endpoints', UserProtectedEndpointsService);
 }
 
 const install_legacy = async ({ services }) => {
