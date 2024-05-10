@@ -1,6 +1,9 @@
 import ValueHolder from "./ValueHolder.js";
 
 export class Component extends HTMLElement {
+    #has_created_element = false;
+    #has_called_on_ready = false;
+
     // Render modes
     static NO_SHADOW = Symbol('no-shadow');
 
@@ -86,12 +89,18 @@ export class Component extends HTMLElement {
     }
 
     connectedCallback () {
-        this.on_ready && this.on_ready(this.get_api_());
+        if (!this.#has_called_on_ready) {
+            this.on_ready && this.on_ready(this.get_api_());
+            this.#has_called_on_ready = true;
+        }
     }
 
     attach (destination) {
-        const el = this.create_element_();
-        this.dom_.appendChild(el);
+        if (!this.#has_created_element) {
+            const el = this.create_element_();
+            this.dom_.appendChild(el);
+            this.#has_created_element = true;
+        }
 
         if ( destination instanceof HTMLElement ) {
             destination.appendChild(this);
