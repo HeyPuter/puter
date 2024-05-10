@@ -29,8 +29,6 @@ window.app_instance_ids = new Set();
 window.download_progress = [];
 window.download_item_global_id = 0;
 
-window.TRUNCATE_LENGTH = 20;
-
 // This is the minimum width of the window for the sidebar to be shown
 window.window_width_threshold_for_sidebar = 500;
 
