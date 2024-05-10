@@ -254,7 +254,6 @@ const ru = {
         yes_release_it: 'Да, освободить.',
         you_have_been_referred_to_puter_by_a_friend: "Вы были приглашены в Puter другом!",
         zip: "Заархивировать",
-        storage_puter_used: "использовано Puter",
     }
 };
 
