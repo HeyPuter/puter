@@ -9,9 +9,6 @@ on:
       - '*.*.*'
     # branches:
     #   - 'release'
-  pull_request:
-    branches:
-      - 'main'
 
 # Defines two custom environment variables for the workflow. These are used
 # for the Container registry domain, and a name for the Docker image that
