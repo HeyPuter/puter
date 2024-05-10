@@ -36,7 +36,7 @@ import UIComponentWindow from "./UIComponentWindow.js";
 
 const UIWindow2FASetup = async function UIWindow2FASetup () {
     // FIRST REQUEST :: Generate the QR code and recovery codes
-    const resp = await fetch(`${api_origin}/auth/configure-2fa/setup`, {
+    const resp = await fetch(`${window.api_origin}/auth/configure-2fa/setup`, {
         method: 'POST',
         headers: {
             Authorization: `Bearer ${puter.authToken}`,
@@ -48,7 +48,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
 
     // SECOND REQUEST :: Verify the code [first wizard screen]
     const check_code_ = async function check_code_ (value) {
-        const resp = await fetch(`${api_origin}/auth/configure-2fa/test`, {
+        const resp = await fetch(`${window.api_origin}/auth/configure-2fa/test`, {
             method: 'POST',
             headers: {
                 Authorization: `Bearer ${puter.authToken}`,
@@ -66,7 +66,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
 
     // FINAL REQUEST :: Enable 2FA [second wizard screen]
     const enable_2fa_ = async function check_code_ (value) {
-        const resp = await fetch(`${api_origin}/auth/configure-2fa/enable`, {
+        const resp = await fetch(`${window.api_origin}/auth/configure-2fa/enable`, {
             method: 'POST',
             headers: {
                 Authorization: `Bearer ${puter.authToken}`,
