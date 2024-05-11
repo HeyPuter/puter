@@ -1,5 +1,6 @@
 const { Context } = require("../../util/context");
 const { asyncSafeSetInterval } = require("../../util/promise");
+const { quot } = require("../../util/strutil");
 
 const { MINUTE, HOUR } = require('../../util/time.js');
 const BaseService = require("../BaseService");
@@ -55,6 +56,10 @@ class EdgeRateLimitService extends BaseService {
                 limit: 10,
                 window: HOUR,
             },
+            ['/user-protected/change-password']: {
+                limit: 10,
+                window: HOUR,
+            },
             ['login-otp']: {
                 limit: 15,
                 window: 30 * MINUTE,
@@ -77,6 +82,9 @@ class EdgeRateLimitService extends BaseService {
     }
 
     check (scope) {
+        if ( ! this.scopes.hasOwnProperty(scope) ) {
+            throw new Error(`unrecognized rate-limit scope: ${quot(scope)}`)
+        }
         const { window, limit } = this.scopes[scope];
 
         const requester = Context.get('requester');
