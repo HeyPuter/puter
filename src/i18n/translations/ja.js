@@ -142,7 +142,7 @@ const ja = {
         looks_good: "ヨシ！",
         manage_sessions: "セッションの管理",
         move: '移動',
-        moving: "移動中",
+        moving_file: "%% を移動しています",
         my_websites: "マイWebサイト",
         name: '名前',
         name_cannot_be_empty: '名前欄は必須です',
