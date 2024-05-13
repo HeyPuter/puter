@@ -152,17 +152,7 @@ class Kernel extends AdvancedBase {
         const { services } = this;
 
         await services.ready;
-        {
-            const app = services.get('web-server').app;
-            app.use(async (req, res, next) => {
-                req.services = services;
-                next();
-            });
-            await services.emit('boot.services-initialized');
-            await services.emit('install.middlewares.context-aware', { app });
-            await services.emit('install.routes', { app });
-            await services.emit('install.routes-gui', { app });
-        }
+        await services.emit('boot.consolidation');
 
         // === END: Initialize Service Registry ===
 
@@ -178,9 +168,8 @@ class Kernel extends AdvancedBase {
             });
         })();
 
-
-        await services.emit('start.webserver');
-        await services.emit('ready.webserver');
+        await services.emit('boot.activation');
+        await services.emit('boot.ready');
     }
 }
 

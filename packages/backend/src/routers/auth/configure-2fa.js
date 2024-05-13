@@ -107,22 +107,6 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
         return {};
     };
 
-    actions.disable = async () => {
-        await db.write(
-            `UPDATE user SET otp_enabled = 0, otp_recovery_codes = '' WHERE uuid = ?`,
-            [user.uuid]
-        );
-        // update cached user
-        req.user.otp_enabled = 0;
-
-        const svc_email = req.services.get('email');
-        await svc_email.send_email({ email: user.email }, 'disabled_2fa', {
-            username: user.username,
-        });
-
-        return { success: true };
-    };
-
     if ( ! actions[action] ) {
         throw APIError.create('invalid_action', null, { action });
     }

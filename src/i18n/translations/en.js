@@ -23,6 +23,7 @@ const en = {
     dictionary: {
         about: "About",
         account: "Account",
+        account_password: "Verify Account Password",
         access_granted_to: "Access Granted To",
         add_existing_account: "Add Existing Account",
         all_fields_required: 'All fields are required.',
@@ -96,6 +97,7 @@ const en = {
         dir_published_as_website: `%strong% has been published to:`,
         disable_2fa: 'Disable 2FA',
         disable_2fa_confirm: "Are you sure you want to disable 2FA?",
+        disable_2fa_instructions: "Enter your password to disable 2FA.",
         disassociate_dir: "Disassociate Directory",
         download: 'Download',
         download_file: 'Download File',

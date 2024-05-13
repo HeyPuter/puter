@@ -42,6 +42,20 @@ class WebServerService extends BaseService {
         morgan: require('morgan'),
     };
 
+    async ['__on_boot.consolidation'] () {
+        const app = this.app;
+        const services = this.services;
+        await services.emit('install.middlewares.context-aware', { app });
+        await services.emit('install.routes', { app });
+        await services.emit('install.routes-gui', { app });
+    }
+
+    async ['__on_boot.activation'] () {
+        const services = this.services;
+        await services.emit('start.webserver');
+        await services.emit('ready.webserver');
+    }
+
     async ['__on_start.webserver'] () {
         await es_import_promise;
 

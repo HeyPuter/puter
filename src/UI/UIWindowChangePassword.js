@@ -114,7 +114,7 @@ async function UIWindowChangePassword(options){
         $(el_window).find('.form-error-msg').hide();
 
         $.ajax({
-            url: window.api_origin + "/passwd",
+            url: window.api_origin + "/user-protected/change-password",
             type: 'POST',
             async: true,
             headers: {
@@ -122,7 +122,7 @@ async function UIWindowChangePassword(options){
             },
             contentType: "application/json",
             data: JSON.stringify({ 
-                old_pass: current_password, 
+                password: current_password, 
                 new_pass: new_password,
             }),				
             success: function (data){

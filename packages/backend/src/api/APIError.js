@@ -340,6 +340,28 @@ module.exports = class APIError {
             message: '2FA is already enabled.',
         },
 
+        // protected endpoints
+        'too_many_requests': {
+            status: 429,
+            message: 'Too many requests.',
+        },
+        'user_tokens_only': {
+            status: 403,
+            message: 'This endpoint must be requested with a user session',
+        },
+        'temporary_accounts_not_allowed': {
+            status: 403,
+            message: 'Temporary accounts cannot perform this action',
+        },
+        'password_required': {
+            status: 400,
+            message: 'Password is required.',
+        },
+        'password_mismatch': {
+            status: 403,
+            message: 'Password does not match.',
+        },
+
         // Object Mapping
         'field_not_allowed_for_create': {
             status: 400,
