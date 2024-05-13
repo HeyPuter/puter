@@ -70,6 +70,10 @@ class EdgeRateLimitService extends BaseService {
                 limit: 10,
                 window: HOUR,
             },
+            ['/user-protected/disable-2fa']: {
+                limit: 10,
+                window: HOUR,
+            },
             ['login-otp']: {
                 limit: 15,
                 window: 30 * MINUTE,

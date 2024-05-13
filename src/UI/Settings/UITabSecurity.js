@@ -1,4 +1,10 @@
+import TeePromise from "../../util/TeePromise.js";
+import Button from "../Components/Button.js";
+import Flexer from "../Components/Flexer.js";
+import JustHTML from "../Components/JustHTML.js";
+import PasswordEntry from "../Components/PasswordEntry.js";
 import UIAlert from "../UIAlert.js";
+import UIComponentWindow from "../UIComponentWindow.js";
 import UIWindow2FASetup from "../UIWindow2FASetup.js";
 import UIWindowQR from "../UIWindowQR.js";
 
@@ -64,35 +70,88 @@ export default {
         });
 
         $el_window.find('.disable-2fa').on('click', async function (e) {
-            const confirmation = i18n('disable_2fa_confirm');
-            const alert_resp = await UIAlert({
-                message: confirmation,
-                window_options: {
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    disable_parent_window: true,
-                    parent_center: true,
-                },
-                buttons:[
-                    {
-                        label: i18n('yes'),
-                        value: true,
-                        type: 'primary',
+            let win, password_entry;
+            const password_confirm_promise = new TeePromise();
+            const try_password = async () => {
+                const value = password_entry.get('value');
+                const resp = await fetch(`${window.api_origin}/user-protected/disable-2fa`, {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${puter.authToken}`,
+                        'Content-Type': 'application/json',
                     },
-                    {
-                        label: i18n('cancel'),
-                        value: false,
-                    },
+                    body: JSON.stringify({
+                        password: value,
+                    }),
+                });
+                if ( resp.status !== 200 ) {
+                    /* eslint no-empty: ["error", { "allowEmptyCatch": true }] */
+                    let message; try {
+                        message = (await resp.json()).message;
+                    } catch (e) {}
+                    message = message || i18n('error_unknown_cause');
+                    password_entry.set('error', message);
+                    return;
+                }
+                password_confirm_promise.resolve(true);
+                $(win).close();
+            }
+            const password_confirm = new Flexer({
+                children: [
+                    new JustHTML({
+                        html: /*html*/`
+                            <h3 style="text-align:center; font-weight: 500; font-size: 20px;">${
+                                i18n('disable_2fa_confirm')
+                            }</h3>
+                            <p style="text-align:center; padding: 0 20px;">${
+                                i18n('disable_2fa_instructions')
+                            }</p>
+                        `
+                    }),
+                    new Flexer({
+                        gap: '5pt',
+                        children: [
+                            new PasswordEntry({
+                                _ref: me => password_entry = me,
+                                on_submit: async () => {
+                                    try_password();
+                                }
+                            }),
+                            new Button({
+                                label: i18n('disable_2fa'),
+                                on_click: async () => {
+                                    try_password();
+                                }
+                            }),
+                            new Button({
+                                label: i18n('cancel'),
+                                style: 'secondary',
+                                on_click: async () => {
+                                    password_confirm_promise.resolve(false);
+                                    $(win).close();
+                                }
+                            })
+                        ]
+                    }),
                 ]
-            })
-            if ( ! alert_resp ) return;
-            const resp = await fetch(`${window.api_origin}/auth/configure-2fa/disable`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${puter.authToken}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({}),
             });
+            win = await UIComponentWindow({
+                component: password_confirm,
+                width: 500,
+                backdrop: true,
+                is_resizable: false,
+                body_css: {
+                    width: 'initial',
+                    height: '100%',
+                    'background-color': 'rgb(245 247 249)',
+                    'backdrop-filter': 'blur(3px)',
+                    padding: '20px',
+                },
+            });
+            password_entry.focus();
+
+            const ok = await password_confirm_promise;
+            if ( ! ok ) return;
 
             $el_window.find('.enable-2fa').show();
             $el_window.find('.disable-2fa').hide();

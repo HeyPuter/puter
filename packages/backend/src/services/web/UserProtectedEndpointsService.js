@@ -88,6 +88,10 @@ class UserProtectedEndpointsService extends BaseService {
         Endpoint(
             require('../../routers/user-protected/change-email.js'),
         ).attach(router);
+
+        Endpoint(
+            require('../../routers/user-protected/disable-2fa.js'),
+        ).attach(router);
     }
 }
 
