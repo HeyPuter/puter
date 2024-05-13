@@ -5,6 +5,12 @@ const { quot } = require("../../util/strutil");
 const { MINUTE, HOUR } = require('../../util/time.js');
 const BaseService = require("../BaseService");
 
+/* INCREMENTAL CHANGES
+    The first scopes are of the form 'name-of-endpoint', but later it was
+    decided that they're of the form `/path/to/endpoint`. New scopes should
+    follow the latter form.
+*/
+
 class EdgeRateLimitService extends BaseService {
     _construct () {
         this.scopes = {
@@ -57,6 +63,10 @@ class EdgeRateLimitService extends BaseService {
                 window: HOUR,
             },
             ['/user-protected/change-password']: {
+                limit: 10,
+                window: HOUR,
+            },
+            ['/user-protected/change-email']: {
                 limit: 10,
                 window: HOUR,
             },

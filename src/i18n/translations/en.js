@@ -23,6 +23,7 @@ const en = {
     dictionary: {
         about: "About",
         account: "Account",
+        account_password: "Verify Account Password",
         access_granted_to: "Access Granted To",
         add_existing_account: "Add Existing Account",
         all_fields_required: 'All fields are required.',
