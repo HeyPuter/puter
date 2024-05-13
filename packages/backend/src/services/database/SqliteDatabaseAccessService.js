@@ -42,7 +42,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         this.db = new Database(this.config.path);
 
         // Database upgrade logic
-        const TARGET_VERSION = 6;
+        const TARGET_VERSION = 7;
 
         if ( do_setup ) {
             this.log.noticeme(`SETUP: creating database at ${this.config.path}`);
@@ -55,6 +55,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 '0006_update-apps.sql',
                 '0007_sessions.sql',
                 '0008_otp.sql',
+                '0009_app-prefix-fix',
             ].map(p => path_.join(__dirname, 'sqlite_setup', p));
             const fs = require('fs');
             for ( const filename of sql_files ) {
@@ -93,6 +94,10 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
         if ( user_version <= 5 ) {
             upgrade_files.push('0008_otp.sql');
+        }
+
+        if ( user_version <= 6 ) {
+            upgrade_files.push('0009_app-prefix-fix.sql');
         }
 
         if ( upgrade_files.length > 0 ) {
