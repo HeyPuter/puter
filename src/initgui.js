@@ -1981,6 +1981,8 @@ window.initgui = async function(){
 
         // logout
         try{
+            const resp = await fetch(`${window.gui_origin}/get-anticsrf-token`);
+            const { token } = await resp.json();
             await $.ajax({
                 url: window.gui_origin + "/logout",
                 type: 'POST',
@@ -1989,6 +1991,7 @@ window.initgui = async function(){
                 headers: {
                     "Authorization": "Bearer " + window.auth_token
                 },
+                data: JSON.stringify({ anti_csrf: token }),
                 statusCode: {
                     401: function () {
                     },
