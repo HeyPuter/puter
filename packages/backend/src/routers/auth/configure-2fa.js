@@ -88,8 +88,14 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
 
         const user = await get_user({ id: req.user.id, force: true });
 
+        // Verify that 2FA isn't already enabled
         if ( user.otp_enabled ) {
             throw APIError.create('2fa_already_enabled');
+        }
+
+        // Verify that TOTP secret was set (configuration step not skipped)
+        if ( ! user.otp_secret ) {
+            throw APIError.create('2fa_not_configured');
         }
 
         await db.write(

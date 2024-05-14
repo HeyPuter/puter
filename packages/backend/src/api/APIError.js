@@ -339,6 +339,10 @@ module.exports = class APIError {
             status: 409,
             message: '2FA is already enabled.',
         },
+        '2fa_not_configured': {
+            status: 409,
+            message: '2FA is not configured.',
+        },
 
         // protected endpoints
         'too_many_requests': {
