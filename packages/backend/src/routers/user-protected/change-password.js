@@ -80,6 +80,14 @@ module.exports = {
         const svc_email = req.services.get('email');
         svc_email.send_email({ email: req.user.email }, 'password_change_notification');
 
+        // Kick out all other sessions
+        const svc_auth = req.services.get('auth');
+        const sessions = await svc_auth.list_sessions(req.actor);
+        for ( const session of sessions ) {
+            if ( session.current ) continue;
+            await svc_auth.revoke_session(req.actor, session.uuid);
+        }
+
         return res.send('Password successfully updated.')
     }
 };

@@ -365,11 +365,14 @@ class AuthService extends BaseService {
                 mysql: () => session.meta,
                 otherwise: () => JSON.parse(session.meta ?? "{}")
             })();
+            sessions.push(session);
+        };
+
+        for ( const session of sessions ) {
             if ( session.uuid === actor.type.session ) {
                 session.current = true;
             }
-            sessions.push(session);
-        };
+        }
 
         return sessions;
     }
