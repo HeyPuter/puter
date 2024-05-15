@@ -19,7 +19,7 @@
 const { Context } = require("../../util/context");
 const { ParallelTasks } = require("../../util/otelutil");
 const { LLFilesystemOperation } = require("./definitions");
-const { APIError } = require("../../api/APIError");
+const APIError = require("../../api/APIError");
 
 class LLRmNode extends LLFilesystemOperation {
     async _run () {
