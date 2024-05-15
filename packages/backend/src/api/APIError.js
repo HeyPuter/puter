@@ -319,6 +319,10 @@ module.exports = class APIError {
             status: 401,
             message: 'This authentication token is not supported here.',
         },
+        'token_expired': {
+            status: 401,
+            message: 'Authentication token has expired.',
+        },
         'account_suspended': {
             status: 403,
             message: 'Account suspended.',

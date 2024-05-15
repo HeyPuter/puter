@@ -26,11 +26,31 @@ class Container {
         this.instances_ = {};
         this.ready = new TeePromise();
     }
+    /**
+     * registerService registers a service with the servuces container.
+     * 
+     * @param {String} name - the name of the service
+     * @param {BaseService.constructor} cls - an implementation of BaseService
+     * @param {Array} args - arguments to pass to the service constructor
+     */
     registerService (name, cls, args) {
         const my_config = config.services?.[name] || {};
         this.instances_[name] = cls.getInstance
             ? cls.getInstance({ services: this, config, my_config, name, args })
             : new cls({ services: this, config, my_config, name, args }) ;
+    }
+    /**
+     * patchService allows overriding methods on a service that is already
+     * constructed and initialized.
+     * 
+     * @param {String} name - the name of the service to patch
+     * @param {ServicePatch.constructor} patch - the patch
+     * @param {Array} args - arguments to pass to the patch
+     */
+    patchService (name, patch, args) {
+        const original_service = this.instances_[name];
+        const patch_instance = new patch();
+        patch_instance.patch({ original_service, args });
     }
     set (name, instance) { this.instances_[name] = instance; }
     get (name, opts) {
