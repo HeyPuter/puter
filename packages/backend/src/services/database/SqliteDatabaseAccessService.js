@@ -55,7 +55,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 '0006_update-apps.sql',
                 '0007_sessions.sql',
                 '0008_otp.sql',
-                '0009_app-prefix-fix',
+                '0009_app-prefix-fix.sql',
             ].map(p => path_.join(__dirname, 'sqlite_setup', p));
             const fs = require('fs');
             for ( const filename of sql_files ) {
