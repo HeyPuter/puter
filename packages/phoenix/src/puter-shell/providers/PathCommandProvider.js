@@ -83,7 +83,6 @@ function spawn_process(ctx, executablePath) {
     // Repeatedly copy data from stdin to the child, while it's running.
     let data, done;
     const next_data = async () => {
-        // FIXME: This waits for one more read() after we finish.
         ({ value: data, done } = await Promise.race([
             exit_promise, sigint_promise, ctx.externs.in_.read(),
         ]));
@@ -135,7 +134,6 @@ function spawn_pty(ctx, executablePath) {
     // Repeatedly copy data from stdin to the child, while it's running.
     let data, done;
     const next_data = async () => {
-        // FIXME: This waits for one more read() after we finish.
         ({ value: data, done } = await Promise.race([
             exit_promise, sigint_promise, ctx.externs.in_.read(),
         ]));

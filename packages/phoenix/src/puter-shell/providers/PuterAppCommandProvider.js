@@ -86,7 +86,6 @@ export class PuterAppCommandProvider {
                     // DRY: Initially copied from PathCommandProvider
                     let data, done;
                     const next_data = async () => {
-                        // FIXME: This waits for one more read() after we finish.
                         ({ value: data, done } = await Promise.race([
                             app_close_promise, sigint_promise, ctx.externs.in_.read(),
                         ]));
