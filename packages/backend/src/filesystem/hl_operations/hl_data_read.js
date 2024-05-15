@@ -20,7 +20,7 @@ const { stream_to_buffer } = require("../../util/streamutil");
 const { HLFilesystemOperation } = require("./definitions");
 const { chkperm } = require('../../helpers');
 const { LLRead } = require('../ll_operations/ll_read');
-const { APIError } = require('../../api/APIError');
+const APIError = require('../../api/APIError');
 
 /**
  * HLDataRead reads a stream of objects from a file containing structured data.
