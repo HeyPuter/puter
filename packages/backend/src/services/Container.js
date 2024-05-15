@@ -32,6 +32,11 @@ class Container {
             ? cls.getInstance({ services: this, config, my_config, name, args })
             : new cls({ services: this, config, my_config, name, args }) ;
     }
+    patchService (name, patch, args) {
+        const original_service = this.instances_[name];
+        const patch_instance = new patch();
+        patch_instance.patch({ original_service, args });
+    }
     set (name, instance) { this.instances_[name] = instance; }
     get (name, opts) {
         if ( this.instances_[name] ) {
