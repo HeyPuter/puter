@@ -23,6 +23,7 @@ const BaseService = require("../BaseService");
 const MODE_READ = Symbol('read');
 const MODE_WRITE = Symbol('write');
 
+// TODO: DRY: could use LockService now
 class FSLockService extends BaseService {
     async _construct () {
         this.locks = {};

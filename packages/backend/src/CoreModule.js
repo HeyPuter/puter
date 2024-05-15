@@ -210,6 +210,9 @@ const install = async ({ services, app }) => {
 
     const { AntiCSRFService } = require('./services/auth/AntiCSRFService');
     services.registerService('anti-csrf', AntiCSRFService);
+
+    const { LockService } = require('./services/LockService');
+    services.registerService('lock', LockService);
 }
 
 const install_legacy = async ({ services }) => {
