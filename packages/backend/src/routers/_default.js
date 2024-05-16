@@ -46,7 +46,7 @@ router.all('*', async function(req, res, next) {
     // cloud.js must be accessible globally regardless of subdomain
     // --------------------------------------
     else if (path === '/cloud.js') {
-        return res.sendFile(_path.join(__dirname, '../../puter.js/alpha.js'), function (err) {
+        return res.sendFile(_path.join(__dirname, config.defaultjs_asset_path, 'puter.js/alpha.js'), function (err) {
             if (err && err.statusCode) {
                 return res.status(err.statusCode).send('Error /cloud.js')
             }
@@ -56,14 +56,14 @@ router.all('*', async function(req, res, next) {
     // /puter.js/v1 must be accessible globally regardless of subdomain
     // --------------------------------------
     else if (path === '/puter.js/v1' || path === '/puter.js/v1/') {
-        return res.sendFile(_path.join(__dirname, '../../puter.js/v1.js'), function (err) {
+        return res.sendFile(_path.join(__dirname, config.defaultjs_asset_path, 'puter.js/v1.js'), function (err) {
             if (err && err.statusCode) {
                 return res.status(err.statusCode).send('Error /puter.js')
             }
         });
     }
     else if (path === '/puter.js/v2' || path === '/puter.js/v2/') {
-        return res.sendFile(_path.join(__dirname, '../../puter.js/v2.js'), function (err) {
+        return res.sendFile(_path.join(__dirname, config.defaultjs_asset_path, 'puter.js/v2.js'), function (err) {
             if (err && err.statusCode) {
                 return res.status(err.statusCode).send('Error /puter.js')
             }
@@ -74,14 +74,14 @@ router.all('*', async function(req, res, next) {
     // --------------------------------------
     else if( subdomain === 'js'){
         if (path === '/v1' || path === '/v1/') {
-            return res.sendFile(_path.join(__dirname, '../../puter.js/v1.js'), function (err) {
+            return res.sendFile(_path.join(__dirname, config.defaultjs_asset_path, 'puter.js/v1.js'), function (err) {
                 if (err && err.statusCode) {
                     return res.status(err.statusCode).send('Error /puter.js')
                 }
             });
         }
         if (path === '/v2' || path === '/v2/') {
-            return res.sendFile(_path.join(__dirname, '../../puter.js/v2.js'), function (err) {
+            return res.sendFile(_path.join(__dirname, config.defaultjs_asset_path, 'puter.js/v2.js'), function (err) {
                 if (err && err.statusCode) {
                     return res.status(err.statusCode).send('Error /puter.js')
                 }
@@ -364,7 +364,7 @@ router.all('*', async function(req, res, next) {
             subdomain === 'draw' || subdomain === 'camera' || subdomain === 'recorder' ||
             subdomain === 'dev-center' || subdomain === 'terminal'){
 
-        let root = _path.join(__dirname, '../../apps/', subdomain);
+        let root = _path.join(__dirname, config.defaultjs_asset_path, 'apps', subdomain);
         if ( subdomain === 'docs' ) root += '/dist';
         root = _path.normalize(root);
 

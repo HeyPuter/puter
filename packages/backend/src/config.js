@@ -62,6 +62,8 @@ config.thumb_width = 80;
 config.thumb_height = 80;
 config.app_max_icon_size = 5*1024*1024;
 
+config.defaultjs_asset_path = '../../';
+
 // config.origin = config.protocol + '://' + config.domain;
 // config.api_base_url = config.protocol + '://api.' + config.domain;
 // config.social_card = `${config.origin}/assets/img/screenshot.png`;
