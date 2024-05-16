@@ -178,15 +178,15 @@ const fr = {
             Assurez-vous de les conserver dans un endroit sûr.
         `,
         setup2fa_5_step_heading: 'Confirmer la configuration A2F',
-        setup2fa_5_confirmation_1: 'J'ai enregistré mes codes de récupération dans un emplacement sécurisé',
-        setup2fa_5_confirmation_2: 'Je suis prêt à activer l'A2F',
-        setup2fa_5_button: 'Activer l'A2F',
+        setup2fa_5_confirmation_1: 'J\'ai enregistré mes codes de récupération dans un emplacement sécurisé',
+        setup2fa_5_confirmation_2: 'Je suis prêt à activer l\'A2F',
+        setup2fa_5_button: 'Activer l\'A2F',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Entrez le code A2F',
         login2fa_otp_instructions: 'Saisissez le code à 6 chiffres de votre application Authenticator',
         login2fa_recovery_title: 'Entrez un code de récupération',
-        login2fa_recovery_instructions: 'Entrez l'un de vos codes de récupération pour accéder à votre compte.',
+        login2fa_recovery_instructions: 'Entrez l\'un de vos codes de récupération pour accéder à votre compte.',
         login2fa_use_recovery_code: 'Utiliser un code de récupération',
         login2fa_recovery_back: 'Retour',
         login2fa_recovery_placeholder: 'XXXXXXXX',
