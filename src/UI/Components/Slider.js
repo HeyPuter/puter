@@ -81,9 +81,15 @@ export default class Slider extends Component {
         $(template).html(/*html*/`
             <div class="slider">
                 <label class="slider-label">${html_encode(label)}</label>
-                <input class="slider-input" type="range" min="${min}" max="${max}" value="${value}" step="${step}">
+                <input class="slider-input" type="range">
             </div>
         `);
+
+        // Set attributes here to prevent XSS injection
+        $(template).find('.slider-input').attr('min', min);
+        $(template).find('.slider-input').attr('max', max);
+        $(template).find('.slider-input').attr('value', value);
+        $(template).find('.slider-input').attr('step', step);
     }
 
     on_ready ({ listen }) {
