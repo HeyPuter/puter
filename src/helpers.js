@@ -1542,12 +1542,26 @@ window.trigger_download = (paths)=>{
         });
     }
 
-    urls.forEach(function (e) {                
-        fetch(e.download)                  
-            .then(res => res.blob())                  
-            .then(blob => {                    
-                saveAs(blob, e.filename);                
-            });            
+    urls.forEach(async function (e) {                
+        const anti_csrf = await (async () => {
+            const resp = await fetch(`${window.gui_origin}/get-anticsrf-token`);
+            const { token } = await resp.json();
+            return token;
+        })();
+        fetch(e.download, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + puter.authToken,
+            },
+            body: JSON.stringify({
+                anti_csrf,
+            }),
+        })
+            .then(res => res.blob())
+            .then(blob => {
+                saveAs(blob, e.filename);
+            });
     });
 }
 

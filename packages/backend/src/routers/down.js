@@ -11,7 +11,7 @@ const { HLRead } = require('../filesystem/hl_operations/hl_read.js');
 // -----------------------------------------------------------------------//
 // GET /down
 // -----------------------------------------------------------------------//
-router.get('/down', auth, fs, express.json(), async (req, res, next)=>{
+router.post('/down', auth, fs, express.json(), async (req, res, next)=>{
     // check subdomain
     if(require('../helpers').subdomain(req) !== 'api')
         next();
@@ -19,6 +19,12 @@ router.get('/down', auth, fs, express.json(), async (req, res, next)=>{
     // check if user is verified
     if((config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed)
         return res.status(400).send({code: 'account_is_not_verified', message: 'Account is not verified'});
+
+    // check anti-csrf token
+    const svc_antiCSRF = req.services.get('anti-csrf');
+    if ( ! svc_antiCSRF.consume_token(req.user.uuid, req.body.anti_csrf) ) {
+        return res.status(400).json({ message: 'incorrect anti-CSRF token' });
+    }
 
     // validation
     if(!req.query.path)
