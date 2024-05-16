@@ -89,6 +89,7 @@ class PosixError extends Error {
 
         super(message ?? ErrorMetadata.get(posixCode).description);
         this.posixCode = posixCode;
+        this.code = posixCode.description;
     }
 
     static fromNodeJSError(e) {
