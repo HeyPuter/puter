@@ -1015,6 +1015,9 @@ window.addEventListener('message', async (event) => {
         let target_path;
         let create_missing_ancestors = false;
 
+        console.warn(`The method ${event.data.msg} is deprecated - see docs.puter.com for more information.`);
+        event.data.filename = event.data.filename.replace(/(\.\.\/|\.\.\\)/g, '');
+
         if(event.data.msg === 'saveToPictures')
             target_path = path.join(window.pictures_path, event.data.filename);
         else if(event.data.msg === 'saveToDesktop')
