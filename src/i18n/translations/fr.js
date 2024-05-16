@@ -160,6 +160,36 @@ const fr = {
         yes_release_it: "Oui, le libérer",
         you_have_been_referred_to_puter_by_a_friend: "Vous avez été recommandé à Puter par un ami !",
         zip: "Compresser",
+        zipping_file: "Compression de %strong%",
+
+        // === 2FA Setup ===
+        setup2fa_1_step_heading: 'Ouvrez votre application Authenticator',      
+        setup2fa_1_instructions: `
+            Vous pouvez utiliser n'importe quelle application d'authentification prenant en charge le protocole TOTP (Time-based One-Time Password).
+            Il y a beaucoup de choix, mais si vous n'êtes pas sûr
+            <a target="_blank" href="https://authy.com/download">Authy</a>
+            est un bon choix pour Android et iOS
+        `,
+        setup2fa_2_step_heading: 'Scannez le QR code',
+        setup2fa_3_step_heading: 'Entrez le code à 6 chiffres',
+        setup2fa_4_step_heading: 'Copiez vos codes de récupération',
+        setup2fa_4_instructions: `
+            Ces codes de récupération sont le seul moyen d'accéder à votre compte si vous perdez votre téléphone ou si vous ne pouvez pas utiliser votre application d'authentification.
+            Assurez-vous de les conserver dans un endroit sûr.
+        `,
+        setup2fa_5_step_heading: 'Confirmer la configuration A2F',
+        setup2fa_5_confirmation_1: 'J'ai enregistré mes codes de récupération dans un emplacement sécurisé',
+        setup2fa_5_confirmation_2: 'Je suis prêt à activer l'A2F',
+        setup2fa_5_button: 'Activer l'A2F',
+
+        // === 2FA Login ===
+        login2fa_otp_title: 'Entrez le code A2F',
+        login2fa_otp_instructions: 'Saisissez le code à 6 chiffres de votre application Authenticator',
+        login2fa_recovery_title: 'Entrez un code de récupération',
+        login2fa_recovery_instructions: 'Entrez l'un de vos codes de récupération pour accéder à votre compte.',
+        login2fa_use_recovery_code: 'Utiliser un code de récupération',
+        login2fa_recovery_back: 'Retour',
+        login2fa_recovery_placeholder: 'XXXXXXXX',
     }
 }
 
