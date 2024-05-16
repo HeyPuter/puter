@@ -158,7 +158,7 @@ class WebServerService extends BaseService {
 
         // Socket.io middleware for authentication
         socketio.use(async (socket, next) => {
-            if (socket.handshake.query.auth_token) {
+            if (socket.handshake.auth.auth_token) {
                 try {
                     let auth_res = await jwt_auth(socket);
                     // successful auth
@@ -168,7 +168,7 @@ class WebServerService extends BaseService {
                     socket.join(socket.user.id);
                     next();
                 } catch (e) {
-                    console.log('socket auth err');
+                    console.log('socket auth err', e);
                 }
             }
         });
