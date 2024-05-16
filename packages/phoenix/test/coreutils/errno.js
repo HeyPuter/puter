@@ -100,7 +100,8 @@ export const runErrnoTests = () => {
                     'EADDRINUSE    98 Address already in use\n' +
                     'ECONNRESET   104 Connection reset\n' +
                     'ETIMEDOUT    110 Connection timed out\n' +
-                    'ECONNREFUSED 111 Connection refused\n',
+                    'ECONNREFUSED 111 Connection refused\n' +
+                    'EUNKNOWN      -1 Unknown error\n',
                 expectedStderr: '',
                 expectedFail: false,
             },
