@@ -32,10 +32,6 @@ router.post('/contactUs', auth, express.json(), async (req, res, next)=>{
     if(require('../helpers').subdomain(req) !== 'api')
         next();
 
-    // check if user is verified
-    if(req.user.email_confirmed)
-        return res.status(400).send({code: 'account_is_not_verified', message: 'Account is not verified'});
-
     // message is required
     if(!req.body.message)
         return res.status(400).send({message: 'message is required'})
