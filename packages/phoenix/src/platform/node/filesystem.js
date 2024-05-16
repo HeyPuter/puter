@@ -20,7 +20,7 @@ import fs from 'fs';
 import path_ from 'path';
 
 import modeString from 'fs-mode-to-string';
-import { ErrorCodes, PosixError } from '../PosixError.js';
+import { ErrorCodes, PosixError } from '@heyputer/puter-js-common/src/PosixError.js';
 
 function convertNodeError(e) {
     switch (e.code) {
