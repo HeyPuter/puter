@@ -1,9 +1,9 @@
 /*
  * Copyright (C) 2024  Puter Technologies Inc.
  *
- * This file is part of Phoenix Shell.
+ * This file is part of Puter.
  *
- * Phoenix Shell is free software: you can redistribute it and/or modify
+ * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-export const ErrorCodes = {
+const ErrorCodes = {
     EACCES: Symbol.for('EACCES'),
     EADDRINUSE: Symbol.for('EADDRINUSE'),
     ECONNREFUSED: Symbol.for('ECONNREFUSED'),
@@ -37,7 +37,7 @@ export const ErrorCodes = {
 };
 
 // Codes taken from `errno` on Linux.
-export const ErrorMetadata = new Map([
+const ErrorMetadata = new Map([
     [ErrorCodes.EPERM, { code: 1, description: 'Operation not permitted' }],
     [ErrorCodes.ENOENT, { code: 2, description: 'File or directory not found' }],
     [ErrorCodes.EIO, { code: 5, description: 'IO error' }],
@@ -57,7 +57,7 @@ export const ErrorMetadata = new Map([
     [ErrorCodes.ECONNREFUSED, { code: 111, description: 'Connection refused' }],
 ]);
 
-export const errorFromIntegerCode = (code) => {
+const errorFromIntegerCode = (code) => {
     for (const [errorCode, metadata] of ErrorMetadata) {
         if (metadata.code === code) {
             return errorCode;
@@ -66,7 +66,7 @@ export const errorFromIntegerCode = (code) => {
     return undefined;
 };
 
-export class PosixError extends Error {
+class PosixError extends Error {
     // posixErrorCode can be either a string, or one of the ErrorCodes above.
     // If message is undefined, a default message will be used.
     constructor(posixErrorCode, message) {
@@ -140,4 +140,11 @@ export class PosixError extends Error {
     static TimedOut({ message } = {}) {
         return new PosixError(ErrorCodes.ETIMEDOUT, message);
     }
+}
+
+module.exports = {
+    ErrorCodes,
+    ErrorMetadata,
+    errorFromIntegerCode,
+    PosixError,
 }

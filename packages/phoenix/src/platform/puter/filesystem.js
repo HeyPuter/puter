@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { ErrorCodes, PosixError } from '../PosixError.js';
+import { ErrorCodes, PosixError } from '@heyputer/puter-js-common/src/PosixError.js';
 
 function convertPuterError(e) {
     // Handle Puter SDK errors
