@@ -70,3 +70,15 @@ export const find_repo_root = async (fs, pwd) => {
 
     throw new Error('not a git repository (or any of the parent directories): .git');
 }
+
+/**
+ * Produce a shortened version of the given hash, which is still unique within the repo.
+ * TODO: Ensure that whatever we produce is unique within the repo.
+ *       For now this is just a convenience function, so there's one place to change later.
+ * @param hash
+ * @returns {String} The shortened hash
+ */
+export const shorten_hash = (hash) => {
+    // TODO: Ensure that whatever we produce is unique within the repo
+    return hash.slice(0, 7);
+}
