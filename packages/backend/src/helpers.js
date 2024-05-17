@@ -1770,7 +1770,15 @@ async function suggest_app_for_fsentry(fsentry, options){
     monitor.end();
 
     // return list
-    return suggested_apps;
+    return suggested_apps.filter((suggested_app, pos, self) => {
+        // Remove any null values caused by calling `get_app()` for apps that don't exist.
+        // This happens on self-host because we don't include `code`, among others.
+        if (!suggested_app)
+            return false;
+
+        // Remove any duplicate entries
+        return self.indexOf(suggested_app) === pos;
+    });
 }
 
 function build_item_object(item){
