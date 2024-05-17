@@ -289,7 +289,7 @@ const fr = {
         zipping_file: "Compression de %strong%",
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'Ouvrez votre application d'authentification',      
+        setup2fa_1_step_heading: 'Ouvrez votre application d\'authentification',      
         setup2fa_1_instructions: `
             Vous pouvez utiliser n'importe quelle application d'authentification prenant en charge le protocole TOTP (Time-based One-Time Password).
             Il y a beaucoup de choix, mais si vous n'êtes pas sûr
@@ -300,7 +300,7 @@ const fr = {
         setup2fa_3_step_heading: 'Entrez le code à 6 chiffres',
         setup2fa_4_step_heading: 'Copiez vos codes de récupération',
         setup2fa_4_instructions: `
-            Ces codes de récupération sont le seul moyen d'accéder à votre compte si vous perdez votre téléphone ou si vous ne pouvez pas utiliser votre application d'authentification.
+            Ces codes de récupération sont le seul moyen d'accéder à votre compte si vous perdez votre téléphone ou si vous ne pouvez pas utiliser votre application d\'authentification.
             Assurez-vous de les conserver dans un endroit sûr.
         `,
         setup2fa_5_step_heading: 'Confirmer la configuration de l\'A2F',
