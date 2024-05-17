@@ -122,7 +122,11 @@ const upload = async function(items, dirPath, options = {}){
                 entries[i].filepath = entries[i].name;
                 entries[i].fullPath = entries[i].name;
             }
-        }       
+        }
+        // Anything else is invalid
+        else {
+            return error({ code: 'field_invalid', message: 'upload() items parameter is an invalid type' });
+        }
 
         // Will hold directories and files to be uploaded
         let dirs = [];
