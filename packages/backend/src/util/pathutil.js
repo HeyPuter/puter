@@ -32,16 +32,17 @@ class PathBuilder extends AdvancedBase {
     }
     
     add (fragment, options) {
+        const require = this.require;
+        const node_path = require('path');
+
         options = options || {};
         if ( ! options.allow_traversal ) {
-            fragment = fragment.replace(/(\.\.\/|\.\.\\)/g, '');
+            fragment = node_path.normalize(fragment);
+            fragment = fragment.replace(/(\.+\/|\.+\\)/g, '');
             if ( fragment === '..' ) {
                 fragment = '';
             }
         }
-
-        const require = this.require;
-        const node_path = require('path');
 
         this.path_ = this.path_
             ? node_path.join(this.path_, fragment)
