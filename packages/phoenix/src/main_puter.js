@@ -62,7 +62,6 @@ window.main_shell = async () => {
     if ( config['puter.auth.token'] ) {
         await puterSDK.setAuthToken(config['puter.auth.token']);
     }
-    await puterSDK.setAPIOrigin(config['puter.api_origin']);
 
     const ptt = new XDocumentPTT(terminal);
     await launchPuterShell(new Context({
