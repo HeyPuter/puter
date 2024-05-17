@@ -15,7 +15,7 @@ mkdir -p release/puter-shell
 
 cp -r ./dist/* ./release
 
-cd ../dev-puter-shell
-npx rollup -c rollup.config.js
-cp -r ./dist/* ../phoenix/release/puter-shell
-cd -
+# cd ../dev-puter-shell
+# npx rollup -c rollup.config.js
+# cp -r ./dist/* ../phoenix/release/puter-shell
+# cd -
