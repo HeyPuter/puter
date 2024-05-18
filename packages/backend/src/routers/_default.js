@@ -209,7 +209,7 @@ router.all('*', async function(req, res, next) {
                 const {get_user} = require('../helpers')
 
                 // get user
-                const user = await get_user({uuid: req.query.user_uuid})
+                const user = await get_user({uuid: req.query.user_uuid, force: true})
 
                 // more validation
                 if(user === undefined || user === null || user === false)
@@ -220,6 +220,13 @@ router.all('*', async function(req, res, next) {
                     h += '<p style="text-align:center; color:red;">invalid token.</p>';
                 // mark user as confirmed
                 else{
+                    // If other users have the same unconfirmed email, revoke it
+                    await db.write(
+                        'UPDATE `user` SET `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `unconfirmed_change_email` = ?',
+                        [user.email],
+                    );
+
+                    // update user
                     await db.write(
                         "UPDATE `user` SET `email_confirmed` = 1, `requires_email_confirmation` = 0 WHERE id = ?",
                         [user.id]

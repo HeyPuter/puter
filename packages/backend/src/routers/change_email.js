@@ -53,6 +53,21 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
         throw APIError.create('token_invalid');
     }
 
+    // Scenario: email was confirmed on another account already
+    const rows2 = await db.read(
+        'SELECT `id` FROM `user` WHERE `email` = ?',
+        [rows[0].unconfirmed_change_email]
+    );
+    if ( rows2.length > 0 ) {
+        throw APIError.create('email_already_in_use');
+    }
+
+    // If other users have the same unconfirmed email, revoke it
+    await db.write(
+        'UPDATE `user` SET `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `unconfirmed_change_email` = ?',
+        [rows[0].unconfirmed_change_email]
+    );
+
     const new_email = rows[0].unconfirmed_change_email;
 
     await db.write(
