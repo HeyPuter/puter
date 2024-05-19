@@ -45,8 +45,8 @@ const decorator_registry = {
 };
 
 const GH_LINK = {
-    'terminal': 'https://github.com/HeyPuter/terminal',
-    'phoenix': 'https://github.com/HeyPuter/phoenix',
+    'terminal': 'https://github.com/HeyPuter/puter/tree/main/packages/terminal',
+    'phoenix': 'https://github.com/HeyPuter/puter/tree/main/packages/phoenix',
 };
 
 export const launchPuterShell = async (ctx) => {
