@@ -175,3 +175,40 @@ export const format_commit = (commit, oid, options = {}) => {
         }
     }
 }
+
+/**
+ * Produce a string representation of a tree.
+ * @param oid
+ * @param tree
+ * @param options
+ * @returns {string}
+ */
+export const format_tree = (oid, tree, options = {}) => {
+    let s = '';
+    s += `tree ${oid}\n`;
+    s += '\n';
+    for (const tree_entry of tree) {
+        s += `${tree_entry.path}\n`;
+    }
+    s += '\n';
+    return s;
+}
+
+/**
+ * Produce a string representation of a tag.
+ * Note that this only includes the tag itself, and not the tag's target,
+ * which must be separately retrieved and formatted.
+ * @param tag
+ * @param options
+ * @returns {string}
+ */
+export const format_tag = (tag, options = {}) => {
+    let s = '';
+    s += `tag ${tag.tag}\n`;
+    s += `Tagger: ${format_person(tag.tagger)}\n`;
+    s += `Date:   ${format_date(tag.tagger, options)}\n`;
+    if (tag.message) {
+        s += `\n${tag.message}\n\n`;
+    }
+    return s;
+}
