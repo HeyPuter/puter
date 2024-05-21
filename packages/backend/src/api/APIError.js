@@ -220,6 +220,10 @@ module.exports = class APIError {
             status: 400,
             message: 'Missing fileinfo entry or BLOB for operation.',
         },
+        'invalid_file_metadata': {
+            status: 400,
+            message: 'Invalid file metadata.',
+        },
 
         // Open
         'no_suitable_app': {

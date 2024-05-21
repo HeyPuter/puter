@@ -192,7 +192,11 @@ module.exports = eggspress('/batch', {
             }
 
             if ( fieldname === 'fileinfo' ) {
-                fileinfos.push(JSON.parse(value));
+                const fileinfo = JSON.parse(value);
+                if ( fileinfo.size < 0 ) {
+                    throw APIError.create('invalid_file_metadata');
+                }
+                fileinfos.push(fileinfo);
                 return;
             }
 
