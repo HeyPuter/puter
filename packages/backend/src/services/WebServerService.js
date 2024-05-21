@@ -46,7 +46,10 @@ class WebServerService extends BaseService {
         const app = this.app;
         const services = this.services;
         await services.emit('install.middlewares.context-aware', { app });
-        await services.emit('install.routes', { app });
+        await services.emit('install.routes', {
+            app,
+            router_webhooks: this.router_webhooks,
+        });
         await services.emit('install.routes-gui', { app });
     }
 
@@ -123,7 +126,7 @@ class WebServerService extends BaseService {
         ports_to_try = null; // GC
 
         const url = config.origin;
-        
+
         this.startup_widget = () => {
             const link = `\x1B[34;1m${osclink(url)}\x1B[0m`;
             const lines = [
@@ -319,6 +322,11 @@ class WebServerService extends BaseService {
                 return res.status(400).send('Invalid Host header.');
             }
         })
+
+        // Web hooks need a router that occurs before JSON parse middleware
+        // so that signatures of the raw JSON can be verified
+        this.router_webhooks = express.Router();
+        app.use(this.router_webhooks);
 
         app.use(express.json({limit: '50mb'}));
 

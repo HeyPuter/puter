@@ -51,7 +51,7 @@ class BaseService extends AdvancedBase {
     async __on (id, args) {
         const handler = this.__get_event_handler(id);
 
-        return await handler(id, args);
+        return await handler(id, ...args);
     }
 
     __get_event_handler (id) {
