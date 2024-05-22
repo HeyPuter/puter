@@ -46,6 +46,11 @@ const write = async function (targetPath, data, options = {}) {
     if(!data)
         data = new File([data ?? ''], filename);
 
+    // data should be a File now. If it's not, it's an unsupported type
+    if (!(data instanceof File)) {
+        throw new Error({ code: 'field_invalid', message: 'write() data parameter is an invalid type' });
+    }
+
     // perform upload
     return this.upload(data, parent, options);
 }
