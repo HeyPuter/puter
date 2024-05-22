@@ -16,5 +16,10 @@
     "mocha": "^10.2.0",
     "rollup": "^3.21.4",
     "rollup-plugin-copy": "^3.4.0"
+  },
+  "dependencies": {
+    "@pkgjs/parseargs": "^0.11.0",
+    "buffer": "^6.0.3",
+    "isomorphic-git": "^1.25.10"
   }
 }
