@@ -1201,6 +1201,15 @@ window.addEventListener('message', async (event) => {
     // exit
     //--------------------------------------------------------
     else if(event.data.msg === 'exit'){
-        $(window.window_for_app_instance(event.data.appInstanceID)).close({bypass_iframe_messaging: true});
+        // Ensure status code is a number. Convert any truthy non-numbers to 1.
+        let status_code = event.data.statusCode ?? 0;
+        if (status_code && (typeof status_code !== 'number')) {
+            status_code = 1;
+        }
+
+        $(window.window_for_app_instance(event.data.appInstanceID)).close({
+            bypass_iframe_messaging: true,
+            status_code,
+        });
     }
 });

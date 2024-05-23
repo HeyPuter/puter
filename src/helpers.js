@@ -3511,7 +3511,7 @@ window.report_app_launched = (instance_id, { uses_sdk = true }) => {
 };
 
 // Run any callbacks to say that the app has closed
-window.report_app_closed = (instance_id) => {
+window.report_app_closed = (instance_id, status_code) => {
     const el_window = window.window_for_app_instance(instance_id);
 
     // notify parent app, if we have one, that we're closing
@@ -3521,6 +3521,7 @@ window.report_app_closed = (instance_id) => {
         parent.contentWindow.postMessage({
             msg: 'appClosed',
             appInstanceID: instance_id,
+            statusCode: status_code ?? 0,
         }, '*');
     }
 
@@ -3530,6 +3531,7 @@ window.report_app_closed = (instance_id) => {
         child.contentWindow.postMessage({
             msg: 'appClosed',
             appInstanceID: instance_id,
+            statusCode: status_code ?? 0,
         }, '*');
     });
 
