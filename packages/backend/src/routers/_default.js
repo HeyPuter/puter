@@ -23,7 +23,6 @@ const router = express.Router();
 const _path = require('path');
 const _fs = require('fs');
 const auth = require('../middleware/auth.js');
-const { generate_puter_page_html } = require('../temp/puter_page_loader');
 const { Context } = require('../util/context');
 const { DB_READ } = require('../services/database/consts');
 const { PathBuilder } = require('../util/pathutil.js');
@@ -302,47 +301,14 @@ router.all('*', async function(req, res, next) {
 
             // index.js
             if(path === '/'){
-                const APP_ORIGIN = config.origin;
-                const API_ORIGIN = config.api_base_url;
-                return res.send(generate_puter_page_html({
-                    env: config.env,
-
-                    app_origin: APP_ORIGIN,
-                    api_origin: API_ORIGIN,
-                    use_bundled_gui: config.use_bundled_gui,
-
-                    manifest,
-                    gui_path: config.assets.gui,
-
-                    // page meta
-                    meta: {
-                        title: app_title,
-                        description: description || config.short_description,
-                        short_description: config.short_description,
-                        company: 'Puter Technologies Inc.',
-                        canonical_url: canonical_url,
-                    },
-
-                    // gui parameters
-                    gui_params: {
-                        app_name_regex: config.app_name_regex,
-                        app_name_max_length: config.app_name_max_length,
-                        app_title_max_length: config.app_title_max_length,
-                        subdomain_regex: config.subdomain_regex,
-                        subdomain_max_length: config.subdomain_max_length,
-                        domain: config.domain,
-                        protocol: config.protocol,
-                        env: config.env,
-                        api_base_url: config.api_base_url,
-                        thumb_width: config.thumb_width,
-                        thumb_height: config.thumb_height,
-                        contact_email: config.contact_email,
-                        max_fsentry_name_length: config.max_fsentry_name_length,
-                        require_email_verification_to_publish_website: config.require_email_verification_to_publish_website,
-                        short_description: config.short_description,
-                        long_description: config.long_description,
-                    },
-                }));
+                const svc_puterHomepage = Context.get('services').get('puter-homepage');
+                return svc_puterHomepage.send(res, {
+                    title: app_title,
+                    description: description || config.short_description,
+                    short_description: config.short_description,
+                    company: 'Puter Technologies Inc.',
+                    canonical_url: canonical_url,
+                });
             }
 
             // /dist/...

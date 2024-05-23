@@ -79,6 +79,7 @@ config.puter_hosted_data = {
     const path_ = require('path');
     config.assets = {
         gui: path_.join(__dirname, '../../..'),
+        gui_profile: 'development',
     };
 }
 
