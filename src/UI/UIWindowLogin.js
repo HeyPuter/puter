@@ -199,7 +199,7 @@ async function UIWindowLogin(options){
                                         let error_i18n_key = 'something_went_wrong';
                                         if ( ! value ) return;
                                         try {
-                                            const resp = await fetch(`${window.api_origin}/login/otp`, {
+                                            const resp = await fetch(`${window.gui_origin}/login/otp`, {
                                                 method: 'POST',
                                                 headers: {
                                                     'Content-Type': 'application/json',
