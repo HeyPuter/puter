@@ -10,6 +10,10 @@ class PuterHomepageService extends BaseService {
         fs: require('node:fs'),
     }
 
+    _construct () {
+        this.service_scripts = [];
+    }
+
     async _init () {
         // Load manifest
         const config = this.global_config;
@@ -24,9 +28,12 @@ class PuterHomepageService extends BaseService {
         this.manifest = manifest_data[config.assets.gui_profile];
     }
 
+    register_script (url) {
+        this.service_scripts.push(url);
+    }
+
     async send (res, meta) {
         const config = this.global_config;
-
         return res.send(this.generate_puter_page_html({
             env: config.env,
 
@@ -204,6 +211,11 @@ class PuterHomepageService extends BaseService {
             ((!bundled && manifest?.js_paths)
                 ? manifest.js_paths.map(path => `<script type="module" src="${path}"></script>\n`)
                 : []).join('')
+        }
+        ${
+            this.service_scripts
+                .map(path => `<script type="module" src="${path}"></script>\n`)
+                .join('')
         }
         <!-- Load the GUI script -->
         <script ${ !bundled ? ' type="module"' : ''} src="${(!bundled && manifest?.index) || '/dist/gui.js'}"></script>
