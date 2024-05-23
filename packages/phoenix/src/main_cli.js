@@ -21,6 +21,7 @@ import { launchPuterShell } from './puter-shell/main.js';
 import { NodeStdioPTT } from './pty/NodeStdioPTT.js';
 import { CreateFilesystemProvider } from './platform/node/filesystem.js';
 import { CreateEnvProvider } from './platform/node/env.js';
+import { CreateSystemProvider } from './platform/node/system.js';
 import { parseArgs } from '@pkgjs/parseargs';
 import capcon from 'capture-console';
 import fs from 'fs';
@@ -64,6 +65,7 @@ const ctx = new Context({
         name: 'node',
         filesystem: CreateFilesystemProvider(),
         env: CreateEnvProvider(),
+        system: CreateSystemProvider(),
     }),
 });
 
