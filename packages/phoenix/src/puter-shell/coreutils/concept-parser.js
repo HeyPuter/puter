@@ -1,5 +1,5 @@
-import { GrammarContext, standard_parsers } from '../../../packages/newparser/exports.js';
-import { Parser, UNRECOGNIZED, VALUE } from '../../../packages/newparser/lib.js';
+import { GrammarContext, standard_parsers } from '../../../packages/parsely/exports.js';
+import { Parser, UNRECOGNIZED, VALUE } from '../../../packages/parsely/lib.js';
 
 class NumberParser extends Parser {
     static data = {
