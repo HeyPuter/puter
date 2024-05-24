@@ -213,6 +213,9 @@ const install = async ({ services, app }) => {
 
     const { LockService } = require('./services/LockService');
     services.registerService('lock', LockService);
+
+    const { PuterHomepageService } = require('./services/PuterHomepageService');
+    services.registerService('puter-homepage', PuterHomepageService);
 }
 
 const install_legacy = async ({ services }) => {
