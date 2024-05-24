@@ -1,5 +1,9 @@
-import { INVALID, UNRECOGNIZED, VALUE, adapt_parser, Parser } from '../lib.js';
+import { adapt_parser, INVALID, Parser, UNRECOGNIZED, VALUE } from '../parser.js';
 
+/**
+ * Runs its child parser, and discards its result.
+ * @param parser Child parser
+ */
 export class Discard extends Parser {
     _create (parser) {
         this.parser = adapt_parser(parser);
@@ -19,6 +23,10 @@ export class Discard extends Parser {
     }
 }
 
+/**
+ * Runs its child parsers in order, and returns the first successful result.
+ * @param parsers Child parsers
+ */
 export class FirstMatch extends Parser {
     _create (...parsers) {
         this.parsers = parsers.map(adapt_parser);
@@ -42,14 +50,10 @@ export class FirstMatch extends Parser {
     }
 }
 
-export class None extends Parser {
-    _create () {}
-
-    _parse (stream) {
-        return { status: VALUE, $: 'none', $discard: true };
-    }
-}
-
+/**
+ * Runs its child parser, and then returns its result, or nothing.
+ * @param parser Child parser
+ */
 export class Optional extends Parser {
     _create (parser) {
         this.parser = adapt_parser(parser);
@@ -66,6 +70,12 @@ export class Optional extends Parser {
     }
 }
 
+/**
+ * Parses a repeated sequence of values with separators between them.
+ * @param value_parser Parser for the value
+ * @param separator_parser Parser for the separator
+ * @param trailing Whether to allow a trailing separator
+ */
 export class Repeat extends Parser {
     _create (value_parser, separator_parser, { trailing = false } = {}) {
         this.value_parser = adapt_parser(value_parser);
@@ -114,6 +124,10 @@ export class Repeat extends Parser {
     }
 }
 
+/**
+ * Runs a sequence of child parsers, and returns their result as an array if they all succeed.
+ * @param parsers Child parsers
+ */
 export class Sequence extends Parser {
     _create (...parsers) {
         this.parsers = parsers.map(adapt_parser);

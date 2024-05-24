@@ -1,31 +1,6 @@
-import { adapt_parser, INVALID, Parser, UNRECOGNIZED, VALUE } from './lib.js';
-import { Discard, FirstMatch, None, Optional, Repeat, Sequence } from './parsers/combinators.js';
-import { Literal, StringOf } from './parsers/terminals.js';
-
-class Symbol extends Parser {
-    _create(symbolName) {
-        this.symbolName = symbolName;
-    }
-
-    _parse (stream) {
-        const parser = this.symbol_registry[this.symbolName];
-        if ( ! parser ) {
-            throw new Error(`No symbol defined named '${this.symbolName}'`);
-        }
-        const subStream = stream.fork();
-        const result = parser.parse(subStream);
-        console.log(`Result of parsing symbol('${this.symbolName}'):`, result);
-        if ( result.status === UNRECOGNIZED ) {
-            return UNRECOGNIZED;
-        }
-        if ( result.status === INVALID ) {
-            return { status: INVALID, value: result };
-        }
-        stream.join(subStream);
-        result.$ = this.symbolName;
-        return result;
-    }
-}
+import { adapt_parser, VALUE } from './parser.js';
+import { Discard, FirstMatch, Optional, Repeat, Sequence } from './parsers/combinators.js';
+import { Literal, None, StringOf, Symbol } from './parsers/terminals.js';
 
 class ParserWithAction {
     #parser;
@@ -55,6 +30,12 @@ export class GrammarContext {
         return new GrammarContext({...this.parsers, ...more_parsers});
     }
 
+    /**
+     * Construct a parsing function for the given grammar.
+     * @param grammar An object of symbol-names to a DSL for parsing that symbol.
+     * @param actions An object of symbol-names to a function run to process the symbol after it has been parsed.
+     * @returns {function(*, *, {must_consume_all_input?: boolean}=): *} A function to run the parser. Throws if parsing fails.
+     */
     define_parser (grammar, actions) {
         const symbol_registry = {};
         const api = {};
@@ -81,7 +62,9 @@ export class GrammarContext {
             if (!entry_parser) {
                 throw new Error(`Entry symbol '${entry_symbol}' not found in grammar.`);
             }
-            return entry_parser.parse(stream);
+            const result = entry_parser.parse(stream);
+            // TODO: Ensure all the stream has been consumed
+            return result;
         };
     }
 }
