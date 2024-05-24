@@ -24,6 +24,7 @@ export const JumpLocation = {
     EndOfCycle: Symbol('EndOfCycle'),
     StartOfCycle: Symbol('StartOfCycle'),
     Label: Symbol('Label'),
+    GroupEnd: Symbol('GroupEnd'),
     Quit: Symbol('Quit'),
     QuitSilent: Symbol('QuitSilent'),
 };
@@ -54,34 +55,55 @@ export class Command {
 }
 
 // '{}' - Group other commands
-export class GroupCommand extends Command {
-    constructor(addressRange, subCommands) {
+export class GroupStartCommand extends Command {
+    constructor(addressRange, id) {
         super(addressRange);
-        this.subCommands = subCommands;
+        this.id = id;
     }
 
-    updateMatchState(context) {
-        super.updateMatchState(context);
-        for (const command of this.subCommands) {
-            command.updateMatchState(context);
-        }
-    }
-
-    async run(context) {
-        for (const command of this.subCommands) {
-            const result = await command.runCommand(context);
-            if (result !== JumpLocation.None) {
-                return result;
-            }
+    async runCommand(context) {
+        if (!this.addressRange.matches(context.lineNumber, context.patternSpace)) {
+            context.jumpParameter = this.id;
+            return JumpLocation.GroupEnd;
         }
         return JumpLocation.None;
     }
 
     dump(indent) {
-        return `${makeIndent(indent)}GROUP:\n`
+        return `${makeIndent(indent)}GROUP-START: #${this.id}\n`
+            + this.addressRange.dump(indent+1);
+    }
+}
+export class GroupEndCommand extends Command {
+    constructor(id) {
+        super();
+        this.id = id;
+    }
+
+    async run(context) {
+        return JumpLocation.None;
+    }
+
+    dump(indent) {
+        return `${makeIndent(indent)}GROUP-END: #${this.id}\n`;
+    }
+}
+
+// ':' - Label
+export class LabelCommand extends Command {
+    constructor(label) {
+        super();
+        this.label = label;
+    }
+
+    async run(context) {
+        return JumpLocation.None;
+    }
+
+    dump(indent) {
+        return `${makeIndent(indent)}LABEL:\n`
             + this.addressRange.dump(indent+1)
-            + `${makeIndent(indent+1)}CHILDREN:\n`
-            + this.subCommands.map(command => command.dump(indent+2)).join('');
+            + `${makeIndent(indent+1)}NAME: ${this.label}\n`;
     }
 }
 
@@ -118,6 +140,28 @@ export class AppendTextCommand extends Command {
         return `${makeIndent(indent)}APPEND-TEXT:\n`
             + this.addressRange.dump(indent+1)
             + `${makeIndent(indent+1)}CONTENTS: '${this.text}'\n`;
+    }
+}
+
+// 'b' - Branch to label
+export class BranchCommand extends Command {
+    constructor(addressRange, label) {
+        super(addressRange);
+        this.label = label;
+    }
+
+    async run(context) {
+        if (this.label) {
+            context.jumpParameter = this.label;
+            return JumpLocation.Label;
+        }
+        return JumpLocation.EndOfCycle;
+    }
+
+    dump(indent) {
+        return `${makeIndent(indent)}BRANCH:\n`
+            + this.addressRange.dump(indent+1)
+            + `${makeIndent(indent+1)}LABEL: ${this.label ? `'${this.label}'` : 'END'}\n`;
     }
 }
 
@@ -345,34 +389,121 @@ export class PrintLineCommand extends Command {
 }
 
 // 'q' - Quit
+// 'Q' - Quit, suppressing the default output
 export class QuitCommand extends Command {
-    constructor(addressRange) {
+    constructor(addressRange, silent) {
         super(addressRange);
+        this.silent = silent;
     }
 
     async run(context) {
-        return JumpLocation.Quit;
+        return this.silent ? JumpLocation.QuitSilent : JumpLocation.Quit;
     }
 
     dump(indent) {
         return `${makeIndent(indent)}QUIT:\n`
-            + this.addressRange.dump(indent+1);
+            + this.addressRange.dump(indent+1)
+            + `${makeIndent(indent+1)}SILENT = '${this.silent}'\n`;
     }
 }
 
-// 'Q' - Quit, suppressing the default output
-export class QuitSilentCommand extends Command {
-    constructor(addressRange) {
+// 's' - Substitute
+export class SubstituteFlags {
+    constructor({ global = false, nthOccurrence = null, print = false, writeToFile = null } = {}) {
+        this.global = global;
+        this.nthOccurrence = nthOccurrence;
+        this.print = print;
+        this.writeToFile = writeToFile;
+    }
+}
+export class SubstituteCommand extends Command {
+    constructor(addressRange, regex, replacement, flags = new SubstituteFlags()) {
+        if (!(flags instanceof SubstituteFlags)) {
+            throw new Error('flags provided to SubstituteCommand must be an instance of SubstituteFlags');
+        }
         super(addressRange);
+        this.regex = regex;
+        this.replacement = replacement;
+        this.flags = flags;
     }
 
     async run(context) {
-        return JumpLocation.QuitSilent;
+        if (this.flags.global) {
+            // replaceAll() requires that the regex have the g flag
+            const regex = new RegExp(this.regex, 'g');
+            context.substitutionResult = regex.test(context.patternSpace);
+            context.patternSpace = context.patternSpace.replaceAll(regex, this.replacement);
+        } else if (this.flags.nthOccurrence && this.flags.nthOccurrence !== 1) {
+            // Note: For n=1, it's easier to use the "replace first match" path below instead.
+
+            // matchAll() requires that the regex have the g flag
+            const matches = [...context.patternSpace.matchAll(new RegExp(this.regex, 'g'))];
+            const nthMatch = matches[this.flags.nthOccurrence - 1]; // n is 1-indexed
+            if (nthMatch !== undefined) {
+                // To only replace the Nth match:
+                // - Split the string in two, at the match position
+                // - Run the replacement on the second half
+                // - Combine that with the first half again
+                const firstHalf = context.patternSpace.substring(0, nthMatch.index);
+                const secondHalf = context.patternSpace.substring(nthMatch.index);
+                context.patternSpace = firstHalf + secondHalf.replace(this.regex, this.replacement);
+                context.substitutionResult = true;
+            } else {
+                context.substitutionResult = false;
+            }
+        } else {
+            context.substitutionResult = this.regex.test(context.patternSpace);
+            context.patternSpace = context.patternSpace.replace(this.regex, this.replacement);
+        }
+
+        if (context.substitutionResult) {
+            if  (this.flags.print) {
+                await context.out.write(context.patternSpace + '\n');
+            }
+
+            if (this.flags.writeToFile) {
+                // TODO: Implement this.
+            }
+        }
+
+        return JumpLocation.None;
     }
 
     dump(indent) {
-        return `${makeIndent(indent)}QUIT-SILENT:\n`
-            + this.addressRange.dump(indent+1);
+        return `${makeIndent(indent)}SUBSTITUTE:\n`
+            + this.addressRange.dump(indent+1)
+            + `${makeIndent(indent+1)}REGEX       '${this.regex}'\n`
+            + `${makeIndent(indent+1)}REPLACEMENT '${this.replacement}'\n`
+            + `${makeIndent(indent+1)}FLAGS       ${JSON.stringify(this.flags)}\n`;
+    }
+}
+
+// 't' - Branch if substitution successful
+// 'T' - Branch if substitution unsuccessful
+export class ConditionalBranchCommand extends Command {
+    constructor(addressRange, label, substitutionCondition) {
+        super(addressRange);
+        this.label = label;
+        this.substitutionCondition = substitutionCondition;
+    }
+
+    async run(context) {
+        if (context.substitutionResult !== this.substitutionCondition) {
+            return JumpLocation.None;
+        }
+
+        if (this.label) {
+            context.jumpParameter = this.label;
+            return JumpLocation.Label;
+        }
+        return JumpLocation.EndOfCycle;
+    }
+
+    dump(indent) {
+        return `${makeIndent(indent)}CONDITIONAL-BRANCH:\n`
+            + this.addressRange.dump(indent+1)
+            + `${makeIndent(indent+1)}LABEL: ${this.label ? `'${this.label}'` : 'END'}\n`
+            + `${makeIndent(indent+1)}IF SUBSTITUTED = ${this.substitutionCondition}\n`;
     }
 }
 

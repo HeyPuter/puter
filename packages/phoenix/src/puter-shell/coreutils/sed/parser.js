@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { AddressRange } from './address.js';
-import { TransliterateCommand } from './command.js';
+import * as Commands from './command.js';
 import { Script } from './script.js';
 
 export const parseScript = (scriptString) => {
@@ -26,7 +26,18 @@ export const parseScript = (scriptString) => {
     // Generate a hard-coded script for now.
     // TODO: Actually parse input!
 
-    commands.push(new TransliterateCommand(new AddressRange(), 'abcdefABCDEF', 'ABCDEFabcdef'));
+    commands.push(new Commands.SubstituteCommand(new AddressRange(), /Puter/, 'Frogger', new Commands.SubstituteFlags()));
+    commands.push(new Commands.ConditionalBranchCommand(new AddressRange(), 'yay', true));
+    commands.push(new Commands.ConditionalBranchCommand(new AddressRange(), 'nay', false));
+    commands.push(new Commands.AppendTextCommand(new AddressRange(), 'HELLO!'));
+    commands.push(new Commands.LabelCommand('yay'));
+    commands.push(new Commands.PrintCommand(new AddressRange()));
+    commands.push(new Commands.BranchCommand(new AddressRange(), 'end'));
+    commands.push(new Commands.LabelCommand('nay'));
+    commands.push(new Commands.AppendTextCommand(new AddressRange(), 'NADA!'));
+    commands.push(new Commands.LabelCommand('end'));
+
+    // commands.push(new TransliterateCommand(new AddressRange(), 'abcdefABCDEF', 'ABCDEFabcdef'));
     // commands.push(new ZapCommand(new AddressRange({start: new Address(1), end: new Address(10)})));
     // commands.push(new HoldAppendCommand(new AddressRange({start: new Address(1), end: new Address(10)})));
     // commands.push(new GetCommand(new AddressRange({start: new Address(11)})));

@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { JumpLocation } from './command.js';
+import { JumpLocation, LabelCommand, GroupEndCommand } from './command.js';
 import { fileLines } from '../../../util/file.js';
 
 const CycleResult = {
@@ -31,25 +31,46 @@ export class Script {
     }
 
     async runCycle(context) {
-        for (let i = 0; i < this.commands.length; i++) {
+        let i = 0;
+        while (i < this.commands.length) {
             const command = this.commands[i];
             command.updateMatchState(context);
             const result = await command.runCommand(context);
             switch (result) {
-                case JumpLocation.Label:
-                    // TODO: Implement labels
+                case JumpLocation.Label: {
+                    const label = context.jumpParameter;
+                    context.jumpParameter = null;
+                    const foundIndex = this.commands.findIndex(c => c instanceof LabelCommand && c.label === label);
+                    if (foundIndex === -1) {
+                        // TODO: Check for existence of labels during parsing too.
+                        throw new Error(`Label ':${label}' not found.`);
+                    }
+                    i = foundIndex;
                     break;
+                }
+                case JumpLocation.GroupEnd: {
+                    const groupId = context.jumpParameter;
+                    context.jumpParameter = null;
+                    const foundIndex = this.commands.findIndex(c => c instanceof GroupEndCommand && c.id === groupId);
+                    if (foundIndex === -1) {
+                        // TODO: Check for matching groups during parsing too.
+                        throw new Error(`Matching } for group #${groupId} not found.`);
+                    }
+                    i = foundIndex;
+                    break;
+                }
                 case JumpLocation.Quit:
                     return CycleResult.Quit;
                 case JumpLocation.QuitSilent:
                     return CycleResult.QuitSilent;
                 case JumpLocation.StartOfCycle:
-                    i = -1; // To start at 0 after the loop increment.
+                    i = 0;
                     continue;
                 case JumpLocation.EndOfCycle:
                     return CycleResult.Continue;
                 case JumpLocation.None:
-                    continue;
+                    i++;
+                    break;
             }
         }
     }
