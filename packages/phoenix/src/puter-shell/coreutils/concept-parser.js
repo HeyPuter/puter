@@ -1,5 +1,6 @@
 import { GrammarContext, standard_parsers } from '../../../packages/parsely/exports.js';
 import { Parser, UNRECOGNIZED, VALUE } from '../../../packages/parsely/parser.js';
+import { StringStream } from '../../../packages/parsely/streams.js';
 
 class NumberParser extends Parser {
     static data = {
@@ -163,39 +164,6 @@ class StringParser extends Parser {
     }
 }
 
-class StringStream {
-    constructor (str, startIndex = 0) {
-        this.str = str;
-        this.i = startIndex;
-    }
-
-    value_at (index) {
-        if ( index >= this.str.length ) {
-            return { done: true, value: undefined };
-        }
-
-        return { done: false, value: this.str[index] };
-    }
-
-    look () {
-        return this.value_at(this.i);
-    }
-
-    next () {
-        const result = this.value_at(this.i);
-        this.i++;
-        return result;
-    }
-
-    fork () {
-        return new StringStream(this.str, this.i);
-    }
-
-    join (forked) {
-        this.i = forked.i;
-    }
-}
-
 export default {
     name: 'concept-parser',
     args: {
@@ -305,7 +273,6 @@ export default {
             whitespace: _ => {},
         });
 
-        // TODO: What do we want our streams to be like?
         const input = ctx.locals.positionals.shift();
         const stream = new StringStream(input);
         try {
