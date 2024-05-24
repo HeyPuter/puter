@@ -4,9 +4,10 @@ name: Docker Image CI
 # Configures this workflow to run every time a change is pushed to the
 # branch called `main`.
 on:
-  push:
-    tags:
-      - '*.*.*'
+  workflow_dispatch:
+  # push:
+    # tags:
+    #   - '*.*.*'
     # branches:
     #   - 'release'
 
