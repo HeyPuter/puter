@@ -57,13 +57,22 @@ export class GrammarContext {
             }
         }
 
-        return (stream, entry_symbol) => {
+        return (stream, entry_symbol, { must_consume_all_input = true } = {}) => {
             const entry_parser = symbol_registry[entry_symbol];
             if (!entry_parser) {
                 throw new Error(`Entry symbol '${entry_symbol}' not found in grammar.`);
             }
             const result = entry_parser.parse(stream);
-            // TODO: Ensure all the stream has been consumed
+
+            if (result.status !== VALUE) {
+                throw new Error('Failed to parse input against grammar.');
+            }
+
+            // Ensure the entire stream is consumed.
+            if (must_consume_all_input && !stream.is_eof()) {
+                throw new Error('Parsing did not consume all input.');
+            }
+
             return result;
         };
     }
