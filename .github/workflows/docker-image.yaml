@@ -5,6 +5,10 @@ name: Docker Image CI
 # branch called `main`.
 on:
   workflow_dispatch:
+    inputs:
+      version:
+      major:
+      minor:
   # push:
     # tags:
     #   - '*.*.*'
