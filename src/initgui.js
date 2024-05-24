@@ -39,26 +39,47 @@ import { BroadcastService } from './services/BroadcastService.js';
 import { ProcessService } from './services/ProcessService.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { LocaleService } from './services/LocaleService.js';
+import { SettingsService } from './services/SettingsService.js';
 
 const launch_services = async function () {
+    // === Services Data Structures ===
     const services_l_ = [];
     const services_m_ = {};
     globalThis.services = {
         get: (name) => services_m_[name],
     };
-
     const register = (name, instance) => {
         services_l_.push([name, instance]);
         services_m_[name] = instance;
     }
 
+    // === Hooks for Service Scripts from Backend ===
+    const service_script_deferred = { services: [], on_ready: [] };
+    const service_script_api = {
+        register: (...a) => service_script_deferred.services.push(a),
+        on_ready: fn => service_script_deferred.on_ready.push(fn),
+    };
+    globalThis.service_script_api_promise.resolve(service_script_api);
+
+    // === Builtin Services ===
     register('broadcast', new BroadcastService());
     register('theme', new ThemeService());
     register('process', new ProcessService());
     register('locale', new LocaleService());
+    register('settings', new SettingsService());
+
+    // === Service-Script Services ===
+    for (const [name, script] of service_script_deferred.services) {
+        register(name, script);
+    }
 
     for (const [_, instance] of services_l_) {
         await instance.init();
+    }
+
+    // === Service-Script Ready ===
+    for (const fn of service_script_deferred.on_ready) {
+        await fn();
     }
 
     // Set init process status

@@ -18,27 +18,14 @@
  */
 
 import UIWindow from '../UIWindow.js'
-import AboutTab from './UITabAbout.js';
-import UsageTab from './UITabUsage.js';
-import AccountTab from './UITabAccount.js';
-import SecurityTab from './UITabSecurity.js';
-import PersonalizationTab from './UITabPersonalization.js';
-import LanguageTab from './UITabLanguage.js';
-import ClockTab from './UITabClock.js';
 
 async function UIWindowSettings(options){
     return new Promise(async (resolve) => {
         options = options ?? {};
 
-        const tabs = [
-            AboutTab,
-            UsageTab,
-            AccountTab,
-            SecurityTab,
-            PersonalizationTab,
-            LanguageTab,
-            ClockTab,
-        ];
+        const svc_settings = globalThis.services.get('settings');
+
+        const tabs = svc_settings.get_tabs();
 
         let h = '';
 
