@@ -23,12 +23,12 @@ export class Literal extends Parser {
 }
 
 /**
- * Parses a string composed of the given values.
- * @param values An array of strings that will be parsed as the result.
+ * Parses matching characters as a string.
+ * @param test Function that takes a character, and returns whether to include it.
  */
 export class StringOf extends Parser {
-    _create (values) {
-        this.values = values;
+    _create (test) {
+        this.test = test;
     }
 
     _parse (stream) {
@@ -38,7 +38,7 @@ export class StringOf extends Parser {
         while (true) {
             let { done, value } = subStream.look();
             if ( done ) break;
-            if ( ! this.values.includes(value) ) break;
+            if ( ! this.test(value) ) break;
 
             subStream.next();
             text += value;

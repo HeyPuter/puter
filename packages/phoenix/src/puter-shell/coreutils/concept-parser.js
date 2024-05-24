@@ -232,7 +232,7 @@ export default {
             number: a => new NumberParser(),
             string: a => new StringParser(),
             whitespace: a => a.optional(
-                a.stringOf(' \r\n\t'.split('')),
+                a.stringOf(c => ' \r\n\t'.includes(c)),
             ),
         }, {
             element: it => it[0].value,
