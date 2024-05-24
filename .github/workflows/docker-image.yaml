@@ -7,8 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
+        description: 'Version WITHOUT leading "v"'
+        required: true
       major:
+        description: 'Major version component (redundant, but needed)'
+        required: true
       minor:
+        description: 'Minor version component (redundant, but needed)'
+        required: true
   # push:
     # tags:
     #   - '*.*.*'
@@ -65,8 +71,8 @@ jobs:
         with:
           images: "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{github.event.inputs.version}}
+            type=semver,pattern={{github.event.inputs.major}}.{{github.event.inputs.minor}}
 
       # This step uses the `docker/build-push-action` action to build the
       # image, based on your repository's `Dockerfile`. If the build succeeds,
