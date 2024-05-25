@@ -40,6 +40,7 @@ import { ProcessService } from './services/ProcessService.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { LocaleService } from './services/LocaleService.js';
 import { SettingsService } from './services/SettingsService.js';
+import UIComponentWindow from './UI/UIComponentWindow.js';
 
 const launch_services = async function () {
     // === Services Data Structures ===
@@ -58,6 +59,9 @@ const launch_services = async function () {
     const service_script_api = {
         register: (...a) => service_script_deferred.services.push(a),
         on_ready: fn => service_script_deferred.on_ready.push(fn),
+        // Some files can't be imported by service scripts,
+        // so this hack makes that possible.
+        use: name => ({ UIWindow, UIComponentWindow })[name],
     };
     globalThis.service_script_api_promise.resolve(service_script_api);
 
