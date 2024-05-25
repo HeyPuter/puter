@@ -212,11 +212,6 @@ class PuterHomepageService extends BaseService {
                 ? manifest.js_paths.map(path => `<script type="module" src="${path}"></script>\n`)
                 : []).join('')
         }
-        ${
-            this.service_scripts
-                .map(path => `<script type="module" src="${path}"></script>\n`)
-                .join('')
-        }
         <!-- Load the GUI script -->
         <script ${ !bundled ? ' type="module"' : ''} src="${(!bundled && manifest?.index) || '/dist/gui.js'}"></script>
         <!-- Initialize GUI when document is loaded -->
@@ -229,6 +224,12 @@ class PuterHomepageService extends BaseService {
             });
         });
         </script>
+        <!-- Initialize Service Scripts -->
+        ${
+            this.service_scripts
+                .map(path => `<script type="module" src="${path}"></script>\n`)
+                .join('')
+        }
         <div id="templates" style="display: none;"></div>
     </body>
 
