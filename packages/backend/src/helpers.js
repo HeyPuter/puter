@@ -176,65 +176,8 @@ async function id2uuid(id){
  * @param {string} options - `options`
  * @returns {Promise}
  */
- async function get_user(options){
-    /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'filesystem');
-
-    let user;
-
-    const cached = options.cached ?? true;
-
-    if ( cached && ! options.force ) {
-        if (options.username) user = kv.get('users:username:' + options.username);
-        else if (options.email) user = kv.get('users:email:' + options.email);
-        else if (options.uuid) user = kv.get('users:uuid:' + options.uuid);
-        else if (options.id) user = kv.get('users:id:' + options.id);
-        else if (options.referral_code) user = kv.get('users:referral_code:' + options.referral_code);
-
-        if ( user ) return user;
-    }
-
-    if ( ! options.force ) {
-        if(options.username)
-            user = await db.read("SELECT * FROM `user` WHERE `username` = ? LIMIT 1", [options.username]);
-        else if(options.email)
-            user = await db.read("SELECT * FROM `user` WHERE `email` = ? LIMIT 1", [options.email]);
-        else if(options.uuid)
-            user = await db.read("SELECT * FROM `user` WHERE `uuid` = ? LIMIT 1", [options.uuid]);
-        else if(options.id)
-            user = await db.read("SELECT * FROM `user` WHERE `id` = ? LIMIT 1", [options.id]);
-        else if(options.referral_code)
-            user = await db.read("SELECT * FROM `user` WHERE `referral_code` = ? LIMIT 1", [options.referral_code]);
-    }
-
-    if(!user || !user[0]){
-        if(options.username)
-            user = await db.pread("SELECT * FROM `user` WHERE `username` = ? LIMIT 1", [options.username])
-        else if(options.email)
-            user = await db.pread("SELECT * FROM `user` WHERE `email` = ? LIMIT 1", [options.email]);
-        else if(options.uuid)
-            user = await db.pread("SELECT * FROM `user` WHERE `uuid` = ? LIMIT 1", [options.uuid]);
-        else if(options.id)
-            user = await db.pread("SELECT * FROM `user` WHERE `id` = ? LIMIT 1", [options.id]);
-        else if(options.referral_code)
-            user = await db.pread("SELECT * FROM `user` WHERE `referral_code` = ? LIMIT 1", [options.referral_code]);
-    }
-
-    user = user ? user[0] : null;
-
-    if ( ! user ) return user;
-
-    try {
-        kv.set('users:username:' + user.username, user);
-        kv.set('users:email:' + user.email, user);
-        kv.set('users:uuid:' + user.uuid, user);
-        kv.set('users:id:' + user.id, user);
-        kv.set('users:referral_code:' + user.referral_code, user);
-    } catch (e) {
-        console.error(e);
-    }
-
-    return user;
+async function get_user(options) {
+    return await services.get('get-user').get_user(options);
 }
 
 /**
