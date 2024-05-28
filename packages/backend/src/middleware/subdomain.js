@@ -20,7 +20,10 @@ const subdomain = allowedSubdomains => {
         const actual_subdomain = require('../helpers').subdomain(req);
         if ( ! allowedSubdomains.includes(actual_subdomain) ) {
             next('route');
+            return;
         }
+
+        next();
     };
 }
 
