@@ -50,9 +50,14 @@ export class PuterAppCommandProvider {
         return {
             name: id,
             path: path ?? 'Built-in Puter app',
-            // TODO: Parameters and options?
+            // TODO: Let apps expose option/positional definitions like builtins do, and parse them here?
             async execute(ctx) {
-                const args = {}; // TODO: Passed-in parameters and options would go here
+                const args = {
+                    command_line: {
+                        args: ctx.locals.args,
+                    },
+                    env: {...ctx.env},
+                };
                 const child = await puter.ui.launchApp(id, args);
 
                 // Wait for app to close.
@@ -86,7 +91,6 @@ export class PuterAppCommandProvider {
                     // DRY: Initially copied from PathCommandProvider
                     let data, done;
                     const next_data = async () => {
-                        // FIXME: This waits for one more read() after we finish.
                         ({ value: data, done } = await Promise.race([
                             app_close_promise, sigint_promise, ctx.externs.in_.read(),
                         ]));
