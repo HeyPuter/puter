@@ -1,6 +1,8 @@
 import { Component, defineComponent } from "../../util/Component.js";
 
 export default class PasswordEntry extends Component {
+    static ID = 'ui.component.PasswordEntry';
+
     static PROPERTIES = {
         spec: {},
         value: {},
@@ -133,4 +135,4 @@ export default class PasswordEntry extends Component {
     }
 }
 
-defineComponent('c-password-entry', PasswordEntry);
+defineComponent(PasswordEntry);

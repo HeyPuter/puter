@@ -22,6 +22,8 @@ import { Component, defineComponent } from "../../util/Component.js";
  * Slider: A labeled slider input.
  */
 export default class Slider extends Component {
+    static ID = 'ui.component.Slider';
+
     static PROPERTIES = {
         name: { value: null },
         label: { value: null },
@@ -111,4 +113,4 @@ export default class Slider extends Component {
     }
 }
 
-defineComponent('c-slider', Slider);
+defineComponent(Slider);

@@ -40,7 +40,9 @@ import { ProcessService } from './services/ProcessService.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { LocaleService } from './services/LocaleService.js';
 import { SettingsService } from './services/SettingsService.js';
+import { ExportService } from './services/ExportService.js';
 import UIComponentWindow from './UI/UIComponentWindow.js';
+import Spinner from './UI/Components/Spinner.js';
 
 const launch_services = async function () {
     // === Services Data Structures ===
@@ -54,6 +56,9 @@ const launch_services = async function () {
         services_m_[name] = instance;
     }
 
+    const svc_export = new ExportService();
+    svc_export.register('UIComponentWindow', UIComponentWindow);
+
     // === Hooks for Service Scripts from Backend ===
     const service_script_deferred = { services: [], on_ready: [] };
     const service_script_api = {
@@ -61,7 +66,9 @@ const launch_services = async function () {
         on_ready: fn => service_script_deferred.on_ready.push(fn),
         // Some files can't be imported by service scripts,
         // so this hack makes that possible.
-        use: name => ({ UIWindow, UIComponentWindow })[name],
+        use: svc_export.get.bind(svc_export),
+        exp: svc_export.register.bind(svc_export),
+        // use: name => ({ UIWindow, UIComponentWindow })[name],
     };
     globalThis.service_script_api_promise.resolve(service_script_api);
 
@@ -71,6 +78,7 @@ const launch_services = async function () {
     register('process', new ProcessService());
     register('locale', new LocaleService());
     register('settings', new SettingsService());
+    register('export', svc_export);
 
     // === Service-Script Services ===
     for (const [name, script] of service_script_deferred.services) {
@@ -78,7 +86,13 @@ const launch_services = async function () {
     }
 
     for (const [_, instance] of services_l_) {
-        await instance.init();
+        await instance.construct();
+    }
+
+    for (const [_, instance] of services_l_) {
+        await instance.init({
+            services: globalThis.services,
+        });
     }
 
     // === Service-Script Ready ===

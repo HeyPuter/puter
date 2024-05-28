@@ -2,6 +2,8 @@ import { Component, defineComponent } from "../../util/Component.js";
 import UIComponentWindow from "../UIComponentWindow.js";
 
 export default class QRCodeView extends Component {
+    static ID = 'ui.component.QRCodeView';
+
     static PROPERTIES = {
         value: {
             description: 'The text to encode in the QR code',
@@ -78,4 +80,4 @@ export default class QRCodeView extends Component {
     }
 }
 
-defineComponent('c-qr-code', QRCodeView);
+defineComponent(QRCodeView);

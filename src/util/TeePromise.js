@@ -1,3 +1,5 @@
+import { register } from "./register.js";
+
 export default class TeePromise {
     static STATUS_PENDING = {};
     static STATUS_RUNNING = {};
@@ -41,3 +43,5 @@ export default class TeePromise {
         return this.then(fn);
     }
 }
+
+register(TeePromise, 'TeePromise');

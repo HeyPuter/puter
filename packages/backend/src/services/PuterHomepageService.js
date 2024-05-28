@@ -161,6 +161,28 @@ class PuterHomepageService extends BaseService {
         <!-- Preload images when applicable -->
         <link rel="preload" as="image" href="${asset_dir}/images/wallpaper.webp">
 
+        <script>
+            if ( ! window.service_script ) {
+                window.service_script_api_promise = (() => {
+                    let resolve, reject;
+                    const promise = new Promise((res, rej) => {
+                        resolve = res;
+                        reject = rej;
+                    });
+                    promise.resolve = resolve;
+                    promise.reject = reject;
+                    return promise;
+                })();
+                window.service_script = async fn => {
+                    try {
+                        await fn(await window.service_script_api_promise);
+                    } catch (e) {
+                        console.error('service_script(ERROR)', e);
+                    }
+                };
+            }
+        </script>
+
         <!-- Files from JSON (may be empty) -->
         ${
             ((!bundled && manifest?.css_paths)

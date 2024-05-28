@@ -1,6 +1,8 @@
 import { Component, defineComponent } from "../../util/Component.js";
 
 export default class StepView extends Component {
+    static ID = 'ui.component.StepView';
+
     static PROPERTIES = {
         children: {},
         done: { value: false },
@@ -64,4 +66,4 @@ export default class StepView extends Component {
     }
 }
 
-defineComponent('c-step-view', StepView);
+defineComponent(StepView);

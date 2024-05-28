@@ -1,4 +1,5 @@
 import ValueHolder from "./ValueHolder.js";
+import { register } from "./register.js";
 
 export class Component extends HTMLElement {
     #has_created_element = false;
@@ -146,10 +147,39 @@ export class Component extends HTMLElement {
     }
 }
 
-export const defineComponent = (name, component) => {
-    // TODO: This is necessary because files can be loaded from
-    // both `/src/UI` and `/UI` in the URL; we need to fix that
-    if ( ! customElements.get(name) ) {
-        customElements.define(name, component);
+// TODO: move this somewhere more useful
+function is_subclass(subclass, superclass) {
+    if (subclass === superclass) return true;
+
+    let proto = subclass.prototype;
+    while (proto) {
+        if (proto === superclass.prototype) return true;
+        proto = Object.getPrototypeOf(proto);
     }
+
+    return false;
+}
+
+export const defineComponent = (component) => {
+    // Web components need tags (despite that we never use the tags)
+    // because it was designed this way.
+    if ( is_subclass(component, HTMLElement) ) {
+        console.log('defining', component);
+        let name = component.ID;
+        name = 'c-' + name.split('.').pop().toLowerCase();
+        // TODO: This is necessary because files can be loaded from
+        // both `/src/UI` and `/UI` in the URL; we need to fix that
+        console.log('[maybe] defining', name, 'as', component);
+        if ( customElements.get(name) ) return;
+
+        console.log('[surely] defining', name, 'as', component);
+
+        customElements.define(name, component);
+        component.defined_as = name;
+    }
+
+    // Service scripts aren't able to import anything when the
+    // GUI code is bundled, so we need to use a custom export
+    // mechanism for them.
+    register(component);
 };

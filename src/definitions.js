@@ -17,6 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export class Service {
+    construct () {
+        if ( ! this._construct ) return;
+        return this._construct();
+    }
     init (...a) {
         if ( ! this._init ) return;
         return this._init(...a)

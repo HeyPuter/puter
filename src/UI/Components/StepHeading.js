@@ -6,6 +6,8 @@ import { Component, defineComponent } from "../../util/Component.js";
  * optimized for single-digit numbers.
  */
 export default class StepHeading extends Component {
+    static ID = 'ui.component.StepHeading';
+
     static PROPERTIES = {
         symbol: {
             description: 'The symbol to display',
@@ -58,4 +60,4 @@ export default class StepHeading extends Component {
     }
 }
 
-defineComponent('c-step-heading', StepHeading);
+defineComponent(StepHeading);

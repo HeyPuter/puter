@@ -5,6 +5,8 @@ import { Component, defineComponent } from "../../util/Component.js";
  * treated as a component.
  */
 export default class Flexer extends Component {
+    static ID = 'ui.component.Flexer';
+
     static PROPERTIES = {
         children: {},
         gap: { value: '20pt' },
@@ -38,4 +40,4 @@ export default class Flexer extends Component {
     }
 }
 
-defineComponent('c-flexer', Flexer);
+defineComponent(Flexer);

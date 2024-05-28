@@ -1,6 +1,7 @@
 import { Component, defineComponent } from "../../util/Component.js";
 
 export default class RecoveryCodeEntryView extends Component {
+    static ID = 'ui.component.RecoveryCodeEntryView';
     static PROPERTIES = {
         value: {},
         length: { value: 8 },
@@ -84,4 +85,4 @@ export default class RecoveryCodeEntryView extends Component {
     }
 }
 
-defineComponent('c-recovery-code-entry', RecoveryCodeEntryView);
+defineComponent(RecoveryCodeEntryView);

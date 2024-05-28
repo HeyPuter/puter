@@ -5,6 +5,8 @@ import { Component, defineComponent } from "../../util/Component.js";
  * specified style.
  */
 export default class StringView extends Component {
+    static ID = 'ui.component.StringView';
+
     static PROPERTIES = {
         text: { value: '' },
         heading: { value: 0 },
@@ -42,4 +44,4 @@ export default class StringView extends Component {
     }
 }
 
-defineComponent('c-string-view', StringView);
+defineComponent(StringView);
