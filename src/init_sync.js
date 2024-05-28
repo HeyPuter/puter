@@ -1,3 +1,21 @@
+/**
+ * @global
+ * @function logger
+ * @param {Array<any>} a - The arguments.
+ */
+/**
+ * @global
+ * @function use
+ * @param {string} arg - The string argument.
+ * @returns {any} The return value.
+ */
+/**
+ * @global
+ * @function def
+ * @param {any} arg - The argument.
+ * @returns {any} The return value.
+ */
+
 // An initial logger to log do before we get a more fancy logger
 // (which we never really do yet, at the time of writing this);
 // something like this was also done in backend and it proved useful.
