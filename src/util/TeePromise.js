@@ -1,6 +1,6 @@
-import { register } from "./register.js";
+export default def(class TeePromise {
+    static ID = 'util.TeePromise';
 
-export default class TeePromise {
     static STATUS_PENDING = {};
     static STATUS_RUNNING = {};
     static STATUS_DONE = {};
@@ -42,6 +42,4 @@ export default class TeePromise {
     onComplete(fn) {
         return this.then(fn);
     }
-}
-
-register(TeePromise, 'TeePromise');
+});

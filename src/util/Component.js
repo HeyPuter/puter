@@ -1,7 +1,8 @@
 import ValueHolder from "./ValueHolder.js";
-import { register } from "./register.js";
 
-export class Component extends HTMLElement {
+export const Component = def(class Component extends HTMLElement {
+    static ID = 'util.Component';
+
     #has_created_element = false;
     #has_called_on_ready = false;
 
@@ -11,6 +12,27 @@ export class Component extends HTMLElement {
     static TODO = [
         'value bindings for create_template',
     ]
+
+    static on_self_registered ({ is_owner, on_other_registered }) {
+        // Only invoked for Component itself, not subclasses
+        if ( ! is_owner ) return;
+
+        // Automatically define components for all HTML elements
+        on_other_registered(({ cls }) => {
+            console.log('detected class', cls.ID);
+            if ( cls.ID === 'ui.component.StepHeading' ) {
+                globalThis.sh_shouldbe = cls;
+                console.log(
+                    'this is what StepHeading should be',
+                    cls
+                );
+            }
+            if ( globalThis.lib.is_subclass(cls, HTMLElement) ) {
+                console.log('registering as an element');
+                defineComponent(cls);
+            }
+        });
+    }
 
     constructor (property_values) {
         super();
@@ -145,41 +167,21 @@ export class Component extends HTMLElement {
             }
         };
     }
-}
-
-// TODO: move this somewhere more useful
-function is_subclass(subclass, superclass) {
-    if (subclass === superclass) return true;
-
-    let proto = subclass.prototype;
-    while (proto) {
-        if (proto === superclass.prototype) return true;
-        proto = Object.getPrototypeOf(proto);
-    }
-
-    return false;
-}
+});
 
 export const defineComponent = (component) => {
     // Web components need tags (despite that we never use the tags)
     // because it was designed this way.
-    if ( is_subclass(component, HTMLElement) ) {
-        console.log('defining', component);
+    if ( globalThis.lib.is_subclass(component, HTMLElement) ) {
         let name = component.ID;
         name = 'c-' + name.split('.').pop().toLowerCase();
         // TODO: This is necessary because files can be loaded from
         // both `/src/UI` and `/UI` in the URL; we need to fix that
-        console.log('[maybe] defining', name, 'as', component);
         if ( customElements.get(name) ) return;
 
-        console.log('[surely] defining', name, 'as', component);
+        // console.log('[surely] defining', name, 'as', component);
 
         customElements.define(name, component);
         component.defined_as = name;
     }
-
-    // Service scripts aren't able to import anything when the
-    // GUI code is bundled, so we need to use a custom export
-    // mechanism for them.
-    register(component);
 };

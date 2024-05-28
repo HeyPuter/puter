@@ -114,6 +114,12 @@ class PuterHomepageService extends BaseService {
 
         const bundled = env != 'dev' || use_bundled_gui;
 
+        const writeScriptTag = path =>
+            `<script type="${
+                Array.isArray(path) ? 'text/javascirpt' : 'module'
+            }" src="${Array.isArray(path) ? path[0] : path}"></script>\n`
+            ;
+
         return `<!DOCTYPE html>
     <html lang="en">
 
@@ -231,13 +237,16 @@ class PuterHomepageService extends BaseService {
 
         ${
             ((!bundled && manifest?.js_paths)
-                ? manifest.js_paths.map(path => `<script type="module" src="${path}"></script>\n`)
+                ? manifest.js_paths.map(path => writeScriptTag(path))
                 : []).join('')
         }
         <!-- Load the GUI script -->
-        <script ${ !bundled ? ' type="module"' : ''} src="${(!bundled && manifest?.index) || '/dist/gui.js'}"></script>
+        <script ${
+            // !bundled ? ' type="module"' : ''
+            ' type="module"'
+        } src="${(!bundled && manifest?.index) || '/dist/gui.js'}"></script>
         <!-- Initialize GUI when document is loaded -->
-        <script>
+        <script type="module">
         window.addEventListener('load', function() {
             gui(${
                 // TODO: override JSON.stringify to ALWAYS to this...

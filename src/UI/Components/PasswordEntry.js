@@ -1,6 +1,6 @@
-import { Component, defineComponent } from "../../util/Component.js";
+const Component = use('util.Component');
 
-export default class PasswordEntry extends Component {
+export default def(class PasswordEntry extends Component {
     static ID = 'ui.component.PasswordEntry';
 
     static PROPERTIES = {
@@ -133,6 +133,4 @@ export default class PasswordEntry extends Component {
             $(this.dom_).find("#toggle-show-password").attr("src", show_password ? window.icons["eye-closed.svg"] : window.icons["eye-open.svg"])
         });
     }
-}
-
-defineComponent(PasswordEntry);
+});

@@ -24,7 +24,8 @@
             "/css/theme.css"
         ],
         "js_paths": [
-            "/src/initgui.js",
+            "/src/init_sync.js",
+            "/src/init_async.js",
             "/src/helpers.js",
             "/src/IPC.js",
             "/src/globals.js",

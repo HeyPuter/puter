@@ -18,6 +18,7 @@
  */
 
 window.puter_gui_enabled = true;
+
 /**
  * Initializes and configures the GUI (Graphical User Interface) settings based on the provided options.
  * 

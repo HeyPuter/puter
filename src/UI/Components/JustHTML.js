@@ -1,9 +1,9 @@
-import { Component, defineComponent } from "../../util/Component.js";
+const Component = use('util.Component');
 
 /**
  * Allows using an HTML string as a component.
  */
-export default class JustHTML extends Component {
+export default def(class JustHTML extends Component {
     static ID = 'ui.component.JustHTML';
 
     static PROPERTIES = { html: { value: '' } };
@@ -15,6 +15,4 @@ export default class JustHTML extends Component {
             $(this.dom_).find('span').html(html);
         });
     }
-}
-
-defineComponent(JustHTML);
+});

@@ -1,6 +1,6 @@
-import { Component, defineComponent } from "../../util/Component.js";
+const Component = use('util.Component');
 
-export default class RecoveryCodesView extends Component {
+export default def(class RecoveryCodesView extends Component {
     static ID = 'ui.component.RecoveryCodesView';
 
     static PROPERTIES = {
@@ -91,6 +91,4 @@ export default class RecoveryCodesView extends Component {
             print_frame.contentWindow.window.print();
         });
     }
-}
-
-defineComponent(RecoveryCodesView);
+});

@@ -16,12 +16,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { Component, defineComponent } from "../../util/Component.js";
+const Component = use('util.Component');
 
 /**
  * Slider: A labeled slider input.
  */
-export default class Slider extends Component {
+export default def(class Slider extends Component {
     static ID = 'ui.component.Slider';
 
     static PROPERTIES = {
@@ -111,6 +111,4 @@ export default class Slider extends Component {
             input.value = value;
         });
     }
-}
-
-defineComponent(Slider);
+});
