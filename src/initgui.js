@@ -40,7 +40,10 @@ import { ProcessService } from './services/ProcessService.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { LocaleService } from './services/LocaleService.js';
 import { SettingsService } from './services/SettingsService.js';
+
 import UIComponentWindow from './UI/UIComponentWindow.js';
+import Spinner from './UI/Components/Spinner.js';
+
 
 const launch_services = async function () {
     // === Services Data Structures ===
@@ -54,6 +57,8 @@ const launch_services = async function () {
         services_m_[name] = instance;
     }
 
+    globalThis.def(UIComponentWindow, 'ui.UIComponentWindow');
+
     // === Hooks for Service Scripts from Backend ===
     const service_script_deferred = { services: [], on_ready: [] };
     const service_script_api = {
@@ -61,7 +66,9 @@ const launch_services = async function () {
         on_ready: fn => service_script_deferred.on_ready.push(fn),
         // Some files can't be imported by service scripts,
         // so this hack makes that possible.
-        use: name => ({ UIWindow, UIComponentWindow })[name],
+        def: globalThis.def,
+        use: globalThis.use,
+        // use: name => ({ UIWindow, UIComponentWindow })[name],
     };
     globalThis.service_script_api_promise.resolve(service_script_api);
 
@@ -78,7 +85,13 @@ const launch_services = async function () {
     }
 
     for (const [_, instance] of services_l_) {
-        await instance.init();
+        await instance.construct();
+    }
+
+    for (const [_, instance] of services_l_) {
+        await instance.init({
+            services: globalThis.services,
+        });
     }
 
     // === Service-Script Ready ===

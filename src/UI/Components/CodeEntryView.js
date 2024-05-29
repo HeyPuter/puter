@@ -1,6 +1,8 @@
-import { Component, defineComponent } from "../../util/Component.js";
+const Component = use('util.Component');
 
-export default class CodeEntryView extends Component {
+export default def(class CodeEntryView extends Component {
+    static ID = 'ui.component.CodeEntryView';
+
     static PROPERTIES = {
         value: {},
         error: {},
@@ -213,6 +215,4 @@ export default class CodeEntryView extends Component {
             }
         });
     }
-}
-
-defineComponent('c-code-entry-view', CodeEntryView);
+})

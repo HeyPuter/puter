@@ -44,6 +44,8 @@ const css_paths = [
 
 // Ordered list of JS scripts
 const js_paths = [
+    '/init_sync.js',
+    '/init_async.js',
     '/initgui.js',
     '/helpers.js',
     '/IPC.js',

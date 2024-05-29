@@ -1,4 +1,6 @@
-export default class TeePromise {
+export default def(class TeePromise {
+    static ID = 'util.TeePromise';
+
     static STATUS_PENDING = {};
     static STATUS_RUNNING = {};
     static STATUS_DONE = {};
@@ -40,4 +42,4 @@ export default class TeePromise {
     onComplete(fn) {
         return this.then(fn);
     }
-}
+});

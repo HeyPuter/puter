@@ -1,10 +1,12 @@
-import { Component, defineComponent } from "../../util/Component.js";
+const Component = use('util.Component');
 
 /**
  * Allows a flex layout of composed components to be
  * treated as a component.
  */
-export default class Flexer extends Component {
+export default def(class Flexer extends Component {
+    static ID = 'ui.component.Flexer';
+
     static PROPERTIES = {
         children: {},
         gap: { value: '20pt' },
@@ -36,6 +38,4 @@ export default class Flexer extends Component {
             $(this.dom_).find('div').first().css('gap', gap);
         });
     }
-}
-
-defineComponent('c-flexer', Flexer);
+});

@@ -1,6 +1,8 @@
-import { Component, defineComponent } from "../../util/Component.js";
+const Component = use('util.Component');
 
-export default class Button extends Component {
+export default def(class Button extends Component {
+    static ID = 'ui.component.Button';
+
     static PROPERTIES = {
         label: { value: 'Test Label' },
         on_click: { value: null },
@@ -63,6 +65,4 @@ export default class Button extends Component {
             $(this.dom_).find('button').prop('disabled', ! enabled);
         });
     }
-}
-
-defineComponent('c-button', Button);
+});

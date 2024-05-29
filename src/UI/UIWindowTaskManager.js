@@ -49,6 +49,7 @@ const end_process = async (uuid, force) => {
 };
 
 class TaskManagerTable extends Component {
+    static ID = 'ui.component.TaskManagerTable';
     static PROPERTIES = {
         tasks: { value: [] },
     };
@@ -157,9 +158,11 @@ class TaskManagerTable extends Component {
         return rows;
     };
 }
-defineComponent('c-task-manager-table', TaskManagerTable);
+defineComponent(TaskManagerTable);
 
 class TaskManagerRow extends Component {
+    static ID = 'ui.component.TaskManagerRow';
+
     static PROPERTIES = {
         name: {},
         uuid: {},
@@ -291,7 +294,7 @@ class TaskManagerRow extends Component {
         });
     }
 }
-defineComponent('c-task-manager-row', TaskManagerRow);
+defineComponent(TaskManagerRow);
 
 const UIWindowTaskManager = async function UIWindowTaskManager () {
     const svc_process = globalThis.services.get('process');

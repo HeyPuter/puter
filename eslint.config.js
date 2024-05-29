@@ -58,6 +58,10 @@ export default [
                 "html_encode": true,
                 "html_decode": true,
                 "isMobile": true,
+                // Class Registry
+                "logger": true,
+                "def": true,
+                "use": true,
                 // Libraries
                 "saveAs": true,         // FileSaver
                 "iro": true,            // iro.js color picker

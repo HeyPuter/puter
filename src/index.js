@@ -16,25 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-window.service_script_api_promise = (() => {
-    let resolve, reject;
-    const promise = new Promise((res, rej) => {
-        resolve = res;
-        reject = rej;
-    });
-    promise.resolve = resolve;
-    promise.reject = reject;
-    return promise;
-})();
-window.service_script = async fn => {
-    try {
-        await fn(await window.service_script_api_promise);
-    } catch (e) {
-        console.error('service_script(ERROR)', e);
-    }
-};
 
 window.puter_gui_enabled = true;
+
 /**
  * Initializes and configures the GUI (Graphical User Interface) settings based on the provided options.
  * 

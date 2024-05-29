@@ -1,11 +1,13 @@
-import { Component, defineComponent } from "../../util/Component.js";
+const Component = use('util.Component');
 
 /**
  * StepHeading renders a heading with a leading symbol.
  * The leading symbol is styled inside a cricle and is
  * optimized for single-digit numbers.
  */
-export default class StepHeading extends Component {
+export default def(class StepHeading extends Component {
+    static ID = 'ui.component.StepHeading';
+
     static PROPERTIES = {
         symbol: {
             description: 'The symbol to display',
@@ -56,6 +58,4 @@ export default class StepHeading extends Component {
             </div>
         `);
     }
-}
-
-defineComponent('c-step-heading', StepHeading);
+});

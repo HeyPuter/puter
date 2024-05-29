@@ -1,9 +1,11 @@
-import { Component, defineComponent } from "../../util/Component.js";
+const Component = use('util.Component');
 
 /**
  * Display a list of checkboxes for the user to confirm.
  */
-export default class ConfirmationsView extends Component {
+export default def(class ConfirmationsView extends Component {
+    static ID = 'ui.component.ConfirmationsView';
+
     static PROPERTIES = {
         confirmations: {
             description: 'The list of confirmations to display',
@@ -56,6 +58,4 @@ export default class ConfirmationsView extends Component {
             }
         });
     }
-}
-
-defineComponent('c-confirmations-view', ConfirmationsView);
+});

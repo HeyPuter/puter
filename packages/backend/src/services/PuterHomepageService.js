@@ -114,6 +114,12 @@ class PuterHomepageService extends BaseService {
 
         const bundled = env != 'dev' || use_bundled_gui;
 
+        const writeScriptTag = path =>
+            `<script type="${
+                Array.isArray(path) ? 'text/javascirpt' : 'module'
+            }" src="${Array.isArray(path) ? path[0] : path}"></script>\n`
+            ;
+
         return `<!DOCTYPE html>
     <html lang="en">
 
@@ -160,6 +166,28 @@ class PuterHomepageService extends BaseService {
 
         <!-- Preload images when applicable -->
         <link rel="preload" as="image" href="${asset_dir}/images/wallpaper.webp">
+
+        <script>
+            if ( ! window.service_script ) {
+                window.service_script_api_promise = (() => {
+                    let resolve, reject;
+                    const promise = new Promise((res, rej) => {
+                        resolve = res;
+                        reject = rej;
+                    });
+                    promise.resolve = resolve;
+                    promise.reject = reject;
+                    return promise;
+                })();
+                window.service_script = async fn => {
+                    try {
+                        await fn(await window.service_script_api_promise);
+                    } catch (e) {
+                        console.error('service_script(ERROR)', e);
+                    }
+                };
+            }
+        </script>
 
         <!-- Files from JSON (may be empty) -->
         ${
@@ -209,13 +237,16 @@ class PuterHomepageService extends BaseService {
 
         ${
             ((!bundled && manifest?.js_paths)
-                ? manifest.js_paths.map(path => `<script type="module" src="${path}"></script>\n`)
+                ? manifest.js_paths.map(path => writeScriptTag(path))
                 : []).join('')
         }
         <!-- Load the GUI script -->
-        <script ${ !bundled ? ' type="module"' : ''} src="${(!bundled && manifest?.index) || '/dist/gui.js'}"></script>
+        <script ${
+            // !bundled ? ' type="module"' : ''
+            ' type="module"'
+        } src="${(!bundled && manifest?.index) || '/dist/gui.js'}"></script>
         <!-- Initialize GUI when document is loaded -->
-        <script>
+        <script type="module">
         window.addEventListener('load', function() {
             gui(${
                 // TODO: override JSON.stringify to ALWAYS to this...

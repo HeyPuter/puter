@@ -1,9 +1,11 @@
-import { Component, defineComponent } from "../../util/Component.js";
+const Component = use('util.Component');
 
 /**
  * A simple component when you just need to test something.
  */
-export default class TestView extends Component {
+export default def(class TestView extends Component {
+    static ID = 'ui.component.TestView';
+
     static CSS = `
         div {
             background-color: lightblue;
@@ -17,6 +19,4 @@ export default class TestView extends Component {
             <div>I am a test view</div>
         `);
     }
-}
-
-defineComponent('c-test-view', TestView);
+});

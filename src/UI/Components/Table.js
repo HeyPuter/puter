@@ -1,9 +1,11 @@
-import { Component, defineComponent } from "../../util/Component.js";
+const Component = use('util.Component');
 
 /**
  * A table with a sticky header
  */
-export default class Table extends Component {
+export default def(class Table extends Component {
+    static ID = 'ui.component.Table';
+
     static PROPERTIES = {
         headings: { value: [] },
         scale: { value: '2pt' },
@@ -78,6 +80,4 @@ export default class Table extends Component {
             }
         });
     }
-}
-
-defineComponent('c-table', Table);
+});

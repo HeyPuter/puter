@@ -1,10 +1,12 @@
-import { Component, defineComponent } from "../../util/Component.js";
+const Component = use('util.Component');
 
 /**
  * A simple component that displays a string in the
  * specified style.
  */
-export default class StringView extends Component {
+export default def(class StringView extends Component {
+    static ID = 'ui.component.StringView';
+
     static PROPERTIES = {
         text: { value: '' },
         heading: { value: 0 },
@@ -40,6 +42,4 @@ export default class StringView extends Component {
             either({ heading: this.get('heading'), text });
         });
     }
-}
-
-defineComponent('c-string-view', StringView);
+});
