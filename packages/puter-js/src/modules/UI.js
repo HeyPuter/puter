@@ -54,6 +54,7 @@ class AppConnection extends EventListener {
                 this.#isOpen = false;
                 this.emit('close', {
                     appInstanceID: this.targetAppInstanceID,
+                    statusCode: event.data.statusCode,
                 });
             }
         });

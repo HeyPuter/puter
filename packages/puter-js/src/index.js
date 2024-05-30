@@ -262,10 +262,16 @@ window.puter = (function() {
             this.updateSubmodules();
         }
 
-        exit = function() {
+        exit = function(statusCode = 0) {
+            if (statusCode && (typeof statusCode !== 'number')) {
+                console.warn('puter.exit() requires status code to be a number. Treating it as 1');
+                statusCode = 1;
+            }
+
             window.parent.postMessage({
                 msg: "exit",
                 appInstanceID: this.appInstanceID,
+                statusCode,
             }, '*');
         }
 

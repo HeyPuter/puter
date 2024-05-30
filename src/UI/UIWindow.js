@@ -2887,7 +2887,7 @@ $.fn.close = async function(options) {
             $(`.window[data-parent_uuid="${window_uuid}"]`).close();
 
             // notify other apps that we're closing
-            window.report_app_closed(window_uuid);
+            window.report_app_closed(window_uuid, options.status_code ?? 0);
 
             // remove backdrop
             $(this).closest('.window-backdrop').remove();

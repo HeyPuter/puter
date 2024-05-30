@@ -62,9 +62,12 @@ export class PuterAppCommandProvider {
 
                 // Wait for app to close.
                 const app_close_promise = new Promise((resolve, reject) => {
-                    child.on('close', () => {
-                        // TODO: Exit codes for apps
-                        resolve({ done: true });
+                    child.on('close', (data) => {
+                        if ((data.statusCode ?? 0) != 0) {
+                            reject(new Exit(data.statusCode));
+                        } else {
+                            resolve({ done: true });
+                        }
                     });
                 });
 
