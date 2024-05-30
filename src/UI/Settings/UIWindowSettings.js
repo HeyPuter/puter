@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import Placeholder from '../../util/Placeholder.js';
 import UIWindow from '../UIWindow.js'
 
 async function UIWindowSettings(options){
@@ -26,6 +27,7 @@ async function UIWindowSettings(options){
         const svc_settings = globalThis.services.get('settings');
 
         const tabs = svc_settings.get_tabs();
+        const tab_placeholders = [];
 
         let h = '';
 
@@ -42,9 +44,14 @@ async function UIWindowSettings(options){
             h += `<div class="settings-content-container">`;
 
             tabs.forEach((tab, i) => {
-                h += `<div class="settings-content ${i === 0 ? 'active' : ''}" data-settings="${tab.id}">
-                        ${tab.html()}
-                    </div>`;
+                h += `<div class="settings-content ${i === 0 ? 'active' : ''}" data-settings="${tab.id}">`;
+                if ( tab.factory ) {
+                    tab_placeholders[i] = Placeholder();
+                    h += tab_placeholders[i].html;
+                } else {
+                    h += tab.html();
+                }
+                h += `</div>`;
             });
 
             h += `</div>`;
@@ -85,7 +92,13 @@ async function UIWindowSettings(options){
             }
         });
         const $el_window = $(el_window);
-        tabs.forEach(tab => tab.init($el_window));
+        tabs.forEach((tab, i) => {
+            tab.init && tab.init($el_window);
+            if ( tab.factory ) {
+                const component = tab.factory();
+                component.attach(tab_placeholders[i]);
+            }
+        });
 
         $(el_window).on('click', '.settings-sidebar-item', function(){
             const $this = $(this);

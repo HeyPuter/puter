@@ -84,7 +84,8 @@ logger.info('start -> blocking initialization');
         }
 
         if ( registry_.classes_m[id] ) {
-            throw new Error(`Class with ID ${id} already registered`);
+            // throw new Error(`Class with ID ${id} already registered`);
+            return;
         }
 
         registry_.classes_m[id] = cls;

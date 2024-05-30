@@ -3709,6 +3709,10 @@ fieldset[name=number-code] {
     height: 45px;
 }
 
+.thin-card {
+    padding: 0 15px;
+}
+
 .settings-card strong {
     font-weight: 500;
 }

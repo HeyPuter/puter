@@ -3,15 +3,19 @@ const Component = use('util.Component');
 export default def(class Spinner extends Component {
     static ID = 'ui.component.Spinner';
 
-    static PROPERTIES = {}
+    static PROPERTIES = {
+        size: {
+            value: 24,
+        },
+    }
     // static RENDER_MODE = Component.NO_SHADOW;
 
     create_template ({ template }) {
-        console.log('template?', template);
+        const size = '' + Number(this.get('size'));
 
         template.innerHTML = /*html*/`
             <div>
-                <svg style="display:block; margin: 0 auto; " xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24">
+                <svg style="display:block; margin: 0 auto; " xmlns="http://www.w3.org/2000/svg" height="${size}" width="${size}" viewBox="0 0 24 24">
                     <title>circle anim</title>
                     <g fill="#212121" class="nc-icon-wrapper">
                         <g class="nc-loop-circle-24-icon-f">
