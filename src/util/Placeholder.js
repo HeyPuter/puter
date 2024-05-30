@@ -18,7 +18,7 @@
  * 
  * @returns {PlaceholderReturn}
  */
-const Placeholder = () => {
+const Placeholder = def(() => {
     const id = Placeholder.get_next_id_();
     return {
         $: 'placeholder',
@@ -29,7 +29,7 @@ const Placeholder = () => {
             place.replaceWith(el);
         }
     };
-};
+}, 'util.Placeholder');
 
 const anti_collision = `94d2cb6b85a1`; // Arbitrary random string
 Placeholder.next_id_ = 0;
