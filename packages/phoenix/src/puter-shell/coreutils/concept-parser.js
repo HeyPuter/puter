@@ -1,5 +1,6 @@
-import { GrammarContext, standard_parsers } from '../../../packages/newparser/exports.js';
-import { Parser, UNRECOGNIZED, VALUE } from '../../../packages/newparser/lib.js';
+import { GrammarContext, standard_parsers } from '../../../packages/parsely/exports.js';
+import { Parser, UNRECOGNIZED, VALUE } from '../../../packages/parsely/parser.js';
+import { StringStream } from '../../../packages/parsely/streams.js';
 
 class NumberParser extends Parser {
     static data = {
@@ -163,39 +164,6 @@ class StringParser extends Parser {
     }
 }
 
-class StringStream {
-    constructor (str, startIndex = 0) {
-        this.str = str;
-        this.i = startIndex;
-    }
-
-    value_at (index) {
-        if ( index >= this.str.length ) {
-            return { done: true, value: undefined };
-        }
-
-        return { done: false, value: this.str[index] };
-    }
-
-    look () {
-        return this.value_at(this.i);
-    }
-
-    next () {
-        const result = this.value_at(this.i);
-        this.i++;
-        return result;
-    }
-
-    fork () {
-        return new StringStream(this.str, this.i);
-    }
-
-    join (forked) {
-        this.i = forked.i;
-    }
-}
-
 export default {
     name: 'concept-parser',
     args: {
@@ -204,15 +172,13 @@ export default {
     },
     execute: async ctx => {
         const { in_, out, err } = ctx.externs;
-        await out.write("STARTING CONCEPT PARSER\n");
         const grammar_context = new GrammarContext(standard_parsers());
-        await out.write("Constructed a grammar context\n");
 
         const parser = grammar_context.define_parser({
             element: a => a.sequence(
-                a.symbol('whitespace'),
+                a.optional(a.symbol('whitespace')),
                 a.symbol('value'),
-                a.symbol('whitespace'),
+                a.optional(a.symbol('whitespace')),
             ),
             value: a => a.firstMatch(
                 a.symbol('object'),
@@ -225,37 +191,33 @@ export default {
             ),
             array: a => a.sequence(
                 a.literal('['),
-                a.symbol('whitespace'),
-                a.optional(
+                a.firstMatch(
                     a.repeat(
                         a.symbol('element'),
                         a.literal(','),
-                        { trailing: true },
+                        { trailing: false },
                     ),
+                    a.optional(a.symbol('whitespace')),
                 ),
-                a.symbol('whitespace'),
                 a.literal(']'),
             ),
             member: a => a.sequence(
-                a.symbol('whitespace'),
+                a.optional(a.symbol('whitespace')),
                 a.symbol('string'),
-                a.symbol('whitespace'),
+                a.optional(a.symbol('whitespace')),
                 a.literal(':'),
-                a.symbol('whitespace'),
-                a.symbol('value'),
-                a.symbol('whitespace'),
+                a.symbol('element'),
             ),
             object: a => a.sequence(
                 a.literal('{'),
-                a.symbol('whitespace'),
-                a.optional(
+                a.firstMatch(
                     a.repeat(
                         a.symbol('member'),
                         a.literal(','),
-                        { trailing: true },
+                        { trailing: false },
                     ),
+                    a.optional(a.symbol('whitespace')),
                 ),
-                a.symbol('whitespace'),
                 a.literal('}'),
             ),
             true: a => a.literal('true'),
@@ -263,37 +225,31 @@ export default {
             null: a => a.literal('null'),
             number: a => new NumberParser(),
             string: a => new StringParser(),
-            whitespace: a => a.optional(
-                a.stringOf(' \r\n\t'.split('')),
-            ),
+            whitespace: a => a.stringOf(c => ' \r\n\t'.includes(c)),
         }, {
-            element: it => it[0].value,
+            element: it => it.filter(it => it.$ === 'value')[0].value,
             value: it => it,
             array: it => {
                 // A parsed array contains 3 values: `[`, the entries array, and `]`, so we only care about index 1.
                 // If it's less than 3, there were no entries.
                 if (it.length < 3) return [];
                 return (it[1].value || [])
-                    .filter(it => it.$ !== 'literal')
+                    .filter(it => it.$ === 'element')
                     .map(it => it.value);
             },
             member: it => {
-                // A parsed member contains 3 values: a name, `:`, and a value.
-                const [ name_part, colon, value_part ] = it;
+                const [ name_part, value_part ] = it.filter(it => it.$ === 'string' || it.$ === 'element');
                 return { name: name_part.value, value: value_part.value };
             },
             object: it => {
-                console.log('OBJECT!!!!');
-                console.log(it[1]);
                 // A parsed object contains 3 values: `{`, the members array, and `}`, so we only care about index 1.
                 // If it's less than 3, there were no members.
                 if (it.length < 3) return {};
                 const result = {};
-                // FIXME: This is all wrong!!!
                 (it[1].value || [])
                     .filter(it => it.$ === 'member')
                     .forEach(it => {
-                        result[it.name] = it.value;
+                        result[it.value.name] = it.value.value;
                     });
                 return result;
             },
@@ -305,7 +261,6 @@ export default {
             whitespace: _ => {},
         });
 
-        // TODO: What do we want our streams to be like?
         const input = ctx.locals.positionals.shift();
         const stream = new StringStream(input);
         try {
