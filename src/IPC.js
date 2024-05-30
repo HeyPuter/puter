@@ -30,7 +30,7 @@ import path from "./lib/path.js";
 import UIContextMenu from './UI/UIContextMenu.js';
 
 /**
- * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI) aand each other using the postMessage API.
+ * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.
  * The following sets up an Inter-Process Messaging System between apps and the GUI that enables communication
  * for various tasks such as displaying alerts, prompts, managing windows, handling file operations, and more.
  * 
@@ -360,16 +360,19 @@ window.addEventListener('message', async (event) => {
     else if(event.data.msg === 'setMenubar') {
         const el_window = window.window_for_app_instance(event.data.appInstanceID);
 
-        console.error(`EXPERIMENTAL: setMenubar is a work-in-progress`);
         const hydrator = puter.util.rpc.getHydrator({
             target: target_iframe.contentWindow,
         });
         const value = hydrator.hydrate(event.data.value);
-        console.log('hydrated value', value);
 
         // Show menubar
         const $menubar = $(el_window).find('.window-menubar')
         $menubar.show();
+
+        // disable system context menu
+        $menubar.on('contextmenu', (e) => {
+            e.preventDefault();
+        });
 
         const sanitize_items = items => {
             return items.map(item => {
@@ -405,7 +408,10 @@ window.addEventListener('message', async (event) => {
             const ctxMenu = UIContextMenu({
                 delay,
                 parent_element,
-                position: {top: pos.top + 28, left: pos.left},
+                position: {top: pos.top + 30, left: pos.left},
+                css: {
+                    'box-shadow': '0px 2px 6px #00000059'
+                },
                 items: sanitize_items(items),
             });
 
@@ -429,17 +435,15 @@ window.addEventListener('message', async (event) => {
                 const label = html_encode(item.label);
                 const el_item = $(`<div class="window-menubar-item"><span>${label}</span></div>`);
                 const parent_element = el_item.parent()[0];
-                el_item.on('click', () => {
+                
+                el_item.on('mousedown', (e) => {
                     if ( state_open ) {
                         state_open = false;
                         current && current.cancel({ meta: 'menubar' });
                         current_i = null;
                         current = null;
-                        return;
                     }
-                    if (item.action) {
-                        item.action();
-                    } else if (item.items) {
+                    if (item.items) {
                         const pos = el_item[0].getBoundingClientRect();
                         open_menu({
                             i,
@@ -447,8 +451,19 @@ window.addEventListener('message', async (event) => {
                             parent_element,
                             items: item.items,
                         });
+                        e.stopPropagation();
+                        e.preventDefault();
+                        return;
+                    }
+                })
+                
+                // Clicking an item with an action will trigger that action
+                el_item.on('click', () => {
+                    if (item.action) {
+                        item.action();
                     }
                 });
+
                 el_item.on('mouseover', () => {
                     if ( ! state_open ) return;
                     if ( ! item.items ) return;

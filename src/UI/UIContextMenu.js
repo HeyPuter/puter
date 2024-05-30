@@ -124,11 +124,23 @@ function UIContextMenu(options){
         top: y_pos + "px",
         left: x_pos + "px"
     });
+
+    // Some times we need to apply custom CSS to the context menu
+    // This is different from the option flags for positioning and other basic styling
+    // This is for more advanced styling , like adding a border radius or a shadow that don't merit a new option
+    // Option flags should be reserved for essential styling that may have logic and sanitization attached to them
+    if(options.css){
+        $(contextMenu).css(options.css);
+    }
+
     // Show ContextMenu
-    if ( options?.delay === false ) {
+    if ( options?.delay === false) {
         $(contextMenu).show(0);
+    } else if(options?.delay === true || options?.delay === 1 || options?.delay === undefined) {
+        console.log('delay')
+        $(contextMenu).fadeIn(80).show(0);
     } else {
-        $(contextMenu).delay(100).show(0);
+        $(contextMenu).fadeIn(options?.delay).show(0);
     }
 
     // mark other context menus as inactive

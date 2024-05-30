@@ -751,7 +751,7 @@ span.header-sort-icon img {
     border-bottom: 1px solid #e3e3e3;
     background-color: #fafafa;
     --scale: 2pt;
-    padding: 0 2pt;
+    padding: 2px 5px;
 }
 
 .window-menubar-item {
@@ -766,10 +766,10 @@ span.header-sort-icon img {
     border-radius: calc(1.5 * var(--scale));
 }
 
-.window-menubar-item:hover > span,
 .window-menubar-item.active > span {
-    background-color: var(--select-color);
-    color: white;
+    /* background-color: var(--select-color);
+    color: white; */
+    background-color: #e2e2e2;
 }
 
 .explorer-empty-message {
@@ -1454,6 +1454,7 @@ span.header-sort-icon img {
     min-width: 200px;
     background-color: rgba(231, 238, 245, .98);
     border: 1px solid #e4ebf3de;
+    border: 1px solid #CCC;
     box-shadow: 0px 0px 15px #00000066;
     padding-left: 6px;
     padding-right: 6px;
