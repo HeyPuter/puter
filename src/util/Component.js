@@ -34,14 +34,23 @@ export const Component = def(class Component extends HTMLElement {
         });
     }
 
-    constructor (property_values) {
-        super();
-
+    _set_dom_based_on_render_mode () {
         if ( this.constructor.RENDER_MODE === Component.NO_SHADOW ) {
             this.dom_ = this;
         } else {
             this.dom_ = this.attachShadow({ mode: 'open' });
         }
+    }
+
+    constructor (property_values) {
+        super();
+
+        property_values = property_values || {};
+
+        // We allow a subclass of component to define custom behavior
+        // for the `RENDER_MODE` static property. This is so JustHTML
+        // can have ths `no_shadow: true` option.
+        this._set_dom_based_on_render_mode({ property_values });
 
         this.values_ = {};
 
@@ -104,6 +113,10 @@ export const Component = def(class Component extends HTMLElement {
     }
 
     get (key) {
+        if ( ! this.values_.hasOwnProperty(key) ) {
+            throw new Error(`Unknown property \`${key}\` in ${
+                this.constructor.ID || this.constructor.name}`);
+        }
         return this.values_[key].get();
     }
 
@@ -126,6 +139,11 @@ export const Component = def(class Component extends HTMLElement {
         }
 
         if ( destination instanceof HTMLElement ) {
+            destination.appendChild(this);
+            return;
+        }
+
+        if ( destination instanceof ShadowRoot ) {
             destination.appendChild(this);
             return;
         }
@@ -162,6 +180,14 @@ export const Component = def(class Component extends HTMLElement {
     get_api_ () {
         return {
             listen: (name, callback) => {
+                if ( Array.isArray(name) ) {
+                    const names = name;
+                    for ( const name of names ) {
+                        this.values_[name].sub((_, more) => {
+                            callback(this, { ...more, name });
+                        });
+                    }
+                }
                 this.values_[name].sub(callback);
                 callback(this.values_[name].get(), {});
             }
