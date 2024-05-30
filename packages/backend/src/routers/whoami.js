@@ -60,6 +60,11 @@ const WHOAMI_GET = eggspress('/whoami', {
         ...(req.new_token ? { token: req.token } : {})
     };
 
+    // Get whoami values from other services
+    const svc_whoami = req.services.get('whoami');
+    const provider_details = await svc_whoami.get_details({ user: req.user });
+    Object.assign(details, provider_details);
+
     if ( ! is_user ) {
         // When apps call /whoami they should not see these attributes
         // delete details.username;

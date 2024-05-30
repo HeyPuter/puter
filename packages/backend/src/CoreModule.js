@@ -219,6 +219,9 @@ const install = async ({ services, app }) => {
 
     const { GetUserService } = require('./services/GetUserService');
     services.registerService('get-user', GetUserService);
+
+    const { DetailProviderService } = require('./services/DetailProviderService');
+    services.registerService('whoami', DetailProviderService);
 }
 
 const install_legacy = async ({ services }) => {
