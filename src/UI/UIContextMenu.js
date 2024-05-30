@@ -176,6 +176,11 @@ function UIContextMenu(options){
         return false;
     });
 
+    // This will hold the timer for the submenu delay
+    // There is a delay in opening the submenu, this is to make sure that if the mouse is 
+    // just passing over the item, the submenu doesn't open immediately.
+    let submenu_delay_timer;
+
     // Initialize the menuAim plugin (../libs/jquery.menu-aim.js)
     $(contextMenu).menuAim({
         submenuSelector: ".context-menu-item-submenu",
@@ -192,52 +197,56 @@ function UIContextMenu(options){
         },
         // activates item when mouse enters depending on mouse position and direction
         activate: function (e) {
-            //activate items
-            let item = $(e).closest('.context-menu-item');
-            // mark other items as inactive
-            $(contextMenu).find('.context-menu-item').removeClass('context-menu-item-active');
-            // mark this item as active
-            $(item).addClass('context-menu-item-active');
-            // close any submenu that doesn't belong to this item
-            $(`.context-menu[data-parent-id="${menu_id}"]`).remove();
-            // mark this context menu as active
-            $(contextMenu).addClass('context-menu-active');
+                //activate items
+                let item = $(e).closest('.context-menu-item');
+                // mark other items as inactive
+                $(contextMenu).find('.context-menu-item').removeClass('context-menu-item-active');
+                // mark this item as active
+                $(item).addClass('context-menu-item-active');
+                // close any submenu that doesn't belong to this item
+                $(`.context-menu[data-parent-id="${menu_id}"]`).remove();
+                // mark this context menu as active
+                $(contextMenu).addClass('context-menu-active');
 
-            // activate submenu
-            // open submenu if applicable
-            if($(e).hasClass('context-menu-item-submenu')){
-                let item_rect_box = e.getBoundingClientRect();
-                // open submenu only if it's not already open
-                if($(`.context-menu[data-id="${menu_id}-${$(e).attr('data-action')}"]`).length === 0){
-                    // close other submenus
-                    $(`.context-menu[parent-element-id="${menu_id}"]`).remove();
+            submenu_delay_timer = setTimeout(() => {
+                // activate submenu
+                // open submenu if applicable
+                if($(e).hasClass('context-menu-item-submenu')){
+                    let item_rect_box = e.getBoundingClientRect();
+                    // open submenu only if it's not already open
+                    if($(`.context-menu[data-id="${menu_id}-${$(e).attr('data-action')}"]`).length === 0){
+                        // close other submenus
+                        $(`.context-menu[parent-element-id="${menu_id}"]`).remove();
 
-                    // Calculate the position for the submenu
-                    let submenu_x_pos, submenu_y_pos;
-                    if (isMobile.phone || isMobile.tablet) {
-                        submenu_y_pos = y_pos;
-                        submenu_x_pos = x_pos;
-                    } else {
-                        submenu_y_pos = item_rect_box.top - 5; 
-                        submenu_x_pos = x_pos + item_rect_box.width + 15;
+                        // Calculate the position for the submenu
+                        let submenu_x_pos, submenu_y_pos;
+                        if (isMobile.phone || isMobile.tablet) {
+                            submenu_y_pos = y_pos;
+                            submenu_x_pos = x_pos;
+                        } else {
+                            submenu_y_pos = item_rect_box.top - 5; 
+                            submenu_x_pos = x_pos + item_rect_box.width + 15;
+                        }
+
+                        // open the new submenu
+                        UIContextMenu({ 
+                            items: options.items[parseInt($(e).attr('data-action'))].items,
+                            parent_id: menu_id,
+                            is_submenu: true,
+                            id: menu_id + '-' + $(e).attr('data-action'),
+                            position:{
+                                top: submenu_y_pos,
+                                left: submenu_x_pos,
+                            } 
+                        })
                     }
-
-                    // open the new submenu
-                    UIContextMenu({ 
-                        items: options.items[parseInt($(e).attr('data-action'))].items,
-                        parent_id: menu_id,
-                        is_submenu: true,
-                        id: menu_id + '-' + $(e).attr('data-action'),
-                        position:{
-                            top: submenu_y_pos,
-                            left: submenu_x_pos,
-                        } 
-                    })
                 }
-            }
+            }, 100);
         },
-        //deactivates row when mouse leavess
+        //deactivates row when mouse leaves
         deactivate: function (e) {
+            // disable submenu delay timer
+            clearTimeout(submenu_delay_timer);
             //deactivate submenu
             if($(e).hasClass('context-menu-item-submenu')){
                 $(`.context-menu[data-id="${menu_id}-${$(e).attr('data-action')}"]`).remove();

@@ -200,8 +200,7 @@ const en = {
         properties: "Properties",
         publish: "Publish",
         publish_as_website: 'Publish as website',
-        puter_description: `Puter is a privacy-first personal cloud to keep all your files, apps, and games in one
-        secure place, accessible from anywhere at any time.`,
+        puter_description: `Puter is a privacy-first personal cloud to keep all your files, apps, and games in one secure place, accessible from anywhere at any time.`,
         reading_file: "Reading %strong%",
         recent: "Recent",
         recommended: "Recommended",
