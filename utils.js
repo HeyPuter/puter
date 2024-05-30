@@ -161,6 +161,7 @@ async function build(options){
 
     const copy_these = [
         'images', 
+        'fonts',
         'favicons',
         'browserconfig.xml', 
         'manifest.json', 

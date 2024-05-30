@@ -17,9 +17,67 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+ @font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter-Thin.ttf') format('truetype');
+    font-weight: 100;
+}
+
+@font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter-ExtraLight.ttf') format('truetype');
+    font-weight: 200;
+}
+
+@font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter-Light.ttf') format('truetype');
+    font-weight: 300;
+}
+
+@font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter-Regular.ttf') format('truetype');
+    font-weight: 400;
+}
+
+@font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter-Medium.ttf') format('truetype');
+    font-weight: 500;
+}
+
+@font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter-SemiBold.ttf') format('truetype');
+    font-weight: 600;
+}
+
+@font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter-Bold.ttf') format('truetype');
+    font-weight: 700;
+}
+
+@font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter-ExtraBold.ttf') format('truetype');
+    font-weight: 800;
+}
+
+@font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter-Black.ttf') format('truetype');
+    font-weight: 900;
+}
+
 * {
-    font-family: "Helvetica Neue", HelveticaNeue, Helvetica, Arial, sans-serif;
+    font-family: "Inter", "Helvetica Neue", HelveticaNeue, Helvetica, Arial, sans-serif;
     user-select: none;
+    font-optical-sizing: auto;
+    font-style: normal;
+    font-variation-settings: "slnt"0;
+
 }
 
 :root {
@@ -766,7 +824,7 @@ span.header-sort-icon img {
     border-radius: calc(1.5 * var(--scale));
 }
 
-.window-menubar-item.active > span {
+.window-menubar-item.active>span {
     /* background-color: var(--select-color);
     color: white; */
     background-color: #e2e2e2;
@@ -886,19 +944,17 @@ span.header-sort-icon img {
 .window-head {
     overflow: hidden !important;
     padding: 0;
-    background-color: hsla(
-        var(--window-head-hue),
-        var(--window-head-saturation),
-        var(--window-head-lightness),
-        calc(0.5 + 0.5 * var(--window-head-alpha))
-    );
+    background-color: hsla(var(--window-head-hue),
+            var(--window-head-saturation),
+            var(--window-head-lightness),
+            calc(0.5 + 0.5 * var(--window-head-alpha)));
     filter: grayscale(80%);
     box-shadow: inset 0px -4px 5px -7px rgb(0 0 0 / 64%);
     display: flex;
     flex-flow: row;
     padding-left: 5px;
     margin-bottom: -1px;
-    
+
 }
 
 .device-phone .window-head {
@@ -1093,12 +1149,10 @@ span.header-sort-icon img {
     border-right: 1px solid #CCC;
     padding: 15px 10px;
     box-sizing: border-box;
-    background-color: hsla(
-        var(--window-sidebar-hue),
-        var(--window-sidebar-saturation),
-        var(--window-sidebar-lightness),
-        calc(0.5 + 0.5*var(--window-sidebar-alpha))
-    );
+    background-color: hsla(var(--window-sidebar-hue),
+            var(--window-sidebar-saturation),
+            var(--window-sidebar-lightness),
+            calc(0.5 + 0.5*var(--window-sidebar-alpha)));
     overflow-y: scroll;
     margin-top: 1px;
 }
@@ -1479,7 +1533,7 @@ span.header-sort-icon img {
     padding: 5px;
     list-style-type: none;
     user-select: none;
-    font-size: 13px;
+    font-size: 12px;
     height: 25px;
     box-sizing: border-box;
     position: relative;
@@ -2109,12 +2163,10 @@ label {
     bottom: 0;
     left: 0;
     width: 100%;
-    background-color: hsla(
-        var(--taskbar-hue),
-        var(--taskbar-saturation),
-        var(--taskbar-lightness),
-        calc(0.5 + 0.5*var(--taskbar-alpha))
-    );
+    background-color: hsla(var(--taskbar-hue),
+            var(--taskbar-saturation),
+            var(--taskbar-lightness),
+            calc(0.5 + 0.5*var(--taskbar-alpha)));
     display: flex;
     justify-content: center;
     z-index: 99999;
@@ -2221,12 +2273,10 @@ label {
 
 @supports ((backdrop-filter: blur())) {
     .taskbar {
-        background-color: hsla(
-            var(--taskbar-hue),
-            var(--taskbar-saturation),
-            var(--taskbar-lightness),
-            var(--taskbar-alpha)
-        );
+        background-color: hsla(var(--taskbar-hue),
+                var(--taskbar-saturation),
+                var(--taskbar-lightness),
+                var(--taskbar-alpha));
         backdrop-filter: blur(10px);
     }
 
@@ -2527,14 +2577,16 @@ label {
 
 /* UIWindowEmailConfirmationRequired */
 fieldset[name=number-code] {
-    min-width: 0; /* Fix for Firefox */
+    min-width: 0;
+    /* Fix for Firefox */
     display: flex;
     justify-content: space-between;
     gap: 5px;
 }
 
 .digit-input {
-    min-width: 0; /* Fix for Firefox */
+    min-width: 0;
+    /* Fix for Firefox */
     box-sizing: border-box;
     flex-grow: 1;
     height: 50px;
@@ -2760,12 +2812,10 @@ fieldset[name=number-code] {
 
 @supports ((backdrop-filter: blur())) {
     .window-head {
-        background-color: hsla(
-            var(--window-head-hue),
-            var(--window-head-saturation),
-            var(--window-head-lightness),
-            var(--window-head-alpha)
-        );
+        background-color: hsla(var(--window-head-hue),
+                var(--window-head-saturation),
+                var(--window-head-lightness),
+                var(--window-head-alpha));
         backdrop-filter: blur(10px);
     }
 
@@ -2776,12 +2826,10 @@ fieldset[name=number-code] {
 
     .window-sidebar {
         /* background-color: var(--puter-window-background); */
-        background-color: hsla(
-            var(--window-sidebar-hue),
-            var(--window-sidebar-saturation),
-            var(--window-sidebar-lightness),
-            var(--window-sidebar-alpha)
-        );
+        background-color: hsla(var(--window-sidebar-hue),
+                var(--window-sidebar-saturation),
+                var(--window-sidebar-lightness),
+                var(--window-sidebar-alpha));
         backdrop-filter: blur(10px);
     }
 
@@ -3533,7 +3581,7 @@ fieldset[name=number-code] {
     max-width: 500px;
 }
 
-.about-container .about{
+.about-container .about {
     text-align: center;
 }
 
@@ -3722,7 +3770,8 @@ fieldset[name=number-code] {
     background: #ffecec;
     color: rgb(215 2 2);
 }
-.settings-card-success{
+
+.settings-card-success {
     border-color: #08bf4e;
     background: #e6ffed;
     color: #03933a;
@@ -3755,22 +3804,25 @@ fieldset[name=number-code] {
     -webkit-font-smoothing: antialiased;
     color: #5f626d;
 }
-.account-deletion-confirmation-icon{
-    width: 70px; 
-    margin: 20px auto 20px; 
-    display: block; 
-    margin-bottom: 20px;
-}
-.proceed-with-user-deletion{
-    margin-bottom: 20px;
-}
-.confirm-temporary-user-deletion{
-    width: 100%; 
+
+.account-deletion-confirmation-icon {
+    width: 70px;
+    margin: 20px auto 20px;
+    display: block;
     margin-bottom: 20px;
 }
 
-.confirm-user-deletion-password{
-    width: 100%; 
+.proceed-with-user-deletion {
+    margin-bottom: 20px;
+}
+
+.confirm-temporary-user-deletion {
+    width: 100%;
+    margin-bottom: 20px;
+}
+
+.confirm-user-deletion-password {
+    width: 100%;
     margin-bottom: 20px;
 }
 
