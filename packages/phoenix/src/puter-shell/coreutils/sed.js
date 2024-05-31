@@ -32,11 +32,24 @@ export default {
     args: {
         $: 'simple-parser',
         allowPositionals: true,
+        tokens: true,
         options: {
+            dump: {
+                description: 'Dump a representation of the parsed script, for debugging.',
+                type: 'boolean',
+                default: false,
+            },
             expression: {
                 description: 'Specify an additional script to execute. May be specified multiple times.',
                 type: 'string',
                 short: 'e',
+                multiple: true,
+                default: [],
+            },
+            file: {
+                description: 'Specify a script file to execute. May be specified multiple times.',
+                type: 'string',
+                short: 'f',
                 multiple: true,
                 default: [],
             },
@@ -50,7 +63,7 @@ export default {
     },
     execute: async ctx => {
         const { out, err } = ctx.externs;
-        const { positionals, values } = ctx.locals;
+        const { positionals, values, tokens } = ctx.locals;
 
         if (positionals.length < 1) {
             await err.write('sed: No inputs given\n');
@@ -62,16 +75,34 @@ export default {
         // made, if the previous addition (if any) was from a -e option, a <newline> shall be inserted before the new
         // addition. The resulting script shall have the same properties as the script operand, described in the
         // OPERANDS section."
-        // TODO: -f loads scripts from a file
         let scriptString = '';
-        if (values.expression.length > 0) {
-            scriptString = values.expression.join('\n');
+        if (values.expression.length + values.file.length > 0) {
+            // These have to be in order, and -e and -f could be intermixed, so iterate the tokens
+            for (let token of tokens) {
+                if (token.kind !== 'option') continue;
+                if (token.name === 'expression') {
+                    scriptString += token.value + '\n';
+                    continue;
+                }
+                if (token.name === 'file') {
+                    for await (const line of fileLines(ctx, token.value)) {
+                        scriptString += line;
+                    }
+                    continue;
+                }
+            }
         } else {
             scriptString = positionals.shift();
         }
 
-        const script = parseScript(scriptString);
-        await out.write(script.dump());
-        await script.run(ctx);
+        try {
+            const script = parseScript(scriptString, values);
+            if (values.dump)
+                await out.write(script.dump());
+            await script.run(ctx);
+        } catch (e) {
+            console.error(e);
+            await err.write(`sed: ${e.message}\n`);
+        }
     }
 };
