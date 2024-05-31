@@ -56,6 +56,10 @@ export class AddressRange {
         this.leaveRangeNextLine = false;
     }
 
+    get addressCount() {
+        return (this.start ? 1 : 0) + (this.end ? 1 : 0);
+    }
+
     updateMatchState(lineNumber, line) {
         // Only ranges have a state to update
         if (!(this.start && this.end)) {

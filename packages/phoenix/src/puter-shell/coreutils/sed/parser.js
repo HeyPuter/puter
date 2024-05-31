@@ -16,47 +16,534 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { AddressRange } from './address.js';
-import * as Commands from './command.js';
+import { Address, AddressRange } from './address.js';
+import {
+    AppendTextCommand,
+    BranchCommand,
+    ConditionalBranchCommand,
+    DebugPrintCommand,
+    DeleteCommand,
+    DeleteLineCommand,
+    ExchangeCommand,
+    GetAppendCommand,
+    GetCommand,
+    GroupEndCommand,
+    GroupStartCommand,
+    HoldAppendCommand,
+    HoldCommand,
+    InsertTextCommand,
+    LabelCommand,
+    LineNumberCommand,
+    PrintCommand,
+    PrintLineCommand,
+    QuitCommand,
+    ReplaceCommand,
+    SubstituteCommand,
+    SubstituteFlags,
+    TransliterateCommand,
+    ZapCommand,
+} from './command.js';
 import { Script } from './script.js';
+import { GrammarContext, standard_parsers } from '../../../../packages/parsely/exports.js';
+import { StringStream } from '../../../../packages/parsely/streams.js';
+import { INVALID, Parser, UNRECOGNIZED, VALUE } from '../../../../packages/parsely/parser.js';
 
-export const parseScript = (scriptString) => {
-    const commands = [];
+/**
+ * A slight hack: Parsely doesn't yet have an equivalent of backreferences.
+ * So, while parsing /foo/bar/, where the `/` can be any character, we set the current_delimiter variable
+ * to that delimiter character temporarily, so we can refer to it in the subsequent delimiters.
+ */
+class DelimiterParser extends Parser {
+    static current_delimiter;
 
-    // Generate a hard-coded script for now.
-    // TODO: Actually parse input!
+    _create({ first = false, character = null } = {}) {
+        this.character = character;
+        this.first = first;
+    }
 
-    commands.push(new Commands.SubstituteCommand(new AddressRange(), /Puter/, 'Frogger', new Commands.SubstituteFlags()));
-    commands.push(new Commands.ConditionalBranchCommand(new AddressRange(), 'yay', true));
-    commands.push(new Commands.ConditionalBranchCommand(new AddressRange(), 'nay', false));
-    commands.push(new Commands.AppendTextCommand(new AddressRange(), 'HELLO!'));
-    commands.push(new Commands.LabelCommand('yay'));
-    commands.push(new Commands.PrintCommand(new AddressRange()));
-    commands.push(new Commands.BranchCommand(new AddressRange(), 'end'));
-    commands.push(new Commands.LabelCommand('nay'));
-    commands.push(new Commands.AppendTextCommand(new AddressRange(), 'NADA!'));
-    commands.push(new Commands.LabelCommand('end'));
+    _parse(stream) {
+        const sub_stream = stream.fork();
 
-    // commands.push(new TransliterateCommand(new AddressRange(), 'abcdefABCDEF', 'ABCDEFabcdef'));
-    // commands.push(new ZapCommand(new AddressRange({start: new Address(1), end: new Address(10)})));
-    // commands.push(new HoldAppendCommand(new AddressRange({start: new Address(1), end: new Address(10)})));
-    // commands.push(new GetCommand(new AddressRange({start: new Address(11)})));
-    // commands.push(new DebugPrintCommand(new AddressRange()));
+        let { done, value } = sub_stream.next();
+        if (done) return UNRECOGNIZED;
 
-    // commands.push(new ReplaceCommand(new AddressRange({start: new Address(3), end: new Address(30)}), "LOL"));
+        if (this.first) {
+            if (this.character && this.character !== value)
+                return UNRECOGNIZED;
+            // Backslash and newline are disallowed as delimiters.
+            if (value === '\n' || value === '\\')
+                return UNRECOGNIZED;
+            DelimiterParser.current_delimiter = value;
+        } else if (DelimiterParser.current_delimiter !== value) {
+            return UNRECOGNIZED;
+        }
 
-    // commands.push(new GroupCommand(new AddressRange({ start: new Address(5), end: new Address(10) }), [
-    //     // new LineNumberCommand(),
-    //     // new TextCommand(new AddressRange({ start: new Address(8) }), "Well hello friends! :^)"),
-    //     new QuitCommand(new AddressRange({ start: new Address(8) })),
-    //     new NoopCommand(new AddressRange()),
-    //     new PrintCommand(new AddressRange({ start: new Address(2), end: new Address(14) })),
-    // ]));
+        stream.join(sub_stream);
+        return { status: VALUE, $: 'delimiter', value };
+    }
+}
 
-    // commands.push(new LineNumberCommand(new AddressRange({ start: new Address(5), end: new Address(10) })));
-    // commands.push(new PrintCommand());
-    // commands.push(new NoopCommand());
-    // commands.push(new PrintCommand());
+export const parseScript = (script_string, options) => {
 
-    return new Script(commands);
+    const grammar_context = new GrammarContext({
+        ...standard_parsers(),
+        delimiter: DelimiterParser,
+    });
+
+    let group_start_id = 0;
+    let group_end_id = 0;
+
+    const parser = grammar_context.define_parser({
+        script: a => a.repeat(
+            a.optional(a.symbol('command')),
+            a.firstMatch(
+                a.literal('\n'),
+                a.literal(';'),
+            ),
+        ),
+        command: a => a.sequence(
+            a.symbol('whitespace'),
+            a.optional(a.symbol('address_range')),
+            a.symbol('whitespace'),
+            a.firstMatch(
+                a.discard(a.symbol('comment')),
+                a.symbol('{'),
+                a.symbol('}'),
+                a.symbol(':'),
+                a.symbol('='),
+                a.symbol('a'),
+                a.symbol('b'),
+                a.symbol('c'),
+                a.symbol('d'),
+                a.symbol('D'),
+                a.symbol('g'),
+                a.symbol('G'),
+                a.symbol('h'),
+                a.symbol('H'),
+                a.symbol('i'),
+                a.symbol('l'),
+                a.symbol('p'),
+                a.symbol('P'),
+                a.symbol('q'),
+                a.symbol('Q'),
+                a.symbol('s'),
+                a.symbol('t'),
+                a.symbol('T'),
+                a.symbol('x'),
+                a.symbol('y'),
+                a.symbol('z'),
+            ),
+        ),
+        address_range: a => a.sequence(
+            a.optional(
+                a.sequence(
+                    a.symbol('address'),
+                    a.optional(a.sequence(
+                        a.literal(','),
+                        a.symbol('address'),
+                    )),
+                ),
+            ),
+            a.optional(
+                a.sequence(
+                    a.symbol('whitespace'),
+                    a.literal('!'),
+                ),
+            ),
+        ),
+        address: a => a.firstMatch(
+            // TODO: A dollar sign, for "final line"
+            a.symbol('decimal_number'),
+            a.symbol('regex'),
+        ),
+        decimal_number: a => a.stringOf(c => /\d/.test(c)),
+        regex: a => a.sequence(
+            a.firstMatch(
+                a.delimiter({ first: true, character: '/' }),
+                a.sequence(
+                    a.literal('\\'),
+                    a.delimiter({ first: true }),
+                ),
+            ),
+            a.stringUntil(c => c === DelimiterParser.current_delimiter),
+            a.delimiter(),
+        ),
+        whitespace: a => a.discard(
+            a.optional(
+                a.stringOf(c => /[ \t]/.test(c)),
+            ),
+        ),
+        label: a => a.stringOf(c => {
+            // POSIX defines this as being characters within "the portable filename character set".
+            return /[A-Za-z0-9.\-_]/.test(c);
+        }),
+        filename: a => a.stringOf(c => {
+            return /[A-Za-z0-9.\-_]/.test(c);
+        }),
+        text: a => a.stringUntil('\n'),
+        comment: a => a.sequence(
+            a.literal('#'),
+            a.stringOf(c => c !== '\n'),
+        ),
+        '{': a => a.literal('{'),
+        '}': a => a.literal('}'),
+        ':': a => a.sequence(
+            a.literal(':'),
+            a.symbol('label'),
+        ),
+        '=': a => a.literal('='),
+        a: a => a.sequence(
+            a.literal('a\\\n'),
+            a.symbol('text'),
+        ),
+        b: a => a.sequence(
+            a.literal('b'),
+            a.optional(
+                a.sequence(
+                    a.symbol('whitespace'),
+                    a.symbol('label'),
+                ),
+            ),
+        ),
+        c: a => a.sequence(
+            a.literal('c\\\n'),
+            a.symbol('text'),
+        ),
+        d: a => a.literal('d'),
+        D: a => a.literal('D'),
+        g: a => a.literal('g'),
+        G: a => a.literal('G'),
+        h: a => a.literal('h'),
+        H: a => a.literal('H'),
+        i: a => a.sequence(
+            a.literal('i\\\n'),
+            a.symbol('text'),
+        ),
+        l: a => a.literal('l'),
+        p: a => a.literal('p'),
+        P: a => a.literal('P'),
+        q: a => a.literal('q'),
+        Q: a => a.literal('Q'),
+        s: a => a.sequence(
+            a.literal('s'),
+            a.delimiter({ first: true }),
+            a.stringUntil(c => c === DelimiterParser.current_delimiter),
+            a.delimiter(),
+            a.stringUntil(c => c === DelimiterParser.current_delimiter),
+            a.delimiter(),
+            a.optional(
+                a.repeat(
+                    a.firstMatch(
+                        a.literal('g'),
+                        a.literal('p'),
+                        a.symbol('decimal_number'),
+                        a.sequence(
+                            a.literal('w'),
+                            a.symbol('whitespace'),
+                            a.symbol('filename'),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        t: a => a.sequence(
+            a.literal('t'),
+            a.optional(
+                a.sequence(
+                    a.symbol('whitespace'),
+                    a.symbol('label'),
+                ),
+            ),
+        ),
+        T: a => a.sequence(
+            a.literal('T'),
+            a.optional(
+                a.sequence(
+                    a.symbol('whitespace'),
+                    a.symbol('label'),
+                ),
+            ),
+        ),
+        x: a => a.literal('x'),
+        y: a => a.sequence(
+            a.literal('y'),
+            a.delimiter({ first: true }),
+            a.stringUntil(c => c === DelimiterParser.current_delimiter),
+            a.delimiter(),
+            a.stringUntil(c => c === DelimiterParser.current_delimiter),
+            a.delimiter(),
+        ),
+        z: a => a.literal('z'),
+    }, {
+        script: script => {
+            const commands = script
+                .filter(it => {
+                    return it.$ === 'command' && it.value;
+                }).map(it => {
+                    return it.value;
+                });
+
+            // Record all labels that exist in the script, so we can validate branch commands.
+            const labels = new Set();
+            for (const command of commands) {
+                if (command instanceof LabelCommand) {
+                    labels.add(command.label);
+                }
+            }
+
+            // Validate commands
+            let group_depth = 0;
+            for (const command of commands) {
+                // Ensure branches all go to labels that exist
+                if (command instanceof BranchCommand || command instanceof ConditionalBranchCommand) {
+                    // Note: Branches to the end of the script don't have a label.
+                    if (command.label && !labels.has(command.label))
+                        throw new Error(`Label "${command.label}" does not exist in the script.`);
+                }
+
+                if (command instanceof GroupStartCommand) {
+                    group_depth++;
+                }
+
+                if (command instanceof GroupEndCommand) {
+                    if (group_depth < 1)
+                        throw new Error('Unexpected "}": no open groups');
+                    group_depth--;
+                }
+            }
+
+            if (group_depth !== 0)
+                throw new Error(`${group_depth} groups left open`);
+
+            return new Script(commands);
+        },
+        command: command => {
+            // Comments show up as empty commands. Just skip them.
+            if (command.length === 0)
+                return;
+
+            let addresses_provided = 0;
+            let address_range, func;
+            switch (command.length) {
+                case 1:
+                    address_range = new AddressRange();
+                    func = command[0];
+                    break;
+                default:
+                    address_range = command[0].value;
+                    func = command[1];
+                    addresses_provided = address_range.addressCount;
+                    break;
+            }
+
+            const require_max_address_count = (count) => {
+                if (addresses_provided > count)
+                    throw new Error(`Too many addresses provided to '${func.$}' command, most is ${count}`);
+            }
+
+            // Decode func into its command type
+            switch (func.$) {
+                case '{': {
+                    require_max_address_count(2);
+                    return new GroupStartCommand(address_range, ++group_start_id);
+                }
+                case '}': {
+                    require_max_address_count(0);
+                    return new GroupEndCommand(++group_end_id);
+                }
+                case ':': {
+                    require_max_address_count(0);
+                    return new LabelCommand(func.value);
+                }
+                case '=': {
+                    require_max_address_count(1);
+                    return new LineNumberCommand(address_range);
+                }
+                case 'a': {
+                    require_max_address_count(1);
+                    return new AppendTextCommand(address_range, func.value);
+                }
+                case 'b': {
+                    require_max_address_count(2);
+                    return new BranchCommand(address_range, func.value);
+                }
+                case 'c': {
+                    require_max_address_count(2);
+                    return new ReplaceCommand(address_range, func.value);
+                }
+                case 'd': {
+                    require_max_address_count(2);
+                    return new DeleteCommand(address_range);
+                }
+                case 'D': {
+                    require_max_address_count(2);
+                    return new DeleteLineCommand(address_range);
+                }
+                case 'g': {
+                    require_max_address_count(2);
+                    return new GetCommand(address_range);
+                }
+                case 'G': {
+                    require_max_address_count(2);
+                    return new GetAppendCommand(address_range);
+                }
+                case 'h': {
+                    require_max_address_count(2);
+                    return new HoldCommand(address_range);
+                }
+                case 'H': {
+                    require_max_address_count(2);
+                    return new HoldAppendCommand(address_range);
+                }
+                case 'i': {
+                    require_max_address_count(1);
+                    return new InsertTextCommand(address_range, func.value);
+                }
+                case 'l': {
+                    require_max_address_count(2);
+                    return new DebugPrintCommand(address_range);
+                }
+                case 'p': {
+                    require_max_address_count(2);
+                    return new PrintCommand(address_range);
+                }
+                case 'P': {
+                    require_max_address_count(2);
+                    return new PrintLineCommand(address_range);
+                }
+                case 'q': {
+                    require_max_address_count(1);
+                    return new QuitCommand(address_range, false);
+                }
+                case 'Q': {
+                    require_max_address_count(1);
+                    return new QuitCommand(address_range, true);
+                }
+                case 's': {
+                    require_max_address_count(2);
+                    const { regex, replacement, flags } = func.value;
+                    return new SubstituteCommand(address_range, regex, replacement, flags);
+                }
+                case 't':
+                case 'T': {
+                    require_max_address_count(2);
+                    return new ConditionalBranchCommand(address_range, func.value, func.$ === 't');
+                }
+                case 'x': {
+                    require_max_address_count(2);
+                    return new ExchangeCommand(address_range);
+                }
+                case 'y': {
+                    require_max_address_count(2);
+                    const { input, replacement } = func.value;
+                    return new TransliterateCommand(address_range, input, replacement);
+                }
+                case 'z': {
+                    require_max_address_count(2);
+                    return new ZapCommand(address_range);
+                }
+                default:
+                    throw new Error(`Unimplemented command '${func.$}'`);
+            }
+        },
+        address_range: address_range => {
+            if (address_range.length === 0)
+                return new AddressRange();
+
+            if (address_range.length === 1) {
+                if (address_range[0].value[0].$ === 'address') {
+                    // Either 1 or two addresses
+                    const parts = address_range[0].value;
+                    const start = parts[0].value;
+                    const end = parts[1] ? parts[1].value[1].value : null;
+                    return new AddressRange({ start, end });
+                }
+
+                // No addresses, just inverted
+                return new AddressRange({ inverted: true });
+            }
+
+            // Addresses and inverted
+            const parts = address_range[0].value;
+            const start = parts[0].value;
+            const end = parts[1] ? parts[1].value[1].value : null;
+            return new AddressRange({ start, end, inverted: true });
+        },
+        address: address => {
+            if (address instanceof RegExp)
+                return new Address(address);
+            return new Address(Number(address));
+        },
+        regex: regex => new RegExp(regex[1].value),
+
+        // Functions with arguments
+        ':': it => it[1].value,
+        a: it => it[1].value,
+        b: it => {
+            if (it.length < 2) return null;
+            return it[1].value[0].value;
+        },
+        c: it => it[1].value,
+        i: it => it[1].value,
+        s: it => {
+            const [ s, _, regex, __, replacement, ___, flag_values ] = it;
+            const flags = {
+                global: false,
+                nthOccurrence: null,
+                print: false,
+                writeToFile: null,
+            };
+            if (flag_values && flag_values.value.length) {
+                for (const flag of flag_values.value) {
+                    if (flag.value instanceof Array) {
+                        // It's a 'w'
+                        if (flags.writeToFile)
+                            throw new Error(`Multiple 'w' flags given to s command`);
+                        flags.writeToFile = flag.value[1].value;
+
+                    } else if (flag.value === 'g') {
+                        if (flags.global)
+                            throw new Error(`Multiple 'g' flags given to s command`);
+                        flags.global = true;
+
+                    } else if (flag.value === 'p') {
+                        if (flags.print)
+                            throw new Error(`Multiple 'p' flags given to s command`);
+                        flags.print = true;
+
+                    } else {
+                        // Should be a number
+                        if (flags.nthOccurrence !== null)
+                            throw new Error(`Multiple number flags given to s command`);
+                        flags.nthOccurrence = Number.parseInt(flag.value);
+                    }
+                }
+            }
+            return {
+                regex: new RegExp(regex.value),
+                replacement: replacement.value,
+                flags: new SubstituteFlags(flags),
+            };
+        },
+        t: it => {
+            if (it.length < 2) return null;
+            return it[1].value[0].value;
+        },
+        T: it => {
+            if (it.length < 2) return null;
+            return it[1].value[0].value;
+        },
+        y: it => {
+            const input = it[2].value;
+            const replacement = it[4].value;
+            if (input.length !== replacement.length)
+                throw new Error('Input and replacement parts of y command must have the same length');
+
+            return { input, replacement };
+        }
+    });
+
+    const stream = new StringStream(script_string);
+    const result = parser(stream, 'script', { must_consume_all_input: true });
+    return result.value;
 }
