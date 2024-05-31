@@ -18,8 +18,4 @@ export default def(class NotifCard extends Component {
             </div>
         `);
     }
-
-    on_ready ({ listen }) {
-        $(this.dom_).find('button').on('click', this.get('on_click') || (() => {}));
-    }
 });
