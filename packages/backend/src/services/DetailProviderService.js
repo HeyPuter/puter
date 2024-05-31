@@ -14,15 +14,14 @@ class DetailProviderService extends BaseService {
         this.providers_.push(fn);
     }
 
-    async get_details (context) {
-        const details = {};
+    async get_details (context, out) {
+        out = out || {};
 
         for (const provider of this.providers_) {
-            const out = await provider(context);
-            Object.assign(details, out);
+            await provider(context, out);
         }
 
-        return details;
+        return out;
     }
 }
 
