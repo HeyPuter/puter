@@ -343,7 +343,7 @@ export class DebugPrintCommand extends Command {
                 output += c;
             }
         }
-        await context.out.write(output);
+        await context.out.write(output + '\n');
         return JumpLocation.None;
     }
 
@@ -360,7 +360,7 @@ export class PrintCommand extends Command {
     }
 
     async run(context) {
-        await context.out.write(context.patternSpace);
+        await context.out.write(context.patternSpace + '\n');
         return JumpLocation.None;
     }
 
@@ -378,7 +378,7 @@ export class PrintLineCommand extends Command {
 
     async run(context) {
         const firstLine = context.patternSpace.split('\n', 2)[0];
-        await context.out.write(firstLine);
+        await context.out.write(firstLine + '\n');
         return JumpLocation.None;
     }
 
