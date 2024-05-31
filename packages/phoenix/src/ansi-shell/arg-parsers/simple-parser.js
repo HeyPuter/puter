@@ -43,5 +43,7 @@ export default {
 
         ctx.locals.values = result.values;
         ctx.locals.positionals = result.positionals;
+        if (result.tokens)
+            ctx.locals.tokens = result.tokens;
     }
 }
