@@ -144,13 +144,21 @@ export class AppendTextCommand extends Command {
 }
 
 // 'b' - Branch to label
+// 't' - Branch if substitution successful
+// 'T' - Branch if substitution unsuccessful
 export class BranchCommand extends Command {
-    constructor(addressRange, label) {
+    constructor(addressRange, label, substitutionCondition) {
         super(addressRange);
         this.label = label;
+        this.substitutionCondition = substitutionCondition;
     }
 
     async run(context) {
+        if (typeof this.substitutionCondition === 'boolean') {
+            if (context.substitutionResult !== this.substitutionCondition)
+                return JumpLocation.None;
+        }
+
         if (this.label) {
             context.jumpParameter = this.label;
             return JumpLocation.Label;
@@ -160,6 +168,7 @@ export class BranchCommand extends Command {
 
     dump(indent) {
         return `${makeIndent(indent)}BRANCH:\n`
+            + `${makeIndent(indent+1)}CONDITION: ${this.substitutionCondition ?? 'ALWAYS'}\n`
             + this.addressRange.dump(indent+1)
             + `${makeIndent(indent+1)}LABEL: ${this.label ? `'${this.label}'` : 'END'}\n`;
     }
@@ -189,107 +198,73 @@ export class ReplaceCommand extends Command {
 }
 
 // 'd' - Delete pattern
+// 'D' - Delete first line of pattern
 export class DeleteCommand extends Command {
-    constructor(addressRange) {
+    constructor(addressRange, firstLine = false) {
         super(addressRange);
+        this.firstLine = firstLine;
     }
 
     async run(context) {
+        if (this.firstLine) {
+            const [ first, rest ] = context.patternSpace.split('\n', 2);
+            context.patternSpace = rest ?? '';
+            if (rest === undefined)
+                return JumpLocation.EndOfCycle;
+            return JumpLocation.StartOfCycle;
+        }
         context.patternSpace = '';
         return JumpLocation.EndOfCycle;
     }
 
     dump(indent) {
-        return `${makeIndent(indent)}DELETE:\n`
-            + this.addressRange.dump(indent+1);
-    }
-}
-
-// 'D' - Delete first line of pattern
-export class DeleteLineCommand extends Command {
-    constructor(addressRange) {
-        super(addressRange);
-    }
-
-    async run(context) {
-        const [ firstLine, rest ] = context.patternSpace.split('\n', 2);
-        context.patternSpace = rest ?? '';
-        if (rest === undefined) {
-            return JumpLocation.EndOfCycle;
-        }
-        return JumpLocation.StartOfCycle;
-    }
-
-    dump(indent) {
-        return `${makeIndent(indent)}DELETE-LINE:\n`
+        return `${makeIndent(indent)}DELETE: ${this.firstLine ? 'LINE' : 'ALL'}\n`
             + this.addressRange.dump(indent+1);
     }
 }
 
 // 'g' - Get the held line into the pattern
-export class GetCommand extends Command {
-    constructor(addressRange) {
-        super(addressRange);
-    }
-
-    async run(context) {
-        context.patternSpace = context.holdSpace;
-        return JumpLocation.None;
-    }
-
-    dump(indent) {
-        return `${makeIndent(indent)}GET-HELD:\n`
-            + this.addressRange.dump(indent+1);
-    }
-}
-
 // 'G' - Get the held line and append it to the pattern
-export class GetAppendCommand extends Command {
-    constructor(addressRange) {
+export class GetCommand extends Command {
+    constructor(addressRange, append = false) {
         super(addressRange);
+        this.append = append;
     }
 
     async run(context) {
-        context.patternSpace += '\n' + context.holdSpace;
+        if (this.append) {
+            context.patternSpace += '\n' + context.holdSpace;
+        } else {
+            context.patternSpace = context.holdSpace;
+        }
         return JumpLocation.None;
     }
 
     dump(indent) {
-        return `${makeIndent(indent)}GET-HELD-APPEND:\n`
+        return `${makeIndent(indent)}GET-HELD: ${this.append ? 'APPEND' : 'ALL'}\n`
             + this.addressRange.dump(indent+1);
     }
 }
 
 // 'h' - Hold the pattern
-export class HoldCommand extends Command {
-    constructor(addressRange) {
-        super(addressRange);
-    }
-
-    async run(context) {
-        context.holdSpace = context.patternSpace;
-        return JumpLocation.None;
-    }
-
-    dump(indent) {
-        return `${makeIndent(indent)}HOLD:\n`
-            + this.addressRange.dump(indent+1);
-    }
-}
-
 // 'H' - Hold append the pattern
-export class HoldAppendCommand extends Command {
-    constructor(addressRange) {
+export class HoldCommand extends Command {
+    constructor(addressRange, append = false) {
         super(addressRange);
+        this.append = append;
     }
 
     async run(context) {
-        context.holdSpace += '\n' + context.patternSpace;
+        if (this.append) {
+            context.holdSpace += '\n' + context.patternSpace;
+        } else {
+            context.holdSpace = context.patternSpace;
+        }
         return JumpLocation.None;
     }
 
     dump(indent) {
-        return `${makeIndent(indent)}HOLD-APPEND:\n`
+        return `${makeIndent(indent)}HOLD: ${this.append ? 'APPEND' : 'ALL'}\n`
             + this.addressRange.dump(indent+1);
     }
 }
@@ -354,36 +329,25 @@ export class DebugPrintCommand extends Command {
 }
 
 // 'p' - Print pattern
-export class PrintCommand extends Command {
-    constructor(addressRange) {
-        super(addressRange);
-    }
-
-    async run(context) {
-        await context.out.write(context.patternSpace + '\n');
-        return JumpLocation.None;
-    }
-
-    dump(indent) {
-        return `${makeIndent(indent)}PRINT:\n`
-            + this.addressRange.dump(indent+1);
-    }
-}
-
 // 'P' - Print first line of pattern
-export class PrintLineCommand extends Command {
-    constructor(addressRange) {
+export class PrintCommand extends Command {
+    constructor(addressRange, firstLine = false) {
         super(addressRange);
+        this.firstLine = firstLine;
     }
 
     async run(context) {
-        const firstLine = context.patternSpace.split('\n', 2)[0];
-        await context.out.write(firstLine + '\n');
+        if (this.firstLine) {
+            const firstLine = context.patternSpace.split('\n', 2)[0];
+            await context.out.write(firstLine + '\n');
+        } else {
+            await context.out.write(context.patternSpace + '\n');
+        }
         return JumpLocation.None;
     }
 
     dump(indent) {
-        return `${makeIndent(indent)}PRINT-LINE:\n`
+        return `${makeIndent(indent)}PRINT: ${this.firstLine ? 'LINE' : 'ALL'}\n`
             + this.addressRange.dump(indent+1);
     }
 }
@@ -475,35 +439,6 @@ export class SubstituteCommand extends Command {
             + `${makeIndent(indent+1)}REGEX       '${this.regex}'\n`
             + `${makeIndent(indent+1)}REPLACEMENT '${this.replacement}'\n`
             + `${makeIndent(indent+1)}FLAGS       ${JSON.stringify(this.flags)}\n`;
-    }
-}
-
-// 't' - Branch if substitution successful
-// 'T' - Branch if substitution unsuccessful
-export class ConditionalBranchCommand extends Command {
-    constructor(addressRange, label, substitutionCondition) {
-        super(addressRange);
-        this.label = label;
-        this.substitutionCondition = substitutionCondition;
-    }
-
-    async run(context) {
-        if (context.substitutionResult !== this.substitutionCondition) {
-            return JumpLocation.None;
-        }
-
-        if (this.label) {
-            context.jumpParameter = this.label;
-            return JumpLocation.Label;
-        }
-        return JumpLocation.EndOfCycle;
-    }
-
-    dump(indent) {
-        return `${makeIndent(indent)}CONDITIONAL-BRANCH:\n`
-            + this.addressRange.dump(indent+1)
-            + `${makeIndent(indent+1)}LABEL: ${this.label ? `'${this.label}'` : 'END'}\n`
-            + `${makeIndent(indent+1)}IF SUBSTITUTED = ${this.substitutionCondition}\n`;
     }
 }
 

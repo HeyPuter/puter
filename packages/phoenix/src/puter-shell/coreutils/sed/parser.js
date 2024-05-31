@@ -20,22 +20,17 @@ import { Address, AddressRange } from './address.js';
 import {
     AppendTextCommand,
     BranchCommand,
-    ConditionalBranchCommand,
     DebugPrintCommand,
     DeleteCommand,
-    DeleteLineCommand,
     ExchangeCommand,
-    GetAppendCommand,
     GetCommand,
     GroupEndCommand,
     GroupStartCommand,
-    HoldAppendCommand,
     HoldCommand,
     InsertTextCommand,
     LabelCommand,
     LineNumberCommand,
     PrintCommand,
-    PrintLineCommand,
     QuitCommand,
     ReplaceCommand,
     SubstituteCommand,
@@ -295,7 +290,7 @@ export const parseScript = (script_string, options) => {
             let group_depth = 0;
             for (const command of commands) {
                 // Ensure branches all go to labels that exist
-                if (command instanceof BranchCommand || command instanceof ConditionalBranchCommand) {
+                if (command instanceof BranchCommand) {
                     // Note: Branches to the end of the script don't have a label.
                     if (command.label && !labels.has(command.label))
                         throw new Error(`Label "${command.label}" does not exist in the script.`);
@@ -371,29 +366,20 @@ export const parseScript = (script_string, options) => {
                     require_max_address_count(2);
                     return new ReplaceCommand(address_range, func.value);
                 }
-                case 'd': {
-                    require_max_address_count(2);
-                    return new DeleteCommand(address_range);
-                }
+                case 'd':
                 case 'D': {
                     require_max_address_count(2);
-                    return new DeleteLineCommand(address_range);
+                    return new DeleteCommand(address_range, func.$ === 'D');
                 }
-                case 'g': {
-                    require_max_address_count(2);
-                    return new GetCommand(address_range);
-                }
+                case 'g':
                 case 'G': {
                     require_max_address_count(2);
-                    return new GetAppendCommand(address_range);
+                    return new GetCommand(address_range, func.$ === 'G');
                 }
-                case 'h': {
-                    require_max_address_count(2);
-                    return new HoldCommand(address_range);
-                }
+                case 'h':
                 case 'H': {
                     require_max_address_count(2);
-                    return new HoldAppendCommand(address_range);
+                    return new HoldCommand(address_range, func.$ === 'H');
                 }
                 case 'i': {
                     require_max_address_count(1);
@@ -403,21 +389,15 @@ export const parseScript = (script_string, options) => {
                     require_max_address_count(2);
                     return new DebugPrintCommand(address_range);
                 }
-                case 'p': {
-                    require_max_address_count(2);
-                    return new PrintCommand(address_range);
-                }
+                case 'p':
                 case 'P': {
                     require_max_address_count(2);
-                    return new PrintLineCommand(address_range);
+                    return new PrintCommand(address_range, func.$ === 'P');
                 }
-                case 'q': {
-                    require_max_address_count(1);
-                    return new QuitCommand(address_range, false);
-                }
+                case 'q':
                 case 'Q': {
                     require_max_address_count(1);
-                    return new QuitCommand(address_range, true);
+                    return new QuitCommand(address_range, func.$ === 'Q');
                 }
                 case 's': {
                     require_max_address_count(2);
@@ -427,7 +407,7 @@ export const parseScript = (script_string, options) => {
                 case 't':
                 case 'T': {
                     require_max_address_count(2);
-                    return new ConditionalBranchCommand(address_range, func.value, func.$ === 't');
+                    return new BranchCommand(address_range, func.value, func.$ === 't');
                 }
                 case 'x': {
                     require_max_address_count(2);
