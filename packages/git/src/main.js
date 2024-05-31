@@ -141,6 +141,7 @@ window.main = async () => {
         args: {
             options: parsed_args.values,
             positionals: parsed_args.positionals,
+            tokens: parsed_args.tokens,
         },
         env,
     };
