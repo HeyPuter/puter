@@ -18,6 +18,8 @@
  */
 import path from 'path-browserify';
 
+export const PROXY_URL = 'https://cors.isomorphic-git.org';
+
 /**
  * Attempt to locate the git repository directory.
  * @throws Error If no git repository could be found, or another error occurred.
