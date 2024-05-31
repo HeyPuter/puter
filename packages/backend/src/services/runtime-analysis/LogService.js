@@ -119,28 +119,40 @@ class LogContext {
 }
 
 let log_epoch = Date.now();
-const stringify_log_entry = ({ log_lvl, crumbs, message, fields, objects }) => {
-    let m = `\x1B[${log_lvl.esc}m[${log_lvl.label}\x1B[0m`;
+const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects }) => {
+    const { colorize } = require('json-colorizer');
+
+    let lines = [], m;
+    const lf = () => {
+        if ( ! m ) return;
+        lines.push(m);
+        m = '';
+    }
+
+    m = prefix ? `${prefix} ` : '';
+    m += `\x1B[${log_lvl.esc}m[${log_lvl.label}\x1B[0m`;
     for ( const crumb of crumbs ) {
         m += `::${crumb}`;
     }
     m += `\x1B[${log_lvl.esc}m]\x1B[0m`;
-    for ( const k in fields ) {
-        if ( k === 'timestamp' ) continue;
-        let v; try {
-            v = JSON.stringify(fields[k]);
-        } catch (e) {
-            v = '' + fields[k];
-        }
-        m += ` ${k}=${v}`;
-    }
     if ( fields.timestamp ) {
         // display seconds since logger epoch
         const n = (fields.timestamp - log_epoch) / 1000;
         m += ` (${n.toFixed(3)}s)`;
     }
-    m += ` ${message}`;
-    return m;
+    m += ` ${message} `;
+    lf();
+    for ( const k in fields ) {
+        if ( k === 'timestamp' ) continue;
+        let v; try {
+            v = colorize(JSON.stringify(fields[k]));
+        } catch (e) {
+            v = '' + fields[k];
+        }
+        m += ` \x1B[1m${k}:\x1B[0m ${v}`;
+        lf();
+    }
+    return lines.join('\n');
 };
 
 
@@ -148,6 +160,7 @@ class DevLogger {
     // TODO: this should eventually delegate to winston logger
     constructor (log, opt_delegate) {
         this.log = log;
+        this.off = false;
 
         if ( opt_delegate ) {
             this.delegate = opt_delegate;
@@ -159,11 +172,15 @@ class DevLogger {
                 log_lvl, crumbs, message, fields, objects,
             );
         }
+
+        if ( this.off ) return;
+
         const ld = Context.get('logdent', { allow_fallback: true })
         const prefix = globalThis.dev_console_indent_on
             ? Array(ld ?? 0).fill('    ').join('')
             : '';
-        this.log(prefix + stringify_log_entry({
+        this.log(stringify_log_entry({
+            prefix,
             log_lvl, crumbs, message, fields, objects,
         }));
     }
@@ -264,6 +281,26 @@ class LogService extends BaseService {
     register_log_middleware (callback) {
         this.loggers[0] = new CustomLogger(this.loggers[0], callback);
     }
+    ['__on_boot.consolidation'] () {
+        const commands = this.services.get('commands');
+        commands.registerCommands('logs', [
+            {
+                id: 'show',
+                description: 'toggle log output',
+                handler: async (args, log) => {
+                    this.devlogger && (this.devlogger.off = ! this.devlogger.off);
+                }
+            },
+            {
+                id: 'indent',
+                description: 'toggle log indentation',
+                handler: async (args, log) => {
+                    globalThis.dev_console_indent_on =
+                        ! globalThis.dev_console_indent_on;
+                }
+            }
+        ]);
+    }
     async _init () {
         const config = this.global_config;
 
@@ -312,6 +349,8 @@ class LogService extends BaseService {
             logger = config.flag_no_logs // useful for profiling
                 ? new NullLogger()
                 : new DevLogger(console.log.bind(console), logger);
+            
+            this.devlogger = logger;
         }
 
         logger = new TimestampLogger(logger);
@@ -321,7 +360,7 @@ class LogService extends BaseService {
 
         this.loggers.push(logger);
 
-        this.output_lvl = LOG_LEVEL_DEBU;
+        this.output_lvl = LOG_LEVEL_INFO;
         if ( config.logger ) {
             // config.logger.level is a string, e.g. 'debug'
 
@@ -349,6 +388,7 @@ class LogService extends BaseService {
         });
 
         this.services.logger = this.create('services-container');
+        globalThis.root_context.set('logger', this.create('root-context'));
     }
 
     create (prefix, fields = {}) {

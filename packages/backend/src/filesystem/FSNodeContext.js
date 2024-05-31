@@ -208,8 +208,7 @@ module.exports = class FSNodeContext {
             return;
         }
 
-        // NOTE: commented out for now because it's too verbose
-        this.log.info('fetching entry: ' + this.selector.describe(true));
+        this.log.info('fetching entry: ' + this.selector.describe());
         // All services at the top (DEVLOG-401)
         const {
             traceService,
@@ -239,9 +238,6 @@ module.exports = class FSNodeContext {
 
             const callback = (resolver) => {
                 // NOTE: commented out for now because it's too verbose
-                this.log.noticeme(`resolved by ${resolver}`, {
-                    debug: fetch_entry_options.debug,
-                });
                 resolved = true;
                 detachables.detach();
                 rslv();
@@ -273,13 +269,10 @@ module.exports = class FSNodeContext {
             }
         });
 
-        this.log.debug('got past the promise')
-
         if ( resourceService.getResourceInfo(this.uid) ) {
             entry = await fsEntryService.get(this.uid, fetch_entry_options);
             this.log.debug('got an entry from the future');
         } else {
-            this.log.debug('resource is already free');
             entry = await fsEntryFetcher.find(
                 this.selector, fetch_entry_options);
         }
@@ -734,7 +727,6 @@ module.exports = class FSNodeContext {
                     this.log.warn('null app');
                     continue;
                 }
-                this.log.debug('app?', { value:  app });
                 delete app.owner_user_id;
             }
         }

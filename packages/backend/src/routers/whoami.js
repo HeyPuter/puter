@@ -41,8 +41,6 @@ const WHOAMI_GET = eggspress('/whoami', {
 
     const is_user = actor.type instanceof UserActorType;
 
-    console.log('user?', req.user);
-
     // send user object
     const details = {
         username: req.user.username,

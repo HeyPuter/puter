@@ -54,12 +54,18 @@ class DevWatcherService extends BaseService {
     // but hey at least we have this convenient event listener.
     async ['__on_ready.webserver'] () {
         const { root, commands } = this.args;
+        let promises = [];
         for ( const entry of commands ) {
             const { directory } = entry;
             const fullpath = this.modules.path.join(
                 root, directory);
-            this.start_({ ...entry, fullpath });
+            promises.push(this.start_({ ...entry, fullpath }));
         }
+        await Promise.all(promises);
+
+        // It's difficult to tell when webpack is "done" its first
+        // run so we just wait a bit before we say we're ready.
+        await new Promise((resolve) => setTimeout(resolve, 3000));
     }
 
     log_ (name, isErr, line) {

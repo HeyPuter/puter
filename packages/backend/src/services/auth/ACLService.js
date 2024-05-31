@@ -100,8 +100,8 @@ class ACLService extends BaseService {
                     `fs:${await perm_fsNode.get('uid')}:${mode}`
                 );
                 if ( perm ) {
-                    console.log('TRUE BECAUSE PERMISSION', perm)
-                    console.log(`fs:${await perm_fsNode.get('uid')}:${mode}`)
+                    // console.log('TRUE BECAUSE PERMISSION', perm)
+                    // console.log(`fs:${await perm_fsNode.get('uid')}:${mode}`)
                     return true;
                 }
             }
