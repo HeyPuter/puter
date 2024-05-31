@@ -91,3 +91,14 @@ export class None extends Parser {
         return { status: VALUE, $: 'none', $discard: true };
     }
 }
+
+/**
+ * Always fails parsing.
+ */
+export class Fail extends Parser {
+    _create () {}
+
+    _parse (stream) {
+        return UNRECOGNIZED;
+    }
+}
