@@ -1,6 +1,6 @@
 import { adapt_parser, VALUE } from './parser.js';
 import { Discard, FirstMatch, Optional, Repeat, Sequence } from './parsers/combinators.js';
-import { Fail, Literal, None, StringOf, Symbol } from './parsers/terminals.js';
+import { Fail, Literal, None, StringOf, StringUntil, Symbol } from './parsers/terminals.js';
 
 class ParserWithAction {
     #parser;
@@ -89,6 +89,7 @@ export const standard_parsers = () => {
         repeat: Repeat,
         sequence: Sequence,
         stringOf: StringOf,
+        stringUntil: StringUntil,
         symbol: Symbol,
     }
 }
