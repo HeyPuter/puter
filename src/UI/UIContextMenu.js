@@ -137,7 +137,6 @@ function UIContextMenu(options){
     if ( options?.delay === false) {
         $(contextMenu).show(0);
     } else if(options?.delay === true || options?.delay === 1 || options?.delay === undefined) {
-        console.log('delay')
         $(contextMenu).fadeIn(80).show(0);
     } else {
         $(contextMenu).fadeIn(options?.delay).show(0);
