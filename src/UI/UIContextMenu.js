@@ -176,7 +176,7 @@ function UIContextMenu(options){
         return false;
     });
 
-    // This will hold the timer for the submenu delay
+    // This will hold the timer for the submenu delay:
     // There is a delay in opening the submenu, this is to make sure that if the mouse is 
     // just passing over the item, the submenu doesn't open immediately.
     let submenu_delay_timer;
@@ -254,7 +254,7 @@ function UIContextMenu(options){
         }
     });
     
-    // useful in cases such as where a menu item is over a window, this prevents from the mousedown event
+    // Useful in cases such as where a menu item is over a window, this prevents from the mousedown event
     // reaching the window underneath
     $(`#context-menu-${menu_id} > li:not(.context-menu-item-disabled)`).on('mousedown', function (e) {
         e.preventDefault();
@@ -262,7 +262,7 @@ function UIContextMenu(options){
         return false;
     })
 
-    //disable parent scroll
+    // Disable parent scroll
     if(options.parent_element){
         $(options.parent_element).css('overflow', 'hidden');
         $(options.parent_element).parent().addClass('children-have-open-contextmenu');

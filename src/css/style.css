@@ -1616,6 +1616,9 @@ span.header-sort-icon img {
 
 .context-menu .context-menu-item-active .context-menu-item-icon-active {
     display: inline-block;
+}
+
+.context-menu .context-menu-item-active:not(.context-menu-item-disabled) .context-menu-item-icon-active {
     color: white;
 }
 
