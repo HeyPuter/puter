@@ -122,4 +122,6 @@ function UIAlert(options){
     })
 }
 
+def(UIAlert, 'ui.window.UIAlert');
+
 export default UIAlert;
