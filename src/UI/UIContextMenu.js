@@ -196,16 +196,16 @@ function UIContextMenu(options){
         },
         // activates item when mouse enters depending on mouse position and direction
         activate: function (e) {
-                //activate items
-                let item = $(e).closest('.context-menu-item');
-                // mark other items as inactive
-                $(contextMenu).find('.context-menu-item').removeClass('context-menu-item-active');
-                // mark this item as active
-                $(item).addClass('context-menu-item-active');
-                // close any submenu that doesn't belong to this item
-                $(`.context-menu[data-parent-id="${menu_id}"]`).remove();
-                // mark this context menu as active
-                $(contextMenu).addClass('context-menu-active');
+            //activate items
+            let item = $(e).closest('.context-menu-item');
+            // mark other items as inactive
+            $(contextMenu).find('.context-menu-item').removeClass('context-menu-item-active');
+            // mark this item as active
+            $(item).addClass('context-menu-item-active');
+            // close any submenu that doesn't belong to this item
+            $(`.context-menu[data-parent-id="${menu_id}"]`).remove();
+            // mark this context menu as active
+            $(contextMenu).addClass('context-menu-active');
 
             submenu_delay_timer = setTimeout(() => {
                 // activate submenu
@@ -269,6 +269,7 @@ function UIContextMenu(options){
     }
 
     $(contextMenu).on("remove", function () {
+        if(submenu_delay_timer) clearTimeout(submenu_delay_timer);
         if ( options.onClose ) options.onClose(cancel_options_);
         // when removing, make parent scrollable again
         if(options.parent_element){
