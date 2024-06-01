@@ -57,6 +57,7 @@ class DevConsoleService extends BaseService {
         // if a widget throws an error we MUST remove it;
         // it's probably a stack overflow because it's printing.
         const to_remove = [];
+        let positions = [];
         for ( const w of this.widgets ) {
             let output; try {
                 output = w();
@@ -66,8 +67,43 @@ class DevConsoleService extends BaseService {
                 continue;
             }
             output = Array.isArray(output) ? output : [output];
+            positions.push([this.static_lines.length, output.length]);
             this.static_lines.push(...output);
         }
+
+        const DESIRED_MIN_OUT = 10;
+        const size_ok = () =>
+            process.stdout.rows - DESIRED_MIN_OUT > this.static_lines.length;
+        let n_hidden = 0;
+        for ( let i = this.widgets.length-1 ; i >= 0 ; i-- ) {
+            if ( size_ok() ) break;
+            const w = this.widgets[i];
+            if ( ! w.unimportant ) continue;
+            n_hidden++;
+            const [start, length] = positions[i];
+            this.static_lines.splice(start, length);
+            // update positions
+            for ( let j = i ; j < positions.length ; j++ ) {
+                positions[j][0] -= length;
+            }
+        }
+        for ( let i = this.widgets.length-1 ; i >= 0 ; i-- ) {
+            if ( size_ok() ) break;
+            n_hidden++;
+            const w = this.widgets[i];
+            const [start, length] = positions[i];
+            this.static_lines.splice(start, length);
+        }
+        if ( n_hidden && size_ok() ) {
+            this.static_lines.push(
+                `\x1B[33m` +
+                this.generateEnd(
+                    `[ ${n_hidden} widget${n_hidden === 1 ? '' : 's'} hidden ]`
+                ) +
+                `\x1B[0m`
+            );
+        }
+
         if (!this.arrays_equal(initialOutput, this.static_lines)) {
             this.mark_updated();  // Update only if outputs have changed
         }
