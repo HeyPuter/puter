@@ -161,7 +161,6 @@ class Emailservice extends BaseService {
     }
 
     _init () {
-        console.log('the config', this.config);
     }
 
     get_transport_ () {

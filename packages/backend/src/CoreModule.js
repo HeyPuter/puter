@@ -222,6 +222,9 @@ const install = async ({ services, app }) => {
 
     const { DetailProviderService } = require('./services/DetailProviderService');
     services.registerService('whoami', DetailProviderService);
+
+    const { DevTODService } = require('./services/DevTODService');
+    services.registerService('__dev-tod', DevTODService);
 }
 
 const install_legacy = async ({ services }) => {

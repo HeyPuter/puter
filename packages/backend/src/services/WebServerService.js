@@ -57,6 +57,7 @@ class WebServerService extends BaseService {
         const services = this.services;
         await services.emit('start.webserver');
         await services.emit('ready.webserver');
+        this.print_puter_logo_();
     }
 
     async ['__on_start.webserver'] () {
@@ -132,7 +133,7 @@ class WebServerService extends BaseService {
             const lines = [
                 "",
                 `Puter is now live at: ${link}`,
-                `Type web:dismiss to dismiss this message`,
+                `Type web:dismiss to un-stick this message`,
                 "",
             ];
             const lengths = [
@@ -148,8 +149,6 @@ class WebServerService extends BaseService {
             const svc_devConsole = this.services.get('dev-console', { optional: true });
             if ( svc_devConsole ) svc_devConsole.add_widget(this.startup_widget);
         }
-
-        this.print_puter_logo_();
 
         server.timeout = 1000 * 60 * 60 * 2; // 2 hours
         server.requestTimeout = 1000 * 60 * 60 * 2; // 2 hours

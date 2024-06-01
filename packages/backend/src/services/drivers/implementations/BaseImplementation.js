@@ -109,8 +109,6 @@ class BaseImplementation extends AdvancedBase {
                 sla_key
             );
 
-            console.log('SLA KEY', sla_key, 'USER KEY', user_is_verified ? 'user_verified' : 'user_unverified');
-
             const user_method_key = `actor:${actor.uid}:${method_key}`;
 
             // short-term rate limiting

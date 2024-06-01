@@ -42,6 +42,7 @@ class Kernel extends AdvancedBase {
         // Temporary logger for boot process;
         // LoggerService will be initialized in app.js
         const bootLogger = new BootLogger();
+        this.bootLogger = bootLogger;
 
         // Determine config and runtime locations
         const runtimeEnv = new RuntimeEnvironment({
@@ -83,13 +84,14 @@ class Kernel extends AdvancedBase {
         // === START: Initialize Service Registry ===
         const { Container } = require('./services/Container');
 
-        const services = new Container();
+        const services = new Container({ logger: this.bootLogger });
         this.services = services;
         // app.set('services', services);
 
         const root_context = Context.create({
             services,
             config,
+            logger: this.bootLogger,
         }, 'app');
         globalThis.root_context = root_context;
 

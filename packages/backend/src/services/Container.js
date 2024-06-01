@@ -17,12 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const config = require("../config");
+const { Context } = require("../util/context");
 const { CompositeError } = require("../util/errorutil");
 const { TeePromise } = require("../util/promise");
 
 // 17 lines of code instead of an entire dependency-injection framework
 class Container {
-    constructor () {
+    constructor ({ logger }) {
+        this.logger = logger;
         this.instances_ = {};
         this.ready = new TeePromise();
     }
@@ -83,12 +85,12 @@ class Container {
 
     async init () {
         for ( const k in this.instances_ ) {
-            console.log(`constructing ${k}`);
+            this.logger.info(`constructing ${k}`);
             await this.instances_[k].construct();
         }
         const init_failures = [];
         for ( const k in this.instances_ ) {
-            console.log(`initializing ${k}`);
+            this.logger.info(`initializing ${k}`);
             try {
                 await this.instances_[k].init();
             } catch (e) {
