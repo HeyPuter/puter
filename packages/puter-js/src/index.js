@@ -1,6 +1,7 @@
 import OS from './modules/OS.js';
 import FileSystem from './modules/FileSystem/index.js';
 import Hosting from './modules/Hosting.js';
+import Email from './modules/Email.js';
 import Apps from './modules/Apps.js';
 import UI from './modules/UI.js';
 import KV from './modules/KV.js';
@@ -196,6 +197,8 @@ window.puter = (function() {
             this.ui = new UI(this.appInstanceID, this.parentInstanceID, this.appID, this.env, this.util);
             // Hosting
             this.hosting = new Hosting(this.authToken, this.APIOrigin, this.appID, this.env);
+            // Email
+            this.email = new Email(this.authToken, this.APIOrigin, this.appID);
             // Apps
             this.apps = new Apps(this.authToken, this.APIOrigin, this.appID, this.env);
             // AI
@@ -208,7 +211,7 @@ window.puter = (function() {
 
         updateSubmodules() {
             // Update submodules with new auth token and API origin
-            [this.os, this.fs, this.hosting, this.apps, this.ai, this.kv].forEach(module => {
+            [this.os, this.fs, this.hosting, this.email, this.apps, this.ai, this.kv].forEach(module => {
                 if(!module) return;
                 module.setAuthToken(this.authToken);
                 module.setAPIOrigin(this.APIOrigin);
