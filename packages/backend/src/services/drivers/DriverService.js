@@ -16,37 +16,27 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { Context } = require("../../util/context");
 const APIError = require("../../api/APIError");
 const { DriverError } = require("./DriverError");
-const { Value, TypedValue } = require("./meta/Runtime");
-const { ServiceImplementation, EntityStoreImplementation } = require("./implementations/EntityStoreImplementation");
+const { TypedValue } = require("./meta/Runtime");
+const BaseService = require("../BaseService");
 
 /**
  * DriverService provides the functionality of Puter drivers.
  */
-class DriverService extends AdvancedBase {
+class DriverService extends BaseService {
     static MODULES = {
         types: require('./types'),
     }
 
-    constructor ({ services }) {
-        super();
-        this.services = services;
-
-        // TODO: move this to an init method
-        this.log = services.get('log-service').create(this.constructor.name);
-        this.errors = services.get('error-service').create(this.log);
-
+    _construct () {
         this.interfaces = require('./interfaces');
+        this.interface_to_implementation = {};
+    }
 
-        this.interface_to_implementation = {
-            'helloworld': new (require('./implementations/HelloWorld').HelloWorld)(),
-            'puter-kvstore': new (require('./implementations/DBKVStore').DBKVStore)(),
-            'puter-apps': new EntityStoreImplementation({ service: 'es:app' }),
-            'puter-subdomains': new EntityStoreImplementation({ service: 'es:subdomain' }),
-        };
+    register_driver (interface_name, implementation) {
+        this.interface_to_implementation[interface_name] = implementation;
     }
 
     get_interface (interface_name) {

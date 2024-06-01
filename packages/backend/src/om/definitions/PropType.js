@@ -128,8 +128,6 @@ class PropType extends AdvancedBase {
     async is_set (value) {
         const is_setters = this.chains.is_set || [];
 
-        console.log('IS SETTERS', is_setters)
-
         for ( const is_setter of is_setters ) {
             const result = await is_setter(value);
             if ( ! result ) {

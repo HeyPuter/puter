@@ -225,6 +225,9 @@ const install = async ({ services, app }) => {
 
     const { DevTODService } = require('./services/DevTODService');
     services.registerService('__dev-tod', DevTODService);
+
+    const { DriverService } = require("./services/drivers/DriverService");
+    services.registerService('driver', DriverService);
 }
 
 const install_legacy = async ({ services }) => {

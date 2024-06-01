@@ -16,10 +16,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../../api/APIError");
-const { Entity } = require("../../../om/entitystorage/Entity");
-const { Or, And, Eq } = require("../../../om/query/query");
-const { BaseImplementation } = require("./BaseImplementation");
+const APIError = require("../api/APIError");
+const { Driver } = require("../definitions/Driver");
+const { Entity } = require("../om/entitystorage/Entity");
+const { Or, And, Eq } = require("../om/query/query");
 
 const _fetch_based_on_complex_id = async (self, id) => {
     // Ensure `id` is an object and get its keys
@@ -87,7 +87,7 @@ const _fetch_based_on_either_id = async (self, uid, id) => {
     return await _fetch_based_on_complex_id(self, id);
 }
 
-class EntityStoreImplementation extends BaseImplementation {
+class EntityStoreImplementation extends Driver {
     constructor ({ service }) {
         super();
         this.service = service;
