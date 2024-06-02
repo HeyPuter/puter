@@ -355,6 +355,75 @@ window.addEventListener('message', async (event) => {
         }, '*');
     }
     //--------------------------------------------------------
+    // mouseMoved
+    //--------------------------------------------------------
+    else if(event.data.msg === 'mouseMoved'){
+        // Auth
+        if(!window.is_auth() && !(await UIWindowSignup({referrer: app_name})))
+            return;
+
+        // get x and y and sanitize
+        let x = parseInt(event.data.x);
+        let y = parseInt(event.data.y);
+
+        // get parent window
+        const el_window = window.window_for_app_instance(event.data.appInstanceID);
+
+        // get window position
+        const window_position = $(el_window).position();
+
+        // update mouse position
+        update_mouse_position(x + window_position.left, y + window_position.top + 25);
+    }
+
+    //--------------------------------------------------------
+    // contextMenu
+    //--------------------------------------------------------
+    else if(event.data.msg === 'contextMenu'){
+        // Auth
+        if(!window.is_auth() && !(await UIWindowSignup({referrer: app_name})))
+            return;
+
+        const hydrator = puter.util.rpc.getHydrator({
+            target: target_iframe.contentWindow,
+        });
+        let value = hydrator.hydrate(event.data.value);
+
+        // get parent window
+        const el_window = window.window_for_app_instance(event.data.appInstanceID);
+
+
+        let items = value.items ?? [];
+        const sanitize_items = items => {
+            return items.map(item => {
+                // Check if the item is just '-'
+                if (item === '-') {
+                    return '-';
+                }
+                // Otherwise, proceed as before
+                return {
+                    html: item.label,
+                    onClick: () => {
+                        if (item.action !== undefined) {
+                            console.log('item.action', item.action);
+                            item.action();
+                        }
+                    },
+                    items: item.items ? sanitize_items(item.items) : undefined
+                };
+            });
+        };
+
+        items = sanitize_items(items);
+
+        // Open context menu
+        UIContextMenu({
+            items: items,
+        });
+
+        $(target_iframe).get(0).focus({preventScroll:true});
+    }
+    //--------------------------------------------------------
     // setMenubar
     //--------------------------------------------------------
     else if(event.data.msg === 'setMenubar') {

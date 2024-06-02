@@ -429,6 +429,25 @@ class UI extends EventListener {
                 this.#lastBroadcastValue.set(name, data);
             }
         });
+
+        // We need to send the mouse position to the host environment
+        // This is important since a lot of UI elements depend on the mouse position (e.g. ContextMenus, Tooltips, etc.)
+        // and the host environment needs to know the mouse position to show these elements correctly.
+        // The host environment can't just get the mouse position since when the mouse is over an iframe it 
+        // will not be able to get the mouse position. So we need to send the mouse position to the host environment.
+        document.addEventListener('mousemove', async (event)=>{
+            // Get the mouse position from the event object
+            this.mouseX = event.clientX;
+            this.mouseY = event.clientY;
+
+            // send the mouse position to the host environment
+            this.messageTarget?.postMessage({
+                msg: "mouseMoved",
+                appInstanceID: this.appInstanceID,
+                x: this.mouseX,
+                y: this.mouseY,
+            }, '*');
+        });
     }
 
     onWindowClose = function(callback) {
@@ -657,6 +676,10 @@ class UI extends EventListener {
 
     setMenubar = function(spec) {
         this.#postMessageWithObject('setMenubar', spec);
+    }
+
+    contextMenu = function(spec) {
+        this.#postMessageWithObject('contextMenu', spec);
     }
 
     /**
