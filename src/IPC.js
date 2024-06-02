@@ -28,6 +28,7 @@ import UIPrompt from './UI/UIPrompt.js';
 import download from './helpers/download.js';
 import path from "./lib/path.js";
 import UIContextMenu from './UI/UIContextMenu.js';
+import update_mouse_position from './helpers/update_mouse_position.js';
 
 /**
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.

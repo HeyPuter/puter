@@ -42,7 +42,7 @@ import { LocaleService } from './services/LocaleService.js';
 import { SettingsService } from './services/SettingsService.js';
 
 import UIComponentWindow from './UI/UIComponentWindow.js';
-import Spinner from './UI/Components/Spinner.js';
+import update_mouse_position from './helpers/update_mouse_position.js';
 
 
 const launch_services = async function () {
@@ -2079,69 +2079,3 @@ $(document).on('contextmenu', '.disable-context-menu', function(e){
         return false;
     }
 })
-
-window.update_mouse_position = function(x, y){
-    window.mouseX = x;
-    window.mouseY = y;
-
-    // mouse in top-left corner of screen
-    if((window.mouseX < 150 && window.mouseY < window.toolbar_height + 20) || (window.mouseX < 20 && window.mouseY < 150))
-        window.current_active_snap_zone = 'nw';
-    // mouse in left edge of screen
-    else if(window.mouseX < 20 && window.mouseY >= 150 && window.mouseY < window.desktop_height - 150)
-        window.current_active_snap_zone = 'w';
-    // mouse in bottom-left corner of screen
-    else if(window.mouseX < 20 && window.mouseY > window.desktop_height - 150)
-        window.current_active_snap_zone = 'sw';
-    // mouse in right edge of screen
-    else if(window.mouseX > window.desktop_width - 20 && window.mouseY >= 150 && window.mouseY < window.desktop_height - 150)
-        window.current_active_snap_zone = 'e';
-    // mouse in top-right corner of screen
-    else if((window.mouseX > window.desktop_width - 150 && window.mouseY < window.toolbar_height + 20) || (window.mouseX > window.desktop_width - 20 && window.mouseY < 150))
-        window.current_active_snap_zone = 'ne';
-    // mouse in bottom-right corner of screen
-    else if(window.mouseX > window.desktop_width - 20 && window.mouseY >= window.desktop_height - 150)
-        window.current_active_snap_zone = 'se';
-    // mouse in top edge of screen
-    else if(window.mouseY < window.toolbar_height + 20 && window.mouseX >= 150 && window.mouseX < window.desktop_width - 150)
-        window.current_active_snap_zone =  'n';
-    // not in any snap zone
-    else
-        window.current_active_snap_zone = undefined;
-
-    // mouseover_window
-    var windows = document.getElementsByClassName("window");
-    let active_win;
-    if(windows.length > 0){
-        let highest_window_zindex = 0;
-        for(let i=0; i<windows.length; i++){
-            const rect = windows[i].getBoundingClientRect();
-            if( window.mouseX > rect.x &&  window.mouseX < (rect.x + rect.width) && window.mouseY > rect.y &&  window.mouseY < (rect.y + rect.height)){
-                if(parseInt($(windows[i]).css('z-index')) >= highest_window_zindex){
-                    active_win = windows[i];
-                    highest_window_zindex = parseInt($(windows[i]).css('z-index'));
-                }
-            }
-        }
-    }
-    window.mouseover_window = active_win;
-
-    // mouseover_item_container
-    var item_containers = document.getElementsByClassName("item-container");
-    let active_ic;
-    if(item_containers.length > 0){
-        let highest_window_zindex = 0;
-        for(let i=0; i<item_containers.length; i++){
-            const rect = item_containers[i].getBoundingClientRect();
-            if( window.mouseX > rect.x &&  window.mouseX < (rect.x + rect.width) && window.mouseY > rect.y &&  window.mouseY < (rect.y + rect.height)){
-                let active_container_zindex = parseInt($(item_containers[i]).closest('.window').css('z-index'));
-                if( !isNaN(active_container_zindex) && active_container_zindex >= highest_window_zindex){
-                    active_ic = item_containers[i];
-                    highest_window_zindex = active_container_zindex;
-                }
-            }
-        }
-    }
-    window.mouseover_item_container = active_ic;
-
-}
