@@ -384,7 +384,7 @@ window.addEventListener('message', async (event) => {
                 return {
                     html: item.label,
                     action: item.action,
-                    items: item.items ? sanitizeItems(item.items) : undefined
+                    items: item.items ? sanitize_items(item.items) : undefined
                 };
             });
         };
