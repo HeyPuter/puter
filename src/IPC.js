@@ -376,14 +376,19 @@ window.addEventListener('message', async (event) => {
 
         const sanitize_items = items => {
             return items.map(item => {
+                // Check if the item is just '-'
+                if (item === '-') {
+                    return '-';
+                }
+                // Otherwise, proceed as before
                 return {
                     html: item.label,
                     action: item.action,
-                    items: item.items && sanitize_items(item.items),
+                    items: item.items ? sanitizeItems(item.items) : undefined
                 };
             });
         };
-
+          
         // This array will store the menubar button elements
         const menubar_buttons = [];
 
