@@ -18,7 +18,6 @@
  */
 import git from 'isomorphic-git';
 import path from 'path-browserify';
-import { ErrorCodes } from '@heyputer/puter-js-common/src/PosixError.js';
 import { find_repo_root } from '../git-helpers.js';
 
 export default {
