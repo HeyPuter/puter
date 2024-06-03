@@ -16,8 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import git from 'isomorphic-git';
-import { ErrorCodes } from '@heyputer/puter-js-common/src/PosixError.js';
 import subcommands from './__exports__.js';
 import git_command from '../git-command-definition.js';
 import { produce_help_string } from '../help.js';
