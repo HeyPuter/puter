@@ -1,6 +1,6 @@
 import { adapt_parser, VALUE } from './parser.js';
 import { Discard, FirstMatch, Optional, Repeat, Sequence } from './parsers/combinators.js';
-import { Literal, None, StringOf, Symbol } from './parsers/terminals.js';
+import { Fail, Literal, None, StringOf, StringUntil, Symbol } from './parsers/terminals.js';
 
 class ParserWithAction {
     #parser;
@@ -81,6 +81,7 @@ export class GrammarContext {
 export const standard_parsers = () => {
     return {
         discard: Discard,
+        fail: Fail,
         firstMatch: FirstMatch,
         literal: Literal,
         none: None,
@@ -88,6 +89,7 @@ export const standard_parsers = () => {
         repeat: Repeat,
         sequence: Sequence,
         stringOf: StringOf,
+        stringUntil: StringUntil,
         symbol: Symbol,
     }
 }

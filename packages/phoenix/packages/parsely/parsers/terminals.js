@@ -54,6 +54,53 @@ export class StringOf extends Parser {
 }
 
 /**
+ * Parses characters into a string, until it encounters the given character, unescaped.
+ * @param testOrCharacter End of the string. Either a character, or a function that takes a character,
+ *                        and returns whether it ends the string.
+ * @param escapeCharacter Character to use as the escape character. By default, is '\'.
+ */
+export class StringUntil extends Parser {
+    _create(testOrCharacter, { escapeCharacter = '\\' } = {}) {
+        if (typeof testOrCharacter === 'string') {
+            this.test = (c => c === testOrCharacter);
+        } else {
+            this.test = testOrCharacter;
+        }
+        this.escapeCharacter = escapeCharacter;
+    }
+
+    _parse(stream) {
+        const subStream = stream.fork();
+        let text = '';
+        let lastWasEscape = false;
+
+        while (true) {
+            let { done, value } = subStream.look();
+            if ( done ) break;
+            if ( !lastWasEscape && this.test(value) )
+                break;
+
+            subStream.next();
+            if (value === this.escapeCharacter) {
+                lastWasEscape = true;
+                continue;
+            }
+            lastWasEscape = false;
+            text += value;
+        }
+
+        if (lastWasEscape)
+            return INVALID;
+
+        if (text.length === 0)
+            return UNRECOGNIZED;
+
+        stream.join(subStream);
+        return { status: VALUE, $: 'stringUntil', value: text };
+    }
+}
+
+/**
  * Parses an object defined by the symbol registry.
  * @param symbolName The name of the symbol to parse.
  */
@@ -89,5 +136,16 @@ export class None extends Parser {
 
     _parse (stream) {
         return { status: VALUE, $: 'none', $discard: true };
+    }
+}
+
+/**
+ * Always fails parsing.
+ */
+export class Fail extends Parser {
+    _create () {}
+
+    _parse (stream) {
+        return UNRECOGNIZED;
     }
 }

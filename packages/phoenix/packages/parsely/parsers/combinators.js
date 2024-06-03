@@ -79,7 +79,7 @@ export class Optional extends Parser {
 export class Repeat extends Parser {
     _create (value_parser, separator_parser, { trailing = false } = {}) {
         this.value_parser = adapt_parser(value_parser);
-        this.separator_parser = adapt_parser(separator_parser);
+        this.separator_parser = separator_parser ? adapt_parser(separator_parser) : null;
         this.trailing = trailing;
     }
 
@@ -99,22 +99,23 @@ export class Repeat extends Parser {
             // Repeatedly parse <separator> <value>
             for (;;) {
                 // Separator
-                if (!this.separator_parser)
-                    continue;
-
-                const separatorResult = this.separator_parser.parse(subStream);
-                if (separatorResult.status === UNRECOGNIZED)
-                    break;
-                if (separatorResult.status === INVALID)
-                    return { status: INVALID, value: separatorResult };
-                stream.join(subStream);
-                if (!separatorResult.$discard) results.push(separatorResult);
+                let parsed_separator = false;
+                if (this.separator_parser) {
+                    const separatorResult = this.separator_parser.parse(subStream);
+                    if (separatorResult.status === UNRECOGNIZED)
+                        break;
+                    if (separatorResult.status === INVALID)
+                        return { status: INVALID, value: separatorResult };
+                    stream.join(subStream);
+                    if (!separatorResult.$discard) results.push(separatorResult);
+                    parsed_separator = true;
+                }
 
                 // Value
                 const result = this.value_parser.parse(subStream);
                 if (result.status === UNRECOGNIZED) {
                     // If we failed to parse a value, we have a trailing separator
-                    if (this.trailing === false)
+                    if (parsed_separator && this.trailing === false)
                         return { status: INVALID, value: result };
                     break;
                 }
