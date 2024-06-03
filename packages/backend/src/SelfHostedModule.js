@@ -5,6 +5,9 @@ class SelfHostedModule extends AdvancedBase {
     async install (context) {
         const services = context.get('services');
 
+        const { SelfhostedService } = require('./services/SelfhostedService');
+        services.registerService('__selfhosted', SelfhostedService);
+
         const DefaultUserService = require('./services/DefaultUserService');
         services.registerService('__default-user', DefaultUserService);
 

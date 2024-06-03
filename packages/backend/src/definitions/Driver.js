@@ -17,16 +17,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require("@heyputer/puter-js-common");
-const { Context } = require("../../../util/context");
-const APIError = require("../../../api/APIError");
-const { AppUnderUserActorType, Actor, UserActorType } = require("../../auth/Actor");
-const { BaseOperation } = require("../../OperationTraceService");
-const { CodeUtil } = require("../../../codex/CodeUtil");
+const { Context } = require('../util/context')
+const APIError = require("../api/APIError");
+const { AppUnderUserActorType, UserActorType } = require("../services/auth/Actor");
+const { BaseOperation } = require("../services/OperationTraceService");
+const { CodeUtil } = require("../codex/CodeUtil");
 
 /**
  * Base class for all driver implementations.
  */
-class BaseImplementation extends AdvancedBase {
+class Driver extends AdvancedBase {
     constructor (...a) {
         super(...a);
         const methods = this._get_merged_static_object('METHODS');
@@ -184,5 +184,5 @@ class BaseImplementation extends AdvancedBase {
 }
 
 module.exports = {
-    BaseImplementation,
+    Driver,
 };

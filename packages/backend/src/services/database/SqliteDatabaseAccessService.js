@@ -168,22 +168,13 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         query = this.sqlite_transform_query_(query);
         params = this.sqlite_transform_params_(params);
 
-        try {
-            const stmt = this.db.prepare(query);
-            const info = stmt.run(...params);
+        const stmt = this.db.prepare(query);
+        const info = stmt.run(...params);
 
-            return {
-                insertId: info.lastInsertRowid,
-                anyRowsAffected: info.changes > 0,
-            };
-        } catch ( e ) {
-            console.error(e);
-            console.log('everything', {
-                query, params,
-            })
-            console.log(params.map(p => typeof p));
-            // throw e;
-        }
+        return {
+            insertId: info.lastInsertRowid,
+            anyRowsAffected: info.changes > 0,
+        };
     }
 
     async _batch_write (entries) {

@@ -16,14 +16,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AppUnderUserActorType } = require("../../auth/Actor");
-const { BaseImplementation } = require("./BaseImplementation");
+const config = require("../config");
+const APIError = require("../api/APIError");
+const { DB_READ, DB_WRITE } = require("../services/database/consts");
+const { Driver } = require("../definitions/Driver");
 
-const config = require("../../../config");
-const APIError = require("../../../api/APIError");
-const { DB_READ, DB_WRITE } = require("../../database/consts");
-
-class DBKVStore extends BaseImplementation {
+class DBKVStore extends Driver {
     static ID = 'public-db-kvstore';
     static VERSION = '0.0.0';
     static INTERFACE = 'puter-kvstore';
@@ -32,6 +30,7 @@ class DBKVStore extends BaseImplementation {
     }
     static METHODS = {
         get: async function ({ key }) {
+            console.log('THIS WAS CALLED', { key });
             const actor = this.context.get('actor');
 
             // If the actor is an app then it gets its own KV store.
@@ -58,6 +57,7 @@ class DBKVStore extends BaseImplementation {
             return kv[0]?.value ?? null;
         },
         set: async function ({ key, value }) {
+            console.log('THIS WAS CALLED (SET)', { key, value })
             const actor = this.context.get('actor');
 
             // Validate the key
@@ -98,12 +98,15 @@ class DBKVStore extends BaseImplementation {
                     ]
                 );
             } catch (e) {
-                // if ( e.code !== 'SQLITE_ERROR' && e.code !== 'SQLITE_CONSTRAINT_PRIMARYKEY' ) throw e;
-                // The "ON CONFLICT" clause isn't currently working.
-                await db.write(
-                    `UPDATE kv SET value = ? WHERE user_id=? AND app=? AND kkey_hash=?`,
-                    [ value, user.id, app?.uid ?? 'global', key_hash ]
-                );
+                // I discovered that my .sqlite file was corrupted and the update
+                // above didn't work. The current database initialization does not
+                // cause this issue so I'm adding this log as a safeguard.
+                // - KernelDeimos / ED
+                const svc_error = this.services.get('error-service');
+                svc_error.report('kvstore:sqlite_error', {
+                    message: 'Broken database version - please contact maintainers',
+                    source: e,
+                });
             }
 
             return true;

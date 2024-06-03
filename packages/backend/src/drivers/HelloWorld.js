@@ -16,10 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Context } = require("../../../util/context");
-const { BaseImplementation } = require("./BaseImplementation");
+const { Driver } = require("../definitions/Driver");
 
-class HelloWorld extends BaseImplementation {
+class HelloWorld extends Driver {
     static ID = 'public-helloworld';
     static VERSION = '0.0.0';
     static INTERFACE = 'helloworld';
