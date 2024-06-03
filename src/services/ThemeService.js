@@ -62,7 +62,7 @@ export class ThemeService extends Service {
                 //       log this error to the event log
                 console.error(e);
 
-                // We don't show an alert becuase it's likely
+                // We don't show an alert because it's likely
                 // other things also aren't working.
             }
         }
