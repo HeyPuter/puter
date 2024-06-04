@@ -5,6 +5,7 @@ import './util/TeePromise.js';
 import './util/Component.js';
 import './UI/Components/Frame.js';
 import './UI/Components/Glyph.js';
+import './UI/Components/Spinner.js';
 import './UI/Components/ActionCard.js';
 import './UI/Components/NotifCard.js';
 
