@@ -22,6 +22,7 @@ import module_branch from './branch.js'
 import module_clone from './clone.js'
 import module_commit from './commit.js'
 import module_config from './config.js'
+import module_fetch from './fetch.js'
 import module_help from './help.js'
 import module_init from './init.js'
 import module_log from './log.js'
@@ -36,6 +37,7 @@ export default {
     "clone": module_clone,
     "commit": module_commit,
     "config": module_config,
+    "fetch": module_fetch,
     "help": module_help,
     "init": module_init,
     "log": module_log,
