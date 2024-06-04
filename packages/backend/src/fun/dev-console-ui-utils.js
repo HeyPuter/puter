@@ -9,6 +9,7 @@ let stringLength;
     // process.exit(0);
 })();
 const surrounding_box = (col, lines, lengths) => {
+    if ( ! stringLength ) return;
     if ( ! lengths ) {
         lengths = lines.map(line => stringLength(line));
     }
