@@ -703,7 +703,7 @@ class UI extends EventListener {
             if (this.getEntriesFromDataTransferItems.didShowInfo) return
             if (err.name !== 'EncodingError') return
             this.getEntriesFromDataTransferItems.didShowInfo = true
-            const infoMsg = `${err.name} occured within datatransfer-files-promise module\n`
+            const infoMsg = `${err.name} occurred within datatransfer-files-promise module\n`
                 + `Error message: "${err.message}"\n`
                 + 'Try serving html over http if currently you are running it from the filesystem.'
             console.warn(infoMsg)
