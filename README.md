@@ -74,8 +74,8 @@ See [Configuration](#configuration) for next steps.
 
 <br/>
 
-## ⚠️ Self-Hosting ⚠️
-The self-hosted version of Puter is currently in alpha stage and should not be used in production yet. It is under active development and may contain bugs, other issues. Please exercise caution and use it for testing and evaluation purposes only.
+> [!WARNING]
+> The self-hosted version of Puter is currently in alpha stage and should not be used in production yet. It is under active development and may contain bugs, other issues. Please exercise caution and use it for testing and evaluation purposes only.
 
 ### Self-Hosting Differences
 Currently, the self-hosted version of Puter is different in a few ways from [Puter.com](https://puter.com):
