@@ -26,6 +26,7 @@ const CHECKOUT = {
     usage: [
         'git checkout [--force] <branch>',
         'git checkout (-b | -B) [--force] <new-branch> [<start-point>]',
+        'git checkout [--force] [<from>] [--] <pathspec>...',
     ],
     description: `Switch branches.`,
     args: {
@@ -52,7 +53,31 @@ const CHECKOUT = {
         const { options, positionals, tokens } = args;
         const cache = {};
 
+        const checkout_targets = {
+            from: null,
+            seen_separator: false,
+            pathspecs: [],
+        };
+        let reading_pathspecs = false;
         for (const token of tokens) {
+
+            // Parse "[<from>] [--] <pathspec>..."
+            if (token.kind === 'option-terminator') {
+                checkout_targets.seen_separator = true;
+                reading_pathspecs = true;
+                continue;
+            }
+            if (token.kind === 'positional') {
+                if (reading_pathspecs) {
+                    checkout_targets.pathspecs.push(token.value);
+                } else {
+                    checkout_targets.from = token.value;
+                    reading_pathspecs = true;
+                }
+                continue;
+            }
+
+            // Parse options
             if (token.kind !== 'option') continue;
 
             if (token.name === 'B') {
@@ -99,8 +124,9 @@ const CHECKOUT = {
             return { branches, current_branch };
         }
 
+        const { branches, current_branch } = await get_branch_data();
+
         if (options['new-branch']) {
-            const { branches, current_branch } = await get_branch_data();
             if (positionals.length === 0 || positionals.length > 2) {
                 stderr('error: Expected 1 or 2 arguments, for <new-branch> [<start-point>].');
                 throw SHOW_USAGE;
@@ -124,34 +150,78 @@ const CHECKOUT = {
             return;
         }
 
-        // Check out a branch
-        // TODO: Check out files.
-        {
-            if (positionals.length === 0 || positionals.length > 1) {
-                stderr('error: Expected 1 argument, for <branch>.');
-                throw SHOW_USAGE;
+        // Check out a branch, or files
+        if (positionals.length === 0) {
+            stderr('error: Expected at least 1 argument, for either a branch name or some path specs.');
+            throw SHOW_USAGE;
+        }
+
+        if (checkout_targets.from) {
+            const branch_name = checkout_targets.from;
+
+            const specified_pathspecs = checkout_targets.pathspecs.length > 0;
+
+            if (branch_name === current_branch && !specified_pathspecs) {
+                stdout(`Already on '${branch_name}'`);
+                return;
             }
-            const { branches, current_branch } = await get_branch_data();
-            const branch_name = positionals.shift();
+
+            if (branches.includes(branch_name)) {
+                await git.checkout({
+                    fs,
+                    dir: repository_dir,
+                    gitdir: git_dir,
+                    cache,
+                    ref: branch_name,
+                    ...(specified_pathspecs ? { filepaths: checkout_targets.pathspecs } : {}),
+                    force: options.force,
+                    onProgress: progress => {
+                        console.log(progress.phase, progress.loaded, progress.total);
+                    },
+                });
+                if (specified_pathspecs) {
+                    // TODO: We should mention which files got updated!
+                    stdout(`Updated files from '${branch_name}'`);
+                } else {
+                    stdout(`Switched to branch '${branch_name}'`);
+                }
+                return;
+            } else if (checkout_targets.seen_separator) {
+                throw new Error(`Branch '${branch_name}' not found.`);
+            }
+        }
+
+        if (positionals.length === 1) {
+            const branch_name = positionals[0];
 
             if (branch_name === current_branch) {
                 stdout(`Already on '${branch_name}'`);
                 return;
             }
 
-            if (!branches.includes(branch_name))
-                throw new Error(`Branch '${branch_name}' not found.`);
-
-            await git.checkout({
-                fs,
-                dir: repository_dir,
-                gitdir: git_dir,
-                cache,
-                ref: branch_name,
-                force: options.force,
-            });
-            stdout(`Switched to branch '${branch_name}'`);
+            if (branches.includes(branch_name)) {
+                await git.checkout({
+                    fs,
+                    dir: repository_dir,
+                    gitdir: git_dir,
+                    cache,
+                    ref: branch_name,
+                    force: options.force,
+                });
+                stdout(`Switched to branch '${branch_name}'`);
+                return;
+            }
         }
+
+        // Not a branch, so check out files
+        await git.checkout({
+            fs,
+            dir: repository_dir,
+            gitdir: git_dir,
+            cache,
+            filepaths: [positionals],
+            force: options.force,
+        });
     }
 };
 export default CHECKOUT;
