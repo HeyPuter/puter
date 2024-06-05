@@ -397,6 +397,13 @@ window.addEventListener('message', async (event) => {
         let items = value.items ?? [];
         const sanitize_items = items => {
             return items.map(item => {
+                // make sure item.icon and item.icon_active are valid base64 strings
+                if (item.icon && !item.icon.startsWith('data:image')) {
+                    item.icon = undefined;
+                }
+                if (item.icon_active && !item.icon_active.startsWith('data:image')) {
+                    item.icon_active = undefined;
+                }
                 // Check if the item is just '-'
                 if (item === '-') {
                     return '-';
@@ -404,9 +411,10 @@ window.addEventListener('message', async (event) => {
                 // Otherwise, proceed as before
                 return {
                     html: item.label,
+                    icon: item.icon ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon)}" />` : undefined,
+                    icon_active: item.icon_active ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon_active)}" />` : undefined,
                     onClick: () => {
                         if (item.action !== undefined) {
-                            console.log('item.action', item.action);
                             item.action();
                         }
                     },
