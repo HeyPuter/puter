@@ -228,6 +228,9 @@ const install = async ({ services, app }) => {
 
     const { DriverService } = require("./services/drivers/DriverService");
     services.registerService('driver', DriverService);
+
+    const { ScriptService } = require('./services/ScriptService');
+    services.registerService('script', ScriptService);
 }
 
 const install_legacy = async ({ services }) => {
