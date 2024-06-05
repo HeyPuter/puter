@@ -26,7 +26,7 @@ export const PROXY_URL = 'https://cors.isomorphic-git.org';
  * @throws Error If no git repository could be found, or another error occurred.
  * @param fs Filesystem API
  * @param pwd Directory to search from
- * @returns {Promise<{repository_dir: (string|*), git_dir: (string|string)}>}
+ * @returns {Promise<{dir: (string|*), gitdir: (string|string)}>} dir and gitdir are the same as in git.foo({dir, gitdir}) APIs.
  */
 export const find_repo_root = async (fs, pwd) => {
     if (!path.isAbsolute(pwd))
@@ -54,8 +54,8 @@ export const find_repo_root = async (fs, pwd) => {
         // TODO: The git cli seems to check other things, maybe try to match that behaviour.
 
         const result = {
-            repository_dir: current_path,
-            git_dir: current_git_path,
+            dir: current_path,
+            gitdir: current_git_path,
         };
 
         // Non-default-git-folder repos have .git as a text file containing the git dir path.
@@ -65,7 +65,7 @@ export const find_repo_root = async (fs, pwd) => {
             const prefix = 'gitdir:';
             if (!contents.startsWith(prefix))
                 throw new Error(`invalid gitfile format: ${current_git_path}`);
-            result.git_dir = contents.slice(prefix.length).trim();
+            result.gitdir = contents.slice(prefix.length).trim();
         }
 
         return result;

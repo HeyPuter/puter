@@ -48,12 +48,12 @@ export default {
 
         const depth = Number(options['max-count']) || undefined;
 
-        const { repository_dir, git_dir } = await find_repo_root(fs, env.PWD);
+        const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 
         const log = await git.log({
             fs,
-            dir: repository_dir,
-            gitdir: git_dir,
+            dir,
+            gitdir,
             depth,
         });
 

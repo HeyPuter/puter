@@ -75,19 +75,19 @@ const CHECKOUT = {
             }
         }
 
-        const { repository_dir, git_dir } = await find_repo_root(fs, env.PWD);
+        const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 
         // DRY: Copied from branch.js
         const get_current_branch = async () => git.currentBranch({
             fs,
-            dir: repository_dir,
-            gitdir: git_dir,
+            dir,
+            gitdir,
             test: true,
         });
         const get_all_branches = async () => git.listBranches({
             fs,
-            dir: repository_dir,
-            gitdir: git_dir,
+            dir,
+            gitdir,
         });
         const get_branch_data = async () => {
             const [branches, current_branch] = await Promise.all([
@@ -111,8 +111,8 @@ const CHECKOUT = {
 
             await git.branch({
                 fs,
-                dir: repository_dir,
-                gitdir: git_dir,
+                dir,
+                gitdir,
                 ref: branch_name,
                 object: starting_point,
                 checkout: true,
@@ -142,8 +142,8 @@ const CHECKOUT = {
 
             await git.checkout({
                 fs,
-                dir: repository_dir,
-                gitdir: git_dir,
+                dir,
+                gitdir,
                 cache,
                 ref: branch_name,
                 force: options.force,

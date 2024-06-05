@@ -108,18 +108,18 @@ const BRANCH = {
             }
         }
 
-        const { repository_dir, git_dir } = await find_repo_root(fs, env.PWD);
+        const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 
         const get_current_branch = async () => git.currentBranch({
             fs,
-            dir: repository_dir,
-            gitdir: git_dir,
+            dir,
+            gitdir,
             test: true,
         });
         const get_all_branches = async () => git.listBranches({
             fs,
-            dir: repository_dir,
-            gitdir: git_dir,
+            dir,
+            gitdir,
         });
         const get_branch_data = async () => {
             const [branches, current_branch] = await Promise.all([
@@ -149,8 +149,8 @@ const BRANCH = {
 
             await git.branch({
                 fs,
-                dir: repository_dir,
-                gitdir: git_dir,
+                dir,
+                gitdir,
                 ref: new_name,
                 object: old_name,
                 checkout: false,
@@ -176,14 +176,14 @@ const BRANCH = {
                     throw new Error(`Branch '${branch}' not found.`);
                 const oid = await git.resolveRef({
                     fs,
-                    dir: repository_dir,
-                    gitdir: git_dir,
+                    dir,
+                    gitdir,
                     ref: branch,
                 });
                 const result = await git.deleteBranch({
                     fs,
-                    dir: repository_dir,
-                    gitdir: git_dir,
+                    dir,
+                    gitdir,
                     ref: branch,
                 });
                 return oid;
@@ -227,16 +227,16 @@ const BRANCH = {
                     throw new Error(`A branch named '${new_name}' already exists.`);
                 await git.deleteBranch({
                     fs,
-                    dir: repository_dir,
-                    gitdir: git_dir,
+                    dir,
+                    gitdir,
                     ref: new_name,
                 });
             }
 
             await git.renameBranch({
                 fs,
-                dir: repository_dir,
-                gitdir: git_dir,
+                dir,
+                gitdir,
                 ref: new_name,
                 oldref: old_name,
                 checkout: old_name === current_branch,
@@ -285,8 +285,8 @@ const BRANCH = {
 
             await git.branch({
                 fs,
-                dir: repository_dir,
-                gitdir: git_dir,
+                dir,
+                gitdir,
                 ref: branch_name,
                 object: starting_point,
                 checkout: false,

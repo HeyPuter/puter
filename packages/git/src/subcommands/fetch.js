@@ -44,14 +44,14 @@ export default {
         const { options, positionals } = args;
         const cache = {};
 
-        const { repository_dir, git_dir } = await find_repo_root(fs, env.PWD);
+        const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 
         // TODO: Support <refspec> syntax.
 
         const remotes = await git.listRemotes({
             fs,
-            dir: repository_dir,
-            gitdir: git_dir,
+            dir,
+            gitdir,
         });
 
         if (options.all) {
@@ -62,8 +62,8 @@ export default {
                     http,
                     cache,
                     corsProxy: PROXY_URL,
-                    dir: repository_dir,
-                    gitdir: git_dir,
+                    dir,
+                    gitdir,
                     remote,
                     onMessage: (message) => { stdout(message); },
                 });
@@ -79,8 +79,8 @@ export default {
             http,
             cache,
             corsProxy: PROXY_URL,
-            dir: repository_dir,
-            gitdir: git_dir,
+            dir,
+            gitdir,
             ...remote_data,
             onMessage: (message) => { stdout(message); },
         });

@@ -40,7 +40,7 @@ export default {
         const { stdout, stderr } = io;
         const { options, positionals, tokens } = args;
 
-        const { repository_dir, git_dir } = await find_repo_root(fs, env.PWD);
+        const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 
         // TODO: Other subcommands:
         //  - set-head
@@ -56,8 +56,8 @@ export default {
                 // No subcommand, so list remotes
                 const remotes = await git.listRemotes({
                     fs,
-                    dir: repository_dir,
-                    gitdir: git_dir,
+                    dir,
+                    gitdir,
                 });
                 for (const remote of remotes) {
                     if (options.verbose) {
@@ -79,8 +79,8 @@ export default {
                 const [ name, url ] = positionals;
                 await git.addRemote({
                     fs,
-                    dir: repository_dir,
-                    gitdir: git_dir,
+                    dir,
+                    gitdir,
                     remote: name,
                     url: url,
                 });
@@ -98,8 +98,8 @@ export default {
                 // First, check if the remote exists so we can show an error if it doesn't.
                 const remotes = await git.listRemotes({
                     fs,
-                    dir: repository_dir,
-                    gitdir: git_dir,
+                    dir,
+                    gitdir,
                 });
                 if (!remotes.find(it => it.remote === name)) {
                     stderr(`error: No such remote: '${name}'`);
@@ -108,8 +108,8 @@ export default {
 
                 await git.deleteRemote({
                     fs,
-                    dir: repository_dir,
-                    gitdir: git_dir,
+                    dir,
+                    gitdir,
                     remote: name,
                 });
                 return;
