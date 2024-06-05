@@ -39,12 +39,12 @@ export default {
             return;
         }
 
-        const { repository_dir, git_dir } = await find_repo_root(fs, env.PWD);
+        const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 
         await git.add({
             fs,
-            dir: repository_dir,
-            gitdir: git_dir,
+            dir,
+            gitdir,
             ignored: false,
             filepath: pathspecs,
             parallel: true,

@@ -37,7 +37,7 @@ export default {
 
         process_commit_formatting_options(options);
 
-        const { repository_dir, git_dir } = await find_repo_root(fs, env.PWD);
+        const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 
         const objects = [...positionals];
 
@@ -58,8 +58,8 @@ export default {
                     // That may also be a tag, so we recurse.
                     const target = await git.readObject({
                         fs,
-                        dir: repository_dir,
-                        gitdir: git_dir,
+                        dir,
+                        gitdir,
                         oid: tag.object,
                         format: 'parsed',
                         cache,
@@ -74,16 +74,16 @@ export default {
             // Could be any ref, so first get the oid that's referred to.
             const oid = await git.resolveRef({
                 fs,
-                dir: repository_dir,
-                gitdir: git_dir,
+                dir,
+                gitdir,
                 ref,
             });
 
             // Then obtain the object and parse it.
             const parsed_object = await git.readObject({
                 fs,
-                dir: repository_dir,
-                gitdir: git_dir,
+                dir,
+                gitdir,
                 oid,
                 format: 'parsed',
                 cache,

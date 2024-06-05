@@ -34,13 +34,13 @@ export default {
         const { stdout, stderr } = io;
         const { options, positionals } = args;
 
-        const { repository_dir, git_dir } = await find_repo_root(fs, env.PWD);
+        const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 
         // Gather up file differences
         const file_status = await git.statusMatrix({
             fs,
-            dir: repository_dir,
-            gitdir: git_dir,
+            dir,
+            gitdir,
             ignored: false,
         });
 
@@ -53,7 +53,7 @@ export default {
         const STAGE = 3;
 
         for (const file of file_status) {
-            const absolute_path = path.resolve(repository_dir, file[0]);
+            const absolute_path = path.resolve(dir, file[0]);
             const relative_path = path.relative(env.PWD, absolute_path);
 
             const status_string = `${file[1]}${file[2]}${file[3]}`;
@@ -104,8 +104,8 @@ export default {
 
         const current_branch = await git.currentBranch({
             fs,
-            dir: repository_dir,
-            gitdir: git_dir,
+            dir,
+            gitdir,
         });
         stdout(`On branch ${current_branch}\n`);
 

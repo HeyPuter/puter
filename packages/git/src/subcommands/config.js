@@ -46,15 +46,15 @@ export default {
         const key = positionals.shift();
         const value = positionals.shift();
 
-        const { repository_dir, git_dir } = await find_repo_root(fs, env.PWD);
+        const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 
         if (value || options.unset) {
             // Set it
             // TODO: If --unset AND we have a value, we should only remove an entry that has that value
             await git.setConfig({
                 fs,
-                dir: repository_dir,
-                gitdir: git_dir,
+                dir,
+                gitdir,
                 path: key,
                 value: options.unset ? undefined : value,
             });
@@ -64,8 +64,8 @@ export default {
         // Get it
         const result = await git.getConfig({
             fs,
-            dir: repository_dir,
-            gitdir: git_dir,
+            dir,
+            gitdir,
             path: key,
         });
         if (result === undefined) {
