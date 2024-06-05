@@ -27,6 +27,7 @@ import module_fetch from './fetch.js'
 import module_help from './help.js'
 import module_init from './init.js'
 import module_log from './log.js'
+import module_pull from './pull.js'
 import module_remote from './remote.js'
 import module_show from './show.js'
 import module_status from './status.js'
@@ -43,6 +44,7 @@ export default {
     "help": module_help,
     "init": module_init,
     "log": module_log,
+    "pull": module_pull,
     "remote": module_remote,
     "show": module_show,
     "status": module_status,
