@@ -4,17 +4,6 @@ name: Docker Image CI
 # Configures this workflow to run every time a change is pushed to the
 # branch called `main`.
 on:
-  # workflow_dispatch:
-  #   inputs:
-  #     version:
-  #       description: 'Version WITHOUT leading "v"'
-  #       required: true
-  #     major:
-  #       description: 'Major version component (redundant, but needed)'
-  #       required: true
-  #     minor:
-  #       description: 'Minor version component (redundant, but needed)'
-  #       required: true
   push:
     tags:
       - '*.*.*'
@@ -73,8 +62,6 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=ref,event=branch
-            # type=semver,pattern=${{github.event.inputs.version}}
-            # type=semver,pattern=${{github.event.inputs.major}}.${{github.event.inputs.minor}}
 
       # This step uses the `docker/build-push-action` action to build the
       # image, based on your repository's `Dockerfile`. If the build succeeds,
