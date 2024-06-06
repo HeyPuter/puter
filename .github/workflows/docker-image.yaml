@@ -15,9 +15,9 @@ on:
       minor:
         description: 'Minor version component (redundant, but needed)'
         required: true
-  # push:
-    # tags:
-    #   - '*.*.*'
+  push:
+    tags:
+      - '*.*.*'
     # branches:
     #   - 'release'
 
@@ -58,7 +58,7 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       # This step uses [docker/metadata-action](https://github.com/docker/metadata-action#about)
       # to extract tags and labels that will be applied to the specified image.
