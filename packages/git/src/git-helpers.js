@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import path from 'path-browserify';
-import git from 'isomorphic-git';
 
 export const PROXY_URL = 'https://cors.isomorphic-git.org';
 
@@ -109,4 +108,34 @@ export const determine_fetch_remote = (remote_name_or_url, remotes) => {
     if (!remote_data)
         throw new Error(`'${remote_name_or_url}' does not appear to be a git repository`);
     return remote_data;
+}
+
+/**
+ * Divide up the positional arguments into those before the `--` separator, and those after it.
+ * @param arg_tokens Tokens array from parseArgs({ tokens: true })
+ * @returns {{before: string[], after: string[]}}
+ */
+export const group_positional_arguments = (arg_tokens) => {
+    let saw_separator = false;
+    const result = {
+        before: [],
+        after: [],
+    };
+
+    for (const token of arg_tokens) {
+        if (token.kind === 'option-terminator') {
+            saw_separator = true;
+            continue;
+        }
+        if (token.kind === 'positional') {
+            if (saw_separator) {
+                result.after.push(token.value);
+            } else {
+                result.before.push(token.value);
+            }
+            continue;
+        }
+    }
+
+    return result;
 }
