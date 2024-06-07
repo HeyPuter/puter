@@ -20,6 +20,7 @@
   "dependencies": {
     "@pkgjs/parseargs": "^0.11.0",
     "buffer": "^6.0.3",
+    "diff": "^5.2.0",
     "isomorphic-git": "^1.25.10"
   }
 }

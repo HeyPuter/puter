@@ -23,6 +23,7 @@ import module_checkout from './checkout.js'
 import module_clone from './clone.js'
 import module_commit from './commit.js'
 import module_config from './config.js'
+import module_diff from './diff.js'
 import module_fetch from './fetch.js'
 import module_help from './help.js'
 import module_init from './init.js'
@@ -40,6 +41,7 @@ export default {
     "clone": module_clone,
     "commit": module_commit,
     "config": module_config,
+    "diff": module_diff,
     "fetch": module_fetch,
     "help": module_help,
     "init": module_init,
