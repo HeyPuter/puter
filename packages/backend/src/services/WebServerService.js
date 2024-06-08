@@ -28,6 +28,7 @@ const fs = require('fs');
 const auth = require('../middleware/auth');
 const { osclink } = require('../util/strutil');
 const { surrounding_box, es_import_promise } = require('../fun/dev-console-ui-utils');
+const auth2 = require('../middleware/auth2.js');
 
 class WebServerService extends BaseService {
     static MODULES = {
@@ -393,6 +394,10 @@ class WebServerService extends BaseService {
         app.options('/*', (_, res) => {
             return res.sendStatus(200);
         });
+
+        this.router_user = express.Router();
+        this.router_user.use(auth2);
+        app.use(this.router_user);
     }
 
     _register_commands (commands) {
