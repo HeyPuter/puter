@@ -16,7 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { TeePromise, raceCase } from '../../src/promise.js';
+import { libs } from '@heyputer/puter-js-common';
+const { TeePromise, raceCase } = libs.promise;
 
 const encoder = new TextEncoder();
 
@@ -187,7 +188,7 @@ export class BetterReader {
                 }
                 if ( which === 'cancel' ) {
                     this.channel_.pushback(...chunks);
-                    return 
+                    return
                 }
                 if ( n_read + chunk.length > opt_buffer.length ) {
                     const diff = opt_buffer.length - n_read;
@@ -320,7 +321,7 @@ export class PTT {
 
 /**
  * PTY: pseudo-terminal
- * 
+ *
  * This implements the PTY device driver.
  */
 export class PTY {
