@@ -18,12 +18,20 @@
  */
 const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { Context } = require('./util/context');
+const BaseService = require("./services/BaseService");
+const useapi = require('useapi');
 
 class Kernel extends AdvancedBase {
     constructor () {
         super();
 
         this.modules = [];
+        this.useapi = useapi();
+
+        this.useapi.withuse(() => {
+            def('Module', AdvancedBase);
+            def('Service', BaseService);
+        });
     }
 
     add_module (module) {
@@ -48,7 +56,8 @@ class Kernel extends AdvancedBase {
         const runtimeEnv = new RuntimeEnvironment({
             logger: bootLogger,
         });
-        runtimeEnv.init();
+        const environment = runtimeEnv.init();
+        this.environment = environment;
 
         // polyfills
         require('./polyfill/to-string-higher-radix');
@@ -89,6 +98,8 @@ class Kernel extends AdvancedBase {
         // app.set('services', services);
 
         const root_context = Context.create({
+            environment: this.environment,
+            useapi: this.useapi,
             services,
             config,
             logger: this.bootLogger,
@@ -108,9 +119,13 @@ class Kernel extends AdvancedBase {
     async _install_modules () {
         const { services } = this;
 
+        // Internal modules
         for ( const module of this.modules ) {
             await module.install(Context.get());
         }
+
+        // External modules
+        await this.install_extern_mods_();
 
         try {
             await services.init();
@@ -172,6 +187,34 @@ class Kernel extends AdvancedBase {
 
         await services.emit('boot.activation');
         await services.emit('boot.ready');
+    }
+
+    async install_extern_mods_ () {
+        const path_ = require('path');
+        const fs = require('fs');
+
+        const mod_paths = this.environment.mod_paths;
+        for ( const mods_dirpath of mod_paths ) {
+            const mod_dirnames = fs.readdirSync(mods_dirpath);
+            for ( const mod_dirname of mod_dirnames ) {
+                const mod_path = path_.join(mods_dirpath, mod_dirname);
+                if ( ! fs.lstatSync(mod_path).isDirectory() ) {
+                    continue;
+                }
+
+                const mod_class = this.useapi.withuse(() => require(mod_path));
+                const mod = new mod_class();
+                if ( ! mod ) {
+                    continue;
+                }
+
+                if ( mod.install ) {
+                    this.useapi.awithuse(async () => {
+                        await mod.install(Context.get());
+                    });
+                }
+            }
+        }
     }
 }
 

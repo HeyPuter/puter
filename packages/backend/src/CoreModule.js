@@ -24,7 +24,8 @@ class CoreModule extends AdvancedBase {
     async install (context) {
         const services = context.get('services');
         const app = context.get('app');
-        await install({ services, app });
+        const useapi = context.get('useapi');
+        await install({ services, app, useapi });
     }
 
     // Some services were created before the BaseService
@@ -40,8 +41,15 @@ class CoreModule extends AdvancedBase {
 
 module.exports = CoreModule;
 
-const install = async ({ services, app }) => {
+const install = async ({ services, app, useapi }) => {
     const config = require('./config');
+
+    useapi.withuse(() => {
+        def('Service', require('./services/BaseService'));
+        def('Module', AdvancedBase);
+
+        def('puter.middlewares.auth', require('./middleware/auth2'));
+    });
 
     // /!\ IMPORTANT /!\
     // For new services, put the import immediate above the
