@@ -35,6 +35,8 @@ export default [
             globals: {
                 ...globals.node,
                 "kv": true,
+                "def": true,
+                "use": true,
             }
         }
     },
