@@ -394,10 +394,6 @@ class WebServerService extends BaseService {
         app.options('/*', (_, res) => {
             return res.sendStatus(200);
         });
-
-        this.router_user = express.Router();
-        this.router_user.use(auth2);
-        app.use(this.router_user);
     }
 
     _register_commands (commands) {
