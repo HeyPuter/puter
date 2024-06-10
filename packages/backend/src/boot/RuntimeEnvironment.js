@@ -180,7 +180,7 @@ const mod_paths = ({ path_checks }) => ({ path_ }) => [
     },
     {
         get path () {
-            return path_.join(original_cwd, 'mods');
+            return path_.join(path_.dirname(require.main.filename), '../mods');
         },
         checks: [ path_checks.skip_if_not_exists ],
     },
@@ -191,6 +191,7 @@ class RuntimeEnvironment extends AdvancedBase {
         fs: require('node:fs'),
         path_: require('node:path'),
         crypto: require('node:crypto'),
+        format: require('string-template'),
     }
 
     constructor ({ logger }) {
@@ -213,6 +214,12 @@ class RuntimeEnvironment extends AdvancedBase {
     }
 
     init_ () {
+        // This variable, called "environment", will be passed back to Kernel
+        // with some helpful values. A partial-population of this object later
+        // in this function will be used when evaluating configured paths.
+        const environment = {};
+        environment.source = this.modules.path_.dirname(require.main.filename);
+
         const config_path_entry = this.get_first_suitable_path_(
             { pathFor: 'configuration' },
             this.config_paths,
@@ -299,14 +306,26 @@ class RuntimeEnvironment extends AdvancedBase {
         // console.log({ ...config.services });
 
         const mod_paths = [];
+        environment.mod_paths = mod_paths;
 
-        if ( mods_path_entry ) {
+        // TODO: implement `get_all_suitable_paths_` so we can load mods
+        // from multiple locations. Note: we'll need to carefully consider
+        // how this is configured.
+        if ( false ) if ( mods_path_entry ) {
             mod_paths.push(mods_path_entry.path);
         }
 
-        return {
-            mod_paths,
-        };
+        // If configured, add a user-specified mod path
+        if ( config.mod_directories ) {
+            for ( const dir of config.mod_directories ) {
+                const mods_directory = this.modules.format(
+                    dir, environment,
+                );
+                mod_paths.push(mods_directory);
+            }
+        }
+
+        return environment;
     }
 
     get_first_suitable_path_ (meta, paths, last_checks) {

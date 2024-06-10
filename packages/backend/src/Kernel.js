@@ -198,7 +198,9 @@ class Kernel extends AdvancedBase {
             const mod_dirnames = fs.readdirSync(mods_dirpath);
             for ( const mod_dirname of mod_dirnames ) {
                 const mod_path = path_.join(mods_dirpath, mod_dirname);
-                if ( ! fs.lstatSync(mod_path).isDirectory() ) {
+
+                const stat = fs.statSync(mod_path);
+                if ( ! stat.isDirectory() ) {
                     continue;
                 }
 
