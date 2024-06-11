@@ -16,9 +16,18 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import git from 'isomorphic-git';
+import git, { TREE } from 'isomorphic-git';
 import { find_repo_root } from '../git-helpers.js';
-import { commit_formatting_options, process_commit_formatting_options, format_commit, format_tag, format_tree } from '../format.js';
+import {
+    commit_formatting_options,
+    diff_formatting_options,
+    format_commit, format_diffs,
+    format_tag,
+    format_tree,
+    process_commit_formatting_options,
+    process_diff_formatting_options,
+} from '../format.js';
+import { diff_git_trees } from '../diff.js';
 
 export default {
     name: 'show',
@@ -28,6 +37,7 @@ export default {
         allowPositionals: true,
         options: {
             ...commit_formatting_options,
+            ...diff_formatting_options,
         },
     },
     execute: async (ctx) => {
@@ -36,19 +46,41 @@ export default {
         const { options, positionals } = args;
 
         process_commit_formatting_options(options);
+        const diff_options = process_diff_formatting_options(options);
 
         const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 
         const objects = [...positionals];
 
         const cache = {};
+        const diff_ctx = {
+            fs, dir, gitdir, cache, env,
+            context_lines: diff_options.context_lines,
+            path_filters: [],
+        };
 
-        const format_object = async (parsed_object, options) => {
+        const read_tree = walker => walker?.content()?.then(it => new TextDecoder().decode(it));
+
+        const format_object = async (parsed_object) => {
             switch (parsed_object.type) {
                 case 'blob':
                     return parsed_object.object;
-                case 'commit':
-                    return format_commit(parsed_object.object, parsed_object.oid, options);
+                case 'commit': {
+                    let s = format_commit(parsed_object.object, parsed_object.oid, options);
+                    if (diff_options.display_diff()) {
+                        const diffs = await diff_git_trees({
+                            ...diff_ctx,
+                            // NOTE: Using an empty string for a non-existent parent prevents the default value 'HEAD' getting used.
+                            // TREE() then fails to resolve that ref, and defaults to the empty commit, which is what we want.
+                            a_tree: TREE({ ref: parsed_object.object.parent[0] ?? '' }),
+                            b_tree: TREE({ ref: parsed_object.oid }),
+                            read_a: read_tree,
+                            read_b: read_tree,
+                        });
+                        s += format_diffs(diffs, diff_options);
+                    }
+                    return s;
+                }
                 case 'tree':
                     return format_tree(parsed_object.oid, parsed_object.object, options);
                 case 'tag': {
@@ -64,7 +96,7 @@ export default {
                         format: 'parsed',
                         cache,
                     });
-                    s += await format_object(target, options);
+                    s += await format_object(target);
                     return s;
                 }
             }
@@ -90,7 +122,7 @@ export default {
             });
 
             // Then, print it out
-            stdout(await format_object(parsed_object, options));
+            stdout(await format_object(parsed_object));
         }
     }
 }
