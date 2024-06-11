@@ -62,7 +62,9 @@ const main = async () => {
     } = (await import('@heyputer/backend')).default;
 
     console.log('kerne', Kernel);
-    const k = new Kernel();
+    const k = new Kernel({
+        entry_path: import.meta.filename
+    });
     k.add_module(new CoreModule());
     k.add_module(new DatabaseModule());
     k.add_module(new LocalDiskStorageModule());

@@ -163,7 +163,7 @@ const runtime_paths = ({ path_checks }) => ({ path_ }) => [
 ];
 
 // Suitable mod paths in order of precedence.
-const mod_paths = ({ path_checks }) => ({ path_ }) => [
+const mod_paths = ({ path_checks, entry_path }) => ({ path_ }) => [
     {
         label: '$MOD_PATH',
         get path () { return process.env.MOD_PATH },
@@ -180,7 +180,8 @@ const mod_paths = ({ path_checks }) => ({ path_ }) => [
     },
     {
         get path () {
-            return path_.join(path_.dirname(require.main.filename), '../mods');
+            return path_.join(path_.dirname(
+                entry_path || require.main.filename), '../mods');
         },
         checks: [ path_checks.skip_if_not_exists ],
     },
@@ -194,9 +195,10 @@ class RuntimeEnvironment extends AdvancedBase {
         format: require('string-template'),
     }
 
-    constructor ({ logger }) {
+    constructor ({ logger, entry_path }) {
         super();
         this.logger = logger;
+        this.entry_path = entry_path;
         this.path_checks = path_checks(this)(this.modules);
         this.config_paths = config_paths(this)(this.modules);
         this.runtime_paths = runtime_paths(this)(this.modules);
@@ -218,7 +220,8 @@ class RuntimeEnvironment extends AdvancedBase {
         // with some helpful values. A partial-population of this object later
         // in this function will be used when evaluating configured paths.
         const environment = {};
-        environment.source = this.modules.path_.dirname(require.main.filename);
+        environment.source = this.modules.path_.dirname(
+            this.entry_path || require.main.filename);
 
         const config_path_entry = this.get_first_suitable_path_(
             { pathFor: 'configuration' },

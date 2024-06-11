@@ -22,7 +22,7 @@ const BaseService = require("./services/BaseService");
 const useapi = require('useapi');
 
 class Kernel extends AdvancedBase {
-    constructor () {
+    constructor ({ entry_path } = {}) {
         super();
 
         this.modules = [];
@@ -32,13 +32,15 @@ class Kernel extends AdvancedBase {
             def('Module', AdvancedBase);
             def('Service', BaseService);
         });
+
+        this.entry_path = entry_path;
     }
 
     add_module (module) {
         this.modules.push(module);
     }
 
-    _runtime_init () {
+    _runtime_init (boot_parameters) {
         const kvjs = require('@heyputer/kv.js');
         const kv = new kvjs();
         global.kv = kv;
@@ -54,6 +56,7 @@ class Kernel extends AdvancedBase {
 
         // Determine config and runtime locations
         const runtimeEnv = new RuntimeEnvironment({
+            entry_path: this.entry_path,
             logger: bootLogger,
         });
         const environment = runtimeEnv.init();
