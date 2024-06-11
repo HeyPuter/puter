@@ -268,7 +268,7 @@ export const diff_formatting_options = {
  * @param options Parsed command-line options.
  * @returns {{raw: boolean, numstat: boolean, summary: boolean, patch: boolean, context_lines: number, no_patch: boolean, source_prefix: string, dest_prefix: string }}
  */
-export const process_diff_formatting_options = (options) => {
+export const process_diff_formatting_options = (options, { show_patch_by_default = true } = {}) => {
     const result = {
         raw: false,
         numstat: false,
@@ -278,6 +278,10 @@ export const process_diff_formatting_options = (options) => {
         no_patch: false,
         source_prefix: 'a/',
         dest_prefix: 'b/',
+    };
+
+    result.display_diff = () => {
+        return !result.no_patch && (result.raw || result.numstat || result.summary || result.patch);
     };
 
     if (options['raw'])
@@ -312,7 +316,7 @@ export const process_diff_formatting_options = (options) => {
     }
 
     // If nothing is specified, default to --patch
-    if (!result.raw && !result.numstat && !result.summary && !result.patch)
+    if (show_patch_by_default && !result.raw && !result.numstat && !result.summary && !result.patch)
         result.patch = true;
 
     // --no-patch overrides the others
