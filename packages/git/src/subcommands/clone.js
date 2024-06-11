@@ -18,7 +18,6 @@
  */
 import git from 'isomorphic-git';
 import http from 'isomorphic-git/http/web';
-import { PROXY_URL } from '../git-helpers.js';
 import { SHOW_USAGE } from '../help.js';
 import path from 'path-browserify';
 
@@ -107,7 +106,7 @@ export default {
         await git.clone({
             fs,
             http,
-            corsProxy: PROXY_URL,
+            corsProxy: globalThis.__CONFIG__.proxy_url,
             dir: repo_path,
             url: repository,
             depth: options.depth,

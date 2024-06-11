@@ -18,4 +18,6 @@
  */
 globalThis.__CONFIG__ = {
     sdk_url: 'https://puter.com/puter.js/v2',
+    // TODO: Host a proxy ourselves, so we're not relying on (and maybe overloading) theirs.
+    proxy_url: 'https://cors.isomorphic-git.org',
 };
