@@ -61,7 +61,6 @@ const main = async () => {
         SelfHostedModule
     } = (await import('@heyputer/backend')).default;
 
-    console.log('kerne', Kernel);
     const k = new Kernel({
         entry_path: import.meta.filename
     });
