@@ -18,7 +18,7 @@
  */
 import git from 'isomorphic-git';
 import http from 'isomorphic-git/http/web';
-import { determine_fetch_remote, find_repo_root, PROXY_URL } from '../git-helpers.js';
+import { determine_fetch_remote, find_repo_root } from '../git-helpers.js';
 import { SHOW_USAGE } from '../help.js';
 
 export default {
@@ -61,7 +61,7 @@ export default {
                     fs,
                     http,
                     cache,
-                    corsProxy: PROXY_URL,
+                    corsProxy: globalThis.__CONFIG__.proxy_url,
                     dir,
                     gitdir,
                     remote,
@@ -78,7 +78,7 @@ export default {
             fs,
             http,
             cache,
-            corsProxy: PROXY_URL,
+            corsProxy: globalThis.__CONFIG__.proxy_url,
             dir,
             gitdir,
             ...remote_data,

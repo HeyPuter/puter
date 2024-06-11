@@ -18,4 +18,5 @@
  */
 globalThis.__CONFIG__ = {
     sdk_url: 'http://puter.localhost:4100/sdk/puter.js',
+    proxy_url: 'https://cors.isomorphic-git.org',
 };
