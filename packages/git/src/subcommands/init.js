@@ -18,7 +18,6 @@
  */
 import git from 'isomorphic-git';
 import path from 'path-browserify';
-import { ErrorCodes } from '@heyputer/puter-js-common/src/PosixError.js';
 
 export default {
     name: 'init',
@@ -65,7 +64,7 @@ export default {
             const stat = await fs.promises.stat(dot_git_path);
             repo_exists = true;
         } catch (e) {
-            if (e.posixCode === ErrorCodes.ENOENT) {
+            if (e.code === 'ENOENT') {
                 repo_exists = false;
             }
         }
