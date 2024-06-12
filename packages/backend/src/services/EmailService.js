@@ -130,7 +130,17 @@ If this was not you, please contact support@puter.com immediately.
         <p>Sincerely,</p>
         <p>Puter</p>
         `
-    }
+    },
+    // TODO: revise email contents
+    'share_existing_user': {
+        subject: 'Puter share from {{susername}}',
+        html: `
+        <p>Hi there {{rusername}},</p>
+        <p>{{link}}</p>
+        <p>Sincerely,</p>
+        <p>Puter</p>
+        `
+    },
 }
 
 class Emailservice extends BaseService {
