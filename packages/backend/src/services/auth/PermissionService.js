@@ -158,11 +158,31 @@ class PermissionUtil {
         }
         return unescaped_str;
     }
+    
+    static escape_permission_component (component) {
+        let escaped_str = '';
+        for ( let i = 0 ; i < component.length ; i++ ) {
+            const c = component[i];
+            if ( c === ':' ) {
+                escaped_str += '\\C';
+                continue;
+            }
+            escaped_str += c;
+        }
+        return escaped_str;
+    }
 
     static split (permission) {
         return permission
             .split(':')
             .map(PermissionUtil.unescape_permission_component)
+            ;
+    }
+    
+    static join (...components) {
+        return components
+            .map(PermissionUtil.escape_permission_component)
+            .join(':')
             ;
     }
 }

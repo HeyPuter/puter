@@ -388,6 +388,12 @@ module.exports = class APIError {
             message: ({ identifier }) => `Entity not found: ${quot(identifier)}`,
         },
 
+        // Share
+        'user_does_not_exist': {
+            status: 422,
+            message: ({ username }) => `The user ${quot(username)} does not exist.`
+        },
+
         // Chat
         // TODO: specifying these errors here might be a violation
         // of separation of concerns. Services could register their
