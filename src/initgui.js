@@ -7,12 +7,12 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -106,10 +106,10 @@ const launch_services = async function () {
     }
 };
 
-// This code snippet addresses the issue flagged by Lighthouse regarding the use of 
-// passive event listeners to enhance scrolling performance. It provides custom 
-// implementations for touchstart, touchmove, wheel, and mousewheel events in jQuery. 
-// By setting the 'passive' option appropriately, it ensures that default browser 
+// This code snippet addresses the issue flagged by Lighthouse regarding the use of
+// passive event listeners to enhance scrolling performance. It provides custom
+// implementations for touchstart, touchmove, wheel, and mousewheel events in jQuery.
+// By setting the 'passive' option appropriately, it ensures that default browser
 // behavior is prevented when necessary, thereby improving page scroll performance.
 // More info: https://stackoverflow.com/a/62177358
 if(jQuery){
@@ -132,7 +132,7 @@ if(jQuery){
         setup: function( _, ns, handle ){
             this.addEventListener("mousewheel", handle, { passive: true });
         }
-    };    
+    };
 }
 
 window.initgui = async function(){
@@ -151,7 +151,7 @@ window.initgui = async function(){
     // Print the version to the console
     puter.os.version()
     .then(res => {
-        const deployed_date = new Date(res.deploy_timestamp);        
+        const deployed_date = new Date(res.deploy_timestamp);
         console.log(`Your Puter information:\n• Version: ${(res.version)}\n• Server: ${(res.location)}\n• Deployed: ${(deployed_date)}`);
     })
     .catch(error => {
@@ -159,7 +159,7 @@ window.initgui = async function(){
     });
 
     // Checks the type of device the user is on (phone, tablet, or desktop).
-    // Depending on the device type, it sets a class attribute on the body tag 
+    // Depending on the device type, it sets a class attribute on the body tag
     // to style or script the page differently for each device type.
     if(isMobile.phone)
         $('body').attr('class', 'device-phone');
@@ -172,7 +172,7 @@ window.initgui = async function(){
     // This ensures that special characters and symbols display correctly across various platforms and browsers.
     $('head').append(`<meta charset="utf-8">`);
 
-    // Appends a viewport meta tag to the head of the document, ensuring optimal display on mobile devices. 
+    // Appends a viewport meta tag to the head of the document, ensuring optimal display on mobile devices.
     // This tag sets the width of the viewport to the device width, and locks the zoom level to 1 (prevents user scaling).
     $('head').append(`<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1">`);
 
@@ -282,7 +282,7 @@ window.initgui = async function(){
     if(window.url_query_params.has('r')){
         window.referral_code = window.url_query_params.get('r');
         // remove 'r' from URL
-        window.history.pushState(null, document.title, '/');    
+        window.history.pushState(null, document.title, '/');
         // show referral notice, this will be used later if Desktop is loaded
         if(window.first_visit_ever)
             window.show_referral_notice = true;
@@ -304,7 +304,7 @@ window.initgui = async function(){
 
         let messageTarget = window.embedded_in_popup ? window.opener : window.parent;
         messageTarget.postMessage({
-            msg: "permissionGranted", 
+            msg: "permissionGranted",
             granted: granted,
         }, origin);
     }
@@ -360,7 +360,7 @@ window.initgui = async function(){
         if(action === 'show-open-file-picker' || action === 'show-save-file-picker' || action === 'show-directory-picker'){
             if(!window.userAppToken){
                 let is_confirmed = await PuterDialog();
-                
+
                 if(is_confirmed === false){
                     if(!window.is_auth()){
                         window.first_visit_ever = false;
@@ -393,7 +393,7 @@ window.initgui = async function(){
                 let is_verified;
                 do{
                     is_verified = await UIWindowEmailConfirmationRequired({
-                        stay_on_top: true, 
+                        stay_on_top: true,
                         has_head: false
                     });
                 }
@@ -456,7 +456,7 @@ window.initgui = async function(){
                 let is_verified;
                 do{
                     is_verified = await UIWindowEmailConfirmationRequired({
-                        stay_on_top: true, 
+                        stay_on_top: true,
                         has_head: false
                     });
                 }
@@ -511,12 +511,12 @@ window.initgui = async function(){
                 }
 
                 let app_uid;
-    
+
                 if(window.openerOrigin){
                     app_uid = await window.getAppUIDFromOrigin(window.openerOrigin);
                     window.host_app_uid = app_uid;
                 }
-    
+
                 if(action === 'show-open-file-picker'){
                     let options = window.url_query_params.get('options');
                     options = JSON.parse(options ?? '{}');
@@ -542,8 +542,8 @@ window.initgui = async function(){
                         initiating_app_uuid: app_uid,
                         on_close: function(){
                             window.opener.postMessage({
-                                msg: "fileOpenCanceled", 
-                                original_msg_id: msg_id, 
+                                msg: "fileOpenCanceled",
+                                original_msg_id: msg_id,
                             }, '*');
                         }
                     });
@@ -572,8 +572,8 @@ window.initgui = async function(){
                         initiating_app_uuid: app_uid,
                         on_close: function(){
                             window.opener.postMessage({
-                                msg: "directoryOpenCanceled", 
-                                original_msg_id: msg_id, 
+                                msg: "directoryOpenCanceled",
+                                original_msg_id: msg_id,
                             }, '*');
                         }
                     });
@@ -588,7 +588,7 @@ window.initgui = async function(){
                     window.opener.postMessage({
                         msg: 'sendMeFileData',
                     }, '*');
-                        
+
                     // listen for 'showSaveFilePickerPopup' event from parent
                     window.addEventListener('message', async (event) => {
                         if(event.data.msg !== 'showSaveFilePickerPopup')
@@ -614,8 +614,8 @@ window.initgui = async function(){
                             initiating_app_uuid: app_uid,
                             on_close: function(){
                                 window.opener.postMessage({
-                                    msg: "fileSaveCanceled", 
-                                    original_msg_id: msg_id, 
+                                    msg: "fileSaveCanceled",
+                                    original_msg_id: msg_id,
                                 }, '*');
                             },
                             onSaveFileDialogSave: async function(target_path, el_filedialog_window){
@@ -633,8 +633,8 @@ window.initgui = async function(){
                                     try{
                                         const res = await puter.fs.write(
                                             target_path,
-                                            file_to_upload, 
-                                            { 
+                                            file_to_upload,
+                                            {
                                                 dedupeName: false,
                                                 overwrite: overwrite
                                             }
@@ -645,8 +645,8 @@ window.initgui = async function(){
 
                                         item_with_same_name_already_exists = false;
                                         window.opener.postMessage({
-                                            msg: "fileSaved", 
-                                            original_msg_id: msg_id, 
+                                            msg: "fileSaved",
+                                            original_msg_id: msg_id,
                                             filename: res.name,
                                             saved_file: {
                                                 name: file_signature.fsentry_name,
@@ -705,11 +705,11 @@ window.initgui = async function(){
                                 // done
                                 let busy_duration = (Date.now() - busy_init_ts);
                                 if( busy_duration >= window.busy_indicator_hide_delay){
-                                    $(el_filedialog_window).close();   
+                                    $(el_filedialog_window).close();
                                 }else{
                                     setTimeout(() => {
                                         // close this dialog
-                                        $(el_filedialog_window).close();  
+                                        $(el_filedialog_window).close();
                                     }, Math.abs(window.busy_indicator_hide_delay - busy_duration));
                                 }
                             }
@@ -722,11 +722,11 @@ window.initgui = async function(){
             // Get user's sites
             // ----------------------------------------------------------
             window.update_sites_cache();
-        } 
+        }
     }
     // -------------------------------------------------------------------------------------
     // Desktop Background
-    // If we're in fullpage/emebedded/Auth Popup mode, we don't want to load the custom background 
+    // If we're in fullpage/emebedded/Auth Popup mode, we don't want to load the custom background
     // because it's not visible anyway and it's a waste of bandwidth
     // -------------------------------------------------------------------------------------
     if(!window.is_fullpage_mode && !window.embedded_in_popup){
@@ -773,7 +773,7 @@ window.initgui = async function(){
             referrer += '?ref=' + html_encode(window.url_query_params.get('ref'));
         }
 
-        
+
         let headers = {};
         if(window.custom_headers)
             headers = window.custom_headers;
@@ -783,14 +783,14 @@ window.initgui = async function(){
             async: true,
             headers: headers,
             contentType: "application/json",
-            data: JSON.stringify({ 
+            data: JSON.stringify({
                 referrer: referrer,
                 referral_code: window.referral_code,
                 is_temp: true,
             }),
             success: async function (data){
                 window.update_auth_data(data.token, data.user);
-                document.dispatchEvent(new Event("login", { bubbles: true})); 
+                document.dispatchEvent(new Event("login", { bubbles: true}));
             },
             error: function (err){
                 $('#signup-error-msg').html(html_encode(err.responseText));
@@ -897,8 +897,8 @@ window.initgui = async function(){
                     initiating_app_uuid: app_uid,
                     on_close: function(){
                         window.opener.postMessage({
-                            msg: "fileOpenCanceled", 
-                            original_msg_id: msg_id, 
+                            msg: "fileOpenCanceled",
+                            original_msg_id: msg_id,
                         }, '*');
                     }
                 });
@@ -927,8 +927,8 @@ window.initgui = async function(){
                     initiating_app_uuid: app_uid,
                     on_close: function(){
                         window.opener.postMessage({
-                            msg: "directoryOpenCanceled", 
-                            original_msg_id: msg_id, 
+                            msg: "directoryOpenCanceled",
+                            original_msg_id: msg_id,
                         }, '*');
                     }
                 });
@@ -944,7 +944,7 @@ window.initgui = async function(){
                 window.opener.postMessage({
                     msg: 'sendMeFileData',
                 }, '*');
-                    
+
                 // listen for 'showSaveFilePickerPopup' event from parent
                 window.addEventListener('message', async (event) => {
                     if(event.data.msg !== 'showSaveFilePickerPopup')
@@ -970,8 +970,8 @@ window.initgui = async function(){
                         initiating_app_uuid: app_uid,
                         on_close: function(){
                             window.opener.postMessage({
-                                msg: "fileSaveCanceled", 
-                                original_msg_id: msg_id, 
+                                msg: "fileSaveCanceled",
+                                original_msg_id: msg_id,
                             }, '*');
                         },
                         onSaveFileDialogSave: async function(target_path, el_filedialog_window){
@@ -989,8 +989,8 @@ window.initgui = async function(){
                                 try{
                                     const res = await puter.fs.write(
                                         target_path,
-                                        file_to_upload, 
-                                        { 
+                                        file_to_upload,
+                                        {
                                             dedupeName: false,
                                             overwrite: overwrite
                                         }
@@ -1001,8 +1001,8 @@ window.initgui = async function(){
 
                                     item_with_same_name_already_exists = false;
                                     window.opener.postMessage({
-                                        msg: "fileSaved", 
-                                        original_msg_id: msg_id, 
+                                        msg: "fileSaved",
+                                        original_msg_id: msg_id,
                                         filename: res.name,
                                         saved_file: {
                                             name: file_signature.fsentry_name,
@@ -1062,11 +1062,11 @@ window.initgui = async function(){
                             // done
                             let busy_duration = (Date.now() - busy_init_ts);
                             if( busy_duration >= window.busy_indicator_hide_delay){
-                                $(el_filedialog_window).close();   
+                                $(el_filedialog_window).close();
                             }else{
                                 setTimeout(() => {
                                     // close this dialog
-                                    $(el_filedialog_window).close();  
+                                    $(el_filedialog_window).close();
                                 }, Math.abs(window.busy_indicator_hide_delay - busy_duration));
                             }
                         }
@@ -1107,10 +1107,10 @@ window.initgui = async function(){
         }
 
         // click on anything will close all popovers, but there are some exceptions
-        if(!$(e.target).hasClass('start-app') 
-            && !$(e.target).hasClass('launch-search') 
-            && !$(e.target).hasClass('launch-search-clear') 
-            && $(e.target).closest('.start-app').length === 0  
+        if(!$(e.target).hasClass('start-app')
+            && !$(e.target).hasClass('launch-search')
+            && !$(e.target).hasClass('launch-search-clear')
+            && $(e.target).closest('.start-app').length === 0
             && !isMobile.phone && !isMobile.tablet
             && !$(e.target).hasClass('popover')
             && $(e.target).parents('.popover').length === 0){
@@ -1152,7 +1152,7 @@ window.initgui = async function(){
         const focused_el = document.activeElement;
 
         //-----------------------------------------------------------------------
-        // ← ↑ → ↓: an arrow key is pressed 
+        // ← ↑ → ↓: an arrow key is pressed
         //-----------------------------------------------------------------------
         if((e.which === 37 || e.which === 38 || e.which === 39 || e.which === 40)){
             // ----------------------------------------------
@@ -1182,7 +1182,7 @@ window.initgui = async function(){
                     let new_selected_item_row = selected_item_row;
                     let new_selected_item_col = selected_item_col;
                     let new_selected_item;
-                    
+
                     // if up arrow is pressed
                     if(e.which === 38){
                         // if this item is in the first row, up arrow should bring the focus back to the search input
@@ -1351,7 +1351,7 @@ window.initgui = async function(){
                 else{
                     selected_item = $(window.active_element).hasClass('item') ? window.active_element : $(window.active_element).closest('.item').get(0);
                 }
-                
+
                 // override the default behavior of ctrl/meta key
                 // in some browsers ctrl/meta key + arrow keys will scroll the page or go back/forward in history
                 if(e.ctrlKey || e.metaKey){
@@ -1402,7 +1402,7 @@ window.initgui = async function(){
                         break;
                     }
                 }
-                
+
                 if(next_item){
                     selected_item = next_item;
                     window.active_element = next_item;
@@ -1423,7 +1423,7 @@ window.initgui = async function(){
         //-----------------------------------------------------------------------
         else if(
             // escape key code
-            e.which === 27 && 
+            e.which === 27 &&
             // active window must be a FileDialog or Alert
             ($('.window-active').hasClass('window-filedialog') || $('.window-active').hasClass('window-alert')) &&
             // either don't close if an input is focused or if the input is the filename input
@@ -1453,7 +1453,7 @@ window.initgui = async function(){
             // close the Launch Popover if it's open
             $(".launch-popover").closest('.popover').fadeOut(200, function(){
                 $(".launch-popover").closest('.popover').remove();
-            });    
+            });
         }
     })
 
@@ -1483,7 +1483,7 @@ window.initgui = async function(){
                         const element = $selected_items[index];
                         await window.delete_item(element);
                     }
-                }    
+                }
             }
             return false;
         }
@@ -1511,7 +1511,7 @@ window.initgui = async function(){
                     for (let index = 0; index < $selected_items.length; index++) {
                         const element = $selected_items[index];
                         await window.delete_item(element);
-                    }  
+                    }
                     const trash = await puter.fs.stat(window.trash_path);
                     if(window.socket){
                         window.socket.emit('trash.is_empty', {is_empty: trash.is_empty});
@@ -1522,7 +1522,7 @@ window.initgui = async function(){
                         $(`.item[data-path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
                         $(`.window[data-path="${html_encode(window.trash_path)}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
                     }
-                }    
+                }
             }
             // regular delete?
             else{
@@ -1543,7 +1543,7 @@ window.initgui = async function(){
         if(!e.ctrlKey && !e.metaKey && !$(focused_el).is('input') && !$(focused_el).is('textarea') && $('.context-menu').length === 0){
             if(window.keypress_item_seach_term !== '')
                 clearTimeout(window.keypress_item_seach_buffer_timeout);
-            
+
             window.keypress_item_seach_buffer_timeout = setTimeout(()=>{
                 window.keypress_item_seach_term = '';
             }, 700);
@@ -1594,7 +1594,7 @@ window.initgui = async function(){
         else if(!e.ctrlKey && !e.metaKey && !$(focused_el).is('input') && !$(focused_el).is('textarea') && $('.context-menu').length > 0){
             if(window.keypress_item_seach_term !== '')
                 clearTimeout(window.keypress_item_seach_buffer_timeout);
-            
+
             window.keypress_item_seach_buffer_timeout = setTimeout(()=>{
                 window.keypress_item_seach_term = '';
             }, 700);
@@ -1688,10 +1688,10 @@ window.initgui = async function(){
         // Copy
         // ctrl/command + c, will copy selected items on the active element to the clipboard
         //-----------------------------------------------------------------------------
-        if((e.ctrlKey || e.metaKey) && e.which === 67 && 
+        if((e.ctrlKey || e.metaKey) && e.which === 67 &&
             $(window.mouseover_window).attr('data-is_dir') !== 'false' &&
             $(window.mouseover_window).attr('data-path') !== window.trash_path &&
-            !$(focused_el).is('input') && 
+            !$(focused_el).is('input') &&
             !$(focused_el).is('textarea')){
             let $selected_items;
 
@@ -1749,7 +1749,7 @@ window.initgui = async function(){
 
             e.preventDefault();
             e.stopPropagation();
-            
+
             // ---------------------------------------------
             // if this is a selected Launch menu item, open it
             // ---------------------------------------------
@@ -1758,7 +1758,7 @@ window.initgui = async function(){
                 $(".launch-popover").fadeOut(200, function(){
                     window.launch_app({
                         name: $('.launch-app-selected').attr('data-name'),
-                    }) 
+                    })
                     $(".launch-popover").remove();
                 });
 
@@ -1792,14 +1792,14 @@ window.initgui = async function(){
                 if($selected_items.length > 0){
                     $selected_items.each(function() {
                         window.open_item({
-                            item: this, 
+                            item: this,
                             new_window: e.metaKey || e.ctrlKey,
-                        });        
+                        });
                     })
                 }
                 return false;
             }
-            
+
             return false;
         }
         //----------------------------------------------
@@ -2007,7 +2007,7 @@ window.initgui = async function(){
         window.onbeforeunload = null;
         // go to home page
         window.location.replace("/");
-    });    
+    });
 }
 
 function requestOpenerOrigin() {
