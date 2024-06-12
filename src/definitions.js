@@ -17,7 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export class Service {
-    construct () {
+    construct (o) {
+        this.$puter = {};
+        for ( const k in o ) this.$puter[k] = o[k];
         if ( ! this._construct ) return;
         return this._construct();
     }

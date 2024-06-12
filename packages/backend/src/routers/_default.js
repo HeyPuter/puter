@@ -266,6 +266,9 @@ router.all('*', async function(req, res, next) {
         else{
             let canonical_url = config.origin + path;
             let app_name, app_title, description;
+            let launch_options = {
+                on_initialized: []
+            };
 
             // default title
             app_title = config.title;
@@ -290,6 +293,18 @@ router.all('*', async function(req, res, next) {
 
                 path = '/';
             }
+            else if (path.startsWith('/show/')) {
+                const filepath = path.slice('/show'.length);
+                launch_options.on_initialized.push({
+                    $: 'window-call',
+                    fn_name: 'launch_app',
+                    args: [{
+                        name: 'explorer',
+                        path: filepath,
+                    }],
+                });
+                path = '/';
+            }
 
             const manifest =
                 _fs.existsSync(_path.join(config.assets.gui, 'puter-gui.json'))
@@ -308,7 +323,7 @@ router.all('*', async function(req, res, next) {
                     short_description: config.short_description,
                     company: 'Puter Technologies Inc.',
                     canonical_url: canonical_url,
-                });
+                }, launch_options);
             }
 
             // /dist/...
