@@ -43,9 +43,10 @@ import { SettingsService } from './services/SettingsService.js';
 
 import UIComponentWindow from './UI/UIComponentWindow.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
+import { LaunchOnInitService } from './services/LaunchOnInitService.js';
 
 
-const launch_services = async function () {
+const launch_services = async function (options) {
     // === Services Data Structures ===
     const services_l_ = [];
     const services_m_ = {};
@@ -78,6 +79,7 @@ const launch_services = async function () {
     register('process', new ProcessService());
     register('locale', new LocaleService());
     register('settings', new SettingsService());
+    register('__launch-on-init', new LaunchOnInitService());
 
     // === Service-Script Services ===
     for (const [name, script] of service_script_deferred.services) {
@@ -85,7 +87,9 @@ const launch_services = async function () {
     }
 
     for (const [_, instance] of services_l_) {
-        await instance.construct();
+        await instance.construct({
+            gui_params: options,
+        });
     }
 
     for (const [_, instance] of services_l_) {
@@ -135,7 +139,7 @@ if(jQuery){
     };
 }
 
-window.initgui = async function(){
+window.initgui = async function(options){
     let url = new URL(window.location);
     url = url.href;
 
@@ -222,7 +226,7 @@ window.initgui = async function(){
 
 
     // Launch services before any UI is rendered
-    await launch_services();
+    await launch_services(options);
 
     //--------------------------------------------------------------------------------------
     // Is GUI embedded in a popup?

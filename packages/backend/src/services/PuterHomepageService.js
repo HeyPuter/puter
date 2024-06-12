@@ -32,7 +32,7 @@ class PuterHomepageService extends BaseService {
         this.service_scripts.push(url);
     }
 
-    async send (res, meta) {
+    async send (res, meta, launch_options) {
         const config = this.global_config;
         return res.send(this.generate_puter_page_html({
             env: config.env,
@@ -46,6 +46,9 @@ class PuterHomepageService extends BaseService {
 
             // page meta
             meta,
+
+            // launch options
+            launch_options,
 
             // gui parameters
             gui_params: {
@@ -80,6 +83,7 @@ class PuterHomepageService extends BaseService {
         api_origin,
 
         meta,
+        launch_options,
 
         gui_params,
     }) {
@@ -101,6 +105,7 @@ class PuterHomepageService extends BaseService {
         gui_params = {
             ...meta,
             ...gui_params,
+            launch_options,
             app_origin,
             api_origin,
             gui_origin: app_origin,
