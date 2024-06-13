@@ -7,6 +7,8 @@ const { get_user } = require('../helpers');
 const { Context } = require('../util/context');
 const auth2 = require('../middleware/auth2');
 const config = require('../config');
+const FSNodeParam = require('../api/filesystem/FSNodeParam');
+const { TYPE_DIRECTORY } = require('../filesystem/FSNodeContext');
 
 const { PermissionUtil } = require('../services/auth/PermissionService');
 
@@ -66,6 +68,19 @@ Endpoint({
             PermissionUtil.join('fs', path, access_level),
             {}, {},
         );
+        
+        const node = await (new FSNodeParam('path')).consolidate({
+            req, getParam: () => path
+        });
+        
+        if ( ! await node.exists() ) {
+            throw APIError.create('subject_does_not_exist');
+        }
+        
+        if ( await node.get('type') !== TYPE_DIRECTORY ) {
+            // remove last component
+            path = path.slice(0, path.lastIndexOf('/')+1);
+        }
 
         if ( path.startsWith('/') ) path = path.slice(1);
         const link = `${config.origin}/show/${path}`;
