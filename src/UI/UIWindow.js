@@ -2807,15 +2807,24 @@ $.fn.close = async function(options) {
     $(this).each(async function() {
         const el_iframe = $(this).find('.window-app-iframe');
         const app_uses_sdk = el_iframe.length > 0 && el_iframe.attr('data-appUsesSDK') === 'true';
-        // tell child app that this window is about to close, get its response
+
         if(app_uses_sdk){
+            // get appInstanceID
+            const appInstanceID = el_iframe.closest('.window').attr('data-element_uuid');
+            // tell child app that this window is about to close, get its response
             if(!options.bypass_iframe_messaging){
                 const resp = await window.sendWindowWillCloseMsg(el_iframe.get(0));
                 if(!resp.msg){
                     return false;
                 }
             }
+            // remove the menubar from the window.menubars array
+            if(appInstanceID){
+                delete window.menubars[appInstanceID];
+                window.app_instance_ids.delete(appInstanceID);
+            }
         }
+
 
         if ( this.on_before_exit ) {
             if ( ! await this.on_before_exit() ) return false;

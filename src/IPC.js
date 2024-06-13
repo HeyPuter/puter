@@ -393,7 +393,6 @@ window.addEventListener('message', async (event) => {
         // get parent window
         const el_window = window.window_for_app_instance(event.data.appInstanceID);
 
-
         let items = value.items ?? [];
         const sanitize_items = items => {
             return items.map(item => {
@@ -432,6 +431,36 @@ window.addEventListener('message', async (event) => {
 
         $(target_iframe).get(0).focus({preventScroll:true});
     }
+    // --------------------------------------------------------
+    // disableMenuItem
+    // --------------------------------------------------------
+    else if(event.data.msg === 'disableMenuItem'){
+        set_menu_item_prop(window.menubars[event.data.appInstanceID], event.data.value.id, 'disabled', true);
+    }
+    // --------------------------------------------------------
+    // enableMenuItem
+    // --------------------------------------------------------
+    else if(event.data.msg === 'enableMenuItem'){
+        set_menu_item_prop(window.menubars[event.data.appInstanceID], event.data.value.id, 'disabled', false);
+    }
+    //--------------------------------------------------------
+    // setMenuItemIcon
+    //--------------------------------------------------------
+    else if(event.data.msg === 'setMenuItemIcon'){
+        set_menu_item_prop(window.menubars[event.data.appInstanceID], event.data.value.id, 'icon', event.data.value.icon);
+    }
+    //--------------------------------------------------------
+    // setMenuItemIconActive
+    //--------------------------------------------------------
+    else if(event.data.msg === 'setMenuItemIconActive'){
+        set_menu_item_prop(window.menubars[event.data.appInstanceID], event.data.value.id, 'icon_active', event.data.value.icon_active);
+    }
+    //--------------------------------------------------------
+    // setMenuItemChecked
+    //--------------------------------------------------------
+    else if(event.data.msg === 'setMenuItemChecked'){
+        set_menu_item_prop(window.menubars[event.data.appInstanceID], event.data.value.id, 'checked', event.data.value.checked);
+    }
     //--------------------------------------------------------
     // setMenubar
     //--------------------------------------------------------
@@ -452,6 +481,9 @@ window.addEventListener('message', async (event) => {
             e.preventDefault();
         });
 
+        if(!window.menubars[event.data.appInstanceID])
+            window.menubars[event.data.appInstanceID] = value.items;
+
         const sanitize_items = items => {
             return items.map(item => {
                 // Check if the item is just '-'
@@ -461,6 +493,10 @@ window.addEventListener('message', async (event) => {
                 // Otherwise, proceed as before
                 return {
                     html: item.label,
+                    disabled: item.disabled,
+                    checked: item.checked,
+                    icon: item.icon ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon)}" />` : undefined,
+                    icon_active: item.icon_active ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon_active)}" />` : undefined,
                     action: item.action,
                     items: item.items ? sanitize_items(item.items) : undefined
                 };
@@ -489,8 +525,8 @@ window.addEventListener('message', async (event) => {
 
             // Open the context menu
             const ctxMenu = UIContextMenu({
-                delay,
-                parent_element,
+                delay: delay,
+                parent_element: parent_element,
                 position: {top: pos.top + 30, left: pos.left},
                 css: {
                     'box-shadow': '0px 2px 6px #00000059'
@@ -517,9 +553,13 @@ window.addEventListener('message', async (event) => {
                 const item = items[i];
                 const label = html_encode(item.label);
                 const el_item = $(`<div class="window-menubar-item"><span>${label}</span></div>`);
-                const parent_element = el_item.parent()[0];
+                const parent_element = el_item.get(0);
                 
                 el_item.on('mousedown', (e) => {
+                    // check if it has has-open-context-menu class
+                    if ( el_item.hasClass('has-open-contextmenu') ) {
+                        return;
+                    }
                     if ( state_open ) {
                         state_open = false;
                         current && current.cancel({ meta: 'menubar' });
@@ -563,7 +603,7 @@ window.addEventListener('message', async (event) => {
                 menubar_buttons.push(el_item);
             }
         };
-        add_items($menubar, value.items);
+        add_items($menubar, window.menubars[event.data.appInstanceID]);
     }
     //--------------------------------------------------------
     // setWindowWidth

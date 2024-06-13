@@ -3587,3 +3587,18 @@ window.check_password_strength = (password) => {
         report: criteria_report,
     };
 }
+
+window.set_menu_item_prop = (items, item_id, prop, val) => {
+    // iterate over items
+    for (const item of items) {
+        // find the item with the given item_id
+        if (item.id === item_id) {
+            // set the property value
+            item[prop] = val;
+            break;
+        }
+        else if(item.items){
+            set_menu_item_prop(item.items, item_id, prop, val);
+        }
+    }
+};

@@ -21,7 +21,6 @@ function UIContextMenu(options){
     $('.window-active .window-app-iframe').css('pointer-events', 'none');
 
     const menu_id = window.global_element_id++;
-
     let h = '';
     h += `<div 
                 id="context-menu-${menu_id}" 
@@ -42,8 +41,13 @@ function UIContextMenu(options){
                             class="context-menu-item ${options.items[i].disabled ? ' context-menu-item-disabled' : ''}"
                             >`;
                         // icon
-                        h += `<span class="context-menu-item-icon">${options.items[i].icon ?? ''}</span>`;
-                        h += `<span class="context-menu-item-icon-active">${options.items[i].icon_active ?? (options.items[i].icon ?? '')}</span>`;
+                        if(options.items[i].checked === true){
+                            h += `<span class="context-menu-item-icon">✓</span>`;
+                            h += `<span class="context-menu-item-icon-active">✓</span>`;
+                        }else{
+                            h += `<span class="context-menu-item-icon">${options.items[i].icon ?? ''}</span>`;
+                            h += `<span class="context-menu-item-icon-active">${options.items[i].icon_active ?? (options.items[i].icon ?? '')}</span>`;
+                        }
                         // label
                         h += `<span class="contextmenu-label">${options.items[i].html}</span>`;
                         h += `<span class="contextmenu-label-active">${options.items[i].html_active ?? options.items[i].html}</span>`;
@@ -275,7 +279,11 @@ function UIContextMenu(options){
         if(options.parent_element){
             $(options.parent_element).parent().removeClass('children-have-open-contextmenu');
 
-            $(options.parent_element).css('overflow', 'scroll');
+            // if the parent element is not a window, make it scrollable again
+            if (!$(options.parent_element).hasClass('window-body')) {
+                $(options.parent_element).css('overflow', 'scroll');
+            }
+            
             $(options.parent_element).removeClass('has-open-contextmenu');
             if($(options.parent_element).hasClass('taskbar-item')){
                 window.make_taskbar_sortable()

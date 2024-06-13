@@ -26,6 +26,7 @@ window.progress_tracker = [];
 window.upload_item_global_id = 0;
 window.app_instance_ids = new Set();
 
+window.menubars = [];
 window.download_progress = [];
 window.download_item_global_id = 0;
 
