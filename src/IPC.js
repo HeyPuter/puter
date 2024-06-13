@@ -481,6 +481,9 @@ window.addEventListener('message', async (event) => {
             e.preventDefault();
         });
 
+        // empty menubar
+        $menubar.empty();
+
         if(!window.menubars[event.data.appInstanceID])
             window.menubars[event.data.appInstanceID] = value.items;
 
@@ -574,6 +577,7 @@ window.addEventListener('message', async (event) => {
                             parent_element,
                             items: item.items,
                         });
+                        $(el_window).focusWindow(e);
                         e.stopPropagation();
                         e.preventDefault();
                         return;

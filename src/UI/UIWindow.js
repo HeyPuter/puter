@@ -2185,8 +2185,7 @@ function delete_window_element (el_window){
     // resetting window counter is important so that next window opens at the center of the screen
     if($('.window').length === 0)
         window.window_counter = 0;
-}    
-
+}
 
 $(document).on('click', '.window-sidebar-item', async function(e){
     const el_window = $(this).closest('.window');
@@ -3135,7 +3134,7 @@ $.fn.focusWindow = function(event) {
         const $app_iframe = $(this).find('.window-app-iframe');
         $('.window').not(this).removeClass('window-active');
         $(this).addClass('window-active');
-        // disable pointer events on all other windows' iframes, except for this window's iframe
+        // disable pointer events on all windows' iframes, except for this window's iframe
         $('.window-app-iframe').not($app_iframe).css('pointer-events', 'none');
         // bring this window to front, only if it's not stay_on_top
         if($(this).attr('data-stay_on_top') !== 'true'){
@@ -3149,9 +3148,16 @@ $.fn.focusWindow = function(event) {
         if($(this).attr('data-element_uuid') !== 'null'){
             $(`.window[data-parent_uuid="${$(this).attr('data-element_uuid')}"]`).css('z-index', ++window.last_window_zindex);
         }
-        //
-        // if this has an iframe, focus on it
-        if(!$(this).hasClass('window-disabled') && $app_iframe.length > 0){
+
+        // if a menubar or any of its items are clicked, don't focus the iframe. This is important to preserve the focus on the menubar
+        // and to enable keyboard navigation through the menubar items
+        if($(event?.target).hasClass('window-menubar') || $(event?.target).closest('.window-menubar').length > 0){
+            $($app_iframe).css('pointer-events', 'none');
+            $app_iframe.get(0)?.blur();
+            $app_iframe.get(0)?.contentWindow?.blur();
+        }
+        // if this has an iframe
+        else if(!$(this).hasClass('window-disabled') && $app_iframe.length > 0){
             $($app_iframe).css('pointer-events', 'all');
             $app_iframe.get(0)?.focus({preventScroll:true});
             $app_iframe.get(0)?.contentWindow?.focus({preventScroll:true});
