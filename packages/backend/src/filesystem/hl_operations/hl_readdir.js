@@ -19,6 +19,7 @@
 const APIError = require("../../api/APIError");
 const { chkperm } = require("../../helpers");
 const { TYPE_DIRECTORY } = require("../FSNodeContext");
+const { LLListUsers } = require("../ll_operations/ll_listusers");
 const { LLReadDir } = require("../ll_operations/ll_readdir");
 const { LLReadShares } = require("../ll_operations/ll_readshares");
 const { HLFilesystemOperation } = require("./definitions");
@@ -48,7 +49,10 @@ class HLReadDir extends HLFilesystemOperation {
             namediff: await subject.get('name') !== user.username
             }
         );
-        if (
+        if ( subject.isRoot ) {
+            const ll_listusers = new LLListUsers();
+            children = await ll_listusers.run(this.values);
+        } else if (
             await subject.isUserDirectory() &&
             await subject.get('name') !== user.username
         ) {

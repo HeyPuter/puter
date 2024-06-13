@@ -583,6 +583,25 @@ class PermissionService extends BaseService {
             ]
         );
     }
+    
+    /**
+     * List the users that have any permissions granted to the
+     * specified user.
+     */
+    async list_user_permission_issuers (user) {
+        const rows = await this.db.read(
+            'SELECT DISTINCT issuer_user_id FROM `user_to_user_permissions` ' +
+            'WHERE `holder_user_id` = ?',
+            [ user.id ],
+        );
+        
+        const users = [];
+        for ( const row of rows ) {
+            users.push(await get_user({ id: row.issuer_user_id }));
+        }
+
+        return users;
+    }
 
     get_parent_permissions (permission) {
         const parent_perms = [];
