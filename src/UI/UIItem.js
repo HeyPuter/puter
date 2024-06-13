@@ -649,7 +649,7 @@ function UIItem(options){
                 UIAlert(`The name ".." is not allowed, because it is a reserved name. Please choose another name.`)
             }
 
-            $(el_item_name).html(truncate_filename(options.name).replaceAll(' ', '&nbsp;'));
+            $(el_item_name).html(html_encode(truncate_filename(options.name)).replaceAll(' ', '&nbsp;'));
             $(el_item_name).show();
             $(el_item_name_editor).val($(el_item).attr('data-name'));
             $(el_item_name_editor).hide();
@@ -1539,6 +1539,11 @@ window.activate_item_name_editor= function(el_item){
     $(el_item_name_editor).show();
     $(el_item_name_editor).focus();
     $(el_item_name_editor).addClass('item-name-editor-active');
+
+    // html-decode the content of the item name editor, this is necessary because the item name is html-encoded when displayed
+    // but the item name editor is not html-encoded. If we remove this line, the item name editor will display the html-encoded
+    // version of the item name after a successful name edit.
+    $(el_item_name_editor).val(html_decode($(el_item_name_editor).val()));
 
     // select all text before extension
     const item_name = $(el_item).attr('data-name');

@@ -3143,21 +3143,21 @@ window.rename_file = async(options, new_name, old_name, old_path, el_item, el_it
             const new_icon = (options.is_dir ? window.icons['folder.svg'] : (await window.item_icon(fsentry)).image);
             $(el_item_icon).find('.item-icon-icon').attr('src', new_icon);
 
-            // Set new data-name
+            // Set new `data-name`
             options.name = new_name;
             $(el_item).attr('data-name', html_encode(new_name));
             $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('data-name', html_encode(new_name));
             $(`.window-${options.uid}`).attr('data-name', html_encode(new_name));
 
-            // Set new title attribute
+            // Set new `title` attribute
             $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('title', html_encode(new_name));
             $(`.window-${options.uid}`).attr('title', html_encode(new_name));
 
-            // Set new value for item-name-editor
+            // Set new value for `item-name-editor`
             $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name-editor`).val(html_encode(new_name));
             $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name`).attr('title', html_encode(new_name));
 
-            // Set new data-path
+            // Set new `data-path` attribute
             options.path = path.join( path.dirname(options.path), options.name);
             const new_path = options.path;
             $(el_item).attr('data-path', new_path);
@@ -3171,7 +3171,7 @@ window.rename_file = async(options, new_name, old_name, old_path, el_item, el_it
                     $(this).text(new_name);
             });
 
-            // Update the paths of all elements whose paths start with old_path
+            // Update the paths of all elements whose paths start with `old_path`
             $(`[data-path^="${html_encode(old_path) + '/'}"]`).each(function(){
                 const new_el_path = _.replace($(this).attr('data-path'), old_path + '/', new_path+'/');
                 $(this).attr('data-path', new_el_path);
@@ -3181,7 +3181,7 @@ window.rename_file = async(options, new_name, old_name, old_path, el_item, el_it
             if($(el_item).attr('data-has_website') === '1')
                 await window.update_sites_cache();
 
-            // Update website_url
+            // Update `website_url`
             website_url = window.determine_website_url(new_path);
             $(el_item).attr('data-website_url', website_url);
 
