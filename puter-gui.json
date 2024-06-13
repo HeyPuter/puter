@@ -29,7 +29,8 @@
             "/src/helpers.js",
             "/src/IPC.js",
             "/src/globals.js",
-            "/src/i18n/i18n.js"
+            "/src/i18n/i18n.js",
+            "/src/keyboard.js"
         ]
     },
     "bundle": {

@@ -22,8 +22,14 @@ import path from 'path';
 import webpack from 'webpack';
 import CleanCSS from 'clean-css';
 import uglifyjs from 'uglify-js';
-import { lib_paths, css_paths, js_paths } from './src/static-assets.js';
 import { fileURLToPath } from 'url';
+
+// load puter-gui.json
+const puter_gui = JSON.parse(fs.readFileSync(path.join(__dirname, 'puter-gui.json')));
+// map puter_gui to lib_paths, css_paths, js_paths
+const lib_paths = puter_gui.lib_paths;
+const css_paths = puter_gui.css_paths;
+const js_paths = puter_gui.js_paths;
 
 // Polyfill __dirname, which doesn't exist in modules mode
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
