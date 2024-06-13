@@ -162,6 +162,17 @@ module.exports = class FSNodeContext {
         if ( this.found === false ) return undefined;
         return ! this.entry.parent_uid;
     }
+    
+    async getUserPart () {
+        if ( this.isRoot ) return;
+        
+        let path = await this.get('path');
+        if ( path.startsWith('/') ) path = path.slice(1);
+        const components = path.split('/');
+        const userpart = components[0];
+        
+        return userpart;
+    }
 
     async exists (fetch_options = {}) {
         await this.fetchEntry();
