@@ -19,6 +19,7 @@
 
 import UIWindow from './UIWindow.js'
 import UIPopover from './UIPopover.js'
+import socialLink from '../helpers/socialLink.js'
 
 async function UIWindowRefer(options){
     let h = '';
@@ -70,7 +71,7 @@ async function UIWindowRefer(options){
     $(el_window).find('.window-body .downloadable-link').val(url);
 
     $(el_window).find('.window-body .share-copy-link-on-social').on('click', function(e){    
-        const social_links = window.socialLink({url: url, title: i18n('refer_friends_social_media_c2a'), description: i18n('refer_friends_social_media_c2a')});
+        const social_links = socialLink({url: url, title: i18n('refer_friends_social_media_c2a'), description: i18n('refer_friends_social_media_c2a')});
 
         let social_links_html = ``;
         social_links_html += `<div style="padding: 10px;">`;

@@ -18,6 +18,7 @@
  */
 
 import UIWindow from './UIWindow.js'
+import check_password_strength from '../helpers/check_password_strength.js'
 
 async function UIWindowChangePassword(options){
     options = options ?? {};
@@ -104,7 +105,7 @@ async function UIWindowChangePassword(options){
             return;
         }
         // check password strength
-        const pass_strength = window.check_password_strength(new_password);
+        const pass_strength = check_password_strength(new_password);
         if(!pass_strength.overallPass){
             $(el_window).find('.form-error-msg').html(i18n('password_strength_error'));
             $(el_window).find('.form-error-msg').fadeIn();

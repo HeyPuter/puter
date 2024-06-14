@@ -20,6 +20,7 @@
 import UIWindow from './UIWindow.js'
 import UIWindowLogin from './UIWindowLogin.js'
 import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js'
+import check_password_strength from '../helpers/check_password_strength.js'
 
 function UIWindowSignup(options){
     options = options ?? {};
@@ -167,7 +168,7 @@ function UIWindowSignup(options){
                 return;
             }
             // check password strength
-            const pass_strength = window.check_password_strength(password);
+            const pass_strength = check_password_strength(password);
             if(!pass_strength.overallPass){
                 $(el_window).find('.signup-error-msg').html(i18n('password_strength_error'));
                 $(el_window).find('.signup-error-msg').fadeIn();
