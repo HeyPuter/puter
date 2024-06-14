@@ -466,7 +466,10 @@ class UI extends EventListener {
             let URLParams = new URLSearchParams(window.location.search);
             if(URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url')){
                 let fpath = URLParams.get('puter.item.path');
-                fpath = `~/` + fpath.split('/').slice(2).join('/');
+
+                if(!fpath.startsWith('~/') && !fpath.startsWith('/'))
+                    fpath = '~/' + fpath
+
                 callback([new FSItem({
                     name: URLParams.get('puter.item.name'),
                     path: fpath,
@@ -495,7 +498,10 @@ class UI extends EventListener {
             let URLParams = new URLSearchParams(window.location.search);
             if(URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url')){
                 let fpath = URLParams.get('puter.item.path');
-                fpath = `~/` + fpath.split('/').slice(2).join('/');
+
+                if(!fpath.startsWith('~/') && !fpath.startsWith('/'))
+                    fpath = '~/' + fpath;
+
                 callback([new FSItem({
                     name: URLParams.get('puter.item.name'),
                     path: fpath,

@@ -662,7 +662,7 @@ async function UIWindow(options) {
 
                 // change path of each item to preserve privacy
                 for(let i=0; i<selected_files.length; i++)
-                    selected_files[i].path = `~/` + selected_files[i].path.split('/').slice(2).join('/');
+                    selected_files[i].path = privacy_aware_path(selected_files[i].path)
             }
 
             const ifram_msg_uid = $(el_window).attr('data-iframe_msg_uid');
@@ -739,7 +739,7 @@ async function UIWindow(options) {
 
                 // change path of each item to preserve privacy
                 for(let i=0; i<selected_dirs.length; i++)
-                    selected_dirs[i].path = `~/` + selected_dirs[i].path.split('/').slice(2).join('/');
+                    selected_dirs[i].path = privacy_aware_path(selected_dirs[i].path)
             }
 
             const ifram_msg_uid = $(el_window).attr('data-iframe_msg_uid');
@@ -1191,7 +1191,7 @@ async function UIWindow(options) {
                         writeURL: item.write_url,
                         metadataURL: item.metadata_url,
                         isDirectory: item.fsentry_is_dir,
-                        path: `~/` + item.path.split('/').slice(2).join('/'),
+                        path: privacy_aware_path(item.path),
                         uid: item.uid,
                     })
                 }

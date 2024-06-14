@@ -659,7 +659,7 @@ window.initgui = async function(options){
                                                 metadataURL: file_signature.metadata_url,
                                                 type: file_signature.type,
                                                 uid: file_signature.uid,
-                                                path: `~/` + res.path.split('/').slice(2).join('/'),
+                                                path: privacy_aware_path(res.path),
                                             },
                                         }, '*');
 
@@ -1015,7 +1015,7 @@ window.initgui = async function(options){
                                             metadataURL: file_signature.metadata_url,
                                             type: file_signature.type,
                                             uid: file_signature.uid,
-                                            path: `~/` + res.path.split('/').slice(2).join('/'),
+                                            path: privacy_aware_path(res.path),
                                         },
                                     }, '*');
 
@@ -1392,3 +1392,33 @@ $(document).on('contextmenu', '.disable-context-menu', function(e){
         return false;
     }
 })
+
+
+/**
+ * Converts a file system path to a privacy-aware path.
+ * - Paths starting with `~/` are returned unchanged.
+ * - Paths starting with the user's home path are replaced with `~`.
+ * - Absolute paths not starting with the user's home path are returned unchanged.
+ * - Relative paths are prefixed with `~/`.
+ * - Other paths are returned unchanged.
+ *
+ * @param {string} fspath - The file system path to be converted.
+ * @returns {string} The privacy-aware path.
+ */
+window.privacy_aware_path = function(fspath){
+    // e.g. /my_username/test.txt -> ~/test.txt
+    if(fspath.startsWith('~/'))
+        return fspath;
+    // e.g. /my_username/test.txt -> ~/test.txt
+    else if(fspath.startsWith(window.home_path))
+        return fspath.replace(window.home_path, '~');
+    // e.g. /other_username/test.txt -> /other_username/test.txt
+    else if(fspath.startsWith('/') && !fspath.startsWith(window.home_path))
+        return fspath;
+    // e.g. test.txt -> ~/test.txt
+    else if(!fspath.startsWith('/'))
+        return '~/' + fspath;
+    // e.g. /username/path/to/item -> /username/path/to/item
+    else
+        return fspath;
+}

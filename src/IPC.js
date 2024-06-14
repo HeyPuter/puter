@@ -747,7 +747,7 @@ window.addEventListener('message', async (event) => {
                 signature = signature.items;
                 signature.signatures = signature.signatures ?? [signature];
                 if(signature.signatures.length > 0 && signature.signatures[0].path){
-                    signature.signatures[0].path = `~/` + signature.signatures[0].path.split('/').slice(2).join('/')
+                    signature.signatures[0].path = privacy_aware_path(signature.signatures[0].path)
                     // send confirmation to requester window
                     target_iframe.contentWindow.postMessage({
                         msg: "readAppDataFileSucceeded",
@@ -1064,7 +1064,7 @@ window.addEventListener('message', async (event) => {
                                     metadataURL: file_signature.metadata_url,
                                     type: file_signature.type,
                                     uid: file_signature.uid,
-                                    path: `~/` + res.path.split('/').slice(2).join('/'),
+                                    path: privacy_aware_path(res.path)
                                 },
                             }, '*');
 
@@ -1247,7 +1247,7 @@ window.addEventListener('message', async (event) => {
                             writeURL: file_signature.write_url,
                             metadataURL: file_signature.metadata_url,
                             uid: file_signature.uid,
-                            path: `~/` + res.path.split('/').slice(2).join('/'),
+                            path: privacy_aware_path(res.path),
                         },
                     }, '*');
                     $(target_iframe).get(0).focus({preventScroll:true});

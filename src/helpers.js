@@ -1715,7 +1715,7 @@ window.launch_app = async (options)=>{
 
         if(file_signature){
             iframe_url.searchParams.append('puter.item.uid', file_signature.uid);
-            iframe_url.searchParams.append('puter.item.path', options.file_path ? `~/` + options.file_path.split('/').slice(1).join('/') : file_signature.path);
+            iframe_url.searchParams.append('puter.item.path', privacy_aware_path(options.file_path) || file_signature.path);
             iframe_url.searchParams.append('puter.item.name', file_signature.fsentry_name);
             iframe_url.searchParams.append('puter.item.read_url', file_signature.read_url);
             iframe_url.searchParams.append('puter.item.write_url', file_signature.write_url);
@@ -1728,7 +1728,7 @@ window.launch_app = async (options)=>{
         }
         else if(options.readURL){
             iframe_url.searchParams.append('puter.item.name', options.filename);
-            iframe_url.searchParams.append('puter.item.path', options.file_path ? `~/` + options.file_path.split('/').slice(1).join('/') : undefined);
+            iframe_url.searchParams.append('puter.item.path', privacy_aware_path(options.file_path));
             iframe_url.searchParams.append('puter.item.read_url', options.readURL);
             iframe_url.searchParams.append('puter.domain', window.app_domain);
         }
@@ -1911,7 +1911,7 @@ window.open_item = async function(options){
             let res = await puter.fs.sign(window.host_app_uid ?? parent_window_app_uid, {uid: uid, action: 'write'});
             res = res.items;
             // todo split is buggy because there might be a slash in the filename
-            res.path = `~/` + item_path.split('/').slice(2).join('/');
+            res.path = privacy_aware_path(item_path);
             const parent_uuid = $el_parent_window.attr('data-parent_uuid');
             const return_to_parent_window = $el_parent_window.attr('data-return_to_parent_window') === 'true';
             if(return_to_parent_window){
