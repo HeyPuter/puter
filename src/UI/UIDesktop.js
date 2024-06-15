@@ -111,9 +111,22 @@ async function UIDesktop(options){
             $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.item-container').empty();
     })
     
-    window.socket.on('notif.message', ({ notification }) => {
+    window.socket.on('notif.message', ({ uid, notification }) => {
+        const icon = window.icons[notification.icon];
         UINotification({
-            content: notification.summary
+            title: notification.title,
+            text: notification.text,
+            icon: icon,
+            click: async () => {
+                await fetch(`${window.api_origin}/notif/mark-awk`, {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${puter.authToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ uid }),
+                });
+            },
         });
     });
 
@@ -124,21 +137,14 @@ async function UIDesktop(options){
 
         for ( const notif_info of unreads ) {
             const notification = notif_info.notification;
-            const icon = (sys => {
-                if ( sys === 'share' ) return window.icons['shared.svg'];
-                if ( sys === 'puter' ) return window.icons['logo-fill.svg'];
-                return notification.builtin_icon
-                    ? window.icons[notification.builtin_icon]
-                    : notification.icon || window.icons['bell.svg'];
-            })(notification.subsystem);
+            const icon = window.icons[notification.icon];
             
             UINotification({
-                // icon: window.icons['shared.svg'],
                 icon,
-                title: notification.summary,
-                text: notification.text ?? notification.summary,
+                title: notification.title,
+                text: notification.text ?? notification.title,
                 click: async () => {
-                    await fetch(`${window.api_origin}/notif/mark-read`, {
+                    await fetch(`${window.api_origin}/notif/mark-awk`, {
                         method: 'POST',
                         headers: {
                             Authorization: `Bearer ${puter.authToken}`,
