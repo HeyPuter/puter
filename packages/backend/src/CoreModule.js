@@ -150,7 +150,7 @@ const install = async ({ services, app, useapi }) => {
             WriteByOwnerOnlyES,
             ValidationES,
             SetOwnerES,
-            MaxLimitES, { max: 50 },
+            MaxLimitES, { max: 5000 },
         ]),
     });
     services.registerService('es:subdomain', EntityStoreService, {
@@ -162,7 +162,7 @@ const install = async ({ services, app, useapi }) => {
             WriteByOwnerOnlyES,
             ValidationES,
             SetOwnerES,
-            MaxLimitES, { max: 50 },
+            MaxLimitES, { max: 5000 },
         ]),
     });
     services.registerService('rate-limit', RateLimitService);
