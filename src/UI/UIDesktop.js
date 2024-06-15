@@ -1035,11 +1035,11 @@ async function UIDesktop(options){
         })
     }
 
-    setInterval(() => {
-        UINotification({
-            content: 'This is a notification',
-        })
-    }, 1000);
+    // setInterval(() => {
+    //     UINotification({
+    //         content: 'This is a notification',
+    //     })
+    // }, 1000);
 }
 
 $(document).on('contextmenu taphold', '.taskbar', function(event){
