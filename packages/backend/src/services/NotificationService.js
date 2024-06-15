@@ -47,7 +47,7 @@ class NotificationService extends BaseService {
         
         router.use(auth2);
         
-        [['awk','awknowledged'],['read','read']].forEach(([ep_name, col_name]) => {
+        [['ack','acknowledged'],['read','read']].forEach(([ep_name, col_name]) => {
             Endpoint({
                 route: '/mark-' + ep_name,
                 methods: ['POST'],
@@ -61,12 +61,12 @@ class NotificationService extends BaseService {
                         })
                     }
                     
-                    const awk_ts = Math.floor(Date.now() / 1000);
+                    const ack_ts = Math.floor(Date.now() / 1000);
                     await this.db.write(
                         'UPDATE `notification` SET ' + col_name + ' = ? ' +
                         'WHERE uid = ? AND user_id = ? ' +
                         'LIMIT 1',
-                        [awk_ts, req.body.uid, req.user.id],
+                        [ack_ts, req.body.uid, req.user.id],
                     );
                     
                     res.json({});
@@ -79,7 +79,7 @@ class NotificationService extends BaseService {
         // query the users unread notifications
         const notifications = await this.db.read(
             'SELECT * FROM `notification` ' +
-            'WHERE user_id=? AND shown IS NULL AND awknowledged IS NULL ' +
+            'WHERE user_id=? AND shown IS NULL AND acknowledged IS NULL ' +
             'ORDER BY created_at ASC',
             [user.id]
         );

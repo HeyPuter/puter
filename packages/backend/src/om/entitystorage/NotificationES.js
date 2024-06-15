@@ -27,19 +27,19 @@ class NotificationES extends BaseES {
                     key: 'shown',
                     value: null,
                 }).and(new Eq({
-                    key: 'awknowledged',
+                    key: 'acknowledge',
                     value: null,
                 }));
             }
-            if ( id === 'unawknowledged' ) {
+            if ( id === 'unacknowledge' ) {
                 return new Eq({
-                    key: 'awknowledged',
+                    key: 'acknowledge',
                     value: null,
                 });
             }
-            if ( id === 'awknowledged' ) {
+            if ( id === 'acknowledge' ) {
                 return new IsNotNull({
-                    key: 'awknowledged',
+                    key: 'acknowledge',
                 });
             }
         },

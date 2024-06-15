@@ -118,7 +118,7 @@ async function UIDesktop(options){
             text: notification.text,
             icon: icon,
             click: async () => {
-                await fetch(`${window.api_origin}/notif/mark-awk`, {
+                await fetch(`${window.api_origin}/notif/mark-ack`, {
                     method: 'POST',
                     headers: {
                         Authorization: `Bearer ${puter.authToken}`,
@@ -144,7 +144,7 @@ async function UIDesktop(options){
                 title: notification.title,
                 text: notification.text ?? notification.title,
                 click: async () => {
-                    await fetch(`${window.api_origin}/notif/mark-awk`, {
+                    await fetch(`${window.api_origin}/notif/mark-ack`, {
                         method: 'POST',
                         headers: {
                             Authorization: `Bearer ${puter.authToken}`,

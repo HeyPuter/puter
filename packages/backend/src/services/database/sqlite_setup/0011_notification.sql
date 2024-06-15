@@ -3,7 +3,7 @@ CREATE TABLE `notification` (
     `user_id` INTEGER NOT NULL,
     `uid` TEXT NOT NULL UNIQUE,
     `value` JSON NOT NULL,
-    `awknowledged` INTEGER DEFAULT NULL,
+    `acknowledged` INTEGER DEFAULT NULL,
     `shown` INTEGER DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
