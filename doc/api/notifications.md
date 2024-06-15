@@ -2,13 +2,32 @@
 
 Endpoints for managing notifications.
 
+## POST `/notif/mark-awk` (auth required)
+
+### Description
+
+The `/notif/mark-awk` endpoint marks the specified notification
+as "awknowledged". This indicates that the user has chosen to either
+dismiss or act on this notification.
+
+### Parameters
+
+| Name | Description | Default Value |
+| ---- | ----------- | -------- |
+| uid | UUID associated with the notification | **required** |
+
+### Response
+
+This endpoint responds with an empty object (`{}`).
+
+
 ## POST `/notif/mark-read` (auth required)
 
 ### Description
 
-The `/notif/mark-read` endpoint marks the specified notification
-as "read". This indicates that the user has chosen to either
-dismiss or act on this notification.
+The `/notif/mark-read` endpoint marks that the specified notification
+has been shown to the user. It will not "pop up" as a new notification
+if they load the gui again.
 
 ### Parameters
 
