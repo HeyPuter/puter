@@ -2432,8 +2432,10 @@ label {
 /*****************************************************
  * Notification
  *****************************************************/
-.notification {
+.notification, .notification-wrapper{
     width: 320px;
+}
+.notification {
     min-height: 54px;
     background: #ffffffcd;
     backdrop-filter: blur(5px);

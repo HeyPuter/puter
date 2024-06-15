@@ -29,7 +29,7 @@ function UINotification(options){
     h += `<div id="ui-notification__${window.global_element_id}" data-el-id="${window.global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
         h += `<img class="notification-close" src="${html_encode(window.icons['close.svg'])}">`;
         h += `<div class="notification-icon">`;
-            h += `<img src="${html_encode(options.icon)}">`;
+            h += `<img src="${html_encode(options.icon ?? window.icons['bell.svg'])}">`;
         h += `</div>`;
         h += `<div class="notification-content">`;
             h += `<div class="notification-title">${html_encode(options.title)}</div>`;
@@ -42,6 +42,9 @@ function UINotification(options){
 
     const el_notification = document.getElementById(`ui-notification__${window.global_element_id}`);
 
+    // now wrap it in a div
+    $(el_notification).wrap('<div class="notification-wrapper"></div>');
+
     $(el_notification).show(0, function(e){
         // options.onAppend()
         if(options.onAppend && typeof options.onAppend === 'function'){
@@ -50,6 +53,12 @@ function UINotification(options){
     })
 
     $(el_notification).on('click', function(e){
+        // close button clicked
+        if($(e.target).hasClass('notification-close')){
+            return;
+        }
+
+        // click event
         if(options.click && typeof options.click === 'function'){
             options.click(options.value);
         }
@@ -62,10 +71,6 @@ function UINotification(options){
 
 $(document).on('click', '.notification', function(e){
     if($(e.target).hasClass('notification')){
-        // TODO: options isn't available here
-        // if(options.click && typeof options.click === 'function'){
-        //     options.click(e);
-        // }
         window.close_notification(e.target);
     }else{
         window.close_notification($(e.target).closest('.notification'));
@@ -74,15 +79,22 @@ $(document).on('click', '.notification', function(e){
 
 $(document).on('click', '.notification-close', function(e){
     window.close_notification($(e.target).closest('.notification'));
+    e.stopPropagation();
+    e.preventDefault();
+    return false;
 });
 
 
 window.close_notification = function(el_notification){
+    $(el_notification).closest('.notification-wrapper').animate({
+        height: 0,
+        opacity: 0
+    }, 200);
     $(el_notification).addClass('animate__fadeOutRight');
-
 
     // remove notification
     setTimeout(function(){
+        $(el_notification).closest('.notification-wrapper').remove();
         $(el_notification).remove();
     }, 300);
 }
