@@ -50,6 +50,12 @@ class Eq extends Predicate {
     }
 }
 
+class IsNotNull extends Predicate {
+    async check (entity) {
+        return (await entity.get(this.key)) !== null;
+    }
+}
+
 class Like extends Predicate {
     async check (entity) {
         // Convert SQL LIKE pattern to RegExp
@@ -114,5 +120,6 @@ module.exports = {
     And,
     Or,
     Eq,
+    IsNotNull,
     Like,
 };

@@ -41,36 +41,39 @@ class NotificationService extends BaseService {
         
         router.use(auth2);
         
-        Endpoint({
-            route: '/mark-read',
-            methods: ['POST'],
-            handler: async (req, res) => {
-                // TODO: validate uid
-                if ( typeof req.body.uid !== 'string' ) {
-                    throw APIError.create('field_invalid', null, {
-                        key: 'uid',
-                        expected: 'a valid UUID',
-                        got: 'non-string value'
-                    })
+        [['awk','awknowledged'],['read','read']].forEach(([ep_name, col_name]) => {
+            Endpoint({
+                route: '/mark-' + ep_name,
+                methods: ['POST'],
+                handler: async (req, res) => {
+                    // TODO: validate uid
+                    if ( typeof req.body.uid !== 'string' ) {
+                        throw APIError.create('field_invalid', null, {
+                            key: 'uid',
+                            expected: 'a valid UUID',
+                            got: 'non-string value'
+                        })
+                    }
+                    
+                    const awk_ts = Math.floor(Date.now() / 1000);
+                    await this.db.write(
+                        'UPDATE `notification` SET ' + col_name + ' = ? ' +
+                        'WHERE uid = ? AND user_id = ? ' +
+                        'LIMIT 1',
+                        [awk_ts, req.body.uid, req.user.id],
+                    );
+                    
+                    res.json({});
                 }
-                
-                await this.db.write(
-                    'UPDATE `notification` SET read=1 ' +
-                    'WHERE uid = ? AND user_id = ? ' +
-                    'LIMIT 1',
-                    [req.body.uid, req.user.id],
-                );
-                
-                res.json({});
-            }
-        }).attach(router);
+            }).attach(router);
+        });
     }
     
     async on_user_connected ({ user }) {
         // query the users unread notifications
         const notifications = await this.db.read(
             'SELECT * FROM `notification` ' +
-            'WHERE user_id=? AND read=0 ' +
+            'WHERE user_id=? AND shown IS NULL AND awknowledged IS NULL ' +
             'ORDER BY created_at ASC',
             [user.id]
         );
