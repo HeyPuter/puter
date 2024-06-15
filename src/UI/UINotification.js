@@ -17,13 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-window.active_notifs = []
-
 function UINotification(options){
     window.global_element_id++;
-
     options.text = options.text ?? '';
-    window.active_notifs.push(window.global_element_id);
 
     let h = '';
     h += `<div id="ui-notification__${window.global_element_id}" data-el-id="${window.global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
@@ -66,6 +62,15 @@ function UINotification(options){
 
     // Show Notification
     $(el_notification).delay(100).show(0);
+
+    // count notifications
+    let count = $('.notification-container').find('.notification-wrapper').length;
+    if(count <= 1){
+        $('.notification-container').removeClass('has-multiple');
+    }else{
+        $('.notification-container').addClass('has-multiple');
+    }
+
     return el_notification;
 }
 
@@ -84,19 +89,37 @@ $(document).on('click', '.notification-close', function(e){
     return false;
 });
 
-
+$(document).on('click', '.notifications-close-all', function(e){
+    $('.notification-container').find('.notification-wrapper').each(function(){
+        window.close_notification(this);
+    });
+    $('.notifications-close-all').animate({
+        opacity: 0
+    }, 300);
+    $('.notification-container').removeClass('has-multiple');
+    e.stopPropagation();
+    e.preventDefault();
+    return false;
+})
 window.close_notification = function(el_notification){
     $(el_notification).closest('.notification-wrapper').animate({
         height: 0,
         opacity: 0
-    }, 200);
+    }, 300);
     $(el_notification).addClass('animate__fadeOutRight');
 
     // remove notification
     setTimeout(function(){
         $(el_notification).closest('.notification-wrapper').remove();
         $(el_notification).remove();
-    }, 300);
+        // count notifications
+        let count = $('.notification-container').find('.notification-wrapper').length;
+        if(count <= 1){
+            $('.notification-container').removeClass('has-multiple');
+        }else{
+            $('.notification-container').addClass('has-multiple');
+        }
+    }, 500);
 }
 
 export default UINotification;
