@@ -2433,8 +2433,8 @@ label {
  * Notification
  *****************************************************/
 .notification {
-    width: 250px;
-    height: 54px;
+    width: 320px;
+    min-height: 54px;
     background: #ffffffcd;
     backdrop-filter: blur(5px);
     border-radius: 11px;
@@ -2442,6 +2442,8 @@ label {
     box-shadow: 0px 0px 17px -9px #000;
     border: 1px solid #d5d5d5;
     margin-bottom: 10px;
+    display: flex;
+    flex-direction: row;
 }
 
 .notification-close {
@@ -2460,7 +2462,33 @@ label {
 .notification:hover .notification-close {
     display: block;
 }
-
+.notification-icon{
+    width: 40px;
+    margin: 10px 5px 10px 15px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    filter: drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
+}
+.notification-icon img{
+    width: 35px;
+    height: 35px;
+}
+.notification-title{
+    font-size: 12px;
+    font-weight: 600;
+}
+.notification-text{
+    font-size: 12px; 
+    margin-top: 4px;
+}
+.notification-content{
+    flex-grow:1;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+}
 /*****************************************************
  * Start
  *****************************************************/
@@ -2814,6 +2842,14 @@ fieldset[name=number-code] {
 
 @supports ((backdrop-filter: blur())) {
     .window-head {
+        background-color: hsla(var(--window-head-hue),
+                var(--window-head-saturation),
+                var(--window-head-lightness),
+                var(--window-head-alpha));
+        backdrop-filter: blur(10px);
+    }
+
+    .notification {
         background-color: hsla(var(--window-head-hue),
                 var(--window-head-saturation),
                 var(--window-head-lightness),

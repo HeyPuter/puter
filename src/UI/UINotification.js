@@ -22,13 +22,19 @@ window.active_notifs = []
 function UINotification(options){
     window.global_element_id++;
 
-    options.content = options.content ?? '';
+    options.text = options.text ?? '';
     window.active_notifs.push(window.global_element_id);
 
     let h = '';
     h += `<div id="ui-notification__${window.global_element_id}" data-id="${window.global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
         h += `<img class="notification-close" src="${html_encode(window.icons['close.svg'])}">`;
-        h += html_encode(options.content);
+        h += `<div class="notification-icon">`
+            h += `<img src="${html_encode(options.icon)}">`;
+        h += `</div>`;
+        h += `<div class="notification-content">`;
+            h += `<div class="notification-title">${html_encode(options.title)}</div>`;
+            h += `<div class="notification-text">${html_encode(options.text)}</div>`;
+        h += `</div>`;
     h += `</div>`;
 
     $('.notification-container').prepend(h);
