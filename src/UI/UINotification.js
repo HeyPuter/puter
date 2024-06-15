@@ -17,13 +17,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+window.active_notifs = []
+
 function UINotification(options){
     window.global_element_id++;
 
     options.content = options.content ?? '';
+    window.active_notifs.push(window.global_element_id);
 
     let h = '';
-    h += `<div id="ui-notification__${window.global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
+    h += `<div id="ui-notification__${window.global_element_id}" data-id="${window.global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
         h += `<img class="notification-close" src="${html_encode(window.icons['close.svg'])}">`;
         h += html_encode(options.content);
     h += `</div>`;
@@ -47,6 +50,15 @@ function UINotification(options){
         top: window.toolbar_height + 15,
     });
 
+    // if there are other older notifications, move them down
+    if(window.active_notifs.length > 1){
+        let older_notifs = $('.notification').not(el_notification);
+        for(let i = 0; i < older_notifs.length; i++){
+            let el = older_notifs[i];
+            let top = parseInt($(el).css('top'));
+            $(el).animate({'top': top + 65});
+        }
+    }
     return el_notification;
 }
 
@@ -69,6 +81,22 @@ $(document).on('click', '.notification-close', function(e){
 
 window.close_notification = function(el_notification){
     $(el_notification).addClass('animate__fadeOutRight');
+
+    // move up older notifications up
+    if(window.active_notifs.length > 1){
+        // get older notif ids from the active_notifs array
+        let older_notifs = window.active_notifs.filter(function(id){
+            return id < parseInt($(el_notification).data('id'));
+        });
+        
+        // move older notifications up
+        for(let i = 0; i < older_notifs.length; i++){
+            let el = $(`#ui-notification__${older_notifs[i]}`);
+            let top = parseInt($(el).css('top'));
+            $(el).animate({'top': top - 65}, 10);
+        }
+    }
+    // remove notification
     setTimeout(function(){
         $(el_notification).remove();
     }, 500);

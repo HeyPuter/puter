@@ -37,6 +37,7 @@ import changeLanguage from "../i18n/i18nChangeLanguage.js"
 import UIWindowSettings from "./Settings/UIWindowSettings.js"
 import UIWindowTaskManager from "./UIWindowTaskManager.js"
 import truncate_filename from '../helpers/truncate_filename.js';
+import UINotification from "./UINotification.js"
 
 async function UIDesktop(options){
     let h = '';
@@ -1033,6 +1034,12 @@ async function UIDesktop(options){
             }
         })
     }
+
+    setInterval(() => {
+        UINotification({
+            content: 'This is a notification',
+        })
+    }, 1000);
 }
 
 $(document).on('contextmenu taphold', '.taskbar', function(event){
