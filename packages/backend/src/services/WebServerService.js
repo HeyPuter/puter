@@ -169,6 +169,11 @@ class WebServerService extends BaseService {
                     socket.token = auth_res.token;
                     // join user room
                     socket.join(socket.user.id);
+                    
+                    // setTimeout 0 is needed because we need to send
+                    // the notifications after this handler is done
+                    // setTimeout(() => {
+                    // }, 1000);
                     next();
                 } catch (e) {
                     console.log('socket auth err', e);
@@ -181,6 +186,10 @@ class WebServerService extends BaseService {
             });
             socket.on('trash.is_empty', (msg) => {
                 socket.broadcast.to(socket.user.id).emit('trash.is_empty', msg);
+                const svc_event = this.services.get('event');
+                svc_event.emit('web.socket.user-connected', {
+                    user: socket.user
+                });
             });
         });
         

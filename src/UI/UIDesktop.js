@@ -117,6 +117,19 @@ async function UIDesktop(options){
         });
     });
 
+    window.__already_got_unreads = false;
+    window.socket.on('notif.unreads', ({ unreads }) => {
+        if ( window.__already_got_unreads ) return;
+        window.__already_got_unreads = true;
+
+        for ( const notif_info of unreads ) {
+            const notification = notif_info.notification;
+            UINotification({
+                content: notification.summary
+            });
+        }
+    });
+
     window.socket.on('app.opened', async (app) => {
         // don't update if this is the original client that initiated the action
         if(app.original_client_socket_id === window.socket.id)
