@@ -176,7 +176,7 @@ const install = async ({ services, app, useapi }) => {
             OwnerLimitedES,
             ReadOnlyES,
             SetOwnerES,
-            MaxLimitES, { max: 50 },
+            MaxLimitES, { max: 200 },
         ]),
     })
     services.registerService('rate-limit', RateLimitService);
