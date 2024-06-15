@@ -75,6 +75,9 @@ export default [
                 "io": true,             // socket.io
                 "timeago": true,        // timeago
                 "SelectionArea": true,  // viselect
+                // Puter GUI Globals
+                "set_menu_item_prop": true,
+                "determine_active_container_parent": true,
             }
         }
     },

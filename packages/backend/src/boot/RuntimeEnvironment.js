@@ -311,13 +311,6 @@ class RuntimeEnvironment extends AdvancedBase {
         const mod_paths = [];
         environment.mod_paths = mod_paths;
 
-        // TODO: implement `get_all_suitable_paths_` so we can load mods
-        // from multiple locations. Note: we'll need to carefully consider
-        // how this is configured.
-        if ( false ) if ( mods_path_entry ) {
-            mod_paths.push(mods_path_entry.path);
-        }
-
         // If configured, add a user-specified mod path
         if ( config.mod_directories ) {
             for ( const dir of config.mod_directories ) {
