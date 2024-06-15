@@ -183,6 +183,8 @@ class WebServerService extends BaseService {
                 socket.broadcast.to(socket.user.id).emit('trash.is_empty', msg);
             });
         });
+        
+        await this.services.emit('install.websockets', { server });
     }
 
     async _init () {
