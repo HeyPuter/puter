@@ -59,7 +59,6 @@ class Peer extends AdvancedBase {
                 address: this.config.address,
                 message: e.message,
             });
-            console.log(e);
         });
         socket.on('error', e => {
             this.log.info('error', {
