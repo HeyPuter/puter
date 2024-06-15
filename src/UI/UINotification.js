@@ -26,9 +26,9 @@ function UINotification(options){
     window.active_notifs.push(window.global_element_id);
 
     let h = '';
-    h += `<div id="ui-notification__${window.global_element_id}" data-id="${window.global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
+    h += `<div id="ui-notification__${window.global_element_id}" data-el-id="${window.global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
         h += `<img class="notification-close" src="${html_encode(window.icons['close.svg'])}">`;
-        h += `<div class="notification-icon">`
+        h += `<div class="notification-icon">`;
             h += `<img src="${html_encode(options.icon)}">`;
         h += `</div>`;
         h += `<div class="notification-content">`;
@@ -46,6 +46,12 @@ function UINotification(options){
         // options.onAppend()
         if(options.onAppend && typeof options.onAppend === 'function'){
             options.onAppend(el_notification);
+        }
+    })
+
+    $(el_notification).on('click', function(e){
+        if(options.click && typeof options.click === 'function'){
+            options.click(options.value);
         }
     })
 
