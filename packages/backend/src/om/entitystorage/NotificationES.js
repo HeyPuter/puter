@@ -16,8 +16,29 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-module.exports = {
-    app: require('./app'),
-    subdomain: require('./subdomain'),
-    notification: require('./notification'),
-};
+const { Eq } = require("../query/query");
+const { BaseES } = require("./BaseES");
+
+class NotificationES extends BaseES {
+    static METHODS = {
+        async create_predicate (id) {
+            if ( id === 'unread' ) {
+                return new Eq({
+                    key: 'read',
+                    value: 0,
+                });
+            }
+            if ( id === 'read' ) {
+                return new Eq({
+                    key: 'read',
+                    value: 1,
+                });
+            }
+        },
+        async read_transform (entity) {
+            await entity.set('value', JSON.parse(await entity.get('value') ?? '{}'));
+        }
+    }
+}
+
+module.exports = { NotificationES };

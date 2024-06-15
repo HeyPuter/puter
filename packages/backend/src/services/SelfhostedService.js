@@ -15,6 +15,7 @@ class SelfhostedService extends BaseService {
         svc_driver.register_driver('puter-kvstore', new DBKVStore());
         svc_driver.register_driver('puter-apps', new EntityStoreImplementation({ service: 'es:app' }));
         svc_driver.register_driver('puter-subdomains', new EntityStoreImplementation({ service: 'es:subdomain' }));
+        svc_driver.register_driver('puter-notifications', new EntityStoreImplementation({ service: 'es:notification' }));
     }
 }
 
