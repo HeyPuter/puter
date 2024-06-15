@@ -239,6 +239,9 @@ const install = async ({ services, app, useapi }) => {
 
     const { ScriptService } = require('./services/ScriptService');
     services.registerService('script', ScriptService);
+    
+    const { BroadcastService } = require('./services/BroadcastService');
+    services.registerService('broadcast', BroadcastService);
 }
 
 const install_legacy = async ({ services }) => {
