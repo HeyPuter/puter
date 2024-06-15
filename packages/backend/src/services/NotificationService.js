@@ -22,7 +22,46 @@ class NotificationService extends BaseService {
             
             this.notify(UsernameNotifSelector(username), { summary });
         });
+        
+        const svc_event = this.services.get('event');
+        svc_event.on('web.socket.user-connected', (_, { user }) => {
+            this.on_user_connected({ user });
+        });
     }
+    
+    async on_user_connected ({ user }) {
+        // query the users unread notifications
+        const notifications = await this.db.read(
+            'SELECT * FROM `notification` ' +
+            'WHERE user_id=? AND read=0 ' +
+            'ORDER BY created_at ASC',
+            [user.id]
+        );
+        for ( const n of notifications ) {
+            n.value = this.db.case({
+                mysql: () => n.value,
+                otherwise: () => JSON.parse(n.value ?? '{}'),
+            })();
+        }
+        
+        const client_safe_notifications = [];
+        for ( const notif of notifications ) {
+            client_safe_notifications.push({
+                uid: notif.uid,
+                notification: notif.value,
+            })
+        }
+        
+        // send the unread notifications to gui
+        const svc_event = this.services.get('event');
+        svc_event.emit('outer.gui.notif.unreads', {
+            user_id_list: [user.id],
+            response: {
+                unreads: client_safe_notifications,
+            },
+        });
+    }
+    
     async notify (selector, notification) {
         const uid = this.modules.uuidv4();
         const svc_event = this.services.get('event');
