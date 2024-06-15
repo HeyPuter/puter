@@ -45,7 +45,7 @@ class Kernel extends AdvancedBase {
         const kv = new kvjs();
         global.kv = kv;
         global.cl = console.log;
-
+        
         const { RuntimeEnvironment } = require('./boot/RuntimeEnvironment');
         const { BootLogger } = require('./boot/BootLogger');
 
@@ -73,8 +73,13 @@ class Kernel extends AdvancedBase {
         // const app = express();
         const config = require('./config');
 
+        globalThis.ll = () => {};
         globalThis.xtra_log = () => {};
         if ( config.env === 'dev' ) {
+            globalThis.ll = o => {
+                console.log('debug: ' + require('node:util').inspect(o));
+                return o;
+            };
             globalThis.xtra_log = (...args) => {
                 // append to file in temp
                 const fs = require('fs');
