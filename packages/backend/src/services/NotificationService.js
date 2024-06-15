@@ -1,3 +1,6 @@
+const APIError = require("../api/APIError");
+const auth2 = require("../middleware/auth2");
+const { Endpoint } = require("../util/expressutil");
 const BaseService = require("./BaseService");
 const { DB_WRITE } = require("./database/consts");
 
@@ -10,6 +13,7 @@ const UsernameNotifSelector = username => async (self) => {
 class NotificationService extends BaseService {
     static MODULES = {
         uuidv4: require('uuid').v4,
+        express: require('express'),
     }
 
     async _init () {
@@ -27,6 +31,39 @@ class NotificationService extends BaseService {
         svc_event.on('web.socket.user-connected', (_, { user }) => {
             this.on_user_connected({ user });
         });
+    }
+    
+    ['__on_install.routes'] (_, { app }) {
+        const require = this.require;
+        const express = require('express');
+        const router = express.Router();
+        app.use('/notif', router);
+        
+        router.use(auth2);
+        
+        Endpoint({
+            route: '/mark-read',
+            methods: ['POST'],
+            handler: async (req, res) => {
+                // TODO: validate uid
+                if ( typeof req.body.uid !== 'string' ) {
+                    throw APIError.create('field_invalid', null, {
+                        key: 'uid',
+                        expected: 'a valid UUID',
+                        got: 'non-string value'
+                    })
+                }
+                
+                await this.db.write(
+                    'UPDATE `notification` SET read=1 ' +
+                    'WHERE uid = ? AND user_id = ? ' +
+                    'LIMIT 1',
+                    [req.body.uid, req.user.id],
+                );
+                
+                res.json({});
+            }
+        }).attach(router);
     }
     
     async on_user_connected ({ user }) {
@@ -73,11 +110,6 @@ class NotificationService extends BaseService {
                 notification,
             },
         });
-        
-        const ll = o => {
-            this.log.noticeme('debug: ' + require('node:util').inspect(o));
-            return o;
-        };
         
         (async () => {
             for ( const user_id of user_id_list ) {
