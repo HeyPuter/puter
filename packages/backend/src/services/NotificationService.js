@@ -24,7 +24,13 @@ class NotificationService extends BaseService {
         svc_script.register('test-notification', async ({ log }, [username, summary]) => {
             log('creating notification: ' + summary);
             
-            this.notify(UsernameNotifSelector(username), { summary });
+            this.notify(UsernameNotifSelector(username), {
+                source: 'notification-testing',
+                icon_source: 'builtin',
+                icon: 'logo.svg',
+                title: summary,
+                text: summary,
+            });
         });
         
         const svc_event = this.services.get('event');
