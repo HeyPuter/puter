@@ -2446,6 +2446,7 @@ label {
     margin-bottom: 10px;
     display: flex;
     flex-direction: row;
+    pointer-events: all;
 }
 .notification-wrapper{
     overflow: visible;
@@ -2499,6 +2500,7 @@ label {
     right: 10px;
     z-index: 1000;
     padding-top: 30px;
+    pointer-events: none;
 }
 
 .notifications-close-all{
@@ -2518,6 +2520,9 @@ label {
 }
 .notifications-close-all:hover{
     background-color: #dee1e3;
+}
+.notification-container.has-multiple{
+    pointer-events: all;
 }
 .notification-container.has-multiple:hover .notifications-close-all{
     pointer-events: all;
