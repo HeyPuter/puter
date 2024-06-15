@@ -2435,14 +2435,13 @@ label {
 .notification {
     width: 250px;
     height: 54px;
-    position: absolute;
-    right: 10px;
     background: #ffffffcd;
     backdrop-filter: blur(5px);
     border-radius: 11px;
-    z-index: 9999999;
+    z-index: 99999999;
     box-shadow: 0px 0px 17px -9px #000;
     border: 1px solid #d5d5d5;
+    margin-bottom: 10px;
 }
 
 .notification-close {
@@ -3889,4 +3888,11 @@ fieldset[name=number-code] {
     flex-direction: row;
     gap: 10px;
     justify-content: flex-end;
+}
+
+.notification-container{
+    position: absolute;
+    top: 70px;
+    right: 10px;
+    z-index: 1000;
 }

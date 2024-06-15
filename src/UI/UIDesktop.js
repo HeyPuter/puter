@@ -929,6 +929,9 @@ async function UIDesktop(options){
     // prepend toolbar to desktop
     $(ht).insertBefore(el_desktop);
 
+    // notification container
+    $('body').append(`<div class="notification-container"></div>`);
+
     // adjust window container to take into account the toolbar height
     $('.window-container').css('top', window.toolbar_height);
 
@@ -1034,12 +1037,6 @@ async function UIDesktop(options){
             }
         })
     }
-
-    // setInterval(() => {
-    //     UINotification({
-    //         content: 'This is a notification',
-    //     })
-    // }, 1000);
 }
 
 $(document).on('contextmenu taphold', '.taskbar', function(event){
