@@ -68,11 +68,6 @@ class WSPushService  extends AdvancedBase {
 
         Object.assign(response, metadata);
 
-        const io = socketio.getio();
-        for ( const user_id of user_id_list ) {
-            io.to(user_id).emit('item.added', response);
-        }
-
         this.svc_event.emit('outer.gui.item.added', {
             user_id_list,
             response,
@@ -107,11 +102,6 @@ class WSPushService  extends AdvancedBase {
 
         Object.assign(response, metadata);
 
-        const io = socketio.getio();
-        for ( const user_id of user_id_list ) {
-            io.to(user_id).emit('item.updated', response);
-        }
-        
         this.svc_event.emit('outer.gui.item.updated', {
             user_id_list,
             response,
@@ -147,11 +137,6 @@ class WSPushService  extends AdvancedBase {
         response.old_path = old_path;
         Object.assign(response, metadata);
 
-        const io = socketio.getio();
-        for ( const user_id of user_id_list ) {
-            io.to(user_id).emit('item.moved', response);
-        }
-
         this.svc_event.emit('outer.gui.item.moved', {
             user_id_list,
             response,
@@ -185,10 +170,6 @@ class WSPushService  extends AdvancedBase {
 
         Object.assign(response, metadata);
 
-        const io = socketio.getio();
-        for ( const user_id of user_id_list ) {
-            io.to(user_id).emit('item.pending', response);
-        }
         this.svc_event.emit('outer.gui.item.pending', {
             user_id_list,
             response,
@@ -248,8 +229,6 @@ class WSPushService  extends AdvancedBase {
     }
     
     async _on_outer_gui (key, { user_id_list, response }, meta) {
-        if ( ! meta.from_outside ) return;
-
         key = key.slice('outer.gui.'.length);
 
         const { socketio } = this.modules;

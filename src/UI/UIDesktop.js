@@ -110,6 +110,12 @@ async function UIDesktop(options){
         if(msg.is_empty)
             $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.item-container').empty();
     })
+    
+    window.socket.on('notif.message', ({ notification }) => {
+        UINotification({
+            content: notification.summary
+        });
+    });
 
     window.socket.on('app.opened', async (app) => {
         // don't update if this is the original client that initiated the action

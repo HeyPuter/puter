@@ -242,6 +242,9 @@ const install = async ({ services, app, useapi }) => {
     
     const { BroadcastService } = require('./services/BroadcastService');
     services.registerService('broadcast', BroadcastService);
+    
+    const { NotificationService } = require('./services/NotificationService');
+    services.registerService('notification', NotificationService);
 }
 
 const install_legacy = async ({ services }) => {

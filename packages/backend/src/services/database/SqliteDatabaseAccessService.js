@@ -42,7 +42,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         this.db = new Database(this.config.path);
 
         // Database upgrade logic
-        const TARGET_VERSION = 8;
+        const TARGET_VERSION = 9;
 
         if ( do_setup ) {
             this.log.noticeme(`SETUP: creating database at ${this.config.path}`);
@@ -103,6 +103,10 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
         if ( user_version <= 7 ) {
             upgrade_files.push('0010_add-git-app.sql');
+        }
+
+        if ( user_version <= 8 ) {
+            upgrade_files.push('0011_notification.sql');
         }
 
         if ( upgrade_files.length > 0 ) {
