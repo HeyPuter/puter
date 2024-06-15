@@ -2,12 +2,12 @@
 
 Endpoints for managing notifications.
 
-## POST `/notif/mark-awk` (auth required)
+## POST `/notif/mark-ack` (auth required)
 
 ### Description
 
-The `/notif/mark-awk` endpoint marks the specified notification
-as "awknowledged". This indicates that the user has chosen to either
+The `/notif/mark-ack` endpoint marks the specified notification
+as "acknowledged". This indicates that the user has chosen to either
 dismiss or act on this notification.
 
 ### Parameters
