@@ -270,5 +270,9 @@ module.exports = {
     'puter-subdomains': {
         ...ENTITY_STORAGE_INTERFACE,
         description: 'Manage subdomains on Puter.',
-    }
+    },
+    'puter-notifications': {
+        ...ENTITY_STORAGE_INTERFACE,
+        description: 'Read notifications on Puter.',
+    },
 };

@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require("@heyputer/puter-js-common");
+const { NotificationES } = require("./om/entitystorage/NotificationES");
 const { Context } = require('./util/context');
 
 
@@ -89,6 +90,8 @@ const install = async ({ services, app, useapi }) => {
     const SubdomainES = require('./om/entitystorage/SubdomainES');
     const { MaxLimitES } = require('./om/entitystorage/MaxLimitES');
     const { AppLimitedES } = require('./om/entitystorage/AppLimitedES');
+    const { ReadOnlyES } = require('./om/entitystorage/ReadOnlyES');
+    const { OwnerLimitedES } = require('./om/entitystorage/OwnerLimitedES');
     const { ESBuilder } = require('./om/entitystorage/ESBuilder');
     const { Eq, Or } = require('./om/query/query');
     const { TrackSpendingService } = require('./services/TrackSpendingService');
@@ -165,6 +168,17 @@ const install = async ({ services, app, useapi }) => {
             MaxLimitES, { max: 5000 },
         ]),
     });
+    services.registerService('es:notification', EntityStoreService, {
+        entity: 'notification',
+        upstream: ESBuilder.create([
+            SQLES, { table: 'notification', debug: true },
+            NotificationES,
+            OwnerLimitedES,
+            ReadOnlyES,
+            SetOwnerES,
+            MaxLimitES, { max: 50 },
+        ]),
+    })
     services.registerService('rate-limit', RateLimitService);
     services.registerService('monthly-usage', MonthlyUsageService);
     services.registerService('auth', AuthService);
