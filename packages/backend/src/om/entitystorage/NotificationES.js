@@ -16,22 +16,30 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Eq } = require("../query/query");
+const { Eq, IsNotNull } = require("../query/query");
 const { BaseES } = require("./BaseES");
 
 class NotificationES extends BaseES {
     static METHODS = {
         async create_predicate (id) {
-            if ( id === 'unread' ) {
+            if ( id === 'unseen' ) {
                 return new Eq({
-                    key: 'read',
-                    value: 0,
+                    key: 'shown',
+                    value: null,
+                }).and(new Eq({
+                    key: 'awknowledged',
+                    value: null,
+                }));
+            }
+            if ( id === 'unawknowledged' ) {
+                return new Eq({
+                    key: 'awknowledged',
+                    value: null,
                 });
             }
-            if ( id === 'read' ) {
-                return new Eq({
-                    key: 'read',
-                    value: 1,
+            if ( id === 'awknowledged' ) {
+                return new IsNotNull({
+                    key: 'awknowledged',
                 });
             }
         },
