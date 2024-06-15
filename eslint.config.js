@@ -78,6 +78,7 @@ export default [
                 // Puter GUI Globals
                 "set_menu_item_prop": true,
                 "determine_active_container_parent": true,
+                "privacy_aware_path": true,
             }
         }
     },
