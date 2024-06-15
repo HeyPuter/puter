@@ -37,6 +37,7 @@ export default [
                 "kv": true,
                 "def": true,
                 "use": true,
+                "ll":true,
             }
         }
     },
