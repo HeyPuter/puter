@@ -18,7 +18,7 @@ const uuidv4 = require('uuid').v4;
 
 const router = express.Router();
 
-const validate_share_file_params = req => {
+const validate_share_fsnode_params = req => {
     let path = req.body.path;
     if ( ! (typeof path === 'string') ) {
         throw APIError.create('field_invalid', null, {
@@ -43,7 +43,7 @@ const validate_share_file_params = req => {
     };
 }
 
-const handler_file_by_username = async (req, res) => {
+const handler_item_by_username = async (req, res) => {
     const svc_token = req.services.get('token');
     const svc_email = req.services.get('email');
     const svc_permission = req.services.get('permission');
@@ -63,7 +63,7 @@ const handler_file_by_username = async (req, res) => {
     }
     
     const { path, permission } =
-        validate_share_file_params(req);
+        validate_share_fsnode_params(req);
 
     const recipient = await get_user({ username });
     if ( ! recipient ) {
@@ -110,10 +110,11 @@ const handler_file_by_username = async (req, res) => {
 };
 
 Endpoint({
-    route: '/file-by-username',
+    // "item" here means a filesystem node
+    route: '/item-by-username',
     mw: [configurable_auth()],
     methods: ['POST'],
-    handler: handler_file_by_username,
+    handler: handler_item_by_username,
 }).attach(router);
 
 module.exports = app => {
