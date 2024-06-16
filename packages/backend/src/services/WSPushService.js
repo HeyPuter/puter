@@ -234,8 +234,18 @@ class WSPushService  extends AdvancedBase {
         const { socketio } = this.modules;
 
         const io = socketio.getio();
+
         for ( const user_id of user_id_list ) {
+            const room = io.sockets.adapter.rooms.get(user_id);
+            if ( ! room || room.size <= 0 ) {
+                continue;
+            }
             io.to(user_id).emit(key, response);
+            this.svc_event.emit(`sent-to-user.${key}`, {
+                user_id,
+                response,
+                meta,
+            });
         }
     }
 }

@@ -1,6 +1,7 @@
 const APIError = require("../api/APIError");
 const auth2 = require("../middleware/auth2");
 const { Endpoint } = require("../util/expressutil");
+const { TeePromise } = require("../util/promise");
 const BaseService = require("./BaseService");
 const { DB_WRITE } = require("./database/consts");
 
@@ -37,6 +38,11 @@ class NotificationService extends BaseService {
         svc_event.on('web.socket.user-connected', (_, { user }) => {
             this.on_user_connected({ user });
         });
+        svc_event.on('sent-to-user.notif.message', (_, o) => {
+            this.on_sent_to_user(o);
+        })
+        
+        this.notifs_pending_write = {};
     }
     
     ['__on_install.routes'] (_, { app }) {
@@ -83,6 +89,16 @@ class NotificationService extends BaseService {
             'ORDER BY created_at ASC',
             [user.id]
         );
+        
+        // set all the notifications to "shown"
+        const shown_ts = Math.floor(Date.now() / 1000);
+        await this.db.write(
+            'UPDATE `notification` ' +
+            'SET shown = ? ' +
+            'WHERE user_id=? AND shown IS NULL AND acknowledged IS NULL ',
+            [shown_ts, user.id]
+        );
+        
         for ( const n of notifications ) {
             n.value = this.db.case({
                 mysql: () => n.value,
@@ -108,10 +124,25 @@ class NotificationService extends BaseService {
         });
     }
     
+    async on_sent_to_user ({ user_id, response }) {
+        console.log('GOT IT AND IT WORKED!!!', user_id, response);
+        const shown_ts = Math.floor(Date.now() / 1000);
+        if ( this.notifs_pending_write[response.uid] ) {
+            await this.notifs_pending_write[response.uid];
+        }
+        await this.db.write(...ll([
+            'UPDATE `notification` ' +
+            'SET shown = ? ' +
+            'WHERE user_id=? AND uid=?',
+            [shown_ts, user_id, response.uid]
+        ]));
+    }
+    
     async notify (selector, notification) {
         const uid = this.modules.uuidv4();
         const svc_event = this.services.get('event');
         const user_id_list = await selector(this);
+        this.notifs_pending_write[uid] = new TeePromise();
         svc_event.emit('outer.gui.notif.message', {
             user_id_list,
             response: {
@@ -122,13 +153,16 @@ class NotificationService extends BaseService {
         
         (async () => {
             for ( const user_id of user_id_list ) {
-                await this.db.write(...ll([
+                await this.db.write(
                     'INSERT INTO `notification` ' +
                     '(`user_id`, `uid`, `value`) ' +
                     'VALUES (?, ?, ?)',
                     [user_id, uid, JSON.stringify(notification)],
-                ]));
+                );
             }
+            const p = this.notifs_pending_write[uid];
+            delete this.notifs_pending_write[uid];
+            p.resolve()
             svc_event.emit('outer.gui.notif.persisted', {
                 user_id_list,
                 response: {
