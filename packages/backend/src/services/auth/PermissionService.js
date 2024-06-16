@@ -587,6 +587,13 @@ class PermissionService extends BaseService {
     /**
      * List the users that have any permissions granted to the
      * specified user.
+     * 
+     * This is a "flat" (non-cascading) view.
+     * 
+     * Use History:
+     * - This was written for use in ll_listusers to display
+     *   home directories of users that shared files with the
+     *   current user.
      */
     async list_user_permission_issuers (user) {
         const rows = await this.db.read(
@@ -601,6 +608,58 @@ class PermissionService extends BaseService {
         }
 
         return users;
+    }
+    
+    /**
+     * List the permissions that the specified actor (the "issuer")
+     * has granted to all other users which have some specified
+     * prefix in the permission key (ex: "fs:FILE-UUID")
+     * 
+     * Note that if the prefix contains a literal '%' character
+     * the behavior may not be as expected.
+     * 
+     * This is a "flat" (non-cascading) view.
+     * 
+     * Use History:
+     * - This was written for FSNodeContext.fetchShares to query
+     *   all the "shares" associated with a file.
+     */
+    async query_issuer_permissions_by_prefix (issuer, prefix) {
+        const user_perms = await this.db.read(
+            'SELECT DISTINCT holder_user_id, permission ' +
+            'FROM `user_to_user_permissions` ' +
+            'WHERE issuer_user_id = ? ' +
+            'AND permission LIKE ?',
+            [issuer.id, prefix + '%'],
+        );
+
+        const app_perms = await this.db.read(
+            'SELECT DISTINCT app_id, permission ' +
+            'FROM `user_to_app_permissions` ' +
+            'WHERE user_id = ? ' +
+            'AND permission LIKE ?',
+            [issuer.id, prefix + '%'],
+        );
+        
+        const retval = { users: [], apps: [] };
+        
+        for ( const user_perm of user_perms ) {
+            const { holder_user_id, permission } = user_perm;
+            retval.users.push({
+                user: await get_user({ id: holder_user_id }),
+                permission,
+            });
+        }
+
+        for ( const app_perm of app_perms ) {
+            const { app_id, permission } = app_perm;
+            retval.apps.push({
+                app: await get_app({ id: app_id }),
+                permission,
+            });
+        }
+        
+        return retval;
     }
 
     get_parent_permissions (permission) {
