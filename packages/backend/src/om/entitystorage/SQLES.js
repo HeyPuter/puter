@@ -194,6 +194,29 @@ class SQLES extends BaseES {
                 let value = data[col_name];
                 value = await prop.sql_dereference(value);
 
+                // TODO: This is not an ideal implementation,
+                // but this is only 6 lines of code so doing this
+                // "properly" is not sensible at this time.
+                //
+                // This is here because:
+                // - SQLES has access to the "db" object
+                //
+                // Writing this in `json`'s `sql_reference` method
+                // is also not ideal because that places the concern
+                // of supporting different database backends to
+                // property types.
+                //
+                // Best solution: SQLES has a SQLRefinements by
+                // composition. This SQLRefinements is applied
+                // to property types for the duration of this
+                // function.
+                if ( prop.typ.name === 'json' ) {
+                    value = this.db.case({
+                        mysql: () => value,
+                        otherwise: () => JSON.parse(value ?? '{}'),
+                    })();
+                }
+
                 entity_data[prop.name] = value;
             }
             const entity = await Entity.create({ om: this.om }, entity_data);
@@ -286,6 +309,13 @@ class SQLES extends BaseES {
                 }
 
                 value = await prop.sql_reference(value);
+                
+                // TODO: This is done here for consistency;
+                // see the larger comment in sql_row_to_entity_
+                // which does the reverse operation.
+                if ( prop.typ.name === 'json' ) {
+                    value = JSON.stringify(value);
+                }
 
                 if ( value && options.use_id ) {
                     if ( value.hasOwnProperty('id') ) {
