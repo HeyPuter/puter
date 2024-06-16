@@ -117,7 +117,7 @@ async function UIDesktop(options){
             title: notification.title,
             text: notification.text,
             icon: icon,
-            click: async () => {
+            close: async () => {
                 await fetch(`${window.api_origin}/notif/mark-ack`, {
                     method: 'POST',
                     headers: {
@@ -143,7 +143,7 @@ async function UIDesktop(options){
                 icon,
                 title: notification.title,
                 text: notification.text ?? notification.title,
-                click: async () => {
+                close: async () => {
                     await fetch(`${window.api_origin}/notif/mark-ack`, {
                         method: 'POST',
                         headers: {
@@ -1085,6 +1085,28 @@ async function UIDesktop(options){
             }
         })
     }
+
+    // fetch notifications
+    fetch(puter.APIOrigin + "/drivers/call", {
+        "headers": {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${puter.authToken}`,
+        },
+        "body": JSON.stringify({
+            interface: 'puter-notifications',
+            method: 'select',
+            args: {}
+        }),
+        "method": "POST",
+    })
+    .then(response => response.json())
+    .then(data => {
+        if(data && data.result && data.result.length > 0){
+            data.data?.forEach(notification => {
+                UINotification(notification);
+            })
+        }
+    })
 }
 
 $(document).on('contextmenu taphold', '.taskbar', function(event){
@@ -1303,7 +1325,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
                 }
             },
         ]
-    });    
+    }); 
 })
 
 $(document).on('click', '.fullscreen-btn', async function (e) {
