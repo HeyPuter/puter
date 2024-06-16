@@ -860,7 +860,6 @@ function UIItem(options){
                     })
                 }
             });
-
             // -------------------------------------------
             // Copy
             // -------------------------------------------
@@ -1243,7 +1242,7 @@ function UIItem(options){
             // -------------------------------------------
             // Cut
             // -------------------------------------------
-            if($(el_item).attr('data-immutable') === '0'){
+            if($(el_item).attr('data-immutable') === '0' && !is_shared_with_me){
                 menu_items.push({
                     html: i18n('cut'),
                     onClick: function(){
@@ -1312,7 +1311,7 @@ function UIItem(options){
             // -------------------------------------------
             // Delete
             // -------------------------------------------
-            if($(el_item).attr('data-immutable') === '0' && !is_trashed){
+            if($(el_item).attr('data-immutable') === '0' && !is_trashed && !is_shared_with_me){
                 menu_items.push({
                     html: i18n('delete'),
                     onClick: async function(){
