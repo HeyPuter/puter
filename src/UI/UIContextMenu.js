@@ -318,6 +318,8 @@ function UIContextMenu(options){
 window.select_ctxmenu_item = function ($ctxmenu_item){
     // remove active class from other items
     $($ctxmenu_item).siblings('.context-menu-item').removeClass('context-menu-item-active');
+    // remove `has-open-context-menu-submenu` class from other items
+    $($ctxmenu_item).siblings('.context-menu-item').removeClass('has-open-context-menu-submenu');
     // add active class to the selected item
     $($ctxmenu_item).addClass('context-menu-item-active');
 }
