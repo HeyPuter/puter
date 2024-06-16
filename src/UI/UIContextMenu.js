@@ -200,11 +200,11 @@ function UIContextMenu(options){
         },
         // activates item when mouse enters depending on mouse position and direction
         activate: function (e) {
-            //activate items
+            // activate items
             let item = $(e).closest('.context-menu-item');
-            // mark other items as inactive
+            // mark other menu items as inactive
             $(contextMenu).find('.context-menu-item').removeClass('context-menu-item-active');
-            // mark this item as active
+            // mark this menu item as active
             $(item).addClass('context-menu-item-active');
             // close any submenu that doesn't belong to this item
             $(`.context-menu[data-parent-id="${menu_id}"]`).remove();
@@ -220,6 +220,8 @@ function UIContextMenu(options){
                     if($(`.context-menu[data-id="${menu_id}-${$(e).attr('data-action')}"]`).length === 0){
                         // close other submenus
                         $(`.context-menu[parent-element-id="${menu_id}"]`).remove();
+                        // add `has-open-context-menu-submenu` class to the parent menu item
+                        $(e).addClass('has-open-context-menu-submenu');
 
                         // Calculate the position for the submenu
                         let submenu_x_pos, submenu_y_pos;
@@ -246,13 +248,15 @@ function UIContextMenu(options){
                 }
             }, 300);
         },
-        //deactivates row when mouse leaves
+        // deactivates row when mouse leaves
         deactivate: function (e) {
             // disable submenu delay timer
             clearTimeout(submenu_delay_timer);
-            //deactivate submenu
+            // deactivate submenu
             if($(e).hasClass('context-menu-item-submenu')){
                 $(`.context-menu[data-id="${menu_id}-${$(e).attr('data-action')}"]`).remove();
+                // remove `has-open-context-menu-submenu` class from the parent menu item
+                $(e).removeClass('has-open-context-menu-submenu');
             }
         }
     });
@@ -318,6 +322,20 @@ window.select_ctxmenu_item = function ($ctxmenu_item){
     $($ctxmenu_item).addClass('context-menu-item-active');
 }
 
+$(document).on('mouseleave', '.context-menu', function(){
+    // when mouse leaves the context menu, remove active class from all items
+    $(this).find('.context-menu-item').removeClass('context-menu-item-active');
+})
+
+$(document).on('mouseenter', '.context-menu', function(e){
+    // when mouse enters the context menu, convert all items with submenu to active
+    $(this).find('.has-open-context-menu-submenu').each(function(){
+        $(this).addClass('context-menu-item-active');
+    })
+})
+
+$(document).on('mouseenter', '.context-menu-item', function(e){
+    select_ctxmenu_item(this);
+})
+
 export default UIContextMenu;
-
-

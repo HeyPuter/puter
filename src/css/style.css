@@ -1507,8 +1507,7 @@ span.header-sort-icon img {
     padding: 3px 0;
     min-width: 200px;
     background-color: rgba(231, 238, 245, .98);
-    border: 1px solid #e4ebf3de;
-    border: 1px solid #CCC;
+    border: 1px solid #e6e4e466;
     box-shadow: 0px 0px 15px #00000066;
     padding-left: 6px;
     padding-right: 6px;
@@ -1575,11 +1574,16 @@ span.header-sort-icon img {
     display: none;
     pointer-events: none;
 }
-
+.context-menu .has-open-context-menu-submenu,
+.context-menu .context-menu-item-active {
+    border-radius: 4px;
+}
+.context-menu .has-open-context-menu-submenu{
+    background-color: #dfdfdf;
+}
 .context-menu .context-menu-item-active {
     background-color: var(--select-color);
     color: white;
-    border-radius: 4px;
 }
 
 .context-menu .context-menu-item-active-blurred {
