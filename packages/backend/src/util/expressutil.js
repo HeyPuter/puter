@@ -5,6 +5,7 @@ const Endpoint = function Endpoint (spec) {
         attach (route) {
             const eggspress_options = {
                 allowedMethods: spec.methods ?? ['GET'],
+                ...(spec.mw ? { mw: spec.mw } : {}),
             };
             const eggspress_router = eggspress(
                 spec.route,
