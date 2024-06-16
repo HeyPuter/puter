@@ -24,7 +24,7 @@ class PropType extends AdvancedBase {
         new WeakConstructorTrait(),
     ]
 
-    static create (context, data) {
+    static create (context, data, k) {
         const chains = {};
         const super_type = data.from && (() => {
             const registry = context.get('registry');
@@ -51,7 +51,7 @@ class PropType extends AdvancedBase {
         }
 
         return new PropType({
-            chains,
+            chains, name: k,
         });
     }
 
