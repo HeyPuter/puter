@@ -244,7 +244,7 @@ function UIContextMenu(options){
                         })
                     }
                 }
-            }, 200);
+            }, 300);
         },
         //deactivates row when mouse leaves
         deactivate: function (e) {

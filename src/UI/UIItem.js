@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import UIWindowShare from './UIWindowShare.js';
 import UIWindowPublishWebsite from './UIWindowPublishWebsite.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
 import UIWindowSaveAccount from './UIWindowSaveAccount.js';
@@ -783,6 +784,35 @@ function UIItem(options){
                 menu_items.push('-');
             }
             if(!are_trashed){
+                menu_items.push({
+                    html: 'Share With…',
+                    onClick: async function(){
+                        // if(window.user.is_temp && 
+                        //     !await UIWindowSaveAccount({
+                        //         message: 'Please create an account to proceed.',
+                        //         send_confirmation_code: true,
+                        //         window_options: {
+                        //             backdrop: true,
+                        //             close_on_backdrop_click: false,
+                        //         }
+                        //     },))
+                        //     return;
+                        // else if(!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired())
+                        //     return;
+
+                        let items = [];
+                        $selected_items.each(function() {
+                            const ell = this;
+                            items.push({uid: $(ell).attr('data-uid'), path: $(ell).attr('data-path')});
+                        })
+                        UIWindowShare(items);
+                    }
+                })
+                // -------------------------------------------
+                // -
+                // -------------------------------------------
+                menu_items.push({ is_divider: true });
+
                 // -------------------------------------------
                 // Donwload
                 // -------------------------------------------
@@ -1054,6 +1084,29 @@ function UIItem(options){
                 // -------------------------------------------
                 if(!is_trash && !is_trashed && options.is_dir)
                     menu_items.push('-');
+            }
+            // -------------------------------------------
+            // Share With…
+            // -------------------------------------------
+            if(!is_trashed && !is_trash){
+                menu_items.push({
+                    html: 'Share With…',
+                    onClick: async function(){
+                        // if(window.user.is_temp && 
+                        //     !await UIWindowSaveAccount({
+                        //         message: 'Please create an account to proceed.',
+                        //         send_confirmation_code: true,
+                        //         window_options: {
+                        //             backdrop: true,
+                        //             close_on_backdrop_click: false,
+                        //         }
+                        //     }))
+                        //     return;
+                        // else if(!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired())
+                        //     return;
+                        UIWindowShare([{uid: $(el_item).attr('data-uid'), path: $(el_item).attr('data-path')}]);
+                    }
+                });
             }
 
             // -------------------------------------------
