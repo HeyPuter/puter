@@ -422,6 +422,8 @@ window.addEventListener('message', async (event) => {
                         if (item.action !== undefined) {
                             item.action();
                         }
+                        // focus the window
+                        $(el_window).focusWindow();
                     },
                     items: item.items ? sanitize_items(item.items) : undefined
                 };
