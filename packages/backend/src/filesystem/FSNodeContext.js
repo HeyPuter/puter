@@ -25,6 +25,8 @@ const { Context } = require("../util/context");
 const { MultiDetachable } = require("../util/listenerutil");
 const { NodeRawEntrySelector } = require("./node/selectors");
 const { DB_READ } = require("../services/database/consts");
+const { UserActorType } = require("../services/auth/Actor");
+const { PermissionUtil } = require("../services/auth/PermissionService");
 
 /**
  * Container for information collected about a node
@@ -387,13 +389,55 @@ module.exports = class FSNodeContext {
      * then, stores them on the `permissions` property
      * of the fsentry.
      * @param {bool} force fetch shares if they were already fetched
-     *
-     * @deprecated sharing will use user-to-user permissions
      */
     async fetchShares (force) {
-        // NOOP: this was for legacy sharing functionality;
-        // this is being re-implemented with permissions
-        return;
+        if (this.entry.shares && ! force ) return;
+        
+        const actor = Context.get('actor');
+        if ( ! actor ) {
+            this.entry.shares = { users: [], apps: [] };
+            return;
+        }
+        
+        if ( ! (actor.type instanceof UserActorType) ) {
+            this.entry.shares = { users: [], apps: [] };
+            return;
+        }
+        
+        const svc_permission = this.services.get('permission');
+        
+        const permissions =
+            await svc_permission.query_issuer_permissions_by_prefix(
+                actor.type.user, `fs:${await this.get('uid')}:`);
+                
+        this.entry.shares = { users: [], apps: [] };
+
+        for ( const user_perm of permissions.users ) {
+            const access =
+                PermissionUtil.split(user_perm.permission).slice(-1)[0];
+            this.entry.shares.users.push({
+                user: {
+                    uid: user_perm.user.uuid,
+                    username: user_perm.user.username,
+                },
+                access,
+                permission: user_perm.permission,
+            });
+        }
+
+        for ( const app_perm of permissions.apps ) {
+            const access =
+                PermissionUtil.split(app_perm.permission).slice(-1)[0];
+            this.entry.shares.apps.push({
+                app: {
+                    icon: app_perm.app.icon,
+                    uid: app_perm.app.uid,
+                    name: app_perm.app.name,
+                },
+                access,
+                permission: app_perm.permission,
+            });
+        }
     }
 
     /**
