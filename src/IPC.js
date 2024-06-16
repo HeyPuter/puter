@@ -373,6 +373,12 @@ window.addEventListener('message', async (event) => {
         // get window position
         const window_position = $(el_window).position();
 
+        // does this window have a menubar?
+        const $menubar = $(el_window).find('.window-menubar');
+        if($menubar.length > 0){
+            y += $menubar.height();
+        }
+
         // update mouse position
         update_mouse_position(x + window_position.left, y + window_position.top + 25);
     }
