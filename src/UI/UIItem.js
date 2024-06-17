@@ -27,6 +27,7 @@ import UIContextMenu from './UIContextMenu.js'
 import UIAlert from './UIAlert.js'
 import path from "../lib/path.js"
 import truncate_filename from '../helpers/truncate_filename.js';
+import launch_app from "../helpers/launch_app.js"
 
 function UIItem(options){
     const matching_appendto_count = $(options.appendTo).length;
@@ -426,7 +427,7 @@ function UIItem(options){
                 // open each item
                 for (let i = 0; i < items_to_open.length; i++) {
                     const item = items_to_open[i];
-                    window.launch_app({
+                    launch_app({
                         name: options.associated_app_name, 
                         file_path: item.path,
                         // app_obj: open_item_meta.suggested_apps[0],
@@ -1038,7 +1039,7 @@ function UIItem(options){
                                         window.mutate_user_preferences(window.user_preferences);
                                     }
                                 }
-                                window.launch_app({
+                                launch_app({
                                     name: suggested_app.name,
                                     file_path: $(el_item).attr('data-path'),
                                     window_title: $(el_item).attr('data-name'),
@@ -1143,7 +1144,7 @@ function UIItem(options){
                     html: i18n('deploy_as_app'),
                     disabled: !options.is_dir,
                     onClick: async function () {
-                        window.launch_app({
+                        launch_app({
                             name: 'dev-center',
                             file_path: $(el_item).attr('data-path'),
                             file_uid: $(el_item).attr('data-uid'),

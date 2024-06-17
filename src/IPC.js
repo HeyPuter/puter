@@ -29,6 +29,7 @@ import download from './helpers/download.js';
 import path from "./lib/path.js";
 import UIContextMenu from './UI/UIContextMenu.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
+import launch_app from './helpers/launch_app.js';
 
 /**
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.
@@ -730,7 +731,7 @@ window.addEventListener('message', async (event) => {
             launch_msg_id: msg_id,
         };
         // launch child app
-        window.launch_app({
+        launch_app({
             name: event.data.app_name ?? app_name,
             args: event.data.args ?? {},
             parent_instance_id: event.data.appInstanceID,

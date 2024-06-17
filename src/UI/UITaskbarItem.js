@@ -19,6 +19,7 @@
 
 import UIContextMenu from './UIContextMenu.js';
 import path from '../lib/path.js';
+import launch_app from "../helpers/launch_app.js"
 
 let tray_item_id = 1;
 
@@ -122,7 +123,7 @@ function UITaskbarItem(options){
                 val: $(this).attr('data-id'),
                 onClick: function(){
                     // is trash?
-                    window.launch_app({
+                    launch_app({
                         name: options.app,
                         maximized: (isMobile.phone || isMobile.tablet),
                     })
@@ -137,7 +138,7 @@ function UITaskbarItem(options){
                 html: 'Open Trash',
                 val: $(this).attr('data-id'),
                 onClick: function(){
-                    window.launch_app({
+                    launch_app({
                         name: options.app,
                         path: window.trash_path,
                         maximized: (isMobile.phone || isMobile.tablet),
@@ -310,7 +311,7 @@ function UITaskbarItem(options){
                 // open each item
                 for (let i = 0; i < items_to_sign.length; i++) {
                     const item = items_to_sign[i];
-                    window.launch_app({
+                    launch_app({
                         name: options.app, 
                         file_path: item.path,
                         // app_obj: open_item_meta.suggested_apps[0],

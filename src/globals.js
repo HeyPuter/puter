@@ -151,6 +151,8 @@ window.original_window_position = {};
 
 // recalculate desktop height and width on window resize
 $( window ).on( "resize", function() {
+    if(window.is_fullpage_mode) return;
+
     const new_desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
     const new_desktop_width = window.innerWidth;
 

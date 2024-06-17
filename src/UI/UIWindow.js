@@ -28,6 +28,7 @@ import new_context_menu_item from '../helpers/new_context_menu_item.js';
 import refresh_item_container from '../helpers/refresh_item_container.js';
 import UIWindowSaveAccount from './UIWindowSaveAccount.js';
 import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js';
+import launch_app from "../helpers/launch_app.js"
 
 const el_body = document.getElementsByTagName('body')[0];
 
@@ -435,7 +436,7 @@ async function UIWindow(options) {
                 onClick: function(){
                     let open_window_count = parseInt($(`.taskbar-item[data-app="${options.app}"]`).attr('data-open-windows'));
                     if(open_window_count === 0){
-                        window.launch_app({
+                        launch_app({
                             name: options.app,
                         }) 
                     }else{
@@ -2038,7 +2039,7 @@ async function UIWindow(options) {
                             html: i18n('deploy_as_app'),
                             disabled: !options.is_dir,
                             onClick: async function () {
-                                window.launch_app({
+                                launch_app({
                                     name: 'dev-center',
                                     file_path: $(el_window).attr('data-path'),
                                     file_uid: $(el_window).attr('data-uid'),
@@ -2168,7 +2169,7 @@ async function UIWindow(options) {
         setTimeout(function(){
             window.enter_fullpage_mode(el_window);
             $(el_window).show()
-        }, 5);
+        }, 50);
     }
 
     return el_window;

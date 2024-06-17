@@ -38,6 +38,7 @@ import UIWindowSettings from "./Settings/UIWindowSettings.js"
 import UIWindowTaskManager from "./UIWindowTaskManager.js"
 import truncate_filename from '../helpers/truncate_filename.js';
 import UINotification from "./UINotification.js"
+import launch_app from "../helpers/launch_app.js"
 
 async function UIDesktop(options){
     let h = '';
@@ -1012,8 +1013,9 @@ async function UIDesktop(options){
     else if(window.app_launched_from_url){
         let qparams = new URLSearchParams(window.location.search);      
         if(!qparams.has('c')){
-            window.launch_app({
-                name: window.app_launched_from_url,
+            launch_app({
+                app: window.app_launched_from_url.name,
+                app_obj: window.app_launched_from_url,
                 readURL: qparams.get('readURL'),
                 maximized: qparams.get('maximized'),
                 params: window.app_query_params ?? [],
@@ -1376,7 +1378,7 @@ $(document).on('click', '.refer-btn', async function(e){
 })
 
 $(document).on('click', '.start-app', async function(e){
-    window.launch_app({
+    launch_app({
         name: $(this).attr('data-app-name')
     })
     // close popovers

@@ -194,6 +194,14 @@ window.initgui = async function(options){
     if(url_paths[0]?.toLocaleLowerCase() === 'app' && url_paths[1]){
         window.app_launched_from_url = url_paths[1];
 
+        // get app metadata
+        try{
+            window.app_launched_from_url = await puter.apps.get(window.app_launched_from_url)
+            window.is_fullpage_mode = window.app_launched_from_url.metadata?.fullpage_on_landing ?? false;
+        }catch(e){
+            console.error(e);
+        }
+
         // get query params, any param that doesn't start with 'puter.' will be passed to the app
         window.app_query_params = {};
         for (let [key, value] of window.url_query_params) {

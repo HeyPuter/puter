@@ -28,8 +28,8 @@ import update_username_in_gui from './helpers/update_username_in_gui.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import content_type_to_icon from './helpers/content_type_to_icon.js';
 import truncate_filename from './helpers/truncate_filename.js';
-import { PROCESS_RUNNING, PortalProcess, PseudoProcess } from "./definitions.js";
 import UIWindowProgress from './UI/UIWindowProgress.js';
+import launch_app from "./helpers/launch_app.js";
 
 window.is_auth = ()=>{
     if(localStorage.getItem("auth_token") === null || window.auth_token === null)
@@ -1565,300 +1565,6 @@ window.trigger_download = (paths)=>{
     });
 }
 
-/**
- * 
- * @param {*} options 
- */
-window.launch_app = async (options)=>{
-    const uuid = options.uuid ?? window.uuidv4();
-    let icon, title, file_signature;
-    const window_options = options.window_options ?? {};
-
-    if (options.parent_instance_id) {
-        window_options.parent_instance_id = options.parent_instance_id;
-    }
-
-    // try to get 3rd-party app info
-    let app_info = options.app_obj ?? await window.get_apps(options.name);
-
-    //-----------------------------------
-    // icon
-    //-----------------------------------
-    if(app_info.icon)
-        icon = app_info.icon;
-    else if(options.name === 'explorer')
-        icon = window.icons['folder.svg'];
-    else
-        icon = window.icons['app-icon-'+options.name+'.svg']
-
-    //-----------------------------------
-    // title
-    //-----------------------------------
-    if(app_info.title)
-        title = app_info.title;
-    else if(options.window_title)
-        title = options.window_title;
-    else if(options.name)
-        title = options.name;
-
-    //-----------------------------------
-    // maximize on start
-    //-----------------------------------
-    if(app_info.maximize_on_start && app_info.maximize_on_start === 1)
-        options.maximized = 1;
-
-    //-----------------------------------
-    // if opened a file, sign it
-    //-----------------------------------
-    if(options.file_signature)
-        file_signature = options.file_signature;
-    else if(options.file_uid){
-        file_signature = await puter.fs.sign(app_info.uuid, {uid: options.file_uid, action: 'write'});
-        // add token to options
-        options.token = file_signature.token;
-        // add file_signature to options
-        file_signature = file_signature.items;
-    }
-
-    // -----------------------------------
-    // Create entry to track the "portal"
-    // (portals are processese in Puter's GUI)
-    // -----------------------------------
-
-    let el_win;
-    let process;
-
-    //------------------------------------
-    // Explorer
-    //------------------------------------
-    if(options.name === 'explorer' || options.name === 'trash'){
-        process = new PseudoProcess({
-            uuid,
-            name: 'explorer',
-            parent: options.parent_instance_id,
-            meta: {
-                launch_options: options,
-                app_info: app_info,
-            }
-        });
-        const svc_process = globalThis.services.get('process');
-        svc_process.register(process);
-        if(options.path === window.home_path){
-            title = 'Home';
-            icon = window.icons['folder-home.svg'];
-        }
-        else if(options.path === window.trash_path){
-            title = 'Trash';
-            icon = window.icons['trash.svg'];
-        }
-        else if(!options.path)
-            title = window.root_dirname;
-        else
-            title = path.dirname(options.path);
-
-        // open window
-        el_win = UIWindow({
-            element_uuid: uuid,
-            icon: icon,
-            path: options.path ?? window.home_path,
-            title: title,
-            uid: null,
-            is_dir: true,
-            app: 'explorer',
-            ...window_options,
-            is_maximized: options.maximized,
-        });
-    }
-    //------------------------------------
-    // All other apps
-    //------------------------------------
-    else{
-        process = new PortalProcess({
-            uuid,
-            name: app_info.name,
-            parent: options.parent_instance_id,
-            meta: {
-                launch_options: options,
-                app_info: app_info,
-            }
-        });
-        const svc_process = globalThis.services.get('process');
-        svc_process.register(process);
-
-        //-----------------------------------
-        // iframe_url
-        //-----------------------------------
-        let iframe_url;
-
-        // This can be any trusted URL that won't be used for other apps
-        const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
-
-        if(!app_info.index_url){
-            iframe_url = new URL('https://'+options.name+'.' + window.app_domain + `/index.html`);
-        } else if ( app_info.index_url.startsWith(BUILTIN_PREFIX) ) {
-            const name = app_info.index_url.slice(BUILTIN_PREFIX.length);
-            iframe_url = new URL(`${window.gui_origin}/builtin/${name}`);
-        } else {
-            iframe_url = new URL(app_info.index_url);
-        }
-
-        // add app_instance_id to URL
-        iframe_url.searchParams.append('puter.app_instance_id', uuid);
-
-        // add app_id to URL
-        iframe_url.searchParams.append('puter.app.id', app_info.uuid);
-
-        // add parent_app_instance_id to URL
-        if (options.parent_instance_id) {
-            iframe_url.searchParams.append('puter.parent_instance_id', options.parent_instance_id);
-        }
-
-        if(file_signature){
-            iframe_url.searchParams.append('puter.item.uid', file_signature.uid);
-            iframe_url.searchParams.append('puter.item.path', privacy_aware_path(options.file_path) || file_signature.path);
-            iframe_url.searchParams.append('puter.item.name', file_signature.fsentry_name);
-            iframe_url.searchParams.append('puter.item.read_url', file_signature.read_url);
-            iframe_url.searchParams.append('puter.item.write_url', file_signature.write_url);
-            iframe_url.searchParams.append('puter.item.metadata_url', file_signature.metadata_url);
-            iframe_url.searchParams.append('puter.item.size', file_signature.fsentry_size);
-            iframe_url.searchParams.append('puter.item.accessed', file_signature.fsentry_accessed);
-            iframe_url.searchParams.append('puter.item.modified', file_signature.fsentry_modified);
-            iframe_url.searchParams.append('puter.item.created', file_signature.fsentry_created);
-            iframe_url.searchParams.append('puter.domain', window.app_domain);
-        }
-        else if(options.readURL){
-            iframe_url.searchParams.append('puter.item.name', options.filename);
-            iframe_url.searchParams.append('puter.item.path', privacy_aware_path(options.file_path));
-            iframe_url.searchParams.append('puter.item.read_url', options.readURL);
-            iframe_url.searchParams.append('puter.domain', window.app_domain);
-        }
-
-        if (app_info.godmode && app_info.godmode === 1){
-            // Add auth_token to GODMODE apps
-
-            iframe_url.searchParams.append('puter.auth.token', window.auth_token);
-            iframe_url.searchParams.append('puter.auth.username', window.user.username);
-            iframe_url.searchParams.append('puter.domain', window.app_domain);
-        } else if (options.token){
-            // App token. Only add token if it's not a GODMODE app since GODMODE apps already have the super token
-            // that has access to everything.
-
-            iframe_url.searchParams.append('puter.auth.token', options.token);
-        } else {
-            // Try to acquire app token from the server
-
-            let response = await fetch(window.api_origin + "/auth/get-user-app-token", {
-                "headers": {
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer "+ window.auth_token,
-                },
-                "body": JSON.stringify({app_uid: app_info.uid ?? app_info.uuid}),
-                "method": "POST",
-                });
-            let res = await response.json();
-            if(res.token){
-                iframe_url.searchParams.append('puter.auth.token', res.token);
-            }
-        }
-
-        if(window.api_origin)
-            iframe_url.searchParams.append('puter.api_origin', window.api_origin);
-
-        // Add options.params to URL
-        if(options.params){
-            iframe_url.searchParams.append('puter.domain', window.app_domain);
-            for (const property in options.params) {
-                iframe_url.searchParams.append(property, options.params[property]);
-            }
-        }
-
-        // Add locale to URL
-        iframe_url.searchParams.append('puter.locale', window.locale);
-
-        // Add options.args to URL
-        iframe_url.searchParams.append('puter.args', JSON.stringify(options.args ?? {}));
-
-        // ...and finally append utm_source=puter.com to the URL
-        iframe_url.searchParams.append('utm_source', 'puter.com');
-
-        // register app_instance_uid
-        window.app_instance_ids.add(uuid);
-
-        // open window
-        el_win = UIWindow({
-            element_uuid: uuid,
-            title: title,
-            iframe_url: iframe_url.href,
-            params: options.params ?? undefined,
-            icon: icon,
-            window_class: 'window-app',
-            update_window_url: true,
-            app_uuid: app_info.uuid ?? app_info.uid,
-            top: options.maximized ? 0 : undefined,
-            left: options.maximized ? 0 : undefined,
-            height: options.maximized ? `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)` : undefined,
-            width: options.maximized ? `100%` : undefined,
-            app: options.name,
-            is_visible: ! app_info.background,
-            is_maximized: options.maximized,
-            is_fullpage: options.is_fullpage,
-            ...window_options,
-            show_in_taskbar: app_info.background ? false : window_options?.show_in_taskbar,
-        });
-
-        if ( ! app_info.background ) {
-            $(el_win).show();
-        }
-
-        // send post request to /rao to record app open
-        if(options.name !== 'explorer'){
-            // add the app to the beginning of the array
-            window.launch_apps.recent.unshift(app_info);
-
-            // dedupe the array by uuid, uid, and id
-            window.launch_apps.recent = _.uniqBy(window.launch_apps.recent, 'name');
-
-            // limit to window.launch_recent_apps_count
-            window.launch_apps.recent = window.launch_apps.recent.slice(0, window.launch_recent_apps_count);
-
-            // send post request to /rao to record app open
-            $.ajax({
-                url: window.api_origin + "/rao",
-                type: 'POST',
-                data: JSON.stringify({ 
-                    original_client_socket_id: window.socket?.id,
-                    app_uid: app_info.uid ?? app_info.uuid,
-                }),
-                async: true,
-                contentType: "application/json",
-                headers: {
-                    "Authorization": "Bearer "+window.auth_token
-                },
-            })
-        }
-    }
-
-    (async () => {
-        const el = await el_win;
-        $(el).on('remove', () => {
-            const svc_process = globalThis.services.get('process');
-            svc_process.unregister(process.uuid);
-
-            // If it's a non-sdk app, report that it launched and closed.
-            // FIXME: This is awkward. Really, we want some way of knowing when it's launched and reporting that immediately instead.
-            const $app_iframe = $(el).find('.window-app-iframe');
-            if ($app_iframe.attr('data-appUsesSdk') !== 'true') {
-                window.report_app_launched(process.uuid, { uses_sdk: false });
-                // We also have to report an extra close event because the real one was sent already
-                window.report_app_closed(process.uuid);
-            }
-        });
-
-        process.references.el_win = el;
-        process.chstatus(PROCESS_RUNNING);
-    })();
-}
-
 window.open_item = async function(options){
     let el_item = options.item;
     const $el_parent_window = $(el_item).closest('.window');
@@ -1968,7 +1674,7 @@ window.open_item = async function(options){
     // Does the user have a preference for this file type?
     //----------------------------------------------------------------
     else if(!associated_app_name && !is_dir && window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`]) {
-        window.launch_app({
+        launch_app({
             name: window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`],
             file_path: item_path,
             window_title: path.basename(item_path),
@@ -1980,7 +1686,7 @@ window.open_item = async function(options){
     // Is there an app associated with this item?
     //----------------------------------------------------------------
     else if(associated_app_name !== ''){
-        window.launch_app({
+        launch_app({
             name: associated_app_name,
         })
     }
@@ -2079,7 +1785,7 @@ window.open_item = async function(options){
         // First suggested app is default app to open this item
         //---------------------------------------------
         else{
-            window.launch_app({
+            launch_app({
                 name: suggested_apps[0].name, 
                 token: open_item_meta.token,
                 file_path: item_path,

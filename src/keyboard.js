@@ -18,6 +18,7 @@
  */
 
 import UIAlert from './UI/UIAlert.js';
+import launch_app from './helpers/launch_app.js';
 
 $(document).bind('keydown', async function(e){
     const focused_el = document.activeElement;
@@ -626,7 +627,7 @@ $(document).bind("keyup keydown", async function(e){
         if($('.launch-app-selected').length > 0){
             // close launch menu
             $(".launch-popover").fadeOut(200, function(){
-                window.launch_app({
+                launch_app({
                     name: $('.launch-app-selected').attr('data-name'),
                 })
                 $(".launch-popover").remove();
