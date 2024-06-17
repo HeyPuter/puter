@@ -380,8 +380,15 @@ window.addEventListener('message', async (event) => {
             y += $menubar.height();
         }
 
+        // does this window have a head?
+        const $head = $(el_window).find('.window-head');
+        if($head.length > 0 && $head.css('display') !== 'none'){
+            console.log('head height', $head.height());
+            y += $head.height();
+        }
+
         // update mouse position
-        update_mouse_position(x + window_position.left, y + window_position.top + 25);
+        update_mouse_position(x + window_position.left, y + window_position.top);
     }
 
     //--------------------------------------------------------
