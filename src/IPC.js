@@ -100,6 +100,13 @@ window.addEventListener('message', async (event) => {
 
         // Send any saved broadcasts to the new app
         globalThis.services.get('broadcast').sendSavedBroadcastsTo(event.data.appInstanceID);
+
+        // If `window-active` is set (meanign the window is focused), focus the window one more time
+        // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)
+        if($el_parent_window.hasClass('window-active')){
+            $el_parent_window.focusWindow();
+        }
+
     }
     //-------------------------------------------------
     // windowFocused
