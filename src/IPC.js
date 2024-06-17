@@ -188,7 +188,7 @@ window.addEventListener('message', async (event) => {
         puter.kv.set({
             key: event.data.key,
             value: event.data.value,
-            app: app_uuid,
+            app_uid: app_uuid,
         }).then(() => {
             // send confirmation to requester window
             target_iframe.contentWindow.postMessage({
@@ -202,7 +202,7 @@ window.addEventListener('message', async (event) => {
     else if(event.data.msg === 'getItem' && event.data.key){
         puter.kv.get({
             key: event.data.key,
-            app: app_uuid,
+            app_uid: app_uuid,
         }).then((result) => {
             // send confirmation to requester window
             target_iframe.contentWindow.postMessage({
@@ -218,7 +218,7 @@ window.addEventListener('message', async (event) => {
     else if(event.data.msg === 'removeItem' && event.data.key){
         puter.kv.del({
             key: event.data.key,
-            app: app_uuid,
+            app_uid: app_uuid,
         }).then(() => {
             // send confirmation to requester window
             target_iframe.contentWindow.postMessage({
