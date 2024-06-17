@@ -180,7 +180,7 @@ const v0_2 = async (req, res) => {
     
     // === Request Values ===
 
-    const mode =
+    const strict_mode =
         validate_mode.if(req.body.mode) ?? false;
     const req_recipients =
         validate_recipients.if(req.body.recipients) ?? [];
@@ -191,6 +191,12 @@ const v0_2 = async (req, res) => {
 
     const recipients = [];
     const result = {
+        // Metadata
+        $: 'api:share',
+        $version: 'v0.0.0',
+        
+        // Results
+        status: null,
         recipients: Array(req_recipients.length).fill(null),
         paths: Array(req_paths.length).fill(null),
     }
@@ -211,24 +217,30 @@ const v0_2 = async (req, res) => {
         for ( let i=0 ; i < result.recipients.length ; i++ ) {
             if ( ! result.recipients[i] ) continue;
             if ( result.recipients[i] instanceof APIError ) {
+                result.status = 'mixed';
                 result.recipients[i] = result.recipients[i].serialize();
             }
         }
         for ( let i=0 ; i < result.paths.length ; i++ ) {
             if ( ! result.paths[i] ) continue;
             if ( result.paths[i] instanceof APIError ) {
+                result.status = 'mixed';
                 result.paths[i] = result.paths[i].serialize();
             }
         }
     };
     const strict_check = () =>{
-        if ( mode !== 'strict' ) return;
+        if ( ! strict_mode ) return;
+        console.log('OK');
         if (
             result.recipients.some(v => v !== null) ||
             result.paths.some(v => v !== null)
         ) {
+            console.log('DOESNT THIS??')
             serialize_result();
+            result.status = 'aborted';
             res.status(218).send(result);
+            console.log('HOWW???');
             return true;
         }
     }
@@ -397,8 +409,28 @@ const v0_2 = async (req, res) => {
     }
     
     fsitems_work.clear_invalid();
+
+    // Mark files as successful; further errors will be
+    // reported on recipients instead.
+    for ( const item of fsitems_work.list() ) {
+        result.paths[item.i] =
+            { $: 'api:status-report', status: 'success' };
+    }
     
     if ( strict_check() ) return;
+    if ( req.body.dry_run ) {
+        // Mark everything left as successful
+        for ( const item of recipients_work.list() ) {
+            result.recipients[item.i] =
+                { $: 'api:status-report', status: 'success' };
+        }
+        
+        result.status = 'success';
+        result.dry_run = true;
+        serialize_result();
+        res.send(result);
+        return;
+    }
     
     for ( const recipient_item of recipients_work.list() ) {
         if ( recipient_item.type !== 'username' ) continue;
@@ -452,9 +484,13 @@ const v0_2 = async (req, res) => {
                 (files.length === 1 ? 'file' : 'files') + ' ' +
                 'with you.',
         });
+        
+        result.recipients[recipient_item.i] =
+            { $: 'api:status-report', statis: 'success' };
     }
     
-    serialize_result();
+    result.status = 'success';
+    serialize_result(); // might change result.status to 'mixed'
     res.send(result);
 };
 
