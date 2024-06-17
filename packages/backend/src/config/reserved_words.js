@@ -36,6 +36,18 @@ module.exports = [
     'viewer',
     'www',
 
+    // UNIX directories
+    'share',
+    'usr',
+    'dev',
+    'var',
+    'etc',
+    'tmp',
+    'lib',
+    'mnt',
+    'opt',
+    'bin',
+
     // others
     'admin',
     'ads',
