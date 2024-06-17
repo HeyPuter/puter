@@ -393,6 +393,27 @@ module.exports = class APIError {
             status: 422,
             message: ({ username }) => `The user ${quot(username)} does not exist.`
         },
+        'invalid_username_or_email': {
+            status: 400,
+            message: ({ value }) =>
+                `The value ${quot(value)} is not a valid username or email.`
+        },
+        'invalid_path': {
+            status: 400,
+            message: ({ value }) =>
+                `The value ${quot(value)} is not a valid path.`
+        },
+        'future': {
+            status: 400,
+            message: ({ what }) => `Not supported yet: ${what}`
+        },
+        // Temporary solution for lack of error composition
+        'field_errors': {
+            status: 400,
+            message: ({ key, errors }) =>
+                `The value for ${quot(key)} has the following errors: ` +
+                errors.join('; ')
+        },
 
         // Chat
         // TODO: specifying these errors here might be a violation
