@@ -27,7 +27,6 @@ import UIWindow from "../UI/UIWindow.js";
  * @param {*} options.name - The name of the app to launch.
  */
 const launch_app = async (options)=>{
-    console.log('launch_app', options);
     const uuid = options.uuid ?? window.uuidv4();
     let icon, title, file_signature;
     const window_options = options.window_options ?? {};
