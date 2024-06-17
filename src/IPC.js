@@ -185,89 +185,45 @@ window.addEventListener('message', async (event) => {
     // setItem
     //--------------------------------------------------------
     else if(event.data.msg === 'setItem' && event.data.key && event.data.value){
-        // todo: validate key and value to avoid unnecessary api calls
-        return await $.ajax({
-            url: window.api_origin + "/setItem",
-            type: 'POST',
-            data: JSON.stringify({ 
-                app: app_uuid,
-                key: event.data.key,
-                value: event.data.value,
-            }),
-            async: true,
-            contentType: "application/json",
-            headers: {
-                "Authorization": "Bearer "+window.auth_token
-            },
-            statusCode: {
-                401: function () {
-                    window.logout();
-                },
-            },        
-            success: function (fsentry){
-            }  
+        puter.kv.set({
+            key: event.data.key,
+            value: event.data.value,
+            app: app_uuid,
+        }).then(() => {
+            // send confirmation to requester window
+            target_iframe.contentWindow.postMessage({
+                original_msg_id: msg_id,
+            }, '*');
         })
     }
     //--------------------------------------------------------
     // getItem
     //--------------------------------------------------------
     else if(event.data.msg === 'getItem' && event.data.key){
-        // todo: validate key to avoid unnecessary api calls
-        $.ajax({
-            url: window.api_origin + "/getItem",
-            type: 'POST',
-            data: JSON.stringify({ 
-                key: event.data.key,
-                app: app_uuid,
-            }),
-            async: true,
-            contentType: "application/json",
-            headers: {
-                "Authorization": "Bearer "+window.auth_token
-            },
-            statusCode: {
-                401: function () {
-                    window.logout();
-                },
-            },        
-            success: function (result){
-                // send confirmation to requester window
-                target_iframe.contentWindow.postMessage({
-                    original_msg_id: msg_id,
-                    msg: 'getItemSucceeded',
-                    value: result ? result.value : null,
-                }, '*');
-            }  
+        puter.kv.get({
+            key: event.data.key,
+            app: app_uuid,
+        }).then((result) => {
+            // send confirmation to requester window
+            target_iframe.contentWindow.postMessage({
+                original_msg_id: msg_id,
+                msg: 'getItemSucceeded',
+                value: result ?? null,
+            }, '*');
         })
     }
     //--------------------------------------------------------
     // removeItem
     //--------------------------------------------------------
     else if(event.data.msg === 'removeItem' && event.data.key){
-        // todo: validate key to avoid unnecessary api calls
-        $.ajax({
-            url: window.api_origin + "/removeItem",
-            type: 'POST',
-            data: JSON.stringify({ 
-                key: event.data.key,
-                app: app_uuid,
-            }),
-            async: true,
-            contentType: "application/json",
-            headers: {
-                "Authorization": "Bearer "+window.auth_token
-            },
-            statusCode: {
-                401: function () {
-                    window.logout();
-                },
-            },        
-            success: function (result){
-                // send confirmation to requester window
-                target_iframe.contentWindow.postMessage({
-                    original_msg_id: msg_id,
-                }, '*');
-            }  
+        puter.kv.del({
+            key: event.data.key,
+            app: app_uuid,
+        }).then(() => {
+            // send confirmation to requester window
+            target_iframe.contentWindow.postMessage({
+                original_msg_id: msg_id,
+            }, '*');
         })
     }
     //--------------------------------------------------------

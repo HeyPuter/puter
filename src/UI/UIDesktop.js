@@ -540,14 +540,11 @@ async function UIDesktop(options){
     h += `</div>`;
 
     // Get window sidebar width
-    window.getItem({
-        key: "window_sidebar_width",
-        success: async function(res){
-            let value = parseInt(res.value);
-            // if value is a valid number
-            if(!isNaN(value) && value > 0){
-                window.window_sidebar_width = value;
-            }
+    puter.kv.get('window_sidebar_width').then(async (val) => {
+        let value = parseInt(val);
+        // if value is a valid number
+        if(!isNaN(value) && value > 0){
+            window.window_sidebar_width = value;
         }
     })
 
@@ -1072,18 +1069,15 @@ async function UIDesktop(options){
 
     // show referral notice window
     if(window.show_referral_notice && !window.user.email_confirmed){
-        window.getItem({
-            key: "shown_referral_notice",
-            success: async function(res){
-                if(!res){
-                    setTimeout(() => {
-                        UIWindowClaimReferral();
-                    }, 1000);
-                    window.setItem({
-                        key: "shown_referral_notice",
-                        value: true,
-                    })
-                }
+        puter.kv.get('shown_referral_notice').then(async (val) => {
+            if(!val || val === 'false' || val === false){
+                setTimeout(() => {
+                    UIWindowClaimReferral();
+                }, 1000);
+                puter.kv.set({
+                    key: "shown_referral_notice",
+                    value: true,
+                })
             }
         })
     }
