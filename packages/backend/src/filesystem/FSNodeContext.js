@@ -165,17 +165,26 @@ module.exports = class FSNodeContext {
         return ! this.entry.parent_uid;
     }
     
-    async getUserPart () {
-        if ( this.isRoot ) return;
+    async getPathComponents () {
+        if ( this.isRoot ) return [];
         
         let path = await this.get('path');
         if ( path.startsWith('/') ) path = path.slice(1);
-        const components = path.split('/');
-        const userpart = components[0];
-        
-        return userpart;
+        return path.split('/');
+    }
+    
+    async getUserPart () {
+        if ( this.isRoot ) return;
+        const components = await this.getPathComponents();
+        return components[0];
     }
 
+    async getPathSize () {
+        if ( this.isRoot ) return;
+        const components = await this.getPathComponents();
+        return components.length;
+    }
+    
     async exists (fetch_options = {}) {
         await this.fetchEntry();
         if ( ! this.found ) {
