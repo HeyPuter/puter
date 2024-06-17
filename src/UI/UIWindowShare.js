@@ -4,6 +4,8 @@ async function UIWindowShare(items){
     return new Promise(async (resolve) => {
         let h = '';
         h += `<div style="padding: 30px 40px 20px; border-bottom: 1px solid #ced7e1;">`;
+            h += `<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>`;
+
             // success
             h += `<div class="window-give-item-access-success">`;
                 h += `<span class="hide-sharing-success-alert">✕</span>`
@@ -43,9 +45,9 @@ async function UIWindowShare(items){
             uid: null,
             is_dir: false,
             body_content: h,
-            has_head: true,
+            has_head: false,
             selectable_body: false,
-            draggable_body: false,
+            draggable_body: true,
             allow_context_menu: false,
             is_resizable: false,
             is_droppable: false,
