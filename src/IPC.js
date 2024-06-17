@@ -533,11 +533,15 @@ window.addEventListener('message', async (event) => {
         const open_menu = ({ i, pos, parent_element, items }) => {
             let delay = true;
             if ( state_open ) {
+                // if already open, keep it open
                 if ( current_i === i ) return;
 
                 delay = false;
                 current && current.cancel({ meta: 'menubar', fade: false });
             }
+
+            // Close all other context menus
+            $('.context-menu').remove();
 
             // Set this menubar button as active
             menubar_buttons.forEach(el => el.removeClass('active'));
