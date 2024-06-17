@@ -2,8 +2,123 @@
 
 Share endpoints allow sharing files with other users.
 
+## POST `/share` (auth required)
 
-## POST `/share/item-by-username` (auth required)
+### Description
+
+The `/share` endpoint shares 1 or more filesystem items
+with one or more recipients. The recipients will receive
+some notification about the shared item, making this
+different from calling `/grant-user-user` with a permission.
+
+### Parameters
+
+- **recipients** _- required_
+  - **accepts:** `string | Array<string>`
+  - **description:**
+    recipients for the filesystem entries being shared.
+  - **notes:**
+    - validation on `string`: email or username
+    - requirement of at least one value
+- **paths:** _- required_
+  - **accepts:** `string | object | Array<string | object>`
+  - **description:**
+    paths of filesystem entries (files or directories)
+    to share with the specified recipients
+  - **notes:**
+    - requirement that file/directory exists
+    - requirement of at least one value
+- **dry_run:** _- optional_
+  - **accepts:** `bool`
+  - **description:**
+    when true, only validation will occur
+    
+### Response
+
+- **$:** `api:share`
+- **$version:** `v0.0.0`
+- **status:** one of: `"success"`, `"mixed"`, `"aborted"`
+- **recipients:** array of: `api:status-report` or
+  `heyputer:api/APIError`
+- **paths:** array of: `api:status-report` or
+  `heyputer:api/APIError`
+- **dry_run:** `true` if present
+
+### Success Response
+
+```json
+{
+    "$": "api:share",
+    "$version": "v0.0.0",
+    "status": "success",
+    "recipients": [
+        {
+            "$": "api:status-report",
+            "status": "success"
+        }
+    ],
+    "paths": [
+        {
+            "$": "api:status-report",
+            "status": "success"
+        }
+    ],
+    "dry_run": true
+}
+```
+
+### Error response (missing file)
+
+```json
+{
+    "$": "api:share",
+    "$version": "v0.0.0",
+    "status": "mixed",
+    "recipients": [
+        {
+            "$": "api:status-report",
+            "status": "success"
+        }
+    ],
+    "paths": [
+        {
+            "$": "heyputer:api/APIError",
+            "code": "subject_does_not_exist",
+            "message": "File or directory not found.",
+            "status": 404
+        }
+    ],
+    "dry_run": true
+}
+```
+
+### Error response (missing user)
+
+```json
+{
+    "$": "api:share",
+    "$version": "v0.0.0",
+    "status": "mixed",
+    "recipients": [
+        {
+            "$": "heyputer:api/APIError",
+            "code": "user_does_not_exist",
+            "message": "The user `non_existing_user` does not exist.",
+            "username": "non_existing_user",
+            "status": 422
+        }
+    ],
+    "paths": [
+        {
+            "$": "api:status-report",
+            "status": "success"
+        }
+    ],
+    "dry_run": true
+}
+```
+
+## **deprecated** POST `/share/item-by-username` (auth required)
 
 ### Description
 
