@@ -119,8 +119,9 @@ const handler_item_by_username = async (req, res) => {
         template: 'file-shared-with-you',
         fields: {
             username: req.user.username,
-            type: wut,
-            filename: await node.get('name'),
+            files: [
+                await node.getSafeEntry(),
+            ],
         },
         text: `The user ${quot(req.user.username)} shared a ${wut} ` +
             `with you called ${quot(await node.get('name'))}`
