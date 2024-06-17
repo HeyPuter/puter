@@ -426,6 +426,7 @@ window.addEventListener('message', async (event) => {
                     html: item.label,
                     icon: item.icon ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon)}" />` : undefined,
                     icon_active: item.icon_active ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon_active)}" />` : undefined,
+                    disabled: item.disabled,
                     onClick: () => {
                         if (item.action !== undefined) {
                             item.action();

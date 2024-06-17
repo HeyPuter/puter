@@ -261,7 +261,14 @@ function UIContextMenu(options){
         }
     });
     
-    // Useful in cases such as where a menu item is over a window, this prevents from the mousedown event
+    // disabled item mousedown event
+    $(`#context-menu-${menu_id} > li.context-menu-item-disabled`).on('mousedown', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+    })
+
+    // Useful in cases such as where a menu item is over a window, this prevents the mousedown event from
     // reaching the window underneath
     $(`#context-menu-${menu_id} > li:not(.context-menu-item-disabled)`).on('mousedown', function (e) {
         e.preventDefault();
