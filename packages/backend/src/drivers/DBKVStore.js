@@ -20,6 +20,7 @@ const config = require("../config");
 const APIError = require("../api/APIError");
 const { DB_READ, DB_WRITE } = require("../services/database/consts");
 const { Driver } = require("../definitions/Driver");
+const { get_app } = require("../helpers");
 
 class DBKVStore extends Driver {
     static ID = 'public-db-kvstore';
@@ -29,7 +30,7 @@ class DBKVStore extends Driver {
         murmurhash: require('murmurhash'),
     }
     static METHODS = {
-        get: async function ({ key }) {
+        get: async function ({ app_uid, key }) {
             console.log('THIS WAS CALLED', { key });
             const actor = this.context.get('actor');
 
@@ -39,10 +40,14 @@ class DBKVStore extends Driver {
             // that are scoped to the app, so this should eventually be
             // changed to get the app ID from the same interface that would
             // be used to obtain per-app user-specified implementation params.
-            const app = actor.type?.app ?? undefined;
+            let app = actor.type?.app ?? undefined;
             const user = actor.type?.user ?? undefined;
 
             if ( ! user ) throw new Error('User not found');
+
+            if ( ! app && app_uid ) {
+                app = await get_app({ uid: app_uid });
+            }
 
             const db = this.services.get('database').get(DB_READ, 'kvstore');
             const key_hash = this.modules.murmurhash.v3(key);
@@ -56,7 +61,7 @@ class DBKVStore extends Driver {
 
             return kv[0]?.value ?? null;
         },
-        set: async function ({ key, value }) {
+        set: async function ({ app_uid, key, value }) {
             console.log('THIS WAS CALLED (SET)', { key, value })
             const actor = this.context.get('actor');
 
@@ -77,9 +82,13 @@ class DBKVStore extends Driver {
                 throw new Error(`value is too large. Max size is ${config.kv_max_value_size}.`);
             }
 
-            const app = actor.type?.app ?? undefined;
+            let app = actor.type?.app ?? undefined;
             const user = actor.type?.user ?? undefined;
             if ( ! user ) throw new Error('User not found');
+            
+            if ( ! app && app_uid ) {
+                app = await get_app({ uid: app_uid });
+            }
 
             const db = this.services.get('database').get(DB_WRITE, 'kvstore');
             const key_hash = this.modules.murmurhash.v3(key);
@@ -111,12 +120,16 @@ class DBKVStore extends Driver {
 
             return true;
         },
-        del: async function ({ key }) {
+        del: async function ({ app_uid, key }) {
             const actor = this.context.get('actor');
 
-            const app = actor.type?.app ?? undefined;
+            let app = actor.type?.app ?? undefined;
             const user = actor.type?.user ?? undefined;
             if ( ! user ) throw new Error('User not found');
+
+            if ( ! app && app_uid ) {
+                app = await get_app({ uid: app_uid });
+            }
 
             const db = this.services.get('database').get(DB_WRITE, 'kvstore');
             const key_hash = this.modules.murmurhash.v3(key);
@@ -128,11 +141,15 @@ class DBKVStore extends Driver {
 
             return true;
         },
-        list: async function ({ as }) {
+        list: async function ({ app_uid, as }) {
             const actor = this.context.get('actor');
 
-            const app = actor.type?.app ?? undefined;
+            let app = actor.type?.app ?? undefined;
             const user = actor.type?.user ?? undefined;
+
+            if ( ! app && app_uid ) {
+                app = await get_app({ uid: app_uid });
+            }
 
             if ( ! user ) throw new Error('User not found');
 
@@ -164,12 +181,16 @@ class DBKVStore extends Driver {
 
             return rows;
         },
-        flush: async function () {
+        flush: async function ({ app_uid }) {
             const actor = this.context.get('actor');
 
-            const app = actor.type?.app ?? undefined;
+            let app = actor.type?.app ?? undefined;
             const user = actor.type?.user ?? undefined;
             if ( ! user ) throw new Error('User not found');
+
+            if ( ! app && app_uid ) {
+                app = await get_app({ uid: app_uid });
+            }
 
             const db = this.services.get('database').get(DB_WRITE, 'kvstore');
 
