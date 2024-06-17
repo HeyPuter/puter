@@ -44,6 +44,27 @@ different from calling `/grant-user-user` with a permission.
   `heyputer:api/APIError`
 - **dry_run:** `true` if present
 
+### Request Example
+
+```javascript
+await fetch("http://puter.localhost:4100/share", {
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${puter.authToken}`,
+  },
+  body: JSON.stringify({
+      // dry_run: true,
+      recipients: [
+          'user_that_gets_shared_to',
+      ],
+      paths: [
+          '/user_that_shares/file_that_gets_shared.txt',
+      ],
+  }),
+  method: "POST",
+});
+```
+
 ### Success Response
 
 ```json
