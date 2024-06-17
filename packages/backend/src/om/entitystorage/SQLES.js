@@ -44,22 +44,41 @@ class SQLES extends BaseES {
             }
         },
         async read (uid) {
-            const id_prop = this.om.properties[this.om.primary_identifier];
-            let id_col =
-                id_prop.descriptor.sql?.column_name ?? id_prop.name;
 
-            console.log('CALLING READ WITH UID ', uid);
-            // Temporary hack until multiple identifiers are supported
-            // (allows us to query using an internal ID; users can't do this)
-            if ( typeof uid === 'number' ) {
-                id_col = 'id';
-            }
+            const [stmt_where, where_vals] = await (async () => {
+                if ( typeof uid !== 'object' ) {
+                    const id_prop =
+                        this.om.properties[this.om.primary_identifier];
+                    let id_col =
+                        id_prop.descriptor.sql?.column_name ?? id_prop.name;
+                    // Temporary hack until multiple identifiers are supported
+                    // (allows us to query using an internal ID; users can't do this)
+                    if ( typeof uid === 'number' ) {
+                        id_col = 'id';
+                    }
+                    return [` WHERE ${id_col} = ?`, [uid]]
+                }
+                
+                if ( ! uid.hasOwnProperty('predicate') ) {
+                    throw new Error(
+                        'SQLES.read does not understand this input: ' +
+                        'object with no predicate property',
+                    );
+                }
+                let predicate = uid.predicate; // uid is actually a predicate
+                if ( predicate instanceof Predicate ) {
+                    predicate = await this.om_to_sql_condition_(predicate);
+                }
+                const stmt_where = ` WHERE ${predicate.sql} LIMIT 1` ;
+                const where_vals = predicate.values;
+                return [stmt_where, where_vals];
+            })();
 
             const stmt =
-                `SELECT * FROM ${this.om.sql.table_name} WHERE ${id_col} = ?`;
+                `SELECT * FROM ${this.om.sql.table_name}${stmt_where}`;
 
             const rows = await this.db.read(
-                stmt, [uid]
+                stmt, where_vals
             );
 
             if ( rows.length === 0 ) {

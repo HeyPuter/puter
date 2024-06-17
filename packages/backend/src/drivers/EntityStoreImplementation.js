@@ -67,15 +67,13 @@ const _fetch_based_on_complex_id = async (self, id) => {
     let predicate = new And({ children: key_eqs });
 
     // Perform a select
-    const entities = await svc_es.select({ predicate });
-    if ( entities.length === 0 ) {
+    const entity = await svc_es.read({ predicate });
+    if ( ! entity ) {
         return null;
     }
 
-    console.log('WHAT ISAGERSGAREWHGwr', entities)
-
     // Ensure there is only one result
-    return entities[0];
+    return entity;
 }
 
 const _fetch_based_on_either_id = async (self, uid, id) => {
