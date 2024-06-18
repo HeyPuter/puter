@@ -55,7 +55,7 @@ const surrounding_box = (col, lines) => {
 // Annoying polyfill for inconsistency in different node versions
 if ( ! import.meta.filename ) {
     Object.defineProperty(import.meta, 'filename', {
-        get: import.meta.url.slice('file://'.length),
+        get: () => import.meta.url.slice('file://'.length),
     })
 }
 
