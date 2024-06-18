@@ -12,35 +12,24 @@ async function UIWindowShare(items){
             // name
             h += `<h2 style="font-size: 17px; margin-top:0; text-align:center; margin-bottom: 40px; font-weight: 400; color: #303d49; text-shadow: 1px 1px white;">${items.length > 1 ? `Share ${items.length} items` : `${items[0].name}`}</h2>`;
 
-            // success
-            h += `<div class="window-give-item-access-success">`;
-                h += `<span class="hide-sharing-success-alert">✕</span>`
-                h += `<img src="${html_encode(window.icons['c-check.svg'])}" style="width:50px; height:50px; display: block; margin:10px auto;">`;
-                h += `<p style="text-align:center; margin-bottom:10px;">Shared with <strong class="access-recipient-print"></strong></p>`;
-            h+= `</div>`;
-
             // form
             h += `<form class="window-give-item-access-form">`;
                 // Error msg
                 h += `<div class="error"></div>`;
                 // Username/email
                 h += `<div style="overflow: hidden;">`;
-                    h += `<label style="margin-bottom: 10px;">Share with:</label>`;
+                    h += `<label style="font-size: 16px; font-weight: 600;">Share with:</label>`;
                     h += `<div style="display: flex;">`;
                         // Username/email
                         h += `<input placeholder="username" class="access-recipient" style="border-right: none; margin-bottom: 10px; border-top-right-radius: 0; border-bottom-right-radius: 0;" type="text" autocomplete="recipient_email_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                         // Share
-                        h += `<button class="give-access-btn button button-primary button-normal" style="border-top-left-radius: 0; border-bottom-left-radius: 0;">Share</button>`
+                        h += `<button class="give-access-btn button button-primary button-normal" style="border-top-left-radius: 0; border-bottom-left-radius: 0;" disabled>Share</button>`
                     h += `</div>`;                
                 h += `</div>`;
             h += `</form>`;
 
             //recipients
-            h += `<h2 style="font-size: 17px;
-            margin-bottom: 0px;
-            font-weight: 400;
-            color: #303d49;
-            text-shadow: 1px 1px white;">People with access</h2>`;
+            h += `<p style="font-size: 14px; margin-bottom: 0px; color: #303d49; text-shadow: 1px 1px white;">People with access</p>`;
             h += `<div class="share-recipients">`;
             h += `</div>`;
         h += `</div>`;
@@ -137,13 +126,24 @@ async function UIWindowShare(items){
             let recipient_id = $(el_window).find('.access-recipient').val();
 
             // todo do some basic validation client-side
-            if(recipient_id === null)
+            if(recipient_id === '' || recipient_id === null || recipient_id === undefined)
                 return;
 
             if(is_email(recipient_id))
                 recipient_email = recipient_id;
             else
                 recipient_username = recipient_id;
+            // can't share with self
+            if(recipient_username === window.user.username){
+                $(el_window).find('.error').html('You can\'t share with yourself');
+                $(el_window).find('.error').fadeIn();
+                return;
+            }
+            else if(recipient_email && recipient_email === window.user.email){
+                $(el_window).find('.error').html('You can\'t share with yourself');
+                $(el_window).find('.error').fadeIn();
+                return;
+            }
 
             // disable 'Give Access' button
             $(el_window).find('.give-access-btn').prop('disabled', true);
@@ -166,14 +166,13 @@ async function UIWindowShare(items){
                     paths: [
                         {
                             path: items[0].path,
-                            access_level: access_level,
+                            access: access_level,
                         }
                     ]
                 }),
                 success: function(response) {
                     // show success message
                     $(el_window).find('.access-recipient-print').html(recipient_id);
-                    $(el_window).find('.window-give-item-access-success').show(100);
                     let perm_id = `fs:${items[0].uid}:${access_level}`;
 
                     // append recipient to list
@@ -185,9 +184,6 @@ async function UIWindowShare(items){
 
                     // append recipient to list
                     $(el_window).find('.share-recipients').append(`${perm_list}`);
-
-                    // add this user to the list of printed users
-                    // printed_users.push(perm.user.username);
                 },
                 error: function(err) {
                     // at this point 'username_not_found' and 'shared_with_self' are the only 
@@ -213,8 +209,13 @@ async function UIWindowShare(items){
             return false;
         })
 
-        $(el_window).find('.hide-sharing-success-alert').on('click', function(){
-            $(el_window).find('.window-give-item-access-success').hide(200);
+        $(el_window).find('.access-recipient').on('input keypress keyup keydown paste', function(){
+            if($(this).val() === ''){
+                $(el_window).find('.give-access-btn').prop('disabled', true);
+            }
+            else{
+                $(el_window).find('.give-access-btn').prop('disabled', false);
+            }
         })
 
     })

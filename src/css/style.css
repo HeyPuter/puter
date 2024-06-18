@@ -2078,7 +2078,6 @@ label {
 }
 
 .share-recipients {
-    margin-top: 10px;
     max-height: 200px;
     overflow: scroll;
 }
