@@ -130,8 +130,8 @@ class PermissionImplicator {
      * @param  {string} permission
      * @returns 
      */
-    async check (actor, permission) {
-        return await this.checker(actor, permission);
+    async check ({ actor, permission, recurse }) {
+        return await this.checker({ actor, permission, recurse });
     }
 }
 
@@ -263,7 +263,11 @@ class PermissionService extends BaseService {
 
         for ( const implicator of this._permission_implicators ) {
             if ( ! implicator.matches(permission) ) continue;
-            const implied = await implicator.check(actor, permission);
+            const implied = await implicator.check({
+                actor,
+                permission,
+                recurse: this.check.bind(this),
+            });
             if ( implied ) return implied;
         }
 
