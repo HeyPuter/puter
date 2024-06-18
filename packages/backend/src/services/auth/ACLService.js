@@ -108,7 +108,8 @@ class ACLService extends BaseService {
 
         const svc_permission = await context.get('services').get('permission');
 
-        const modes = this._higher_modes(mode);
+        // const modes = this._higher_modes(mode);
+        const modes = [mode];
         let perm_fsNode = fsNode;
         while ( ! await perm_fsNode.get('is-root') ) {
             for ( const mode of modes ) {

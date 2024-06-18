@@ -135,6 +135,32 @@ class PermissionImplicator {
     }
 }
 
+class PermissionExploder {
+    static create ({ id, matcher, exploder }) {
+        return new PermissionExploder({ id, matcher, exploder });
+    }
+
+    constructor ({ id, matcher, exploder }) {
+        this.id = id;
+        this.matcher = matcher;
+        this.exploder = exploder;
+    }
+
+    matches (permission) {
+        return this.matcher(permission);
+    }
+
+    /**
+     * Check if the permission is implied by this implicator
+     * @param  {Actor} actor
+     * @param  {string} permission
+     * @returns 
+     */
+    async explode ({ actor, permission }) {
+        return await this.exploder({ actor, permission });
+    }
+}
+
 class PermissionUtil {
     static unescape_permission_component (component) {
         let unescaped_str = '';
@@ -194,6 +220,7 @@ class PermissionService extends BaseService {
 
         this._permission_rewriters = [];
         this._permission_implicators = [];
+        this._permission_exploders = [];
     }
 
     async _rewrite_permission (permission) {
@@ -220,6 +247,17 @@ class PermissionService extends BaseService {
             actor: actor.uid,
             permission,
         });
+        
+        // for ( const implicator of this._permission_implicators ) {
+        //     if ( ! implicator.matches(permission) ) continue;
+        //     const implied = await implicator.check({
+        //         actor,
+        //         permission,
+        //         recurse: this.check.bind(this),
+        //     });
+        //     if ( implied ) return implied;
+        // }
+
         // For now we're only checking driver permissions, and users have all of them
         if ( actor.type instanceof UserActorType ) {
             return await this.check_user_permission(actor, permission);
@@ -240,8 +278,17 @@ class PermissionService extends BaseService {
             // NEXT:
             const app_uid = actor.type.app.uid;
             const user_actor = actor.get_related_actor(UserActorType);
-            const user_has_permission = await this.check_user_permission(user_actor, permission);
+            // const user_has_permission = await this.check_user_permission(user_actor, permission);
+            const user_has_permission = await this.check__(
+                user_actor, permission,
+            );
             if ( ! user_has_permission ) return undefined;
+            
+            // This was a useful log so I'm keeping it here
+            // console.log('\x1B[36;1m>=== THIS IS HERE ===<\x1B[0m',
+            //     app_uid,
+            //     permission,
+            // )
 
             return await this.check_user_app_permission(actor, app_uid, permission);
         }
@@ -252,7 +299,8 @@ class PermissionService extends BaseService {
     // TODO: context meta for cycle detection
     async check_user_permission (actor, permission) {
         permission = await this._rewrite_permission(permission);
-        const parent_perms = this.get_parent_permissions(permission);
+        // const parent_perms = this.get_parent_permissions(permission);
+        const parent_perms = await this.get_higher_permissions(permission);
 
         // Check implicit permissions
         for ( const parent_perm of parent_perms ) {
@@ -329,7 +377,8 @@ class PermissionService extends BaseService {
         if ( ! app ) app = await get_app({ name: app_uid });
         const app_id = app.id;
 
-        const parent_perms = this.get_parent_permissions(permission);
+        // const parent_perms = this.get_parent_permissions(permission);
+        const parent_perms = await this.get_higher_permissions(permission);
 
         for ( const permission of parent_perms ) {
             // Check hardcoded permissions
@@ -348,7 +397,7 @@ class PermissionService extends BaseService {
                 return implicit_permissions[permission];
             }
         }
-
+        
         // My biggest gripe with SQL is doing string manipulation for queries.
         // If the grammar for SQL was simpler we could model it, write this as
         // data, and even implement macros for common patterns.
@@ -665,6 +714,21 @@ class PermissionService extends BaseService {
         
         return retval;
     }
+    
+    async get_higher_permissions (permission) {
+        const higher_perms = [];
+        const parent_perms = this.get_parent_permissions(permission);
+        for ( const parent_perm of parent_perms ) {
+            for ( const exploder of this._permission_exploders ) {
+                if ( ! exploder.matches(parent_perm) ) continue;
+                const perms = await exploder.explode({
+                    permission: parent_perm,
+                });
+                higher_perms.push(...perms);
+            }
+        }
+        return higher_perms;
+    }
 
     get_parent_permissions (permission) {
         const parent_perms = [];
@@ -699,6 +763,14 @@ class PermissionService extends BaseService {
         this._permission_implicators.push(implicator);
     }
 
+    register_exploder (exploder) {
+        if ( ! (exploder instanceof PermissionExploder) ) {
+            throw new Error('exploder must be a PermissionExploder');
+        }
+
+        this._permission_exploders.push(exploder);
+    }
+
     _register_commands (commands) {
         commands.registerCommands('perms', [
             {
@@ -723,6 +795,7 @@ class PermissionService extends BaseService {
 module.exports = {
     PermissionRewriter,
     PermissionImplicator,
+    PermissionExploder,
     PermissionUtil,
     PermissionService,
 };

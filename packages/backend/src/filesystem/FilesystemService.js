@@ -34,7 +34,7 @@ const APIError = require('../api/APIError.js');
 const { LLMkdir } = require('./ll_operations/ll_mkdir.js');
 const { LLCWrite, LLOWrite } = require('./ll_operations/ll_write.js');
 const { LLCopy } = require('./ll_operations/ll_copy.js');
-const { PermissionUtil, PermissionRewriter, PermissionImplicator } = require('../services/auth/PermissionService.js');
+const { PermissionUtil, PermissionRewriter, PermissionImplicator, PermissionExploder } = require('../services/auth/PermissionService.js');
 const { DB_WRITE } = require("../services/database/consts");
 const { UserActorType } = require('../services/auth/Actor');
 const { get_user } = require('../helpers');
@@ -165,38 +165,34 @@ class FilesystemService extends AdvancedBase {
                 return undefined;
             },
         }));
-        svc_permission.register_implicator(PermissionImplicator.create({
+        svc_permission.register_exploder(PermissionExploder.create({
             matcher: permission => {
-                return permission.startsWith('fs:');
+                return permission.startsWith('fs:') &&
+                    PermissionUtil.split(permission).length >= 3;
             },
-            checker: async ({ actor, permission, recurse }) => {
+            exploder: async ({ permission }) => {
+                const permissions = [permission];
                 const parts = PermissionUtil.split(permission);
-                if ( parts.length < 3 ) return undefined;
 
                 const specified_mode = parts[2];
                 
-                const mode = {
-                    write: 'read',
-                    read: 'list',
-                    list: 'see',
-                }[specified_mode];
+                const rules = {
+                    see: ['list', 'read', 'write'],
+                    list: ['read', 'write'],
+                    read: ['write'],
+                };
                 
-                if ( ! mode ) return undefined;
-
-                const perm = await recurse(actor,
-                    PermissionUtil.join(
-                        parts[0],
-                        parts[1],
-                        mode,
-                        ...parts.slice(3),
-                    )
-                )
-                if ( perm ) {
-                    console.log('RETURNING IT!', perm);
-                    return perm;
+                if ( rules.hasOwnProperty(specified_mode) ) {
+                    permissions.push(...rules[specified_mode].map(
+                        mode => PermissionUtil.join(
+                            parts[0], parts[1],
+                            mode,
+                            ...parts.slice(3),
+                        )
+                    ));
                 }
                 
-                return undefined;
+                return permissions;
             },
         }));
     }
