@@ -414,7 +414,13 @@ const v0_2 = async (req, res) => {
     // reported on recipients instead.
     for ( const item of fsitems_work.list() ) {
         result.paths[item.i] =
-            { $: 'api:status-report', status: 'success' };
+            {
+                $: 'api:status-report',
+                status: 'success',
+                fields: {
+                    permission: item.permission,
+                }
+            };
     }
     
     if ( strict_check() ) return;
