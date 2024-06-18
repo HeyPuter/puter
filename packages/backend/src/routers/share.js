@@ -300,7 +300,8 @@ const v0_2 = async (req, res) => {
             item.invalid = true;
             result.recipients[item.i] =
                 APIError.create('future', null, {
-                    what: 'specifying recipients by email'
+                    what: 'specifying recipients by email',
+                    value: item.value
                 });
             continue;
         }
@@ -354,7 +355,10 @@ const v0_2 = async (req, res) => {
         if ( whatis(value) !== 'object' ) {
             item.invalid = true;
             result.paths[i] =
-                APIError.create('invalid_path', null, { value });
+                APIError.create('invalid_path', null, {
+                    path: item.path,
+                    value,
+                });
             continue;
         }
         
@@ -372,7 +376,10 @@ const v0_2 = async (req, res) => {
         if ( errors.length ) {
             item.invalid = true;
             result.paths[item.i] =
-                APIError.create('field_errors', null, { errors });
+                APIError.create('field_errors', null, {
+                    path: item.path,
+                    errors
+                });
             continue;
         }
         
@@ -389,7 +396,9 @@ const v0_2 = async (req, res) => {
         
         if ( ! await node.exists() ) {
             item.invalid = true;
-            result.paths[item.i] = APIError.create('subject_does_not_exist')
+            result.paths[item.i] = APIError.create('subject_does_not_exist', {
+                path: item.path,
+            })
             continue;
         }
         
