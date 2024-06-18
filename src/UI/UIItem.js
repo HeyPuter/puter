@@ -1104,7 +1104,7 @@ function UIItem(options){
                         //     return;
                         // else if(!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired())
                         //     return;
-                        UIWindowShare([{uid: $(el_item).attr('data-uid'), path: $(el_item).attr('data-path')}]);
+                        UIWindowShare([{uid: $(el_item).attr('data-uid'), path: $(el_item).attr('data-path'), name: $(el_item).attr('data-name'), icon: $(el_item_icon).find('img').attr('src')}]);
                     }
                 });
             }

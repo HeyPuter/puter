@@ -4,7 +4,13 @@ async function UIWindowShare(items){
     return new Promise(async (resolve) => {
         let h = '';
         h += `<div style="padding: 30px 40px 20px; border-bottom: 1px solid #ced7e1;">`;
-            h += `<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>`;
+            h += `<div class="qr-code-window-close-btn generic-close-window-button" style="margin: 5px;"> &times; </div>`;
+
+            // icon
+            h += `<img src="${items[0].icon}" style="width:70px; height:70px; display: block; margin: 10px auto 0;">`;
+
+            // name
+            h += `<h2 style="font-size: 17px; margin-top:0; text-align:center; margin-bottom: 40px; font-weight: 400; color: #303d49; text-shadow: 1px 1px white;">${items.length > 1 ? `Share ${items.length} items` : `${items[0].name}`}</h2>`;
 
             // success
             h += `<div class="window-give-item-access-success">`;
@@ -15,13 +21,13 @@ async function UIWindowShare(items){
 
             // form
             h += `<form class="window-give-item-access-form">`;
-                // error msg
+                // Error msg
                 h += `<div class="error"></div>`;
-                // username/email
+                // Username/email
                 h += `<div style="overflow: hidden;">`;
-                    h += `<label style="margin-bottom: 10px;">The user you want to share ${ items.length > 1 ? `these items` : `this item`} with:</label>`;
+                    h += `<label style="margin-bottom: 10px;">Share with:</label>`;
                     h += `<div style="display: flex;">`;
-                        //username/email
+                        // Username/email
                         h += `<input placeholder="username" class="access-recipient" style="border-right: none; margin-bottom: 10px; border-top-right-radius: 0; border-bottom-right-radius: 0;" type="text" autocomplete="recipient_email_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                         // Share
                         h += `<button class="give-access-btn button button-primary button-normal" style="border-top-left-radius: 0; border-bottom-left-radius: 0;">Share</button>`
@@ -30,13 +36,13 @@ async function UIWindowShare(items){
             h += `</form>`;
 
             //recipients
-            // h += `<h2 style="font-size: 17px;
-            // margin-bottom: 0px;
-            // font-weight: 400;
-            // color: #303d49;
-            // text-shadow: 1px 1px white;">People with access</h2>`;
-            // h += `<div class="share-recipients">`;
-            // h += `</div>`;
+            h += `<h2 style="font-size: 17px;
+            margin-bottom: 0px;
+            font-weight: 400;
+            color: #303d49;
+            text-shadow: 1px 1px white;">People with access</h2>`;
+            h += `<div class="share-recipients">`;
+            h += `</div>`;
         h += `</div>`;
 
         const el_window = await UIWindow({
@@ -73,64 +79,53 @@ async function UIWindowShare(items){
         // /stat
         let perms = [];
         for(let i=0; i<items.length; i++){
-            $.ajax({
-                url: api_origin + "/stat",
-                type: 'POST',
-                data: JSON.stringify({ 
-                    uid: items[i].uid,
-                    return_subdomains: false,
-                    return_permissions: true,
-                }),
-                async: false,
-                contentType: "application/json",
-                headers: {
-                    "Authorization": "Bearer "+auth_token
-                },
-                statusCode: {
-                    401: function () {
-                        logout();
-                    },
-                },        
-                success: function (fsentry){
-                    perms.push(fsentry);
-                },
+            puter.fs.stat({ 
+                path: items[i].path,
+                returnSubdomains: true,
+                returnPermissions: true,
+            }).then((fsentry) => {
+                let recipients = fsentry.shares?.users;
+                let printed_users = [];
+                let perm_list = '';
+
+                //owner
+                //check if this user has been printed here before, important for multiple items
+                if(!printed_users.includes(fsentry.owner.username)){
+                    perm_list += `<div class="item-perm-recipient-card item-prop-perm-entry item-permission-owner" style="margin-bottom:5px; margin-top:5px; background-color: #f2f2f2;">`
+                        if(fsentry.owner.username === window.user.username)
+                            perm_list += `You (${fsentry.owner.email ?? fsentry.owner.username})`;
+                        else
+                            perm_list += fsentry.owner.email ?? fsentry.owner.username;
+                        perm_list += `<div style="float:right;"><span class="permission-owner-badge">owner</span></div>`;
+                    perm_list += `</div>`;
+                    // add this user to the list of printed users
+                    printed_users.push(fsentry.owner.username);
+                }
+
+                if(recipients.length > 0){
+                    recipients.forEach((recipient) => {
+                        // others with access
+                        if(recipients.length > 0){
+                            recipients.forEach(perm => {
+                                //check if this user has been printed here before, important for multiple items
+                                if(!printed_users.includes(perm.user.username)){
+                                    perm_list += `<div data-permission="${perm.permission}" class="item-perm-recipient-card item-prop-perm-entry" data-perm-uid="${perm.user.uid}" style="margin-bottom:5px; margin-top:5px;">`
+                                        perm_list += `${perm.user.email ?? perm.user.username}`;
+                                        perm_list += `<div style="float:right;"><span class="remove-permission-link remove-permission-icon" data-recipient-username="${perm.user.username}" data-permission="${perm.permission}">✕</span></div>`;
+                                    perm_list += `</div>`;
+                                    // add this user to the list of printed users
+                                    printed_users.push(perm.user.username);
+                                }
+                            });
+                        }
+                    });
+                }
+                $(el_window).find('.share-recipients').append(`${perm_list}`);                  
+            }).
+            catch((err) => {
+                console.error(err);
             })
         }
-        // if(perms.length > 0){
-        //     let printed_users = [];
-        //     let perm_list = '';
-        //     perms.forEach(fsentry => {
-        //         //owner
-        //         //check if this user has been printed here before, important for multiple items
-        //         if(!printed_users.includes(fsentry.owner.username)){
-        //             perm_list += `<div class="item-perm-recipient-card item-prop-perm-entry item-permission-owner" style="margin-bottom:5px; margin-top:5px; background-color: #f2f2f2;">`
-        //                 if(fsentry.owner.username === window.user.username)
-        //                     perm_list += `You (${fsentry.owner.email ?? fsentry.owner.username})`;
-        //                 else
-        //                     perm_list += fsentry.owner.email ?? fsentry.owner.username;
-        //                 perm_list += `<div style="float:right;"><span class="permission-owner-badge">owner</span></div>`;
-        //             perm_list += `</div>`;
-        //             // add this user to the list of printed users
-        //             printed_users.push(fsentry.owner.username);
-        //         }
-
-        //         // others with access
-        //         if(fsentry.permissions.length > 0){
-        //             fsentry.permissions.forEach(perm => {
-        //                 //check if this user has been printed here before, important for multiple items
-        //                 if(!printed_users.includes(perm.username)){
-        //                     perm_list += `<div class="item-perm-recipient-card item-prop-perm-entry" data-perm-uid="${perm.uid}" style="margin-bottom:5px; margin-top:5px;">`
-        //                         perm_list += `${perm.email ?? perm.username}`;
-        //                         perm_list += `<div style="float:right;"><span class="remove-permission-link remove-permission-icon" data-perm-uid="${perm.uid}">✕</span></div>`;
-        //                     perm_list += `</div>`;
-        //                     // add this user to the list of printed users
-        //                     printed_users.push(perm.username);
-        //                 }
-        //             });
-        //         }
-        //     });
-        //     $(el_window).find('.share-recipients').append(`${perm_list}`);                  
-        // }
 
         $(el_window).find('.give-access-btn').on('click', async function(e){
             e.preventDefault();
@@ -155,25 +150,46 @@ async function UIWindowShare(items){
 
             let cancelled_due_to_error = false;
             let share_result;
+            let access_level = 'write';
 
             $.ajax({
-                url: puter.APIOrigin + "/share/item-by-username",
+                url: puter.APIOrigin + "/share",
                 type: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     "Authorization": "Bearer " + puter.authToken
                 },
                 data: JSON.stringify({
-                    path: items[0].path,
-                    username: recipient_username
+                    recipients:[
+                        recipient_username
+                    ],
+                    paths: [
+                        {
+                            path: items[0].path,
+                            access_level: access_level,
+                        }
+                    ]
                 }),
                 success: function(response) {
                     // show success message
                     $(el_window).find('.access-recipient-print').html(recipient_id);
                     $(el_window).find('.window-give-item-access-success').show(100);
+                    let perm_id = `fs:${items[0].uid}:${access_level}`;
+
+                    // append recipient to list
+                    let perm_list = '';
+                    perm_list += `<div data-permission="${perm_id}" class="item-perm-recipient-card item-prop-perm-entry" style="margin-bottom:5px; margin-top:5px;">`
+                        perm_list += `${recipient_username}`;
+                        perm_list += `<div style="float:right;"><span class="remove-permission-link remove-permission-icon" data-recipient-username="${recipient_username}" data-permission="${perm_id}">✕</span></div>`;
+                    perm_list += `</div>`;
+
+                    // append recipient to list
+                    $(el_window).find('.share-recipients').append(`${perm_list}`);
+
+                    // add this user to the list of printed users
+                    // printed_users.push(perm.user.username);
                 },
                 error: function(err) {
-                    console.error(err);       
                     // at this point 'username_not_found' and 'shared_with_self' are the only 
                     // errors that need to stop the loop
                     if(err.responseJSON.code === "user_does_not_exist" || err.responseJSON.code === 'shared_with_self'){
@@ -204,4 +220,24 @@ async function UIWindowShare(items){
     })
 }
 
+$(document).on('click', '.remove-permission-link', async function(){
+    let recipient_username = $(this).attr('data-recipient-username');
+    let permission = $(this).attr('data-permission');
+
+    fetch(puter.APIOrigin + "/auth/revoke-user-user", {
+        "headers": {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${puter.authToken}`,
+        },
+        "body": JSON.stringify({
+            permission: permission,
+            target_username: recipient_username
+        }),
+        "method": "POST"
+    }).then((response) => {
+        $('.item-perm-recipient-card[data-permission="'+permission+'"]').remove();
+    }).catch((err) => {
+        console.error(err);
+    })
+})
 export default UIWindowShare
