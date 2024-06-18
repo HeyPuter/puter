@@ -65,6 +65,21 @@ async function UIWindowShare(items){
             }
         })
 
+        let contacts = [];
+
+        puter.kv.get('contacts').then((kv_contacts) => {
+            if(kv_contacts){
+                try{
+                    contacts = JSON.parse(kv_contacts);
+                    $(el_window).find('.access-recipient').autocomplete({
+                        source: contacts
+                    });
+                }catch(e){
+                    puter.kv.del('contacts');
+                }
+            }
+        })
+
         // /stat
         let perms = [];
         for(let i=0; i<items.length; i++){
@@ -184,6 +199,12 @@ async function UIWindowShare(items){
 
                     // append recipient to list
                     $(el_window).find('.share-recipients').append(`${perm_list}`);
+
+                    // add to contacts
+                    if(!contacts.includes(recipient_username)){
+                        contacts.push(recipient_username);
+                        puter.kv.set('contacts', JSON.stringify(contacts));
+                    }
                 },
                 error: function(err) {
                     // at this point 'username_not_found' and 'shared_with_self' are the only 

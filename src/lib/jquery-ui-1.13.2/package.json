@@ -2,33 +2,33 @@
 	"name": "jquery-ui",
 	"title": "jQuery UI",
 	"description": "A curated set of user interface interactions, effects, widgets, and themes built on top of the jQuery JavaScript Library.",
-	"version": "1.13.2",
-	"homepage": "http://jqueryui.com",
+	"version": "1.13.3",
+	"homepage": "https://jqueryui.com",
 	"author": {
-		"name": "jQuery Foundation and other contributors",
-		"url": "https://github.com/jquery/jquery-ui/blob/1.13.2/AUTHORS.txt"
+		"name": "OpenJS Foundation and other contributors",
+		"url": "https://github.com/jquery/jquery-ui/blob/1.13.3/AUTHORS.txt"
 	},
 	"main": "ui/widget.js",
 	"maintainers": [
 		{
 			"name": "Jörn Zaefferer",
 			"email": "joern.zaefferer@gmail.com",
-			"url": "http://bassistance.de"
+			"url": "https://bassistance.de"
 		},
 		{
 			"name": "Mike Sherov",
 			"email": "mike.sherov@gmail.com",
-			"url": "http://mike.sherov.com"
+			"url": "https://mike.sherov.com"
 		},
 		{
 			"name": "TJ VanToll",
 			"email": "tj.vantoll@gmail.com",
-			"url": "http://tjvantoll.com"
+			"url": "https://www.tjvantoll.com"
 		},
 		{
 			"name": "Felix Nagel",
 			"email": "info@felixnagel.com",
-			"url": "http://www.felixnagel.com"
+			"url": "https://www.felixnagel.com"
 		},
 		{
 			"name": "Alex Schmitz",
@@ -45,30 +45,40 @@
 	},
 	"license": "MIT",
 	"scripts": {
-		"test": "grunt"
+		"build": "grunt build",
+		"lint": "grunt lint",
+		"test:server": "node tests/runner/server.js",
+		"test:unit": "node tests/runner/command.js",
+		"test": "grunt && npm run test:unit -- -h"
 	},
 	"dependencies": {
 		"jquery": ">=1.8.0 <4.0.0"
 	},
 	"devDependencies": {
+		"body-parser": "1.20.2",
+		"browserstack-local": "1.5.5",
 		"commitplease": "3.2.0",
-		"eslint-config-jquery": "3.0.0",
-		"glob": "7.2.0",
-		"grunt": "1.5.3",
+		"diff": "5.2.0",
+		"eslint-config-jquery": "3.0.2",
+		"exit-hook": "4.0.0",
+		"express": "4.19.2",
+		"express-body-parser-error-handler": "1.0.7",
+		"grunt": "1.6.1",
 		"grunt-bowercopy": "1.2.5",
 		"grunt-cli": "1.4.3",
 		"grunt-compare-size": "0.4.2",
-		"grunt-contrib-concat": "1.0.1",
+		"grunt-contrib-concat": "2.1.0",
 		"grunt-contrib-csslint": "2.0.0",
-		"grunt-contrib-qunit": "5.1.1",
 		"grunt-contrib-requirejs": "1.0.0",
-		"grunt-contrib-uglify": "5.0.1",
-		"grunt-eslint": "23.0.0",
+		"grunt-contrib-uglify": "5.2.2",
+		"grunt-eslint": "24.0.1",
 		"grunt-git-authors": "3.2.0",
-		"grunt-html": "14.5.0",
+		"grunt-html": "16.0.0",
 		"load-grunt-tasks": "5.1.0",
-		"rimraf": "3.0.2",
-		"testswarm": "1.1.2"
+		"rimraf": "4.4.1",
+		"selenium-webdriver": "4.18.1",
+		"testswarm": "1.1.2",
+		"yargs": "17.7.2"
 	},
 	"keywords": []
 }
