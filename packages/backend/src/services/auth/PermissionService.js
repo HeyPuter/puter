@@ -716,18 +716,21 @@ class PermissionService extends BaseService {
     }
     
     async get_higher_permissions (permission) {
-        const higher_perms = [];
+        const higher_perms = new Set()
+        higher_perms.add(permission);
+
         const parent_perms = this.get_parent_permissions(permission);
         for ( const parent_perm of parent_perms ) {
+            higher_perms.add(parent_perm);
             for ( const exploder of this._permission_exploders ) {
                 if ( ! exploder.matches(parent_perm) ) continue;
                 const perms = await exploder.explode({
                     permission: parent_perm,
                 });
-                higher_perms.push(...perms);
+                for ( const perm of perms ) higher_perms.add(perm);
             }
         }
-        return higher_perms;
+        return Array.from(higher_perms);
     }
 
     get_parent_permissions (permission) {
