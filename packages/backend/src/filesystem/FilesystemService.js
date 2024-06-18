@@ -137,7 +137,7 @@ class FilesystemService extends AdvancedBase {
             matcher: permission => {
                 return permission.startsWith('fs:');
             },
-            checker: async (actor, permission) => {
+            checker: async ({ actor, permission }) => {
                 if ( !(actor.type instanceof UserActorType) ) {
                     return undefined;
                 }
@@ -162,6 +162,40 @@ class FilesystemService extends AdvancedBase {
                     return {};
                 }
 
+                return undefined;
+            },
+        }));
+        svc_permission.register_implicator(PermissionImplicator.create({
+            matcher: permission => {
+                return permission.startsWith('fs:');
+            },
+            checker: async ({ actor, permission, recurse }) => {
+                const parts = PermissionUtil.split(permission);
+                if ( parts.length < 3 ) return undefined;
+
+                const specified_mode = parts[2];
+                
+                const mode = {
+                    write: 'read',
+                    read: 'list',
+                    list: 'see',
+                }[specified_mode];
+                
+                if ( ! mode ) return undefined;
+
+                const perm = await recurse(actor,
+                    PermissionUtil.join(
+                        parts[0],
+                        parts[1],
+                        mode,
+                        ...parts.slice(3),
+                    )
+                )
+                if ( perm ) {
+                    console.log('RETURNING IT!', perm);
+                    return perm;
+                }
+                
                 return undefined;
             },
         }));
