@@ -81,7 +81,8 @@ class BroadcastService extends BaseService {
     }
     
     async _init () {
-        for ( const peer_config of this.config.peers ) {
+        const peers = this.config.peers ?? [];
+        for ( const peer_config of peers ) {
             const peer = new Peer(this, peer_config);
             this.peers_.push(peer);
             peer.connect();
