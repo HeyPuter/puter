@@ -28,6 +28,20 @@ different from calling `/grant-user-user` with a permission.
   - **notes:**
     - requirement that file/directory exists
     - requirement of at least one value
+  - **structure:** for `object` values:
+    - **path:** _- required_
+      - **accepts:** `string`
+      - **description:**
+        a Puter file path
+    - **access:** _- required_
+      - **description:** one of: `"read"`, `"write"`
+  - **examples:**
+    - ```json
+      { "path": "/some/path", "access": "read" }
+      ```
+    - ```json
+      { "path": "/some/path" }
+      ```
 - **dry_run:** _- optional_
   - **accepts:** `bool`
   - **description:**
