@@ -117,7 +117,7 @@ class PuterSiteMiddleware extends AdvancedBase {
         }
 
         if ( ! subdomain_root_path || subdomain_root_path === '/' ) {
-            throw new APIError.create('forbidden');
+            throw APIError.create('forbidden');
         }
 
         const filepath = subdomain_root_path + decodeURIComponent(
