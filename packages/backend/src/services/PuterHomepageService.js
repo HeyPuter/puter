@@ -295,6 +295,7 @@ class PuterHomepageService extends BaseService {
     };
     
     generate_error_html ({ message }) {
+        const { encode } = require('html-entities');
         return `
             <!DOCTYPE html>
             <html>
@@ -320,7 +321,9 @@ class PuterHomepageService extends BaseService {
                     </style>
                 </head>
                 <body>
-                    <h1>${message}</h1>
+                    <h1>${
+                        encode(message, { mode: 'nonAsciiPrintable' })
+                    }</h1>
                 </body>
             </html>
         `;
