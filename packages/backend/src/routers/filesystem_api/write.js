@@ -26,6 +26,7 @@ const Busboy = require('busboy');
 const { TeePromise } = require('../../util/promise.js');
 const APIError = require('../../api/APIError.js');
 const api_error_handler = require('../../api/api_error_handler.js');
+const { valid_file_size } = require('../../util/validutil.js');
 
 // -----------------------------------------------------------------------//
 // POST /up | /write
@@ -119,9 +120,19 @@ module.exports = eggspress(['/up', '/write'], {
         const {
             filename, mimetype,
         } = details;
+        
+        const { v: size, ok: size_ok } =
+            valid_file_size(req.body.size);
+            
+        if ( ! size_ok ) {
+            p_ready.reject(
+                APIError.create('invalid_file_metadata')
+            );
+            return;
+        }
 
         uploaded_file = {
-            size: req.body.size,
+            size: size,
             name: filename,
             mimetype,
             stream,
