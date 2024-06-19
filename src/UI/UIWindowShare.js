@@ -1,6 +1,6 @@
 import UIWindow from './UIWindow.js'
 
-async function UIWindowShare(items){
+async function UIWindowShare(items, recipient){
     return new Promise(async (resolve) => {
         let h = '';
         h += `<div style="padding: 30px 40px 20px; border-bottom: 1px solid #ced7e1;">`;
@@ -10,7 +10,7 @@ async function UIWindowShare(items){
             h += `<img src="${items[0].icon}" style="width:70px; height:70px; display: block; margin: 10px auto 0;">`;
 
             // name
-            h += `<h2 style="font-size: 17px; margin-top:0; text-align:center; margin-bottom: 40px; font-weight: 400; color: #303d49; text-shadow: 1px 1px white;">${items.length > 1 ? `Share ${items.length} items` : `${items[0].name}`}</h2>`;
+            h += `<h2 style="font-size: 17px; margin-top:0; text-align:center; margin-bottom: 40px; font-weight: 400; color: #303d49; text-shadow: 1px 1px white;">${items.length > 1 ? `Share ${items.length} items` : `${html_encode(items[0].name)}`}</h2>`;
 
             // form
             h += `<form class="window-give-item-access-form">`;
@@ -21,9 +21,9 @@ async function UIWindowShare(items){
                     h += `<label style="font-size: 16px; font-weight: 600;">Share with:</label>`;
                     h += `<div style="display: flex;">`;
                         // Username/email
-                        h += `<input placeholder="username" class="access-recipient" style="border-right: none; margin-bottom: 10px; border-top-right-radius: 0; border-bottom-right-radius: 0;" type="text" autocomplete="recipient_email_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
+                        h += `<input placeholder="username" class="access-recipient" value="${html_encode(recipient ?? '')}" style="border-right: none; margin-bottom: 10px; border-top-right-radius: 0; border-bottom-right-radius: 0;" type="text" autocomplete="recipient_email_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                         // Share
-                        h += `<button class="give-access-btn button button-primary button-normal" style="border-top-left-radius: 0; border-bottom-left-radius: 0;" disabled>Share</button>`
+                        h += `<button class="give-access-btn button button-primary button-normal" style="border-top-left-radius: 0; border-bottom-left-radius: 0;" ${!recipient ? 'disabled' : ''}>Share</button>`
                     h += `</div>`;                
                 h += `</div>`;
             h += `</form>`;
@@ -127,7 +127,7 @@ async function UIWindowShare(items){
                 $(el_window).find('.share-recipients').append(`${perm_list}`);                  
             }).
             catch((err) => {
-                console.error(err);
+                // console.error(err);
             })
         }
 
