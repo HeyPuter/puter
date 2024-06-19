@@ -1,3 +1,5 @@
+const BaseService = require("./BaseService");
+
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -16,12 +18,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-class ParameterService {
-    constructor({ services }) {
-        this.log = services.get('log-service').create('params');
+class ParameterService extends BaseService {
+    _construct () {
         this.parameters_ = [];
-
-        this._registerCommands(services.get('commands'));
+    }
+    
+    _init () {
+        this._registerCommands(this.services.get('commands'));
     }
 
     createParameters(serviceName, parameters, opt_instance) {
