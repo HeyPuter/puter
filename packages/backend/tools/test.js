@@ -1,12 +1,40 @@
 const { AdvancedBase } = require("@heyputer/puter-js-common");
+const useapi = require("useapi");
+const { BaseService } = require("../exports");
 const CoreModule = require("../src/CoreModule");
 const { Context } = require("../src/util/context");
+
+class TestLogger {
+    constructor () {
+        console.log(
+            `\x1B[36;1mBoot logger started :)\x1B[0m`,
+        );
+    }
+    info (...args) {
+        console.log(
+            '\x1B[36;1m[TESTKERNEL/INFO]\x1B[0m',
+            ...args,
+        );
+    }
+    error (...args) {
+        console.log(
+            '\x1B[31;1m[TESTKERNEL/ERROR]\x1B[0m',
+            ...args,
+        );
+    }
+}
 
 class TestKernel extends AdvancedBase {
     constructor () {
         super();
 
         this.modules = [];
+        this.useapi = useapi();
+
+        this.useapi.withuse(() => {
+            def('Module', AdvancedBase)
+            def('Service', BaseService)
+        });
 
         this.logfn_ = (...a) => a;
     }
@@ -24,13 +52,16 @@ class TestKernel extends AdvancedBase {
         });
 
         const { Container } = require('../src/services/Container');
+        
+        this.testLogger = new TestLogger();
 
-        const services = new Container();
+        const services = new Container({ logger: this.testLogger });
         this.services = services;
         // app.set('services', services);
 
         const root_context = Context.create({
             services,
+            useapi: this.useapi,
         }, 'app');
         globalThis.root_context = root_context;
 
