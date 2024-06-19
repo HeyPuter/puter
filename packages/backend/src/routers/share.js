@@ -491,7 +491,7 @@ const v0_2 = async (req, res) => {
             title: 'Files were shared with you!',
             template: 'file-shared-with-you',
             fields: {
-                username,
+                username: actor.type.user.username,
                 files,
             },
             text: `The user ${quot(req.user.username)} shared ` +
