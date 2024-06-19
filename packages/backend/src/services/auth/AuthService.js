@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Actor, UserActorType, AppUnderUserActorType, AccessTokenActorType } = require("./Actor");
+const { Actor, UserActorType, AppUnderUserActorType, AccessTokenActorType, SiteActorType } = require("./Actor");
 const BaseService = require("../BaseService");
 const { get_user, get_app } = require("../../helpers");
 const { Context } = require("../../util/context");
@@ -130,6 +130,17 @@ class AuthService extends BaseService {
                 type: actor_type,
             });
         }
+        
+        if ( decoded.type === 'actor-site' ) {
+            const site_uid = decoded.site_uid;
+            const svc_puterSite = this.services.get('puter-site');
+            const site =
+                await svc_puterSite.get_subdomain_by_uid(site_uid);
+            return Actor.create(SiteActorType, {
+                site,
+                iat: decoded.iat,
+            });
+        }
 
         throw APIError.create('token_auth_failed');
     }
@@ -157,6 +168,20 @@ class AuthService extends BaseService {
             this.global_config.jwt_secret,
         );
 
+        return token;
+    }
+    
+    get_site_app_token ({ site_uid }) {
+        const token = this.modules.jwt.sign(
+            {
+                type: 'actor-site',
+                version: '0.0.0',
+                site_uid,
+            },
+            this.global_config.jwt_secret,
+            { expiresIn: '1h' },
+        );
+        
         return token;
     }
 
