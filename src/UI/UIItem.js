@@ -55,7 +55,7 @@ function UIItem(options){
     options.is_shortcut = options.is_shortcut ?? 0;
     options.is_trash = options.is_trash ?? false;
     options.metadata = options.metadata ?? '';
-    options.multiselectable = options.multiselectable ?? true;
+    options.multiselectable = (options.multiselectable === undefined || options.multiselectable === true) ? true : false;
     options.shortcut_to = options.shortcut_to ?? '';
     options.shortcut_to_path = options.shortcut_to_path ?? '';
     options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? 0 : 1);

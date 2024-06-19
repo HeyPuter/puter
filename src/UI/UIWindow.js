@@ -99,7 +99,7 @@ async function UIWindow(options) {
     options.show_minimize_button = options.show_minimize_button ?? true;
     options.on_close = options.on_close ?? undefined;
     options.parent_uuid = options.parent_uuid ?? null;
-    options.selectable_body = options.selectable_body ?? true;
+    options.selectable_body = (options.selectable_body === undefined || options.selectable_body === true) ? true : false;
     options.show_in_taskbar = options.show_in_taskbar ?? true;
     options.show_maximize_button = options.show_maximize_button ?? true;
     options.single_instance = options.single_instance ?? false;
