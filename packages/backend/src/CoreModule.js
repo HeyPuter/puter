@@ -156,6 +156,16 @@ const install = async ({ services, app, useapi }) => {
             MaxLimitES, { max: 5000 },
         ]),
     });
+
+    const { ParameterService } = require('./services/ParameterService');
+    services.registerService('params', ParameterService);
+
+    const { InformationService } = require('./services/information/InformationService');
+    services.registerService('information', InformationService)
+    
+    const { FilesystemService } = require('./filesystem/FilesystemService');
+    services.registerService('filesystem', FilesystemService);
+
     services.registerService('es:subdomain', EntityStoreService, {
         entity: 'subdomain',
         upstream: ESBuilder.create([
@@ -263,9 +273,7 @@ const install = async ({ services, app, useapi }) => {
 
 const install_legacy = async ({ services }) => {
     const { ProcessEventService } = require('./services/runtime-analysis/ProcessEventService');
-    const { ParameterService } = require('./services/ParameterService');
-    const { InformationService } = require('./services/information/InformationService');
-    const { FilesystemService } = require('./filesystem/FilesystemService');
+    // const { FilesystemService } = require('./filesystem/FilesystemService');
     const PerformanceMonitor = require('./monitor/PerformanceMonitor');
     const { OperationTraceService } = require('./services/OperationTraceService');
     const { WSPushService } = require('./services/WSPushService');
@@ -277,9 +285,7 @@ const install_legacy = async ({ services }) => {
 
     // === Services which do not yet extend BaseService ===
     services.registerService('process-event', ProcessEventService);
-    services.registerService('params', ParameterService);
-    services.registerService('information', InformationService)
-    services.registerService('filesystem', FilesystemService);
+    // services.registerService('filesystem', FilesystemService);
     services.registerService('operationTrace', OperationTraceService);
     services.registerService('__event-push-ws', WSPushService);
     services.registerService('referral-code', ReferralCodeService);

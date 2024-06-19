@@ -38,8 +38,9 @@ const { PermissionUtil, PermissionRewriter, PermissionImplicator, PermissionExpl
 const { DB_WRITE } = require("../services/database/consts");
 const { UserActorType } = require('../services/auth/Actor');
 const { get_user } = require('../helpers');
+const BaseService = require('../services/BaseService');
 
-class FilesystemService extends AdvancedBase {
+class FilesystemService extends BaseService {
     static MODULES = {
         _path: require('path'),
         uuidv4: require('uuid').v4,
@@ -47,11 +48,11 @@ class FilesystemService extends AdvancedBase {
         config: require('../config.js'),
     }
 
-    constructor (args) {
-        super(args);
+    old_constructor (args) {
+        // super(args);
         const { services } = args;
 
-        this.services = services;
+        // this.services = services;
 
         services.registerService('resourceService', ResourceService);
         services.registerService('sizeService', SizeService);
@@ -101,13 +102,10 @@ class FilesystemService extends AdvancedBase {
                 return result;
             }
         }
-
-        // TODO: eventually FilesystemService will extend BaseService
-        // and _init() will be called (and awaited) automatically
-        this._init();
     }
 
     async _init () {
+        this.old_constructor({ services: this.services });
         const svc_permission = this.services.get('permission');
         svc_permission.register_rewriter(PermissionRewriter.create({
             matcher: permission => {
