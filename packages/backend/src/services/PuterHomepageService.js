@@ -75,6 +75,8 @@ class PuterHomepageService extends BaseService {
                 app_name_regex: config.app_name_regex,
                 app_name_max_length: config.app_name_max_length,
                 app_title_max_length: config.app_title_max_length,
+                hosting_domain: config.static_hosting_domain +
+                    (config.pub_port !== 80 && config.pub_port !== 443 ? ':' + config.pub_port : ''),
                 subdomain_regex: config.subdomain_regex,
                 subdomain_max_length: config.subdomain_max_length,
                 domain: config.domain,
