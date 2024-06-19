@@ -118,6 +118,7 @@ async function UIDesktop(options){
             title: notification.title,
             text: notification.text,
             icon: icon,
+            value: notification,
             close: async () => {
                 await fetch(`${window.api_origin}/notif/mark-ack`, {
                     method: 'POST',
@@ -127,6 +128,18 @@ async function UIDesktop(options){
                     },
                     body: JSON.stringify({ uid }),
                 });
+            },
+            click: async (notif) => {
+                if(notification.template === "file-shared-with-you"){
+                    let item_path = '/' + notification.fields.username;
+                    UIWindow({
+                        path: '/' + notification.fields.username,
+                        title: path.basename(item_path),
+                        icon: await window.item_icon({is_dir: true, path: item_path}),
+                        is_dir: true,
+                        app: 'explorer',
+                    });
+                }
             },
         });
     });
