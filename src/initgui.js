@@ -186,11 +186,35 @@ window.initgui = async function(options){
     // will hold the result of the whoami API call
     let whoami;
 
+    const url_paths = window.location.pathname.split('/').filter(element => element);
+    //--------------------------------------------------------------------------------------
+    // Trying to view a user's public folder?
+    // i.e. https://puter.com/@<username>
+    //--------------------------------------------------------------------------------------
+    if(url_paths[0]?.startsWith('@')){
+        let username = url_paths[0].substring(1);
+        let item_path = '/' + username + '/Public';
+
+        // check if username has valid characters
+        if(!username.match(/^[a-z0-9_]+$/i)){
+            UIAlert({
+                message: 'Invalid username.'
+            });
+        }else{
+            UIWindow({
+                path: item_path,
+                title: path.basename(item_path),
+                icon: await window.item_icon({is_dir: true, path: item_path}),
+                is_dir: true,
+                app: 'explorer',
+            });
+        }
+    }
+
     //--------------------------------------------------------------------------------------
     // Determine if an app was launched from URL
     // i.e. https://puter.com/app/<app_name>
     //--------------------------------------------------------------------------------------
-    const url_paths = window.location.pathname.split('/').filter(element => element);
     if(url_paths[0]?.toLocaleLowerCase() === 'app' && url_paths[1]){
         window.app_launched_from_url = url_paths[1];
 

@@ -274,7 +274,7 @@ router.all('*', async function(req, res, next) {
             app_title = config.title;
 
             // /action/
-            if(path.startsWith('/action/')){
+            if(path.startsWith('/action/') || path.startsWith('/@')){
                 path = '/';
             }
             // /app/
