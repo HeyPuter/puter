@@ -1744,6 +1744,7 @@ async function UIWindow(options) {
             minWidth: 200,
             minHeight: 200,
             start: function(){
+                window.a_window_is_resizing = true;
                 $(el_window_app_iframe).css('pointer-events', 'none');
                 $('.window').css('pointer-events', 'none');
             },
@@ -1775,6 +1776,7 @@ async function UIWindow(options) {
                 }
             },
             stop: function () {
+                window.a_window_is_resizing = false;
                 $(el_window_app_iframe).css('pointer-events', 'all');
                 $('.window').css('pointer-events', 'initial');
                 $(el_window_sidebar).resizable("option", "maxWidth", el_window.getBoundingClientRect().width/2);
@@ -1790,6 +1792,9 @@ async function UIWindow(options) {
         })
     }
 
+    // --------------------------------------------------------
+    // Sidebar Resizable
+    // --------------------------------------------------------
     let side = $(el_window).find('.window-sidebar')
     side.resizable({
         handles: "e,w",
