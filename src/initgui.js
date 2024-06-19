@@ -286,6 +286,16 @@ window.initgui = async function(options){
 
         }
     }
+    
+    //--------------------------------------------------------------------------------------
+    // Display an error if the query parameters have an error
+    //--------------------------------------------------------------------------------------
+    if ( window.url_query_params.has('error') ) {
+        // TODO: i18n
+        await UIAlert({
+            message: window.url_query_params.get('message')
+        });
+    }
 
     //--------------------------------------------------------------------------------------
     // Get user referral code from URL query params
