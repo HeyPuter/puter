@@ -17,28 +17,28 @@ async function UIWindowShare(items, recipient){
                 // 2 items shared
                 else if(items.length === 2){
                     h += `<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 2;">`;
-                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -10px; z-index:1;">`;
+                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -10px; z-index:1; transform:scale(0.8);">`;
                 }
                 // 3 items shared
                 else if(items.length === 3){
                     h += `<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 3;">`;
-                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -10px; z-index:2;">`;
-                    h += `<img src="${items[2].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -20px; z-index:1;">`;
+                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -10px; z-index:2; transform:scale(0.8);">`;
+                    h += `<img src="${items[2].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -20px; z-index:1; transform:scale(0.6);">`;
                 }
                 // 4 items shared
                 else if(items.length === 4){
                     h += `<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 4;">`;
-                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -15px; z-index:3; transform:scale(0.9);">`;
-                    h += `<img src="${items[2].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -25px; z-index:2; transform:scale(0.7);">`;
-                    h += `<img src="${items[3].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -35px; z-index:1; transform:scale(0.5);">`;
+                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -15px; z-index:3; transform:scale(0.8);">`;
+                    h += `<img src="${items[2].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -25px; z-index:2; transform:scale(0.6);">`;
+                    h += `<img src="${items[3].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -35px; z-index:1; transform:scale(0.4);">`;
                 }
                 // 5 items shared
                 else if(items.length >= 5){
                     h += `<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 5;">`;
-                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -10px; z-index:4; transform:scale(0.9);">`;
-                    h += `<img src="${items[2].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -20px; z-index:3; transform:scale(0.7);">`;
-                    h += `<img src="${items[3].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -30px; z-index:2; transform:scale(0.5);">`;
-                    h += `<img src="${items[4].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -40px; z-index:1; transform:scale(0.3);">`;
+                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -15px; z-index:4; transform:scale(0.8);">`;
+                    h += `<img src="${items[2].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -25px; z-index:3; transform:scale(0.6);">`;
+                    h += `<img src="${items[3].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -35px; z-index:2; transform:scale(0.4);">`;
+                    h += `<img src="${items[4].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -45px; z-index:1; transform:scale(0.2);">`;
                 }
 
             h += `</div>`;
