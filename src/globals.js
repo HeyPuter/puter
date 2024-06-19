@@ -82,6 +82,7 @@ if(window.user !== undefined && window.user !== null){
     window.pictures_path = '/' + window.user.username + '/Photos';
     window.videos_path = '/' + window.user.username + '/Videos';
     window.audio_path = '/' + window.user.username + '/Audio';
+    window.public_path = '/' + window.user.username + '/Public';
     window.home_path = '/' + window.user.username;
 }
 window.root_dirname = 'Puter';

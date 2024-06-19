@@ -698,6 +698,8 @@ window.item_icon = async (fsentry)=>{
             return { image: window.icons['folder-videos.svg'], type: 'icon' };
         else if (fsentry.path === window.desktop_path)
             return { image: window.icons['folder-desktop.svg'], type: 'icon' };
+        else if (fsentry.path === window.public_path)
+            return { image: window.icons['folder-public.svg'], type: 'icon' };
         // regular directories
         else
             return {image: window.icons['folder.svg'], type: 'icon'};

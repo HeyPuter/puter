@@ -264,6 +264,7 @@ async function UIWindow(options) {
                 h += `<h2 class="window-sidebar-title disable-user-select">Favorites</h2>`;
                 h += `<div draggable="false" title="Home" class="window-sidebar-item disable-user-select ${options.path === window.home_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.home_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-home.svg'])}">Home</div>`;
                 h += `<div draggable="false" title="Documents" class="window-sidebar-item disable-user-select ${options.path === window.docs_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.docs_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-documents.svg'])}">Documents</div>`;
+                h += `<div draggable="false" title="Public" class="window-sidebar-item disable-user-select ${options.path === window.public_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.public_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-public.svg'])}">Public</div>`;
                 h += `<div draggable="false" title="Pictures" class="window-sidebar-item disable-user-select ${options.path === window.pictures_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.pictures_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-pictures.svg'])}">Pictures</div>`;
                 h += `<div draggable="false" title="Desktop" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-desktop.svg'])}">Desktop</div>`;
                 h += `<div draggable="false" title="Videos" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-videos.svg'])}">Videos</div>`;
@@ -1020,7 +1021,7 @@ async function UIWindow(options) {
                                     data-path="${shared_user.path}"
                                     title="${html_encode(shared_user.name)}"
                                     data-is_shared="1">
-                                        <img class="window-sidebar-item-icon" src="${html_encode(window.icons['shared.svg'])}">${shared_user.name}
+                                        <img class="window-sidebar-item-icon" src="${html_encode(window.icons['shared-outline.svg'])}">${shared_user.name}
                                     </div>`;  
                     }
                 }
@@ -2678,6 +2679,9 @@ window.update_window_path = async function(el_window, target_path){
         }else if (target_path === window.docs_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-documents.svg']);
             $(el_window).find('.window-head-title').text('Documents')
+        }else if (target_path === window.public_path){
+            $(el_window).find('.window-head-icon').attr('src', window.icons['folder-public.svg']);
+            $(el_window).find('.window-head-title').text('Public')
         }else if (target_path === window.videos_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-videos.svg']);
             $(el_window).find('.window-head-title').text('Videos')
