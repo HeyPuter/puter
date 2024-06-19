@@ -165,6 +165,14 @@ module.exports = class FSNodeContext {
         return ! this.entry.parent_uid;
     }
     
+    async isPublic () {
+        if ( this.isRoot ) return false;
+        const components = await this.getPathComponents();
+        if ( await this.isUserDirectory() ) return false;
+        if ( components[1] === 'Public' ) return true;
+        return false;
+    }
+    
     async getPathComponents () {
         if ( this.isRoot ) return [];
         

@@ -1433,10 +1433,12 @@ async function generate_system_fsentries(user){
     let documents_uuid = uuidv4();
     let pictures_uuid = uuidv4();
     let videos_uuid = uuidv4();
+    let public_uuid = uuidv4();
 
     const insert_res = await db.write(
         `INSERT INTO fsentries
         (uuid, parent_uid, user_id, name, path, is_dir, created, modified, immutable) VALUES
+        (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
         (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
         (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
         (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
@@ -1457,6 +1459,8 @@ async function generate_system_fsentries(user){
             pictures_uuid, root_dir.uid, user.id, 'Pictures', `/${user.username}/Pictures`, ts, ts,
             // Videos
             videos_uuid, root_dir.uid, user.id, 'Videos', `/${user.username}/Videos`, ts, ts,
+            // Public
+            public_uuid, root_dir.uid, user.id, 'Public', `/${user.username}/Public`, ts, ts,
         ]
     );
 
@@ -1467,6 +1471,7 @@ async function generate_system_fsentries(user){
     let documents_id = insert_res.insertId + 3;
     let pictures_id = insert_res.insertId + 4;
     let videos_id = insert_res.insertId + 5;
+    let public_id = insert_res.insertId + 6;
 
     // Asynchronously set the user's system folders uuids in database
     // This is for caching purposes, so we don't have to query the DB every time we need to access these folders
@@ -1476,13 +1481,13 @@ async function generate_system_fsentries(user){
     // (IIAFE manager doesn't exist yet, hence this is a TODO)
     db.write(
         `UPDATE user SET
-        trash_uuid=?, appdata_uuid=?, desktop_uuid=?, documents_uuid=?, pictures_uuid=?, videos_uuid=?,
-        trash_id=?, appdata_id=?, desktop_id=?, documents_id=?, pictures_id=?, videos_id=?
+        trash_uuid=?, appdata_uuid=?, desktop_uuid=?, documents_uuid=?, pictures_uuid=?, videos_uuid=?, public_uuid=?,
+        trash_id=?, appdata_id=?, desktop_id=?, documents_id=?, pictures_id=?, videos_id=?, public_id=?
 
         WHERE id=?`,
         [
-            trash_uuid, appdata_uuid, desktop_uuid, documents_uuid, pictures_uuid, videos_uuid,
-            trash_id, appdata_id, desktop_id, documents_id, pictures_id, videos_id,
+            trash_uuid, appdata_uuid, desktop_uuid, documents_uuid, pictures_uuid, videos_uuid, public_uuid,
+            trash_id, appdata_id, desktop_id, documents_id, pictures_id, videos_id, public_id,
             user.id
         ]
     );
