@@ -161,6 +161,7 @@ class DevLogger {
     constructor (log, opt_delegate) {
         this.log = log;
         this.off = false;
+        this.recto = null;
 
         if ( opt_delegate ) {
             this.delegate = opt_delegate;
@@ -179,10 +180,18 @@ class DevLogger {
         const prefix = globalThis.dev_console_indent_on
             ? Array(ld ?? 0).fill('    ').join('')
             : '';
-        this.log(stringify_log_entry({
+        this.log_(stringify_log_entry({
             prefix,
             log_lvl, crumbs, message, fields, objects,
         }));
+    }
+    
+    log_ (text) {
+        if ( this.recto ) {
+            const fs = require('node:fs');
+            fs.appendFileSync(this.recto, text + '\n');
+        }
+        this.log(text);
     }
 }
 
@@ -289,6 +298,28 @@ class LogService extends BaseService {
                 description: 'toggle log output',
                 handler: async (args, log) => {
                     this.devlogger && (this.devlogger.off = ! this.devlogger.off);
+                }
+            },
+            {
+                id: 'rec',
+                description: 'start recording to a file via dev logger',
+                handler: async (args, ctx) => {
+                    const [name] = args;
+                    const {log} = ctx;
+                    if ( ! this.devlogger ) {
+                        log('no dev logger; what are you doing?');
+                    }
+                    this.devlogger.recto = name;
+                }
+            },
+            {
+                id: 'stop',
+                description: 'stop recording to a file via dev logger',
+                handler: async ([name], log) => {
+                    if ( ! this.devlogger ) {
+                        log('no dev logger; what are you doing?');
+                    }
+                    this.devlogger.recto = null;
                 }
             },
             {
