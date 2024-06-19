@@ -1066,6 +1066,7 @@ async function UIWindow(options) {
                         
                         // first item
                         items_to_share.push({
+                            uid: $(ui.draggable).attr('data-uid'),
                             path: $(ui.draggable).attr('data-path'),
                             icon: $(ui.draggable).find('.item-icon img').attr('src'),
                             name: $(ui.draggable).find('.item-name').text(),
@@ -1077,6 +1078,7 @@ async function UIWindow(options) {
                             const source_item = document.getElementById('item-' + $(cloned_items[i]).attr('data-id'));
                             if(!source_item) continue;
                             items_to_share.push({
+                                uid: $(source_item).attr('data-uid'),
                                 path: $(source_item).attr('data-path'),
                                 icon: $(source_item).find('.item-icon img').attr('src'),
                                 name: $(source_item).find('.item-name').text(),
