@@ -20,7 +20,7 @@ const { get_user, get_app } = require("../../helpers");
 const { Context } = require("../../util/context");
 const BaseService = require("../BaseService");
 const { DB_WRITE } = require("../database/consts");
-const { UserActorType, Actor, AppUnderUserActorType, AccessTokenActorType } = require("./Actor");
+const { UserActorType, Actor, AppUnderUserActorType, AccessTokenActorType, SiteActorType } = require("./Actor");
 
 const default_implicit_user_app_permissions = {
     'driver:helloworld:greet': {},
@@ -214,13 +214,15 @@ class PermissionUtil {
 }
 
 class PermissionService extends BaseService {
-    async _init () {
-        this.db = this.services.get('database').get(DB_WRITE, 'permissions');
-        this._register_commands(this.services.get('commands'));
-
+    _construct () {
         this._permission_rewriters = [];
         this._permission_implicators = [];
         this._permission_exploders = [];
+    }
+
+    async _init () {
+        this.db = this.services.get('database').get(DB_WRITE, 'permissions');
+        this._register_commands(this.services.get('commands'));
     }
 
     async _rewrite_permission (permission) {
@@ -292,6 +294,12 @@ class PermissionService extends BaseService {
 
             return await this.check_user_app_permission(actor, app_uid, permission);
         }
+        
+        if ( actor.type instanceof SiteActorType ) {
+            return await this.check_site_permission(actor, permission);
+        }
+        
+        console.log ('WHAT ACTOR TYPE THEN???', actor.type);
 
         throw new Error('unrecognized actor type');
     }
@@ -420,6 +428,29 @@ class PermissionService extends BaseService {
         if ( ! rows[0] ) return undefined;
 
         return rows[0].extra;
+    }
+    
+    async check_site_permission (actor, permission) {
+        permission = await this._rewrite_permission(permission);
+        // const parent_perms = this.get_parent_permissions(permission);
+        const parent_perms = await this.get_higher_permissions(permission);
+
+        // Check implicit permissions
+        for ( const parent_perm of parent_perms ) {
+            if ( implicit_user_permissions[parent_perm] ) {
+                return implicit_user_permissions[parent_perm];
+            }
+        }
+
+        for ( const implicator of this._permission_implicators ) {
+            if ( ! implicator.matches(permission) ) continue;
+            const implied = await implicator.check({
+                actor,
+                permission,
+                recurse: this.check.bind(this),
+            });
+            if ( implied ) return implied;
+        }
     }
 
     async grant_user_app_permission (actor, app_uid, permission, extra = {}, meta) {

@@ -24,7 +24,7 @@ const { Context } = require("../../util/context");
 const { NodeInternalIDSelector, NodePathSelector } = require("../../filesystem/node/selectors");
 const { TYPE_DIRECTORY } = require("../../filesystem/FSNodeContext");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
-const { Actor, UserActorType } = require("../../services/auth/Actor");
+const { Actor, UserActorType, SiteActorType } = require("../../services/auth/Actor");
 const APIError = require("../../api/APIError");
 
 class PuterSiteMiddleware extends AdvancedBase {
@@ -145,14 +145,60 @@ class PuterSiteMiddleware extends AdvancedBase {
             await target_node.get('name')
         );
         res.set('Content-Type', contentType);
+        
+        const acl_config = {
+            no_acl: true,
+            actor: null,
+        };
+        
+        if ( site.protected ) {
+            const svc_auth = req.services.get('auth');
+            const token = req.query['puter.auth.token'];
+
+            acl_config.no_acl = false;
+            
+            if ( ! token ) {
+                const e = APIError.create('token_missing');
+                return this.respond_error_({ req, res, e });
+            }
+            
+            const app_actor =
+                await svc_auth.authenticate_from_token(token);
+                
+            const user_actor =
+                app_actor.get_related_actor(UserActorType);
+            
+            const svc_permission = req.services.get('permission');
+            const perm = await (async () => {
+                if ( user_actor.type.user.id === site.user_id ) {
+                    return {};
+                }
+                    
+                return await svc_permission.check(
+                    user_actor, `site:uid#${site.uuid}:access`
+                );
+            })();
+            
+            if ( ! perm ) {
+                const e = APIError.create('forbidden');
+                return this.respond_error_({ req, res, e });
+            }
+            
+            const site_actor = await Actor.create(SiteActorType, { site });
+            acl_config.actor = site_actor;
+            
+            console.log('THE SITE ACTOR?', site_actor);
+
+            Object.freeze(acl_config);
+        }
 
         const ll_read = new LLRead();
+        // const actor = Actor.adapt(req.user);
+        console.log('what user?', req.user);
+        console.log('what actor?', acl_config.actor);
         const stream = await ll_read.run({
-            no_acl: true,
-            actor: new Actor({
-                user_uid: req.user ? req.user.uuid : null,
-                type: new UserActorType({ user: req.user }),
-            }),
+            no_acl: acl_config.no_acl,
+            actor: acl_config.actor,
             fsNode: target_node,
         });
 
@@ -188,6 +234,19 @@ class PuterSiteMiddleware extends AdvancedBase {
         res.write('</div>');
 
         return res.end();
+    }
+    
+    respond_error_ ({ req, res, e }) {
+        if ( ! (e instanceof APIError) ) {
+            // TODO: alarm here
+            e = APIError.create('unknown_error');
+        }
+        
+        res.redirect(`${config.origin}?${e.querystringize({
+            ...(req.query['puter.app_instance_id'] ? {
+                ['error_from_within_iframe']: true,
+            } : {})
+        })}`);
     }
 }
 
