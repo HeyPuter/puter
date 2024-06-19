@@ -317,7 +317,7 @@ router.all('*', async function(req, res, next) {
             // index.js
             if(path === '/'){
                 const svc_puterHomepage = Context.get('services').get('puter-homepage');
-                return svc_puterHomepage.send(res, {
+                return svc_puterHomepage.send({ req, res }, {
                     title: app_title,
                     description: description || config.short_description,
                     short_description: config.short_description,

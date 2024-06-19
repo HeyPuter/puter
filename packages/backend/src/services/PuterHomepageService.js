@@ -32,8 +32,28 @@ class PuterHomepageService extends BaseService {
         this.service_scripts.push(url);
     }
 
-    async send (res, meta, launch_options) {
+    async send ({ req, res }, meta, launch_options) {
         const config = this.global_config;
+        
+        if (
+            req.query['puter.app_instance_id'] ||
+            req.query['error_from_within_iframe']
+        ) {
+            const easteregg = [
+                'puter in puter?',
+                'Infinite recursion!',
+                'what\'chu cookin\'?',
+            ];
+            const message = req.query.message ||
+                easteregg[
+                    Math.floor(Math.random(easteregg.length))
+                ];
+
+            return res.send(this.generate_error_html({
+                message,
+            }));
+        }
+        
         return res.send(this.generate_puter_page_html({
             env: config.env,
 
@@ -271,6 +291,38 @@ class PuterHomepageService extends BaseService {
 
     </html>`;
     };
+    
+    generate_error_html ({ message }) {
+        return `
+            <!DOCTYPE html>
+            <html>
+                <head>
+                    <style type="text/css">
+                        @font-face {
+                            font-family: 'Inter';
+                            src: url('/fonts/Inter-Thin.ttf') format('truetype');
+                            font-weight: 100;
+                        }
+                        BODY {
+                            box-sizing: border-box;
+                            margin: 0;
+                            height: 100vh;
+                            width: 100vw;
+                            background-color: #2f70ab;
+                            color: #f2f7f7;
+                            font-family: "Inter", "Helvetica Neue", HelveticaNeue, Helvetica, Arial, sans-serif;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <h1>${message}</h1>
+                </body>
+            </html>
+        `;
+    }
 }
 
 module.exports = {

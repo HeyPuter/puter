@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { URLSearchParams } = require("node:url");
 const { quot } = require("../util/strutil");
 
 /**
@@ -516,6 +517,24 @@ module.exports = class APIError {
             $: 'heyputer:api/APIError',
             message: this.message,
             status: this.status,
+        };
+    }
+    
+    querystringize (extra) {
+        return new URLSearchParams(this.querystringize_(extra));
+    }
+    
+    querystringize_ (extra) {
+        const fields = {};
+        for ( const k in this.fields ) {
+            fields[`field_${k}`] = this.fields[k];
+        }
+        return {
+            ...extra,
+            error: true,
+            message: this.message,
+            status: this.status,
+            ...fields,
         };
     }
 
