@@ -314,7 +314,11 @@ class WebServerService extends BaseService {
         // Validate host header against allowed domains to prevent host header injection
         // https://www.owasp.org/index.php/Host_Header_Injection
         app.use((req, res, next)=>{
-            const allowedDomains = [config.domain.toLowerCase(), config.static_hosting_domain.toLowerCase()];
+            const allowedDomains = [
+                config.domain.toLowerCase(),
+                config.static_hosting_domain.toLowerCase(),
+                'at.' + config.static_hosting_domain.toLowerCase(),
+            ];
 
             // Retrieve the Host header and ensure it's in a valid format
             const hostHeader = req.headers.host;

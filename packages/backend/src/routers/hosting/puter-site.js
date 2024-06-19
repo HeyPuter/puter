@@ -27,10 +27,13 @@ const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Actor, UserActorType, SiteActorType } = require("../../services/auth/Actor");
 const APIError = require("../../api/APIError");
 
+const AT_DIRECTORY_NAMESPACE = '4aa6dc52-34c1-4b8a-b63c-a62b27f727cf';
+
 class PuterSiteMiddleware extends AdvancedBase {
     static MODULES = {
         path: require('path'),
         mime: require('mime-types'),
+        uuidv5: require('uuid').v5,
     }
     install (app) {
         app.use(this.run.bind(this));
@@ -66,9 +69,39 @@ class PuterSiteMiddleware extends AdvancedBase {
 
         const context = Context.get();
         const services = context.get('services');
+        
+        const get_username_site = (async () => {
+            if ( ! subdomain.endsWith('.at') ) return;
+            const parts = subdomain.split('.');
+            if ( parts.length !== 2 ) return;
+            const username = parts[0];
+            if ( ! username.match(config.username_regex) ) {
+                return;
+            }
+            const svc_fs = services.get('filesystem');
+            const index_node = await svc_fs.node(new NodePathSelector(
+                `/${username}/Public/index.html`
+            ));
+            const node = await svc_fs.node(new NodePathSelector(
+                `/${username}/Public`
+            ));
+            if ( ! await index_node.exists() ) return;
 
-        const svc_puterSite = services.get('puter-site');
-        const site = await svc_puterSite.get_subdomain(subdomain);
+            return {
+                name: username + '.at',
+                uuid: this.modules.uuidv5(username, AT_DIRECTORY_NAMESPACE),
+                root_dir_id: await node.get('mysql-id'),
+            };
+        })
+
+        const site =
+            await get_username_site() ||
+            await (async () => {
+                const svc_puterSite = services.get('puter-site');
+                const site = await svc_puterSite.get_subdomain(subdomain);
+                return site;
+            })();
+
         if ( site === null ) {
             return res.status(404).send('Subdomain not found');
         }

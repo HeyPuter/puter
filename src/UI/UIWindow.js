@@ -337,6 +337,32 @@ async function UIWindow(options) {
             if(options.is_dir){
                 // Detail layout header
                 h += window.explore_table_headers();
+                
+                // Maybe render iframe for users public directory
+                (() => {
+                    if ( options.is_saveFileDialog || options.is_openFileDialog || options.is_directoryPicker ) {
+                        return false;
+                    }
+                    
+                    if ( ! options.path || ! options.path.startsWith('/') ) { // sus
+                        return false;
+                    }
+                    
+                    const components = options.path.slice(1).split('/');
+
+                    console.log('components???', components);
+                    if ( components.length === 2 && components[1] === 'Public' ) {
+                        const username = components[0];
+                        h += `<iframe
+                            style="display:block;width:100%"
+                            tabindex="-1"
+                            frameborder="0"
+                            src="http://${username}.at.${window.hosting_domain}"
+                            height=150
+                            ></iframe>
+                        `;
+                    }
+                })();
 
                 // Add 'This folder is empty' message by default
                 h += `<div class="explorer-empty-message">This folder is empty</div>`;
