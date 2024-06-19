@@ -27,6 +27,7 @@ const { BatchExecutor } = require("../../../filesystem/batch/BatchExecutor");
 const { TeePromise } = require("../../../util/promise");
 const { EWMA, MovingMode } = require("../../../util/opmath");
 const { get_app } = require('../../../helpers');
+const { valid_file_size } = require("../../../util/validutil");
 
 const commands = require('../../../filesystem/batch/commands.js').commands;
 
@@ -189,9 +190,11 @@ module.exports = eggspress('/batch', {
 
             if ( fieldname === 'fileinfo' ) {
                 const fileinfo = JSON.parse(value);
-                if ( fileinfo.size < 0 ) {
+                const { v: size, ok: size_ok } = valid_file_size(fileinfo.size);
+                if ( ! size_ok ) {
                     throw APIError.create('invalid_file_metadata');
                 }
+                fileinfo.size = size;
                 fileinfos.push(fileinfo);
                 return;
             }
