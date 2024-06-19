@@ -28,6 +28,13 @@ const { quot } = require("../util/strutil");
  */
 module.exports = class APIError {
     static codes = {
+        // General
+        'unknown_error': {
+            status: 500,
+            message: () => `An unknown error occurred`,
+        },
+        
+        // Unorganized
         'item_with_same_name_exists': {
             status: 409,
             message: ({ entry_name }) => entry_name

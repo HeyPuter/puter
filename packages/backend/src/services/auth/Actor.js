@@ -182,6 +182,17 @@ class AccessTokenActorType {
     }
 }
 
+class SiteActorType {
+    constructor (o, ...a) {
+        for ( const k in o ) {
+            this[k] = o[k];
+        }
+    }
+    get uid () {
+        return `site:` + this.site.name
+    }
+}
+
 Actor.adapt = function (actor) {
     actor = actor || Context.get('actor');
 
@@ -208,4 +219,5 @@ module.exports = {
     UserActorType,
     AppUnderUserActorType,
     AccessTokenActorType,
+    SiteActorType,
 }
