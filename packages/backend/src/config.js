@@ -51,7 +51,7 @@ config.monitor = {
 
 config.max_subdomains_per_user = 2000;
 config.storage_capacity = 1*1024*1024*1024;
-config.static_hosting_domain = '-static.puter.local';
+config.static_hosting_domain = 'site.puter.localhost';
 
 // Storage limiting is set to false by default
 // Storage available on the mountpoint/drive puter is running is the storage available
