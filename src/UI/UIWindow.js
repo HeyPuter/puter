@@ -1003,6 +1003,33 @@ async function UIWindow(options) {
         if(!window.is_auth() && !(await UIWindowLogin()))
             return;
 
+        // --------------------------------------------------------
+        // SIDEBAR sharing
+        // --------------------------------------------------------
+        if(options.is_dir && !isMobile.phone){
+            puter.fs.readdir('/').then(function(shared_users){
+                let ht = '';
+                if(shared_users && shared_users.length - 1 > 0){
+                    ht += `<h2 class="window-sidebar-title disable-user-select">Shared with me</h2>`;
+                    for (let index = 0; index < shared_users.length; index++) {
+                        const shared_user = shared_users[index];
+                        // don't show current user's folder!
+                        if(shared_user.name === window.user.username)
+                            continue;
+                            ht += `<div  class="window-sidebar-item disable-user-select ${options.path === shared_user.path ? 'window-sidebar-item-active' : ''}" 
+                                    data-path="${shared_user.path}"
+                                    title="${html_encode(shared_user.name)}"
+                                    data-is_shared="1">
+                                        <img class="window-sidebar-item-icon" src="${html_encode(window.icons['shared.svg'])}">${shared_user.name}
+                                    </div>`;  
+                    }
+                }
+                $(el_window).find('.window-sidebar').append(ht);        
+            }).catch(function(err){
+                console.error(err);
+            })
+        }
+
         // get directory content
         refresh_item_container(el_window_body, options);
     }
