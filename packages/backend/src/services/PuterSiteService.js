@@ -103,14 +103,14 @@ class PuterSiteService extends BaseService {
         return rows[0];
     }
 
-    // async get_subdomain_by_uid (uid) {
-    //     const rows = await this.db.read(
-    //         `SELECT * FROM subdomains WHERE uuid = ? LIMIT 1`,
-    //         [uid]
-    //     );
-    //     if ( rows.length === 0 ) return null;
-    //     return rows[0];
-    // }
+    async get_subdomain_by_uid (uid) {
+        const rows = await this.db.read(
+            `SELECT * FROM subdomains WHERE uuid = ? LIMIT 1`,
+            [uid]
+        );
+        if ( rows.length === 0 ) return null;
+        return rows[0];
+    }
 }
 
 module.exports = {

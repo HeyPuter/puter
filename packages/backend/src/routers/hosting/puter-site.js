@@ -153,41 +153,100 @@ class PuterSiteMiddleware extends AdvancedBase {
         
         if ( site.protected ) {
             const svc_auth = req.services.get('auth');
-            const token = req.query['puter.auth.token'];
+            
+            const get_site_actor_from_token = async () => {
+                const site_token = req.cookies['puter.site.token'];
+                if ( ! site_token ) return;
 
-            acl_config.no_acl = false;
-            
-            if ( ! token ) {
-                const e = APIError.create('token_missing');
-                return this.respond_error_({ req, res, e });
-            }
-            
-            const app_actor =
-                await svc_auth.authenticate_from_token(token);
-                
-            const user_actor =
-                app_actor.get_related_actor(UserActorType);
-            
-            const svc_permission = req.services.get('permission');
-            const perm = await (async () => {
-                if ( user_actor.type.user.id === site.user_id ) {
-                    return {};
+                let failed = false;
+                let site_actor;
+                try {
+                    site_actor =
+                        await svc_auth.authenticate_from_token(site_token);
+                } catch (e) {
+                    failed = true;
                 }
+
+                if ( failed ) return;
                     
-                return await svc_permission.check(
-                    user_actor, `site:uid#${site.uuid}:access`
-                );
-            })();
+                if ( ! site_actor ) return;
+
+                // security measure: if 'puter.site.token' is set
+                //   to a different actor type, someone is likely
+                //   trying to exploit the system.
+                if ( ! (site_actor.type instanceof SiteActorType) ) {
+                    return;
+                }
+                
+                acl_config.actor = site_actor;
+                
+                // Refresh the token if it's been 30 seconds since
+                // the last request
+                if (
+                    (Date.now() - site_actor.type.iat*1000)
+                    >
+                    1000*30
+                ) {
+                    const site_token = svc_auth.get_site_app_token({
+                        site_uid: site.uuid,
+                    });
+                    res.cookie('puter.site.token', site_token);
+                }
+                
+                return true;
+            };
             
-            if ( ! perm ) {
-                const e = APIError.create('forbidden');
-                return this.respond_error_({ req, res, e });
+            const make_site_actor_from_app_token = async () => {
+                const token = req.query['puter.auth.token'];
+
+                acl_config.no_acl = false;
+                
+                if ( ! token ) {
+                    const e = APIError.create('token_missing');
+                    return this.respond_error_({ req, res, e });
+                }
+                
+                const app_actor =
+                    await svc_auth.authenticate_from_token(token);
+                    
+                const user_actor =
+                    app_actor.get_related_actor(UserActorType);
+                
+                const svc_permission = req.services.get('permission');
+                const perm = await (async () => {
+                    if ( user_actor.type.user.id === site.user_id ) {
+                        return {};
+                    }
+                        
+                    return await svc_permission.check(
+                        user_actor, `site:uid#${site.uuid}:access`
+                    );
+                })();
+                
+                if ( ! perm ) {
+                    const e = APIError.create('forbidden');
+                    this.respond_error_({ req, res, e });
+                    return false;
+                }
+                
+                const site_actor = await Actor.create(SiteActorType, { site });
+                acl_config.actor = site_actor;
+
+                // This subdomain is allowed to keep the site actor token,
+                // so we send it here as a cookie so other html files can
+                // also load.
+                const site_token = svc_auth.get_site_app_token({
+                    site_uid: site.uuid,
+                });
+                res.cookie('puter.site.token', site_token);
+                return true;
             }
             
-            const site_actor = await Actor.create(SiteActorType, { site });
-            acl_config.actor = site_actor;
-            
-            console.log('THE SITE ACTOR?', site_actor);
+            let ok = await get_site_actor_from_token();
+            if ( ! ok ) {
+                ok = await make_site_actor_from_app_token();
+            }
+            if ( ! ok ) return;
 
             Object.freeze(acl_config);
         }
