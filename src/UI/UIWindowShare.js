@@ -6,11 +6,51 @@ async function UIWindowShare(items, recipient){
         h += `<div style="padding: 30px 40px 20px; border-bottom: 1px solid #ced7e1;">`;
             h += `<div class="qr-code-window-close-btn generic-close-window-button" style="margin: 5px;"> &times; </div>`;
 
-            // icon
-            h += `<img src="${items[0].icon}" style="width:70px; height:70px; display: block; margin: 10px auto 0;">`;
+            //------------------------------------------------
+            // Icon
+            //------------------------------------------------
+            
+            // 1 item shared
+            h += `<div style="display:flex; justify-content: center; margin-bottom: 10px;">`;
+                if(items.length === 1)
+                    h += `<img src="${items[0].icon}" style="width:70px; height:70px;">`;
+                // 2 items shared
+                else if(items.length === 2){
+                    h += `<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 2;">`;
+                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -10px; z-index:1;">`;
+                }
+                // 3 items shared
+                else if(items.length === 3){
+                    h += `<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 3;">`;
+                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -10px; z-index:2;">`;
+                    h += `<img src="${items[2].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -20px; z-index:1;">`;
+                }
+                // 4 items shared
+                else if(items.length === 4){
+                    h += `<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 4;">`;
+                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -15px; z-index:3; transform:scale(0.9);">`;
+                    h += `<img src="${items[2].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -25px; z-index:2; transform:scale(0.7);">`;
+                    h += `<img src="${items[3].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -35px; z-index:1; transform:scale(0.5);">`;
+                }
+                // 5 items shared
+                else if(items.length >= 5){
+                    h += `<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 5;">`;
+                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -10px; z-index:4; transform:scale(0.9);">`;
+                    h += `<img src="${items[2].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -20px; z-index:3; transform:scale(0.7);">`;
+                    h += `<img src="${items[3].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -30px; z-index:2; transform:scale(0.5);">`;
+                    h += `<img src="${items[4].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -40px; z-index:1; transform:scale(0.3);">`;
+                }
 
-            // name
-            h += `<h2 style="font-size: 17px; margin-top:0; text-align:center; margin-bottom: 40px; font-weight: 400; color: #303d49; text-shadow: 1px 1px white;">${items.length > 1 ? `Share ${items.length} items` : `${html_encode(items[0].name)}`}</h2>`;
+            h += `</div>`;
+
+            // ------------------------------------------------
+            // Name
+            // ------------------------------------------------
+            h += `<h2 style="font-size: 17px; margin-top:0; text-align:center; margin-bottom: 40px; font-weight: 400; color: #303d49;">`;
+                h += `Share <strong>${html_encode(items[0].name)}</strong>`;
+                if(items.length > 1)
+                    h += ` and ${items.length - 1} other item${items.length > 2 ? 's' : ''}`;
+            h += `</h2>`;
 
             // form
             h += `<form class="window-give-item-access-form">`;
@@ -82,6 +122,7 @@ async function UIWindowShare(items, recipient){
 
         // /stat
         let perms = [];
+    let printed_users = [];
         for(let i=0; i<items.length; i++){
             puter.fs.stat({ 
                 path: items[i].path,
@@ -89,7 +130,6 @@ async function UIWindowShare(items, recipient){
                 returnPermissions: true,
             }).then((fsentry) => {
                 let recipients = fsentry.shares?.users;
-                let printed_users = [];
                 let perm_list = '';
 
                 //owner

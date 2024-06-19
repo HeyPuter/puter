@@ -804,7 +804,7 @@ function UIItem(options){
                         let items = [];
                         $selected_items.each(function() {
                             const ell = this;
-                            items.push({uid: $(ell).attr('data-uid'), path: $(ell).attr('data-path')});
+                            items.push({uid: $(ell).attr('data-uid'), path: $(ell).attr('data-path'), icon: $(ell).find('.item-icon img').attr('src'), name: $(ell).attr('data-name')});
                         })
                         UIWindowShare(items);
                     }
