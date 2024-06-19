@@ -18,7 +18,7 @@
  */
 const { LocalDiskStorageStrategy } = require("../filesystem/strategies/storage_a/LocalDiskStorageStrategy");
 const { TeePromise } = require("../util/promise");
-const { progress_stream } = require("../util/streamutil");
+const { progress_stream, size_limit_stream } = require("../util/streamutil");
 const BaseService = require("./BaseService");
 
 class LocalDiskStorageService extends BaseService {
@@ -57,6 +57,10 @@ class LocalDiskStorageService extends BaseService {
         stream = progress_stream(stream, {
             total: size,
             progress_callback: on_progress,
+        });
+        
+        stream = size_limit_stream(stream, {
+            limit: size,
         });
 
         const writePromise = new TeePromise();
