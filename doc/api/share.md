@@ -11,6 +11,35 @@ with one or more recipients. The recipients will receive
 some notification about the shared item, making this
 different from calling `/grant-user-user` with a permission.
 
+### Example
+
+```json
+{
+    "recipients": [
+        "user_that_gets_shared_to",
+        "another@example.com"
+    ],
+    "shares": [
+        {
+            "$": "app-share",
+            "name": "some-app-name"
+        },
+        {
+            "$": "app-share",
+            "uid": "app-SOME-APP-UID"
+        },
+        {
+            "$": "fs-share",
+            "path": "/some/file/or/directory"
+        },
+        {
+            "$": "fs-share",
+            "path": "SOME-FILE-UUID"
+        }
+    ]
+}
+```
+
 ### Parameters
 
 - **recipients** _- required_
@@ -20,44 +49,14 @@ different from calling `/grant-user-user` with a permission.
   - **notes:**
     - validation on `string`: email or username
     - requirement of at least one value
-- **things:** _- required_
+- **shares:** _- required_
   - **accepts:** `object | Array<object>`
-  - **structure:**
-    - > `path`, `uid`, `name` are mutually exclusive
-    - **type:** _- required_
-      - **accepts:** one of: `fsitem`, `app`
-    - **uid:**
-      - **accepts:**
-        - file or directory (path or UUID)
-        - app UUID,
-    - **path:** _alias for uid_
-    - **name:** name of app
-    - **access:**
-      - `"read"` or `"write"` for files (default: `"read"`)
-      - unspecified for apps
+    - object is [type-tagged](./type-tagged.md)
+    - type is either [file-share](./types/file-share.md)
+      or [app-share](./types/app-share.md)
   - **notes:**
     - requirement that file/directory or app exists
     - requirement of at least one entry
-  - **examples:**
-    - ```json
-      {
-        "type": "fsitem",
-        "path": "/some/path",
-        "access": "write"
-      }
-      ```
-    - ```json
-      [
-        { "type": "fsitem", "path": "/some/path" },
-        { "type": "fsitem", "path": "/another/path" }
-      ]
-      ```
-    - ```json
-      {
-        "type": "app",
-        "uid": "app-7978dd66-e5a8-43a0-80c8-1c7eca8cb00a"
-      }
-      ```
 - **dry_run:** _- optional_
   - **accepts:** `bool`
   - **description:**
@@ -83,13 +82,28 @@ await fetch("http://puter.localhost:4100/share", {
     "Authorization": `Bearer ${puter.authToken}`,
   },
   body: JSON.stringify({
-      // dry_run: true,
-      recipients: [
-          'user_that_gets_shared_to',
-      ],
-      paths: [
-          '/user_that_shares/file_that_gets_shared.txt',
-      ],
+    recipients: [
+        "user_that_gets_shared_to",
+        "another@example.com"
+    ],
+    shares: [
+        {
+            $: "app-share",
+            name: "some-app-name"
+        },
+        {
+            $: "app-share",
+            uid: "app-SOME-APP-UID"
+        },
+        {
+            $: "fs-share",
+            path: "/some/file/or/directory"
+        },
+        {
+            $: "fs-share",
+            path: "SOME-FILE-UUID"
+        }
+    ]
   }),
   method: "POST",
 });
