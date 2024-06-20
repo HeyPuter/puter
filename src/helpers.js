@@ -18,6 +18,7 @@
  */
 
 import path from "./lib/path.js"
+import mime from "./lib/mime.js";
 import UIAlert from './UI/UIAlert.js'
 import UIItem from './UI/UIItem.js'
 import UIWindowLogin from './UI/UIWindowLogin.js';
