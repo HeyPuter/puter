@@ -141,6 +141,10 @@ If this was not you, please contact support@puter.com immediately.
         <p>Puter</p>
         `
     },
+    'share_by_email': {
+        subject: 'share by email',
+        html: `testing: {{link}}`
+    },
 }
 
 class Emailservice extends BaseService {

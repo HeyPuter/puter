@@ -46,6 +46,7 @@ const WHOAMI_GET = eggspress('/whoami', {
         username: req.user.username,
         uuid: req.user.uuid,
         email: req.user.email,
+        unconfirmed_email: req.user.email,
         email_confirmed: req.user.email_confirmed,
         requires_email_confirmation: req.user.requires_email_confirmation,
         desktop_bg_url: req.user.desktop_bg_url,

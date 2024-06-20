@@ -23,6 +23,7 @@ const v0_2 = async (req, res) => {
     const svc_email = req.services.get('email');
     const svc_permission = req.services.get('permission');
     const svc_notification = req.services.get('notification');
+    const svc_share = req.services.get('share');
 
     const lib_typeTagged = req.services.get('lib-type-tagged');
 
@@ -148,6 +149,8 @@ const v0_2 = async (req, res) => {
     }
     recipients_work.lockin();
     
+    // track: good candidate for sequence
+    
     // Expect: each value should be a valid username or email
     for ( const item of recipients_work.list() ) {
         const { value, i } = item;
@@ -155,9 +158,10 @@ const v0_2 = async (req, res) => {
         if ( typeof value !== 'string' ) {
             item.invalid = true;
             result.recipients[i] =
-                APIError.create('invalid_username_of_email', null, {
+                APIError.create('invalid_username_or_email', null, {
                     value,
-                })
+                });
+            continue;
         }
 
         if ( value.match(config.username_regex) ) {
@@ -165,7 +169,7 @@ const v0_2 = async (req, res) => {
             continue;
         }
         if ( validator.isEmail(value) ) {
-            item.type = 'username';
+            item.type = 'email';
             continue;
         }
         
@@ -182,12 +186,13 @@ const v0_2 = async (req, res) => {
     // Expect: no emails specified yet
     //    AND  usernames exist
     for ( const item of recipients_work.list() ) {
-        if ( item.type === 'email' ) {
+        const allowed_types = ['email', 'username'];
+        if ( ! allowed_types.includes(item.type) ) {
             item.invalid = true;
             result.recipients[item.i] =
-                APIError.create('future', null, {
-                    what: 'specifying recipients by email',
-                    value: item.value
+                APIError.create('disallowed_value', null, {
+                    key: `recipients[${item.i}].type`,
+                    allowed: allowed_types,
                 });
             continue;
         }
@@ -195,8 +200,44 @@ const v0_2 = async (req, res) => {
 
     // Return: if there are invalid values in strict mode
     recipients_work.clear_invalid();
+
+    for ( const item of recipients_work.list() ) {
+        if ( item.type !== 'email' ) continue;
+    
+        const errors = [];
+        if ( ! validator.isEmail(item.value) ) {
+            errors.push('`email` is not valid');
+        }
+        
+        if ( errors.length ) {
+            item.invalid = true;
+            result.recipients[item.i] =
+                APIError.create('field_errors', null, {
+                    key: `recipients[${item.i}]`,
+                    errors,
+                });
+            continue;
+        }
+    }
+
+    recipients_work.clear_invalid();
+
+    // CHECK EXISTING USERS FOR EMAIL SHARES
+    for ( const recipient_item of recipients_work.list() ) {
+        if ( recipient_item.type !== 'email' ) continue;
+        const user = await get_user({
+            email: recipient_item.value,
+        });
+        if ( ! user ) continue;
+        recipient_item.type = 'username';
+        recipient_item.value = user.username;
+    }
+
+    recipients_work.clear_invalid();
     
     for ( const item of recipients_work.list() ) {
+        if ( item.type !== 'username' ) continue;
+
         const user = await get_user({ username: item.value });
         if ( ! user ) {
             item.invalid = true;
@@ -242,8 +283,6 @@ const v0_2 = async (req, res) => {
                 });
             continue;
         }
-        
-        console.log('thing?', thing);
         
         const allowed_things = ['fs-share', 'app-share'];
         if ( ! allowed_things.includes(thing.$) ) {
@@ -417,7 +456,45 @@ const v0_2 = async (req, res) => {
         });
         
         result.recipients[recipient_item.i] =
-            { $: 'api:status-report', statis: 'success' };
+            { $: 'api:status-report', status: 'success' };
+    }
+
+    for ( const recipient_item of recipients_work.list() ) {
+        if ( recipient_item.type !== 'email' ) continue;
+        
+        const email = recipient_item.value;
+        
+        // data that gets stored in the `data` column of the share
+        const data = {
+            $: 'internal:share',
+            $v: 'v0.0.0',
+            permissions: [],
+        };
+        
+        for ( const share_item of shares_work.list() ) {
+            data.permissions.push(share_item.permission);
+        }
+        
+        // track: scoping iife
+        const share_token = await (async () => {
+            const share_uid = await svc_share.create_share({
+                issuer: actor,
+                email,
+                data,
+            });
+            return svc_token.sign('share', {
+                $: 'token:share',
+                $v: 'v0.0.0',
+                uid: share_uid,
+            });
+        })();
+        
+        const email_link = config.origin +
+            `/sharelink?token=${share_token}`;
+        
+        await svc_email.send_email({ email }, 'share_by_email', {
+            link: email_link,
+        });
     }
     
     result.status = 'success';
