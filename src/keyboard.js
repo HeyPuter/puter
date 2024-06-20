@@ -19,6 +19,7 @@
 
 import UIAlert from './UI/UIAlert.js';
 import launch_app from './helpers/launch_app.js';
+import open_item from './helpers/open_item.js';
 
 $(document).bind('keydown', async function(e){
     const focused_el = document.activeElement;
@@ -662,7 +663,7 @@ $(document).bind("keyup keydown", async function(e){
             $selected_items = $(window.active_item_container).find('.item-selected');
             if($selected_items.length > 0){
                 $selected_items.each(function() {
-                    window.open_item({
+                    open_item({
                         item: this,
                         new_window: e.metaKey || e.ctrlKey,
                     });
