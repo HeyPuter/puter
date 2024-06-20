@@ -18,6 +18,7 @@
  */
 const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { NotificationES } = require("./om/entitystorage/NotificationES");
+const { ProtectedAppES } = require("./om/entitystorage/ProtectedAppES");
 const { Context } = require('./util/context');
 
 
@@ -51,6 +52,12 @@ const install = async ({ services, app, useapi }) => {
 
         def('puter.middlewares.auth', require('./middleware/auth2'));
     });
+    
+    // === LIBRARIES ===
+    const ArrayUtil = require('./libraries/ArrayUtil');
+    services.registerService('util-array', ArrayUtil);
+    
+    // === SERVICES ===
 
     // /!\ IMPORTANT /!\
     // For new services, put the import immediate above the
@@ -153,6 +160,7 @@ const install = async ({ services, app, useapi }) => {
             WriteByOwnerOnlyES,
             ValidationES,
             SetOwnerES,
+            ProtectedAppES,
             MaxLimitES, { max: 5000 },
         ]),
     });
@@ -269,6 +277,9 @@ const install = async ({ services, app, useapi }) => {
     
     const { NotificationService } = require('./services/NotificationService');
     services.registerService('notification', NotificationService);
+
+    const { ProtectedAppService } = require('./services/ProtectedAppService');
+    services.registerService('__protected-app', ProtectedAppService);
 }
 
 const install_legacy = async ({ services }) => {
