@@ -28,7 +28,7 @@ class GetUserService extends BaseService {
     async get_user (options) {
         const user = await this.get_user_(options);
         if ( ! user ) return null;
-
+        
         const svc_whoami = this.services.get('whoami');
         await svc_whoami.get_details({ user }, user);
         return user;

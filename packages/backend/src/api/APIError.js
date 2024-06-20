@@ -41,7 +41,12 @@ module.exports = class APIError {
             status: 400,
             message: ({ message }) => `error: ${message}`,
         },
-        
+        'disallowed_value': {
+            status: 400,
+            message: ({ key ,allowed }) =>
+                `value of ${quot(key)} must be one of: ` +
+                allowed.map(v => quot(v)).join(', ')
+        },
         // Things
         'disallowed_thing': {
             status: 400,

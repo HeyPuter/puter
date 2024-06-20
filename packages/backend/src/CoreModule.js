@@ -283,6 +283,9 @@ const install = async ({ services, app, useapi }) => {
 
     const { ProtectedAppService } = require('./services/ProtectedAppService');
     services.registerService('__protected-app', ProtectedAppService);
+
+    const { ShareService } = require('./services/ShareService');
+    services.registerService('share', ShareService);
 }
 
 const install_legacy = async ({ services }) => {
