@@ -31,6 +31,7 @@ import module_log from './log.js'
 import module_pull from './pull.js'
 import module_push from './push.js'
 import module_remote from './remote.js'
+import module_restore from './restore.js'
 import module_show from './show.js'
 import module_status from './status.js'
 import module_version from './version.js'
@@ -50,6 +51,7 @@ export default {
     "pull": module_pull,
     "push": module_push,
     "remote": module_remote,
+    "restore": module_restore,
     "show": module_show,
     "status": module_status,
     "version": module_version,
