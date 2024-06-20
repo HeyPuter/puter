@@ -20,6 +20,7 @@ import git from 'isomorphic-git';
 import http from 'isomorphic-git/http/web';
 import { determine_fetch_remote, find_repo_root } from '../git-helpers.js';
 import { SHOW_USAGE } from '../help.js';
+import { authentication_options, Authenticator } from '../auth.js';
 
 export default {
     name: 'fetch',
@@ -35,7 +36,8 @@ export default {
                 description: 'Fetch all remotes.',
                 type: 'boolean',
                 default: false,
-            }
+            },
+            ...authentication_options,
         },
     },
     execute: async (ctx) => {
@@ -54,6 +56,15 @@ export default {
             gitdir,
         });
 
+        if (!options.username !== !options.password) {
+            stderr('Please specify both --username and --password, or neither');
+            return 1;
+        }
+        const authenticator = new Authenticator({
+            username: options.username,
+            password: options.password,
+        });
+
         if (options.all) {
             for (const { remote, url } of remotes) {
                 stdout(`Fetching ${remote}\nFrom ${url}`);
@@ -66,6 +77,7 @@ export default {
                     gitdir,
                     remote,
                     onMessage: (message) => { stdout(message); },
+                    ...authenticator.get_auth_callbacks(stderr),
                 });
             }
             return;
@@ -83,6 +95,7 @@ export default {
             gitdir,
             ...remote_data,
             onMessage: (message) => { stdout(message); },
+            ...authenticator.get_auth_callbacks(stderr),
         });
     }
 }
