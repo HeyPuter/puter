@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { shorten_hash } from './git-helpers.js';
+import chalk from 'chalk';
 
 export const commit_formatting_options = {
     'abbrev-commit': {
@@ -428,15 +429,15 @@ export const format_diffs = (diffs, options) => {
             s += `+++ ${b_path}\n`;
 
             for (const hunk of diff.hunks) {
-                s += `\x1b[36;1m@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@\x1b[0m\n`;
+                s += chalk.blueBright(`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@\n`);
 
                 for (const line of hunk.lines) {
                     switch (line[0]) {
                         case '+':
-                            s += `\x1b[32;1m${line}\x1b[0m\n`;
+                            s += chalk.greenBright(`${line}\n`);
                             break;
                         case '-':
-                            s += `\x1b[31;1m${line}\x1b[0m\n`;
+                            s += chalk.redBright(`${line}\n`);
                             break;
                         default:
                             s += `${line}\n`;

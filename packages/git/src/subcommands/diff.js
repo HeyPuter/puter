@@ -23,6 +23,7 @@ import * as Diff from 'diff';
 import path from 'path-browserify';
 import { diff_formatting_options, format_diffs, process_diff_formatting_options } from '../format.js';
 import { diff_git_trees } from '../diff.js';
+import { color_options, process_color_options } from '../color.js';
 
 export default {
     name: 'diff',
@@ -55,6 +56,7 @@ export default {
                 description: 'Compare files, ignoring git.',
                 type: 'boolean',
             },
+            ...color_options,
         },
     },
     execute: async (ctx) => {
@@ -62,6 +64,8 @@ export default {
         const { stdout, stderr } = io;
         const { options, positionals, tokens } = args;
         const cache = {};
+
+        process_color_options(options);
 
         const diff_options = process_diff_formatting_options(options);
         if (diff_options.no_patch && !options['exit-code'])
