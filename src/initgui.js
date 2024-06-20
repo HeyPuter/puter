@@ -40,7 +40,6 @@ import { ProcessService } from './services/ProcessService.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { LocaleService } from './services/LocaleService.js';
 import { SettingsService } from './services/SettingsService.js';
-
 import UIComponentWindow from './UI/UIComponentWindow.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
 import { LaunchOnInitService } from './services/LaunchOnInitService.js';

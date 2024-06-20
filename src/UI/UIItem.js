@@ -560,6 +560,7 @@ function UIItem(options){
         if($(e.target).hasClass('item-has-website-url-badge'))
             return false;
 
+        // get the parent window
         const $el_parent_window = $(el_item).closest('.window');
 
         // first see if this is a ContextMenu call on multiple items
@@ -752,10 +753,6 @@ function UIItem(options){
         // if editing item name, preserve native context menu
         if(event.target === el_item_name_editor)
             return;
-
-        // if ctrl is pressed don't open ctxmenu, ctrl is for drag and copy
-        if(event.ctrlKey)
-            return false;
 
         event.preventDefault();
         let menu_items;
