@@ -172,7 +172,7 @@ function UIItem(options){
 
     // updte item_container
     const item_container = $(options.appendTo).closest('.item-container');
-    window.show_or_hide_empty_folder_message(item_container);
+    window.toggle_empty_folder_message(item_container);
 
     // get all the elements needed
     const el_item = document.getElementById(`item-${item_id}`);
@@ -1566,7 +1566,7 @@ $.fn.removeItems = async function(options) {
     $(this).each(async function() {
         const parent_container = $(this).closest('.item-container');
         $(this).remove();
-        window.show_or_hide_empty_folder_message(parent_container);
+        window.toggle_empty_folder_message(parent_container);
     });
 
     return this;

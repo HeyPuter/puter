@@ -3264,7 +3264,7 @@ $.fn.showWindow = async function(options) {
     return this;
 };
 
-window.show_or_hide_empty_folder_message = function(el_item_container){
+window.toggle_empty_folder_message = function(el_item_container){
     // if the item container is the desktop, don't show/hide the empty message
     if($(el_item_container).hasClass('desktop'))
         return;
