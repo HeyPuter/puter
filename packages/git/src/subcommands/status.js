@@ -18,7 +18,8 @@
  */
 import git from 'isomorphic-git';
 import path from 'path-browserify';
-import { find_repo_root } from '../git-helpers.js';
+import { find_repo_root, shorten_hash } from '../git-helpers.js';
+import chalk from 'chalk';
 
 export default {
     name: 'status',
@@ -107,7 +108,17 @@ export default {
             dir,
             gitdir,
         });
-        stdout(`On branch ${current_branch}\n`);
+        if (current_branch) {
+            stdout(`On branch ${current_branch}`);
+            // Check if the branch actually exists. If not, this is a fresh repo that's never been committed to.
+            const actual_current_branch = await git.currentBranch({ fs, dir, gitdir, test: true });
+            if (!actual_current_branch) {
+                stdout('\nNo commits yet\n');
+            }
+        } else {
+            const oid = await git.resolveRef({ fs, dir, gitdir, ref: 'HEAD' });
+            stdout(`${chalk.redBright('HEAD detached at')} ${shorten_hash(oid)}`);
+        }
 
         if (staged.length) {
             stdout('Changes to be committed:');
