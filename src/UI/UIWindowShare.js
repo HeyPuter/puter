@@ -216,7 +216,7 @@ async function UIWindowShare(items, recipient){
                 },
                 data: JSON.stringify({
                     recipients:[
-                        recipient_username
+                        recipient_username || recipient_email
                     ],
                     shares: [
                         {
