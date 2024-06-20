@@ -218,8 +218,9 @@ async function UIWindowShare(items, recipient){
                     recipients:[
                         recipient_username
                     ],
-                    paths: [
+                    shares: [
                         {
+                            $: 'fs-share',
                             path: items[0].path,
                             access: access_level,
                         }
