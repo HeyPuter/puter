@@ -33,7 +33,7 @@ const { Context } = require('../util/context');
 module.exports = class FSOperationContext {
     // TODO: rename this.fs to this.access
     constructor (op_name, context, options) {
-        // TRACK: fs:create-service
+        // migration: fs:create-service
         // TODO: rename this.fs to this.access
         // NOTE: the 2nd parameter of this constructor
         //   was called `fs` and was expected to be FSAccessContext.
@@ -75,7 +75,7 @@ module.exports = class FSOperationContext {
             this.doneReject = reject;
         });
 
-        // TRACK: arch:trace-service:move-outta-fs
+        // migration: arch:trace-service:move-outta-fs
         if ( this.fs.traceService ) {
             // Set 'span_' to current active span
             const { context, trace } = require('@opentelemetry/api');
