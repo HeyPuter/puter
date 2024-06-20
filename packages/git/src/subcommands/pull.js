@@ -20,6 +20,7 @@ import git from 'isomorphic-git';
 import http from 'isomorphic-git/http/web';
 import { determine_fetch_remote, find_repo_root } from '../git-helpers.js';
 import { SHOW_USAGE } from '../help.js';
+import { authentication_options, Authenticator } from '../auth.js';
 
 export default {
     name: 'pull',
@@ -43,6 +44,7 @@ export default {
                 description: 'Only update history if a fast-forward is possible.',
                 type: 'boolean',
             },
+            ...authentication_options,
         },
     },
     execute: async (ctx) => {
@@ -74,6 +76,15 @@ export default {
             throw SHOW_USAGE;
         }
 
+        if (!options.username !== !options.password) {
+            stderr('Please specify both --username and --password, or neither');
+            return 1;
+        }
+        const authenticator = new Authenticator({
+            username: options.username,
+            password: options.password,
+        });
+
         const remote_data = determine_fetch_remote(remote, remotes);
         await git.pull({
             fs,
@@ -87,6 +98,7 @@ export default {
             fastForward: options['ff'],
             fastForwardOnly: options['ff-only'],
             onMessage: (message) => { stdout(message); },
+            ...authenticator.get_auth_callbacks(stderr),
         });
     }
 };
