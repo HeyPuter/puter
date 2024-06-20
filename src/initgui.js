@@ -1434,7 +1434,6 @@ $(document).on('contextmenu', '.disable-context-menu', function(e){
     }
 })
 
-
 /**
  * Converts a file system path to a privacy-aware path.
  * - Paths starting with `~/` are returned unchanged.

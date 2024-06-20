@@ -650,33 +650,94 @@ class UI extends EventListener {
         })
     }
 
-    setWindowTitle = function(title, callback) {
+    setWindowTitle = function(title, window_id, callback) {
+        if(typeof window_id === 'function'){
+            callback = window_id;
+            window_id = undefined;
+        }else if(typeof window_id === "object" && window_id !== null){
+            window_id = window_id.id;
+        }
+
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('setWindowTitle', resolve, { new_title: title });
+            this.#postMessageWithCallback('setWindowTitle', resolve, { new_title: title, window_id: window_id});
         })
     }
 
-    setWindowWidth = function(width, callback) {
+    setWindowWidth = function(width, window_id, callback) {
+        if(typeof window_id === 'function'){
+            callback = window_id;
+            window_id = undefined;
+        }else if(typeof window_id === "object" && window_id !== null){
+            window_id = window_id.id;
+        }
+        
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('setWindowWidth', resolve, { width });
+            this.#postMessageWithCallback('setWindowWidth', resolve, { width: width, window_id: window_id });
         })
     }
 
-    setWindowHeight = function(height, callback) {
+    setWindowHeight = function(height, window_id, callback) {
+        if(typeof window_id === 'function'){
+            callback = window_id;
+            window_id = undefined;
+        }else if(typeof window_id === "object" && window_id !== null){
+            window_id = window_id.id;
+        }
+        
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('setWindowHeight', resolve, { height });
+            this.#postMessageWithCallback('setWindowHeight', resolve, { height: height, window_id: window_id });
         })
     }
 
-    setWindowSize = function(width, height, callback) {
+    setWindowSize = function(width, height, window_id, callback) {
+        if(typeof window_id === 'function'){
+            callback = window_id;
+            window_id = undefined;
+        }else if(typeof window_id === "object" && window_id !== null){
+            window_id = window_id.id;
+        }
+        
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('setWindowSize', resolve, { width, height });
+            this.#postMessageWithCallback('setWindowSize', resolve, { width: width, height: height, window_id: window_id });
         })
     }
 
-    setWindowPosition = function(x, y, callback) {
+    setWindowPosition = function(x, y, window_id, callback) {
+        if(typeof window_id === 'function'){
+            callback = window_id;
+            window_id = undefined;
+        }else if(typeof window_id === "object" && window_id !== null){
+            window_id = window_id.id;
+        }
+        
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('setWindowPosition', resolve, { x, y });
+            this.#postMessageWithCallback('setWindowPosition', resolve, { x, y, window_id });
+        })
+    }
+
+    setWindowY = function(y, window_id, callback) {
+        if(typeof window_id === 'function'){
+            callback = window_id;
+            window_id = undefined;
+        }else if(typeof window_id === "object" && window_id !== null){
+            window_id = window_id.id;
+        }
+
+        return new Promise((resolve) => {
+            this.#postMessageWithCallback('setWindowY', resolve, { y, window_id });
+        })
+    }
+
+    setWindowX = function(x, window_id, callback) {
+        if(typeof window_id === 'function'){
+            callback = window_id;
+            window_id = undefined;
+        }else if(typeof window_id === "object" && window_id !== null){
+            window_id = window_id.id;
+        }
+
+        return new Promise((resolve) => {
+            this.#postMessageWithCallback('setWindowX', resolve, { x, window_id });
         })
     }
 
@@ -860,7 +921,9 @@ class UI extends EventListener {
 
     createWindow = function (options, callback) {
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('createWindow', resolve, { options: options ?? {} });
+            this.#postMessageWithCallback('createWindow', (res)=>{
+                resolve(res.window);
+            }, { options: options ?? {} });
         })
     }
 
