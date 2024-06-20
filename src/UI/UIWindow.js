@@ -1387,6 +1387,40 @@ async function UIWindow(options) {
                 }
             }
 
+            // --------------------------------------------------------
+            // if this is the home directory of another user, show the sharing dialog
+            // --------------------------------------------------------
+            let cur_path = $(el_window).attr('data-path');
+            if(countSubstr(cur_path, '/') === 1 && cur_path !== '/'+window.user.username){
+                let username = cur_path.split('/')[1];
+
+                const items_to_share = []
+                        
+                // first item
+                items_to_share.push({
+                    uid: $(ui.draggable).attr('data-uid'),
+                    path: $(ui.draggable).attr('data-path'),
+                    icon: $(ui.draggable).find('.item-icon img').attr('src'),
+                    name: $(ui.draggable).find('.item-name').text(),
+                }); 
+                
+                // all subsequent items
+                const cloned_items = document.getElementsByClassName('item-selected-clone');
+                for(let i =0; i<cloned_items.length; i++){
+                    const source_item = document.getElementById('item-' + $(cloned_items[i]).attr('data-id'));
+                    if(!source_item) continue;
+                    items_to_share.push({
+                        uid: $(source_item).attr('data-uid'),
+                        path: $(source_item).attr('data-path'),
+                        icon: $(source_item).find('.item-icon img').attr('src'),
+                        name: $(source_item).find('.item-name').text(),
+                    })
+                }
+    
+                UIWindowShare(items_to_share, username);
+                return;
+            }
+
             // If ctrl key is down, copy items. Except if target is Trash
             if(e.ctrlKey && $(window.mouseover_window).attr('data-path') !== window.trash_path){
                 // Copy items

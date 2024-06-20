@@ -2381,3 +2381,19 @@ window.set_menu_item_prop = (items, item_id, prop, val) => {
         }
     }
 };
+
+window.countSubstr = (str, substring)=>{
+    if (substring.length === 0) {
+        return 0;
+    }
+
+    let count = 0;
+    let pos = str.indexOf(substring);
+
+    while (pos !== -1) {
+        count++;
+        pos = str.indexOf(substring, pos + 1);
+    }
+
+    return count;
+}

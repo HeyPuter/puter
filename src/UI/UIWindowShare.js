@@ -238,6 +238,13 @@ async function UIWindowShare(items, recipient){
                         perm_list += `<div style="float:right;"><span class="remove-permission-link remove-permission-icon" data-recipient-username="${recipient_username}" data-permission="${perm_id}">✕</span></div>`;
                     perm_list += `</div>`;
 
+                    // reset input
+                    $(el_window).find('.error').hide();
+                    $(el_window).find('.access-recipient').val('');
+
+                    // disable 'Give Access' button
+                    $(el_window).find('.give-access-btn').prop('disabled', true);
+                    
                     // append recipient to list
                     $(el_window).find('.share-recipients').append(`${perm_list}`);
 
@@ -246,6 +253,7 @@ async function UIWindowShare(items, recipient){
                         contacts.push(recipient_username);
                         puter.kv.set('contacts', JSON.stringify(contacts));
                     }
+
                 },
                 error: function(err) {
                     // at this point 'username_not_found' and 'shared_with_self' are the only 
