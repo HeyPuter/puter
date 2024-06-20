@@ -3,7 +3,7 @@ const { Endpoint } = require('../util/expressutil');
 
 const validator = require('validator');
 const APIError = require('../api/APIError');
-const { get_user } = require('../helpers');
+const { get_user, get_app } = require('../helpers');
 const { Context } = require('../util/context');
 const auth2 = require('../middleware/auth2');
 const config = require('../config');
@@ -140,6 +140,8 @@ const v0_2 = async (req, res) => {
     const svc_permission = req.services.get('permission');
     const svc_notification = req.services.get('notification');
 
+    const lib_typeTagged = req.services.get('lib-type-tagged');
+
     const actor = Context.get('actor');
     
     // === Request Validators ===
@@ -170,12 +172,12 @@ const v0_2 = async (req, res) => {
         return recipients;
     });
     
-    const validate_paths = UtilFn(paths => {
+    const validate_shares = UtilFn(shares => {
         // Single-values get adapted into an array
-        if ( ! Array.isArray(paths) ) {
-            paths = [paths];
+        if ( ! Array.isArray(shares) ) {
+            shares = [shares];
         }
-        return paths;
+        return shares;
     })
     
     // === Request Values ===
@@ -184,8 +186,8 @@ const v0_2 = async (req, res) => {
         validate_mode.if(req.body.mode) ?? false;
     const req_recipients =
         validate_recipients.if(req.body.recipients) ?? [];
-    const req_paths =
-        validate_paths.if(req.body.paths) ?? [];
+    const req_shares =
+        validate_shares.if(req.body.shares) ?? [];
         
     // === State Values ===
 
@@ -198,10 +200,10 @@ const v0_2 = async (req, res) => {
         // Results
         status: null,
         recipients: Array(req_recipients.length).fill(null),
-        paths: Array(req_paths.length).fill(null),
+        shares: Array(req_shares.length).fill(null),
     }
     const recipients_work = new WorkList();
-    const fsitems_work = new WorkList();
+    const shares_work = new WorkList();
     
     // const assert_work_item = (wut, item) => {
     //     if ( item.$ !== wut ) {
@@ -221,11 +223,11 @@ const v0_2 = async (req, res) => {
                 result.recipients[i] = result.recipients[i].serialize();
             }
         }
-        for ( let i=0 ; i < result.paths.length ; i++ ) {
-            if ( ! result.paths[i] ) continue;
-            if ( result.paths[i] instanceof APIError ) {
+        for ( let i=0 ; i < result.shares.length ; i++ ) {
+            if ( ! result.shares[i] ) continue;
+            if ( result.shares[i] instanceof APIError ) {
                 result.status = 'mixed';
-                result.paths[i] = result.paths[i].serialize();
+                result.shares[i] = result.shares[i].serialize();
             }
         }
     };
@@ -234,7 +236,7 @@ const v0_2 = async (req, res) => {
         console.log('OK');
         if (
             result.recipients.some(v => v !== null) ||
-            result.paths.some(v => v !== null)
+            result.shares.some(v => v !== null)
         ) {
             console.log('DOESNT THIS??')
             serialize_result();
@@ -329,74 +331,104 @@ const v0_2 = async (req, res) => {
     // --- Process Paths ---
     
     // Expect: at least one path
-    if ( req_paths.length < 1 ) {
+    if ( req_shares.length < 1 ) {
         throw APIError.create('field_invalid', null, {
-            key: 'paths',
+            key: 'shares',
             expected: 'at least one',
             got: 'none',
         })
     }
     
-    for ( let i=0 ; i < req_paths.length ; i++ ) {
-        const value = req_paths[i];
-        fsitems_work.push({ i, value });
+    for ( let i=0 ; i < req_shares.length ; i++ ) {
+        const value = req_shares[i];
+        shares_work.push({ i, value });
     }
-    fsitems_work.lockin();
+    shares_work.lockin();
     
-    for ( const item of fsitems_work.list() ) {
+    for ( const item of shares_work.list() ) {
          const { i } = item;
          let { value } = item;
         
-        // adapt all strings to objects
-        if ( typeof value === 'string' ) {
-            value = { path: value };
-        }
-        
-        if ( whatis(value) !== 'object' ) {
+        const thing = lib_typeTagged.process(value);
+        if ( thing.$ === 'error' ) {
             item.invalid = true;
-            result.paths[i] =
-                APIError.create('invalid_path', null, {
-                    path: item.path,
-                    value,
+            result.shares[i] =
+                APIError.create('format_error', null, {
+                    message: thing.message
                 });
             continue;
         }
         
-        const errors = [];
-        if ( ! value.path ) {
-            errors.push('`path` is required');
+        console.log('thing?', thing);
+        
+        const allowed_things = ['fs-share', 'app-share'];
+        if ( ! allowed_things.includes(thing.$) ) {
+            APIError.create('disallowed_thing', null, {
+                thing: thing.$,
+                accepted: allowed_things,
+            })
         }
-        let access = value.access;
-        if ( access ) {
-            if ( ! ['read','write'].includes(access) ) {
-                errors.push('`access` should be `read` or `write`');
+        
+        if ( thing.$ === 'fs-share' ) {
+            item.type = 'fs';
+            const errors = [];
+            if ( ! thing.path ) {
+                errors.push('`path` is required');
             }
-        } else access = 'read';
+            let access = thing.access;
+            if ( access ) {
+                if ( ! ['read','write'].includes(access) ) {
+                    errors.push('`access` should be `read` or `write`');
+                }
+            } else access = 'read';
 
-        if ( errors.length ) {
-            item.invalid = true;
-            result.paths[item.i] =
-                APIError.create('field_errors', null, {
-                    path: item.path,
-                    errors
-                });
-            continue;
+            if ( errors.length ) {
+                item.invalid = true;
+                result.shares[item.i] =
+                    APIError.create('field_errors', null, {
+                        key: `shares[${item.i}]`,
+                        errors
+                    });
+                continue;
+            }
+            
+            item.path = thing.path;
+            item.permission = PermissionUtil.join('fs', thing.path, access);
         }
         
-        item.path = value.path;
-        item.permission = PermissionUtil.join('fs', value.path, access);
+        if ( thing.$ === 'app-share' ) {
+            item.type = 'app';
+            const errors = [];
+            if ( ! thing.uid && thing.name ) {
+                errors.push('`uid` or `name` is required');
+            }
+
+            if ( errors.length ) {
+                item.invalid = true;
+                result.shares[item.i] =
+                    APIError.create('field_errors', null, {
+                        key: `shares[${item.i}]`,
+                        errors
+                    });
+                continue;
+            }
+            
+            item.permission = PermissionUtil.join('app', thing.path, 'access');
+            continue;
+        }
     }
     
-    fsitems_work.clear_invalid();
+    shares_work.clear_invalid();
     
-    for ( const item of fsitems_work.list() ) {
+    for ( const item of shares_work.list() ) {
+        if ( item.type !== 'fs' ) continue;
         const node = await (new FSNodeParam('path')).consolidate({
             req, getParam: () => item.path
         });
         
         if ( ! await node.exists() ) {
             item.invalid = true;
-            result.paths[item.i] = APIError.create('subject_does_not_exist', {
+            result.shares[item.i] = APIError.create('subject_does_not_exist', {
                 path: item.path,
             })
             continue;
@@ -417,12 +449,12 @@ const v0_2 = async (req, res) => {
         item.email_link = email_link;
     }
     
-    fsitems_work.clear_invalid();
+    shares_work.clear_invalid();
 
     // Mark files as successful; further errors will be
     // reported on recipients instead.
-    for ( const item of fsitems_work.list() ) {
-        result.paths[item.i] =
+    for ( const item of shares_work.list() ) {
+        result.shares[item.i] =
             {
                 $: 'api:status-report',
                 status: 'success',
@@ -452,11 +484,11 @@ const v0_2 = async (req, res) => {
         
         const username = recipient_item.user.username;
 
-        for ( const path_item of fsitems_work.list() ) {
+        for ( const share_item of shares_work.list() ) {
             await svc_permission.grant_user_user_permission(
                 actor,
                 username,
-                path_item.permission,
+                share_item.permission,
             );
         }
         
@@ -478,7 +510,7 @@ const v0_2 = async (req, res) => {
         */
        
         const files = []; {
-            for ( const path_item of fsitems_work.list() ) {
+            for ( const path_item of shares_work.list() ) {
                 files.push(
                     await path_item.node.getSafeEntry(),
                 );

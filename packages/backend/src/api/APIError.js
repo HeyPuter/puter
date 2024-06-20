@@ -33,6 +33,29 @@ module.exports = class APIError {
             status: 500,
             message: () => `An unknown error occurred`,
         },
+        'format_error': {
+            status: 400,
+            message: ({ message }) => `format error: ${message}`,
+        },
+        'temp_error': {
+            status: 400,
+            message: ({ message }) => `error: ${message}`,
+        },
+        
+        // Things
+        'disallowed_thing': {
+            status: 400,
+            message: ({ thing_type, accepted }) =>
+                `Request contained a ${quot(thing_type)} in a ` +
+                `place where ${quot(thing_type)} isn't accepted` +
+                (
+                    accepted
+                        ? '; ' +
+                            'accepted types are: ' +
+                            accepted.map(v => quot(v)).join(', ')
+                        : ''
+                ) + '.'
+        },
         
         // Unorganized
         'item_with_same_name_exists': {
