@@ -2079,7 +2079,7 @@ label {
 
 .share-recipients {
     max-height: 200px;
-    overflow: scroll;
+    overflow: hidden;
 }
 
 .feedback-sent-success {
