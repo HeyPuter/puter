@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import git from 'isomorphic-git';
-import { find_repo_root } from '../git-helpers.js';
+import { find_repo_root, shorten_hash } from '../git-helpers.js';
 import { SHOW_USAGE } from '../help.js';
 
 const CHECKOUT = {
@@ -122,7 +122,7 @@ const CHECKOUT = {
             return;
         }
 
-        // Check out a branch
+        // Check out a branch or commit
         // TODO: Check out files.
         {
             if (positionals.length === 0 || positionals.length > 1) {
@@ -130,25 +130,39 @@ const CHECKOUT = {
                 throw SHOW_USAGE;
             }
             const { branches, current_branch } = await get_branch_data();
-            const branch_name = positionals.shift();
+            const reference = positionals.shift();
 
-            if (branch_name === current_branch) {
-                stdout(`Already on '${branch_name}'`);
+            if (reference === current_branch) {
+                stdout(`Already on '${reference}'`);
                 return;
             }
 
-            if (!branches.includes(branch_name))
-                throw new Error(`Branch '${branch_name}' not found.`);
+            const old_oid = await git.resolveRef({ fs, dir, gitdir, ref: 'HEAD' });
+
+            const oid = await git.resolveRef({ fs, dir, gitdir, ref: reference });
+            if (!oid)
+                throw new Error(`Reference '${reference}' not found.`);
 
             await git.checkout({
                 fs,
                 dir,
                 gitdir,
                 cache,
-                ref: branch_name,
+                ref: reference,
                 force: options.force,
             });
-            stdout(`Switched to branch '${branch_name}'`);
+            if (branches.includes(reference)) {
+                stdout(`Switched to branch '${reference}'`);
+            } else {
+                const commit = await git.readCommit({ fs, dir, gitdir, oid });
+                const commit_title = commit.commit.message.split('\n', 2)[0];
+
+                const old_commit = await git.readCommit({ fs, dir, gitdir, oid: old_oid });
+                const old_commit_title = old_commit.commit.message.split('\n', 2)[0];
+
+                stdout(`Previous HEAD position was ${shorten_hash(old_oid)} ${old_commit_title}`);
+                stdout(`HEAD is now at ${shorten_hash(oid)} ${commit_title}`);
+            }
         }
     }
 };
