@@ -28,6 +28,7 @@ import {
 import path from 'path-browserify';
 import { SHOW_USAGE } from '../help.js';
 import { diff_git_trees } from '../diff.js';
+import { color_options, process_color_options } from '../color.js';
 
 export default {
     name: 'log',
@@ -39,6 +40,7 @@ export default {
         options: {
             ...commit_formatting_options,
             ...diff_formatting_options,
+            ...color_options,
             'max-count': {
                 description: 'Maximum number of commits to output.',
                 type: 'string',
@@ -54,6 +56,7 @@ export default {
 
         process_commit_formatting_options(options);
         const diff_options = process_diff_formatting_options(options, { show_patch_by_default: false });
+        process_color_options(options);
 
         const depth = Number(options['max-count']) || undefined;
 

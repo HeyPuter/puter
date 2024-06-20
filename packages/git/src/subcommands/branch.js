@@ -19,6 +19,8 @@
 import git from 'isomorphic-git';
 import { find_repo_root, shorten_hash } from '../git-helpers.js';
 import { SHOW_USAGE } from '../help.js';
+import { color_options, process_color_options } from '../color.js';
+import chalk from 'chalk';
 
 const BRANCH = {
     name: 'branch',
@@ -64,7 +66,8 @@ const BRANCH = {
                 description: 'Perform the action forcefully. For --delete, ignores whether the branches are fully merged. For --move, --copy, and creating new branches, ignores whether a branch already exists with that name.',
                 type: 'boolean',
                 short: 'f',
-            }
+            },
+            ...color_options,
         },
     },
     execute: async (ctx) => {
@@ -107,6 +110,8 @@ const BRANCH = {
                 throw SHOW_USAGE;
             }
         }
+
+        process_color_options(options);
 
         const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 
@@ -266,7 +271,7 @@ const BRANCH = {
 
             for (const branch of branches) {
                 if (branch === current_branch) {
-                    stdout(`\x1b[32;1m* ${branch}\x1b[0m`);
+                    stdout(chalk.greenBright(`* ${branch}`));
                 } else {
                     stdout(`  ${branch}`);
                 }

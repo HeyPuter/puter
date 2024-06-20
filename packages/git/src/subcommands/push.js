@@ -21,6 +21,8 @@ import http from 'isomorphic-git/http/web';
 import { determine_fetch_remote, find_repo_root, shorten_hash } from '../git-helpers.js';
 import { SHOW_USAGE } from '../help.js';
 import { authentication_options, Authenticator } from '../auth.js';
+import { color_options, process_color_options } from '../color.js';
+import chalk from 'chalk';
 
 export default {
     name: 'push',
@@ -37,6 +39,7 @@ export default {
                 short: 'f',
             },
             ...authentication_options,
+            ...color_options,
         },
     },
     execute: async (ctx) => {
@@ -44,6 +47,8 @@ export default {
         const { stdout, stderr } = io;
         const { options, positionals } = args;
         const cache = {};
+
+        process_color_options(options);
 
         const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 
@@ -265,12 +270,13 @@ export default {
         stdout(`To ${remote_url}`);
         let any_failed = false;
         for (const { flag, summary, source, dest, reason } of results) {
-            stdout(`${flag === '!' ? '\x1b[31;1m' : ''} ${flag} ${summary.padEnd(19, ' ')}\x1b[0m ${source} -> ${dest}${reason ? ` (${reason})` : ''}`);
+            const flag_and_summary = `${flag} ${summary.padEnd(19, ' ')}`;
+            stdout(` ${ (flag === '!') ? chalk.redBright(flag_and_summary) : flag_and_summary } ${source} -> ${dest}${reason ? ` (${reason})` : ''}`);
             if (reason)
                 any_failed = true;
         }
         if (any_failed) {
-            stderr(`\x1b[31;1merror: Failed to push some refs to '${remote_url}'\x1b[0m`);
+            stderr(chalk.redBright(`error: Failed to push some refs to '${remote_url}'`));
         }
     },
 };
