@@ -32,6 +32,7 @@ export default {
         const { io, fs, env, args } = ctx;
         const { stdout, stderr } = io;
         const { options, positionals } = args;
+        const cache = {};
 
         const pathspecs = [...positionals];
         if (pathspecs.length === 0) {
@@ -41,13 +42,25 @@ export default {
 
         const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 
-        await git.add({
-            fs,
-            dir,
-            gitdir,
+        // NOTE: Canonical git lets you `git add FILE` with a FILE that's been deleted, to add that deletion to the index.
+        //       However, `git.add()` only handles files that currently exist. So, we have to implement this manually.
+        const file_status = await git.statusMatrix({
+            fs, dir, gitdir, cache,
             ignored: false,
-            filepath: pathspecs,
-            parallel: true,
+            filepaths: pathspecs,
         });
+
+        const operations = file_status
+            .filter(([ filepath, head, worktree, staged ]) => worktree !== staged)
+            .map(([ filepath, head, worktree, index ]) => {
+                // Remove deleted files
+                if (worktree === 0)
+                    return git.remove({ fs, dir, gitdir, cache, filepath });
+
+                // All other files have changes to add
+                return git.add({ fs, dir, gitdir, cache, filepath });
+            });
+
+        await Promise.all(operations);
     }
 }
