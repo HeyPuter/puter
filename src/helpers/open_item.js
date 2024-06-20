@@ -16,11 +16,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
 import UIWindow from '../UI/UIWindow.js';
 import UIAlert from '../UI/UIAlert.js';
 import i18n from '../i18n/i18n.js';
 import launch_app from "./launch_app.js";
 import path from '../lib/path.js';
+import item_icon from './item_icon.js';
 
 const open_item = async function(options){
     let el_item = options.item;
@@ -154,7 +156,7 @@ const open_item = async function(options){
         UIWindow({
             path: item_path,
             title: path.basename(item_path),
-            icon: await window.item_icon({is_dir: true, path: item_path}),
+            icon: await item_icon({is_dir: true, path: item_path}),
             uid: $(el_item).attr('data-uid'),
             is_dir: is_dir,
             app: 'explorer',

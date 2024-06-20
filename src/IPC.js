@@ -30,6 +30,7 @@ import path from "./lib/path.js";
 import UIContextMenu from './UI/UIContextMenu.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
 import launch_app from './helpers/launch_app.js';
+import item_icon from './helpers/item_icon.js';
 
 /**
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.
@@ -1063,7 +1064,7 @@ window.addEventListener('message', async (event) => {
                                 immutable: res.immutable,
                                 associated_app_name: res.associated_app?.name,
                                 path: target_path,
-                                icon: await window.item_icon(res),
+                                icon: await item_icon(res),
                                 name: path.basename(target_path),
                                 uid: res.uid,
                                 size: res.size,

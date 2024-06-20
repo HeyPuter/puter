@@ -19,6 +19,7 @@
 
 import path from '../lib/path.js';
 import UIItem from '../UI/UIItem.js';
+import item_icon from './item_icon.js';
 
 const refresh_item_container = function(el_item_container, options){
     options = options || {};
@@ -177,7 +178,7 @@ const refresh_item_container = function(el_item_container, options){
                         immutable: fsentry.immutable,
                         associated_app_name: fsentry.associated_app?.name,
                         path: item_path,
-                        icon: await window.item_icon(fsentry),
+                        icon: await item_icon(fsentry),
                         name: (metadata && metadata.original_name !== undefined) ? metadata.original_name : fsentry.name,
                         is_dir: fsentry.is_dir,
                         multiselectable: !is_openFileDialog,

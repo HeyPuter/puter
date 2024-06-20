@@ -39,6 +39,7 @@ import UIWindowTaskManager from "./UIWindowTaskManager.js"
 import truncate_filename from '../helpers/truncate_filename.js';
 import UINotification from "./UINotification.js"
 import launch_app from "../helpers/launch_app.js"
+import item_icon from "../helpers/item_icon.js"
 
 async function UIDesktop(options){
     let h = '';
@@ -135,7 +136,7 @@ async function UIDesktop(options){
                     UIWindow({
                         path: '/' + notification.fields.username,
                         title: path.basename(item_path),
-                        icon: await window.item_icon({is_dir: true, path: item_path}),
+                        icon: await item_icon({is_dir: true, path: item_path}),
                         is_dir: true,
                         app: 'explorer',
                     });
@@ -217,7 +218,7 @@ async function UIDesktop(options){
         $(`.item[data-uid='${html_encode(item.uid)}'] .item-name`).html(html_encode(truncate_filename(item.name)).replaceAll(' ', '&nbsp;'));
 
         // Set new icon
-        const new_icon = (item.is_dir ? window.icons['folder.svg'] : (await window.item_icon(item)).image);
+        const new_icon = (item.is_dir ? window.icons['folder.svg'] : (await item_icon(item)).image);
         $(`.item[data-uid='${item.uid}']`).find('.item-icon-thumb').attr('src', new_icon);
         $(`.item[data-uid='${item.uid}']`).find('.item-icon-icon').attr('src', new_icon);
 
@@ -338,7 +339,7 @@ async function UIDesktop(options){
             immutable: fsentry.immutable,
             uid: fsentry.uid,
             path: fsentry.path,
-            icon: await window.item_icon(fsentry),
+            icon: await item_icon(fsentry),
             name: (dest_path === window.trash_path) ? metadata.original_name : fsentry.name,
             is_dir: fsentry.is_dir,
             size: fsentry.size,
@@ -366,7 +367,7 @@ async function UIDesktop(options){
                         immutable: false,
                         uid: dir.uid,
                         path: dir.path,
-                        icon: await window.item_icon(dir),
+                        icon: await item_icon(dir),
                         name: dir.name,
                         size: dir.size,
                         type: dir.type,
@@ -421,7 +422,7 @@ async function UIDesktop(options){
         $(`.item[data-uid='${html_encode(item.uid)}'] .item-name`).html(html_encode(truncate_filename(item.name)).replaceAll(' ', '&nbsp;'));
 
         // Set new icon
-        const new_icon = (item.is_dir ? window.icons['folder.svg'] : (await window.item_icon(item)).image);
+        const new_icon = (item.is_dir ? window.icons['folder.svg'] : (await item_icon(item)).image);
         $(`.item[data-uid='${item.uid}']`).find('.item-icon-icon').attr('src', new_icon);
 
         // Set new data-name
@@ -498,7 +499,7 @@ async function UIDesktop(options){
                 'data-type': item.type,
             })
             // set new icon
-            const new_icon = (item.is_dir ? window.icons['folder.svg'] : (await window.item_icon(item)).image);
+            const new_icon = (item.is_dir ? window.icons['folder.svg'] : (await item_icon(item)).image);
             $(`.item[data-uid="${item.overwritten_uid}"]`).find('.item-icon > img').attr('src', new_icon);
             
             //sort each window
@@ -513,7 +514,7 @@ async function UIDesktop(options){
                 immutable: item.immutable,
                 associated_app_name: item.associated_app?.name,
                 path: item.path,
-                icon: await window.item_icon(item),
+                icon: await item_icon(item),
                 name: item.name,
                 size: item.size,
                 type: item.type,
@@ -1007,7 +1008,7 @@ async function UIDesktop(options){
             UIWindow({
                 path: predefined_path,
                 title: path.basename(predefined_path),
-                icon: await window.item_icon({is_dir: true, path: predefined_path}),
+                icon: await item_icon({is_dir: true, path: predefined_path}),
                 // todo
                 // uid: $(el_item).attr('data-uid'),
                 is_dir: true,

@@ -30,6 +30,7 @@ import UIWindowSaveAccount from './UIWindowSaveAccount.js';
 import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js';
 import launch_app from "../helpers/launch_app.js"
 import UIWindowShare from './UIWindowShare.js';
+import item_icon from '../helpers/item_icon.js';
 
 const el_body = document.getElementsByTagName('body')[0];
 
@@ -2343,7 +2344,7 @@ $(document).on('click', '.window-sidebar-item', async function(e){
         UIWindow({
             path: item_path,
             title: path.basename(item_path),
-            icon: await window.item_icon({is_dir: true, path: item_path}),
+            icon: await item_icon({is_dir: true, path: item_path}),
             // todo
             // uid: $(el_item).attr('data-uid'),
             is_dir: true,
@@ -2405,7 +2406,7 @@ $(document).on('contextmenu taphold', '.window-sidebar-item', function(event){
                     UIWindow({
                         path: item_path,
                         title: path.basename(item_path),
-                        icon: await window.item_icon({is_dir: true, path: item_path}),
+                        icon: await item_icon({is_dir: true, path: item_path}),
                         // todo
                         // uid: $(el_item).attr('data-uid'),
                         is_dir: true,
