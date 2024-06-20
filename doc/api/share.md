@@ -20,27 +20,43 @@ different from calling `/grant-user-user` with a permission.
   - **notes:**
     - validation on `string`: email or username
     - requirement of at least one value
-- **paths:** _- required_
-  - **accepts:** `string | object | Array<string | object>`
-  - **description:**
-    paths of filesystem entries (files or directories)
-    to share with the specified recipients
+- **things:** _- required_
+  - **accepts:** `object | Array<object>`
+  - **structure:**
+    - > `path`, `uid`, `name` are mutually exclusive
+    - **type:** _- required_
+      - **accepts:** one of: `fsitem`, `app`
+    - **uid:**
+      - **accepts:**
+        - file or directory (path or UUID)
+        - app UUID,
+    - **path:** _alias for uid_
+    - **name:** name of app
+    - **access:**
+      - `"read"` or `"write"` for files (default: `"read"`)
+      - unspecified for apps
   - **notes:**
-    - requirement that file/directory exists
-    - requirement of at least one value
-  - **structure:** for `object` values:
-    - **path:** _- required_
-      - **accepts:** `string`
-      - **description:**
-        a Puter file path
-    - **access:** _- required_
-      - **description:** one of: `"read"`, `"write"`
+    - requirement that file/directory or app exists
+    - requirement of at least one entry
   - **examples:**
     - ```json
-      { "path": "/some/path", "access": "read" }
+      {
+        "type": "fsitem",
+        "path": "/some/path",
+        "access": "write"
+      }
       ```
     - ```json
-      { "path": "/some/path" }
+      [
+        { "type": "fsitem", "path": "/some/path" },
+        { "type": "fsitem", "path": "/another/path" }
+      ]
+      ```
+    - ```json
+      {
+        "type": "app",
+        "uid": "app-7978dd66-e5a8-43a0-80c8-1c7eca8cb00a"
+      }
       ```
 - **dry_run:** _- optional_
   - **accepts:** `bool`
