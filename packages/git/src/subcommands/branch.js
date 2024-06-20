@@ -269,6 +269,11 @@ const BRANCH = {
                 throw SHOW_USAGE;
             }
 
+            if (!current_branch) {
+                const oid = await git.resolveRef({ fs, dir, gitdir, ref: 'HEAD' });
+                stdout(`* ${chalk.greenBright(`(HEAD detached at ${shorten_hash(oid)})`)}`);
+            }
+
             for (const branch of branches) {
                 if (branch === current_branch) {
                     stdout(chalk.greenBright(`* ${branch}`));
