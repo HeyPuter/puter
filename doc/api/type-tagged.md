@@ -30,9 +30,10 @@ anywhere.
 ## Specification
 
 - The `"$"` key indicates a type (or class) of object
-- Any key beginning with `$` is a **meta-key**
+- Any other key beginning with `$` is a **meta-key**
 - Other keys are not allowed to contain `$`
 - `"$version"` must follow [semver](https://semver.org/)
+- Keys with multiple `"$"` symbols are reserved for future use
 
 ## Alternative Representations
 

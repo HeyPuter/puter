@@ -57,6 +57,9 @@ const install = async ({ services, app, useapi }) => {
     const ArrayUtil = require('./libraries/ArrayUtil');
     services.registerService('util-array', ArrayUtil);
     
+    const LibTypeTagged = require('./libraries/LibTypeTagged');
+    services.registerService('lib-type-tagged', LibTypeTagged);
+    
     // === SERVICES ===
 
     // /!\ IMPORTANT /!\
