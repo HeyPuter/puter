@@ -11,6 +11,9 @@ with one or more recipients. The recipients will receive
 some notification about the shared item, making this
 different from calling `/grant-user-user` with a permission.
 
+When users are **specified by email** they will receive
+a [share link](./concepts/share-link.md).
+
 ### Example
 
 ```json
@@ -180,5 +183,106 @@ await fetch("http://puter.localhost:4100/share", {
         }
     ],
     "dry_run": true
+}
+```
+
+## POST `/sharelink/check` (no auth)
+
+### Description
+
+The `/sharelink/check` endpoint verifies that a token provided
+by a share link is valid.
+
+### Example
+
+```javascript
+await fetch(`${config.api_origin}/sharelink/check`, {
+  "headers": {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${puter.authToken}`,
+  },
+  "body": JSON.stringify({
+      token: '...',
+  }),
+  "method": "POST",
+});
+```
+
+### Parameters
+
+- **token:** _- required_
+  - **accepts:** `string`
+    The token from the querystring parameter
+
+### Response
+
+A type-tagged object, either of type `api:share` or `api:error`
+
+### Success Response
+
+```json
+{
+    "$": "api:share",
+    "uid": "836671d4-ac5d-4bd3-bc0a-ec357e0d8f02",
+    "email": "asdf@example.com"
+}
+```
+
+### Error Response
+
+```json
+{
+    "$": "api:error",
+    "message":"Field `token` is required.",
+    "key":"token",
+    "code":"field_missing"
+}
+```
+
+## POST `/sharelink/apply` (no auth)
+
+### Description
+
+The `/sharelink/apply` endpoint applies a share to the current
+user **if and only if** that user's email is confirmed and matches
+the email associated with the share.
+
+### Example
+
+```javascript
+await fetch(`${config.api_origin}/sharelink/apply`, {
+  "headers": {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${puter.authToken}`,
+  },
+  "body": JSON.stringify({
+      uid: '836671d4-ac5d-4bd3-bc0a-ec357e0d8f02',
+  }),
+  "method": "POST",
+});
+```
+
+### Parameters
+
+- **uid:** _- required_
+  - **accepts:** `string`
+    The uid of an existing share, received using `/sharelink/check`
+
+### Response
+
+A type-tagged object, either of type `api:status-report` or `api:error`
+
+### Success Response
+
+```json
+{"$":"api:status-report","status":"success"}
+```
+
+### Error Response
+
+```json
+{
+    "message": "This share can not be applied to this user.",
+    "code": "can_not_apply_to_this_user"
 }
 ```
