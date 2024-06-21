@@ -229,9 +229,13 @@ window.initgui = async function(options){
         }).then(response => response.json())
         .then(async data => {
             if(data.email && data.email !== window.user.email){
-                UIAlert({
-                    message: 'You are not authorized to view this link.'
-                });
+                await UIWindowLogin({
+                    reload_on_success: true,
+                    send_confirmation_code: false,
+                    window_options:{
+                        has_head: false
+                    }
+                });    
             }else{
                 UIAlert({
                     type: 'success',
