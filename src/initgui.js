@@ -228,17 +228,15 @@ window.initgui = async function(options){
             "method": "POST",
         }).then(response => response.json())
         .then(async data => {
-            if(data.success){
-                if(data.email && data.email !== window.user.email){
-                    UIAlert({
-                        message: 'You are not authorized to view this link.'
-                    });
-                }else{
-                    UIAlert({
-                        type: 'success',
-                        message: 'You are authorized to view this link.'
-                    });
-                }
+            if(data.email && data.email !== window.user.email){
+                UIAlert({
+                    message: 'You are not authorized to view this link.'
+                });
+            }else{
+                UIAlert({
+                    type: 'success',
+                    message: 'You are authorized to view this link.'
+                });
             }
         }).catch(error => {
             console.error('Error:', error);
