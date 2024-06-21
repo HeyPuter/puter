@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import git from 'isomorphic-git';
-import { find_repo_root, shorten_hash } from '../git-helpers.js';
+import { find_repo_root, resolve_to_commit, shorten_hash } from '../git-helpers.js';
 import { SHOW_USAGE } from '../help.js';
 
 const CHECKOUT = {
@@ -137,10 +137,11 @@ const CHECKOUT = {
                 return;
             }
 
-            const old_oid = await git.resolveRef({ fs, dir, gitdir, ref: 'HEAD' });
-
-            const oid = await git.resolveRef({ fs, dir, gitdir, ref: reference });
-            if (!oid)
+            const [ old_commit, commit ] = await Promise.all([
+                resolve_to_commit({ fs, dir, gitdir, cache }, 'HEAD'),
+                resolve_to_commit({ fs, dir, gitdir, cache }, reference ),
+            ]);
+            if (!commit)
                 throw new Error(`Reference '${reference}' not found.`);
 
             await git.checkout({
@@ -154,14 +155,11 @@ const CHECKOUT = {
             if (branches.includes(reference)) {
                 stdout(`Switched to branch '${reference}'`);
             } else {
-                const commit = await git.readCommit({ fs, dir, gitdir, oid });
                 const commit_title = commit.commit.message.split('\n', 2)[0];
-
-                const old_commit = await git.readCommit({ fs, dir, gitdir, oid: old_oid });
                 const old_commit_title = old_commit.commit.message.split('\n', 2)[0];
 
-                stdout(`Previous HEAD position was ${shorten_hash(old_oid)} ${old_commit_title}`);
-                stdout(`HEAD is now at ${shorten_hash(oid)} ${commit_title}`);
+                stdout(`Previous HEAD position was ${shorten_hash(old_commit.oid)} ${old_commit_title}`);
+                stdout(`HEAD is now at ${shorten_hash(commit.oid)} ${commit_title}`);
             }
         }
     }

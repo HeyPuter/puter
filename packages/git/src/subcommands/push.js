@@ -18,7 +18,7 @@
  */
 import git from 'isomorphic-git';
 import http from 'isomorphic-git/http/web';
-import { determine_fetch_remote, find_repo_root, shorten_hash } from '../git-helpers.js';
+import { determine_fetch_remote, find_repo_root, resolve_to_oid, shorten_hash } from '../git-helpers.js';
 import { SHOW_USAGE } from '../help.js';
 import { authentication_options, Authenticator } from '../auth.js';
 import { color_options, process_color_options } from '../color.js';
@@ -209,7 +209,7 @@ export default {
             // TODO: Canonical git only pushes "new" branches to the remote when configured to do so, or with --set-upstream.
             //       So, we should show some kind of warning and stop, if that's not the case.
 
-            const source_oid = await git.resolveRef({ fs, dir, gitdir, ref: source });
+            const source_oid = await resolve_to_oid({ fs, dir, gitdir, cache }, source);
             const old_dest_oid = remote_ref?.oid;
 
             const is_up_to_date = source_oid === old_dest_oid;

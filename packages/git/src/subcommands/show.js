@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import git, { TREE } from 'isomorphic-git';
-import { find_repo_root } from '../git-helpers.js';
+import { find_repo_root, resolve_to_oid } from '../git-helpers.js';
 import {
     commit_formatting_options,
     diff_formatting_options,
@@ -108,12 +108,7 @@ export default {
 
         for (const ref of objects) {
             // Could be any ref, so first get the oid that's referred to.
-            const oid = await git.resolveRef({
-                fs,
-                dir,
-                gitdir,
-                ref,
-            });
+            const oid = await resolve_to_oid({ fs, dir, gitdir, cache }, ref);
 
             // Then obtain the object and parse it.
             const parsed_object = await git.readObject({
