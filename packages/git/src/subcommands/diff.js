@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import git, { STAGE, TREE, WORKDIR } from 'isomorphic-git';
-import { find_repo_root, group_positional_arguments } from '../git-helpers.js';
+import { find_repo_root, group_positional_arguments, resolve_to_commit, resolve_to_oid } from '../git-helpers.js';
 import { SHOW_USAGE } from '../help.js';
 import * as Diff from 'diff';
 import path from 'path-browserify';
@@ -123,13 +123,14 @@ export default {
         const { before: commit_args, after: path_args } = group_positional_arguments(tokens);
 
         // Ensure all commit_args are commit references
-        const resolved_commit_refs = await Promise.allSettled(commit_args.map(commit_arg => {
-            return git.resolveRef({ fs, dir, gitdir, ref: commit_arg });
+        const resolved_commits = await Promise.allSettled(commit_args.map(commit_arg => {
+            return resolve_to_commit({ fs, dir, gitdir, cache }, commit_arg);
         }));
-        for (const [i, ref] of resolved_commit_refs.entries()) {
-            if (ref.status === 'rejected')
+        for (const [i, commit] of resolved_commits.entries()) {
+            if (commit.status === 'rejected')
                 throw new Error(`bad revision '${commit_args[i]}'`);
         }
+        const [ from_oid, to_oid ] = resolved_commits.map(it => it.value.oid);
 
         const path_filters = path_args.map(it => path.resolve(env.PWD, it));
         const diff_ctx = {
@@ -153,7 +154,7 @@ export default {
             // Show staged changes
             diffs = await diff_git_trees({
                 ...diff_ctx,
-                a_tree: TREE({ ref: commit_args[0] ?? 'HEAD' }),
+                a_tree: TREE({ ref: from_oid ?? 'HEAD' }),
                 b_tree: STAGE(),
                 read_a: read_tree,
                 read_b: read_staged,
@@ -171,7 +172,7 @@ export default {
             // Changes from commit to workdir
             diffs = await diff_git_trees({
                 ...diff_ctx,
-                a_tree: TREE({ ref: commit_args[0] }),
+                a_tree: TREE({ ref: from_oid }),
                 b_tree: WORKDIR(),
                 read_a: read_tree,
                 read_b: read_tree,
@@ -180,8 +181,8 @@ export default {
             // Changes from one commit to another
             diffs = await diff_git_trees({
                 ...diff_ctx,
-                a_tree: TREE({ ref: commit_args[0] }),
-                b_tree: TREE({ ref: commit_args[1] }),
+                a_tree: TREE({ ref: from_oid }),
+                b_tree: TREE({ ref: to_oid }),
                 read_a: read_tree,
                 read_b: read_tree,
             });

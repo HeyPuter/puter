@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import path from 'path-browserify';
+import git from 'isomorphic-git';
 
 /**
  * Attempt to locate the git repository directory.
@@ -136,4 +137,44 @@ export const group_positional_arguments = (arg_tokens) => {
     }
 
     return result;
+}
+
+/**
+ * Take some kind of reference, and resolve it to a full oid if possible.
+ * @param git_context Object of common parameters to isomorphic-git methods
+ * @param ref Reference to resolve
+ * @returns {Promise<string>} Full oid, or a thrown Error
+ */
+export const resolve_to_oid = async (git_context, ref) => {
+    const [ resolved_oid, expanded_oid ] = await Promise.allSettled([
+        git.resolveRef({ ...git_context, ref }),
+        git.expandOid({ ...git_context, oid: ref }),
+    ]);
+    let oid;
+    if (resolved_oid.status === 'fulfilled') {
+        oid = resolved_oid.value;
+    } else if (expanded_oid.status === 'fulfilled') {
+        oid = expanded_oid.value;
+    } else {
+        throw new Error(`Unable to resolve reference '${ref}'`);
+    }
+    // TODO: Advanced revision selection, see https://git-scm.com/book/en/v2/Git-Tools-Revision-Selection
+    //       and https://git-scm.com/docs/gitrevisions
+    return oid;
+}
+
+/**
+ * Similar to resolve_to_oid, but makes sure the oid refers to a commit.
+ * Returns the commit object because we had to retrieve it anyway.
+ * @param git_context Object of common parameters to isomorphic-git methods
+ * @param ref Reference to resolve
+ * @returns {Promise<ReadCommitResult>} ReadCommitResult object as returned by git.readCommit(), or a thrown Error
+ */
+export const resolve_to_commit = async (git_context, ref) => {
+    const resolved_oid = await resolve_to_oid(git_context, ref);
+    try {
+        return await git.readCommit({ ...git_context, oid: resolved_oid });
+    } catch (e) {
+        throw new Error(`bad revision '${ref}'`);
+    }
 }
