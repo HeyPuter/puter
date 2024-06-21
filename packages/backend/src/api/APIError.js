@@ -47,6 +47,10 @@ module.exports = class APIError {
                 `value of ${quot(key)} must be one of: ` +
                 allowed.map(v => quot(v)).join(', ')
         },
+        'invalid_token': {
+            status: 400,
+            message: () => 'Invalid token'
+        },
         // Things
         'disallowed_thing': {
             status: 400,
@@ -449,6 +453,18 @@ module.exports = class APIError {
             message: ({ key, errors }) =>
                 `The value for ${quot(key)} has the following errors: ` +
                 errors.join('; ')
+        },
+        'share_expired': {
+            status: 422,
+            message: 'This share is expired.'
+        },
+        'email_must_be_confirmed': {
+            status: 422,
+            message: 'Email must be confirmed to apply a share.',
+        },
+        'can_not_apply_to_this_user': {
+            status: 422,
+            message: 'This share can not be applied to this user.',
         },
 
         // Chat
