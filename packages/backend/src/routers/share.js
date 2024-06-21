@@ -484,13 +484,15 @@ const v0_2 = async (req, res) => {
             });
             return svc_token.sign('share', {
                 $: 'token:share',
-                $v: 'v0.0.0',
+                $v: '0.0.0',
                 uid: share_uid,
+            }, {
+                expiresIn: '14d'
             });
         })();
         
-        const email_link = config.origin +
-            `/sharelink?token=${share_token}`;
+        const email_link =
+            `${config.origin}?share_token=${share_token}`;
         
         await svc_email.send_email({ email }, 'share_by_email', {
             link: email_link,
