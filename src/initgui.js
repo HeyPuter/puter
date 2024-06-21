@@ -211,55 +211,6 @@ window.initgui = async function(options){
     }
 
     //--------------------------------------------------------------------------------------
-    // `share_token` provided
-    // i.e. https://puter.com/?share_token=<share_token>
-    //--------------------------------------------------------------------------------------
-    if(window.url_query_params.has('share_token')){
-        let share_token = window.url_query_params.get('share_token');
-
-        fetch(`${puter.APIOrigin}/sharelink/check`, {
-            "headers": {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${puter.authToken}`,
-            },
-            "body": JSON.stringify({
-                token: share_token,
-            }),
-            "method": "POST",
-        }).then(response => response.json())
-        .then(async data => {
-            // Show register screen
-            if(data.email && data.email !== window.user.email){
-                await UIWindowSignup({
-                    reload_on_success: true,
-                    send_confirmation_code: false,
-                    window_options:{
-                        has_head: false
-                    }
-                });
-            }
-            // Show email confirmation screen
-            else if(data.email && data.email === window.user.email && !window.user.email_confirmed){
-                // todo show email confirmation window
-                await UIWindowEmailConfirmationRequired({
-                    stay_on_top: true,
-                    has_head: false
-                });
-            }
-
-            // show shared item
-            UIWindow({
-                path: data.path,
-                title: path.basename(data.path),
-                icon: await item_icon({is_dir: data.is_dir, path: data.path}),
-                is_dir: data.is_dir,
-                app: 'explorer',
-            });
-        }).catch(error => {
-            console.error('Error:', error);
-        })
-    }
-    //--------------------------------------------------------------------------------------
     // Determine if an app was launched from URL
     // i.e. https://puter.com/app/<app_name>
     //--------------------------------------------------------------------------------------
@@ -817,6 +768,56 @@ window.initgui = async function(options){
             // ----------------------------------------------------------
             window.update_sites_cache();
         }
+    }
+    //--------------------------------------------------------------------------------------
+    // `share_token` provided
+    // i.e. https://puter.com/?share_token=<share_token>
+    //--------------------------------------------------------------------------------------
+    if(window.url_query_params.has('share_token')){
+        let share_token = window.url_query_params.get('share_token');
+
+        fetch(`${puter.APIOrigin}/sharelink/check`, {
+            "headers": {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${puter.authToken}`,
+            },
+            "body": JSON.stringify({
+                token: share_token,
+            }),
+            "method": "POST",
+        }).then(response => response.json())
+        .then(async data => {
+            // Show register screen
+            if(data.email && data.email !== window.user?.email){
+                await UIWindowSignup({
+                    reload_on_success: true,
+                    email: data.email,
+                    send_confirmation_code: false,
+                    window_options:{
+                        has_head: false
+                    }
+                });
+            }
+            // Show email confirmation screen
+            else if(data.email && data.email === window.user.email && !window.user.email_confirmed){
+                // todo show email confirmation window
+                await UIWindowEmailConfirmationRequired({
+                    stay_on_top: true,
+                    has_head: false
+                });
+            }
+
+            // show shared item
+            UIWindow({
+                path: data.path,
+                title: path.basename(data.path),
+                icon: await item_icon({is_dir: data.is_dir, path: data.path}),
+                is_dir: data.is_dir,
+                app: 'explorer',
+            });
+        }).catch(error => {
+            console.error('Error:', error);
+        })
     }
     // -------------------------------------------------------------------------------------
     // Desktop Background

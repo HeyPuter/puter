@@ -49,12 +49,12 @@ function UIWindowSignup(options){
                     // username
                     h += `<div style="overflow: hidden;">`;
                         h += `<label for="username-${internal_id}">${i18n('username')}</label>`;
-                        h += `<input id="username-${internal_id}" class="username" type="text" autocomplete="username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
+                        h += `<input id="username-${internal_id}" value="${html_encode(options.username ?? '')}" class="username" type="text" autocomplete="username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                     h += `</div>`;
                     // email
                     h += `<div style="overflow: hidden; margin-top: 20px;">`;
                         h += `<label for="email-${internal_id}">${i18n('email')}</label>`;
-                        h += `<input id="email-${internal_id}" class="email" type="email" autocomplete="email" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
+                        h += `<input id="email-${internal_id}" value="${html_encode(options.email ?? '')}" class="email" type="email" autocomplete="email" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                     h += `</div>`;
                     // password
                     h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
