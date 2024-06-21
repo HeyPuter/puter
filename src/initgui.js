@@ -228,20 +228,33 @@ window.initgui = async function(options){
             "method": "POST",
         }).then(response => response.json())
         .then(async data => {
+            // Show register screen
             if(data.email && data.email !== window.user.email){
-                await UIWindowLogin({
+                await UIWindowSignup({
                     reload_on_success: true,
                     send_confirmation_code: false,
                     window_options:{
                         has_head: false
                     }
-                });    
-            }else{
-                UIAlert({
-                    type: 'success',
-                    message: 'You are authorized to view this link.'
                 });
             }
+            // Show email confirmation screen
+            else if(data.email && data.email === window.user.email && !window.user.email_confirmed){
+                // todo show email confirmation window
+                await UIWindowEmailConfirmationRequired({
+                    stay_on_top: true,
+                    has_head: false
+                });
+            }
+
+            // show shared item
+            UIWindow({
+                path: data.path,
+                title: path.basename(data.path),
+                icon: await item_icon({is_dir: data.is_dir, path: data.path}),
+                is_dir: data.is_dir,
+                app: 'explorer',
+            });
         }).catch(error => {
             console.error('Error:', error);
         })
