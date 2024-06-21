@@ -217,7 +217,7 @@ window.initgui = async function(options){
     if(window.url_query_params.has('share_token')){
         let share_token = window.url_query_params.get('share_token');
 
-        fetch(`${config.api_origin}/sharelink/check`, {
+        fetch(`${puter.APIOrigin}/sharelink/check`, {
             "headers": {
               "Content-Type": "application/json",
               "Authorization": `Bearer ${puter.authToken}`,
