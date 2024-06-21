@@ -211,6 +211,40 @@ window.initgui = async function(options){
     }
 
     //--------------------------------------------------------------------------------------
+    // `share_token` provided
+    // i.e. https://puter.com/?share_token=<share_token>
+    //--------------------------------------------------------------------------------------
+    if(window.url_query_params.has('share_token')){
+        let share_token = window.url_query_params.get('share_token');
+
+        fetch(`${config.api_origin}/sharelink/check`, {
+            "headers": {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${puter.authToken}`,
+            },
+            "body": JSON.stringify({
+                token: share_token,
+            }),
+            "method": "POST",
+        }).then(response => response.json())
+        .then(async data => {
+            if(data.success){
+                if(data.email && data.email !== window.user.email){
+                    UIAlert({
+                        message: 'You are not authorized to view this link.'
+                    });
+                }else{
+                    UIAlert({
+                        type: 'success',
+                        message: 'You are authorized to view this link.'
+                    });
+                }
+            }
+        }).catch(error => {
+            console.error('Error:', error);
+        })
+    }
+    //--------------------------------------------------------------------------------------
     // Determine if an app was launched from URL
     // i.e. https://puter.com/app/<app_name>
     //--------------------------------------------------------------------------------------
