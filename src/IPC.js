@@ -408,7 +408,7 @@ window.addEventListener('message', async (event) => {
                 }
                 // Otherwise, proceed as before
                 return {
-                    html: item.label,
+                    html: html_encode(item.label),
                     icon: item.icon ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon)}" />` : undefined,
                     icon_active: item.icon_active ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon_active)}" />` : undefined,
                     disabled: item.disabled,
@@ -497,7 +497,7 @@ window.addEventListener('message', async (event) => {
                 }
                 // Otherwise, proceed as before
                 return {
-                    html: item.label,
+                    html: html_encode(item.label),
                     disabled: item.disabled,
                     checked: item.checked,
                     icon: item.icon ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon)}" />` : undefined,
