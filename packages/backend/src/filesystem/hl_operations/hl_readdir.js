@@ -38,7 +38,7 @@ class HLReadDir extends HLFilesystemOperation {
             if ( ! await svc_acl.check(actor, subject, 'see') ) {
                 throw await svc_acl.get_safe_acl_error(actor, subject, 'see');
             }
-            return [subject];
+            return [await subject.getSafeEntry()];
         }
         
         let children;
