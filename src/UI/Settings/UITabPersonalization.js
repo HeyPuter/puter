@@ -28,17 +28,38 @@ export default {
         return `
             <h1>${i18n('personalization')}</h1>
             <div class="settings-card">
+                <strong>${i18n('background')}</strong>
+                <div style="flex-grow:1;">
+                    <button class="button change-background" style="float:right;">${i18n('change_desktop_background')}</button>
+                </div>
+            </div>
+            <div class="settings-card">
                 <strong>${i18n('ui_colors')}</strong>
                 <div style="flex-grow:1;">
                     <button class="button change-ui-colors" style="float:right;">${i18n('change_ui_colors')}</button>
                 </div>
             </div>
-            <div class="settings-card">
-                <strong>${i18n('background')}</strong>
+            <div class="settings-card" style="display: block; height: auto;">
+                <strong>${i18n('menubar_style')}</strong>
                 <div style="flex-grow:1;">
-                    <button class="button change-background" style="float:right;">${i18n('change_desktop_background')}</button>
+                    <div>
+                        <input type="radio" name="menubar_style" class="menubar_style" value="system" id="menubar_style_system">
+                        <label style="display:inline;" for="menubar_style_system">${i18n('menubar_style_system')}</label>
+                    </div>
+
+                    <div>
+                        <input type="radio" name="menubar_style" class="menubar_style" value="desktop" id="menubar_style_desktop">
+                        <label style="display:inline;" for="menubar_style_desktop">${i18n('menubar_style_desktop')}</label>
+                    </div>
+
+                    <div>
+                        <input type="radio" name="menubar_style" class="menubar_style" value="window" id="menubar_style_window">
+                        <label style="display:inline;" for="menubar_style_window">${i18n('menubar_style_window')}</label>
+                    </div>
                 </div>
-            </div>`;
+            </div>
+
+            `;
     },
     init: ($el_window) => {
         $el_window.find('.change-ui-colors').on('click', function (e) {
@@ -59,5 +80,29 @@ export default {
                 }
             });
         });
+
+        if(window.menubar_style === 'system' || !window.menubar_style){
+            $el_window.find('#menubar_style_system').prop('checked', true);
+        }else if(window.menubar_style === 'desktop'){
+            $el_window.find('#menubar_style_desktop').prop('checked', true);
+        }
+        else if(window.menubar_style === 'window'){
+            $el_window.find('#menubar_style_window').prop('checked', true);
+        }
+
+        $el_window.find('.menubar_style').on('change', function (e) {
+            const value = $(this).val();
+            if(value === 'system' || value === 'desktop' || value === 'window'){
+                // apply the new style
+                if(value === 'desktop')
+                    $('body').addClass('menubar-style-desktop');
+                else
+                    $('body').removeClass('menubar-style-desktop');
+                puter.kv.set('menubar_style', value);
+                window.menubar_style = value;
+            }else{
+                console.error('Invalid menubar style value');
+            }
+        })
     },
 };
