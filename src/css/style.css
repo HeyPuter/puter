@@ -802,6 +802,9 @@ span.header-sort-icon img {
     text-shadow: none;
 }
 
+.window-menubar:not(.window-menubar-global):empty {
+    display: none !important;
+}
 .window-menubar {
     display: flex;
     box-sizing: border-box;
@@ -810,6 +813,22 @@ span.header-sort-icon img {
     background-color: #fafafa;
     --scale: 2pt;
     padding: 2px 5px;
+}
+
+.window-menubar-global{
+    background-color: transparent;
+    color: white;
+    border-bottom: none;
+    flex-grow: 1;
+    scale: 1;
+    --scale: 1;
+    margin-left: 15px;
+    padding: 0;
+}
+.window-menubar-global .window-menubar-item span{
+    padding: 3px 10px;
+    font-size: 13px;
+    border-radius: 3px;
 }
 
 .window-menubar-item {
@@ -825,9 +844,11 @@ span.header-sort-icon img {
 }
 
 .window-menubar-item.active>span {
-    /* background-color: var(--select-color);
-    color: white; */
     background-color: #e2e2e2;
+}
+
+.window-menubar-global .window-menubar-item.active>span {
+    background-color: #e4e4e43a;
 }
 
 .explorer-empty-message {
@@ -1360,6 +1381,10 @@ span.header-sort-icon img {
     height: calc(100%);
     pointer-events: none;
     overflow: hidden;
+}
+
+.menubar-style-desktop .window-app-iframe {
+    height: calc(100% + 35px);
 }
 
 .window-active .window-app-iframe {

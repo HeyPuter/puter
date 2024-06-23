@@ -275,9 +275,10 @@ async function UIWindow(options) {
         }
 
         // Menubar
-        {
-            h += `<div class="window-menubar">`;
-            h += `</div>`;
+        if(window.menubar_style === 'window'){
+            h += `<div class="window-menubar" data-window-id="${win_id}"></div>`;
+        }else if(window.menubar_style === 'desktop'){
+            $('.toolbar-puter-logo').after(`<div class="window-menubar window-menubar-global" data-window-id="${win_id}"></div>`);
         }
 
         // Navbar
@@ -3008,7 +3009,6 @@ $.fn.close = async function(options) {
             }
         }
 
-
         if ( this.on_before_exit ) {
             if ( ! await this.on_before_exit() ) return false;
         }
@@ -3083,6 +3083,10 @@ $.fn.close = async function(options) {
 
             // remove backdrop
             $(this).closest('.window-backdrop').remove();
+
+            // remove global menubars
+            $(`.window-menubar-global[data-window-id="${win_id}"]`).remove();
+
             // remove DOM element
             if(options?.shrink_to_target){
                 // get target location
@@ -3316,6 +3320,7 @@ window.toggle_empty_folder_message = function(el_item_container){
 $.fn.focusWindow = function(event) {
     if(this.hasClass('window')){
         const $app_iframe = $(this).find('.window-app-iframe');
+        const win_id = $(this).attr('data-id');
         $('.window').not(this).removeClass('window-active');
         $(this).addClass('window-active');
         // disable pointer events on all windows' iframes, except for this window's iframe
@@ -3332,6 +3337,11 @@ $.fn.focusWindow = function(event) {
         if($(this).attr('data-element_uuid') !== 'null'){
             $(`.window[data-parent_uuid="${$(this).attr('data-element_uuid')}"]`).css('z-index', ++window.last_window_zindex);
         }
+
+        // hide other global menubars
+        $('.window-menubar-global').not(`.window-menubar-global[data-window-id="${win_id}"]`).hide();
+        // show this window's global menubar
+        $(`.window-menubar-global[data-window-id="${win_id}"]`).show();
 
         // if a menubar or any of its items are clicked, don't focus the iframe. This is important to preserve the focus on the menubar
         // and to enable keyboard navigation through the menubar items

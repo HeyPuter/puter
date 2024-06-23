@@ -562,6 +562,29 @@ async function UIDesktop(options){
         }
     })
 
+    // Get menubar style
+    puter.kv.get('menubar_style').then(async (val) => {
+        let value = val;
+        if(value === 'system' || value === 'desktop' || value === 'window'){
+            window.menubar_style = value;
+        }else{
+            window.menubar_style = 'system';
+        }
+
+        if(menubar_style === 'system'){
+            if(window.detectHostOS() === 'macos')
+                menubar_style = 'desktop';
+            else
+                menubar_style = 'window';
+        }
+
+        // set menubar style class to body
+        if(window.menubar_style === 'desktop'){
+            $('body').addClass('menubar-style-desktop');
+        }
+    })
+
+
     // Remove `?ref=...` from navbar URL
     if(window.url_query_params.has('ref')){
         window.history.pushState(null, document.title, '/');    
@@ -955,6 +978,7 @@ async function UIDesktop(options){
     ht += `<div class="toolbar"  style="height:${window.toolbar_height}px;">`;
         // logo
         ht += `<div class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px; margin-right: auto;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
+
         // create account button
         ht += `<div class="toolbar-btn user-options-create-account-btn ${window.user.is_temp ? '' : 'hidden' }" style="padding:0; opacity:1;" title="Save Account">`;
             ht += `<svg style="width: 17px; height: 17px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px" height="48px" viewBox="0 0 48 48"><g transform="translate(0, 0)"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"></path></g></svg>`;
@@ -1052,6 +1076,8 @@ async function UIDesktop(options){
     $(el_desktop).on('click', function(e){
         // blur all windows
         $('.window-active').removeClass('window-active');
+        // hide all global menubars
+        $('.window-menubar-global').hide();
     })  
 
     function display_ct() {

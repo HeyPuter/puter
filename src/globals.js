@@ -233,3 +233,10 @@ window.reset_item_positions = true; // The variable decides if the item position
 
 // default language
 window.locale = 'en';
+
+/* Menubar style
+ * 'window' - menubar is part of the window
+ * 'desktop' - menubar is part of the desktop
+ * 'system' - menubar is determined by the system (e.g. Windows, macOS)
+ */
+// window.menubar_style = 'desktop';

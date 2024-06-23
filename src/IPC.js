@@ -475,8 +475,16 @@ window.addEventListener('message', async (event) => {
         const value = hydrator.hydrate(event.data.value);
 
         // Show menubar
-        const $menubar = $(el_window).find('.window-menubar')
-        $menubar.show();
+        let $menubar;
+        if(window.menubar_style === 'window')
+            $menubar = $(el_window).find('.window-menubar')
+        else{
+            $menubar = $('.window-menubar-global[data-window-id="'+$(el_window).attr('data-id')+'"]');
+            // hide all other menubars
+            $('.window-menubar-global').hide();
+        }
+        
+        $menubar.css('display', 'flex');
 
         // disable system context menu
         $menubar.on('contextmenu', (e) => {
