@@ -147,6 +147,7 @@ const en = {
         log_out: 'Log Out',
         looks_good: "Looks good!",
         manage_sessions: "Manage Sessions",
+        menubar_style: "Menubar Style",
         menubar_style_desktop: "Desktop",
         menubar_style_system: "System",
         menubar_style_window: "Window",
