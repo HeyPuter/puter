@@ -483,7 +483,8 @@ window.addEventListener('message', async (event) => {
             // hide all other menubars
             $('.window-menubar-global').hide();
         }
-        $menubar.show();
+        
+        $menubar.css('display', 'flex');
 
         // disable system context menu
         $menubar.on('contextmenu', (e) => {

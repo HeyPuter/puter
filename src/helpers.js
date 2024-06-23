@@ -2397,3 +2397,19 @@ window.countSubstr = (str, substring)=>{
 
     return count;
 }
+
+window.detectHostOS = function(){
+    var userAgent = window.navigator.userAgent;
+    var platform = window.navigator.platform;
+    var macosPlatforms = ['Macintosh', 'MacIntel', 'MacPPC', 'Mac68K'];
+    var windowsPlatforms = ['Win32', 'Win64', 'Windows', 'WinCE'];
+
+    if (macosPlatforms.indexOf(platform) !== -1) {
+        return 'macos';
+    } else if (windowsPlatforms.indexOf(platform) !== -1) {
+        return 'windows';
+    } else {
+        return 'other';
+    }
+}
+

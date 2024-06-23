@@ -41,20 +41,29 @@ export default {
             </div>
             <div class="settings-card" style="display: block; height: auto;">
                 <strong>${i18n('menubar_style')}</strong>
-                <div style="flex-grow:1;">
+                <div style="flex-grow:1; margin-top: 10px;">
                     <div>
+                        <label style="display:inline;" for="menubar_style_system">
                         <input type="radio" name="menubar_style" class="menubar_style" value="system" id="menubar_style_system">
-                        <label style="display:inline;" for="menubar_style_system">${i18n('menubar_style_system')}</label>
+                        <strong>${i18n('menubar_style_system')}</strong>
+                        <p style="margin-left: 17px; margin-top: 5px; margin-bottom: 20px;">Set the menubar based on the host system settings</p>
+                        </label>
                     </div>
 
                     <div>
+                        <label style="display:inline;" for="menubar_style_desktop">
                         <input type="radio" name="menubar_style" class="menubar_style" value="desktop" id="menubar_style_desktop">
-                        <label style="display:inline;" for="menubar_style_desktop">${i18n('menubar_style_desktop')}</label>
+                        <strong>${i18n('menubar_style_desktop')}</strong>
+                        <p style="margin-left: 17px; margin-top: 5px; margin-bottom: 20px;">Show app menubar on in the desktop toolbar</p>
+                        </label>
                     </div>
 
                     <div>
+                        <label style="display:inline;" for="menubar_style_window">
                         <input type="radio" name="menubar_style" class="menubar_style" value="window" id="menubar_style_window">
-                        <label style="display:inline;" for="menubar_style_window">${i18n('menubar_style_window')}</label>
+                        <strong>${i18n('menubar_style_window')}</strong>
+                        <p style="margin-left: 17px; margin-top: 5px; margin-bottom: 20px;">Show app menubar on top of the app window</p>
+                        </label>
                     </div>
                 </div>
             </div>
@@ -81,24 +90,50 @@ export default {
             });
         });
 
-        if(window.menubar_style === 'system' || !window.menubar_style){
-            $el_window.find('#menubar_style_system').prop('checked', true);
-        }else if(window.menubar_style === 'desktop'){
-            $el_window.find('#menubar_style_desktop').prop('checked', true);
-        }
-        else if(window.menubar_style === 'window'){
-            $el_window.find('#menubar_style_window').prop('checked', true);
-        }
+        puter.kv.get('menubar_style').then(async (val) => {
+            if(val === 'system' || !val){
+                $el_window.find('#menubar_style_system').prop('checked', true);
+            }else if(val === 'desktop'){
+                $el_window.find('#menubar_style_desktop').prop('checked', true);
+            }
+            else if(val === 'window'){
+                $el_window.find('#menubar_style_window').prop('checked', true);
+            }
+        })
 
         $el_window.find('.menubar_style').on('change', function (e) {
-            const value = $(this).val();
+            let value = $(this).val();
             if(value === 'system' || value === 'desktop' || value === 'window'){
-                // apply the new style
-                if(value === 'desktop')
-                    $('body').addClass('menubar-style-desktop');
-                else
-                    $('body').removeClass('menubar-style-desktop');
+                // save the new style to cloud kv
                 puter.kv.set('menubar_style', value);
+                
+                if(value === 'system'){
+                    if(detectHostOS() === 'macos')
+                        value = 'desktop';
+                    else
+                        value = 'window';
+                }
+                // apply the new style
+                if(value === 'desktop'){
+                    $('body').addClass('menubar-style-desktop');
+                    $('.window-menubar').each((_, el) => {
+                        $(el).insertAfter('.toolbar-puter-logo');
+                        // add window-menubar-global
+                        $(el).addClass('window-menubar-global');
+                        // hide
+                        $(el).hide();
+                    })
+                }else{
+                    $('body').removeClass('menubar-style-desktop');
+                    $('.window-menubar-global').each((_, el) => {
+                        let win_id = $(el).attr('data-window-id');
+                        $(el).insertAfter('.window[data-id="'+win_id+'"] .window-head');
+                        // remove window-menubar-global
+                        $(el).removeClass('window-menubar-global');
+                        // show
+                        $(el).css('display', 'flex');
+                    })
+                }
                 window.menubar_style = value;
             }else{
                 console.error('Invalid menubar style value');

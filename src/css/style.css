@@ -802,6 +802,9 @@ span.header-sort-icon img {
     text-shadow: none;
 }
 
+.window-menubar:not(.window-menubar-global):empty {
+    display: none !important;
+}
 .window-menubar {
     display: flex;
     box-sizing: border-box;
