@@ -180,15 +180,26 @@ class DevConsoleService extends BaseService {
                 this.generateSeparator() +
                 `\x1B[0m\n`
             );
+            
+            // Input background disabled on Mac OS because it
+            // has a - brace yourself - light-theme terminal 😱
+            const drawInputBackground =
+                process.platform === 'darwin';
 
             // Redraw the static lines
             this.static_lines.forEach(line => {
                 process.stdout.write(line + '\n');
             });
-            process.stdout.write('\x1b[48;5;234m');
+            if ( drawInputBackground ) {
+                // input background
+                process.stdout.write('\x1b[48;5;234m');
+            }
             rl.resume();
             rl._refreshLine();
-            process.stdout.write('\x1b[48;5;237m');
+            if ( drawInputBackground ) {
+                // input background
+                process.stdout.write('\x1b[48;5;237m');
+            }
         };
 
         this._redraw = () => {
