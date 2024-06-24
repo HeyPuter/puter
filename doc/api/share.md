@@ -286,3 +286,52 @@ A type-tagged object, either of type `api:status-report` or `api:error`
     "code": "can_not_apply_to_this_user"
 }
 ```
+
+## POST `/sharelink/request` (no auth)
+
+### Description
+
+The `/sharelink/request` endpoint requests the permissions associated
+with a share link to the issuer of the share (user that sent the share).
+This can be used when a user is logged in, but that user's email does
+not match the email associated with the share.
+
+### Example
+
+```javascript
+await fetch(`${config.api_origin}/sharelink/request`, {
+  "headers": {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${puter.authToken}`,
+  },
+  "body": JSON.stringify({
+      uid: '836671d4-ac5d-4bd3-bc0a-ec357e0d8f02',
+  }),
+  "method": "POST",
+});
+```
+
+### Parameters
+
+- **uid:** _- required_
+  - **accepts:** `string`
+    The uid of an existing share, received using `/sharelink/check`
+
+### Response
+
+A type-tagged object, either of type `api:status-report` or `api:error`
+
+### Success Response
+
+```json
+{"$":"api:status-report","status":"success"}
+```
+
+### Error Response
+
+```json
+{
+    "message": "This share is already valid for this user; POST to /apply for access",
+    "code": "no_need_to_request"
+}
+```
