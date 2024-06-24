@@ -46,3 +46,8 @@ Comments beginning with `// track:`. See
   then the null check should result in a early return of null;
   this code with the track comment may have additional logic
   for the null/undefined case.
+- `track: manual safe object`
+  This code manually creates a new "client-safe" version of
+  some object that's in scope. This could be either to pass
+  onto the browser or to pass to something like the
+  notification service.
