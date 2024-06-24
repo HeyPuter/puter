@@ -1383,10 +1383,6 @@ span.header-sort-icon img {
     overflow: hidden;
 }
 
-.menubar-style-desktop .window-app-iframe {
-    height: calc(100% + 35px);
-}
-
 .window-active .window-app-iframe {
     pointer-events: all;
 }
