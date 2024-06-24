@@ -108,7 +108,7 @@ export default {
                 puter.kv.set('menubar_style', value);
                 
                 if(value === 'system'){
-                    if(detectHostOS() === 'macos')
+                    if(window.detectHostOS() === 'macos')
                         value = 'desktop';
                     else
                         value = 'window';
