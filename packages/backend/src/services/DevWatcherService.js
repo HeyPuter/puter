@@ -65,7 +65,7 @@ class DevWatcherService extends BaseService {
 
         // It's difficult to tell when webpack is "done" its first
         // run so we just wait a bit before we say we're ready.
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+        await new Promise((resolve) => setTimeout(resolve, 5000));
     }
 
     log_ (name, isErr, line) {

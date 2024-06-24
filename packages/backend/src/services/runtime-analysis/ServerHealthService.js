@@ -56,6 +56,8 @@ class ServerHealthService extends BaseService {
         if ( process.platform !== 'linux' ) {
             return;
         }
+        
+        if ( this.config.no_system_checks ) return;
 
         this.add_check('ram-usage', async () => {
             const meminfo_text = await this.modules.fs.promises.readFile(

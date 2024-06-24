@@ -132,16 +132,12 @@ class WebServerService extends BaseService {
         this.startup_widget = () => {
             const link = `\x1B[34;1m${osclink(url)}\x1B[0m`;
             const lines = [
-                "",
                 `Puter is now live at: ${link}`,
                 `Type web:dismiss to un-stick this message`,
-                "",
             ];
             const lengths = [
-                0,
                 (`Puter is now live at: `).length + url.length,
-                lines[2].length,
-                0,
+                lines[1].length,
             ];
             surrounding_box('34;1', lines, lengths);
             return lines;

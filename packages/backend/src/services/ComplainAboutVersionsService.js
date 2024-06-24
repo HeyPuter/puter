@@ -58,15 +58,16 @@ class ComplainAboutVersionsService extends BaseService {
             return str;
         })();
 
-        const widget_lines = [];
-        widget_lines.push(
-            `Node.js version ${major} is past EOL by ${timeago};`,
-            `Everything should work, but you should still upgrade.`,
-        );
-        surrounding_box('31;1', widget_lines);
-
         const svc_devConsole = this.services.get('dev-console');
-        svc_devConsole.add_widget(() => widget_lines);
+        svc_devConsole.add_widget(() => {
+            const widget_lines = [];
+            widget_lines.push(
+                `Node.js version ${major} is past EOL by ${timeago};`,
+                `Everything should work, but you should still upgrade.`,
+            );
+            surrounding_box('31;1', widget_lines);
+            return widget_lines;
+        });
     }
 
     async get_eol_data_ () {
