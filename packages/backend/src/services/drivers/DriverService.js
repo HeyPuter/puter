@@ -34,6 +34,11 @@ class DriverService extends BaseService {
         this.interfaces = require('./interfaces');
         this.interface_to_implementation = {};
     }
+    
+    _init () {
+        const svc_registry = this.services.get('registry');
+        svc_registry.register_collection('');
+    }
 
     register_driver (interface_name, implementation) {
         this.interface_to_implementation[interface_name] = implementation;

@@ -462,6 +462,11 @@ module.exports = class APIError {
             status: 422,
             message: 'Email must be confirmed to apply a share.',
         },
+        'no_need_to_request': {
+            status: 422,
+            message: 'This share is already valid for this user; ' +
+                'POST to /apply for access.'
+        },
         'can_not_apply_to_this_user': {
             status: 422,
             message: 'This share can not be applied to this user.',

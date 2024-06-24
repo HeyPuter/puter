@@ -34,3 +34,15 @@ Comments beginning with `// track:`. See
   or there's a common behavior that should happen
   in between. The Sequence class is good for this so
   it might be a worthy migration.
+- `track: opposite condition of sibling`
+  A sibling class, function, method, or other construct of
+  source code has a boolean expression which always evaluates
+  to the opposite of the one below this track comment.
+- `track: null check before processing`
+  An object could be undefined or null, additional processing
+  occurs after a null check, and the unprocessed object is not
+  relevant to the rest of the code. If the code for obtaining
+  the object and processing it is moved to a function outside,
+  then the null check should result in a early return of null;
+  this code with the track comment may have additional logic
+  for the null/undefined case.

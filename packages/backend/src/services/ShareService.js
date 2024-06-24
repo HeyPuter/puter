@@ -6,6 +6,7 @@ const { whatis } = require("../util/langutil");
 const { Actor, UserActorType } = require("./auth/Actor");
 const BaseService = require("./BaseService");
 const { DB_WRITE } = require("./database/consts");
+const { UsernameNotifSelector } = require("./NotificationService");
 
 class ShareService extends BaseService {
     static MODULES = {
@@ -85,15 +86,15 @@ class ShareService extends BaseService {
                     uid: share_uid,
                 });
                 
+                if ( ! share ) {
+                    throw APIError.create('share_expired');
+                }
+                
                 share.data = this.db.case({
                     mysql: () => share.data,
                     otherwise: () =>
                         JSON.parse(share.data ?? '{}'),
                 })();
-                
-                if ( ! share ) {
-                    throw APIError.create('share_expired');
-                }
                 
                 const actor = Actor.adapt(req.actor ?? req.user);
                 if ( ! actor ) {
@@ -131,6 +132,74 @@ class ShareService extends BaseService {
                     );
                 }
                 
+                res.json({
+                    $: 'api:status-report',
+                    status: 'success',
+                });
+            }
+        }).attach(router);
+
+        Endpoint({
+            route: '/request',
+            methods: ['POST'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                const share_uid = req.body.uid;
+                
+                const share = await svc_share.get_share({
+                    uid: share_uid,
+                });
+                
+                // track: null check before processing
+                if ( ! share ) {
+                    throw APIError.create('share_expired');
+                }
+                
+                share.data = this.db.case({
+                    mysql: () => share.data,
+                    otherwise: () =>
+                        JSON.parse(share.data ?? '{}'),
+                })();
+                
+                const actor = Actor.adapt(req.actor ?? req.user);
+                if ( ! actor ) {
+                    // this shouldn't happen; auth should catch it
+                    throw new Error('actor missing');
+                }
+                
+                // track: opposite condition of sibling
+                // :: sibling: /apply endpoint
+                if (
+                    actor.type.user.email_confirmed &&
+                    actor.type.user.email === share.recipient_email
+                ) {
+                    throw APIError.create('no_need_to_request');
+                }
+                
+                const issuer_user = await get_user({
+                    id: share.issuer_user_id,
+                });
+
+                if ( ! issuer_user ) {
+                    throw APIError.create('share_expired');
+                }
+                
+                const svc_notification = this.services.get('notification');
+                svc_notification.notify(
+                    UsernameNotifSelector(issuer_user.username),
+                    {
+                        source: 'sharing',
+                        title: `User ${actor.type.user.username} is ` +
+                            `trying to open a share you sent to ` +
+                            share.recipient_email,
+                        template: 'user-requesting-share',
+                        fields: {
+                            username: actor.type.user.username,
+                            intended_recipient: share.recipient_email,
+                            permissions: share.data.permissions,
+                        },
+                    }
+                );
                 res.json({
                     $: 'api:status-report',
                     status: 'success',
