@@ -184,7 +184,7 @@ class DevConsoleService extends BaseService {
             // Input background disabled on Mac OS because it
             // has a - brace yourself - light-theme terminal 😱
             const drawInputBackground =
-                process.platform === 'darwin';
+                process.platform !== 'darwin';
 
             // Redraw the static lines
             this.static_lines.forEach(line => {
