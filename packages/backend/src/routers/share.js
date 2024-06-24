@@ -15,6 +15,7 @@ const { UsernameNotifSelector } = require('../services/NotificationService');
 const { quot } = require('../util/strutil');
 const { UtilFn } = require('../util/fnutil');
 const { WorkList } = require('../util/workutil');
+const { DB_WRITE } = require('../services/database/consts');
 
 const router = express.Router();
 
@@ -28,6 +29,8 @@ const v0_2 = async (req, res) => {
     const lib_typeTagged = req.services.get('lib-type-tagged');
 
     const actor = Context.get('actor');
+    
+    const db = req.services.get('database').get('share', DB_WRITE);
     
     // === Request Validators ===
     
@@ -372,11 +375,6 @@ const v0_2 = async (req, res) => {
         continue;
     }
     
-    // Process: conditionally add permission for subdomain
-    for ( const item of shares_work.list() ) {
-        // NEXT
-    }
-    
     shares_work.clear_invalid();
     
     for ( const item of shares_work.list() ) {
@@ -410,11 +408,49 @@ const v0_2 = async (req, res) => {
     
     shares_work.clear_invalid();
     
+    // Fetch app info for app shares
     for ( const item of shares_work.list() ) {
         if ( item.type !== 'app' ) continue;
-        const app = await get_app({});
+        const { thing } = item;
+
+        const app = await get_app(thing.uid ?
+            { uid: thing.uid } : { name: thing.name });
+        if ( ! app ) {
+            item.invalid = true;
+            result.shares[item.i] =
+                // note: since we're reporting `entity_not_found`
+                // we will report the id as an entity-storage-compatible
+                // identifier.
+                APIError.create('entity_not_found', null, {
+                    identifier: thing.uid
+                        ? { uid: thing.uid }
+                        : { id: { name: thing.name } }
+                });
+        }
+        item.app = app;
     }
     
+    shares_work.clear_invalid();
+    
+    // Process: conditionally add permission for subdomain
+    for ( const item of shares_work.list() ) {
+        if ( item.type !== 'app' ) continue;
+        const [subdomain] = await db.read(
+            `SELECT * FROM subdomains WHERE associated_app_id = ? ` +
+            `AND user_id = ? LIMIT 1`,
+            [item.app.id, actor.type.user.id]
+        );
+        if ( ! subdomain ) continue;
+        
+        // The subdomain is also owned by this user, so we'll
+        // add a permission for that as well
+        
+        const site_selector = `uid#${subdomain.uuid}`;
+        item.share_intent.permissions.push(
+            PermissionUtil.join('site', site_selector, 'access')
+        )
+    }
+
     shares_work.clear_invalid();
 
     // Mark files as successful; further errors will be
