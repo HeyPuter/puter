@@ -59,7 +59,7 @@ function UIItem(options){
     options.multiselectable = (options.multiselectable === undefined || options.multiselectable === true) ? true : false;
     options.shortcut_to = options.shortcut_to ?? '';
     options.shortcut_to_path = options.shortcut_to_path ?? '';
-    options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? 0 : 1);
+    options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? false : true);
     options.sort_container_after_append = (options.sort_container_after_append !== undefined ? options.sort_container_after_append : false);
     const is_shared_with_me = (options.path !== '/'+window.user.username && !options.path.startsWith('/'+window.user.username+'/'));
 
@@ -73,99 +73,100 @@ function UIItem(options){
     // --------------------------------------------------------
     // HTML for Item
     // --------------------------------------------------------
+    console.log('options', options)
     let h = '';
-    h += `<div  id="item-${item_id}" 
+    h += H`<div  id="item-${item_id}" 
                 class="item${options.is_selected ? ' item-selected':''} ${options.disabled ? 'item-disabled':''} item-${options.visible}" 
                 data-id="${item_id}" 
-                data-name="${html_encode(options.name)}" 
-                data-metadata="${html_encode(options.metadata)}" 
+                data-name="${(options.name)}" 
+                data-metadata="${(options.metadata)}" 
                 data-uid="${options.uid}" 
                 data-is_dir="${options.is_dir ? 1 : 0}" 
                 data-is_trash="${options.is_trash ? 1 : 0}"
                 data-has_website="${options.has_website ? 1 : 0 }" 
-                data-website_url = "${website_url ? html_encode(website_url) : ''}"
-                data-immutable="${options.immutable}" 
-                data-is_shortcut = "${options.is_shortcut}"
-                data-shortcut_to = "${html_encode(options.shortcut_to)}"
-                data-shortcut_to_path = "${html_encode(options.shortcut_to_path)}"
+                data-website_url = "${website_url ? (website_url) : ''}"
+                data-immutable="${options.immutable ? 1 : 0}" 
+                data-is_shortcut = "${options.is_shortcut ? 1 : 0}"
+                data-shortcut_to = "${(options.shortcut_to)}"
+                data-shortcut_to_path = "${(options.shortcut_to_path)}"
                 data-sortable = "${options.sortable ?? 'true'}"
-                data-sort_by = "${html_encode(options.sort_by) ?? 'name'}"
+                data-sort_by = "${(options.sort_by) ?? 'name'}"
                 data-size = "${options.size ?? ''}"
-                data-type = "${html_encode(options.type) ?? ''}"
+                data-type = "${(options.type) ?? ''}"
                 data-modified = "${options.modified ?? ''}"
-                data-associated_app_name = "${html_encode(options.associated_app_name) ?? ''}"
-                data-path="${html_encode(options.path)}">`;
+                data-associated_app_name = "${(options.associated_app_name) ?? ''}"
+                data-path="${(options.path)}">`;
 
         // spinner
-        h += `<div class="item-spinner">`;
-        h += `</div>`;
+        h += H`<div class="item-spinner">`;
+        h += H`</div>`;
         // modified
-        h += `<div class="item-attr item-attr--modified">`;
-            h += `<span>${options.modified === 0 ? '-' : timeago.format(options.modified*1000)}</span>`;
-        h += `</div>`;
+        h += H`<div class="item-attr item-attr--modified">`;
+            h += H`<span>${options.modified === 0 ? '-' : timeago.format(options.modified*1000)}</span>`;
+        h += H`</div>`;
         // size
-        h += `<div class="item-attr item-attr--size">`;
-            h += `<span>${options.size ? window.byte_format(options.size) : '-'}</span>`;
-        h += `</div>`;
+        h += H`<div class="item-attr item-attr--size">`;
+            h += H`<span>${options.size ? window.byte_format(options.size) : '-'}</span>`;
+        h += H`</div>`;
         // type
-        h += `<div class="item-attr item-attr--type">`;
+        h += H`<div class="item-attr item-attr--type">`;
             if(options.is_dir)
-                h += `<span>Folder</span>`;
+                h += H`<span>Folder</span>`;
             else
-                h += `<span>${options.type ? html_encode(options.type) : '-'}</span>`;
-        h += `</div>`;
+                h += H`<span>${options.type ? (options.type) : '-'}</span>`;
+        h += H`</div>`;
 
 
         // icon
-        h += `<div class="item-icon">`;
-            h += `<img src="${html_encode(options.icon.image)}" class="item-icon-${options.icon.type}" data-item-id="${item_id}">`;
-        h += `</div>`;
+        h += H`<div class="item-icon">`;
+            h += H`<img src="${(options.icon.image)}" class="item-icon-${options.icon.type}" data-item-id="${item_id}">`;
+        h += H`</div>`;
         // badges
-        h += `<div class="item-badges">`;
+        h += H`<div class="item-badges">`;
             // website badge
-            h += `<img  class="item-badge item-has-website-badge long-hover" 
+            h += H`<img  class="item-badge item-has-website-badge long-hover" 
                         style="${options.has_website ? 'display:block;' : ''}" 
-                        src="${html_encode(window.icons['world.svg'])}" 
+                        src="${(window.icons['world.svg'])}" 
                         data-item-id="${item_id}"
                     >`;
             // link badge
-            h += `<img  class="item-badge item-has-website-url-badge" 
+            h += H`<img  class="item-badge item-has-website-url-badge" 
                         style="${website_url ? 'display:block;' : ''}" 
-                        src="${html_encode(window.icons['link.svg'])}" 
+                        src="${(window.icons['link.svg'])}" 
                         data-item-id="${item_id}"
                     >`;
 
             // shared badge
-            h += `<img  class="item-badge item-badge-has-permission" 
+            h += H`<img  class="item-badge item-badge-has-permission" 
                         style="display: ${ is_shared_with_me ? 'block' : 'none'};
                             background-color: #ffffff;
-                            padding: 2px;" src="${html_encode(window.icons['shared.svg'])}" 
+                            padding: 2px;" src="${(window.icons['shared.svg'])}" 
                         data-item-id="${item_id}"
                         title="A user has shared this item with you.">`;
             // owner-shared badge
-            h += `<img  class="item-badge item-is-shared" 
+            h += H`<img  class="item-badge item-is-shared" 
                         style="background-color: #ffffff; padding: 2px; ${!is_shared_with_me && options.is_shared ? 'display:block;' : ''}" 
-                        src="${html_encode(window.icons['owner-shared.svg'])}" 
+                        src="${(window.icons['owner-shared.svg'])}" 
                         data-item-id="${item_id}"
                         data-item-uid="${options.uid}"
-                        data-item-path="${html_encode(options.path)}"
+                        data-item-path="${(options.path)}"
                         title="You have shared this item with at least one other user."
                     >`;
             // shortcut badge
-            h += `<img  class="item-badge item-shortcut" 
+            h += H`<img  class="item-badge item-shortcut" 
                         style="background-color: #ffffff; padding: 2px; ${options.is_shortcut !== 0 ? 'display:block;' : ''}" 
-                        src="${html_encode(window.icons['shortcut.svg'])}" 
+                        src="${(window.icons['shortcut.svg'])}" 
                         data-item-id="${item_id}"
                         title="Shortcut"
                     >`;
 
-        h += `</div>`;
+        h += H`</div>`;
 
         // name
-        h += `<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${options.is_trash ? i18n('trash') : html_encode(truncate_filename(options.name)).replaceAll(' ', '&nbsp;')}</span>`
+        h += H`<span class="item-name" data-item-id="${item_id}" title="${(options.name)}"></span>`
         // name editor
-        h += `<textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${html_encode(options.name)}</textarea>`
-    h += `</div>`;
+        h += H`<textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${(options.name)}</textarea>`
+    h += H`</div>`;
 
     // append to options.appendTo
     $(options.appendTo).append(h);
@@ -180,6 +181,8 @@ function UIItem(options){
     const el_item_icon = document.querySelector(`#item-${item_id} .item-icon`);
     const el_item_name_editor = document.querySelector(`#item-${item_id} > .item-name-editor`);
     const is_trashed = $(el_item).attr('data-path').startsWith(window.trash_path + '/');
+    // set the item name
+    $(el_item_name).html(options.is_trash ? i18n('trash') : (truncate_filename(options.name)).replaceAll(' ', '&nbsp;'));
 
     // update parent window's explorer item count if applicable
     if(options.appendTo !== undefined){
@@ -1006,7 +1009,7 @@ function UIItem(options){
                         }
                         items.push({
                             html: suggested_app.title,
-                            icon: `<img src="${html_encode(suggested_app.icon ?? window.icons['app.svg'])}" style="width:16px; height: 16px; margin-bottom: -4px;">`,
+                            icon: H`<img src="${(suggested_app.icon ?? window.icons['app.svg'])}" style="width:16px; height: 16px; margin-bottom: -4px;">`,
                             onClick: async function(){
                                 var extension = path.extname($(el_item).attr('data-path')).toLowerCase();
                                 if(
@@ -1019,7 +1022,7 @@ function UIItem(options){
                                     )
                                 ){
                                     const alert_resp = await UIAlert({
-                                        message: `${i18n('change_always_open_with')} ` + html_encode(suggested_app.title) + '?',
+                                        message: H`${i18n('change_always_open_with')} ` + (suggested_app.title) + '?',
                                         body_icon: suggested_app.icon,
                                         buttons:[
                                             {
@@ -1529,14 +1532,14 @@ $(document).on('long-hover', '.item-has-website-badge', function(e){
         
             if(fsentry.subdomains){
                 let h = `<div class="allow-user-select website-badge-popover-content">`;
-                h += `<div class="website-badge-popover-title">Associated website${ fsentry.subdomains.length > 1 ? 's':''}</div>`;
+                h += H`<div class="website-badge-popover-title">Associated website${ fsentry.subdomains.length > 1 ? 's':''}</div>`;
                 fsentry.subdomains.forEach(subdomain => {
-                    h += `
+                    h += H`
                     <a class="website-badge-popover-link" href="${subdomain.address}" style="font-size:13px;" target="_blank">${subdomain.address.replace('https://', '')}</a>
                     <br>`;
                 });
 
-                h += `</div>`;
+                h += H`</div>`;
 
                 // close other website popovers
                 $('.website-badge-popover-content').closest('.popover').remove();

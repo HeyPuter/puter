@@ -1512,3 +1512,28 @@ window.privacy_aware_path = function(fspath){
     else
         return fspath;
 }
+
+// A fake html_encode for the example at the bottom
+window.hescape = text => {
+    return html_encode(text);
+};
+
+// The entire implementation of the thing
+window.H = (strings, ...values) => {
+    let output = '';
+    for ( let i=0 ; i < strings.length ; i++ ) {
+        output += strings[i];
+        if ( values[i] !== undefined) {
+            if(typeof values[i] === 'boolean')
+                output += (values[i] ? 'true' : 'false');
+            else if(typeof values[i] === 'number')
+                output += values[i].toString();
+            else if (values[i] === '&nbsp;')
+                output += values[i];
+            else
+                output += hescape(values[i]);
+        }
+    }
+
+    return output;
+};

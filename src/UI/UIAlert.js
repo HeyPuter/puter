@@ -58,20 +58,20 @@ function UIAlert(options){
 
         let h = '';
         // icon
-        h += `<img class="window-alert-icon" src="${html_encode(options.body_icon)}">`;
+        h += H`<img class="window-alert-icon" src="${html_encode(options.body_icon)}">`;
         // message
-        h += `<div class="window-alert-message">${santized_message}</div>`;
+        h += H`<div class="window-alert-message">${santized_message}</div>`;
         // buttons
         if(options.buttons && options.buttons.length > 0){
-            h += `<div style="overflow:hidden; margin-top:20px;">`;
+            h += H`<div style="overflow:hidden; margin-top:20px;">`;
             for(let y=0; y<options.buttons.length; y++){
-                h += `<button class="button button-block button-${html_encode(options.buttons[y].type)} alert-resp-button" 
+                h += H`<button class="button button-block button-${html_encode(options.buttons[y].type)} alert-resp-button" 
                                 data-label="${html_encode(options.buttons[y].label)}"
                                 data-value="${html_encode(options.buttons[y].value ?? options.buttons[y].label)}"
                                 ${options.buttons[y].type === 'primary' ? 'autofocus' : ''}
                                 >${html_encode(options.buttons[y].label)}</button>`;
             }
-            h += `</div>`;
+            h += H`</div>`;
         }
 
         const el_window = await UIWindow({
