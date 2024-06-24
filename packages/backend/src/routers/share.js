@@ -235,6 +235,7 @@ const v0_2 = async (req, res) => {
 
     recipients_work.clear_invalid();
     
+    // Check: users specified by username exist
     for ( const item of recipients_work.list() ) {
         if ( item.type !== 'username' ) continue;
 
@@ -270,9 +271,11 @@ const v0_2 = async (req, res) => {
     }
     shares_work.lockin();
     
+    // Check: all share items are a type-tagged-object
+    //        with one of these types: fs-share, app-share.
     for ( const item of shares_work.list() ) {
-         const { i } = item;
-         let { value } = item;
+        const { i } = item;
+        let { value } = item;
         
         const thing = lib_typeTagged.process(value);
         if ( thing.$ === 'error' ) {
@@ -286,59 +289,92 @@ const v0_2 = async (req, res) => {
         
         const allowed_things = ['fs-share', 'app-share'];
         if ( ! allowed_things.includes(thing.$) ) {
-            APIError.create('disallowed_thing', null, {
-                thing: thing.$,
-                accepted: allowed_things,
-            })
-        }
-        
-        if ( thing.$ === 'fs-share' ) {
-            item.type = 'fs';
-            const errors = [];
-            if ( ! thing.path ) {
-                errors.push('`path` is required');
-            }
-            let access = thing.access;
-            if ( access ) {
-                if ( ! ['read','write'].includes(access) ) {
-                    errors.push('`access` should be `read` or `write`');
-                }
-            } else access = 'read';
-
-            if ( errors.length ) {
-                item.invalid = true;
-                result.shares[item.i] =
-                    APIError.create('field_errors', null, {
-                        key: `shares[${item.i}]`,
-                        errors
-                    });
-                continue;
-            }
-            
-            item.path = thing.path;
-            item.permission = PermissionUtil.join('fs', thing.path, access);
-        }
-        
-        if ( thing.$ === 'app-share' ) {
-            item.type = 'app';
-            const errors = [];
-            if ( ! thing.uid && thing.name ) {
-                errors.push('`uid` or `name` is required');
-            }
-
-            if ( errors.length ) {
-                item.invalid = true;
-                result.shares[item.i] =
-                    APIError.create('field_errors', null, {
-                        key: `shares[${item.i}]`,
-                        errors
-                    });
-                continue;
-            }
-            
-            item.permission = PermissionUtil.join('app', thing.path, 'access');
+            item.invalid = true;
+            result.shares[i] =
+                APIError.create('disallowed_thing', null, {
+                    thing: thing.$,
+                    accepted: allowed_things,
+                });
             continue;
         }
+        
+        item.thing = thing;
+    }
+
+    shares_work.clear_invalid();
+    
+    // Process: create $share-intent:file for file items
+    for ( const item of shares_work.list() ) {
+        const { thing } = item;
+        if ( thing.$ !== 'fs-share' ) continue;
+
+        item.type = 'fs';
+        const errors = [];
+        if ( ! thing.path ) {
+            errors.push('`path` is required');
+        }
+        let access = thing.access;
+        if ( access ) {
+            if ( ! ['read','write'].includes(access) ) {
+                errors.push('`access` should be `read` or `write`');
+            }
+        } else access = 'read';
+
+        if ( errors.length ) {
+            item.invalid = true;
+            result.shares[item.i] =
+                APIError.create('field_errors', null, {
+                    key: `shares[${item.i}]`,
+                    errors
+                });
+            continue;
+        }
+        
+        item.path = thing.path;
+        item.share_intent = {
+            $: 'share-intent:file',
+            permissions: [PermissionUtil.join('fs', thing.path, access)],
+        };
+    }
+
+    shares_work.clear_invalid();
+
+    // Process: create $share-intent:app for app items
+    for ( const item of shares_work.list() ) {
+        const { thing } = item;
+        if ( thing.$ !== 'app-share' ) continue;
+
+        item.type = 'app';
+        const errors = [];
+        if ( ! thing.uid && ! thing.name ) {
+            errors.push('`uid` or `name` is required');
+        }
+
+        if ( errors.length ) {
+            item.invalid = true;
+            result.shares[item.i] =
+                APIError.create('field_errors', null, {
+                    key: `shares[${item.i}]`,
+                    errors
+                });
+            continue;
+        }
+        
+        const app_selector = thing.uid
+            ? `uid#${thing.uid}` : thing.name;
+        
+        item.share_intent = {
+            $: 'share-intent:app',
+            permissions: [
+                PermissionUtil.join('app', app_selector, 'access')
+            ]
+        }
+        continue;
+    }
+    
+    // Process: conditionally add permission for subdomain
+    for ( const item of shares_work.list() ) {
+        // NEXT
     }
     
     shares_work.clear_invalid();
@@ -370,6 +406,13 @@ const v0_2 = async (req, res) => {
         const email_link = `${config.origin}/show/${email_path}`;
         item.is_dir = is_dir;
         item.email_link = email_link;
+    }
+    
+    shares_work.clear_invalid();
+    
+    for ( const item of shares_work.list() ) {
+        if ( item.type !== 'app' ) continue;
+        const app = await get_app({});
     }
     
     shares_work.clear_invalid();
@@ -408,11 +451,14 @@ const v0_2 = async (req, res) => {
         const username = recipient_item.user.username;
 
         for ( const share_item of shares_work.list() ) {
-            await svc_permission.grant_user_user_permission(
-                actor,
-                username,
-                share_item.permission,
-            );
+            const permissions = share_item.share_intent.permissions;
+            for ( const perm of permissions ) {
+                await svc_permission.grant_user_user_permission(
+                    actor,
+                    username,
+                    perm,
+                );
+            }
         }
         
         // TODO: Need to re-work this for multiple files
@@ -433,10 +479,25 @@ const v0_2 = async (req, res) => {
         */
        
         const files = []; {
-            for ( const path_item of shares_work.list() ) {
+            for ( const item of shares_work.list() ) {
+                if ( item.type !== 'file' ) continue;
                 files.push(
-                    await path_item.node.getSafeEntry(),
+                    await item.node.getSafeEntry(),
                 );
+            }
+        }
+
+        const apps = []; {
+            for ( const item of shares_work.list() ) {
+                if ( item.type !== 'app' ) continue;
+                // TODO: is there a general way to create a
+                //       client-safe app right now without
+                //       going through entity storage?
+                // track: manual safe object
+                apps.push(item.name
+                    ? item.name : await get_app({
+                        uid: item.uid,
+                    }));
             }
         }
         
