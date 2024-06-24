@@ -123,7 +123,7 @@ export default {
         if (staged.length) {
             stdout('Changes to be committed:');
             for (const [file, change] of staged) {
-                stdout(`        ${change}: ${padding(10 - change.length)}${file}`);
+                stdout(chalk.greenBright(`        ${change}: ${padding(10 - change.length)}${file}`));
             }
             stdout('');
         }
@@ -131,7 +131,7 @@ export default {
         if (unstaged.length) {
             stdout('Changes not staged for commit:');
             for (const [file, change] of unstaged) {
-                stdout(`        ${change}: ${padding(10 - change.length)}${file}`);
+                stdout(chalk.redBright(`        ${change}: ${padding(10 - change.length)}${file}`));
             }
             stdout('');
         }
@@ -140,7 +140,7 @@ export default {
             stdout('Untracked files:');
             // TODO: Native git is smart enough to only list a top-level directory if all its contents are untracked
             for (const file of untracked) {
-                stdout(`        ${file}`);
+                stdout(chalk.redBright(`        ${file}`));
             }
         }
 
