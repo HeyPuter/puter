@@ -117,58 +117,59 @@ export const format_timestamp_and_offset = (owner) => {
  */
 export const format_commit = (commit, oid, options = {}) => {
     const title_line = () => commit.message.split('\n')[0];
+    const indent = (text) => text.split('\n').map(it => `    ${it}`).join('\n');
 
     switch (options.format || 'medium') {
         // TODO: Other formats
         case 'oneline':
-            return `${format_oid(oid, options)} ${title_line()}`;
+            return `${chalk.yellow(format_oid(oid, options))} ${title_line()}`;
         case 'short': {
             let s = '';
-            s += `commit ${format_oid(oid, options)}\n`;
+            s += chalk.yellow(`commit ${format_oid(oid, options)}\n`);
             s += `Author: ${format_person(commit.author)}\n`;
             s += '\n';
-            s += title_line();
+            s += indent(title_line());
             return s;
         }
         case 'medium': {
             let s = '';
-            s += `commit ${format_oid(oid, options)}\n`;
+            s += chalk.yellow(`commit ${format_oid(oid, options)}\n`);
             s += `Author: ${format_person(commit.author)}\n`;
             s += `Date:   ${format_date(commit.author)}\n`;
             s += '\n';
-            s += commit.message;
+            s += indent(commit.message);
             return s;
         }
         case 'full': {
             let s = '';
-            s += `commit ${format_oid(oid, options)}\n`;
+            s += chalk.yellow(`commit ${format_oid(oid, options)}\n`);
             s += `Author: ${format_person(commit.author)}\n`;
             s += `Commit: ${format_person(commit.committer)}\n`;
             s += '\n';
-            s += commit.message;
+            s += indent(commit.message);
             return s;
         }
         case 'fuller': {
             let s = '';
-            s += `commit ${format_oid(oid, options)}\n`;
+            s += chalk.yellow(`commit ${format_oid(oid, options)}\n`);
             s += `Author:     ${format_person(commit.author)}\n`;
             s += `AuthorDate: ${format_date(commit.author)}\n`;
             s += `Commit:     ${format_person(commit.committer)}\n`;
             s += `CommitDate: ${format_date(commit.committer)}\n`;
             s += '\n';
-            s += commit.message;
+            s += indent(commit.message);
             return s;
         }
         case 'raw': {
             let s = '';
-            s += `commit ${oid}\n`;
+            s += chalk.yellow(`commit ${oid}\n`);
             s += `tree ${commit.tree}\n`;
             if (commit.parent[0])
                 s += `parent ${commit.parent[0]}\n`;
             s += `author ${format_person(commit.author)} ${format_timestamp_and_offset(commit.author)}\n`;
             s += `committer ${format_person(commit.committer)} ${format_timestamp_and_offset(commit.committer)}\n`;
             s += '\n';
-            s += commit.message;
+            s += indent(commit.message);
             return s;
         }
         default: {
@@ -186,7 +187,7 @@ export const format_commit = (commit, oid, options = {}) => {
  */
 export const format_tree = (oid, tree, options = {}) => {
     let s = '';
-    s += `tree ${oid}\n`;
+    s += chalk.yellow(`tree ${oid}\n`);
     s += '\n';
     for (const tree_entry of tree) {
         s += `${tree_entry.path}\n`;
@@ -205,7 +206,7 @@ export const format_tree = (oid, tree, options = {}) => {
  */
 export const format_tag = (tag, options = {}) => {
     let s = '';
-    s += `tag ${tag.tag}\n`;
+    s += chalk.yellow(`tag ${tag.tag}\n`);
     s += `Tagger: ${format_person(tag.tagger)}\n`;
     s += `Date:   ${format_date(tag.tagger, options)}\n`;
     if (tag.message) {
@@ -410,23 +411,23 @@ export const format_diffs = (diffs, options) => {
 
             // NOTE: This first line shows `a/$newFileName` for files that are new, not `/dev/null`.
             const first_line_a_path = a_path !== '/dev/null' ? a_path : `${options.source_prefix}${diff.newFileName}`;
-            s += `diff --git ${first_line_a_path} ${b_path}\n`;
+            s += chalk.bold(`diff --git ${first_line_a_path} ${b_path}\n`);
             if (a.mode === b.mode) {
-                s += `index ${shorten_hash(a.oid)}..${shorten_hash(b.oid)} ${a.mode}`;
+                s += chalk.bold(`index ${shorten_hash(a.oid)}..${shorten_hash(b.oid)} ${a.mode}\n`);
             } else {
                 if (a.mode === '000000') {
-                    s += `new file mode ${b.mode}\n`;
+                    s += chalk.bold(`new file mode ${b.mode}\n`);
                 } else {
-                    s += `old mode ${a.mode}\n`;
-                    s += `new mode ${b.mode}\n`;
+                    s += chalk.bold(`old mode ${a.mode}\n`);
+                    s += chalk.bold(`new mode ${b.mode}\n`);
                 }
-                s += `index ${shorten_hash(a.oid)}..${shorten_hash(b.oid)}\n`;
+                s += chalk.bold(`index ${shorten_hash(a.oid)}..${shorten_hash(b.oid)}\n`);
             }
             if (!diff.hunks.length)
                 continue;
 
-            s += `--- ${a_path}\n`;
-            s += `+++ ${b_path}\n`;
+            s += chalk.bold(`--- ${a_path}\n`);
+            s += chalk.bold(`+++ ${b_path}\n`);
 
             for (const hunk of diff.hunks) {
                 s += chalk.blueBright(`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@\n`);
