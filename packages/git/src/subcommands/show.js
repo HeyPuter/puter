@@ -67,7 +67,7 @@ export default {
         const format_object = async (parsed_object) => {
             switch (parsed_object.type) {
                 case 'blob':
-                    return parsed_object.object;
+                    return new TextDecoder().decode(parsed_object.object);
                 case 'commit': {
                     let s = format_commit(parsed_object.object, parsed_object.oid, options);
                     if (diff_options.display_diff()) {
