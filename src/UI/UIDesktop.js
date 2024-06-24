@@ -571,11 +571,11 @@ async function UIDesktop(options){
             window.menubar_style = 'system';
         }
 
-        if(menubar_style === 'system'){
+        if(window.menubar_style === 'system'){
             if(window.detectHostOS() === 'macos')
-                menubar_style = 'desktop';
+                window.menubar_style = 'desktop';
             else
-                menubar_style = 'window';
+                window.menubar_style = 'window';
         }
 
         // set menubar style class to body

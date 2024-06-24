@@ -1392,7 +1392,7 @@ async function UIWindow(options) {
             // if this is the home directory of another user, show the sharing dialog
             // --------------------------------------------------------
             let cur_path = $(el_window).attr('data-path');
-            if(countSubstr(cur_path, '/') === 1 && cur_path !== '/'+window.user.username){
+            if(window.countSubstr(cur_path, '/') === 1 && cur_path !== '/'+window.user.username){
                 let username = cur_path.split('/')[1];
 
                 const items_to_share = []
