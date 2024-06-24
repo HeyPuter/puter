@@ -590,7 +590,8 @@ const v0_2 = async (req, res) => {
         };
         
         for ( const share_item of shares_work.list() ) {
-            data.permissions.push(share_item.permission);
+            const permissions = share_item.share_intent.permissions;
+            data.permissions.push(...permissions);
         }
         
         // track: scoping iife
