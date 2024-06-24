@@ -427,6 +427,12 @@ const v0_2 = async (req, res) => {
                         : { id: { name: thing.name } }
                 });
         }
+        
+        app.metadata = db.case({
+            mysql: () => app.metadata,
+            otherwise: () => JSON.parse(app.metadata ?? '{}')
+        })();
+        
         item.app = app;
     }
     
@@ -449,6 +455,21 @@ const v0_2 = async (req, res) => {
         item.share_intent.permissions.push(
             PermissionUtil.join('site', site_selector, 'access')
         )
+    }
+
+    // Process: conditionally add permission for AppData
+    for ( const item of shares_work.list() ) {
+        if ( item.type !== 'app' ) continue;
+        if ( ! item.app.metadata?.shared_appdata ) continue;
+        
+        const app_owner = await get_user({ id: item.app.owner_user_id });
+        
+        const appdatadir =
+            `/${app_owner.username}/AppData/${item.app.uid}`;
+        const appdatadir_perm =
+            PermissionUtil.join('fs', appdatadir, 'write');
+
+        item.share_intent.permissions.push(appdatadir_perm);
     }
 
     shares_work.clear_invalid();
