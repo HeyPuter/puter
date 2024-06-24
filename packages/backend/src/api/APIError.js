@@ -236,6 +236,10 @@ module.exports = class APIError {
             status: 422,
             message: 'Directory is not empty.',
         },
+        'readdir_of_non_directory': {
+            status: 422,
+            message: 'Readdir target must be a directory.',
+        },
 
         // Write
         'offset_without_existing_file': {

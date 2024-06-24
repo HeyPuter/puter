@@ -156,6 +156,7 @@ class PosixError extends Error {
             case 'missing_expected_metadata': return new PosixError(ErrorCodes.EINVAL, e.message);
             case 'overwrite_and_dedupe_exclusive': return new PosixError(ErrorCodes.EINVAL, e.message);
             case 'not_empty': return new PosixError(ErrorCodes.ENOTEMPTY, e.message);
+            case 'readdir_of_non_directory': return new PosixError(ErrorCodes.ENOTDIR, e.message);
 
             // Write
             case 'offset_without_existing_file': return new PosixError(ErrorCodes.ENOENT, e.message);
