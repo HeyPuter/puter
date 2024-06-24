@@ -28,6 +28,7 @@ export default [
         // Back end
         files: [
             "packages/backend/**/*.js",
+            "mods/**/*.js",
             "dev-server.js",
             "utils.js",
         ],
@@ -85,6 +86,21 @@ export default [
                 "logout": true,
                 "is_email": true,
                 "select_ctxmenu_item": true,
+            }
+        }
+    },
+    {
+        // Mods
+        // NOTE: Mods have backend and frontend parts, so this just includes the globals for both.
+        files: [
+            "mods/**/*.js",
+        ],
+        languageOptions: {
+            globals: {
+                ...globals.node,
+                "use": true,
+                "window": true,
+                "puter": true,
             }
         }
     },
