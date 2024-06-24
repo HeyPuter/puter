@@ -80,6 +80,7 @@ export default {
                             read_a: read_tree,
                             read_b: read_tree,
                         });
+                        s += '\n';
                         s += format_diffs(diffs, diff_options);
                     }
                     return s;
