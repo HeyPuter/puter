@@ -32,45 +32,45 @@ export default {
 
         // change password button
         if(!window.user.is_temp){
-            h += `<div class="settings-card">`;
-                h += `<strong>${i18n('password')}</strong>`;
-                h += `<div style="flex-grow:1;">`;
-                    h += `<button class="button change-password" style="float:right;">${i18n('change_password')}</button>`;
-                h += `</div>`;
-            h += `</div>`;
+            h += H`<div class="settings-card">`;
+                h += H`<strong>${i18n('password')}</strong>`;
+                h += H`<div style="flex-grow:1;">`;
+                    h += H`<button class="button change-password" style="float:right;">${i18n('change_password')}</button>`;
+                h += H`</div>`;
+            h += H`</div>`;
         }
 
         // change username button
-        h += `<div class="settings-card">`;
-            h += `<div>`;
-                h += `<strong style="display:block;">${i18n('username')}</strong>`;
-                h += `<span class="username" style="display:block; margin-top:5px;">${html_encode(window.user.username)}</span>`;
-            h += `</div>`;
-            h += `<div style="flex-grow:1;">`;
-                h += `<button class="button change-username" style="float:right;">${i18n('change_username')}</button>`;
-            h += `</div>`
-        h += `</div>`;
+        h += H`<div class="settings-card">`;
+            h += H`<div>`;
+                h += H`<strong style="display:block;">${i18n('username')}</strong>`;
+                h += H`<span class="username" style="display:block; margin-top:5px;">${html_encode(window.user.username)}</span>`;
+            h += H`</div>`;
+            h += H`<div style="flex-grow:1;">`;
+                h += H`<button class="button change-username" style="float:right;">${i18n('change_username')}</button>`;
+            h += H`</div>`
+        h += H`</div>`;
 
         // change email button
         if(window.user.email){
-            h += `<div class="settings-card">`;
-                h += `<div>`;
-                    h += `<strong style="display:block;">${i18n('email')}</strong>`;
-                    h += `<span class="user-email" style="display:block; margin-top:5px;">${html_encode(window.user.email)}</span>`;
-                h += `</div>`;
-                h += `<div style="flex-grow:1;">`;
-                    h += `<button class="button change-email" style="float:right;">${i18n('change_email')}</button>`;
-                h += `</div>`;
-            h += `</div>`;
+            h += H`<div class="settings-card">`;
+                h += H`<div>`;
+                    h += H`<strong style="display:block;">${i18n('email')}</strong>`;
+                    h += H`<span class="user-email" style="display:block; margin-top:5px;">${html_encode(window.user.email)}</span>`;
+                h += H`</div>`;
+                h += H`<div style="flex-grow:1;">`;
+                    h += H`<button class="button change-email" style="float:right;">${i18n('change_email')}</button>`;
+                h += H`</div>`;
+            h += H`</div>`;
         }
 
         // 'Delete Account' button
-        h += `<div class="settings-card settings-card-danger">`;
-            h += `<strong style="display: inline-block;">${i18n("delete_account")}</strong>`;
-            h += `<div style="flex-grow:1;">`;
-                h += `<button class="button button-danger delete-account" style="float:right;">${i18n("delete_account")}</button>`;
-            h += `</div>`;
-        h += `</div>`;
+        h += H`<div class="settings-card settings-card-danger">`;
+            h += H`<strong style="display: inline-block;">${i18n("delete_account")}</strong>`;
+            h += H`<div style="flex-grow:1;">`;
+                h += H`<button class="button button-danger delete-account" style="float:right;">${i18n("delete_account")}</button>`;
+            h += H`</div>`;
+        h += H`</div>`;
 
         return h;
     },

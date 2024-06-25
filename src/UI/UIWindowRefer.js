@@ -25,15 +25,15 @@ async function UIWindowRefer(options){
     let h = '';
     const url = `${window.gui_origin}/?r=${window.user.referral_code}`;
 
-    h += `<div>`;
-        h += `<div class="qr-code-window-close-btn generic-close-window-button disable-user-select"> &times; </div>`;
-        h += `<img src="${window.icons['present.svg']}" style="width: 70px; margin: 20px auto 20px; display: block; margin-bottom: 20px;">`;
-        h += `<p style="text-align: center; font-size: 16px; padding: 20px; font-weight: 400; margin: -10px 10px 20px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">${i18n('refer_friends_c2a')}</p>`;
-        h += `<label style="font-weight: bold;">${i18n('invite_link')}</label>`;
-        h += `<input type="text" style="margin-bottom:10px;" class="downloadable-link" readonly />`;
-        h += `<button class="button button-primary copy-downloadable-link" style="white-space:nowrap; text-align:center;">${i18n('copy_link')}</button>` 
-        h += `<img class="share-copy-link-on-social" src="${window.icons['share-outline.svg']}">`;
-    h += `</div>`;
+    h += H`<div>`;
+        h += H`<div class="qr-code-window-close-btn generic-close-window-button disable-user-select"> &times; </div>`;
+        h += H`<img src="${window.icons['present.svg']}" style="width: 70px; margin: 20px auto 20px; display: block; margin-bottom: 20px;">`;
+        h += H`<p style="text-align: center; font-size: 16px; padding: 20px; font-weight: 400; margin: -10px 10px 20px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">${i18n('refer_friends_c2a')}</p>`;
+        h += H`<label style="font-weight: bold;">${i18n('invite_link')}</label>`;
+        h += H`<input type="text" style="margin-bottom:10px;" class="downloadable-link" readonly />`;
+        h += H`<button class="button button-primary copy-downloadable-link" style="white-space:nowrap; text-align:center;">${i18n('copy_link')}</button>` 
+        h += H`<img class="share-copy-link-on-social" src="${window.icons['share-outline.svg']}">`;
+    h += H`</div>`;
 
     const el_window = await UIWindow({
         title: `Refer a friend!`,

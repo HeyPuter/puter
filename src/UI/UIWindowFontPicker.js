@@ -51,19 +51,19 @@ async function UIWindowFontPicker(options){
 
     return new Promise(async (resolve) => {
         let h = ``;
-        h += `<div>`;
-            h += `<div style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
-                    h += `<div class="font-list" style="margin-bottom: 10px; height: 200px; overflow-y: scroll; background-color: white; padding: 0 10px;">`;
+        h += H`<div>`;
+            h += H`<div style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
+                    h += H`<div class="font-list" style="margin-bottom: 10px; height: 200px; overflow-y: scroll; background-color: white; padding: 0 10px;">`;
                         fontAvailable.forEach(element => {
-                            h += `<p class="font-selector disable-user-select ${options.default === element ? 'font-selector-active' : ''}" style="font-family: '${html_encode(element)}';" data-font-family="${html_encode(element)}">${html_encode(element)}</p>`; // 👉️ one, two, three, four
+                            h += H`<p class="font-selector disable-user-select ${options.default === element ? 'font-selector-active' : ''}" style="font-family: '${html_encode(element)}';" data-font-family="${html_encode(element)}">${html_encode(element)}</p>`; // 👉️ one, two, three, four
                         });
-                    h += `</div>`;
+                    h += H`</div>`;
 
                     // Select
-                    h += `<button class="select-btn button button-primary button-block button-normal">${i18n('select')}</button>`
-                h += `</form>`;
-            h += `</div>`;
-        h += `</div>`;
+                    h += H`<button class="select-btn button button-primary button-block button-normal">${i18n('select')}</button>`
+                h += H`</form>`;
+            h += H`</div>`;
+        h += H`</div>`;
         
         const el_window = await UIWindow({
             title: 'Select font…',

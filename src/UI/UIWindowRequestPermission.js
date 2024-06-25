@@ -58,17 +58,17 @@ async function UIWindowRequestPermission(options){
         }
 
         let h = ``;
-        h += `<div>`;
-            h += `<div style="padding: 20px; width: 100%; box-sizing: border-box;">`;
+        h += H`<div>`;
+            h += H`<div style="padding: 20px; width: 100%; box-sizing: border-box;">`;
                 // title
-                h += `<h1 class="perm-title">"<span style="word-break: break-word;">${html_encode(options.app_uid ?? options.origin)}</span>" would Like to use ${html_encode(driver.human_name)}</h1>`;
+                h += H`<h1 class="perm-title">"<span style="word-break: break-word;">${html_encode(options.app_uid ?? options.origin)}</span>" would Like to use ${html_encode(driver.human_name)}</h1>`;
                 // todo show the real description of action
-                h += `<p class="perm-description">${html_encode(driver.description)}</p>`;
+                h += H`<p class="perm-description">${html_encode(driver.description)}</p>`;
                 // Allow/Don't Allow
-                h += `<button type="button" class="app-auth-allow button button-primary button-block" style="margin-top: 10px;">Allow</button>`;
-                h += `<button type="button" class="app-auth-dont-allow button button-default button-block" style="margin-top: 10px;">Don't Allow</button>`;
-            h += `</div>`;
-        h += `</div>`;
+                h += H`<button type="button" class="app-auth-allow button button-primary button-block" style="margin-top: 10px;">Allow</button>`;
+                h += H`<button type="button" class="app-auth-dont-allow button button-default button-block" style="margin-top: 10px;">Don't Allow</button>`;
+            h += H`</div>`;
+        h += H`</div>`;
         
         const el_window = await UIWindow({
             title: null,

@@ -185,28 +185,28 @@ async function UIWindow(options) {
         if(user_set_url_params.length > 0)
             user_set_url_params = '?'+ user_set_url_params.join('&');
     }
-    h += `<div class="window window-active 
+    h += H`<div class="window window-active 
                         ${options.cover_page ? 'window-cover-page' : ''}
                         ${options.uid !== undefined ? 'window-'+options.uid : ''} 
                         ${options.window_class} 
                         ${options.allow_user_select ? ' allow-user-select' : ''}
                         ${options.is_openFileDialog || options.is_saveFileDialog || options.is_directoryPicker ? 'window-filedialog' : ''}" 
                 id="window-${win_id}" 
-                data-allowed_file_types = "${html_encode(options.allowed_file_types)}"
-                data-app="${html_encode(options.app)}" 
-                data-app_uuid="${html_encode(options.app_uuid ?? '')}" 
-                data-disable_parent_window = "${html_encode(options.disable_parent_window)}"
-                data-name="${html_encode(options.title)}" 
-                data-path ="${html_encode(options.path)}"
-                data-uid ="${html_encode(options.uid)}"
-                data-element_uuid="${html_encode(options.element_uuid)}"
-                data-parent_uuid="${html_encode(options.parent_uuid)}"
+                data-allowed_file_types = "${(options.allowed_file_types)}"
+                data-app="${(options.app)}" 
+                data-app_uuid="${(options.app_uuid ?? '')}" 
+                data-disable_parent_window = "${(options.disable_parent_window)}"
+                data-name="${(options.title)}" 
+                data-path ="${(options.path)}"
+                data-uid ="${(options.uid)}"
+                data-element_uuid="${(options.element_uuid)}"
+                data-parent_uuid="${(options.parent_uuid)}"
                 ${options.parent_instance_id ? `data-parent_instance_id="${options.parent_instance_id}"` : ''}
                 data-id ="${win_id}"
-                data-iframe_msg_uid ="${html_encode(options.iframe_msg_uid)}"
+                data-iframe_msg_uid ="${(options.iframe_msg_uid)}"
                 data-is_dir ="${options.is_dir}"
                 data-return_to_parent_window = "${options.return_to_parent_window}"
-                data-initiating_app_uuid = "${html_encode(options.initiating_app_uuid)}"
+                data-initiating_app_uuid = "${(options.initiating_app_uuid)}"
                 data-is_openFileDialog ="${options.is_openFileDialog}"
                 data-is_saveFileDialog ="${options.is_saveFileDialog}"
                 data-is_directoryPicker ="${options.is_directoryPicker}"
@@ -219,93 +219,93 @@ async function UIWindow(options) {
                 data-sort_order ="${options.sort_order ?? 'asc'}"
                 data-multiselectable = "${options.selectable_body}"
                 data-update_window_url = "${options.update_window_url}"
-                data-user_set_url_params = "${html_encode(user_set_url_params)}"
+                data-user_set_url_params = "${(user_set_url_params)}"
                 data-initial_zindex = "${zindex}"
                 style=" z-index: ${zindex}; 
-                        ${options.width !== undefined ? 'width: ' + html_encode(options.width) +'; ':''}
-                        ${options.height !== undefined ? 'height: ' + html_encode(options.height) +'; ':''}
-                        ${options.border_radius !== undefined ? 'border-radius: ' + html_encode(options.border_radius) +'; ':''}
+                        ${options.width !== undefined ? 'width: ' + (options.width) +'; ':''}
+                        ${options.height !== undefined ? 'height: ' + (options.height) +'; ':''}
+                        ${options.border_radius !== undefined ? 'border-radius: ' + (options.border_radius) +'; ':''}
                     " 
                 >`;
         // window mask
-        h += `<div class="window-disable-mask">`;
+        h += H`<div class="window-disable-mask">`;
             //busy indicator
-            h += `<div class="busy-indicator">BUSY</div>`;
-        h += `</div>`;
+            h += H`<div class="busy-indicator">BUSY</div>`;
+        h += H`</div>`;
 
 
         // Head
         if(options.has_head){
-            h += `<div class="window-head">`;
+            h += H`<div class="window-head">`;
                 // draggable handle which also contains icon and title
                 h+=`<div class="window-head-draggable">`;
                     // icon
                     if(options.icon)
-                        h += `<img class="window-head-icon" />`;
+                        h += H`<img class="window-head-icon" />`;
                     // title
-                    h += `<span class="window-head-title" title="${html_encode(options.title)}"></span>`;
-                h += `</div>`;
+                    h += H`<span class="window-head-title" title="${(options.title)}"></span>`;
+                h += H`</div>`;
                 // Minimize button, only if window is resizable and not embedded
                 if(options.is_resizable && options.show_minimize_button && !window.is_embedded)
-                    h += `<span class="window-action-btn window-minimize-btn" style="margin-left:0;"><img src="${html_encode(window.icons['minimize.svg'])}" draggable="false"></span>`;
+                    h += H`<span class="window-action-btn window-minimize-btn" style="margin-left:0;"><img src="${(window.icons['minimize.svg'])}" draggable="false"></span>`;
                 // Maximize button
                 if(options.is_resizable && options.show_maximize_button)
-                    h += `<span class="window-action-btn window-scale-btn"><img src="${html_encode(window.icons['scale.svg'])}" draggable="false"></span>`;
+                    h += H`<span class="window-action-btn window-scale-btn"><img src="${(window.icons['scale.svg'])}" draggable="false"></span>`;
                 // Close button
-                h += `<span class="window-action-btn window-close-btn"><img src="${html_encode(window.icons['close.svg'])}" draggable="false"></span>`;
-            h += `</div>`;
+                h += H`<span class="window-action-btn window-close-btn"><img src="${(window.icons['close.svg'])}" draggable="false"></span>`;
+            h += H`</div>`;
         }
 
         // Sidebar
         if(options.is_dir && !isMobile.phone){
-            h += `<div class="window-sidebar disable-user-select hide-scrollbar"
-                    style="${window.window_sidebar_width ? 'width: ' + html_encode(window.window_sidebar_width) + 'px !important;' : ''}"
+            h += H`<div class="window-sidebar disable-user-select hide-scrollbar"
+                    style="${window.window_sidebar_width ? 'width: ' + (window.window_sidebar_width) + 'px !important;' : ''}"
                     draggable="false"
                 >`;
                 // favorites
-                h += `<h2 class="window-sidebar-title disable-user-select">Favorites</h2>`;
-                h += `<div draggable="false" title="Home" class="window-sidebar-item disable-user-select ${options.path === window.home_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.home_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-home.svg'])}">Home</div>`;
-                h += `<div draggable="false" title="Documents" class="window-sidebar-item disable-user-select ${options.path === window.docs_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.docs_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-documents.svg'])}">Documents</div>`;
-                h += `<div draggable="false" title="Public" class="window-sidebar-item disable-user-select ${options.path === window.public_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.public_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-public.svg'])}">Public</div>`;
-                h += `<div draggable="false" title="Pictures" class="window-sidebar-item disable-user-select ${options.path === window.pictures_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.pictures_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-pictures.svg'])}">Pictures</div>`;
-                h += `<div draggable="false" title="Desktop" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-desktop.svg'])}">Desktop</div>`;
-                h += `<div draggable="false" title="Videos" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-videos.svg'])}">Videos</div>`;
-            h += `</div>`;
+                h += H`<h2 class="window-sidebar-title disable-user-select">Favorites</h2>`;
+                h += H`<div draggable="false" title="Home" class="window-sidebar-item disable-user-select ${options.path === window.home_path ? 'window-sidebar-item-active' : ''}" data-path="${(window.home_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${(window.icons['folder-home.svg'])}">Home</div>`;
+                h += H`<div draggable="false" title="Documents" class="window-sidebar-item disable-user-select ${options.path === window.docs_path ? 'window-sidebar-item-active' : ''}" data-path="${(window.docs_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${(window.icons['folder-documents.svg'])}">Documents</div>`;
+                h += H`<div draggable="false" title="Public" class="window-sidebar-item disable-user-select ${options.path === window.public_path ? 'window-sidebar-item-active' : ''}" data-path="${(window.public_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${(window.icons['folder-public.svg'])}">Public</div>`;
+                h += H`<div draggable="false" title="Pictures" class="window-sidebar-item disable-user-select ${options.path === window.pictures_path ? 'window-sidebar-item-active' : ''}" data-path="${(window.pictures_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${(window.icons['folder-pictures.svg'])}">Pictures</div>`;
+                h += H`<div draggable="false" title="Desktop" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${(window.icons['folder-desktop.svg'])}">Desktop</div>`;
+                h += H`<div draggable="false" title="Videos" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${(window.icons['folder-videos.svg'])}">Videos</div>`;
+            h += H`</div>`;
 
         }
 
         // Menubar
         if(window.menubar_style === 'window'){
-            h += `<div class="window-menubar" data-window-id="${win_id}"></div>`;
+            h += H`<div class="window-menubar" data-window-id="${win_id}"></div>`;
         }else if(window.menubar_style === 'desktop'){
             $('.toolbar-puter-logo').after(`<div class="window-menubar window-menubar-global" data-window-id="${win_id}"></div>`);
         }
 
         // Navbar
         if(options.is_dir){
-            h += `<div class="window-navbar">`;
-                h += `<div style="float:left; margin-left:5px; margin-right:5px;">`;
+            h += H`<div class="window-navbar">`;
+                h += H`<div style="float:left; margin-left:5px; margin-right:5px;">`;
                     // Back
-                    h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-back window-navbar-btn-disabled" src="${html_encode(window.icons['arrow-left.svg'])}" title="Click to go back.">`;
+                    h += H`<img draggable="false" class="window-navbar-btn window-navbar-btn-back window-navbar-btn-disabled" src="${(window.icons['arrow-left.svg'])}" title="Click to go back.">`;
                     // Forward
-                    h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-forward window-navbar-btn-disabled" src="${html_encode(window.icons['arrow-right.svg'])}" title="Click to go forward.">`;
+                    h += H`<img draggable="false" class="window-navbar-btn window-navbar-btn-forward window-navbar-btn-disabled" src="${(window.icons['arrow-right.svg'])}" title="Click to go forward.">`;
                     // Up
-                    h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-up ${options.path === '/' ? 'window-navbar-btn-disabled' : ''}" src="${html_encode(window.icons['arrow-up.svg'])}" title="Click to go one directory up.">`;
-                h += `</div>`;
+                    h += H`<img draggable="false" class="window-navbar-btn window-navbar-btn-up ${options.path === '/' ? 'window-navbar-btn-disabled' : ''}" src="${(window.icons['arrow-up.svg'])}" title="Click to go one directory up.">`;
+                h += H`</div>`;
                 // Path
-                h += `<div class="window-navbar-path">${window.navbar_path(options.path, window.user.username)}</div>`;
+                h += H`<div class="window-navbar-path">${window.navbar_path(options.path, window.user.username)}</div>`;
                 // Path editor
-                h += `<input class="window-navbar-path-input" data-path="${html_encode(options.path)}" value="${html_encode(options.path)}" spellcheck="false"/>`;
+                h += H`<input class="window-navbar-path-input" data-path="${(options.path)}" value="${(options.path)}" spellcheck="false"/>`;
                 // Layout settings
-                h += `<img class="window-navbar-layout-settings" src="${html_encode(options.layout === 'icons' ? window.icons['layout-icons.svg'] : window.icons['layout-list.svg'])}" draggable="false">`;
-            h += `</div>`;
+                h += H`<img class="window-navbar-layout-settings" src="${(options.layout === 'icons' ? window.icons['layout-icons.svg'] : window.icons['layout-list.svg'])}" draggable="false">`;
+            h += H`</div>`;
         }
 
         // Body
-        h += `<div 
+        h += H`<div 
                 class="window-body${options.is_dir ? ' item-container' : ''}${options.iframe_url !== undefined || options.iframe_srcdoc !== undefined ? ' window-body-app' : ''}${options.is_saveFileDialog || options.is_openFileDialog || options.is_directoryPicker ? ' window-body-filedialog' : ''}" 
-                data-allowed_file_types="${html_encode(options.allowed_file_types)}"
-                data-path="${html_encode(options.path)}"
+                data-allowed_file_types="${(options.allowed_file_types)}"
+                data-path="${(options.path)}"
                 data-multiselectable = "${options.selectable_body}"
                 data-sort_by ="${options.sort_by ?? 'name'}"
                 data-sort_order ="${options.sort_order ?? 'asc'}"
@@ -317,12 +317,12 @@ async function UIWindow(options) {
                 // <iframe>
                 // Important: we don't allow allow-same-origin when iframe_srcdoc is used because this would allow the iframe to access the parent window's DOM, localStorage, etc.
                 // this is a security risk and must be avoided.
-                h += `<iframe tabindex="-1"
-                        data-app="${html_encode(options.app)}"
+                h += H`<iframe tabindex="-1"
+                        data-app="${(options.app)}"
                         class="window-app-iframe" 
                         frameborder="0" 
-                        ${options.iframe_url ? 'src="'+ html_encode(options.iframe_url)+'"' : ''}
-                        ${options.iframe_srcdoc ? 'srcdoc="'+ html_encode(options.iframe_srcdoc) +'"' : ''}
+                        ${options.iframe_url ? 'src="'+ (options.iframe_url)+'"' : ''}
+                        ${options.iframe_srcdoc ? 'srcdoc="'+ (options.iframe_srcdoc) +'"' : ''}
                         allow = "accelerometer; camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; fullscreen;"
                         allowtransparency="true"
                         allowpaymentrequest="true" 
@@ -355,7 +355,7 @@ async function UIWindow(options) {
 
                     if ( components.length === 2 && components[1] === 'Public' ) {
                         const username = components[0];
-                        h += `<iframe
+                        h += H`<iframe
                             style="display:block;width:100%"
                             tabindex="-1"
                             frameborder="0"
@@ -367,62 +367,62 @@ async function UIWindow(options) {
                 })();
 
                 // Add 'This folder is empty' message by default
-                h += `<div class="explorer-empty-message">This folder is empty</div>`;
+                h += H`<div class="explorer-empty-message">This folder is empty</div>`;
 
-                h += `<div class="explorer-error-message">Error message is missing</div>`;
+                h += H`<div class="explorer-error-message">Error message is missing</div>`;
 
                 // Loading spinner
-                h += `<div class="explorer-loading-spinner">`;
+                h += H`<div class="explorer-loading-spinner">`;
                     h +=`<svg style="display:block; margin: 0 auto; " xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#212121" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#212121" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`;
-                    h += `<p class="explorer-loading-spinner-msg">${i18n('loading')}...</p>`;
-                h += `</div>`;
+                    h += H`<p class="explorer-loading-spinner-msg">${i18n('loading')}...</p>`;
+                h += H`</div>`;
             }
 
-        h += `</div>`;
+        h += H`</div>`;
 
         // Explorer footer
         if(options.is_dir && !options.is_saveFileDialog && !options.is_openFileDialog && !options.is_directoryPicker){
-            h += `<div class="explorer-footer">`
-                h += `<span class="explorer-footer-item-count"></span>`;
-                h += `<span class="explorer-footer-seperator">|</span>`;
-                h += `<span class="explorer-footer-selected-items-count"></span>`;
-            h += `</div>`;
+            h += H`<div class="explorer-footer">`
+                h += H`<span class="explorer-footer-item-count"></span>`;
+                h += H`<span class="explorer-footer-seperator">|</span>`;
+                h += H`<span class="explorer-footer-selected-items-count"></span>`;
+            h += H`</div>`;
         }
 
         // is_saveFileDialog
         if(options.is_saveFileDialog){
-            h += `<div class="window-filedialog-prompt">`;
-                h += `<div style="display:flex;">`;
-                    h += `<input type="text" class="savefiledialog-filename" autocorrect="off" spellcheck="false" value="${html_encode(options.saveFileDialog_default_filename) ?? ''}">`;
-                    h += `<button class="button button-small filedialog-cancel-btn">Cancel</button>`;
-                    h += `<button class="button `;
+            h += H`<div class="window-filedialog-prompt">`;
+                h += H`<div style="display:flex;">`;
+                    h += H`<input type="text" class="savefiledialog-filename" autocorrect="off" spellcheck="false" value="${(options.saveFileDialog_default_filename) ?? ''}">`;
+                    h += H`<button class="button button-small filedialog-cancel-btn">Cancel</button>`;
+                    h += H`<button class="button `;
                         if(options.saveFileDialog_default_filename === undefined || options.saveFileDialog_default_filename === '')
                             h+= `disabled `; 
-                    h += `button-small button-primary savefiledialog-save-btn">Save</button>`;
-                h += `</div>`;
-            h += `</div>`;
+                    h += H`button-small button-primary savefiledialog-save-btn">Save</button>`;
+                h += H`</div>`;
+            h += H`</div>`;
         }
 
         // is_openFileDialog
         else if(options.is_openFileDialog){
-            h += `<div class="window-filedialog-prompt">`;
-                h += `<div style="text-align:right;">`;
-                    h += `<button class="button button-small filedialog-cancel-btn">Cancel</button>`;
-                    h += `<button class="button disabled button-small button-primary openfiledialog-open-btn">Open</button>`;
-                h += `</div>`;
-            h += `</div>`;
+            h += H`<div class="window-filedialog-prompt">`;
+                h += H`<div style="text-align:right;">`;
+                    h += H`<button class="button button-small filedialog-cancel-btn">Cancel</button>`;
+                    h += H`<button class="button disabled button-small button-primary openfiledialog-open-btn">Open</button>`;
+                h += H`</div>`;
+            h += H`</div>`;
         }
 
         // is_directoryPicker
         else if(options.is_directoryPicker){
-            h += `<div class="window-filedialog-prompt">`;
-                h += `<div style="text-align:right;">`;
-                    h += `<button class="button button-small filedialog-cancel-btn">Cancel</button>`;
-                    h += `<button class="button button-small button-primary directorypicker-select-btn" style="margin-left:10px;">Select</button>`;
-                h += `</div>`;
-            h += `</div>`;
+            h += H`<div class="window-filedialog-prompt">`;
+                h += H`<div style="text-align:right;">`;
+                    h += H`<button class="button button-small filedialog-cancel-btn">Cancel</button>`;
+                    h += H`<button class="button button-small button-primary directorypicker-select-btn" style="margin-left:10px;">Select</button>`;
+                h += H`</div>`;
+            h += H`</div>`;
         }
-    h += `</div>`;
+    h += H`</div>`;
 
     // backdrop
     if(options.backdrop){
@@ -1039,18 +1039,18 @@ async function UIWindow(options) {
             puter.fs.readdir('/').then(function(shared_users){
                 let ht = '';
                 if(shared_users && shared_users.length - 1 > 0){
-                    ht += `<h2 class="window-sidebar-title disable-user-select">Shared with me</h2>`;
+                    ht += H`<h2 class="window-sidebar-title disable-user-select">Shared with me</h2>`;
                     for (let index = 0; index < shared_users.length; index++) {
                         const shared_user = shared_users[index];
                         // don't show current user's folder!
                         if(shared_user.name === window.user.username)
                             continue;
-                            ht += `<div  class="window-sidebar-item disable-user-select ${options.path === shared_user.path ? 'window-sidebar-item-active' : ''}" 
+                            ht += H`<div  class="window-sidebar-item disable-user-select ${options.path === shared_user.path ? 'window-sidebar-item-active' : ''}" 
                                     data-path="${shared_user.path}"
-                                    data-sharing-username="${html_encode(shared_user.name)}"
-                                    title="${html_encode(shared_user.name)}"
+                                    data-sharing-username="${(shared_user.name)}"
+                                    title="${(shared_user.name)}"
                                     data-is_shared="1">
-                                        <img class="window-sidebar-item-icon" src="${html_encode(window.icons['shared-outline.svg'])}">${shared_user.name}
+                                        <img class="window-sidebar-item-icon" src="${(window.icons['shared-outline.svg'])}">${shared_user.name}
                                     </div>`;  
                     }
                 }
@@ -3239,12 +3239,12 @@ window.set_sort_by = function(item_uid, sort_by, sort_order){
 
 window.explore_table_headers = function(){
     let h = ``;
-    h += `<div class="explore-table-headers">`;
-        h += `<div class="explore-table-headers-th explore-table-headers-th--name">Name<span class="header-sort-icon"></span></div>`;
-        h += `<div class="explore-table-headers-th explore-table-headers-th--modified">Modified<span class="header-sort-icon"></span></div>`;
-        h += `<div class="explore-table-headers-th explore-table-headers-th--size">Size<span class="header-sort-icon"></span></div>`;
-        h += `<div class="explore-table-headers-th explore-table-headers-th--type">Type<span class="header-sort-icon"></span></div>`;
-    h += `</div>`;
+    h += H`<div class="explore-table-headers">`;
+        h += H`<div class="explore-table-headers-th explore-table-headers-th--name">Name<span class="header-sort-icon"></span></div>`;
+        h += H`<div class="explore-table-headers-th explore-table-headers-th--modified">Modified<span class="header-sort-icon"></span></div>`;
+        h += H`<div class="explore-table-headers-th explore-table-headers-th--size">Size<span class="header-sort-icon"></span></div>`;
+        h += H`<div class="explore-table-headers-th explore-table-headers-th--type">Type<span class="header-sort-icon"></span></div>`;
+    h += H`</div>`;
     return h;
 }
 

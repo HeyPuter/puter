@@ -3,76 +3,76 @@ import UIWindow from './UIWindow.js'
 async function UIWindowShare(items, recipient){
     return new Promise(async (resolve) => {
         let h = '';
-        h += `<div style="padding: 30px 40px 20px; border-bottom: 1px solid #ced7e1;">`;
-            h += `<div class="qr-code-window-close-btn generic-close-window-button" style="margin: 5px;"> &times; </div>`;
+        h += H`<div style="padding: 30px 40px 20px; border-bottom: 1px solid #ced7e1;">`;
+            h += H`<div class="qr-code-window-close-btn generic-close-window-button" style="margin: 5px;"> &times; </div>`;
 
             //------------------------------------------------
             // Icon
             //------------------------------------------------
             
             // 1 item shared
-            h += `<div style="display:flex; justify-content: center; margin-bottom: 10px;">`;
+            h += H`<div style="display:flex; justify-content: center; margin-bottom: 10px;">`;
                 if(items.length === 1)
-                    h += `<img src="${items[0].icon}" style="width:70px; height:70px;">`;
+                    h += H`<img src="${items[0].icon}" style="width:70px; height:70px;">`;
                 // 2 items shared
                 else if(items.length === 2){
-                    h += `<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 2;">`;
-                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -10px; z-index:1; transform:scale(0.8);">`;
+                    h += H`<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 2;">`;
+                    h += H`<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -10px; z-index:1; transform:scale(0.8);">`;
                 }
                 // 3 items shared
                 else if(items.length === 3){
-                    h += `<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 3;">`;
-                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -10px; z-index:2; transform:scale(0.8);">`;
-                    h += `<img src="${items[2].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -20px; z-index:1; transform:scale(0.6);">`;
+                    h += H`<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 3;">`;
+                    h += H`<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -10px; z-index:2; transform:scale(0.8);">`;
+                    h += H`<img src="${items[2].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -20px; z-index:1; transform:scale(0.6);">`;
                 }
                 // 4 items shared
                 else if(items.length === 4){
-                    h += `<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 4;">`;
-                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -15px; z-index:3; transform:scale(0.8);">`;
-                    h += `<img src="${items[2].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -25px; z-index:2; transform:scale(0.6);">`;
-                    h += `<img src="${items[3].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -35px; z-index:1; transform:scale(0.4);">`;
+                    h += H`<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 4;">`;
+                    h += H`<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -15px; z-index:3; transform:scale(0.8);">`;
+                    h += H`<img src="${items[2].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -25px; z-index:2; transform:scale(0.6);">`;
+                    h += H`<img src="${items[3].icon}" style="width:70px; height:70px; margin-left:-55px; margin-top: -35px; z-index:1; transform:scale(0.4);">`;
                 }
                 // 5 items shared
                 else if(items.length >= 5){
-                    h += `<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 5;">`;
-                    h += `<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -15px; z-index:4; transform:scale(0.8);">`;
-                    h += `<img src="${items[2].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -25px; z-index:3; transform:scale(0.6);">`;
-                    h += `<img src="${items[3].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -35px; z-index:2; transform:scale(0.4);">`;
-                    h += `<img src="${items[4].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -45px; z-index:1; transform:scale(0.2);">`;
+                    h += H`<img src="${items[0].icon}" style="width:70px; height:70px; z-index: 5;">`;
+                    h += H`<img src="${items[1].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -15px; z-index:4; transform:scale(0.8);">`;
+                    h += H`<img src="${items[2].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -25px; z-index:3; transform:scale(0.6);">`;
+                    h += H`<img src="${items[3].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -35px; z-index:2; transform:scale(0.4);">`;
+                    h += H`<img src="${items[4].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -45px; z-index:1; transform:scale(0.2);">`;
                 }
 
-            h += `</div>`;
+            h += H`</div>`;
 
             // ------------------------------------------------
             // Name
             // ------------------------------------------------
-            h += `<h2 style="font-size: 17px; margin-top:0; text-align:center; margin-bottom: 40px; font-weight: 400; color: #303d49;">`;
-                h += `Share <strong>${html_encode(items[0].name)}</strong>`;
+            h += H`<h2 style="font-size: 17px; margin-top:0; text-align:center; margin-bottom: 40px; font-weight: 400; color: #303d49;">`;
+                h += H`Share <strong>${html_encode(items[0].name)}</strong>`;
                 if(items.length > 1)
-                    h += ` and ${items.length - 1} other item${items.length > 2 ? 's' : ''}`;
-            h += `</h2>`;
+                    h += H` and ${items.length - 1} other item${items.length > 2 ? 's' : ''}`;
+            h += H`</h2>`;
 
             // form
-            h += `<form class="window-give-item-access-form">`;
+            h += H`<form class="window-give-item-access-form">`;
                 // Error msg
-                h += `<div class="error"></div>`;
+                h += H`<div class="error"></div>`;
                 // Username/email
-                h += `<div style="overflow: hidden;">`;
-                    h += `<label style="font-size: 16px; font-weight: 600;">Share with:</label>`;
-                    h += `<div style="display: flex;">`;
+                h += H`<div style="overflow: hidden;">`;
+                    h += H`<label style="font-size: 16px; font-weight: 600;">Share with:</label>`;
+                    h += H`<div style="display: flex;">`;
                         // Username/email
-                        h += `<input placeholder="username" class="access-recipient" value="${html_encode(recipient ?? '')}" style="border-right: none; margin-bottom: 10px; border-top-right-radius: 0; border-bottom-right-radius: 0;" type="text" autocomplete="recipient_email_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
+                        h += H`<input placeholder="username" class="access-recipient" value="${html_encode(recipient ?? '')}" style="border-right: none; margin-bottom: 10px; border-top-right-radius: 0; border-bottom-right-radius: 0;" type="text" autocomplete="recipient_email_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                         // Share
-                        h += `<button class="give-access-btn button button-primary button-normal" style="border-top-left-radius: 0; border-bottom-left-radius: 0;" ${!recipient ? 'disabled' : ''}>Share</button>`
-                    h += `</div>`;                
-                h += `</div>`;
-            h += `</form>`;
+                        h += H`<button class="give-access-btn button button-primary button-normal" style="border-top-left-radius: 0; border-bottom-left-radius: 0;" ${!recipient ? 'disabled' : ''}>Share</button>`
+                    h += H`</div>`;                
+                h += H`</div>`;
+            h += H`</form>`;
 
             //recipients
-            h += `<p style="font-size: 14px; margin-bottom: 0px; color: #303d49; text-shadow: 1px 1px white;">People with access</p>`;
-            h += `<div class="share-recipients">`;
-            h += `</div>`;
-        h += `</div>`;
+            h += H`<p style="font-size: 14px; margin-bottom: 0px; color: #303d49; text-shadow: 1px 1px white;">People with access</p>`;
+            h += H`<div class="share-recipients">`;
+            h += H`</div>`;
+        h += H`</div>`;
 
         const el_window = await UIWindow({
             title: 'Share With…',

@@ -73,7 +73,6 @@ function UIItem(options){
     // --------------------------------------------------------
     // HTML for Item
     // --------------------------------------------------------
-    console.log('options', options)
     let h = '';
     h += H`<div  id="item-${item_id}" 
                 class="item${options.is_selected ? ' item-selected':''} ${options.disabled ? 'item-disabled':''} item-${options.visible}" 
@@ -163,7 +162,7 @@ function UIItem(options){
         h += H`</div>`;
 
         // name
-        h += H`<span class="item-name" data-item-id="${item_id}" title="${(options.name)}"></span>`
+        h += H`<span class="item-name" data-item-id="${item_id}" title="${(options.name)}">${options.is_trash ? i18n('trash') : (truncate_filename(options.name))}</span>`
         // name editor
         h += H`<textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${(options.name)}</textarea>`
     h += H`</div>`;
@@ -181,8 +180,6 @@ function UIItem(options){
     const el_item_icon = document.querySelector(`#item-${item_id} .item-icon`);
     const el_item_name_editor = document.querySelector(`#item-${item_id} > .item-name-editor`);
     const is_trashed = $(el_item).attr('data-path').startsWith(window.trash_path + '/');
-    // set the item name
-    $(el_item_name).html(options.is_trash ? i18n('trash') : (truncate_filename(options.name)).replaceAll(' ', '&nbsp;'));
 
     // update parent window's explorer item count if applicable
     if(options.appendTo !== undefined){

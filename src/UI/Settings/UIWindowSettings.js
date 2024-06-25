@@ -31,34 +31,34 @@ async function UIWindowSettings(options){
 
         let h = '';
 
-        h += `<div class="settings-container">`;
-        h += `<div class="settings">`;
+        h += H`<div class="settings-container">`;
+        h += H`<div class="settings">`;
             // side bar
-            h += `<div class="settings-sidebar disable-user-select disable-context-menu">`;
+            h += H`<div class="settings-sidebar disable-user-select disable-context-menu">`;
             tabs.forEach((tab, i) => {
-                h += `<div class="settings-sidebar-item disable-context-menu disable-user-select ${i === 0 ? 'active' : ''}" data-settings="${tab.id}" style="background-image: url(${window.icons[tab.icon]});">${i18n(tab.title_i18n_key)}</div>`;
+                h += H`<div class="settings-sidebar-item disable-context-menu disable-user-select ${i === 0 ? 'active' : ''}" data-settings="${tab.id}" style="background-image: url(${window.icons[tab.icon]});">${i18n(tab.title_i18n_key)}</div>`;
             });
-            h += `</div>`;
+            h += H`</div>`;
 
             // content
-            h += `<div class="settings-content-container">`;
+            h += H`<div class="settings-content-container">`;
 
             tabs.forEach((tab, i) => {
-                h += `<div class="settings-content ${i === 0 ? 'active' : ''}" data-settings="${tab.id}">`;
+                h += H`<div class="settings-content ${i === 0 ? 'active' : ''}" data-settings="${tab.id}">`;
                 if ( tab.factory ) {
                     tab_placeholders[i] = Placeholder();
                     h += tab_placeholders[i].html;
                 } else {
                     h += tab.html();
                 }
-                h += `</div>`;
+                h += H`</div>`;
             });
 
-            h += `</div>`;
-        h += `</div>`;
-        h += `</div>`;
+            h += H`</div>`;
+        h += H`</div>`;
+        h += H`</div>`;
 
-        h += ``;
+        h += H``;
 
         const el_window = await UIWindow({
             title: 'Settings',

@@ -28,23 +28,23 @@ async function UIWindowNewPassword(options){
 
         const internal_id = window.uuidv4();
         let h = '';
-        h += `<div class="change-password" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
+        h += H`<div class="change-password" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
             // error msg
-            h += `<div class="form-error-msg"></div>`;
+            h += H`<div class="form-error-msg"></div>`;
             // new password
-            h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
-                h += `<label for="new-password-${internal_id}">${i18n('new_password')}</label>`;
-                h += `<input class="new-password" id="new-password-${internal_id}" type="password" name="new-password" autocomplete="off" />`;
-            h += `</div>`;
+            h += H`<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
+                h += H`<label for="new-password-${internal_id}">${i18n('new_password')}</label>`;
+                h += H`<input class="new-password" id="new-password-${internal_id}" type="password" name="new-password" autocomplete="off" />`;
+            h += H`</div>`;
             // confirm new password
-            h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
-                h += `<label for="confirm-new-password-${internal_id}">${i18n('confirm_new_password')}</label>`;
-                h += `<input class="confirm-new-password" id="confirm-new-password-${internal_id}" type="password" name="confirm-new-password" autocomplete="off" />`;
-            h += `</div>`;
+            h += H`<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
+                h += H`<label for="confirm-new-password-${internal_id}">${i18n('confirm_new_password')}</label>`;
+                h += H`<input class="confirm-new-password" id="confirm-new-password-${internal_id}" type="password" name="confirm-new-password" autocomplete="off" />`;
+            h += H`</div>`;
 
             // Change Password
-            h += `<button class="change-password-btn button button-primary button-block button-normal">${i18n('set_new_password')}</button>`;
-        h += `</div>`;
+            h += H`<button class="change-password-btn button button-primary button-block button-normal">${i18n('set_new_password')}</button>`;
+        h += H`</div>`;
 
         const response = await fetch(window.api_origin + "/verify-pass-recovery-token", {
             method: 'POST',

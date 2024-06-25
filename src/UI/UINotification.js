@@ -22,16 +22,16 @@ function UINotification(options){
     options.text = options.text ?? '';
 
     let h = '';
-    h += `<div id="ui-notification__${window.global_element_id}" data-el-id="${window.global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
-        h += `<img class="notification-close disable-user-select" src="${html_encode(window.icons['close.svg'])}">`;
-        h += `<div class="notification-icon">`;
-            h += `<img src="${html_encode(options.icon ?? window.icons['bell.svg'])}">`;
-        h += `</div>`;
-        h += `<div class="notification-content">`;
-            h += `<div class="notification-title">${html_encode(options.title)}</div>`;
-            h += `<div class="notification-text">${html_encode(options.text)}</div>`;
-        h += `</div>`;
-    h += `</div>`;
+    h += H`<div id="ui-notification__${window.global_element_id}" data-el-id="${window.global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
+        h += H`<img class="notification-close disable-user-select" src="${window.icons['close.svg']}">`;
+        h += H`<div class="notification-icon">`;
+            h += H`<img src="${options.icon ?? window.icons['bell.svg']}">`;
+        h += H`</div>`;
+        h += H`<div class="notification-content">`;
+            h += H`<div class="notification-title">${options.title}</div>`;
+            h += H`<div class="notification-text">${options.text}</div>`;
+        h += H`</div>`;
+    h += H`</div>`;
 
     $('.notification-container').prepend(h);
 

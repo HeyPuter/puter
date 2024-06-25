@@ -48,7 +48,7 @@ const get_html_element_from_options = async function(options){
     // HTML for Item
     // --------------------------------------------------------
     let h = '';
-    h += `<div  id="item-${item_id}" 
+    h += H`<div  id="item-${item_id}" 
                 class="item${options.is_selected ? ' item-selected':''} ${options.disabled ? 'item-disabled':''} item-${options.visible}" 
                 data-id="${item_id}" 
                 data-name="${html_encode(options.name)}" 
@@ -71,53 +71,53 @@ const get_html_element_from_options = async function(options){
                 data-path="${html_encode(options.path)}">`;
 
         // spinner
-        h += `<div class="item-spinner">`;
-        h += `</div>`;
+        h += H`<div class="item-spinner">`;
+        h += H`</div>`;
         // modified
-        h += `<div class="item-attr item-attr--modified">`;
-            h += `<span>${options.modified === 0 ? '-' : timeago.format(options.modified*1000)}</span>`;
-        h += `</div>`;
+        h += H`<div class="item-attr item-attr--modified">`;
+            h += H`<span>${options.modified === 0 ? '-' : timeago.format(options.modified*1000)}</span>`;
+        h += H`</div>`;
         // size
-        h += `<div class="item-attr item-attr--size">`;
-            h += `<span>${options.size ? window.byte_format(options.size) : '-'}</span>`;
-        h += `</div>`;
+        h += H`<div class="item-attr item-attr--size">`;
+            h += H`<span>${options.size ? window.byte_format(options.size) : '-'}</span>`;
+        h += H`</div>`;
         // type
-        h += `<div class="item-attr item-attr--type">`;
+        h += H`<div class="item-attr item-attr--type">`;
             if(options.is_dir)
-                h += `<span>Folder</span>`;
+                h += H`<span>Folder</span>`;
             else
-                h += `<span>${options.type ? html_encode(options.type) : '-'}</span>`;
-        h += `</div>`;
+                h += H`<span>${options.type ? html_encode(options.type) : '-'}</span>`;
+        h += H`</div>`;
 
 
         // icon
-        h += `<div class="item-icon">`;
-            h += `<img src="${html_encode(options.icon.image)}" class="item-icon-${options.icon.type}" data-item-id="${item_id}">`;
-        h += `</div>`;
+        h += H`<div class="item-icon">`;
+            h += H`<img src="${html_encode(options.icon.image)}" class="item-icon-${options.icon.type}" data-item-id="${item_id}">`;
+        h += H`</div>`;
         // badges
-        h += `<div class="item-badges">`;
+        h += H`<div class="item-badges">`;
             // website badge
-            h += `<img  class="item-badge item-has-website-badge long-hover" 
+            h += H`<img  class="item-badge item-has-website-badge long-hover" 
                         style="${options.has_website ? 'display:block;' : ''}" 
                         src="${html_encode(window.icons['world.svg'])}" 
                         data-item-id="${item_id}"
                     >`;
             // link badge
-            h += `<img  class="item-badge item-has-website-url-badge" 
+            h += H`<img  class="item-badge item-has-website-url-badge" 
                         style="${website_url ? 'display:block;' : ''}" 
                         src="${html_encode(window.icons['link.svg'])}" 
                         data-item-id="${item_id}"
                     >`;
 
             // shared badge
-            h += `<img  class="item-badge item-badge-has-permission" 
+            h += H`<img  class="item-badge item-badge-has-permission" 
                         style="display: ${ is_shared_with_me ? 'block' : 'none'};
                             background-color: #ffffff;
                             padding: 2px;" src="${html_encode(window.icons['shared.svg'])}" 
                         data-item-id="${item_id}"
                         title="A user has shared this item with you.">`;
             // owner-shared badge
-            h += `<img  class="item-badge item-is-shared" 
+            h += H`<img  class="item-badge item-is-shared" 
                         style="background-color: #ffffff; padding: 2px; ${!is_shared_with_me && options.is_shared ? 'display:block;' : ''}" 
                         src="${html_encode(window.icons['owner-shared.svg'])}" 
                         data-item-id="${item_id}"
@@ -126,20 +126,20 @@ const get_html_element_from_options = async function(options){
                         title="You have shared this item with at least one other user."
                     >`;
             // shortcut badge
-            h += `<img  class="item-badge item-shortcut" 
+            h += H`<img  class="item-badge item-shortcut" 
                         style="background-color: #ffffff; padding: 2px; ${options.is_shortcut !== 0 ? 'display:block;' : ''}" 
                         src="${html_encode(window.icons['shortcut.svg'])}" 
                         data-item-id="${item_id}"
                         title="Shortcut"
                     >`;
 
-        h += `</div>`;
+        h += H`</div>`;
 
         // name
-        h += `<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${html_encode(truncate_filename(options.name)).replaceAll(' ', '&nbsp;')}</span>`
+        h += H`<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${html_encode(truncate_filename(options.name)).replaceAll(' ', '&nbsp;')}</span>`
         // name editor
-        h += `<textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${html_encode(options.name)}</textarea>`
-    h += `</div>`;
+        h += H`<textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${html_encode(options.name)}</textarea>`
+    h += H`</div>`;
 
     return h;
 }

@@ -18,36 +18,36 @@ export default {
 
         // change password button
         if(!user.is_temp){
-            h += `<div class="settings-card">`;
-                h += `<strong>${i18n('password')}</strong>`;
-                h += `<div style="flex-grow:1;">`;
-                    h += `<button class="button change-password" style="float:right;">${i18n('change_password')}</button>`;
-                h += `</div>`;
-            h += `</div>`;
+            h += H`<div class="settings-card">`;
+                h += H`<strong>${i18n('password')}</strong>`;
+                h += H`<div style="flex-grow:1;">`;
+                    h += H`<button class="button change-password" style="float:right;">${i18n('change_password')}</button>`;
+                h += H`</div>`;
+            h += H`</div>`;
         }
 
         // session manager
-        h += `<div class="settings-card">`;
-            h += `<strong>${i18n('sessions')}</strong>`;
-            h += `<div style="flex-grow:1;">`;
-                h += `<button class="button manage-sessions" style="float:right;">${i18n('manage_sessions')}</button>`;
-            h += `</div>`;
-        h += `</div>`;
+        h += H`<div class="settings-card">`;
+            h += H`<strong>${i18n('sessions')}</strong>`;
+            h += H`<div style="flex-grow:1;">`;
+                h += H`<button class="button manage-sessions" style="float:right;">${i18n('manage_sessions')}</button>`;
+            h += H`</div>`;
+        h += H`</div>`;
 
         // configure 2FA
         if(!user.is_temp){
-            h += `<div class="settings-card settings-card-security ${user.otp ? 'settings-card-success' : 'settings-card-warning'}">`;
-                h += `<div>`;
-                    h += `<strong style="display:block;">${i18n('two_factor')}</strong>`;
-                    h += `<span class="user-otp-state" style="display:block; margin-top:5px;">${
+            h += H`<div class="settings-card settings-card-security ${user.otp ? 'settings-card-success' : 'settings-card-warning'}">`;
+                h += H`<div>`;
+                    h += H`<strong style="display:block;">${i18n('two_factor')}</strong>`;
+                    h += H`<span class="user-otp-state" style="display:block; margin-top:5px;">${
                         i18n(user.otp ? 'two_factor_enabled' : 'two_factor_disabled')
                     }</span>`;
-                h += `</div>`;
-                h += `<div style="flex-grow:1;">`;
-                    h += `<button class="button enable-2fa" style="float:right;${user.otp ? 'display:none;' : ''}">${i18n('enable_2fa')}</button>`;
-                    h += `<button class="button disable-2fa" style="float:right;${user.otp ? '' : 'display:none;'}">${i18n('disable_2fa')}</button>`;
-                h += `</div>`;
-            h += `</div>`;
+                h += H`</div>`;
+                h += H`<div style="flex-grow:1;">`;
+                    h += H`<button class="button enable-2fa" style="float:right;${user.otp ? 'display:none;' : ''}">${i18n('enable_2fa')}</button>`;
+                    h += H`<button class="button disable-2fa" style="float:right;${user.otp ? '' : 'display:none;'}">${i18n('disable_2fa')}</button>`;
+                h += H`</div>`;
+            h += H`</div>`;
         }
 
         return h;

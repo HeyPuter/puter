@@ -25,20 +25,20 @@ async function UIWindowChangeUsername(options){
 
     const internal_id = window.uuidv4();
     let h = '';
-    h += `<div class="change-username" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
+    h += H`<div class="change-username" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
         // error msg
-        h += `<div class="form-error-msg"></div>`;
+        h += H`<div class="form-error-msg"></div>`;
         // success msg
-        h += `<div class="form-success-msg"></div>`;
+        h += H`<div class="form-success-msg"></div>`;
         // new username
-        h += `<div style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">`;
-            h += `<label for="confirm-new-username-${internal_id}">${i18n('new_username')}</label>`;
-            h += `<input id="confirm-new-username-${internal_id}" type="text" name="new-username" class="new-username" autocomplete="off" />`;
-        h += `</div>`;
+        h += H`<div style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">`;
+            h += H`<label for="confirm-new-username-${internal_id}">${i18n('new_username')}</label>`;
+            h += H`<input id="confirm-new-username-${internal_id}" type="text" name="new-username" class="new-username" autocomplete="off" />`;
+        h += H`</div>`;
 
         // Change Username
-        h += `<button class="change-username-btn button button-primary button-block button-normal">${i18n('change_username')}</button>`;
-    h += `</div>`;
+        h += H`<button class="change-username-btn button button-primary button-block button-normal">${i18n('change_username')}</button>`;
+    h += H`</div>`;
 
     const el_window = await UIWindow({
         title: i18n('change_username'),

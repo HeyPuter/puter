@@ -22,37 +22,37 @@ import UIWindow from './UIWindow.js'
 // todo do this using uid rather than item_path, since item_path is way mroe expensive on the DB
 async function UIWindowItemProperties(item_name, item_path, item_uid, left, top, width, height){
     let h = '';
-    h += `<div class="item-props-tabview" style="display: flex; flex-direction: column; height: 100%;">`;
+    h += H`<div class="item-props-tabview" style="display: flex; flex-direction: column; height: 100%;">`;
         // tabs
-        h += `<div class="item-props-tab">`;
-            h += `<div class="item-props-tab-btn antialiased disable-user-select item-props-tab-selected" data-tab="general">${i18n('general')}</div>`;
-            h += `<div class="item-props-tab-btn antialiased disable-user-select item-props-tab-btn-versions" data-tab="versions">${i18n('versions')}</div>`;
-        h += `</div>`;
+        h += H`<div class="item-props-tab">`;
+            h += H`<div class="item-props-tab-btn antialiased disable-user-select item-props-tab-selected" data-tab="general">${i18n('general')}</div>`;
+            h += H`<div class="item-props-tab-btn antialiased disable-user-select item-props-tab-btn-versions" data-tab="versions">${i18n('versions')}</div>`;
+        h += H`</div>`;
 
         h+= `<div class="item-props-tab-content item-props-tab-content-selected" data-tab="general" style="border-top-left-radius:0;">`;
-            h += `<table class="item-props-tbl">`;
-                h += `<tr><td class="item-prop-label">Name</td><td class="item-prop-val item-prop-val-name"></td></tr>`;
-                h += `<tr><td class="item-prop-label">Path</td><td class="item-prop-val item-prop-val-path"></td></tr>`;
-                h += `<tr class="item-prop-original-name"><td class="item-prop-label">Original Name</td><td class="item-prop-val item-prop-val-original-name"></td></tr>`;
-                h += `<tr class="item-prop-original-path"><td class="item-prop-label">Original Path</td><td class="item-prop-val item-prop-val-original-path"></td></tr>`;
-                h += `<tr><td class="item-prop-label">Shortcut to</td><td class="item-prop-val item-prop-val-shortcut-to"></td></tr>`;
-                h += `<tr><td class="item-prop-label">UID</td><td class="item-prop-val item-prop-val-uid"></td></tr>`;
-                h += `<tr><td class="item-prop-label">Type</td><td class="item-prop-val item-prop-val-type"></td></tr>`;
-                h += `<tr><td class="item-prop-label">Size</td><td class="item-prop-val item-prop-val-size"></td></tr>`;
-                h += `<tr><td class="item-prop-label">Modified</td><td class="item-prop-val item-prop-val-modified"></td></tr>`;
-                h += `<tr><td class="item-prop-label">Created</td><td class="item-prop-val item-prop-val-created"></td></tr>`;
-                h += `<tr><td class="item-prop-label">Versions</td><td class="item-prop-val item-prop-val-versions"></td></tr>`;
-                h += `<tr><td class="item-prop-label">Associated Websites</td><td class="item-prop-val item-prop-val-websites">`;
-                h += `</td></tr>`;
-                h += `<tr><td class="item-prop-label">${i18n('access_granted_to')}</td><td class="item-prop-val item-prop-val-permissions"></td></tr>`;
-            h += `</table>`;
-        h += `</div>`;
+            h += H`<table class="item-props-tbl">`;
+                h += H`<tr><td class="item-prop-label">Name</td><td class="item-prop-val item-prop-val-name"></td></tr>`;
+                h += H`<tr><td class="item-prop-label">Path</td><td class="item-prop-val item-prop-val-path"></td></tr>`;
+                h += H`<tr class="item-prop-original-name"><td class="item-prop-label">Original Name</td><td class="item-prop-val item-prop-val-original-name"></td></tr>`;
+                h += H`<tr class="item-prop-original-path"><td class="item-prop-label">Original Path</td><td class="item-prop-val item-prop-val-original-path"></td></tr>`;
+                h += H`<tr><td class="item-prop-label">Shortcut to</td><td class="item-prop-val item-prop-val-shortcut-to"></td></tr>`;
+                h += H`<tr><td class="item-prop-label">UID</td><td class="item-prop-val item-prop-val-uid"></td></tr>`;
+                h += H`<tr><td class="item-prop-label">Type</td><td class="item-prop-val item-prop-val-type"></td></tr>`;
+                h += H`<tr><td class="item-prop-label">Size</td><td class="item-prop-val item-prop-val-size"></td></tr>`;
+                h += H`<tr><td class="item-prop-label">Modified</td><td class="item-prop-val item-prop-val-modified"></td></tr>`;
+                h += H`<tr><td class="item-prop-label">Created</td><td class="item-prop-val item-prop-val-created"></td></tr>`;
+                h += H`<tr><td class="item-prop-label">Versions</td><td class="item-prop-val item-prop-val-versions"></td></tr>`;
+                h += H`<tr><td class="item-prop-label">Associated Websites</td><td class="item-prop-val item-prop-val-websites">`;
+                h += H`</td></tr>`;
+                h += H`<tr><td class="item-prop-label">${i18n('access_granted_to')}</td><td class="item-prop-val item-prop-val-permissions"></td></tr>`;
+            h += H`</table>`;
+        h += H`</div>`;
 
-        h += `<div class="item-props-tab-content" data-tab="versions" style="padding: 20px;">`
-            h += `<div class="item-props-version-list">`;
-            h += `</div>`;
-        h += `</div>`;
-    h += `</div>`;
+        h += H`<div class="item-props-tab-content" data-tab="versions" style="padding: 20px;">`
+            h += H`<div class="item-props-version-list">`;
+            h += H`</div>`;
+        h += H`</div>`;
+    h += H`</div>`;
 
     const el_window = await UIWindow({
         title: `${item_name} properties`,

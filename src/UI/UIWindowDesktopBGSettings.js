@@ -29,54 +29,54 @@ async function UIWindowDesktopBGSettings(options){
             bg_color = window.desktop_bg_color, 
             bg_fit = window.desktop_bg_fit;
 
-        h += `<div style="padding: 10px; border-bottom: 1px solid #ced7e1;">`;
+        h += H`<div style="padding: 10px; border-bottom: 1px solid #ced7e1;">`;
 
             // type
-            h += `<label>${i18n('background')}:</label>`;
-            h += `<select class="desktop-bg-type" style="width: 150px; margin-bottom: 20px;">`
-                h += `<option value="default">${i18n('default')}</option>`;
-                h += `<option value="picture">${i18n('picture')}</option>`;
-                h += `<option value="color">${i18n('color')}</option>`;
-            h += `</select>`;
+            h += H`<label>${i18n('background')}:</label>`;
+            h += H`<select class="desktop-bg-type" style="width: 150px; margin-bottom: 20px;">`
+                h += H`<option value="default">${i18n('default')}</option>`;
+                h += H`<option value="picture">${i18n('picture')}</option>`;
+                h += H`<option value="color">${i18n('color')}</option>`;
+            h += H`</select>`;
 
             // Picture
-            h += `<div class="desktop-bg-settings-wrapper desktop-bg-settings-picture">`;
-                h += `<label>${i18n('image')}:</label>`;
-                h += `<button class="button button-default button-small browse">${i18n('browse')}</button>`;
-                h += `<label style="margin-top: 20px;">${i18n('fit')}:</label>`;
-                h += `<select class="desktop-bg-fit" style="width: 150px;">`
-                    h += `<option value="cover">${i18n('cover')}</option>`;
-                    h += `<option value="center">${i18n('center')}</option>`;
-                    h += `<option value="contain">${i18n('contain')}</option>`;
-                    h += `<option value="repeat">${i18n('repeat')}</option>`;
-                h += `</select>`;
-            h += `</div>`
+            h += H`<div class="desktop-bg-settings-wrapper desktop-bg-settings-picture">`;
+                h += H`<label>${i18n('image')}:</label>`;
+                h += H`<button class="button button-default button-small browse">${i18n('browse')}</button>`;
+                h += H`<label style="margin-top: 20px;">${i18n('fit')}:</label>`;
+                h += H`<select class="desktop-bg-fit" style="width: 150px;">`
+                    h += H`<option value="cover">${i18n('cover')}</option>`;
+                    h += H`<option value="center">${i18n('center')}</option>`;
+                    h += H`<option value="contain">${i18n('contain')}</option>`;
+                    h += H`<option value="repeat">${i18n('repeat')}</option>`;
+                h += H`</select>`;
+            h += H`</div>`
 
             // Color
-            h += `<div class="desktop-bg-settings-wrapper desktop-bg-settings-color">`;
-                h += `<label>${i18n('color')}:</label>`;
-                h += `<div class="desktop-bg-color-blocks">`;
-                    h += `<div class="desktop-bg-color-block" data-color="#4F7BB5" style="background-color: #4F7BB5"></div>`;
-                    h += `<div class="desktop-bg-color-block" data-color="#545554" style="background-color: #545554"></div>`;
-                    h += `<div class="desktop-bg-color-block" data-color="#F5D3CE" style="background-color: #F5D3CE"></div>`;
-                    h += `<div class="desktop-bg-color-block" data-color="#52A758" style="background-color: #52A758"></div>`;
-                    h += `<div class="desktop-bg-color-block" data-color="#ad3983" style="background-color: #ad3983"></div>`;
-                    h += `<div class="desktop-bg-color-block" data-color="#ffffff" style="background-color: #ffffff"></div>`;
-                    h += `<div class="desktop-bg-color-block" data-color="#000000" style="background-color: #000000"></div>`;
-                    h += `<div class="desktop-bg-color-block" data-color="#454545" style="background-color: #454545"></div>`;
-                    h += `<div class="desktop-bg-color-block desktop-bg-color-block-palette" data-color="" style="background-image: url(${window.icons['palette.svg']});
+            h += H`<div class="desktop-bg-settings-wrapper desktop-bg-settings-color">`;
+                h += H`<label>${i18n('color')}:</label>`;
+                h += H`<div class="desktop-bg-color-blocks">`;
+                    h += H`<div class="desktop-bg-color-block" data-color="#4F7BB5" style="background-color: #4F7BB5"></div>`;
+                    h += H`<div class="desktop-bg-color-block" data-color="#545554" style="background-color: #545554"></div>`;
+                    h += H`<div class="desktop-bg-color-block" data-color="#F5D3CE" style="background-color: #F5D3CE"></div>`;
+                    h += H`<div class="desktop-bg-color-block" data-color="#52A758" style="background-color: #52A758"></div>`;
+                    h += H`<div class="desktop-bg-color-block" data-color="#ad3983" style="background-color: #ad3983"></div>`;
+                    h += H`<div class="desktop-bg-color-block" data-color="#ffffff" style="background-color: #ffffff"></div>`;
+                    h += H`<div class="desktop-bg-color-block" data-color="#000000" style="background-color: #000000"></div>`;
+                    h += H`<div class="desktop-bg-color-block" data-color="#454545" style="background-color: #454545"></div>`;
+                    h += H`<div class="desktop-bg-color-block desktop-bg-color-block-palette" data-color="" style="background-image: url(${window.icons['palette.svg']});
                     background-repeat: no-repeat;
                     background-size: contain;
                     background-position: center;"><input type="color" style="width:25px; height: 25px; opacity:0;"></div>`;
-                h += `</div>`;
-            h += `</div>`;
+                h += H`</div>`;
+            h += H`</div>`;
 
-            h += `<div style="padding-top: 5px; overflow:hidden; margin-top: 25px; border-top: 1px solid #CCC;">`
-                h += `<button class="button button-primary apply" style="float:right;">${i18n('apply')}</button>`;
-                h += `<button class="button button-default cancel" style="float:right; margin-right: 10px;">${i18n('cancel')}</button>`;
-            h += `</div>`;
+            h += H`<div style="padding-top: 5px; overflow:hidden; margin-top: 25px; border-top: 1px solid #CCC;">`
+                h += H`<button class="button button-primary apply" style="float:right;">${i18n('apply')}</button>`;
+                h += H`<button class="button button-default cancel" style="float:right; margin-right: 10px;">${i18n('cancel')}</button>`;
+            h += H`</div>`;
 
-        h += `</div>`;
+        h += H`</div>`;
 
         const el_window = await UIWindow({
             title: i18n('change_desktop_background'),

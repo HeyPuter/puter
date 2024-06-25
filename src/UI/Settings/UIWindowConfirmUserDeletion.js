@@ -25,13 +25,13 @@ async function UIWindowConfirmUserDeletion(options){
         options = options ?? {};
 
         let h = '';
-        h += `<div style="padding: 20px;">`;
-            h += `<div class="generic-close-window-button disable-user-select"> &times; </div>`;
-            h += `<img src="${window.icons['danger.svg']}" class="account-deletion-confirmation-icon">`;
-            h += `<p class="account-deletion-confirmation-prompt">${i18n('confirm_delete_user')}</p>`;
-            h += `<button class="button button-block button-danger proceed-with-user-deletion">${i18n('proceed_with_account_deletion')}</button>`;
-            h += `<button class="button button-block button-secondary cancel-user-deletion">${i18n('cancel')}</button>`;
-        h += `</div>`;
+        h += H`<div style="padding: 20px;">`;
+            h += H`<div class="generic-close-window-button disable-user-select"> &times; </div>`;
+            h += H`<img src="${window.icons['danger.svg']}" class="account-deletion-confirmation-icon">`;
+            h += H`<p class="account-deletion-confirmation-prompt">${i18n('confirm_delete_user')}</p>`;
+            h += H`<button class="button button-block button-danger proceed-with-user-deletion">${i18n('proceed_with_account_deletion')}</button>`;
+            h += H`<button class="button button-block button-secondary cancel-user-deletion">${i18n('cancel')}</button>`;
+        h += H`</div>`;
 
         const el_window = await UIWindow({
             title: i18n('confirm_delete_user_title'),

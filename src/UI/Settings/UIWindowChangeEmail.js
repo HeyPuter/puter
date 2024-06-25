@@ -31,25 +31,25 @@ async function UIWindowChangeEmail(options){
 
     const internal_id = window.uuidv4();
     let h = '';
-    h += `<div class="change-email" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
+    h += H`<div class="change-email" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
         // error msg
-        h += `<div class="form-error-msg"></div>`;
+        h += H`<div class="form-error-msg"></div>`;
         // success msg
-        h += `<div class="form-success-msg"></div>`;
+        h += H`<div class="form-success-msg"></div>`;
         // new email
-        h += `<div style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">`;
-            h += `<label for="confirm-new-email-${internal_id}">${i18n('new_email')}</label>`;
-            h += `<input id="confirm-new-email-${internal_id}" type="text" name="new-email" class="new-email" autocomplete="off" />`;
-        h += `</div>`;
+        h += H`<div style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">`;
+            h += H`<label for="confirm-new-email-${internal_id}">${i18n('new_email')}</label>`;
+            h += H`<input id="confirm-new-email-${internal_id}" type="text" name="new-email" class="new-email" autocomplete="off" />`;
+        h += H`</div>`;
         // password confirmation
-        h += `<div style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">`;
-            h += `<label>${i18n('account_password')}</label>`;
-            h += `${place_password_entry.html}`;
-        h += `</div>`;
+        h += H`<div style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">`;
+            h += H`<label>${i18n('account_password')}</label>`;
+            h += H`${place_password_entry.html}`;
+        h += H`</div>`;
 
         // Change Email
-        h += `<button class="change-email-btn button button-primary button-block button-normal">${i18n('change_email')}</button>`;
-    h += `</div>`;
+        h += H`<button class="change-email-btn button button-primary button-block button-normal">${i18n('change_email')}</button>`;
+    h += H`</div>`;
 
     const el_window = await UIWindow({
         title: i18n('change_email'),

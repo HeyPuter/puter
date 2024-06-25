@@ -27,17 +27,17 @@ export default {
         let h = `<h1>${i18n('language')}</h1>`;
 
         // search
-        h += `<div class="search-container" style="margin-bottom: 10px;">
+        h += H`<div class="search-container" style="margin-bottom: 10px;">
                 <input type="text" class="search search-language" placeholder="Search">
             </div>`;
 
         // list of languages
         const available_languages = window.listSupportedLanguages();
-        h += `<div class="language-list">`;
+        h += H`<div class="language-list">`;
             for (let lang of available_languages) {
-                h += `<div class="language-item ${window.locale === lang.code ? 'active': ''}" data-lang="${lang.code}" data-english-name="${html_encode(lang.english_name)}">${html_encode(lang.name)}</div>`;
+                h += H`<div class="language-item ${window.locale === lang.code ? 'active': ''}" data-lang="${lang.code}" data-english-name="${html_encode(lang.english_name)}">${html_encode(lang.name)}</div>`;
             }
-        h += `</div>`;
+        h += H`</div>`;
         return h;
     },
     init: ($el_window) => {

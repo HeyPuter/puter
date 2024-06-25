@@ -351,7 +351,7 @@ function UIContextMenu(options){
 
     const menu_id = window.global_element_id++;
     let h = '';
-    h += `<div 
+    h += H`<div 
                 id="context-menu-${menu_id}" 
                 data-is-submenu="${options.is_submenu ? 'true' : 'false'}"
                 data-element-id="${menu_id}"
@@ -366,46 +366,46 @@ function UIContextMenu(options){
             if(!options.items[i].is_divider && options.items[i] !== '-'){
                 // single item
                 if(options.items[i].items === undefined){
-                    h += `<li data-action="${i}" 
+                    h += H`<li data-action="${i}" 
                             class="context-menu-item ${options.items[i].disabled ? ' context-menu-item-disabled' : ''}"
                             >`;
                         // icon
                         if(options.items[i].checked === true){
-                            h += `<span class="context-menu-item-icon">✓</span>`;
-                            h += `<span class="context-menu-item-icon-active">✓</span>`;
+                            h += H`<span class="context-menu-item-icon">✓</span>`;
+                            h += H`<span class="context-menu-item-icon-active">✓</span>`;
                         }else{
-                            h += `<span class="context-menu-item-icon">${options.items[i].icon ?? ''}</span>`;
-                            h += `<span class="context-menu-item-icon-active">${options.items[i].icon_active ?? (options.items[i].icon ?? '')}</span>`;
+                            h += H`<span class="context-menu-item-icon">${options.items[i].icon ?? ''}</span>`;
+                            h += H`<span class="context-menu-item-icon-active">${options.items[i].icon_active ?? (options.items[i].icon ?? '')}</span>`;
                         }
                         // label
-                        h += `<span class="contextmenu-label">${options.items[i].html}</span>`;
-                        h += `<span class="contextmenu-label-active">${options.items[i].html_active ?? options.items[i].html}</span>`;
+                        h += H`<span class="contextmenu-label">${options.items[i].html}</span>`;
+                        h += H`<span class="contextmenu-label-active">${options.items[i].html_active ?? options.items[i].html}</span>`;
 
-                    h += `</li>`;
+                    h += H`</li>`;
                 }
                 // submenu
                 else{
-                    h += `<li data-action="${i}" 
+                    h += H`<li data-action="${i}" 
                               data-menu-id="${menu_id}-${i}"
                               data-has-submenu="true"
                               data-parent-element-id="${menu_id}"
                               class="context-menu-item-submenu context-menu-item${options.items[i].disabled ? ' context-menu-item-disabled' : ''}"
                             >`;
                         // icon
-                        h += `<span class="context-menu-item-icon">${options.items[i].icon ?? ''}</span>`;
-                        h += `<span class="context-menu-item-icon-active">${options.items[i].icon_active ?? (options.items[i].icon ?? '')}</span>`;
+                        h += H`<span class="context-menu-item-icon">${options.items[i].icon ?? ''}</span>`;
+                        h += H`<span class="context-menu-item-icon-active">${options.items[i].icon_active ?? (options.items[i].icon ?? '')}</span>`;
                         // label
-                        h += `${html_encode(options.items[i].html)}`;
+                        h += H`${options.items[i].html}`;
                         // arrow
-                        h += `<img class="submenu-arrow" src="${html_encode(window.icons['chevron-right.svg'])}"><img class="submenu-arrow submenu-arrow-active" src="${html_encode(window.icons['chevron-right-active.svg'])}">`;
-                    h += `</li>`;
+                        h += H`<img class="submenu-arrow" src="${window.icons['chevron-right.svg']}"><img class="submenu-arrow submenu-arrow-active" src="${window.icons['chevron-right-active.svg']}">`;
+                    h += H`</li>`;
                 }
             }
             // divider
             else if(options.items[i].is_divider || options.items[i] === '-')
-                h += `<li class="context-menu-divider"><hr></li>`;
+                h += H`<li class="context-menu-divider"><hr></li>`;
         }
-    h += `</div>`
+    h += H`</div>`
     $('body').append(h)
 
     const contextMenu = document.getElementById(`context-menu-${menu_id}`);

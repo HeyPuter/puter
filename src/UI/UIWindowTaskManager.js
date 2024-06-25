@@ -253,22 +253,22 @@ class TaskManagerRow extends Component {
             const el = $(this.dom_).find('.task-indentation');
             let h = '';
             for (const c of indentation) {
-                h += `<div class="indentcell">`;
+                h += H`<div class="indentcell">`;
                 switch (c) {
                     case ' ':
                         break;
                     case '|':
-                        h += `<div class="indentcell-trunk"></div>`;
+                        h += H`<div class="indentcell-trunk"></div>`;
                         break;
                     case '└':
-                        h += `<div class="indentcell-branch"></div>`;
+                        h += H`<div class="indentcell-branch"></div>`;
                         break;
                     case '├':
-                        h += `<div class="indentcell-trunk"></div>`;
-                        h += `<div class="indentcell-branch"></div>`;
+                        h += H`<div class="indentcell-trunk"></div>`;
+                        h += H`<div class="indentcell-branch"></div>`;
                         break;
                 }
-                h += `</div>`;
+                h += H`</div>`;
             }
             el.html(h);
         });

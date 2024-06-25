@@ -25,30 +25,30 @@ async function UIWindowChangePassword(options){
 
     const internal_id = window.uuidv4();
     let h = '';
-    h += `<div class="change-password" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
+    h += H`<div class="change-password" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
         // error msg
-        h += `<div class="form-error-msg"></div>`;
+        h += H`<div class="form-error-msg"></div>`;
         // success msg
-        h += `<div class="form-success-msg"></div>`;
+        h += H`<div class="form-success-msg"></div>`;
         // current password
-        h += `<div style="overflow: hidden; margin-bottom: 20px;">`;
-            h += `<label for="current-password-${internal_id}">${i18n('current_password')}</label>`;
-            h += `<input id="current-password-${internal_id}" class="current-password" type="password" name="current-password" autocomplete="current-password" />`;
-        h += `</div>`;
+        h += H`<div style="overflow: hidden; margin-bottom: 20px;">`;
+            h += H`<label for="current-password-${internal_id}">${i18n('current_password')}</label>`;
+            h += H`<input id="current-password-${internal_id}" class="current-password" type="password" name="current-password" autocomplete="current-password" />`;
+        h += H`</div>`;
         // new password
-        h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
-            h += `<label for="new-password-${internal_id}">${i18n('new_password')}</label>`;
-            h += `<input id="new-password-${internal_id}" type="password" class="new-password" name="new-password" autocomplete="off" />`;
-        h += `</div>`;
+        h += H`<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
+            h += H`<label for="new-password-${internal_id}">${i18n('new_password')}</label>`;
+            h += H`<input id="new-password-${internal_id}" type="password" class="new-password" name="new-password" autocomplete="off" />`;
+        h += H`</div>`;
         // confirm new password
-        h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
-            h += `<label for="confirm-new-password-${internal_id}">${i18n('confirm_new_password')}</label>`;
-            h += `<input id="confirm-new-password-${internal_id}" type="password" name="confirm-new-password" class="confirm-new-password" autocomplete="off" />`;
-        h += `</div>`;
+        h += H`<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
+            h += H`<label for="confirm-new-password-${internal_id}">${i18n('confirm_new_password')}</label>`;
+            h += H`<input id="confirm-new-password-${internal_id}" type="password" name="confirm-new-password" class="confirm-new-password" autocomplete="off" />`;
+        h += H`</div>`;
 
         // Change Password
-        h += `<button class="change-password-btn button button-primary button-block button-normal">${i18n('change_password')}</button>`;
-    h += `</div>`;
+        h += H`<button class="change-password-btn button button-primary button-block button-normal">${i18n('change_password')}</button>`;
+    h += H`</div>`;
 
     const el_window = await UIWindow({
         title: 'Change Password',

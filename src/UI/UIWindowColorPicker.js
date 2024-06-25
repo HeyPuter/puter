@@ -34,18 +34,18 @@ async function UIWindowColorPicker(options){
         let colorPicker;
 
         let h = ``;
-        h += `<div>`;
-            h += `<div style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
+        h += H`<div>`;
+            h += H`<div style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
                     // picker
-                    h += `<div style="padding: 0; margin-bottom: 20px;">`;
-                        h += `<div class="picker"></div>`;
-                    h += `</div>`;
+                    h += H`<div style="padding: 0; margin-bottom: 20px;">`;
+                        h += H`<div class="picker"></div>`;
+                    h += H`</div>`;
 
                     // Select button
-                    h += `<button class="select-btn button button-primary button-block button-normal">${i18n('select')}</button>`
-                h += `</form>`;
-            h += `</div>`;
-        h += `</div>`;
+                    h += H`<button class="select-btn button button-primary button-block button-normal">${i18n('select')}</button>`
+                h += H`</form>`;
+            h += H`</div>`;
+        h += H`</div>`;
         
         const el_window = await UIWindow({
             title: i18n('select_color'),

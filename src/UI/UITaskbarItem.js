@@ -32,30 +32,30 @@ function UITaskbarItem(options){
     options.append_to_taskbar = options.append_to_taskbar ?? true;
     const element_id = window.global_element_id++;
 
-    h += `<div  class = "taskbar-item ${options.sortable ? 'taskbar-item-sortable' : ''} disable-user-select"
+    h += H`<div  class = "taskbar-item ${options.sortable ? 'taskbar-item-sortable' : ''} disable-user-select"
                 id = "taskbar-item-${tray_item_id}"
                 data-taskbar-item-id = "${tray_item_id}"
-                data-element-id = "${html_encode(element_id)}"
-                data-name = "${html_encode(options.name)}"
-                data-app = "${html_encode(options.app)}"
-                data-keep-in-taskbar = "${html_encode(options.keep_in_taskbar ?? 'false')}"
-                data-open-windows="${(options.open_windows_count)}"
-                title = "${html_encode(options.name)}"
-                style= "${options.style ? html_encode(options.style) : ''}"
+                data-element-id = "${element_id}"
+                data-name = "${options.name}"
+                data-app = "${options.app}"
+                data-keep-in-taskbar = "${options.keep_in_taskbar ?? 'false'}"
+                data-open-windows="${options.open_windows_count}"
+                title = "${options.name}"
+                style= "${options.style ? options.style : ''}"
             >`;
         let icon = options.icon ? options.icon : window.icons['app.svg'];
         if(options.app === 'explorer')
             icon = window.icons['folders.svg'];
 
         // taskbar icon
-        h += `<div class="taskbar-icon">`;
-            h += `<img src="${html_encode(icon)}" style="${options.group === 'apps' ? 'filter:none;' : ''}">`;
-        h += `</div>`;
+        h += H`<div class="taskbar-icon">`;
+            h += H`<img src="${icon}" style="${options.group === 'apps' ? 'filter:none;' : ''}">`;
+        h += H`</div>`;
 
         // active indicator
         if(options.app !== 'apps')
-            h += `<span class="active-taskbar-indicator"></span>`;
-    h += `</div>`;
+            h += H`<span class="active-taskbar-indicator"></span>`;
+    h += H`</div>`;
 
     if(options.append_to_taskbar)
         $('.taskbar').append(h);

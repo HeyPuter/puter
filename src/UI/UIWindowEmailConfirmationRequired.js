@@ -29,14 +29,14 @@ function UIWindowEmailConfirmationRequired(options){
         const submit_btn_txt = 'Confirm Email';
 
         let h = '';
-        h += `<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>`;
-        h += `<div style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; color: #3e5362;">`;
-            h += `<img src="${html_encode(window.icons['mail.svg'])}" style="display:block; margin:10px auto 10px;">`;
-            h += `<h3 style="text-align:center; font-weight: 500; font-size: 20px;">Confirm Your Email Address</h3>`;
-            h += `<form>`;
-                h += `<p style="text-align:center; padding: 0 20px;">To continue, please enter the 6-digit confirmation code sent to <strong style="font-weight: 500;">${window.user.email}</strong></p>`;
-                h += `<div class="error"></div>`;
-                h += `  <fieldset name="number-code" style="border: none; padding:0;" data-number-code-form>
+        h += H`<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>`;
+        h += H`<div style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; color: #3e5362;">`;
+            h += H`<img src="${html_encode(window.icons['mail.svg'])}" style="display:block; margin:10px auto 10px;">`;
+            h += H`<h3 style="text-align:center; font-weight: 500; font-size: 20px;">Confirm Your Email Address</h3>`;
+            h += H`<form>`;
+                h += H`<p style="text-align:center; padding: 0 20px;">To continue, please enter the 6-digit confirmation code sent to <strong style="font-weight: 500;">${window.user.email}</strong></p>`;
+                h += H`<div class="error"></div>`;
+                h += H`  <fieldset name="number-code" style="border: none; padding:0;" data-number-code-form>
                 <input class="digit-input" type="number" min='0' max='9' name='number-code-0' data-number-code-input='0' required />
                 <input class="digit-input" type="number" min='0' max='9' name='number-code-1' data-number-code-input='1' required />
                 <input class="digit-input" type="number" min='0' max='9' name='number-code-2' data-number-code-input='2' required />
@@ -45,16 +45,16 @@ function UIWindowEmailConfirmationRequired(options){
                 <input class="digit-input" type="number" min='0' max='9' name='number-code-4' data-number-code-input='4' required />
                 <input class="digit-input" type="number" min='0' max='9' name='number-code-5' data-number-code-input='5' required />
               </fieldset>`;
-                h += `<button type="submit" class="button button-block button-primary email-confirm-btn" style="margin-top:10px;" disabled>${submit_btn_txt}</button>`;
-            h += `</form>`;
-            h += `<div style="text-align:center; padding:10px; font-size:14px; margin-top:10px;">`;
-                h += `<span class="send-conf-email">${i18n('resend_confirmation_code')}</span>`;
+                h += H`<button type="submit" class="button button-block button-primary email-confirm-btn" style="margin-top:10px;" disabled>${submit_btn_txt}</button>`;
+            h += H`</form>`;
+            h += H`<div style="text-align:center; padding:10px; font-size:14px; margin-top:10px;">`;
+                h += H`<span class="send-conf-email">${i18n('resend_confirmation_code')}</span>`;
                 if(options.logout_in_footer){
-                    h += ` &bull; `;
-                    h += `<span class="conf-email-log-out">${i18n('log_out')}</span>`;
+                    h += H` &bull; `;
+                    h += H`<span class="conf-email-log-out">${i18n('log_out')}</span>`;
                 }
-            h += `</div>`;
-        h += `</div>`;
+            h += H`</div>`;
+        h += H`</div>`;
 
         const el_window = await UIWindow({
             title: null,

@@ -44,17 +44,17 @@ function UIPrompt(options){
 
         let h = '';
         // message
-        h += `<div class="window-prompt-message">${options.message}</div>`;
+        h += H`<div class="window-prompt-message">${options.message}</div>`;
         // prompt
-        h += `<div class="window-alert-prompt" style="margin-top: 20px;">`;
-            h += `<input type="text" class="prompt-input" placeholder="${options.placeholder ?? ''}" value="${options.value ?? ''}">`;
-        h += `</div>`;
+        h += H`<div class="window-alert-prompt" style="margin-top: 20px;">`;
+            h += H`<input type="text" class="prompt-input" placeholder="${options.placeholder ?? ''}" value="${options.value ?? ''}">`;
+        h += H`</div>`;
         // buttons
         if(options.buttons && options.buttons.length > 0){
-            h += `<div style="overflow:hidden; margin-top:20px; float:right;">`;
-                h += `<button class="button button-default prompt-resp-button prompt-resp-btn-cancel" data-label="${i18n('cancel')}" style="padding: 0 20px;">${i18n('cancel')}</button>`;
-                h += `<button class="button button-primary prompt-resp-button prompt-resp-btn-ok" data-label="${i18n('ok')}" data-value="true" autofocus>${i18n('ok')}</button>`;
-            h += `</div>`;
+            h += H`<div style="overflow:hidden; margin-top:20px; float:right;">`;
+                h += H`<button class="button button-default prompt-resp-button prompt-resp-btn-cancel" data-label="${i18n('cancel')}" style="padding: 0 20px;">${i18n('cancel')}</button>`;
+                h += H`<button class="button button-primary prompt-resp-button prompt-resp-btn-ok" data-label="${i18n('ok')}" data-value="true" autofocus>${i18n('ok')}</button>`;
+            h += H`</div>`;
         }
 
         const el_window = await UIWindow({

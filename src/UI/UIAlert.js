@@ -46,30 +46,20 @@ function UIAlert(options){
         if(options.type === 'success')
             options.body_icon = window.icons['c-check.svg'];
 
-        let santized_message = html_encode(options.message);
-
-        // replace sanitized <strong> with <strong>
-        santized_message = santized_message.replace(/&lt;strong&gt;/g, '<strong>');
-        santized_message = santized_message.replace(/&lt;\/strong&gt;/g, '</strong>');
-
-        // replace sanitized <p> with <p>
-        santized_message = santized_message.replace(/&lt;p&gt;/g, '<p>');
-        santized_message = santized_message.replace(/&lt;\/p&gt;/g, '</p>');
-
         let h = '';
         // icon
-        h += H`<img class="window-alert-icon" src="${html_encode(options.body_icon)}">`;
-        // message
-        h += H`<div class="window-alert-message">${santized_message}</div>`;
+        h += H`<img class="window-alert-icon" src="${(options.body_icon)}">`;
+        // message. It's later sanitized and added to the window
+        h += H`<div class="window-alert-message"></div>`;
         // buttons
         if(options.buttons && options.buttons.length > 0){
             h += H`<div style="overflow:hidden; margin-top:20px;">`;
             for(let y=0; y<options.buttons.length; y++){
-                h += H`<button class="button button-block button-${html_encode(options.buttons[y].type)} alert-resp-button" 
-                                data-label="${html_encode(options.buttons[y].label)}"
-                                data-value="${html_encode(options.buttons[y].value ?? options.buttons[y].label)}"
+                h += H`<button class="button button-block button-${(options.buttons[y].type)} alert-resp-button" 
+                                data-label="${(options.buttons[y].label)}"
+                                data-value="${(options.buttons[y].value ?? options.buttons[y].label)}"
                                 ${options.buttons[y].type === 'primary' ? 'autofocus' : ''}
-                                >${html_encode(options.buttons[y].label)}</button>`;
+                                >${(options.buttons[y].label)}</button>`;
             }
             h += H`</div>`;
         }
@@ -96,6 +86,20 @@ function UIAlert(options){
             width: 350,
             parent_uuid: options.parent_uuid,
             ...options.window_options,
+            onAppend: function(el_window){
+                let santized_message = html_encode(options.message);
+
+                // replace sanitized <strong> with <strong>
+                santized_message = santized_message.replace(/&lt;strong&gt;/g, '<strong>');
+                santized_message = santized_message.replace(/&lt;\/strong&gt;/g, '</strong>');
+        
+                // replace sanitized <p> with <p>
+                santized_message = santized_message.replace(/&lt;p&gt;/g, '<p>');
+                santized_message = santized_message.replace(/&lt;\/p&gt;/g, '</p>');
+        
+                // set message
+                $(el_window).find('.window-alert-message').html(options.message);
+            },
             window_css:{
                 height: 'initial',
             },

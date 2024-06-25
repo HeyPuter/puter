@@ -30,9 +30,9 @@ function UIPopover(options){
     options.content = options.content ?? '';
 
     let h = '';
-    h += `<div id="popover-${window.global_element_id}" class="popover">`;
+    h += H`<div id="popover-${window.global_element_id}" class="popover">`;
         h += options.content;
-    h += `</div>`;
+    h += H`</div>`;
 
     $('body').append(h);
 

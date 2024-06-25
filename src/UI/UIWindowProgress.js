@@ -39,45 +39,45 @@ async function UIWindowProgress({
     const placeholder_ok_btn = Placeholder();
 
     let h = '';
-    h += `<div ${operation_id ? `data-operation-id="${operation_id}"` : ''}>`;
-        h += `<div class="progress-running">`;
-            h += `<div style="display: flex; align-items: center; gap: 7px;">`;
+    h += H`<div ${operation_id ? `data-operation-id="${operation_id}"` : ''}>`;
+        h += H`<div class="progress-running">`;
+            h += H`<div style="display: flex; align-items: center; gap: 7px;">`;
                 // spinner
-                h += `<svg style="overflow: visible;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#212121" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#212121" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`;
+                h += H`<svg style="overflow: visible;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#212121" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#212121" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`;
                 // Progress report
-                h += `<div style="font-size:15px; overflow: hidden; flex-grow: 1; text-overflow: ellipsis; white-space: nowrap;">
+                h += H`<div style="font-size:15px; overflow: hidden; flex-grow: 1; text-overflow: ellipsis; white-space: nowrap;">
                     <span class="progress-msg">${i18n('preparing')}</span>`;
                 if (show_progress) {
-                    h += ` (<span class="progress-percent">0%</span>)`;
+                    h += H` (<span class="progress-percent">0%</span>)`;
                 }
-                h += `</div>`;
+                h += H`</div>`;
             h +=`</div>`;
             if (show_progress) {
-                h += `<div class="progress-bar-container" style="margin-top:20px;">`;
-                    h += `<div class="progress-bar"></div>`;
-                h += `</div>`;
+                h += H`<div class="progress-bar-container" style="margin-top:20px;">`;
+                    h += H`<div class="progress-bar"></div>`;
+                h += H`</div>`;
             }
             if (on_cancel) {
-                h += `<div style="display: flex; justify-content: flex-end;">`;
+                h += H`<div style="display: flex; justify-content: flex-end;">`;
                     h += placeholder_cancel_btn.html;
-                h += `</div>`;
+                h += H`</div>`;
             }
-        h += `</div>`;
-        h += `<div class="progress-error" style="display: none">`;
-            h += `<div style="display: flex; align-items: center; gap: 7px;">`;
+        h += H`</div>`;
+        h += H`<div class="progress-error" style="display: none">`;
+            h += H`<div style="display: flex; align-items: center; gap: 7px;">`;
                 // Alert icon
-                h += `<img style="width:24px; height:24px;" src="${html_encode(window.icons['warning-sign.svg'])}" />`;
+                h += H`<img style="width:24px; height:24px;" src="${html_encode(window.icons['warning-sign.svg'])}" />`;
                 // Progress report
-                h += `<div style="font-size:15px; overflow: hidden; flex-grow: 1; text-overflow: ellipsis; white-space: nowrap;">
+                h += H`<div style="font-size:15px; overflow: hidden; flex-grow: 1; text-overflow: ellipsis; white-space: nowrap;">
                     <span class="progress-error-title"></span>`;
-                h += `</div>`;
-            h += `</div>`;
-            h += `<p class="progress-error-message"></p>`;
-            h += `<div style="display: flex; justify-content: flex-end;">`;
+                h += H`</div>`;
+            h += H`</div>`;
+            h += H`<p class="progress-error-message"></p>`;
+            h += H`<div style="display: flex; justify-content: flex-end;">`;
                 h += placeholder_ok_btn.html;
-            h += `</div>`;
-        h += `</div>`;
-    h += `</div>`;
+            h += H`</div>`;
+        h += H`</div>`;
+    h += H`</div>`;
 
     const el_window = await UIWindow({
         uid: null,

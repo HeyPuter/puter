@@ -25,16 +25,16 @@ function UIWindowRecoverPassword(options){
         options = options ?? {};
 
         let h = '';
-        h += `<div style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; color: #3e5362;">`;
-            h += `<h3 style="text-align:center; font-weight: 400; font-size: 20px;">${i18n('recover_password')}</h3>`;
-            h += `<form class="pass-recovery-form">`;
-                h += `<p style="text-align:center; padding: 0 20px;"></p>`;
-                h += `<div class="error"></div>`;
-                h += `<label>${i18n('email_or_username')}</label>`;
-                h += `<input class="pass-recovery-username-or-email" type="text"/>`;
-                h += `<button type="submit" class="send-recovery-email button button-block button-primary" style="margin-top:10px;">${i18n('send_password_recovery_email')}</button>`;
-            h += `</form>`;
-        h += `</div>`;
+        h += H`<div style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; color: #3e5362;">`;
+            h += H`<h3 style="text-align:center; font-weight: 400; font-size: 20px;">${i18n('recover_password')}</h3>`;
+            h += H`<form class="pass-recovery-form">`;
+                h += H`<p style="text-align:center; padding: 0 20px;"></p>`;
+                h += H`<div class="error"></div>`;
+                h += H`<label>${i18n('email_or_username')}</label>`;
+                h += H`<input class="pass-recovery-username-or-email" type="text"/>`;
+                h += H`<button type="submit" class="send-recovery-email button button-block button-primary" style="margin-top:10px;">${i18n('send_password_recovery_email')}</button>`;
+            h += H`</form>`;
+        h += H`</div>`;
 
         const el_window = await UIWindow({
             title: null,

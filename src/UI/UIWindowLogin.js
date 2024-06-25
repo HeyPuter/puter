@@ -21,13 +21,11 @@ import UIWindow from './UIWindow.js'
 import UIWindowSignup from './UIWindowSignup.js'
 import UIWindowRecoverPassword from './UIWindowRecoverPassword.js'
 import TeePromise from '../util/TeePromise.js';
-import UIAlert from './UIAlert.js';
 import UIComponentWindow from './UIComponentWindow.js';
 import Flexer from './Components/Flexer.js';
 import CodeEntryView from './Components/CodeEntryView.js';
 import JustHTML from './Components/JustHTML.js';
 import StepView from './Components/StepView.js';
-import TestView from './Components/TestView.js';
 import Button from './Components/Button.js';
 import RecoveryCodeEntryView from './Components/RecoveryCodeEntryView.js';
 
@@ -41,45 +39,45 @@ async function UIWindowLogin(options){
     return new Promise(async (resolve) => {
         const internal_id = window.uuidv4();
         let h = ``;
-        h += `<div style="max-width: 500px; min-width: 340px;">`;
+        h += H`<div style="max-width: 500px; min-width: 340px;">`;
             if(!options.has_head && options.show_close_button !== false)
-                h += `<div class="generic-close-window-button"> &times; </div>`;
-            h += `<div style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
+                h += H`<div class="generic-close-window-button"> &times; </div>`;
+            h += H`<div style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
                 // title
-                h += `<h1 class="login-form-title">${i18n('log_in')}</h1>`;
+                h += H`<h1 class="login-form-title">${i18n('log_in')}</h1>`;
                 // login form
-                h += `<form class="login-form">`;
+                h += H`<form class="login-form">`;
                     // error msg
-                    h += `<div class="login-error-msg"></div>`;
+                    h += H`<div class="login-error-msg"></div>`;
                     // username/email
-                    h += `<div style="overflow: hidden;">`;
-                        h += `<label for="email_or_username-${internal_id}">${i18n('email_or_username')}</label>`;
-                        h += `<input id="email_or_username-${internal_id}" class="email_or_username" type="text" name="email_or_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false" autocomplete="username"/>`;
-                    h += `</div>`;
+                    h += H`<div style="overflow: hidden;">`;
+                        h += H`<label for="email_or_username-${internal_id}">${i18n('email_or_username')}</label>`;
+                        h += H`<input id="email_or_username-${internal_id}" class="email_or_username" type="text" name="email_or_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false" autocomplete="username"/>`;
+                    h += H`</div>`;
                     // password with conditional type based based on options.show_password
-                    h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px; position: relative;">`;
-                    h += `<label for="password-${internal_id}">${i18n('password')}</label>`;
-                    h += `<input id="password-${internal_id}" class="password" type="${options.show_password ? "text" : "password"}" name="password" autocomplete="current-password"/>`;
+                    h += H`<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px; position: relative;">`;
+                    h += H`<label for="password-${internal_id}">${i18n('password')}</label>`;
+                    h += H`<input id="password-${internal_id}" class="password" type="${options.show_password ? "text" : "password"}" name="password" autocomplete="current-password"/>`;
                     // show/hide icon
-                    h += `<span style="position: absolute; right: 5%; top: 50%; cursor: pointer;" id="toggle-show-password-${internal_id}">
+                    h += H`<span style="position: absolute; right: 5%; top: 50%; cursor: pointer;" id="toggle-show-password-${internal_id}">
                                 <img class="toggle-show-password-icon" src="${options.show_password ? window.icons["eye-closed.svg"] : window.icons["eye-open.svg"]}" width="20" height="20">
                             </span>`;
-                    h += `</div>`;
+                    h += H`</div>`;
                     // login
-                    h += `<button class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
+                    h += H`<button class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
                     // password recovery
-                    h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>`;
+                    h += H`<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>`;
                     // server and version info
-                    h += `<div id="version-placeholder" class="version" style="text-align:center;"></div>`;
-                h += `</form>`;
-            h += `</div>`;
+                    h += H`<div id="version-placeholder" class="version" style="text-align:center;"></div>`;
+                h += H`</form>`;
+            h += H`</div>`;
             // create account link
             if(options.show_signup_button === undefined || options.show_signup_button){
-                h += `<div class="c2a-wrapper" style="padding:20px;">`;
-                    h += `<button class="signup-c2a-clickable">${i18n('create_free_account')}</button>`;
-                h += `</div>`;
+                h += H`<div class="c2a-wrapper" style="padding:20px;">`;
+                    h += H`<button class="signup-c2a-clickable">${i18n('create_free_account')}</button>`;
+                h += H`</div>`;
             }
-        h += `</div>`;
+        h += H`</div>`;
 
         // server and version infomration
         puter.os.version()

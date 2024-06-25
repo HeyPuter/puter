@@ -28,46 +28,46 @@ async function UIWindowSaveAccount(options){
 
     return new Promise(async (resolve) => {
         let h = '';
-        h += `<div>`;
+        h += H`<div>`;
             // success
-            h += `<div class="save-account-success">`;
-                h += `<img src="${html_encode(window.icons['c-check.svg'])}" style="width:50px; height:50px; display: block; margin:10px auto;">`;
-                h += `<p style="text-align:center; margin-bottom:10px;">${i18n('session_saved')}</p>`;
-                h += `<button class="button button-action button-block save-account-success-ok-btn">${i18n('ok')}</button>`
+            h += H`<div class="save-account-success">`;
+                h += H`<img src="${html_encode(window.icons['c-check.svg'])}" style="width:50px; height:50px; display: block; margin:10px auto;">`;
+                h += H`<p style="text-align:center; margin-bottom:10px;">${i18n('session_saved')}</p>`;
+                h += H`<button class="button button-action button-block save-account-success-ok-btn">${i18n('ok')}</button>`
             h+= `</div>`;
     
             // form
-            h += `<div class="save-account-form" style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
+            h += H`<div class="save-account-form" style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
                 // title
-                h += `<h1 class="signup-form-title" style="margin-bottom:0;">${i18n('create_account')}</h1>`;
+                h += H`<h1 class="signup-form-title" style="margin-bottom:0;">${i18n('create_account')}</h1>`;
                 // description
-                h += `<p class="create-account-desc">${options.message ?? i18n('save_session_c2a')}</p>`;
+                h += H`<p class="create-account-desc">${options.message ?? i18n('save_session_c2a')}</p>`;
                 // signup form
-                h += `<form class="signup-form">`;
+                h += H`<form class="signup-form">`;
                     // error msg
-                    h += `<div class="signup-error-msg"></div>`;
+                    h += H`<div class="signup-error-msg"></div>`;
                     // username
-                    h += `<div style="overflow: hidden;">`;
-                        h += `<label for="username-${internal_id}">${i18n('username')}</label>`;
-                        h += `<input id="username-${internal_id}" class="username" value="${options.default_username ?? ''}" type="text" autocomplete="username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
-                    h += `</div>`;
+                    h += H`<div style="overflow: hidden;">`;
+                        h += H`<label for="username-${internal_id}">${i18n('username')}</label>`;
+                        h += H`<input id="username-${internal_id}" class="username" value="${options.default_username ?? ''}" type="text" autocomplete="username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
+                    h += H`</div>`;
                     // email
-                    h += `<div style="overflow: hidden; margin-top: 20px;">`;
-                        h += `<label for="email-${internal_id}">${i18n('email')}</label>`;
-                        h += `<input id="email-${internal_id}" class="email" type="email" autocomplete="email" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
-                    h += `</div>`;
+                    h += H`<div style="overflow: hidden; margin-top: 20px;">`;
+                        h += H`<label for="email-${internal_id}">${i18n('email')}</label>`;
+                        h += H`<input id="email-${internal_id}" class="email" type="email" autocomplete="email" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
+                    h += H`</div>`;
                     // password
-                    h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
-                        h += `<label for="password-${internal_id}">${i18n('password')}</label>`;
-                        h += `<input id="password-${internal_id}" class="password" type="password" name="password" autocomplete="new-password" />`;
-                    h += `</div>`;
+                    h += H`<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
+                        h += H`<label for="password-${internal_id}">${i18n('password')}</label>`;
+                        h += H`<input id="password-${internal_id}" class="password" type="password" name="password" autocomplete="new-password" />`;
+                    h += H`</div>`;
                     // bot trap - if this value is submitted server will ignore the request
-                    h += `<input type="text" name="p102xyzname" class="p102xyzname" value="">`;
+                    h += H`<input type="text" name="p102xyzname" class="p102xyzname" value="">`;
                     // Create Account
-                    h += `<button class="signup-btn button button-primary button-block button-normal">${i18n('create_account')}</button>`
-                h += `</form>`;
-            h += `</div>`;
-        h += `</div>`;
+                    h += H`<button class="signup-btn button button-primary button-block button-normal">${i18n('create_account')}</button>`
+                h += H`</form>`;
+            h += H`</div>`;
+        h += H`</div>`;
 
         const el_window = await UIWindow({
             title: null,

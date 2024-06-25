@@ -32,19 +32,19 @@ async function UIWindowQR(options){
         }
 
         let h = '';
-        h += `<div style="padding: 20px; margin-top: 0;">`;
+        h += H`<div style="padding: 20px; margin-top: 0;">`;
             // success
-            h += `<div class="feedback-sent-success">`;
-                h += `<img src="${html_encode(window.icons['c-check.svg'])}" style="width:50px; height:50px; display: block; margin:10px auto;">`;
-                h += `<p style="text-align:center; margin-bottom:10px; color: #005300; padding: 10px;">${i18n('feedback_sent_confirmation')}</p>`;
+            h += H`<div class="feedback-sent-success">`;
+                h += H`<img src="${html_encode(window.icons['c-check.svg'])}" style="width:50px; height:50px; display: block; margin:10px auto;">`;
+                h += H`<p style="text-align:center; margin-bottom:10px; color: #005300; padding: 10px;">${i18n('feedback_sent_confirmation')}</p>`;
             h+= `</div>`;
             // form
-            h += `<div class="feedback-form">`;
-                h += `<p style="margin-top:0; font-size: 15px; -webkit-font-smoothing: antialiased;">${i18n('feedback_c2a')}</p>`;
-                h += `<textarea class="feedback-message" style="width:100%; height: 200px; padding: 10px; box-sizing: border-box;"></textarea>`;
-                h += `<button class="button button-primary send-feedback-btn" style="float: right; margin-bottom: 15px; margin-top: 10px;">${i18n('send')}</button>`;
-            h += `</div>`;
-        h += `</div>`;
+            h += H`<div class="feedback-form">`;
+                h += H`<p style="margin-top:0; font-size: 15px; -webkit-font-smoothing: antialiased;">${i18n('feedback_c2a')}</p>`;
+                h += H`<textarea class="feedback-message" style="width:100%; height: 200px; padding: 10px; box-sizing: border-box;"></textarea>`;
+                h += H`<button class="button button-primary send-feedback-btn" style="float: right; margin-bottom: 15px; margin-top: 10px;">${i18n('send')}</button>`;
+            h += H`</div>`;
+        h += H`</div>`;
 
         const el_window = await UIWindow({
             title: i18n('contact_us'),

@@ -1515,7 +1515,17 @@ window.privacy_aware_path = function(fspath){
 
 // A fake html_encode for the example at the bottom
 window.hescape = text => {
-    return html_encode(text);
+    if(!text)
+        return '';
+    // escape html
+    text = html_encode(text);
+
+    // replace space with &nbsp; to preserve spaces
+    if(typeof text === 'string')
+        text = text.replaceAll(' ', '&nbsp;');
+
+    // return the escaped text
+    return text;
 };
 
 // The entire implementation of the thing

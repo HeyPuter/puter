@@ -534,24 +534,24 @@ async function UIDesktop(options){
     });
 
     // Hidden file dialog
-    h += `<form name="upload-form" id="upload-form" style="display:hidden;">
+    h += H`<form name="upload-form" id="upload-form" style="display:hidden;">
             <input type="hidden" name="name" id="upload-filename" value="">
             <input type="hidden" name="path" id="upload-target-path" value="">
             <input type="file" name="file" id="upload-file-dialog" style="display: none;" multiple="multiple">
         </form>`;
     
-    h += `<div class="window-container"></div>`;
+    h += H`<div class="window-container"></div>`;
     
     // Desktop
     // If desktop is not in fullpage/embedded mode, we hide it until files and directories are loaded and then fade in the UI
     // This gives a calm and smooth experience for the user
-    h += `<div class="desktop item-container disable-user-select" 
+    h += H`<div class="desktop item-container disable-user-select" 
                 data-uid="${options.desktop_fsentry.uid}" 
                 data-sort_by="${!options.desktop_fsentry.sort_by ? 'name' : options.desktop_fsentry.sort_by}" 
                 data-sort_order="${!options.desktop_fsentry.sort_order ? 'asc' : options.desktop_fsentry.sort_order}" 
                 data-path="${html_encode(window.desktop_path)}"
             >`;
-    h += `</div>`;
+    h += H`</div>`;
 
     // Get window sidebar width
     puter.kv.get('window_sidebar_width').then(async (val) => {
@@ -1006,7 +1006,7 @@ async function UIDesktop(options){
         
         // user options menu
         ht += `<div class="toolbar-btn user-options-menu-btn" style="background-image:url(${window.icons['profile.svg']})">`;
-            h += `<span class="user-options-menu-username">${window.user.username}</span>`;
+            h += H`<span class="user-options-menu-username">${window.user.username}</span>`;
         ht += `</div>`;
     ht += `</div>`;
 
