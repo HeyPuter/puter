@@ -216,6 +216,17 @@ class Sequence {
             return this.thisArg?.[k];
         }
 
+        // Instance call: call a method on the instance
+        icall(k, ...args) {
+            return this.thisArg?.[k]?.call(this.thisArg, ...args);
+        }
+
+        // Instance dynamic call: call a method on the instance,
+        // passing the sequence state as the first argument
+        idcall(k, ...args) {
+            return this.thisArg?.[k]?.call(this.thisArg, this, ...args);
+        }
+
         get log () {
             return this.iget('log');
         }

@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { get_user, get_app } = require("../../helpers");
+const { AssignableMethodsTrait } = require("../../traits/AssignableMethodsTrait");
 const { Context } = require("../../util/context");
 const BaseService = require("../BaseService");
 const { DB_WRITE } = require("../database/consts");
@@ -306,60 +307,14 @@ class PermissionService extends BaseService {
 
     // TODO: context meta for cycle detection
     async check_user_permission (actor, permission) {
-        permission = await this._rewrite_permission(permission);
-        // const parent_perms = this.get_parent_permissions(permission);
-        const parent_perms = await this.get_higher_permissions(permission);
-
-        // Check implicit permissions
-        for ( const parent_perm of parent_perms ) {
-            if ( implicit_user_permissions[parent_perm] ) {
-                return implicit_user_permissions[parent_perm];
-            }
-        }
-
-        for ( const implicator of this._permission_implicators ) {
-            if ( ! implicator.matches(permission) ) continue;
-            const implied = await implicator.check({
+        return await require('../../structured/sequence/check-user-permission')
+            .call(this, {
+                // passed
                 actor,
                 permission,
-                recurse: this.check.bind(this),
+                // constants
+                implicit_user_permissions,
             });
-            if ( implied ) return implied;
-        }
-
-        // Check permissions granted by other users
-        let sql_perm = parent_perms.map((perm) =>
-            `\`permission\` = ?`).join(' OR ');
-        if ( parent_perms.length > 1 ) sql_perm = '(' + sql_perm + ')';
-
-        // SELECT permission
-        const rows = await this.db.read(
-            'SELECT * FROM `user_to_user_permissions` ' +
-            'WHERE `holder_user_id` = ? AND ' +
-            sql_perm,
-            [
-                actor.type.user.id,
-                ...parent_perms,
-            ]
-        );
-
-        // Return the first matching permission where the
-        // issuer also has the permission granted
-        for ( const row of rows ) {
-            const issuer_actor = new Actor({
-                type: new UserActorType({
-                    user: await get_user({ id: row.issuer_user_id }),
-                }),
-            });
-
-            const issuer_perm = await this.check(issuer_actor, row.permission);
-
-            if ( ! issuer_perm ) continue;
-
-            return row.extra;
-        }
-        
-        return undefined;
     }
 
     async check_access_token_permission (authorizer, token, permission) {
