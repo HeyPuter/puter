@@ -14,6 +14,36 @@ different from calling `/grant-user-user` with a permission.
 When users are **specified by email** they will receive
 a [share link](./concepts/share-link.md).
 
+Each item specified in the `shares` property is a tag-typed
+object of type `fs-share` or `app-share`.
+
+#### File Shares (`fs-share`)
+
+File shares grant permission to a file or directory. By default
+this is read permission. If `access` is specified as `"write"`,
+then write permission will be granted.
+
+#### App Shares (`app-share`)
+
+App shares grant permission to read a protected app.
+
+##### subdomain permission
+If there is a subdomain associated with the app, and the owner
+of the subdomain is the same as the owner of the app, then
+permission to access the subdomain will be granted.
+Note that the subdomain is only associated if the subdomain
+entry has `associated_app_id` set according to the app's id,
+and will not be considered "associated" if only the index_url
+happens to match the subdomain url.
+
+##### appdata permission
+If the app has `shared_appdata` set to `true` in its metadata
+object, the recipient of the share will also get write permission
+to the app owner's corresponding appdata directory. The appdata
+directory must exist for this to work as expected
+(otherwise the permission rewrite rule fails since the uuid
+can't be determined).
+
 ### Example
 
 ```json
