@@ -86,7 +86,7 @@ async function UIWindowLogin(options){
             $("#version-placeholder").html(H`Version: ${res.version} &bull; Server: ${res.location} &bull; Deployed: ${deployed_date}`);
         })
         .catch(() => {
-            $("#version-placeholder").html("Failed to load version or server information.");
+            $("#version-placeholder").html(`Failed to load version or server information.`);
         });
         
         const el_window = await UIWindow({

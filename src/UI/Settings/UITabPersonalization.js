@@ -127,7 +127,7 @@ export default {
                     $('body').removeClass('menubar-style-desktop');
                     $('.window-menubar-global').each((_, el) => {
                         let win_id = $(el).attr('data-window-id');
-                        $(el).insertAfter('.window[data-id="'+win_id+'"] .window-head');
+                        $(el).insertAfter(H`.window[data-id="${win_id}"] .window-head`);
                         // remove window-menubar-global
                         $(el).removeClass('window-menubar-global');
                         // show
