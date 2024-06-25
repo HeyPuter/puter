@@ -1,6 +1,7 @@
 const APIError = require("../api/APIError");
 const { get_user } = require("../helpers");
 const configurable_auth = require("../middleware/configurable_auth");
+const { Context } = require("../util/context");
 const { Endpoint } = require("../util/expressutil");
 const { whatis } = require("../util/langutil");
 const { Actor, UserActorType } = require("./auth/Actor");
@@ -20,6 +21,11 @@ class ShareService extends BaseService {
     }
     
     ['__on_install.routes'] (_, { app }) {
+        this.install_sharelink_endpoints({ app });
+        this.install_share_endpoint({ app });
+    }
+    
+    install_sharelink_endpoints ({ app }) {
         // track: scoping iife
         const router = (() => {
             const require = this.require;
@@ -203,6 +209,30 @@ class ShareService extends BaseService {
                 res.json({
                     $: 'api:status-report',
                     status: 'success',
+                });
+            }
+        }).attach(router);
+    }
+    
+    install_share_endpoint ({ app }) {
+        // track: scoping iife
+        const router = (() => {
+            const require = this.require;
+            const express = require('express');
+            return express.Router();
+        })();
+        
+        app.use('/share', router);
+        
+        const share_sequence = require('../structured/sequence/share.js');
+        Endpoint({
+            route: '/',
+            methods: ['POST'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                const actor = Actor.adapt(req.user);
+                return await share_sequence.call(this, {
+                    actor, req, res,
                 });
             }
         }).attach(router);
