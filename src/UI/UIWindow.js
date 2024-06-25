@@ -2295,7 +2295,7 @@ async function UIWindow(options) {
                                     window.socket.emit('trash.is_empty', {is_empty: true});
                                 }
                                 // use the 'empty trash' icon
-                                $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
+                                $(`.item[data-path="${(window.trash_path)}" i], .item[data-shortcut_to_path="${(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
                             }
                         },
                     ]
@@ -2764,7 +2764,7 @@ window.navbar_path = (abs_path)=>{
     }
     let str = `${path_seperator_html}<span class="window-navbar-path-dirname" data-path="${html_encode('/')}">${html_encode(window.root_dirname)}</span>`;
     for(let k=1; k<dirs.length; k++){
-        str += `${path_seperator_html}<span class="window-navbar-path-dirname" data-path="${html_encode(dirpaths[k])}">${dirs[k] === 'Trash' ? i18n('trash') : html_encode(dirs[k])}</span>`;
+        str += H`${path_seperator_html}<span class="window-navbar-path-dirname" data-path="${html_encode(dirpaths[k])}">${dirs[k] === 'Trash' ? i18n('trash') : html_encode(dirs[k])}</span>`;
     }
     return str;
 }

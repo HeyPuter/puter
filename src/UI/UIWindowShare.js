@@ -135,13 +135,13 @@ async function UIWindowShare(items, recipient){
                 //owner
                 //check if this user has been printed here before, important for multiple items
                 if(!printed_users.includes(fsentry.owner.username)){
-                    perm_list += `<div class="item-perm-recipient-card item-prop-perm-entry item-permission-owner" style="margin-bottom:5px; margin-top:5px; background-color: #f2f2f2;">`
+                    perm_list += H`<div class="item-perm-recipient-card item-prop-perm-entry item-permission-owner" style="margin-bottom:5px; margin-top:5px; background-color: #f2f2f2;">`
                         if(fsentry.owner.username === window.user.username)
-                            perm_list += `You (${fsentry.owner.email ?? fsentry.owner.username})`;
+                            perm_list += H`You (${fsentry.owner.email ?? fsentry.owner.username})`;
                         else
                             perm_list += fsentry.owner.email ?? fsentry.owner.username;
-                        perm_list += `<div style="float:right;"><span class="permission-owner-badge">owner</span></div>`;
-                    perm_list += `</div>`;
+                        perm_list += H`<div style="float:right;"><span class="permission-owner-badge">owner</span></div>`;
+                    perm_list += H`</div>`;
                     // add this user to the list of printed users
                     printed_users.push(fsentry.owner.username);
                 }
@@ -153,10 +153,10 @@ async function UIWindowShare(items, recipient){
                             recipients.forEach(perm => {
                                 //check if this user has been printed here before, important for multiple items
                                 if(!printed_users.includes(perm.user.username)){
-                                    perm_list += `<div data-permission="${perm.permission}" class="item-perm-recipient-card item-prop-perm-entry" data-perm-uid="${perm.user.uid}" style="margin-bottom:5px; margin-top:5px;">`
-                                        perm_list += `${perm.user.email ?? perm.user.username}`;
-                                        perm_list += `<div style="float:right;"><span class="remove-permission-link remove-permission-icon" data-recipient-username="${perm.user.username}" data-permission="${perm.permission}">✕</span></div>`;
-                                    perm_list += `</div>`;
+                                    perm_list += H`<div data-permission="${perm.permission}" class="item-perm-recipient-card item-prop-perm-entry" data-perm-uid="${perm.user.uid}" style="margin-bottom:5px; margin-top:5px;">`
+                                        perm_list += H`${perm.user.email ?? perm.user.username}`;
+                                        perm_list += H`<div style="float:right;"><span class="remove-permission-link remove-permission-icon" data-recipient-username="${perm.user.username}" data-permission="${perm.permission}">✕</span></div>`;
+                                    perm_list += H`</div>`;
                                     // add this user to the list of printed users
                                     printed_users.push(perm.user.username);
                                 }
@@ -233,10 +233,10 @@ async function UIWindowShare(items, recipient){
 
                     // append recipient to list
                     let perm_list = '';
-                    perm_list += `<div data-permission="${perm_id}" class="item-perm-recipient-card item-prop-perm-entry" style="margin-bottom:5px; margin-top:5px;">`
-                        perm_list += `${recipient_username}`;
-                        perm_list += `<div style="float:right;"><span class="remove-permission-link remove-permission-icon" data-recipient-username="${recipient_username}" data-permission="${perm_id}">✕</span></div>`;
-                    perm_list += `</div>`;
+                    perm_list += H`<div data-permission="${perm_id}" class="item-perm-recipient-card item-prop-perm-entry" style="margin-bottom:5px; margin-top:5px;">`
+                        perm_list += H`${recipient_username}`;
+                        perm_list += H`<div style="float:right;"><span class="remove-permission-link remove-permission-icon" data-recipient-username="${recipient_username}" data-permission="${perm_id}">✕</span></div>`;
+                    perm_list += H`</div>`;
 
                     // reset input
                     $(el_window).find('.error').hide();

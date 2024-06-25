@@ -90,48 +90,48 @@ async function UITaskbar(options){
             
             let apps_str = '';
 
-            apps_str += `<div style="margin-bottom: 10px; padding: 5px; position: relative;">`
-                apps_str += `<input style="background-image:url(${window.icons['magnifier-outline.svg']});" class="launch-search">`;
-                apps_str += `<img class="launch-search-clear" src="${window.icons['close.svg']}">`;
-            apps_str += `</div>`;
+            apps_str += H`<div style="margin-bottom: 10px; padding: 5px; position: relative;">`
+                apps_str += H`<input style="background-image:url(${window.icons['magnifier-outline.svg']});" class="launch-search">`;
+                apps_str += H`<img class="launch-search-clear" src="${window.icons['close.svg']}">`;
+            apps_str += H`</div>`;
             // -------------------------------------------
             // Recent apps
             // -------------------------------------------
             if(window.launch_apps.recent.length > 0){
                 // heading
-                apps_str += `<h1 class="start-section-heading start-section-heading-recent">${i18n('recent')}</h1>`;
+                apps_str += H`<h1 class="start-section-heading start-section-heading-recent">${i18n('recent')}</h1>`;
 
                 // apps
-                apps_str += `<div class="launch-apps-recent">`;
+                apps_str += H`<div class="launch-apps-recent">`;
                 for (let index = 0; index < window.launch_recent_apps_count && index < window.launch_apps.recent.length; index++) {
                     const app_info = window.launch_apps.recent[index];
-                    apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
-                        apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(app_info.icon)}" data-app-title="${html_encode(app_info.title)}">`;
-                            apps_str += `<img class="start-app-icon" src="${html_encode(app_info.icon ? app_info.icon : window.icons['app.svg'])}">`;
-                            apps_str += `<span class="start-app-title">${html_encode(app_info.title)}</span>`;
-                        apps_str += `</div>`;
-                    apps_str += `</div>`;
+                    apps_str += H`<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
+                        apps_str += H`<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(app_info.icon)}" data-app-title="${html_encode(app_info.title)}">`;
+                            apps_str += H`<img class="start-app-icon" src="${html_encode(app_info.icon ? app_info.icon : window.icons['app.svg'])}">`;
+                            apps_str += H`<span class="start-app-title">${html_encode(app_info.title)}</span>`;
+                        apps_str += H`</div>`;
+                    apps_str += H`</div>`;
                 }
-                apps_str += `</div>`;
+                apps_str += H`</div>`;
             }
             // -------------------------------------------
             // Reccomended apps
             // -------------------------------------------
             if(window.launch_apps.recommended.length > 0){
                 // heading
-                apps_str += `<h1 class="start-section-heading start-section-heading-recommended" style="${window.launch_apps.recent.length > 0 ? 'padding-top: 30px;' : ''}">${i18n('recommended')}</h1>`;
+                apps_str += H`<h1 class="start-section-heading start-section-heading-recommended" style="${window.launch_apps.recent.length > 0 ? 'padding-top: 30px;' : ''}">${i18n('recommended')}</h1>`;
                 // apps
-                apps_str += `<div class="launch-apps-recommended">`;
+                apps_str += H`<div class="launch-apps-recommended">`;
                 for (let index = 0; index < window.launch_apps.recommended.length; index++) {
                     const app_info = window.launch_apps.recommended[index];
-                    apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
-                        apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(app_info.icon)}" data-app-title="${html_encode(app_info.title)}">`;
-                            apps_str += `<img class="start-app-icon" src="${html_encode(app_info.icon ? app_info.icon : window.icons['app.svg'])}">`;
-                            apps_str += `<span class="start-app-title">${html_encode(app_info.title)}</span>`;
-                        apps_str += `</div>`;
-                    apps_str += `</div>`;
+                    apps_str += H`<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
+                        apps_str += H`<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(app_info.icon)}" data-app-title="${html_encode(app_info.title)}">`;
+                            apps_str += H`<img class="start-app-icon" src="${html_encode(app_info.icon ? app_info.icon : window.icons['app.svg'])}">`;
+                            apps_str += H`<span class="start-app-title">${html_encode(app_info.title)}</span>`;
+                        apps_str += H`</div>`;
+                    apps_str += H`</div>`;
                 }
-                apps_str += `</div>`;
+                apps_str += H`</div>`;
             }
 
             // add apps to popover

@@ -1116,7 +1116,7 @@ window.delete_item = async function(el_item, descendants_only = false){
                 window.update_explorer_footer_selected_items_count(this);
             });
             // update all shortcuts to this item
-            $(`.item[data-shortcut_to_path="${html_encode($(el_item).attr('data-path'))}" i]`).attr(`data-shortcut_to_path`, '');
+            $(`.item[data-shortcut_to_path="${($(el_item).attr('data-path'))}" i]`).attr(`data-shortcut_to_path`, '');
         });
     }catch(err){
         UIAlert(err.responseText);
@@ -1317,8 +1317,8 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
 
                     // change trash icons to 'trash-full.svg'
                     $(`[data-app="trash"]`).find('.taskbar-icon > img').attr('src', window.icons['trash-full.svg']);
-                    $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash-full.svg']);
-                    $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', window.icons['trash-full.svg']);
+                    $(`.item[data-path="${(window.trash_path)}" i], .item[data-shortcut_to_path="${(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash-full.svg']);
+                    $(`.window[data-path="${(window.trash_path)}" i]`).find('.window-head-icon').attr('src', window.icons['trash-full.svg']);
                 }
 
                 // moving an item into a trashed directory? deny.
@@ -1365,7 +1365,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
                 item_with_same_name_already_exists = false;
 
                 // update all shortcut_to_path
-                $(`.item[data-shortcut_to_path="${html_encode($(el_item).attr('data-path'))}" i]`).attr(`data-shortcut_to_path`, fsentry.path);
+                $(`.item[data-shortcut_to_path="${($(el_item).attr('data-path'))}" i]`).attr(`data-shortcut_to_path`, fsentry.path);
 
                 // Remove all items with matching uids
                 $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).fadeOut(150, function(){
@@ -1767,7 +1767,7 @@ window.empty_trash = async function(){
             }
             // use the 'empty trash' icon for Trash
             $(`[data-app="trash"]`).find('.taskbar-icon > img').attr('src', window.icons['trash.svg']);
-            $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
+            $(`.item[data-path="${(window.trash_path)}" i], .item[data-shortcut_to_path="${(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
             $(`.window[data-path="${window.trash_path}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
             // remove all items with trash paths
             // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
