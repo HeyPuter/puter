@@ -51,3 +51,9 @@ Comments beginning with `// track:`. See
   some object that's in scope. This could be either to pass
   onto the browser or to pass to something like the
   notification service.
+- `track: common operations on multiple items`
+  A patterm which emerges when multiple variables have
+  common operations done upon them in sequence.
+  It may be applicable to write an iterator in the
+  future, or something will come up that require
+  these to be handled with a modular approach instead.

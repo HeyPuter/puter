@@ -109,7 +109,7 @@ class Sequence {
         async run (values) {
             // Initialize scope
             values = values || this.thisArg?.values || {};
-            Object.assign(this.scope_, values); // TODO: can this be __proto__?
+            this.scope_.__proto__ = values;
 
             // Run sequence
             for ( ; this.i < this.steps.length ; this.i++ ) {
@@ -138,7 +138,14 @@ class Sequence {
                     await this.sequence_.options_.before_each(this, step);
                 }
 
-                this.last_return_ = await step.fn(this);
+                this.last_return_ = await step.fn.call(
+                    this.thisArg, this,
+                );
+                
+                if ( this.sequence_.options_.after_each ) {
+                    await this.sequence_.options_.after_each(this, step);
+                }
+                
                 if ( this.stopped_ ) {
                     break;
                 }
@@ -186,7 +193,13 @@ class Sequence {
             this.scope_[k] = v;
         }
 
-        values () {
+        values (opt_itemsToSet) {
+            if ( opt_itemsToSet ) {
+                for ( const k in opt_itemsToSet ) {
+                    this.set(k, opt_itemsToSet[k]);
+                }
+            }
+
             return new Proxy(this.scope_, {
                 get: (target, property) => {
                     if (property in target) {
@@ -231,16 +244,21 @@ class Sequence {
             }
         }
 
-        const fn = async function () {
+        const fn = async function (opt_values) {
+            if ( opt_values && opt_values instanceof Sequence.SequenceState ) {
+                opt_values = opt_values.scope_;
+            }
             const state = new Sequence.SequenceState(sequence, this);
-            await state.run();
+            await state.run(opt_values ?? undefined);
             return state.last_return_;
         }
 
         this.steps_ = steps;
         this.options_ = options || {};
 
-        Object.defineProperty(fn, 'name', { value: 'Sequence' });
+        Object.defineProperty(fn, 'name', {
+            value: options.name || 'Sequence'
+        });
         Object.defineProperty(fn, 'sequence', { value: this });
 
         return fn;
