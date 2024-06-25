@@ -639,7 +639,7 @@ function UIItem(options){
 
         const old_name = $(el_item).attr('data-name');
         const old_path = $(el_item).attr('data-path');
-        const new_name = $(el_item_name_editor).val();
+        const new_name = $(el_item_name_editor).val()?.replaceAll('\n', '');
 
         // Don't send a rename request if:
         // the new name is the same as the old one, 
@@ -911,8 +911,8 @@ function UIItem(options){
                             }
 
                             if(trash.is_empty){
-                                $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${window.trash_path}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
-                                $(`.window[data-path="${html_encode(window.trash_path)}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
+                                $(`.item[data-path="${(window.trash_path)}" i], .item[data-shortcut_to_path="${window.trash_path}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
+                                $(`.window[data-path="${(window.trash_path)}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
                             }            
                         }
                     }
