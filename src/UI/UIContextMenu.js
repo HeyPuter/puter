@@ -351,13 +351,14 @@ function UIContextMenu(options){
 
     const menu_id = window.global_element_id++;
     let h = '';
+    console.log(options.parent_id)
     h += H`<div 
                 id="context-menu-${menu_id}" 
                 data-is-submenu="${options.is_submenu ? 'true' : 'false'}"
                 data-element-id="${menu_id}"
                 data-id="${options.id ?? ''}"
                 ${options.parent_id ? `data-parent-id="${options.parent_id}"` : ``}
-                ${!options.parent_id && options.parent_element ? `data-parent-id="${$(options.parent_element).attr('data-element-id')}"` : ``}
+                ${!options.parent_id && $(options.parent_element).attr('data-element-id') !== undefined ? `data-parent-id="${$(options.parent_element).attr('data-element-id')}"` : ``}
                 class="context-menu context-menu-active ${options.is_submenu ? 'context-menu-submenu-open' : ''}"
             >`;
             
