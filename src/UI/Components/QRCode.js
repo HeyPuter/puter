@@ -54,7 +54,7 @@ export default def(class QRCodeView extends Component {
     `
 
     create_template ({ template }) {
-        $(template).html(`
+        $(template).html(H`
             <div class="qr-code opt-qr-code">
             </div>
         `);

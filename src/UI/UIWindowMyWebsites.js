@@ -63,7 +63,7 @@ async function UIWindowMyWebsites(options){
     // /sites
     let init_ts = Date.now();
     let loading = setTimeout(function(){
-        $(el_window).find('.window-body').html(`<p style="text-align: center;
+        $(el_window).find('.window-body').html(H`<p style="text-align: center;
         margin-top: 40px;
         margin-bottom: 50px;
         -webkit-font-smoothing: antialiased;
@@ -100,7 +100,7 @@ async function UIWindowMyWebsites(options){
             }
             // has no sites
             else{
-                $(el_window).find('.window-body').html(`<p style="text-align: center;
+                $(el_window).find('.window-body').html(H`<p style="text-align: center;
                 margin-top: 40px;
                 margin-bottom: 50px;
                 -webkit-font-smoothing: antialiased;

@@ -83,7 +83,7 @@ async function UIWindowLogin(options){
         puter.os.version()
         .then(res => {
             const deployed_date = new Date(res.deploy_timestamp).toLocaleString();
-            $("#version-placeholder").html(`Version: ${html_encode(res.version)} &bull; Server: ${html_encode(res.location)} &bull; Deployed: ${html_encode(deployed_date)}`);
+            $("#version-placeholder").html(H`Version: ${res.version} &bull; Server: ${res.location} &bull; Deployed: ${deployed_date}`);
         })
         .catch(() => {
             $("#version-placeholder").html("Failed to load version or server information.");
@@ -346,14 +346,14 @@ async function UIWindowLogin(options){
                     const $errorMessage = $(el_window).find('.login-error-msg');
                     if (err.status === 404) {
                         // Don't include the whole 404 page
-                        $errorMessage.html(`Error 404: "${window.gui_origin}/login" not found`);
+                        $errorMessage.html(H`Error 404: "${window.gui_origin}/login" not found`);
                     } else if (err.responseText) {
                         $errorMessage.html(html_encode(err.responseText));
                     } else {
                         // No message was returned. *Probably* this means we couldn't reach the server.
                         // If this is a self-hosted instance, it's probably a configuration issue.
                         if (window.app_domain !== 'puter.com') {
-                            $errorMessage.html(`<div style="text-align: left;">
+                            $errorMessage.html(H`<div style="text-align: left;">
                                 <p>Error reaching "${window.gui_origin}/login". This is likely to be a configuration issue.</p>
                                 <p>Make sure of the following:</p>
                                 <ul style="padding-left: 2em;">
@@ -364,7 +364,7 @@ async function UIWindowLogin(options){
                                 </ul>
                             </div>`);
                         } else {
-                            $errorMessage.html(`Failed to log in: Error ${html_encode(err.status)}`);
+                            $errorMessage.html(H`Failed to log in: Error ${err.status}`);
                         }
                     }
                     $(el_window).find('.login-error-msg').fadeIn();

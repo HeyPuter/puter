@@ -58,7 +58,7 @@ const refresh_item_container = function(el_item_container, options){
         // show the loading spinner
         $(loading_spinner).show();
         setTimeout(function(){
-            $(loading_spinner).find('.explorer-loading-spinner-msg').html('Taking a little longer than usual. Please wait...');
+            $(loading_spinner).find('.explorer-loading-spinner-msg').html(`Taking a little longer than usual. Please wait...`);
         }, 3000)
     }, 1000);
 
@@ -247,7 +247,7 @@ const refresh_item_container = function(el_item_container, options){
         $(empty_message).hide();
 
         // show error message
-        $(error_message).html('Failed to load directory' + html_encode((e && e.message ? ': ' + e.message : '')));
+        $(error_message).html(H`Failed to load directory${e && e.message ? ': ' + e.message : ''}`);
         $(error_message).show();
     });
 }    

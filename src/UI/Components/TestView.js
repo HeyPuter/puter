@@ -34,7 +34,7 @@ export default def(class TestView extends Component {
     `;
 
     create_template ({ template }) {
-        $(template).html(`
+        $(template).html(H`
             <div>I am a test view</div>
         `);
     }

@@ -177,7 +177,7 @@ async function UIWindowItemProperties(item_name, item_path, item_uid, left, top,
                     null).then(()=>{ 
                         $(el_window).find(`.item-prop-website-entry[data-uuid="${$(e.target).attr('data-uuid')}"]`).remove();
                         if($(el_window).find(`.item-prop-website-entry`).length === 0){
-                            $(el_window).find(`.item-prop-val-websites`).html('-');
+                            $(el_window).find(`.item-prop-val-websites`).html(`-`);
                             // remove the website badge from all instances of the dir
                             $(`.item[data-uid="${item_uid}"]`).find('.item-has-website-badge').fadeOut(200);
                         }

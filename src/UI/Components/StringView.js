@@ -43,14 +43,14 @@ export default def(class StringView extends Component {
     `;
 
     create_template ({ template }) {
-        $(template).html(`<span></span>`);
+        $(template).html(H`<span></span>`);
     }
 
     on_ready ({ listen }) {
         // TODO: listener composition, to avoid this
         const either = ({ heading, text }) => {
             const wrapper_nodeName = heading ? 'h' + heading : 'span';
-            $(this.dom_).find('span').html(`<${wrapper_nodeName}>${
+            $(this.dom_).find('span').html(H`<${wrapper_nodeName}>${
                 this.get('no_html_encode') ? text : html_encode(text)
             }</${wrapper_nodeName}>`);
         };

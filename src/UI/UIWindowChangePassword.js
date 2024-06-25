@@ -94,7 +94,7 @@ async function UIWindowChangePassword(options){
 
         // check if all fields are filled
         if(!current_password || !new_password || !confirm_new_password){
-            $(el_window).find('.form-error-msg').html('All fields are required.');
+            $(el_window).find('.form-error-msg').html(`All fields are required.`);
             $(el_window).find('.form-error-msg').fadeIn();
             return;
         }

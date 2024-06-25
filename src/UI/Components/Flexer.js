@@ -42,7 +42,7 @@ export default def(class Flexer extends Component {
     create_template ({ template }) {
         // TODO: The way we handle loading assets doesn't work well
         // with web components, so for now it goes in the template.
-        $(template).html(`
+        $(template).html(H`
             <div><slot name="inside"></slot></div>
         `);
     }

@@ -68,7 +68,7 @@ class TaskManagerTable extends Component {
     #svc_process = globalThis.services.get('process');
 
     create_template ({ template }) {
-        $(template).html(`
+        $(template).html(H`
             <div class="taskmgr-taskarea"></div>
         `);
     }

@@ -120,14 +120,14 @@ async function UIWindowNewPassword(options){
             if( time_remaining <= 0 ) {
                 clearInterval(expiration_clock);
                 $(el_window).find('.change-password-btn').prop('disabled', true);
-                $(el_window).find('.change-password-btn').html('Token Expired');
+                $(el_window).find('.change-password-btn').html(`Token Expired`);
                 return;
             }
 
             const svc_locale = globalThis.services.get('locale');
             const countdown = svc_locale.format_duration(time_remaining);
 
-            $(el_window).find('.change-password-btn').html(`Set New Password (${countdown})`);
+            $(el_window).find('.change-password-btn').html(H`Set New Password (${countdown})`);
         }, 1000);
         el_window.on_close = () => {
             clearInterval(expiration_clock);
@@ -140,7 +140,7 @@ async function UIWindowNewPassword(options){
             const confirm_new_password = $(el_window).find('.confirm-new-password').val();
 
             if(!new_password || !confirm_new_password){
-                $(el_window).find('.form-error-msg').html('All fields are required.');
+                $(el_window).find('.form-error-msg').html(`All fields are required.`);
                 $(el_window).find('.form-error-msg').fadeIn();
                 return;
             }

@@ -2785,7 +2785,7 @@ window.update_window_path = async function(el_window, target_path){
     $(el_window).find(`.window-sidebar-item[data-path="${html_encode(target_path)}"]`).addClass('window-sidebar-item-active');
 
     // clean
-    $(el_window).find('.explore-table-headers-th > .header-sort-icon').html('');
+    $(el_window).find('.explore-table-headers-th > .header-sort-icon').html(``);
 
     if(is_dir){
         // if nav history for this window is empty, disable forward btn
@@ -3448,7 +3448,7 @@ $(document).on('click', '.explore-table-headers-th', function(e){
     // remove active class from all headers
     $(e.target).closest('.window').find('.explore-table-headers-th').removeClass('explore-table-headers-th-active');
     // remove icons from all headers
-    $(e.target).closest('.window').find('.header-sort-icon').html('');
+    $(e.target).closest('.window').find('.header-sort-icon').html(``);
 
     // add active class to this header
     $(e.target).addClass('explore-table-headers-th-active');
@@ -3505,7 +3505,7 @@ window.set_layout = function(item_uid, layout){
 
 window.update_details_layout_sort_visuals = function(el_window, sort_by, sort_order){
     let sort_icon = '';
-    $(el_window).find('.explore-table-headers-th > .header-sort-icon').html('');
+    $(el_window).find('.explore-table-headers-th > .header-sort-icon').html(``);
 
     if(!sort_order || sort_order === 'asc')
         sort_icon = `<img src="${window.icons['up-arrow.svg']}">`;

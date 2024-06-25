@@ -68,7 +68,7 @@ export default def(class Table extends Component {
     `;
 
     create_template ({ template }) {
-        $(template).html(`
+        $(template).html(H`
             <table>
                 <thead>
                     <tr class="headings"></tr>

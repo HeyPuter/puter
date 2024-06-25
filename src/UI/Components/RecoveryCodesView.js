@@ -75,7 +75,7 @@ export default def(class RecoveryCodesView extends Component {
 
 
     create_template ({ template }) {
-        $(template).html(`
+        $(template).html(H`
             <iframe name="print_frame" width="0" height="0" frameborder="0" src="about:blank"></iframe>
             <div class="recovery-codes">
                 <div class="recovery-codes-list">
