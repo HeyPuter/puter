@@ -27,6 +27,7 @@ import { produce_usage_string, SHOW_USAGE } from './help.js';
 const encoder = new TextEncoder();
 
 window.Buffer = Buffer;
+window.DEBUG = false;
 
 window.main = async () => {
     const shell = puter.ui.parentApp();
@@ -89,6 +90,9 @@ window.main = async () => {
         subcommand_name = 'version';
     }
 
+    if (global_options.debug)
+        window.DEBUG = true;
+
     if (!subcommand_name) {
         subcommand_name = global_positionals[0];
         first_positional_is_subcommand = true;
@@ -111,8 +115,9 @@ window.main = async () => {
             subcommand_args.splice(index, 1);
 
     }
-    remove_arg('--help');
-    remove_arg('--version');
+    for (const option_name of Object.keys(git_command.args.options)) {
+        remove_arg(`--${option_name}`);
+    }
     if (first_positional_is_subcommand) {
         // TODO: This is not a 100% reliable way to do this, as it may also match the value of `--option-with-value value`
         //       But that's not a problem until we add some global options that take a value.

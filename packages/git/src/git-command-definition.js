@@ -34,6 +34,11 @@ export default {
                 description: 'Display version information about git.',
                 type: 'boolean',
             },
+            debug: {
+                description: 'Enable debug logging to the browser console.',
+                type: 'boolean',
+                default: false,
+            },
         },
     },
 };
