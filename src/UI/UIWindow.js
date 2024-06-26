@@ -122,7 +122,9 @@ async function UIWindow(options) {
     if(options.single_instance && options.app !== ''){
         let $already_open_window =  $(`.window[data-app="${html_encode(options.app)}"]`);
         if($already_open_window.length){
-            $(`.window[data-app="${html_encode(options.app)}"]`).focusWindow();
+            if (options.is_visible) {
+                $(`.window[data-app="${html_encode(options.app)}"]`).focusWindow();
+            }
             return;
         }
     }
@@ -185,7 +187,8 @@ async function UIWindow(options) {
         if(user_set_url_params.length > 0)
             user_set_url_params = '?'+ user_set_url_params.join('&');
     }
-    h += `<div class="window window-active 
+    h += `<div class="window 
+                        ${options.is_visible ? 'window-active' : ''} 
                         ${options.cover_page ? 'window-cover-page' : ''}
                         ${options.uid !== undefined ? 'window-'+options.uid : ''} 
                         ${options.window_class} 
@@ -538,7 +541,9 @@ async function UIWindow(options) {
 
     // when a window is created, focus is brought to it and 
     // therefore it is the current active element
-    window.active_element =  el_window;
+    if (options.is_visible) {
+        window.active_element = el_window;
+    }
 
     // set name
     $(el_window_head_title).html(html_encode(options.title));
@@ -1153,7 +1158,9 @@ async function UIWindow(options) {
     if (options.iframe_url){
         $(el_window_app_iframe).attr('src', options.iframe_url)
         //bring focus to iframe
-        el_window_app_iframe.contentWindow.focus();
+        if (options.is_visible) {
+            el_window_app_iframe.contentWindow.focus();
+        }
     }
     // set the position of window
     if(!options.is_maximized){
