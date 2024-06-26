@@ -20,6 +20,7 @@
 import module_add from './add.js'
 import module_branch from './branch.js'
 import module_checkout from './checkout.js'
+import module_cherry_pick from './cherry-pick.js'
 import module_clone from './clone.js'
 import module_commit from './commit.js'
 import module_config from './config.js'
@@ -40,6 +41,7 @@ export default {
     "add": module_add,
     "branch": module_branch,
     "checkout": module_checkout,
+    "cherry-pick": module_cherry_pick,
     "clone": module_clone,
     "commit": module_commit,
     "config": module_config,
