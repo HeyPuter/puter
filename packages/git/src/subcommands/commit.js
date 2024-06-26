@@ -99,7 +99,7 @@ export default {
         });
         const commit_title = options.message.split('\n')[0];
         const short_hash = await shorten_hash({ fs, dir, gitdir, cache }, commit_hash);
-        let output = `[${branch} ${short_hash}] ${commit_title}\n`;
+        let output = `[${branch ?? 'detached HEAD'} ${short_hash}] ${commit_title}\n`;
         // TODO: --amend prints out the date of the original commit here, as:
         //  ` Date: Fri May 17 15:45:47 2024 +0100`
         // TODO: Print out file change count, insertion count, and deletion count
