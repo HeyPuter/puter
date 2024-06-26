@@ -154,14 +154,14 @@
         /**
          * Trigger a possible row activation whenever entering a new row.
          */
-        var mouseenterRow = function () {
+        var mouseenterRow = function (e, data) {
             if (timeoutId) {
                 // Cancel any previous activation delays
                 clearTimeout(timeoutId);
             }
 
             options.enter(this);
-            possiblyActivate(this);
+            possiblyActivate(this, e, data);
         },
             mouseleaveRow = function () {
                 options.exit(this);
@@ -177,7 +177,12 @@
         /**
          * Activate a menu row.
          */
-        var activate = function (row) {
+        var activate = function (row, e, data) {
+            if(mouseLocs[mouseLocs.length - 1]?.x !== undefined && mouseLocs[mouseLocs.length - 1]?.y !== undefined){
+                row.pageX = mouseLocs[mouseLocs.length - 1].x;
+                row.pageY = mouseLocs[mouseLocs.length - 1].y;
+            }
+
             if (row == activeRow) {
                 return;
             }
@@ -187,7 +192,7 @@
             }
 
 
-            options.activate(row);
+            options.activate(row, e, data);
             activeRow = row;
         };
 
@@ -196,15 +201,15 @@
          * shouldn't activate yet because user may be trying to enter
          * a submenu's content, then delay and check again later.
          */
-        var possiblyActivate = function (row) {
+        var possiblyActivate = function (row, e, data) {
             var delay = activationDelay();
 
             if (delay) {
                 timeoutId = setTimeout(function () {
-                    possiblyActivate(row);
+                    possiblyActivate(row, e, data);
                 }, delay);
             } else {
-                activate(row);
+                activate(row, e, data);
             }
         };
 
@@ -327,7 +332,7 @@
             return 0;
         };
 
-        $menu.on('mouseenter', function(e) {
+        $menu.on('mouseenter', function(e, data) {
             if($menu.find('.context-menu-item-active').length === 0 && $menu.find('.has-open-context-menu-submenu').length === 0)
                 activeRow = null;
         })
@@ -395,7 +400,8 @@ function UIContextMenu(options){
                         h += `<span class="context-menu-item-icon">${options.items[i].icon ?? ''}</span>`;
                         h += `<span class="context-menu-item-icon-active">${options.items[i].icon_active ?? (options.items[i].icon ?? '')}</span>`;
                         // label
-                        h += `${html_encode(options.items[i].html)}`;
+                        h += `<span class="contextmenu-label">${html_encode(options.items[i].html)}</span>`;
+                        h += `<span class="contextmenu-label-active">${html_encode(options.items[i].html_active ?? options.items[i].html)}</span>`;
                         // arrow
                         h += `<img class="submenu-arrow" src="${html_encode(window.icons['chevron-right.svg'])}"><img class="submenu-arrow submenu-arrow-active" src="${html_encode(window.icons['chevron-right-active.svg'])}">`;
                     h += `</li>`;
@@ -533,7 +539,12 @@ function UIContextMenu(options){
             // this.activate(e);
         },
         // activates item when mouse enters depending on mouse position and direction
-        activate: function (e) {
+        activate: function (e, event, data) {
+            // make sure last recorded mouse position is the same as the current one before activating
+            // this is because switching contexts from iframe to window can cause the mouse position to be off
+            if(!data?.keyboard && (e.pageX !== window.mouseX || e.pageY !== window.mouseY)){
+                return;
+            }
             // activate items
             let item = $(e).closest('.context-menu-item');
             // mark other menu items as inactive
@@ -686,15 +697,12 @@ $(document).on('mouseenter', '.context-menu', function(e){
     })
 })
 
-$(document).on('mouseenter', '.context-menu-item', function(e){
-    // select_ctxmenu_item(this);
+$(document).on('mouseenter', '.context-menu-item', function(e, data){
 })
 
 $(document).on('mouseenter', '.context-menu-divider', function(e){
     // unselect all items
     $(this).siblings('.context-menu-item:not(.has-open-context-menu-submenu)').removeClass('context-menu-item-active');
 })
-
-$(document)
 
 export default UIContextMenu;

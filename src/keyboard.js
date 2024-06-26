@@ -161,9 +161,9 @@ $(document).bind('keydown', async function(e){
                 return false;
             }
             // if right arrow is pressed, open the submenu by triggering a mouseover event
-            else if($('.context-menu-active .context-menu-item-active').length > 0 && (e.which === 39)){
+            else if($('.context-menu-active .context-menu-item-active').length > 0 && e.which === 39){
                 const selected_item = $('.context-menu-active .context-menu-item-active').get(0);
-                $(selected_item).trigger('mouseover');
+                $(selected_item).trigger('mouseover', {keyboard: true});
                 // if the submenu is open, select the first item in the submenu
                 if($(selected_item).hasClass('context-menu-item-submenu') === true){
                     $(selected_item).removeClass('context-menu-item-active');
@@ -184,6 +184,7 @@ $(document).bind('keydown', async function(e){
                 // select the item that opened the submenu
                 let selected_item = $('.context-menu-active .context-menu-item-active-blurred').get(0);
                 $(selected_item).removeClass('context-menu-item-active-blurred');
+                $(selected_item).removeClass('has-open-context-menu-submenu');
                 $(selected_item).addClass('context-menu-item-active');
 
                 return false;
@@ -191,7 +192,7 @@ $(document).bind('keydown', async function(e){
             // if enter is pressed, trigger a click event on the selected item
             else if($('.context-menu-active .context-menu-item-active').length > 0 && (e.which === 13)){
                 let selected_item = $('.context-menu-active .context-menu-item-active').get(0);
-                $(selected_item).trigger('click');
+                $(selected_item).trigger('click', {keyboard: true});
                 return false;
             }
         }
@@ -482,10 +483,10 @@ $(document).bind('keydown', async function(e){
         }
 
         // search for matches
-        let haystack = $('.context-menu-active').find(`.context-menu-item`);
+        let haystack = $('.context-menu-active').find(`.context-menu-item > .contextmenu-label`);
         for(let j=0; j < haystack.length; j++){
             if($(haystack[j]).text().toLowerCase().startsWith(window.keypress_item_seach_term)){
-                matches.push(haystack[j])
+                matches.push(haystack[j].closest('.context-menu-item'));
             }
         }
 
@@ -640,15 +641,11 @@ $(document).bind("keyup keydown", async function(e){
         // if this is a selected context menu item, open it
         // ---------------------------------------------
         else if($('.context-menu-active .context-menu-item-active').length > 0 && (e.which === 13)){
-            // let selected_item = $('.context-menu-active .context-menu-item-active').get(0);
-            // $(selected_item).trigger('mouseover');
-            // $(selected_item).trigger('click');
-
             let selected_item = $('.context-menu-active .context-menu-item-active').get(0);
             $(selected_item).removeClass('context-menu-item-active');
             $(selected_item).addClass('context-menu-item-active-blurred');
-            $(selected_item).trigger('mouseover');
-            $(selected_item).trigger('click');
+            $(selected_item).trigger('mouseover', {keyboard: true});
+            $(selected_item).trigger('click', {keyboard: true});
             if($('.context-menu[data-is-submenu="true"]').length > 0){
                 let selected_item = $('.context-menu[data-is-submenu="true"] .context-menu-item').get(0);
                 window.select_ctxmenu_item(selected_item);
