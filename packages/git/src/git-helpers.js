@@ -178,3 +178,16 @@ export const resolve_to_commit = async (git_context, ref) => {
         throw new Error(`bad revision '${ref}'`);
     }
 }
+
+/**
+ * Determine if the index has any staged changes.
+ * @param git_context {{ fs, dir, gitdir, cache }} as taken by most isomorphic-git methods.
+ * @returns {Promise<boolean>}
+ */
+export const has_staged_changes = async (git_context) => {
+    const file_status = await git.statusMatrix({
+        ...git_context,
+        ignored: false,
+    });
+    return file_status.some(([filepath, head, workdir, index]) => index !== head);
+}
