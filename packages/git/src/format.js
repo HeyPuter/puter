@@ -18,6 +18,7 @@
  */
 import { shorten_hash } from './git-helpers.js';
 import chalk from 'chalk';
+import { get_matching_refs } from './refs.js';
 
 export const commit_formatting_options = {
     'abbrev-commit': {
@@ -68,9 +69,35 @@ export const process_commit_formatting_options = (options) => {
  * @param short_hashes Whwther to shorten the hash
  * @returns {String}
  */
-export const format_oid = async (git_context, oid, { short_hashes = false } = {}) => {
-    // TODO: List refs at this commit, after the hash
-    return short_hashes ? shorten_hash(git_context, oid) : oid;
+export const format_commit_oid = async (git_context, oid, { short_hashes = false } = {}) => {
+    const hash = short_hashes ? await shorten_hash(git_context, oid) : oid;
+
+    const refs = await get_matching_refs(git_context, oid);
+    if (refs.length === 0)
+        return hash;
+
+    let s = `${hash} (`;
+    s += refs.map(ref => {
+        // Different kinds of ref are styled differently, but all are in bold:
+        // HEAD and local branches are cyan
+        if (ref === 'HEAD') {
+            // TODO: If HEAD points to another ref, that should be shown here as `HEAD -> other`
+            return chalk.bold.cyan(ref);
+        }
+        if (ref.startsWith('refs/heads/'))
+            return chalk.bold.cyanBright(ref.slice('refs/heads/'.length));
+        // Tags are `tag: foo` in yellow
+        if (ref.startsWith('refs/tags/'))
+            return chalk.bold.yellowBright(`tag: ${ref.slice('refs/tags/'.length)}`);
+        // Remote branches are red
+        if (ref.startsWith('refs/remotes/'))
+            return chalk.bold.red(ref.slice('refs/remotes/'.length));
+        // Assuming there's anything else, we'll just bold it.
+        return chalk.bold(ref);
+    }).join(', ');
+    s += ')';
+
+    return s;
 }
 
 /**
@@ -124,10 +151,10 @@ export const format_commit = async (git_context, commit, oid, options = {}) => {
     switch (options.format || 'medium') {
         // TODO: Other formats
         case 'oneline':
-            return `${chalk.yellow(await format_oid(git_context, oid, options))} ${title_line()}`;
+            return `${chalk.yellow(await format_commit_oid(git_context, oid, options))} ${title_line()}`;
         case 'short': {
             let s = '';
-            s += chalk.yellow(`commit ${await format_oid(git_context, oid, options)}\n`);
+            s += chalk.yellow(`commit ${await format_commit_oid(git_context, oid, options)}\n`);
             s += `Author: ${format_person(commit.author)}\n`;
             s += '\n';
             s += indent(title_line());
@@ -135,7 +162,7 @@ export const format_commit = async (git_context, commit, oid, options = {}) => {
         }
         case 'medium': {
             let s = '';
-            s += chalk.yellow(`commit ${await format_oid(git_context, oid, options)}\n`);
+            s += chalk.yellow(`commit ${await format_commit_oid(git_context, oid, options)}\n`);
             s += `Author: ${format_person(commit.author)}\n`;
             s += `Date:   ${format_date(commit.author)}\n`;
             s += '\n';
@@ -144,7 +171,7 @@ export const format_commit = async (git_context, commit, oid, options = {}) => {
         }
         case 'full': {
             let s = '';
-            s += chalk.yellow(`commit ${await format_oid(git_context, oid, options)}\n`);
+            s += chalk.yellow(`commit ${await format_commit_oid(git_context, oid, options)}\n`);
             s += `Author: ${format_person(commit.author)}\n`;
             s += `Commit: ${format_person(commit.committer)}\n`;
             s += '\n';
@@ -153,7 +180,7 @@ export const format_commit = async (git_context, commit, oid, options = {}) => {
         }
         case 'fuller': {
             let s = '';
-            s += chalk.yellow(`commit ${await format_oid(git_context, oid, options)}\n`);
+            s += chalk.yellow(`commit ${await format_commit_oid(git_context, oid, options)}\n`);
             s += `Author:     ${format_person(commit.author)}\n`;
             s += `AuthorDate: ${format_date(commit.author)}\n`;
             s += `Commit:     ${format_person(commit.committer)}\n`;
@@ -164,7 +191,7 @@ export const format_commit = async (git_context, commit, oid, options = {}) => {
         }
         case 'raw': {
             let s = '';
-            s += chalk.yellow(`commit ${oid}\n`);
+            s += chalk.yellow(`commit ${await format_commit_oid(git_context, oid, options)}\n`);
             s += `tree ${commit.tree}\n`;
             if (commit.parent[0])
                 s += `parent ${commit.parent[0]}\n`;
