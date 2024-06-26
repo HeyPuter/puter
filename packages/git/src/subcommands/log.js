@@ -84,7 +84,7 @@ export default {
         const read_tree = walker => walker?.content()?.then(it => new TextDecoder().decode(it));
 
         for (const commit of log) {
-            stdout(format_commit(commit.commit, commit.oid, options));
+            stdout(await format_commit({ fs, dir, gitdir, cache }, commit.commit, commit.oid, options));
             if (diff_options.display_diff()) {
                 const diffs = await diff_git_trees({
                     ...diff_ctx,
@@ -95,7 +95,7 @@ export default {
                     read_a: read_tree,
                     read_b: read_tree,
                 });
-                stdout(format_diffs(diffs, diff_options));
+                stdout(await format_diffs({ fs, dir, gitdir, cache }, diffs, diff_options));
             }
         }
     }

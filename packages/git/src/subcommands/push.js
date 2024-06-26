@@ -233,7 +233,9 @@ export default {
                     ...authenticator.get_auth_callbacks(stderr),
                 });
                 let flag = ' ';
-                let summary = `${shorten_hash(old_dest_oid)}..${shorten_hash(source_oid)}`;
+                const short_old_oid = await shorten_hash({ fs, dir, gitdir, cache }, old_dest_oid);
+                const short_new_oid = await shorten_hash({ fs, dir, gitdir, cache }, source_oid);
+                let summary = `${short_old_oid}..${short_new_oid}`;
                 if (delete_) {
                     flag = '-';
                     summary = '[deleted]';
@@ -242,7 +244,7 @@ export default {
                     summary = '[new branch]';
                 } else if (force) {
                     flag = '+';
-                    summary = `${shorten_hash(old_dest_oid)}...${shorten_hash(source_oid)}`;
+                    summary = `${short_old_oid}...${short_new_oid}`;
                 } else if (is_up_to_date) {
                     flag = '=';
                     summary = `[up to date]`;

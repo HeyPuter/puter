@@ -158,8 +158,11 @@ const CHECKOUT = {
                 const commit_title = commit.commit.message.split('\n', 2)[0];
                 const old_commit_title = old_commit.commit.message.split('\n', 2)[0];
 
-                stdout(`Previous HEAD position was ${shorten_hash(old_commit.oid)} ${old_commit_title}`);
-                stdout(`HEAD is now at ${shorten_hash(commit.oid)} ${commit_title}`);
+                const short_oid = await shorten_hash({ fs, dir, gitdir, cache }, commit.oid);
+                const short_old_oid = await shorten_hash({ fs, dir, gitdir, cache }, old_commit.oid);
+
+                stdout(`Previous HEAD position was ${short_old_oid} ${old_commit_title}`);
+                stdout(`HEAD is now at ${short_oid} ${commit_title}`);
             }
         }
     }

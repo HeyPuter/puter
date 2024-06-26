@@ -112,7 +112,7 @@ export default {
 
             const a = { path: a_rel_path, oid: '00000000', mode: mode_string(a_stat) };
             const b = { path: b_rel_path, oid: '00000000', mode: mode_string(b_stat) };
-            stdout(format_diffs({ a, b, diff }, diff_options));
+            stdout(await format_diffs({ fs, dir, gitdir, cache }, { a, b, diff }, diff_options));
 
             return;
         }
@@ -193,7 +193,7 @@ export default {
         }
 
         if (!diff_options.no_patch)
-            stdout(format_diffs(diffs, diff_options));
+            stdout(await format_diffs({ fs, dir, gitdir, cache }, diffs, diff_options));
 
         if (options['exit-code'])
             return diffs.length > 0 ? 1 : 0;

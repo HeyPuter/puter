@@ -34,6 +34,7 @@ export default {
         const { io, fs, env, args } = ctx;
         const { stdout, stderr } = io;
         const { options, positionals } = args;
+        const cache = {};
 
         const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 
@@ -42,6 +43,7 @@ export default {
             fs,
             dir,
             gitdir,
+            cache,
             ignored: false,
         });
 
@@ -117,7 +119,8 @@ export default {
             }
         } else {
             const oid = await git.resolveRef({ fs, dir, gitdir, ref: 'HEAD' });
-            stdout(`${chalk.redBright('HEAD detached at')} ${shorten_hash(oid)}`);
+            const short_oid = await shorten_hash({ fs, dir, gitdir, cache }, oid);
+            stdout(`${chalk.redBright('HEAD detached at')} ${short_oid}`);
         }
 
         if (staged.length) {

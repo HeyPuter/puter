@@ -74,14 +74,31 @@ export const find_repo_root = async (fs, pwd) => {
 
 /**
  * Produce a shortened version of the given hash, which is still unique within the repo.
- * TODO: Ensure that whatever we produce is unique within the repo.
- *       For now this is just a convenience function, so there's one place to change later.
+ * @param git_context {{ fs, dir, gitdir, cache }} as taken by most isomorphic-git methods.
  * @param hash
- * @returns {String} The shortened hash
+ * @returns {Promise<String>} The shortened hash
  */
-export const shorten_hash = (hash) => {
-    // TODO: Ensure that whatever we produce is unique within the repo
-    return hash.slice(0, 7);
+export const shorten_hash = async (git_context, hash) => {
+    // Repeatedly take the prefix of the hash, and try and resolve it into a full hash.
+    // git.expandOid() will only succeed if there is exactly one possibility, so if it fails,
+    // we make the prefix longer and try again.
+    let short_hash = hash.slice(0, 7);
+    while (true) {
+        try {
+            const expanded = await git.expandOid({ ...git_context, oid: short_hash });
+            // Sanity-check: Ensure we got the original hash back.
+            if (expanded === hash)
+                return short_hash;
+        } catch (e) {
+            // Failed, so try again with a longer one
+        }
+        if (short_hash.length < hash.length) {
+            short_hash = hash.slice(0, short_hash.length + 1);
+            continue;
+        }
+        // Otherwise, we failed, so just return the original hash.
+        return hash;
+    }
 }
 
 /**
