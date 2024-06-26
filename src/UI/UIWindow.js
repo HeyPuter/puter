@@ -3327,7 +3327,7 @@ window.toggle_empty_folder_message = function(el_item_container){
 $.fn.focusWindow = function(event) {
     if(this.hasClass('window')){
         const $app_iframe = $(this).find('.window-app-iframe');
-        const win_id = $(this).attr('data-id');
+        const win_id = parseInt($(this).attr('data-id'));
         $('.window').not(this).removeClass('window-active');
         $(this).addClass('window-active');
         // disable pointer events on all windows' iframes, except for this window's iframe
@@ -3378,7 +3378,8 @@ $.fn.focusWindow = function(event) {
         // grey out all selected items on other windows/desktop
         $('.item-container').not(window.active_item_container).find('.item-selected').addClass('item-blurred');
         // update window-stack
-        window.window_stack.push(parseInt($(this).attr('data-id')));
+        _.pullAll(window.window_stack, [win_id]);
+        window.window_stack.push(win_id);
         // remove blurred class from items on this window
         $(window.active_item_container).find('.item-blurred').removeClass('item-blurred');
         //change window URL
