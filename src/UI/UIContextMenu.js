@@ -183,7 +183,7 @@
                 row.pageY = mouseLocs[mouseLocs.length - 1].y;
             }
 
-            if (row == activeRow) {
+            if (row == activeRow && !data?.keyboard) {
                 return;
             }
 
@@ -603,7 +603,6 @@ function UIContextMenu(options){
                 // remove `has-open-context-menu-submenu` class from the parent menu item
                 $(e).removeClass('has-open-context-menu-submenu');
             }
-
         }
     });
     
