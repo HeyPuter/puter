@@ -41,6 +41,7 @@ export default {
         const { io, fs, env, args } = ctx;
         const { stdout, stderr } = io;
         const { options, positionals } = args;
+        const cache = {};
 
         if (!options.message) {
             // TODO: Support opening a temporary file in an editor,
@@ -97,7 +98,7 @@ export default {
             gitdir,
         });
         const commit_title = options.message.split('\n')[0];
-        const short_hash = shorten_hash(commit_hash);
+        const short_hash = await shorten_hash({ fs, dir, gitdir, cache }, commit_hash);
         let output = `[${branch} ${short_hash}] ${commit_title}\n`;
         // TODO: --amend prints out the date of the original commit here, as:
         //  ` Date: Fri May 17 15:45:47 2024 +0100`

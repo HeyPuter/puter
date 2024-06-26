@@ -63,13 +63,14 @@ export const process_commit_formatting_options = (options) => {
 
 /**
  * Format the given oid hash, followed by any refs that point to it
+ * @param git_context {{ fs, dir, gitdir, cache }} as taken by most isomorphic-git methods.
  * @param oid
  * @param short_hashes Whwther to shorten the hash
  * @returns {String}
  */
-export const format_oid = (oid, { short_hashes = false } = {}) => {
+export const format_oid = async (git_context, oid, { short_hashes = false } = {}) => {
     // TODO: List refs at this commit, after the hash
-    return short_hashes ? shorten_hash(oid) : oid;
+    return short_hashes ? shorten_hash(git_context, oid) : oid;
 }
 
 /**
@@ -110,22 +111,23 @@ export const format_timestamp_and_offset = (owner) => {
 
 /**
  * Produce a string representation of a commit.
+ * @param git_context {{ fs, dir, gitdir, cache }} as taken by most isomorphic-git methods.
  * @param commit A CommitObject
  * @param oid Commit hash
  * @param options Options returned by parsing the command arguments in `commit_formatting_options`
  * @returns {string}
  */
-export const format_commit = (commit, oid, options = {}) => {
+export const format_commit = async (git_context, commit, oid, options = {}) => {
     const title_line = () => commit.message.split('\n')[0];
     const indent = (text) => text.split('\n').map(it => `    ${it}`).join('\n');
 
     switch (options.format || 'medium') {
         // TODO: Other formats
         case 'oneline':
-            return `${chalk.yellow(format_oid(oid, options))} ${title_line()}`;
+            return `${chalk.yellow(await format_oid(git_context, oid, options))} ${title_line()}`;
         case 'short': {
             let s = '';
-            s += chalk.yellow(`commit ${format_oid(oid, options)}\n`);
+            s += chalk.yellow(`commit ${await format_oid(git_context, oid, options)}\n`);
             s += `Author: ${format_person(commit.author)}\n`;
             s += '\n';
             s += indent(title_line());
@@ -133,7 +135,7 @@ export const format_commit = (commit, oid, options = {}) => {
         }
         case 'medium': {
             let s = '';
-            s += chalk.yellow(`commit ${format_oid(oid, options)}\n`);
+            s += chalk.yellow(`commit ${await format_oid(git_context, oid, options)}\n`);
             s += `Author: ${format_person(commit.author)}\n`;
             s += `Date:   ${format_date(commit.author)}\n`;
             s += '\n';
@@ -142,7 +144,7 @@ export const format_commit = (commit, oid, options = {}) => {
         }
         case 'full': {
             let s = '';
-            s += chalk.yellow(`commit ${format_oid(oid, options)}\n`);
+            s += chalk.yellow(`commit ${await format_oid(git_context, oid, options)}\n`);
             s += `Author: ${format_person(commit.author)}\n`;
             s += `Commit: ${format_person(commit.committer)}\n`;
             s += '\n';
@@ -151,7 +153,7 @@ export const format_commit = (commit, oid, options = {}) => {
         }
         case 'fuller': {
             let s = '';
-            s += chalk.yellow(`commit ${format_oid(oid, options)}\n`);
+            s += chalk.yellow(`commit ${await format_oid(git_context, oid, options)}\n`);
             s += `Author:     ${format_person(commit.author)}\n`;
             s += `AuthorDate: ${format_date(commit.author)}\n`;
             s += `Commit:     ${format_person(commit.committer)}\n`;
@@ -330,6 +332,7 @@ export const process_diff_formatting_options = (options, { show_patch_by_default
 
 /**
  * Produce a string representation of the given diffs.
+ * @param git_context {{ fs, dir, gitdir, cache }} as taken by most isomorphic-git methods.
  * @param diffs A single object, or array of them, in the format:
  *     {
  *         a: { mode, oid },
@@ -339,7 +342,7 @@ export const process_diff_formatting_options = (options, { show_patch_by_default
  * @param options Object returned by process_diff_formatting_options()
  * @returns {string}
  */
-export const format_diffs = (diffs, options) => {
+export const format_diffs = async (git_context, diffs, options) => {
     if (!(diffs instanceof Array))
         diffs = [diffs];
 
@@ -347,7 +350,10 @@ export const format_diffs = (diffs, options) => {
     if (options.raw) {
         // https://git-scm.com/docs/diff-format#_raw_output_format
         for (const { a, b, diff } of diffs) {
-            s += `:${a.mode} ${b.mode} ${shorten_hash(a.oid)} ${shorten_hash(b.oid)} `;
+            const short_a_oid = await shorten_hash(git_context, a.oid);
+            const short_b_oid = await shorten_hash(git_context, b.oid);
+
+            s += `:${a.mode} ${b.mode} ${short_a_oid} ${short_b_oid} `;
             // Status. For now, we just support A/D/M
             if (a.mode === '000000') {
                 s += 'A'; // Added
@@ -409,11 +415,14 @@ export const format_diffs = (diffs, options) => {
             const a_path = diff.oldFileName.startsWith('/') ? diff.oldFileName : `${options.source_prefix}${diff.oldFileName}`;
             const b_path = diff.newFileName.startsWith('/') ? diff.newFileName : `${options.dest_prefix}${diff.newFileName}`;
 
+            const short_a_oid = await shorten_hash(git_context, a.oid);
+            const short_b_oid = await shorten_hash(git_context, b.oid);
+
             // NOTE: This first line shows `a/$newFileName` for files that are new, not `/dev/null`.
             const first_line_a_path = a_path !== '/dev/null' ? a_path : `${options.source_prefix}${diff.newFileName}`;
             s += chalk.bold(`diff --git ${first_line_a_path} ${b_path}\n`);
             if (a.mode === b.mode) {
-                s += chalk.bold(`index ${shorten_hash(a.oid)}..${shorten_hash(b.oid)} ${a.mode}\n`);
+                s += chalk.bold(`index ${short_a_oid}..${short_b_oid} ${a.mode}\n`);
             } else {
                 if (a.mode === '000000') {
                     s += chalk.bold(`new file mode ${b.mode}\n`);
@@ -421,7 +430,7 @@ export const format_diffs = (diffs, options) => {
                     s += chalk.bold(`old mode ${a.mode}\n`);
                     s += chalk.bold(`new mode ${b.mode}\n`);
                 }
-                s += chalk.bold(`index ${shorten_hash(a.oid)}..${shorten_hash(b.oid)}\n`);
+                s += chalk.bold(`index ${short_a_oid}..${short_b_oid}\n`);
             }
             if (!diff.hunks.length)
                 continue;

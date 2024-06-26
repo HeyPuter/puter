@@ -67,6 +67,7 @@ export default {
         for (const commit_data of commits) {
             const commit = commit_data.commit;
             const commit_title = commit.message.split('\n')[0];
+            const short_commit_oid = await shorten_hash({ fs, dir, gitdir, cache }, commit_data.oid);
 
             // We can't just add the old commit directly:
             // - Its parent is wrong
@@ -107,7 +108,7 @@ export default {
                 const new_file_contents = Diff.applyPatch(existing_file_contents, diff);
                 if (!new_file_contents) {
                     // TODO: We should insert merge conflict markers and wait for the user resolve the conflict.
-                    throw new Error(`Merge conflict: Unable to apply commit ${shorten_hash(commit_data.oid)} ${commit_title}`);
+                    throw new Error(`Merge conflict: Unable to apply commit ${short_commit_oid} ${commit_title}`);
                 }
                 // Now, stage the new file contents
                 const file_oid = await git.writeBlob({
@@ -131,7 +132,7 @@ export default {
             if (! await has_staged_changes({ fs, dir, gitdir, cache })) {
                 // For now, just skip empty commits.
                 // TODO: cherry-picking should be a multi-step process.
-                stderr(`Skipping empty commit ${shorten_hash(commit_data.oid)} ${commit_title}`);
+                stderr(`Skipping empty commit ${short_commit_oid} ${commit_title}`);
                 continue;
             }
 
@@ -142,10 +143,11 @@ export default {
                 author: commit.author,
                 committer: commit.committer,
             });
+            const short_head_oid = await shorten_hash({ fs, dir, gitdir, cache }, head_oid);
 
             // Print out information about the new commit.
             // TODO: Should be a lot more output. See commit.js for a similar list of TODOs.
-            stdout(`[${branch} ${shorten_hash(head_oid)}] ${commit_title}`);
+            stdout(`[${branch} ${short_head_oid}] ${commit_title}`);
         }
     }
 }

@@ -74,6 +74,7 @@ const BRANCH = {
         const { io, fs, env, args } = ctx;
         const { stdout, stderr } = io;
         const { options, positionals, tokens } = args;
+        const cache = {};
 
         for (const token of tokens) {
             if (token.kind !== 'option') continue;
@@ -204,7 +205,7 @@ const BRANCH = {
                     stderr(`error: ${result.reason}`);
                 } else {
                     const oid = result.value;
-                    const hash = shorten_hash(result.value);
+                    const hash = await shorten_hash({fs, dir, gitdir, cache}, result.value);
                     stdout(`Deleted branch ${branch} (was ${hash}).`);
                 }
             }
@@ -271,7 +272,8 @@ const BRANCH = {
 
             if (!current_branch) {
                 const oid = await git.resolveRef({ fs, dir, gitdir, ref: 'HEAD' });
-                stdout(`* ${chalk.greenBright(`(HEAD detached at ${shorten_hash(oid)})`)}`);
+                const short_oid = await shorten_hash({ fs, dir, gitdir, cache }, oid);
+                stdout(`* ${chalk.greenBright(`(HEAD detached at ${short_oid})`)}`);
             }
 
             for (const branch of branches) {

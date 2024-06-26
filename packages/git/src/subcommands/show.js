@@ -69,7 +69,7 @@ export default {
                 case 'blob':
                     return new TextDecoder().decode(parsed_object.object);
                 case 'commit': {
-                    let s = format_commit(parsed_object.object, parsed_object.oid, options);
+                    let s = await format_commit({ fs, dir, gitdir, cache }, parsed_object.object, parsed_object.oid, options);
                     if (diff_options.display_diff()) {
                         const diffs = await diff_git_trees({
                             ...diff_ctx,
@@ -81,7 +81,7 @@ export default {
                             read_b: read_tree,
                         });
                         s += '\n';
-                        s += format_diffs(diffs, diff_options);
+                        s += await format_diffs({ fs, dir, gitdir, cache }, diffs, diff_options);
                     }
                     return s;
                 }
