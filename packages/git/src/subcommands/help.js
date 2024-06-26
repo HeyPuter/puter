@@ -38,12 +38,16 @@ export default {
         const { stdout, stderr } = io;
         const { options, positionals } = args;
 
-        if (options.all) {
+        const list_subcommands = () => {
             stdout(`See 'git help <command>' for more information.\n`);
             const max_name_length = Object.keys(subcommands).reduce((max, name) => Math.max(max, name.length), 0);
             for (const [name, command] of Object.entries(subcommands)) {
                 stdout(`    ${name} ${' '.repeat(Math.max(max_name_length - name.length, 0))} ${command.description || ''}`);
             }
+        }
+
+        if (options.all) {
+            list_subcommands();
             return;
         }
 
@@ -61,5 +65,7 @@ export default {
 
         // No subcommand name, so show general help
         stdout(produce_help_string(git_command));
+        stdout('Available commands:');
+        list_subcommands();
     }
 }
