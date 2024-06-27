@@ -4,5 +4,8 @@ module.exports = class BillingModule extends use.Module {
 
         const { CustomPuterService } = require('./CustomPuterService.js');
         services.registerService('__custom-puter', CustomPuterService);
+        
+        const { ShareTestService } = require('./ShareTestService.js');
+        services.registerService('__share-test', ShareTestService);
     }
 }
