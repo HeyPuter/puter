@@ -533,7 +533,7 @@ module.exports = new Sequence([
         
         const svc_share = a.iget('services').get('share');
         const svc_token = a.iget('services').get('token');
-        const svc_email = a.iget('services').get('token');
+        const svc_email = a.iget('services').get('email');
         
         for ( const recipient_item of recipients_work.list() ) {
             if ( recipient_item.type !== 'email' ) continue;
