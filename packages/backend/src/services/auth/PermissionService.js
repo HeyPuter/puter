@@ -585,6 +585,48 @@ class PermissionService extends BaseService {
             ]
         );
     }
+    
+    async grant_user_group_permission (actor, gid, permission, extra = {}, meta) {
+        permission = await this._rewrite_permission(permission);
+        const svc_group = this.services.get('group');
+        const group = await svc_group.get({ uid: gid });
+        if ( ! group ) {
+            throw new Error('group not found');
+        }
+        
+        await this.db.write(
+            'INSERT INTO `user_to_group_permissions` (`user_id`, `group_id`, `permission`, `extra`) ' +
+            'VALUES (?, ?, ?, ?) ' +
+            this.db.case({
+                mysql: 'ON DUPLICATE KEY UPDATE `extra` = ?',
+                otherwise: 'ON CONFLICT(`user_id`, `group_id`, `permission`) DO UPDATE SET `extra` = ?',
+            }),
+            [
+                actor.type.user.id,
+                group.id,
+                permission,
+                JSON.stringify(extra),
+                JSON.stringify(extra),
+            ]
+        );
+
+        // INSERT audit table
+        await this.db.write(
+            'INSERT INTO `audit_user_to_group_permissions` (' +
+            '`user_id`, `user_id_keep`, `group_id`, `group_id_keep`, ' +
+            '`permission`, `action`, `reason`) ' +
+            'VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [
+                actor.type.user.id,
+                actor.type.user.id,
+                group.id,
+                group.id,
+                permission,
+                'grant',
+                meta?.reason || 'granted via PermissionService',
+            ]
+        );
+    }
 
     async revoke_user_user_permission (actor, username, permission, meta) {
         permission = await this._rewrite_permission(permission);
@@ -616,6 +658,43 @@ class PermissionService extends BaseService {
                 user.id,
                 actor.type.user.id,
                 actor.type.user.id,
+                permission,
+                'revoke',
+                meta?.reason || 'revoked via PermissionService',
+            ]
+        );
+    }
+    
+    async revoke_user_group_permission (actor, gid, permission, meta) {
+        permission = await this._rewrite_permission(permission);
+        const svc_group = this.services.get('group');
+        const group = await svc_group.get({ uid: gid });
+        if ( ! group ) {
+            throw new Error('group not found');
+        }
+
+        // DELETE permission
+        await this.db.write(
+            'DELETE FROM `user_to_group_permissions` ' +
+            'WHERE `user_id` = ? AND `group_id` = ? AND `permission` = ?',
+            [
+                actor.type.user.id,
+                group.id,
+                permission,
+            ]
+        );
+
+        // INSERT audit table
+        await this.db.write(
+            'INSERT INTO `audit_user_to_group_permissions` (' +
+            '`user_id`, `user_id_keep`, `group_id`, `group_id_keep`, ' +
+            '`permission`, `action`, `reason`) ' +
+            'VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [
+                actor.type.user.id,
+                actor.type.user.id,
+                group.id,
+                group.id,
                 permission,
                 'revoke',
                 meta?.reason || 'revoked via PermissionService',
