@@ -1,6 +1,6 @@
-import { GrammarContext, standard_parsers } from '../../../packages/parsely/exports.js';
-import { Parser, UNRECOGNIZED, VALUE } from '../../../packages/parsely/parser.js';
-import { StringStream } from '../../../packages/parsely/streams.js';
+import { GrammarContext, standard_parsers } from '@heyputer/parsely/exports.js';
+import { Parser, UNRECOGNIZED, VALUE } from '@heyputer/parsely/parser.js';
+import { StringStream } from '@heyputer/parsely/streams.js';
 
 class NumberParser extends Parser {
     static data = {
