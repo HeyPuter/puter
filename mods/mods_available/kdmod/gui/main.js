@@ -74,6 +74,28 @@ const request_examples = [
             const resp = await this.fetch(...a);
             return await this.out(resp);
         },
+    },
+    {
+        name: 'write file',
+        fetch: async (path, str) => {
+            const endpoint = `${window.api_origin}/write`;
+            const token = puter.authToken;
+        
+            const blob = new Blob([str], { type: 'text/plain' });
+            const formData = new FormData();
+            formData.append('create_missing_ancestors', true);
+            formData.append('path', path);
+            formData.append('size', 8);
+            formData.append('overwrite', true);
+            formData.append('file', blob, 'something.txt');
+        
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: formData
+            });
+            return await response.json();
+        },
     }
 ];
 
