@@ -9,14 +9,14 @@ class PermissionAPIService extends BaseService {
         express: require('express'),
     };
 
-    async ['__on_install.routes'] () {
-        const { app } = this.services.get('web-server');
-        
+    async ['__on_install.routes'] (_, { app }) {
         app.use(require('../routers/auth/get-user-app-token'))
         app.use(require('../routers/auth/grant-user-app'))
         app.use(require('../routers/auth/revoke-user-app'))
         app.use(require('../routers/auth/grant-user-user'));
         app.use(require('../routers/auth/revoke-user-user'));
+        app.use(require('../routers/auth/grant-user-group'));
+        app.use(require('../routers/auth/revoke-user-group'));
         app.use(require('../routers/auth/list-permissions'))
         
         // track: scoping iife
