@@ -18,6 +18,8 @@
  */
 import path from 'path-browserify';
 import git from 'isomorphic-git';
+import { GrammarContext, standard_parsers } from '@heyputer/parsely/exports.js';
+import { StringStream } from '@heyputer/parsely/streams.js';
 
 /**
  * Attempt to locate the git repository directory.
@@ -157,15 +159,96 @@ export const group_positional_arguments = (arg_tokens) => {
 }
 
 /**
+ * Parse a ref string such as `HEAD`, `master^^^` or `tags/foo~3` into a usable format.
+ * @param ref_string
+ * @returns {{rev: string, suffixes: [{type: string, n: number}]}}
+ */
+const parse_ref = (ref_string) => {
+    const grammar_context = new GrammarContext({
+        ...standard_parsers(),
+    });
+
+    // See description at https://git-scm.com/docs/gitrevisions#_specifying_revisions
+    const parser = grammar_context.define_parser({
+        // sha-1 and named refs are ambiguous (eg, deadbeef can be either) so we treat them the same
+        // TODO: This is not a complete list of valid characters.
+        //       See https://git-scm.com/docs/git-check-ref-format#_description
+        rev: a => a.stringOf(c => /[\w/.-]/.test(c)),
+
+        suffix: a => a.firstMatch(
+            a.symbol('parent'),
+            a.symbol('ancestor'),
+        ),
+        parent: a => a.sequence(
+            a.literal('^'),
+            a.optional(
+                a.symbol('number'),
+            ),
+        ),
+        ancestor: a => a.sequence(
+            a.literal('~'),
+            a.optional(
+                a.symbol('number'),
+            ),
+        ),
+
+        number: a => a.stringOf(c => /\d/.test(c)),
+
+        ref: a => a.sequence(
+            a.symbol('rev'),
+            a.optional(
+                a.repeat(
+                    a.symbol('suffix')
+                ),
+            ),
+        ),
+    }, {
+        parent: it => {
+            if (it.length === 2)
+                return { type: 'parent', n: it[1].value };
+            return { type: 'parent', n: 1 };
+        },
+        ancestor: it => {
+            if (it.length === 2)
+                return { type: 'ancestor', n: it[1].value };
+            return { type: 'ancestor', n: 1 };
+        },
+
+        number: n => parseInt(n, 10),
+
+        ref: it => {
+            const rev = it[0].value;
+            const suffixes = it[1]?.value?.map(s => s.value);
+            return { rev, suffixes }
+        }
+    });
+
+    const stream = new StringStream(ref_string);
+    const result = parser(stream, 'ref', { must_consume_all_input: true });
+    return result.value;
+}
+
+/**
  * Take some kind of reference, and resolve it to a full oid if possible.
  * @param git_context Object of common parameters to isomorphic-git methods
  * @param ref Reference to resolve
  * @returns {Promise<string>} Full oid, or a thrown Error
  */
 export const resolve_to_oid = async (git_context, ref) => {
+
+    let parsed_ref;
+    try {
+        parsed_ref = parse_ref(ref);
+    } catch (e) {
+        throw new Error(`Unable to resolve reference '${ref}'`);
+    }
+
+    const revision = parsed_ref.rev;
+    const suffixes = parsed_ref.suffixes;
+
     const [ resolved_oid, expanded_oid ] = await Promise.allSettled([
-        git.resolveRef({ ...git_context, ref }),
-        git.expandOid({ ...git_context, oid: ref }),
+        git.resolveRef({ ...git_context, ref: revision }),
+        git.expandOid({ ...git_context, oid: revision }),
     ]);
     let oid;
     if (resolved_oid.status === 'fulfilled') {
@@ -175,8 +258,45 @@ export const resolve_to_oid = async (git_context, ref) => {
     } else {
         throw new Error(`Unable to resolve reference '${ref}'`);
     }
-    // TODO: Advanced revision selection, see https://git-scm.com/book/en/v2/Git-Tools-Revision-Selection
-    //       and https://git-scm.com/docs/gitrevisions
+
+    if (suffixes?.length) {
+        for (const suffix of suffixes) {
+            let commit;
+            try {
+                commit = await git.readCommit({ ...git_context, oid });
+            } catch (e) {
+                throw new Error(`bad revision '${ref}'`);
+            }
+
+            switch (suffix.type) {
+                case 'ancestor': {
+                    for (let i = 0; i < suffix.n; ++i) {
+                        oid = commit.commit.parent[0];
+                        try {
+                            commit = await git.readCommit({ ...git_context, oid });
+                        } catch (e) {
+                            throw new Error(`bad revision '${ref}'`);
+                        }
+                    }
+                    break;
+                }
+                case 'parent': {
+                    // "As a special rule, <rev>^0 means the commit itself and is used when <rev> is the object name of
+                    // a tag object that refers to a commit object."
+                    if (suffix.n === 0)
+                        continue;
+
+                    oid = commit.commit.parent[suffix.n - 1];
+                    if (!oid)
+                        throw new Error(`bad revision '${ref}'`);
+                    break;
+                }
+                default:
+                    throw new Error(`Unable to resolve reference '${ref}' (unimplemented suffix '${suffix.type}')`);
+            }
+        }
+    }
+
     return oid;
 }
 
