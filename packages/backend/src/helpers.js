@@ -1057,7 +1057,9 @@ async function deleteUser(user_id){
         for(let i=0; i<files.length; i++){
             // init S3 SDK
             const svc_fs = Context.get('services').get('filesystem');
-            const storage = Context.get('storage');
+            const svc_mountpoint =
+                Context.get('services').get('mountpoint');
+            const storage = svc_mountpoint.get_storage();
             const op_delete = storage.create_delete();
             await op_delete.run({
                 node: await svc_fs.node(new NodeUIDSelector(files[i].uuid))

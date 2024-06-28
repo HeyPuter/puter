@@ -49,7 +49,8 @@ class LLWriteBase extends LLFilesystemOperation {
         const errors = svc.get('error-service').create(log);
         const svc_event = svc.get('event');
 
-        const storage = Context.get('storage');
+        const svc_mountpoint = svc.get('mountpoint');
+        const storage = svc_mountpoint.get_storage();
 
         bucket        ??= config.s3_bucket;
         bucket_region ??= config.s3_region;
