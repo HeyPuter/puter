@@ -33,12 +33,17 @@ export class FileCompleter {
 
         const completions = [];
 
-        const result = await filesystem.readdir(dir);
-        if ( result === undefined ) {
-            return [];
+        let dir_entries;
+        try {
+            dir_entries = await filesystem.readdir(dir);
+        } catch (e) {
+            // Ignored
         }
 
-        for ( const item of result ) {
+        if ( dir_entries === undefined )
+            return [];
+
+        for ( const item of dir_entries ) {
             if ( item.name.startsWith(base) ) {
                 completions.push(item.name.slice(base.length));
             }
