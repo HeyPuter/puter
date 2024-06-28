@@ -25,7 +25,10 @@ import { CreateEnvProvider } from './platform/puter/env.js';
 import { CreateSystemProvider } from './platform/puter/system.js';
 
 window.main_shell = async () => {
-    const config = {};
+    const config = Object.fromEntries(
+        new URLSearchParams(window.location.search)
+            .entries()
+    );
 
     let resolveConfigured = null;
     const configured_ = new Promise(rslv => {
@@ -41,10 +44,9 @@ window.main_shell = async () => {
     terminal.on('message', message => {
         if (message.$ === 'config') {
             const configValues = { ...message };
-            delete configValues.$;
-            for ( const k in configValues ) {
-                config[k] = configValues[k];
-            }
+            // Only copy the config that we actually need
+            config['puter.auth.username'] = configValues['puter.auth.username'];
+            config['puter.auth.token'] = configValues['puter.auth.token'];
             resolveConfigured();
         }
     });
