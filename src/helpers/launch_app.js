@@ -188,13 +188,11 @@ const launch_app = async (options)=>{
             iframe_url.searchParams.append('puter.item.accessed', file_signature.fsentry_accessed);
             iframe_url.searchParams.append('puter.item.modified', file_signature.fsentry_modified);
             iframe_url.searchParams.append('puter.item.created', file_signature.fsentry_created);
-            iframe_url.searchParams.append('puter.domain', window.app_domain);
         }
         else if(options.readURL){
             iframe_url.searchParams.append('puter.item.name', options.filename);
             iframe_url.searchParams.append('puter.item.path', privacy_aware_path(options.file_path));
             iframe_url.searchParams.append('puter.item.read_url', options.readURL);
-            iframe_url.searchParams.append('puter.domain', window.app_domain);
         }
 
         // In godmode, we add the super token to the iframe URL
@@ -202,7 +200,6 @@ const launch_app = async (options)=>{
         if (app_info.godmode && app_info.godmode === 1){
             iframe_url.searchParams.append('puter.auth.token', window.auth_token);
             iframe_url.searchParams.append('puter.auth.username', window.user.username);
-            iframe_url.searchParams.append('puter.domain', window.app_domain);
         } 
         // App token. Only add token if it's not a GODMODE app since GODMODE apps already have the super token
         // that has access to everything.
@@ -225,12 +222,13 @@ const launch_app = async (options)=>{
             }
         }
 
+        iframe_url.searchParams.append('puter.domain', window.app_domain);
+
         if(window.api_origin)
             iframe_url.searchParams.append('puter.api_origin', window.api_origin);
 
         // Add options.params to URL
         if(options.params){
-            iframe_url.searchParams.append('puter.domain', window.app_domain);
             for (const property in options.params) {
                 iframe_url.searchParams.append(property, options.params[property]);
             }
