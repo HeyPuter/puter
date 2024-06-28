@@ -50,6 +50,8 @@ export default {
             filepaths: pathspecs,
         });
 
+        // TODO: We should complain if one or more pathspecs don't match anything.
+
         const operations = file_status
             .filter(([ filepath, head, worktree, staged ]) => worktree !== staged)
             .map(([ filepath, head, worktree, index ]) => {

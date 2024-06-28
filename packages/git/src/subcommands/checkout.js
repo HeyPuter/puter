@@ -51,6 +51,8 @@ const CHECKOUT = {
         const { options, positionals, tokens } = args;
         const cache = {};
 
+        // TODO: This manual processing is done because parseArgs() doesn't allow options to have only a short name.
+        //       Replace it with a better args parsing library.
         for (const token of tokens) {
             if (token.kind !== 'option') continue;
 
@@ -124,6 +126,7 @@ const CHECKOUT = {
 
         // Check out a branch or commit
         // TODO: Check out files.
+        // TODO: Checking out a branch name that exists in a remote but not locally, should create a new branch tracking that remote.
         {
             if (positionals.length === 0 || positionals.length > 1) {
                 stderr('error: Expected 1 argument, for <branch>.');
