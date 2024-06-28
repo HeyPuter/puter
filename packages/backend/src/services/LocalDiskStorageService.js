@@ -31,6 +31,9 @@ class LocalDiskStorageService extends BaseService {
         const svc_contextInit = this.services.get('context-init');
         const storage = new LocalDiskStorageStrategy({ services: this.services });
         svc_contextInit.register_value('storage', storage);
+        
+        const svc_mountpoint = this.services.get('mountpoint');
+        svc_mountpoint.set_storage(storage);
     }
 
     async _init () {

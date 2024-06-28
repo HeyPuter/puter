@@ -292,6 +292,9 @@ const install = async ({ services, app, useapi }) => {
     
     const { PermissionAPIService } = require('./services/PermissionAPIService');
     services.registerService('__permission-api', PermissionAPIService);
+
+    const { MountpointService } = require('./services/MountpointService');
+    services.registerService('mountpoint', MountpointService);
 }
 
 const install_legacy = async ({ services }) => {
