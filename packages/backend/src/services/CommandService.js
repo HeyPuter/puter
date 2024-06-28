@@ -37,6 +37,13 @@ class Command {
             log.error(err.stack);
         }
     }
+
+    completeArgument(args) {
+        const completer = this.spec_.completer;
+        if ( completer )
+            return completer(args);
+        return [];
+    }
 }
 
 class CommandService extends BaseService {
@@ -86,6 +93,10 @@ class CommandService extends BaseService {
 
     get commandNames() {
         return this.commands_.map(command => command.id);
+    }
+
+    getCommand(id) {
+        return this.commands_.find(command => command.id === id);
     }
 }
 

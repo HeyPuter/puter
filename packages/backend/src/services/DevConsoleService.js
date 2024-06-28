@@ -132,9 +132,13 @@ class DevConsoleService extends BaseService {
             prompt: 'puter> ',
             terminal: true,
             completer: line => {
-                // We only complete service and command names
-                if ( line.includes(' ') )
-                    return;
+                if ( line.includes(' ') ) {
+                    const [ commandName, ...args ] = line.split(/\s+/);
+                    const command = commands.getCommand(commandName);
+                    if (!command)
+                        return;
+                    return [ command.completeArgument(args), args[args.length - 1] ];
+                }
 
                 const results = commands.commandNames
                     .filter(name => name.startsWith(line))
