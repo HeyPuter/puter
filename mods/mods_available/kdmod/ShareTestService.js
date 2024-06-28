@@ -5,11 +5,19 @@ const {
     get_user,
     generate_system_fsentries,
     invalidate_cached_user,
+    deleteUser,
 } = require('../../../packages/backend/src/helpers');
-// const { HLWrite } = require('../../../packages/backend/src/filesystem/hl_operations/hl_write');
+const { HLWrite } = require('../../../packages/backend/src/filesystem/hl_operations/hl_write');
+const { LLRead } = require('../../../packages/backend/src/filesystem/ll_operations/ll_read');
 const { Actor, UserActorType }
     = require('../../../packages/backend/src/services/auth/Actor');
 const { DB_WRITE } = require('../../../packages/backend/src/services/database/consts');
+const {
+    RootNodeSelector,
+    NodeChildSelector,
+    NodePathSelector,
+} = require('../../../packages/backend/src/filesystem/node/selectors');
+const { Context } = require('../../../packages/backend/src/util/context');
 
     
 class ShareTestService extends use.Service {
@@ -33,7 +41,20 @@ class ShareTestService extends use.Service {
                 id: 'start',
                 description: '',
                 handler: async (_, log) => {
-                    this.runit();
+                    const results = await this.runit();
+                    
+                    for ( const result of results ) {
+                        log.log(`=== ${result.title} ===`);
+                        if ( ! result.report ) {
+                            log.log(`\x1B[32;1mSUCCESS\x1B[0m`);
+                            continue;
+                        }
+                        log.log(
+                            `\x1B[31;1mSTOPPED\x1B[0m at ` +
+                            `${result.report.step}: ` +
+                            result.report.report.message,
+                        );
+                    }
                 }
             }
         ]);
@@ -43,11 +64,21 @@ class ShareTestService extends use.Service {
         await this.teardown_();
         await this.setup_();
         
+        const results = [];
+        
         for ( const scenario of this.scenarios ) {
-            this.run_scenario_(scenario);
+            if ( ! scenario.title ) {
+                scenario.title = scenario.sequence.map(
+                    step => step.title).join('; ')
+            }
+            results.push({
+                title: scenario.title,
+                report: await this.run_scenario_(scenario)
+            });
         }
         
         await this.teardown_();
+        return results;
     }
     
     async setup_ () {
@@ -57,14 +88,23 @@ class ShareTestService extends use.Service {
         await this.create_test_user_('testuser_kenny');
     }
     async run_scenario_ (scenario) {
+        let error;
         // Run sequence
         for ( const step of scenario.sequence ) {
             const method = this[`__scenario:${step.call}`];
             const user = await get_user({ username: step.as })
-            const actor = Actor.create(UserActorType, { user });
+            const actor = await Actor.create(UserActorType, { user });
             const generated = { user, actor };
-            await method.call(this, generated, scenario.with);
+            const report = await Context.get().sub({ user, actor })
+                .arun(async () => {
+                    return await method.call(this, generated, step.with);
+                });
+            if ( report ) {
+                error = { step: step.title, report };
+                break;
+            }
         }
+        return error;
     }
     async teardown_ () {
         await this.delete_test_user_('testuser_eric');
@@ -94,33 +134,56 @@ class ShareTestService extends use.Service {
     }
     
     async delete_test_user_ (username) {
-        await this.db.write(
-            `
-                DELETE FROM user WHERE username=? LIMIT 1
-            `,
-            [username],
-        );
+        const user = await get_user({ username });
+        if ( ! user ) return;
+        await deleteUser(user.id);
     }
     
     // API for scenarios
     async ['__scenario:create-example-file'] (
-        { user },
+        { actor, user },
         { name, contents },
     ) {
+        const svc_fs = this.services.get('filesystem');
+        const parent = await svc_fs.node(new NodePathSelector(
+            `/${user.username}/Desktop`
+        ));
         console.log('test -> create-example-file',
             user, name, contents);
-        // const hl_write = new HLWrite();
-        // await hl_write.run({
-        //     destination_or_parent: '/'+user.username+'/Desktop',
-        //     specified_name: name,
-
-        // });
+        const buffer = Buffer.from(contents);
+        const file = {
+            size: buffer.length,
+            name: name,
+            type: 'application/octet-stream',
+            buffer,
+        };
+        const hl_write = new HLWrite();
+        await hl_write.run({
+            actor,
+            user,
+            destination_or_parent: parent,
+            specified_name: name,
+            file,
+        });
     }
     async ['__scenario:assert-no-access'] (
-        { user },
+        { actor, user },
         { path },
     ) {
-        console.log('test -> assert-no-access', user, path);
+        const svc_fs = this.services.get('filesystem');
+        const node = await svc_fs.node(new NodePathSelector(path));
+        const ll_read = new LLRead();
+        let expected_e; try {
+            const stream = await ll_read.run({
+                fsNode: node,
+                actor,
+            })
+        } catch (e) {
+            expected_e = e;
+        }
+        if ( ! expected_e ) {
+            return { message: 'expected error, got none' };
+        }
     }
 }
 

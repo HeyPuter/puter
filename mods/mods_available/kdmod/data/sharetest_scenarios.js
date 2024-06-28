@@ -1,8 +1,8 @@
 module.exports = [
     {
-        title: `Kyle creates a file; Eric tries access read it`,
         sequence: [
             {
+                title: 'Kyle creates a file',
                 call: 'create-example-file',
                 as: 'testuser_kyle',
                 with: {
@@ -11,6 +11,7 @@ module.exports = [
                 }
             },
             {
+                title: 'Eric tries to access it',
                 call: 'assert-no-access',
                 as: 'testuser_eric',
                 with: {
