@@ -23,6 +23,10 @@ class Command {
         this.spec_ = spec;
     }
 
+    get id() {
+        return this.spec_.id;
+    }
+
     async execute(args, log) {
         log = log ?? console;
         const { id, name, description, handler } = this.spec_;
@@ -78,6 +82,10 @@ class CommandService extends BaseService {
         // TODO: add obvious-json as a tokenizer
         const args = text.split(/\s+/);
         await this.executeCommand(args, log);
+    }
+
+    get commandNames() {
+        return this.commands_.map(command => command.id);
     }
 }
 

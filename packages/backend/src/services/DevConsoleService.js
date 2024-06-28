@@ -131,6 +131,16 @@ class DevConsoleService extends BaseService {
             output: process.stdout,
             prompt: 'puter> ',
             terminal: true,
+            completer: line => {
+                // We only complete service and command names
+                if ( line.includes(' ') )
+                    return;
+
+                const results = commands.commandNames
+                    .filter(name => name.startsWith(line))
+                    .map(name => `${name} `); // Add a space after to make typing arguments more convenient
+                return [ results, line ];
+            },
         });
         rl.on('line', async (input) => {
             this._before_cmd();
