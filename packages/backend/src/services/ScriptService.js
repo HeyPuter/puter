@@ -31,6 +31,16 @@ class ScriptService extends BaseService {
                         return;
                     }
                     await script.run(ctx, args);
+                },
+                completer: (args) => {
+                    // The script name is the first argument, so return no results if we're on the second or later.
+                    if (args.length > 1)
+                        return;
+                    const scriptName = args[args.length - 1];
+
+                    return this.scripts
+                        .filter(script => scriptName.startsWith(scriptName))
+                        .map(script => script.name);
                 }
             }
         ]);

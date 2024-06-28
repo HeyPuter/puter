@@ -68,6 +68,17 @@ class ParameterService extends BaseService {
     }
 
     _registerCommands (commands) {
+        const completeParameterName = (args) => {
+            // The parameter name is the first argument, so return no results if we're on the second or later.
+            if (args.length > 1)
+                return;
+            const lastArg = args[args.length - 1];
+
+            return this.parameters_
+                .map(parameter => parameter.spec_.id)
+                .filter(parameterName => parameterName.startsWith(lastArg));
+        };
+
         commands.registerCommands('params', [
             {
                 id: 'get',
@@ -76,7 +87,8 @@ class ParameterService extends BaseService {
                     const [name] = args;
                     const value = await this.get(name);
                     log.log(value);
-                }
+                },
+                completer: completeParameterName,
             },
             {
                 id: 'set',
@@ -86,7 +98,8 @@ class ParameterService extends BaseService {
                     const parameter = this._get_param(name);
                     parameter.set(value);
                     log.log(value);
-                }
+                },
+                completer: completeParameterName,
             },
             {
                 id: 'list',

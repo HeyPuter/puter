@@ -308,6 +308,24 @@ class AlarmService extends BaseService {
     }
 
     _register_commands (commands) {
+        const completeAlarmID = (args) => {
+            // The alarm ID is the first argument, so return no results if we're on the second or later.
+            if (args.length > 1)
+                return;
+            const lastArg = args[args.length - 1];
+
+            const results = [];
+            for ( const alarm of Object.values(this.alarms) ) {
+                if ( alarm.id.startsWith(lastArg) ) {
+                    results.push(alarm.id);
+                }
+                if ( alarm.short_id?.startsWith(lastArg) ) {
+                    results.push(alarm.short_id);
+                }
+            }
+            return results;
+        };
+
         commands.registerCommands('alarm', [
             {
                 id: 'list',
@@ -341,7 +359,8 @@ class AlarmService extends BaseService {
                     for ( const [key, value] of Object.entries(alarm.fields) ) {
                         log.log(`- ${key}: ${util.inspect(value)}`);
                     }
-                }
+                },
+                completer: completeAlarmID,
             },
             {
                 id: 'clear',
@@ -356,7 +375,8 @@ class AlarmService extends BaseService {
                         );
                     }
                     this.clear(id);
-                }
+                },
+                completer: completeAlarmID,
             },
             {
                 id: 'clear-all',
@@ -397,7 +417,8 @@ class AlarmService extends BaseService {
                         log.log("┃ " + stringify_log_entry(lg));
                     }
                     log.log(`┗━━ Logs before: ${alarm.id_string} ━━━━`);
-                }
+                },
+                completer: completeAlarmID,
             },
         ]);
     }
