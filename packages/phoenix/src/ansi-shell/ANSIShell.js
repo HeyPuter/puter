@@ -95,7 +95,7 @@ export class ANSIShell extends EventTarget {
         })
 
         this.export_('LANG', 'en_US.UTF-8');
-        this.export_('PS1', '[\\u@puter.com \\w]\\$ ');
+        this.export_('PS1', '[\\u@\\h \\w]\\$ ');
 
         for ( const k in env.getEnv() ) {
             console.log('setting', k, env.get(k));
