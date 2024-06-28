@@ -76,6 +76,8 @@ const BRANCH = {
         const { options, positionals, tokens } = args;
         const cache = {};
 
+        // TODO: This manual processing is done because parseArgs() doesn't allow options to have only a short name.
+        //       Replace it with a better args parsing library.
         for (const token of tokens) {
             if (token.kind !== 'option') continue;
 

@@ -12,6 +12,12 @@ While this is built for Puter, the only Puter-specific parts are:
 
 By modifying these, and the values in `config/`, you should be able to port it to other environments.
 
+## Libraries
+
+- [**chalk**](https://www.npmjs.com/package/chalk): For more convenient coloring and styling of output.
+- [**diff**](https://www.npmjs.com/package/diff): For producing and applying diff patches.
+- [**isomorphic-git**](https://isomorphic-git.org): For interacting with the git repository. See section below.
+
 ## Subcommand structure
 
 The `git` CLI is structured as a series of sub-commands - `git branch` has nothing in common with `git version`, for example. Each of these is modelled as its own file in `src/subcommands`, and should export a default object with the following structure:
@@ -78,6 +84,14 @@ const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 The `dir` and `gitdir` variables can then be passed to isomorphic-git methods that expect them.
 If no repository is found, this will throw an error, which is then printed to stderr.
 (isomorphic-git's `git.findRoot()` does not implement checks for a `.git` text file that points to an alternative directory that git's metadata is stored in. We should maybe upstream this.)
+
+### Parallel processing
+
+Filesystem access going over the network has a performance cost, so to try and counteract this, we try to
+do things in parallel. There's a lot of use of `await Promise.all(...)` and `await Promise.allSettled()`.
+Because isomorphic-git has its own caching, (using the `cache` object,) it's possible that this doesn't
+actually help. Once performance becomes an issue, it'd be worth experimenting to see if running the same
+commands in sequence is faster, especially where they access the same files.
 
 ## Isomorphic-git
 

@@ -69,6 +69,8 @@ export default {
 
         const { dir, gitdir } = await find_repo_root(fs, env.PWD);
 
+        // TODO: We should complain if one or more pathspecs don't match anything.
+
         const operations = await git.walk({
             fs, dir, gitdir, cache,
             trees: [
@@ -86,6 +88,7 @@ export default {
                     return null;
                 }
 
+                // FIXME: Allow restoring ignored files that are tracked
                 if (await git.isIgnored({ fs, dir, gitdir, filepath }))
                     return null;
 
