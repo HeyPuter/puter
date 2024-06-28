@@ -163,7 +163,17 @@
             options.enter(this);
             possiblyActivate(this, e, data);
         },
-            mouseleaveRow = function () {
+            mouseleaveRow = function (e) {
+                // if doesn't have submenu, remove active class and timer
+                if(!$(e.target).hasClass('has-open-context-menu-submenu') && 
+                    $(e.target).hasClass('context-menu-item-submenu'))
+                {
+                    $(e.target).removeClass('context-menu-item-active');
+                    // remove timeout
+                    clearTimeout(timeoutId);
+                    activeRow = null;
+                }
+
                 options.exit(this);
             };
 
@@ -595,15 +605,19 @@ function UIContextMenu(options){
         },
         // deactivates row when mouse leaves
         deactivate: function (e) {
-            // disable submenu delay timer
+            // disable submenu delay timer to cancel submenu opening
             clearTimeout(submenu_delay_timer);
-            // deactivate submenu
-            if($(e).hasClass('context-menu-item-submenu')){
+            // close submenu
+            if($(e).hasClass('has-open-context-menu-submenu')){
                 $(`.context-menu[data-id="${menu_id}-${$(e).attr('data-action')}"]`).remove();
                 // remove `has-open-context-menu-submenu` class from the parent menu item
                 $(e).removeClass('has-open-context-menu-submenu');
             }
-        }
+        },
+        exit: function (e) {
+            clearTimeout(submenu_delay_timer);
+            $(e.target).removeClass('context-menu-item-active');
+        },
     });
     
     // disabled item mousedown event
