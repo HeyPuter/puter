@@ -32,6 +32,7 @@ const default_implicit_user_app_permissions = {
     'driver:puter-tts': {},
     'driver:puter-apps': {},
     'driver:puter-subdomains': {},
+    'driver:temp-email': {},
 };
 
 const implicit_user_app_permissions = [
