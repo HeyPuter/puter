@@ -185,6 +185,47 @@ class ShareTestService extends use.Service {
             return { message: 'expected error, got none' };
         }
     }
+    async ['__scenario:grant'] (
+        { actor, user },
+        { to, permission },
+    ) {
+        const svc_permission = this.services.get('permission');
+        await svc_permission.grant_user_user_permission(
+            actor, to, permission, {}, {},
+        );
+    }
+    async ['__scenario:assert-access'] (
+        { actor, user },
+        { path, level }
+    ) {
+        const svc_fs = this.services.get('filesystem');
+        const svc_acl = this.services.get('acl');
+        const node = await svc_fs.node(new NodePathSelector(path));
+        const has_read = await svc_acl.check(actor, node, 'read');
+        const has_write = await svc_acl.check(actor, node, 'write');
+
+        if ( level !== 'write' && level !== 'read' ) {
+            return {
+                message: 'unexpected value for "level" parameter'
+            };
+        }
+
+        if ( level === 'read' && has_write ) {
+            return {
+                message: 'expected read-only but actor can write'
+            };
+        }
+        if ( level === 'read' && !has_read ) {
+            return {
+                message: 'expected read access but no read access'
+            };
+        }
+        if ( level === 'write' && (!has_write || !has_read) ) {
+            return {
+                message: 'expected write access but no write access'
+            };
+        }
+    }
 }
 
 module.exports = {
