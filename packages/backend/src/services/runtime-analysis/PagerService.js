@@ -19,6 +19,7 @@
 const pdjs = require('@pagerduty/pdjs');
 const BaseService = require('../BaseService');
 const util = require('util');
+const { Context } = require('../../util/context');
 
 class PagerService extends BaseService {
     async _construct () {
@@ -50,6 +51,26 @@ class PagerService extends BaseService {
                     fields_clean[key] = util.inspect(value);
                 }
 
+                const custom_details = {
+                    ...(alert.custom || {}),
+                    server_id: this.global_config.server_id,
+                };
+
+                const ctx = Context.get(undefined, { allow_fallback: true });
+
+                // Add request payload if any exists
+                const req = ctx.get('req');
+                if ( req ) {
+                    if ( req.body ) {
+                        // Remove fields which may contain sensitive information
+                        delete req.body.password;
+                        delete req.body.email;
+
+                        // Add the request body to the custom details
+                        custom_details.request_body = req.body;
+                    }
+                }
+
                 this.log.info('it is sending to PD');
                 await event({
                     data: {
@@ -60,7 +81,7 @@ class PagerService extends BaseService {
                             summary: alert.message,
                             source: alert.source,
                             severity: alert.severity,
-                            custom_details: alert.custom,
+                            custom_details,
                         },
                     },
                 });
