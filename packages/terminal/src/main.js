@@ -117,5 +117,6 @@ window.main_term = async () => {
     const ioController = new XTermIO({ term, pty });
     ioController.bind();
 
+    window.addEventListener('focus', () => term.focus() );
     term.focus();
 };

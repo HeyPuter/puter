@@ -122,7 +122,9 @@ async function UIWindow(options) {
     if(options.single_instance && options.app !== ''){
         let $already_open_window =  $(`.window[data-app="${html_encode(options.app)}"]`);
         if($already_open_window.length){
-            $(`.window[data-app="${html_encode(options.app)}"]`).focusWindow();
+            if (options.is_visible) {
+                $(`.window[data-app="${html_encode(options.app)}"]`).focusWindow();
+            }
             return;
         }
     }
@@ -185,7 +187,8 @@ async function UIWindow(options) {
         if(user_set_url_params.length > 0)
             user_set_url_params = '?'+ user_set_url_params.join('&');
     }
-    h += `<div class="window window-active 
+    h += `<div class="window 
+                        ${options.is_visible ? 'window-active' : ''} 
                         ${options.cover_page ? 'window-cover-page' : ''}
                         ${options.uid !== undefined ? 'window-'+options.uid : ''} 
                         ${options.window_class} 
@@ -538,7 +541,9 @@ async function UIWindow(options) {
 
     // when a window is created, focus is brought to it and 
     // therefore it is the current active element
-    window.active_element =  el_window;
+    if (options.is_visible) {
+        window.active_element = el_window;
+    }
 
     // set name
     $(el_window_head_title).html(html_encode(options.title));
@@ -1153,7 +1158,9 @@ async function UIWindow(options) {
     if (options.iframe_url){
         $(el_window_app_iframe).attr('src', options.iframe_url)
         //bring focus to iframe
-        el_window_app_iframe.contentWindow.focus();
+        if (options.is_visible) {
+            el_window_app_iframe.contentWindow.focus();
+        }
     }
     // set the position of window
     if(!options.is_maximized){
@@ -3320,7 +3327,7 @@ window.toggle_empty_folder_message = function(el_item_container){
 $.fn.focusWindow = function(event) {
     if(this.hasClass('window')){
         const $app_iframe = $(this).find('.window-app-iframe');
-        const win_id = $(this).attr('data-id');
+        const win_id = parseInt($(this).attr('data-id'));
         $('.window').not(this).removeClass('window-active');
         $(this).addClass('window-active');
         // disable pointer events on all windows' iframes, except for this window's iframe
@@ -3371,7 +3378,8 @@ $.fn.focusWindow = function(event) {
         // grey out all selected items on other windows/desktop
         $('.item-container').not(window.active_item_container).find('.item-selected').addClass('item-blurred');
         // update window-stack
-        window.window_stack.push(parseInt($(this).attr('data-id')));
+        _.pullAll(window.window_stack, [win_id]);
+        window.window_stack.push(win_id);
         // remove blurred class from items on this window
         $(window.active_item_container).find('.item-blurred').removeClass('item-blurred');
         //change window URL
