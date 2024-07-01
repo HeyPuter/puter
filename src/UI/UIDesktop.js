@@ -986,7 +986,7 @@ async function UIDesktop(options){
 
         // 'show desktop'
         if(window.is_fullpage_mode){
-            ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased" target="_blank" title="Open Desktop">Open Desktop</a>`;
+            ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased" target="_blank" title="Show Desktop">Show Desktop <img src="${window.icons['launch-white.svg']}" style="width: 15px; height: 15px; margin-left: 5px;"></a>`;
         }
 
         // refer
