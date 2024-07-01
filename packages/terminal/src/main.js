@@ -117,5 +117,7 @@ window.main_term = async () => {
     const ioController = new XTermIO({ term, pty });
     ioController.bind();
 
-    term.focus();
+    if (phoenix && phoenix.isActive()) {
+        term.focus();
+    }
 };
