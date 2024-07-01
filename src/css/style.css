@@ -3027,6 +3027,15 @@ fieldset[name=number-code] {
     border: 2px solid #CCC;
 }
 
+.launch-search-wrapper{
+    margin-bottom: 10px; 
+    padding: 5px; 
+    position: relative;
+}
+.device-phone .launch-search-wrapper{
+    margin-top: 15px;
+}
+
 .launch-search-clear {
     display: none;
     position: absolute;

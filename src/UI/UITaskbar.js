@@ -90,7 +90,7 @@ async function UITaskbar(options){
             
             let apps_str = '';
 
-            apps_str += `<div style="margin-bottom: 10px; padding: 5px; position: relative;">`
+            apps_str += `<div class="launch-search-wrapper">`
                 apps_str += `<input style="background-image:url(${window.icons['magnifier-outline.svg']});" class="launch-search">`;
                 apps_str += `<img class="launch-search-clear" src="${window.icons['close.svg']}">`;
             apps_str += `</div>`;
