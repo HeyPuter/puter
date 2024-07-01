@@ -1553,6 +1553,9 @@ function seconds_to_string(seconds) {
 async function suggest_app_for_fsentry(fsentry, options){
     const monitor = PerformanceMonitor.createContext("suggest_app_for_fsentry");
     const suggested_apps = [];
+    const add_suggested_app = (app) => {
+        if (app) suggested_apps.push(app);
+    };
 
     let content_type = mime.contentType(fsentry.name);
     if(content_type === null || content_type === undefined || content_type === false)
@@ -1576,127 +1579,127 @@ async function suggest_app_for_fsentry(fsentry, options){
     // Code
     //---------------------------------------------
     if(
-        fsname.endsWith('.asm') ||
-        fsname.endsWith('.asp') ||
-        fsname.endsWith('.aspx') ||
-        fsname.endsWith('.bash') ||
-        fsname.endsWith('.c') ||
-        fsname.endsWith('.cpp') ||
-        fsname.endsWith('.css') ||
-        fsname.endsWith('.csv') ||
-        fsname.endsWith('.dhtml') ||
-        fsname.endsWith('.f') ||
-        fsname.endsWith('.go') ||
-        fsname.endsWith('.h') ||
-        fsname.endsWith('.htm') ||
-        fsname.endsWith('.html') ||
-        fsname.endsWith('.html5') ||
-        fsname.endsWith('.java') ||
-        fsname.endsWith('.jl') ||
-        fsname.endsWith('.js') ||
-        fsname.endsWith('.jsa') ||
-        fsname.endsWith('.json') ||
-        fsname.endsWith('.jsonld') ||
-        fsname.endsWith('.jsf') ||
-        fsname.endsWith('.jsp') ||
-        fsname.endsWith('.kt') ||
-        fsname.endsWith('.log') ||
-        fsname.endsWith('.lock') ||
-        fsname.endsWith('.lua') ||
-        fsname.endsWith('.md') ||
-        fsname.endsWith('.perl') ||
-        fsname.endsWith('.phar') ||
-        fsname.endsWith('.php') ||
-        fsname.endsWith('.pl') ||
-        fsname.endsWith('.py') ||
-        fsname.endsWith('.r') ||
-        fsname.endsWith('.rb') ||
-        fsname.endsWith('.rdata') ||
-        fsname.endsWith('.rda') ||
-        fsname.endsWith('.rdf') ||
-        fsname.endsWith('.rds') ||
-        fsname.endsWith('.rs') ||
-        fsname.endsWith('.rlib') ||
-        fsname.endsWith('.rpy') ||
-        fsname.endsWith('.scala') ||
-        fsname.endsWith('.sc') ||
-        fsname.endsWith('.scm') ||
-        fsname.endsWith('.sh') ||
-        fsname.endsWith('.sol') ||
-        fsname.endsWith('.sql') ||
-        fsname.endsWith('.ss') ||
-        fsname.endsWith('.svg') ||
-        fsname.endsWith('.swift') ||
-        fsname.endsWith('.toml') ||
-        fsname.endsWith('.ts') ||
-        fsname.endsWith('.wasm') ||
-        fsname.endsWith('.xhtml') ||
-        fsname.endsWith('.xml') ||
-        fsname.endsWith('.yaml') ||
+        file_extension === '.asm' ||
+        file_extension === '.asp' ||
+        file_extension === '.aspx' ||
+        file_extension === '.bash' ||
+        file_extension === '.c' ||
+        file_extension === '.cpp' ||
+        file_extension === '.css' ||
+        file_extension === '.csv' ||
+        file_extension === '.dhtml' ||
+        file_extension === '.f' ||
+        file_extension === '.go' ||
+        file_extension === '.h' ||
+        file_extension === '.htm' ||
+        file_extension === '.html' ||
+        file_extension === '.html5' ||
+        file_extension === '.java' ||
+        file_extension === '.jl' ||
+        file_extension === '.js' ||
+        file_extension === '.jsa' ||
+        file_extension === '.json' ||
+        file_extension === '.jsonld' ||
+        file_extension === '.jsf' ||
+        file_extension === '.jsp' ||
+        file_extension === '.kt' ||
+        file_extension === '.log' ||
+        file_extension === '.lock' ||
+        file_extension === '.lua' ||
+        file_extension === '.md' ||
+        file_extension === '.perl' ||
+        file_extension === '.phar' ||
+        file_extension === '.php' ||
+        file_extension === '.pl' ||
+        file_extension === '.py' ||
+        file_extension === '.r' ||
+        file_extension === '.rb' ||
+        file_extension === '.rdata' ||
+        file_extension === '.rda' ||
+        file_extension === '.rdf' ||
+        file_extension === '.rds' ||
+        file_extension === '.rs' ||
+        file_extension === '.rlib' ||
+        file_extension === '.rpy' ||
+        file_extension === '.scala' ||
+        file_extension === '.sc' ||
+        file_extension === '.scm' ||
+        file_extension === '.sh' ||
+        file_extension === '.sol' ||
+        file_extension === '.sql' ||
+        file_extension === '.ss' ||
+        file_extension === '.svg' ||
+        file_extension === '.swift' ||
+        file_extension === '.toml' ||
+        file_extension === '.ts' ||
+        file_extension === '.wasm' ||
+        file_extension === '.xhtml' ||
+        file_extension === '.xml' ||
+        file_extension === '.yaml' ||
         // files with no extension
-        !fsname.includes('.')
+        file_extension === ''
     ){
-        suggested_apps.push(await get_app({name: 'code'}))
-        suggested_apps.push(await get_app({name: 'editor'}))
+        add_suggested_app(await get_app({name: 'code'}))
+        add_suggested_app(await get_app({name: 'editor'}))
     }
     //---------------------------------------------
     // Editor
     //---------------------------------------------
     if(
-        fsname.endsWith('.txt') ||
+        file_extension === '.txt' ||
         // files with no extension
-        !fsname.includes('.')
+        file_extension === ''
     ){
-        suggested_apps.push(await get_app({name: 'editor'}))
-        suggested_apps.push(await get_app({name: 'code'}))
+        add_suggested_app(await get_app({name: 'editor'}))
+        add_suggested_app(await get_app({name: 'code'}))
     }
     //---------------------------------------------
     // Markus
     //---------------------------------------------
-    if(fsname.endsWith('.md')){
-        suggested_apps.push(await get_app({name: 'markus'}))
+    if(file_extension === '.md'){
+        add_suggested_app(await get_app({name: 'markus'}))
     }
     //---------------------------------------------
     // Viewer
     //---------------------------------------------
     if(
-        fsname.endsWith('.jpg') ||
-        fsname.endsWith('.png') ||
-        fsname.endsWith('.webp') ||
-        fsname.endsWith('.svg') ||
-        fsname.endsWith('.bmp') ||
-        fsname.endsWith('.jpeg')
+        file_extension === '.jpg' ||
+        file_extension === '.png' ||
+        file_extension === '.webp' ||
+        file_extension === '.svg' ||
+        file_extension === '.bmp' ||
+        file_extension === '.jpeg'
     ){
-        suggested_apps.push(await get_app({name: 'viewer'}));
+        add_suggested_app(await get_app({name: 'viewer'}));
     }
     //---------------------------------------------
     // Draw
     //---------------------------------------------
     if(
-        fsname.endsWith('.bmp') ||
+        file_extension === '.bmp' ||
         content_type.startsWith('image/')
     ){
-        suggested_apps.push(await get_app({name: 'draw'}));
+        add_suggested_app(await get_app({name: 'draw'}));
     }
     //---------------------------------------------
     // PDF
     //---------------------------------------------
-    if(fsname.endsWith('.pdf')){
-        suggested_apps.push(await get_app({name: 'pdf'}));
+    if(file_extension === '.pdf'){
+        add_suggested_app(await get_app({name: 'pdf'}));
     }
     //---------------------------------------------
     // Player
     //---------------------------------------------
     if(
-        fsname.endsWith('.mp4') ||
-        fsname.endsWith('.webm') ||
-        fsname.endsWith('.mpg') ||
-        fsname.endsWith('.mpv') ||
-        fsname.endsWith('.mp3') ||
-        fsname.endsWith('.m4a') ||
-        fsname.endsWith('.ogg')
+        file_extension === '.mp4' ||
+        file_extension === '.webm' ||
+        file_extension === '.mpg' ||
+        file_extension === '.mpv' ||
+        file_extension === '.mp3' ||
+        file_extension === '.m4a' ||
+        file_extension === '.ogg'
     ){
-        suggested_apps.push(await get_app({name: 'player'}));
+        add_suggested_app(await get_app({name: 'player'}));
     }
 
     //---------------------------------------------
