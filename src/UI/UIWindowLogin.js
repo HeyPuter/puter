@@ -20,6 +20,16 @@
 import UIWindow from './UIWindow.js'
 import UIWindowSignup from './UIWindowSignup.js'
 import UIWindowRecoverPassword from './UIWindowRecoverPassword.js'
+import TeePromise from '../util/TeePromise.js';
+import UIAlert from './UIAlert.js';
+import UIComponentWindow from './UIComponentWindow.js';
+import Flexer from './Components/Flexer.js';
+import CodeEntryView from './Components/CodeEntryView.js';
+import JustHTML from './Components/JustHTML.js';
+import StepView from './Components/StepView.js';
+import TestView from './Components/TestView.js';
+import Button from './Components/Button.js';
+import RecoveryCodeEntryView from './Components/RecoveryCodeEntryView.js';
 
 async function UIWindowLogin(options){
     options = options ?? {};
@@ -75,7 +85,7 @@ async function UIWindowLogin(options){
         puter.os.version()
         .then(res => {
             const deployed_date = new Date(res.deploy_timestamp).toLocaleString();
-            $("#version-placeholder").html(`Version: ${res.version} &bull; Server: ${res.location} &bull; Deployed: ${deployed_date}`);
+            $("#version-placeholder").html(`Version: ${html_encode(res.version)} &bull; Server: ${html_encode(res.location)} &bull; Deployed: ${html_encode(deployed_date)}`);
         })
         .catch(() => {
             $("#version-placeholder").html("Failed to load version or server information.");
@@ -138,7 +148,7 @@ async function UIWindowLogin(options){
             const password = $(el_window).find('.password').val();
             let data;
         
-            if(is_email(email_username)){
+            if(window.is_email(email_username)){
                 data = JSON.stringify({ 
                     email: email_username, 
                     password: password
@@ -157,14 +167,175 @@ async function UIWindowLogin(options){
                 headers = window.custom_headers;
     
             $.ajax({
-                url: gui_origin + "/login",
+                url: window.gui_origin + "/login",
                 type: 'POST',
                 async: false,
                 headers: headers,
                 contentType: "application/json",
                 data: data,				
-                success: function (data){
-                    update_auth_data(data.token, data.user);
+                success: async function (data){
+                    let p = Promise.resolve();
+                    if ( data.next_step === 'otp' ) {
+                        p = new TeePromise();
+                        let code_entry;
+                        let recovery_entry;
+                        let win;
+                        let stepper;
+                        const otp_option = new Flexer({
+                            children: [
+                                new JustHTML({
+                                    html: /*html*/`
+                                        <h3 style="text-align:center; font-weight: 500; font-size: 20px;">${
+                                            i18n('login2fa_otp_title')
+                                        }</h3>
+                                        <p style="text-align:center; padding: 0 20px;">${
+                                            i18n('login2fa_otp_instructions')
+                                        }</p>
+                                    `
+                                }),
+                                new CodeEntryView({
+                                    _ref: me => code_entry = me,
+                                    async [`property.value`] (value, { component }) {
+                                        let error_i18n_key = 'something_went_wrong';
+                                        if ( ! value ) return;
+                                        try {
+                                            const resp = await fetch(`${window.gui_origin}/login/otp`, {
+                                                method: 'POST',
+                                                headers: {
+                                                    'Content-Type': 'application/json',
+                                                },
+                                                body: JSON.stringify({
+                                                    token: data.otp_jwt_token,
+                                                    code: value,
+                                                }),
+                                            });
+
+                                            if ( resp.status === 429 ) {
+                                                error_i18n_key = 'confirm_code_generic_too_many_requests';
+                                                throw new Error('expected error');
+                                            }
+
+                                            const next_data = await resp.json();
+
+                                            if ( ! next_data.proceed ) {
+                                                error_i18n_key = 'confirm_code_generic_incorrect';
+                                                throw new Error('expected error');
+                                            }
+
+                                            component.set('is_checking_code', false);
+
+                                            data = next_data;
+
+                                            $(win).close();
+                                            p.resolve();
+                                        } catch (e) {
+                                            // keeping this log; useful in screenshots
+                                            console.log('2FA Login Error', e);
+                                            component.set('error', i18n(error_i18n_key));
+                                            component.set('is_checking_code', false);
+                                        }
+                                    }
+                                }),
+                                new Button({
+                                    label: i18n('login2fa_use_recovery_code'),
+                                    style: 'link',
+                                    on_click: async () => {
+                                        stepper.next();
+                                        code_entry.set('value', undefined);
+                                        code_entry.set('error', undefined);
+                                    }
+                                })
+                            ],
+                            ['event.focus'] () {
+                                code_entry.focus();
+                            }
+                        });
+                        const recovery_option = new Flexer({
+                            children: [
+                                new JustHTML({
+                                    html: /*html*/`
+                                        <h3 style="text-align:center; font-weight: 500; font-size: 20px;">${
+                                            i18n('login2fa_recovery_title')
+                                        }</h3>
+                                        <p style="text-align:center; padding: 0 20px;">${
+                                            i18n('login2fa_recovery_instructions')
+                                        }</p>
+                                    `
+                                }),
+                                new RecoveryCodeEntryView({
+                                    _ref: me => recovery_entry = me,
+                                    async [`property.value`] (value, { component }) {
+                                        let error_i18n_key = 'something_went_wrong';
+                                        if ( ! value ) return;
+                                        try {
+                                            const resp = await fetch(`${window.api_origin}/login/recovery-code`, {
+                                                method: 'POST',
+                                                headers: {
+                                                    'Content-Type': 'application/json',
+                                                },
+                                                body: JSON.stringify({
+                                                    token: data.otp_jwt_token,
+                                                    code: value,
+                                                }),
+                                            });
+
+                                            if ( resp.status === 429 ) {
+                                                error_i18n_key = 'confirm_code_generic_too_many_requests';
+                                                throw new Error('expected error');
+                                            }
+
+                                            const next_data = await resp.json();
+
+                                            if ( ! next_data.proceed ) {
+                                                error_i18n_key = 'confirm_code_generic_incorrect';
+                                                throw new Error('expected error');
+                                            }
+
+                                            data = next_data;
+
+                                            $(win).close();
+                                            p.resolve();
+                                        } catch (e) {
+                                            // keeping this log; useful in screenshots
+                                            console.log('2FA Recovery Error', e);
+                                            component.set('error', i18n(error_i18n_key));
+                                        }
+                                    }
+                                }),
+                                new Button({
+                                    label: i18n('login2fa_recovery_back'),
+                                    style: 'link',
+                                    on_click: async () => {
+                                        stepper.back();
+                                        recovery_entry.set('value', undefined);
+                                        recovery_entry.set('error', undefined);
+                                    }
+                                })
+                            ]
+                        });
+                        const component = stepper = new StepView({
+                            children: [otp_option, recovery_option],
+                        });
+                        win = await UIComponentWindow({
+                            component,
+                            width: 500,
+                            height: 410,
+                            backdrop: true,
+                            is_resizable: false,
+                            body_css: {
+                                width: 'initial',
+                                height: '100%',
+                                'background-color': 'rgb(245 247 249)',
+                                'backdrop-filter': 'blur(3px)',
+                                padding: '20px',
+                            },
+                        });
+                        component.focus();
+                    }
+
+                    await p;
+
+                    window.update_auth_data(data.token, data.user);
                     
                     if(options.reload_on_success){
                         window.onbeforeunload = null;
@@ -177,15 +348,15 @@ async function UIWindowLogin(options){
                     const $errorMessage = $(el_window).find('.login-error-msg');
                     if (err.status === 404) {
                         // Don't include the whole 404 page
-                        $errorMessage.html(`Error 404: "${gui_origin}/login" not found`);
+                        $errorMessage.html(`Error 404: "${window.gui_origin}/login" not found`);
                     } else if (err.responseText) {
-                        $errorMessage.html(err.responseText);
+                        $errorMessage.html(html_encode(err.responseText));
                     } else {
                         // No message was returned. *Probably* this means we couldn't reach the server.
                         // If this is a self-hosted instance, it's probably a configuration issue.
-                        if (app_domain !== 'puter.com') {
+                        if (window.app_domain !== 'puter.com') {
                             $errorMessage.html(`<div style="text-align: left;">
-                                <p>Error reaching "${gui_origin}/login". This is likely to be a configuration issue.</p>
+                                <p>Error reaching "${window.gui_origin}/login". This is likely to be a configuration issue.</p>
                                 <p>Make sure of the following:</p>
                                 <ul style="padding-left: 2em;">
                                     <li><code>domain</code> in config.json is set to the domain you're using to access puter</li>
@@ -195,7 +366,7 @@ async function UIWindowLogin(options){
                                 </ul>
                             </div>`);
                         } else {
-                            $errorMessage.html(`Failed to log in: Error ${err.status}`);
+                            $errorMessage.html(`Failed to log in: Error ${html_encode(err.status)}`);
                         }
                     }
                     $(el_window).find('.login-error-msg').fadeIn();

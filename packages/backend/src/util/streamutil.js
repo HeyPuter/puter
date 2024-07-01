@@ -310,6 +310,33 @@ const progress_stream = (source, { total, progress_callback }) => {
     return stream;
 }
 
+class SizeLimitingStream extends Transform {
+    constructor(options, { limit }) {
+        super(options);
+        this.limit = limit;
+        this.loaded = 0;
+    }
+
+    _transform(chunk, encoding, callback) {
+        this.loaded += chunk.length;
+        if ( this.loaded > this.limit ) {
+            const excess = this.loaded - this.limit;
+            chunk = chunk.slice(0, chunk.length - excess);
+        }
+        this.push(chunk);
+        if ( this.loaded >= this.limit ) {
+            this.end();
+        }
+        callback();
+    }
+}
+
+const size_limit_stream = (source, { limit }) => {
+    const stream = new SizeLimitingStream({}, { limit });
+    source.pipe(stream);
+    return stream;
+}
+
 class StuckDetectorStream extends Transform {
     constructor(options, {
         timeout,
@@ -365,7 +392,7 @@ const stuck_detector_stream = (source, {
     return stream;
 }
 
-string_to_stream = (str, chunk_size) => {
+const string_to_stream = (str, chunk_size) => {
     const s = new Readable();
     s._read = () => {}; // redundant? see update below
     // split string into chunks
@@ -459,6 +486,7 @@ module.exports = {
     logging_stream,
     offset_write_stream,
     progress_stream,
+    size_limit_stream,
     stuck_detector_stream,
     string_to_stream,
     chunk_stream,

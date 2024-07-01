@@ -1,6 +1,7 @@
 const eggspress = require("../../api/eggspress");
 const { UserActorType } = require("../../services/auth/Actor");
 const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
 
 module.exports = eggspress('/auth/list-sessions', {
     subdomain: 'api',

@@ -94,11 +94,11 @@ async function UIWindowChangeUsername(options){
         $(el_window).find('.new-username').attr('disabled', true);
     
         $.ajax({
-            url: api_origin + "/change_username",
+            url: window.api_origin + "/change_username",
             type: 'POST',
             async: true,
             headers: {
-                "Authorization": "Bearer "+auth_token
+                "Authorization": "Bearer "+window.auth_token
             },
             contentType: "application/json",
             data: JSON.stringify({ 

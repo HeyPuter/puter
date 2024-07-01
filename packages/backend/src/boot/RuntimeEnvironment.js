@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { quot } = require("../util/strutil");
 const { TechnicalError } = require("../errors/TechnicalError");
 const { print_error_help } = require("../errors/error_help_details");
@@ -162,24 +162,52 @@ const runtime_paths = ({ path_checks }) => ({ path_ }) => [
     },
 ];
 
+// Suitable mod paths in order of precedence.
+const mod_paths = ({ path_checks, entry_path }) => ({ path_ }) => [
+    {
+        label: '$MOD_PATH',
+        get path () { return process.env.MOD_PATH },
+        checks: [
+            path_checks.require_if_not_undefined,
+        ],
+    },
+    {
+        path: '/var/puter/mods',
+        checks: [
+            path_checks.skip_if_not_exists,
+            path_checks.env_not_set('NO_VAR_MODS'),
+        ],
+    },
+    {
+        get path () {
+            return path_.join(path_.dirname(
+                entry_path || require.main.filename), '../mods');
+        },
+        checks: [ path_checks.skip_if_not_exists ],
+    },
+];
+
 class RuntimeEnvironment extends AdvancedBase {
     static MODULES = {
         fs: require('node:fs'),
         path_: require('node:path'),
         crypto: require('node:crypto'),
+        format: require('string-template'),
     }
 
-    constructor ({ logger }) {
+    constructor ({ logger, entry_path }) {
         super();
         this.logger = logger;
+        this.entry_path = entry_path;
         this.path_checks = path_checks(this)(this.modules);
         this.config_paths = config_paths(this)(this.modules);
         this.runtime_paths = runtime_paths(this)(this.modules);
+        this.mod_paths = mod_paths(this)(this.modules);
     }
 
     init () {
         try {
-            this.init_();
+            return this.init_();
         } catch (e) {
             this.logger.error(e);
             print_error_help(e);
@@ -188,6 +216,13 @@ class RuntimeEnvironment extends AdvancedBase {
     }
 
     init_ () {
+        // This variable, called "environment", will be passed back to Kernel
+        // with some helpful values. A partial-population of this object later
+        // in this function will be used when evaluating configured paths.
+        const environment = {};
+        environment.source = this.modules.path_.dirname(
+            this.entry_path || require.main.filename);
+
         const config_path_entry = this.get_first_suitable_path_(
             { pathFor: 'configuration' },
             this.config_paths,
@@ -201,6 +236,12 @@ class RuntimeEnvironment extends AdvancedBase {
             { pathFor: 'working directory' },
             this.runtime_paths,
             [ this.path_checks.require_write_permission ]
+        );
+
+        const mods_path_entry = this.get_first_suitable_path_(
+            { pathFor: 'mods', optional: true },
+            this.mod_paths,
+            [ this.path_checks.require_read_permission ],
         );
 
         process.chdir(pwd_path_entry.path);
@@ -266,6 +307,21 @@ class RuntimeEnvironment extends AdvancedBase {
         // console.log(config.services);
         // console.log(Object.keys(config.services));
         // console.log({ ...config.services });
+
+        const mod_paths = [];
+        environment.mod_paths = mod_paths;
+
+        // If configured, add a user-specified mod path
+        if ( config.mod_directories ) {
+            for ( const dir of config.mod_directories ) {
+                const mods_directory = this.modules.format(
+                    dir, environment,
+                );
+                mod_paths.push(mods_directory);
+            }
+        }
+
+        return environment;
     }
 
     get_first_suitable_path_ (meta, paths, last_checks) {
@@ -295,6 +351,7 @@ class RuntimeEnvironment extends AdvancedBase {
             return entry;
         }
 
+        if ( meta.optional ) return;
         throw new TechnicalError(`No suitable path found for ${meta.pathFor}.`);
     }
 }

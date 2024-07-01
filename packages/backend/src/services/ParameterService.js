@@ -1,3 +1,5 @@
+const BaseService = require("./BaseService");
+
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -16,12 +18,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-class ParameterService {
-    constructor({ services }) {
-        this.log = services.get('log-service').create('params');
+class ParameterService extends BaseService {
+    _construct () {
         this.parameters_ = [];
-
-        this._registerCommands(services.get('commands'));
+    }
+    
+    _init () {
+        this._registerCommands(this.services.get('commands'));
     }
 
     createParameters(serviceName, parameters, opt_instance) {
@@ -65,6 +68,17 @@ class ParameterService {
     }
 
     _registerCommands (commands) {
+        const completeParameterName = (args) => {
+            // The parameter name is the first argument, so return no results if we're on the second or later.
+            if (args.length > 1)
+                return;
+            const lastArg = args[args.length - 1];
+
+            return this.parameters_
+                .map(parameter => parameter.spec_.id)
+                .filter(parameterName => parameterName.startsWith(lastArg));
+        };
+
         commands.registerCommands('params', [
             {
                 id: 'get',
@@ -73,7 +87,8 @@ class ParameterService {
                     const [name] = args;
                     const value = await this.get(name);
                     log.log(value);
-                }
+                },
+                completer: completeParameterName,
             },
             {
                 id: 'set',
@@ -83,7 +98,8 @@ class ParameterService {
                     const parameter = this._get_param(name);
                     parameter.set(value);
                     log.log(value);
-                }
+                },
+                completer: completeParameterName,
             },
             {
                 id: 'list',

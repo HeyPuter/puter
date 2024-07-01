@@ -18,6 +18,9 @@
  */
 const { stream_to_buffer } = require("../../util/streamutil");
 const { HLFilesystemOperation } = require("./definitions");
+const { chkperm } = require('../../helpers');
+const { LLRead } = require('../ll_operations/ll_read');
+const APIError = require('../../api/APIError');
 
 /**
  * HLDataRead reads a stream of objects from a file containing structured data.
@@ -38,6 +41,7 @@ class HLDataRead extends HLFilesystemOperation {
 
         const {
             fsNode,
+            version_id,
         } = this.values;
 
         if ( ! await fsNode.exists() ) {
@@ -85,6 +89,7 @@ class HLDataRead extends HLFilesystemOperation {
     }
 
     _stream_jsonl_lines_to_objects (stream) {
+        const { PassThrough } = this.modules.stream;
         const output_stream = new PassThrough();
         (async () => {
             for await (const line of stream) {

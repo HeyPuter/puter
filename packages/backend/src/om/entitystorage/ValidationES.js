@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { BaseES } = require("./BaseES");
 
 const APIError = require("../../api/APIError");
@@ -86,6 +86,7 @@ class ValidationES extends BaseES {
                 } catch ( e ) {
                     if ( ! (e instanceof APIError) ) {
                         console.log('THIS IS HAPPENING', e);
+                        // eslint-disable-next-line no-ex-assign
                         e = APIError.create('field_invalid', null, {
                             key: prop.name,
                             converted_from_another_error: true,

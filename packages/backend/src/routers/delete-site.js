@@ -40,7 +40,6 @@ router.post('/delete-site', auth, express.json(), async (req, res, next)=>{
         return res.status(400).send('site_uuid is required')
 
     // modules
-    const {} = require('../helpers');
     const db = req.services.get('database').get(DB_WRITE, 'subdomains:legacy');
 
     await db.write(

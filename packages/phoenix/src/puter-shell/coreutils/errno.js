@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { ErrorCodes, ErrorMetadata, errorFromIntegerCode } from '../../platform/PosixError.js';
+import { ErrorCodes, ErrorMetadata, errorFromIntegerCode } from '@heyputer/puter-js-common/src/PosixError.js';
 import { Exit } from './coreutil_lib/exit.js';
 
 const maxErrorNameLength = Object.keys(ErrorCodes)

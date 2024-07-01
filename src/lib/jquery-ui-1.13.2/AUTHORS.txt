@@ -1,5 +1,5 @@
 Authors ordered by first contribution
-A list of current team members is available at http://jqueryui.com/about
+A list of current team members is available at https://jqueryui.com/about
 
 Paul Bakaus <paul.bakaus@gmail.com>
 Richard Worth <rdworth@gmail.com>
@@ -42,7 +42,7 @@ Adam Sontag <ajpiano@ajpiano.com>
 Carl Fürstenberg <carl@excito.com>
 Kevin Dalman <development@allpro.net>
 Alberto Fernández Capel <afcapel@gmail.com>
-Jacek Jędrzejewski (http://jacek.jedrzejewski.name)
+Jacek Jędrzejewski (https://jacek.jedrzejewski.name)
 Ting Kuei <ting@kuei.com>
 Samuel Cormier-Iijima <sam@chide.it>
 Jon Palmer <jonspalmer@gmail.com>
@@ -370,3 +370,12 @@ dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
 Adam Lidén Hällgren <adamlh92@gmail.com>
 James Hinderks <hinderks@gmail.com>
 Denny Septian Panggabean <97607754+ddevsr@users.noreply.github.com>
+Matías Cánepa <matias.canepa@gmail.com>
+Ashish Kurmi <100655670+boahc077@users.noreply.github.com>
+DeerBear <andrea.raimondi@gmail.com>
+Дилян Палаузов <dpa-github@aegee.org>
+Kenneth DeBacker <kcdebacker@gmail.com>
+Timo Tijhof <krinkle@fastmail.com>
+Timmy Willison <timmywil@users.noreply.github.com>
+divdeploy <166095818+divdeploy@users.noreply.github.com>
+mark van tilburg <markvantilburg@gmail.com>

@@ -21,11 +21,19 @@ export default {
     usage: 'clear',
     description: 'Clear the terminal output.',
     args: {
-        // TODO: add 'none-parser'
         $: 'simple-parser',
-        allowPositionals: false
+        allowPositionals: false,
+        options: {
+            'keep-scrollback': {
+                description: 'Only clear the visible portion of the screen, and keep the scrollback.',
+                type: 'boolean',
+                short: 'x',
+            }
+        },
     },
     execute: async ctx => {
         await ctx.externs.out.write('\x1B[H\x1B[2J');
+        if (!ctx.locals.values['keep-scrollback'])
+            await ctx.externs.out.write('\x1B[H\x1B[3J');
     }
 };

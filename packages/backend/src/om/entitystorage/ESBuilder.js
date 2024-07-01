@@ -25,16 +25,13 @@ class ESBuilder {
             let last_was_cons = false;
             while ( ! last_was_cons ) {
                 const item = stack.pop();
-                console.log('item?', item)
                 if ( typeof item === 'function' ) {
-                    console.log('last was cons')
                     last_was_cons = true;
                 }
                 args.unshift(item);
             }
 
             const cls = args.shift();
-            console.log('cls?', cls)
             head = new cls({
                 ...(args[0] ?? {}),
                 ...(head ? { upstream: head } : {}),
@@ -55,7 +52,6 @@ class ESBuilder {
         // Print the classes in order
         let current = head;
         while ( current ) {
-            console.log(current.constructor.name);
             current = current.upstream;
         }
 

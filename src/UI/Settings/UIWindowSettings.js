@@ -17,42 +17,26 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import Placeholder from '../../util/Placeholder.js';
 import UIWindow from '../UIWindow.js'
-import UIWindowChangePassword from '../UIWindowChangePassword.js'
-import UIWindowChangeEmail from './UIWindowChangeEmail.js'
-import UIWindowChangeUsername from '../UIWindowChangeUsername.js'
-import changeLanguage from "../../i18n/i18nChangeLanguage.js"
-import UIWindowConfirmUserDeletion from './UIWindowConfirmUserDeletion.js';
-import AboutTab from './UITabAbout.js';
-import UsageTab from './UITabUsage.js';
-import AccountTab from './UITabAccount.js';
-import PersonalizationTab from './UITabPersonalization.js';
-import LanguageTab from './UITabLanguage.js';
-import ClockTab from './UITabClock.js';
-import UIWindowThemeDialog from '../UIWindowThemeDialog.js';
-import UIWindowManageSessions from '../UIWindowManageSessions.js';
 
 async function UIWindowSettings(options){
     return new Promise(async (resolve) => {
         options = options ?? {};
 
-        const tabs = [
-            AboutTab,
-            UsageTab,
-            AccountTab,
-            PersonalizationTab,
-            LanguageTab,
-            ClockTab,
-        ];
+        const svc_settings = globalThis.services.get('settings');
+
+        const tabs = svc_settings.get_tabs();
+        const tab_placeholders = [];
 
         let h = '';
 
         h += `<div class="settings-container">`;
         h += `<div class="settings">`;
             // side bar
-            h += `<div class="settings-sidebar disable-user-select">`;
+            h += `<div class="settings-sidebar disable-user-select disable-context-menu">`;
             tabs.forEach((tab, i) => {
-                h += `<div class="settings-sidebar-item disable-user-select ${i === 0 ? 'active' : ''}" data-settings="${tab.id}" style="background-image: url(${icons[tab.icon]});">${i18n(tab.title_i18n_key)}</div>`;
+                h += `<div class="settings-sidebar-item disable-context-menu disable-user-select ${i === 0 ? 'active' : ''}" data-settings="${tab.id}" style="background-image: url(${window.icons[tab.icon]});">${i18n(tab.title_i18n_key)}</div>`;
             });
             h += `</div>`;
 
@@ -60,9 +44,14 @@ async function UIWindowSettings(options){
             h += `<div class="settings-content-container">`;
 
             tabs.forEach((tab, i) => {
-                h += `<div class="settings-content ${i === 0 ? 'active' : ''}" data-settings="${tab.id}">
-                        ${tab.html()}
-                    </div>`;
+                h += `<div class="settings-content ${i === 0 ? 'active' : ''}" data-settings="${tab.id}">`;
+                if ( tab.factory ) {
+                    tab_placeholders[i] = Placeholder();
+                    h += tab_placeholders[i].html;
+                } else {
+                    h += tab.html();
+                }
+                h += `</div>`;
             });
 
             h += `</div>`;
@@ -89,7 +78,6 @@ async function UIWindowSettings(options){
             allow_user_select: true,
             backdrop: false,
             width: 800,
-            height: 500,
             height: 'auto',
             dominant: true,
             show_in_taskbar: false,
@@ -104,7 +92,13 @@ async function UIWindowSettings(options){
             }
         });
         const $el_window = $(el_window);
-        tabs.forEach(tab => tab.init($el_window));
+        tabs.forEach((tab, i) => {
+            tab.init && tab.init($el_window);
+            if ( tab.factory ) {
+                const component = tab.factory();
+                component.attach(tab_placeholders[i]);
+            }
+        });
 
         $(el_window).on('click', '.settings-sidebar-item', function(){
             const $this = $(this);

@@ -22,10 +22,12 @@ This module contains functions that validate filesystem operations.
 
 */
 
+/* eslint-disable no-control-regex */
+
 const config = require("../config");
 
 const path_excludes = () => /[\x00-\x1F]/g;
-const node_excludes = () => /[\/\x00-\x1F]/g;
+const node_excludes = () => /[/\x00-\x1F]/g;
 
 // this characters are not allowed in path names because
 // they might be used to trick the user into thinking

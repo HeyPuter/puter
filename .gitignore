@@ -1,12 +1,28 @@
+# Misc
 .DS_Store
+
+# Dependencies
 node_modules/
+
 *.zip
 *.tgz
 license.config.json
 license-header.txt
+
+# Build Outputs
 dist/
-.vscode/
+
+# VS Code IDE
+.vscode/**/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json
+
+# Local env files
 .env
+!.env.example
+
 # this is for jetbrain IDEs
 .idea/
 /puter

@@ -64,10 +64,6 @@ class PuterPath {
         return ! this.isAbsolute();
     }
 
-    get hasRelativePortion () {
-
-    }
-
     get reference () {
         if ( this.isAbsolute ) return this.constructor.NULL_UUID;
 

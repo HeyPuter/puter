@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const TeePromise = require("@heyputer/multest/src/util/TeePromise");
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { FileTracker } = require("./FileTracker");
 const { pausing_tee } = require("../../util/streamutil");
 
@@ -250,7 +250,7 @@ class FileCacheService extends AdvancedBase {
         const path = this._get_path(tracker.key);
         console.log(`precache fetch key I guess?`, tracker.key);
         const data = this.precache.get(tracker.key);
-        console.log(`path and data: ${path} ${data}`);
+        // console.log(`path and data: ${path} ${data}`);
         await fs.promises.writeFile(path, data);
         this.precache.delete(tracker.key);
         tracker.phase = FileTracker.PHASE_DISK;

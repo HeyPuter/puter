@@ -41,6 +41,7 @@ class LocalDiskUploadStrategy extends BaseOperation {
             await this.parent.svc_localDiskStorage.store_stream({
                 key: uid,
                 stream: file.stream,
+                size: file.size,
                 on_progress: evt => {
                     progress_tracker.set_total(file.size);
                     progress_tracker.set(evt.uploaded);

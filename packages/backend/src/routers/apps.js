@@ -23,14 +23,15 @@ const auth = require('../middleware/auth.js');
 const config = require('../config');
 const { app_name_exists, refresh_apps_cache, chkperm, convert_path_to_fsentry, get_app } = require('../helpers');
 const { DB_WRITE, DB_READ } = require('../services/database/consts.js');
+const subdomain = require('../middleware/subdomain.js');
 
 // -----------------------------------------------------------------------//
 // GET /apps
 // -----------------------------------------------------------------------//
-router.get('/apps', auth, express.json({limit: '50mb'}), async (req, res, next)=>{
-    // check subdomain
-    if(require('../helpers').subdomain(req) !== 'api')
-        next();
+router.get('/apps',
+    subdomain('api'),
+    auth, express.json({limit: '50mb'}), async (req, res, next)=>{
+    // /!\ open brace on end of previous line
 
     // check if user is verified
     if((config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed)
@@ -88,7 +89,11 @@ router.get('/apps', auth, express.json({limit: '50mb'}), async (req, res, next)=
 // -----------------------------------------------------------------------//
 // GET /apps/:name(s)
 // -----------------------------------------------------------------------//
-router.get('/apps/:name', auth, express.json({limit: '50mb'}), async (req, res, next)=>{
+router.get('/apps/:name',
+    subdomain('api'),
+    auth, express.json({limit: '50mb'}), async (req, res, next)=>{
+    // /!\ open brace on end of previous line
+
     // check subdomain
     if(require('../helpers').subdomain(req) !== 'api')
         next();

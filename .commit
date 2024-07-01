@@ -1,0 +1,6 @@
+# === FOR EMPTY COMMITS ===
+# Select reason for empty commit:
+- [ ] Add conventional commit message for changelog
+- [x] Forgot to use conventional commit style
+# Increment this value if nothing above was changed
+0

@@ -19,22 +19,22 @@
 
 const determine_active_container_parent = function(){
     // the container is either an ancestor of active element...
-    let parent_container = $(active_element).closest('.item-container');
+    let parent_container = $(window.active_element).closest('.item-container');
     // ... or a descendant of it...
     if(parent_container.length === 0){
-        parent_container = $(active_element).find('.item-container');
+        parent_container = $(window.active_element).find('.item-container');
     }
     // ... or siblings or cousins
     if(parent_container.length === 0){
-        parent_container = $(active_element).closest('.window').find('.item-container');
+        parent_container = $(window.active_element).closest('.window').find('.item-container');
     }
     // ... or the active element itself (if it's a container)
-    if(parent_container.length === 0 && active_element && $(active_element).hasClass('item-container')){
-        parent_container = $(active_element);
+    if(parent_container.length === 0 && window.active_element && $(window.active_element).hasClass('item-container')){
+        parent_container = $(window.active_element);
     }
     // ... or if there is no active element, the selected item that is not blurred
-    if(parent_container.length === 0 && active_item_container){
-        parent_container = active_item_container;
+    if(parent_container.length === 0 && window.active_item_container){
+        parent_container = window.active_item_container;
     }
 
     return parent_container;

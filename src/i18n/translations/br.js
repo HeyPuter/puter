@@ -102,7 +102,7 @@ const br = {
         log_into_another_account_anyway: 'Entrar com outra conta de qualquer maneira',
         log_out: 'Sair',
         move: 'Mover',
-        moving: "Movendo",
+        moving_file: "Movendo %%",
         my_websites: "Meus Sites",
         name: 'Nome',
         name_cannot_be_empty: 'Nome não pode ser vazio.',

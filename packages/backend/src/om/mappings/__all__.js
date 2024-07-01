@@ -19,4 +19,5 @@
 module.exports = {
     app: require('./app'),
     subdomain: require('./subdomain'),
+    notification: require('./notification'),
 };

@@ -41,7 +41,7 @@ class HLRead extends HLFilesystemOperation {
         }
 
         const ll_read = new LLRead();
-        const stream = await ll_read.run({
+        let stream = await ll_read.run({
             fsNode, actor,
             version_id,
             ...(byte_count !== undefined ? {

@@ -30,6 +30,7 @@
     - easier to diagnose stuck operations
 
 */
+/* eslint-disable */
 
 const STEPS_COPY_CONTENTS = [
     {

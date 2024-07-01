@@ -21,6 +21,7 @@ const { get_app, get_user } = require("../../helpers");
 const { UserActorType } = require("../../services/auth/Actor");
 const { DB_READ } = require("../../services/database/consts");
 const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
 
 module.exports = eggspress('/auth/list-permissions', {
     subdomain: 'api',

@@ -19,6 +19,10 @@ export class ProcessService extends Service {
         return this.processes_map.get(NULL_UUID);
     }
 
+    get_by_uuid (uuid) {
+        return this.processes_map.get(uuid);
+    }
+
     get_children_of (uuid) {
         if ( ! uuid ) {
             uuid = NULL_UUID;

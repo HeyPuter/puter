@@ -126,9 +126,9 @@ export default {
                         break;
                     }
 
-                    // "Locale's abbreviated month name."
+                    // b: "Locale's abbreviated month name."
+                    // h: "A synonym for %b."
                     case 'b':
-                    // "A synonym for %b."
                     case 'h': {
                         output += date.toLocaleDateString(locale, { timeZone: timeZone, month: 'short' });
                         break;

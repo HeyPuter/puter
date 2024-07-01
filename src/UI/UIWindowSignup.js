@@ -20,6 +20,7 @@
 import UIWindow from './UIWindow.js'
 import UIWindowLogin from './UIWindowLogin.js'
 import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js'
+import check_password_strength from '../helpers/check_password_strength.js'
 
 function UIWindowSignup(options){
     options = options ?? {};
@@ -48,12 +49,12 @@ function UIWindowSignup(options){
                     // username
                     h += `<div style="overflow: hidden;">`;
                         h += `<label for="username-${internal_id}">${i18n('username')}</label>`;
-                        h += `<input id="username-${internal_id}" class="username" type="text" autocomplete="username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
+                        h += `<input id="username-${internal_id}" value="${html_encode(options.username ?? '')}" class="username" type="text" autocomplete="username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                     h += `</div>`;
                     // email
                     h += `<div style="overflow: hidden; margin-top: 20px;">`;
                         h += `<label for="email-${internal_id}">${i18n('email')}</label>`;
-                        h += `<input id="email-${internal_id}" class="email" type="email" autocomplete="email" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
+                        h += `<input id="email-${internal_id}" value="${html_encode(options.email ?? '')}" class="email" type="email" autocomplete="email" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                     h += `</div>`;
                     // password
                     h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
@@ -114,7 +115,7 @@ function UIWindowSignup(options){
                 'justify-content': 'center',
                 'align-items': 'center',
                 padding: '30px 10px 10px 10px',
-            }    
+            }
         })
 
         $(el_window).find('.login-c2a-clickable').on('click', async function(e){
@@ -132,17 +133,48 @@ function UIWindowSignup(options){
         })
 
         $(el_window).find('.signup-btn').on('click', function(e){
-            // todo do some basic validation client-side
-
             //Username
             let username = $(el_window).find('.username').val();
+
+            if(!username){
+                $(el_window).find('.signup-error-msg').html(i18n('username_required'));
+                $(el_window).find('.signup-error-msg').fadeIn();
+                return;
+            }
         
             //Email
             let email = $(el_window).find('.email').val();
-        
+
+            // must have an email
+            if(!email){
+                $(el_window).find('.signup-error-msg').html(i18n('email_required'));
+                $(el_window).find('.signup-error-msg').fadeIn();
+                return;
+            }
+            // must be a valid email
+            else if(!window.is_email(email)){
+                $(el_window).find('.signup-error-msg').html(i18n('email_invalid'));
+                $(el_window).find('.signup-error-msg').fadeIn();
+                return;
+            }
+
             //Password
             let password = $(el_window).find('.password').val();
-            
+
+            // must have a password
+            if(!password){
+                $(el_window).find('.signup-error-msg').html(i18n('password_required'));
+                $(el_window).find('.signup-error-msg').fadeIn();
+                return;
+            }
+            // check password strength
+            const pass_strength = check_password_strength(password);
+            if(!pass_strength.overallPass){
+                $(el_window).find('.signup-error-msg').html(i18n('password_strength_error'));
+                $(el_window).find('.signup-error-msg').fadeIn();
+                return;
+            }
+
             //xyzname
             let p102xyzname = $(el_window).find('.p102xyzname').val();
 
@@ -154,7 +186,7 @@ function UIWindowSignup(options){
                 headers = window.custom_headers;
 
             $.ajax({
-                url: gui_origin + "/signup",
+                url: window.gui_origin + "/signup",
                 type: 'POST',
                 async: true,
                 headers: headers,
@@ -169,7 +201,7 @@ function UIWindowSignup(options){
                     p102xyzname: p102xyzname,
                 }),
                 success: async function (data){
-                    update_auth_data(data.token, data.user)
+                    window.update_auth_data(data.token, data.user)
                     
                     //send out the login event
                     if(options.reload_on_success){
@@ -186,7 +218,7 @@ function UIWindowSignup(options){
                 error: function (err){
                     $(el_window).find('.signup-error-msg').html(err.responseText);
                     $(el_window).find('.signup-error-msg').fadeIn();
-                    // re-enable 'Create Account' button
+                    // re-enable 'Create Account' button so user can try again
                     $(el_window).find('.signup-btn').prop('disabled', false);
                 }
             });

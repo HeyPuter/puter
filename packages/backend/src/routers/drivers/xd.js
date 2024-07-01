@@ -65,8 +65,9 @@ const script = async function script () {
         return await response.json();
     };
 
+    /* global window */
     window.addEventListener('message', async event => {
-        const { id, interface, method, params } = event.data;
+        const { id, interface: interface_, method, params } = event.data;
         let has_file = false;
         for ( const k in params ) {
             if ( params[k] instanceof File ) {
@@ -75,11 +76,11 @@ const script = async function script () {
             }
         }
         const result = has_file ? await fcall({
-            interface_name: interface,
+            interface_name: interface_,
             method_name: method,
             params,
         }) : await call({
-            interface_name: interface,
+            interface_name: interface_,
             method_name: method,
             params,
         });

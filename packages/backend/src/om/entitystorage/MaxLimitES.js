@@ -35,8 +35,6 @@ class MaxLimitES extends BaseES {
 
             options.limit = limit;
 
-            console.log('SELECT options (1)', options);
-
             return await this.upstream.select(options);
         }
     };

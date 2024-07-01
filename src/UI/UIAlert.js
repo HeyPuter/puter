@@ -23,7 +23,7 @@ function UIAlert(options){
     // set sensible defaults
     if(arguments.length > 0){
         // if first argument is a string, then assume it is the message
-        if(isString(arguments[0])){
+        if(window.isString(arguments[0])){
             options = {};
             options.message = arguments[0];
         }
@@ -46,11 +46,21 @@ function UIAlert(options){
         if(options.type === 'success')
             options.body_icon = window.icons['c-check.svg'];
 
+        let santized_message = html_encode(options.message);
+
+        // replace sanitized <strong> with <strong>
+        santized_message = santized_message.replace(/&lt;strong&gt;/g, '<strong>');
+        santized_message = santized_message.replace(/&lt;\/strong&gt;/g, '</strong>');
+
+        // replace sanitized <p> with <p>
+        santized_message = santized_message.replace(/&lt;p&gt;/g, '<p>');
+        santized_message = santized_message.replace(/&lt;\/p&gt;/g, '</p>');
+
         let h = '';
         // icon
         h += `<img class="window-alert-icon" src="${html_encode(options.body_icon)}">`;
         // message
-        h += `<div class="window-alert-message">${options.message}</div>`;
+        h += `<div class="window-alert-message">${santized_message}</div>`;
         // buttons
         if(options.buttons && options.buttons.length > 0){
             h += `<div style="overflow:hidden; margin-top:20px;">`;
@@ -111,5 +121,7 @@ function UIAlert(options){
         })
     })
 }
+
+def(UIAlert, 'ui.window.UIAlert');
 
 export default UIAlert;

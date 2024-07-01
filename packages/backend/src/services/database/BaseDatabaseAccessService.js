@@ -16,10 +16,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const BaseService = require("../BaseService");
+const { DB_WRITE, DB_READ } = require("./consts");
 
 class BaseDatabaseAccessService extends BaseService {
+    static DB_WRITE = DB_WRITE;
+    static DB_READ = DB_READ;
     case ( choices ) {
         const engine_name = this.constructor.ENGINE_NAME;
         if ( choices.hasOwnProperty(engine_name) ) {

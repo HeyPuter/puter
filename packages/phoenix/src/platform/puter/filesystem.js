@@ -16,107 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { ErrorCodes, PosixError } from '../PosixError.js';
-
-function convertPuterError(e) {
-    // Handle Puter SDK errors
-    switch (e.code) {
-        case 'item_with_same_name_exists': return new PosixError(ErrorCodes.EEXIST, e.message);
-        case 'cannot_move_item_into_itself': return new PosixError(ErrorCodes.EPERM, e.message);
-        case 'cannot_copy_item_into_itself': return new PosixError(ErrorCodes.EPERM, e.message);
-        case 'cannot_move_to_root': return new PosixError(ErrorCodes.EACCES, e.message);
-        case 'cannot_copy_to_root': return new PosixError(ErrorCodes.EACCES, e.message);
-        case 'cannot_write_to_root': return new PosixError(ErrorCodes.EACCES, e.message);
-        case 'cannot_overwrite_a_directory': return new PosixError(ErrorCodes.EPERM, e.message);
-        case 'cannot_read_a_directory': return new PosixError(ErrorCodes.EISDIR, e.message);
-        case 'source_and_dest_are_the_same': return new PosixError(ErrorCodes.EPERM, e.message);
-        case 'dest_is_not_a_directory': return new PosixError(ErrorCodes.ENOTDIR, e.message);
-        case 'dest_does_not_exist': return new PosixError(ErrorCodes.ENOENT, e.message);
-        case 'source_does_not_exist': return new PosixError(ErrorCodes.ENOENT, e.message);
-        case 'subject_does_not_exist': return new PosixError(ErrorCodes.ENOENT, e.message);
-        case 'shortcut_target_not_found': return new PosixError(ErrorCodes.ENOENT, e.message);
-        case 'shortcut_target_is_a_directory': return new PosixError(ErrorCodes.EISDIR, e.message);
-        case 'shortcut_target_is_a_file': return new PosixError(ErrorCodes.ENOTDIR, e.message);
-        case 'forbidden': return new PosixError(ErrorCodes.EPERM, e.message);
-        case 'immutable': return new PosixError(ErrorCodes.EACCES, e.message);
-        case 'field_empty': return new PosixError(ErrorCodes.EINVAL, e.message);
-        case 'field_missing': return new PosixError(ErrorCodes.EINVAL, e.message);
-        case 'xor_field_missing': return new PosixError(ErrorCodes.EINVAL, e.message);
-        case 'field_only_valid_with_other_field': return new PosixError(ErrorCodes.EINVAL, e.message);
-        case 'invalid_id': return new PosixError(ErrorCodes.EINVAL, e.message);
-        case 'field_invalid': return new PosixError(ErrorCodes.EINVAL, e.message);
-        case 'field_immutable': return new PosixError(ErrorCodes.EINVAL, e.message);
-        case 'field_too_long': return new PosixError(ErrorCodes.EINVAL, e.message);
-        case 'field_too_short': return new PosixError(ErrorCodes.EINVAL, e.message);
-        case 'already_in_use': return new PosixError(ErrorCodes.EINVAL, e.message); // Not sure what this one is
-        case 'invalid_file_name': return new PosixError(ErrorCodes.EINVAL, e.message);
-        case 'storage_limit_reached': return new PosixError(ErrorCodes.ENOSPC, e.message);
-        case 'internal_error': return new PosixError(ErrorCodes.ECONNRESET, e.message); // This isn't quite right
-        case 'response_timeout': return new PosixError(ErrorCodes.ETIMEDOUT, e.message);
-        case 'file_too_large': return new PosixError(ErrorCodes.EFBIG, e.message);
-        case 'thumbnail_too_large': return new PosixError(ErrorCodes.EFBIG, e.message);
-        case 'upload_failed': return new PosixError(ErrorCodes.ECONNRESET, e.message); // This isn't quite right
-        case 'missing_expected_metadata': return new PosixError(ErrorCodes.EINVAL, e.message);
-        case 'overwrite_and_dedupe_exclusive': return new PosixError(ErrorCodes.EINVAL, e.message);
-        case 'not_empty': return new PosixError(ErrorCodes.ENOTEMPTY, e.message);
-
-        // Write
-        case 'offset_without_existing_file': return new PosixError(ErrorCodes.ENOENT, e.message);
-        case 'offset_requires_overwrite': return new PosixError(ErrorCodes.EINVAL, e.message);
-        case 'offset_requires_stream': return new PosixError(ErrorCodes.EPERM, e.message);
-
-        // Batch
-        case 'batch_too_many_files': return new PosixError(ErrorCodes.EINVAL, e.message);
-        case 'batch_missing_file': return new PosixError(ErrorCodes.EINVAL, e.message);
-
-        // Open
-        case 'no_suitable_app': break;
-        case 'app_does_not_exist': break;
-
-        // Apps
-        case 'app_name_already_in_use': break;
-
-        // Subdomains
-        case 'subdomain_limit_reached': break;
-        case 'subdomain_reserved': break;
-
-        // Users
-        case 'email_already_in_use': break;
-        case 'username_already_in_use': break;
-        case 'too_many_username_changes': break;
-        case 'token_invalid': break;
-
-        // drivers
-        case 'interface_not_found': break;
-        case 'no_implementation_available': break;
-        case 'method_not_found': break;
-        case 'missing_required_argument': break;
-        case 'argument_consolidation_failed': break;
-
-        // SLA
-        case 'rate_limit_exceeded': break;
-        case 'monthly_limit_exceeded': break;
-        case 'server_rate_exceeded': break;
-
-        // auth
-        case 'token_missing': break;
-        case 'token_auth_failed': break;
-        case 'token_unsupported': break;
-        case 'account_suspended': break;
-        case 'permission_denied': break;
-        case 'access_token_empty_permissions': break;
-
-        // Object Mapping
-        case 'field_not_allowed_for_create': break;
-        case 'field_required_for_update': break;
-        case 'entity_not_found': break;
-
-        // Chat
-        case 'max_tokens_exceeded': break;
-    }
-    // Some other kind of error
-    return e;
-}
+import { ErrorCodes, PosixError } from '@heyputer/puter-js-common/src/PosixError.js';
 
 // DRY: Almost the same as node/filesystem.js
 function wrapAPIs(apis) {
@@ -129,7 +29,7 @@ function wrapAPIs(apis) {
             try {
                 return await original(...args);
             } catch (e) {
-                throw convertPuterError(e);
+                throw PosixError.fromPuterAPIError(e);
             }
         };
     }

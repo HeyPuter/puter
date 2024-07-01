@@ -1,6 +1,7 @@
 import OS from './modules/OS.js';
 import FileSystem from './modules/FileSystem/index.js';
 import Hosting from './modules/Hosting.js';
+import Email from './modules/Email.js';
 import Apps from './modules/Apps.js';
 import UI from './modules/UI.js';
 import KV from './modules/KV.js';
@@ -9,6 +10,7 @@ import Auth from './modules/Auth.js';
 import FSItem from './modules/FSItem.js';
 import * as utils from './lib/utils.js';
 import path from './lib/path.js';
+import Util from './modules/Util.js';
 
 window.puter = (function() {
     'use strict';
@@ -68,11 +70,24 @@ window.puter = (function() {
             else
                 this.env = 'web';
 
-            // there are some specific situations where puter is definitely loaded in GUI mode
+            // There are some specific situations where puter is definitely loaded in GUI mode
             // we're going to check for those situations here so that we don't break anything unintentionally
             // if navigator URL's hostname is 'puter.com'
-            if(window.location.hostname === 'puter.com'){
-                this.env = 'gui';
+            if(this.env !== 'gui'){
+                // Retrieve the hostname from the URL: Remove the trailing dot if it exists. This is to handle the case where the URL is, for example, `https://puter.com.` (note the trailing dot).
+                // This is necessary because the trailing dot can cause the hostname to not match the expected value. 
+                let hostname = location.hostname.replace(/\.$/, '');
+
+                // Create a new URL object with the URL string
+                const url = new URL(this.defaultGUIOrigin);
+
+                // Extract hostname from the URL object
+                const gui_hostname = url.hostname;
+
+                // If the hostname matches the GUI hostname, then the SDK is running in the GUI environment
+                if(hostname === gui_hostname){
+                    this.env = 'gui';
+                }
             }
 
             // Get the 'args' from the URL. This is used to pass arguments to the app.
@@ -111,10 +126,11 @@ window.puter = (function() {
             // The default APIOrigin is https://api.puter.com. However, if the URL contains a `puter.api_origin` query parameter,
             // then that value is used as the APIOrigin. If the URL contains a `puter.domain` query parameter, then the APIOrigin
             // is constructed as `https://api.<puter.domain>`.
+            // This should only be done when the SDK is running in 'app' mode.
             this.APIOrigin = this.defaultAPIOrigin;
-            if(URLParams.has('puter.api_origin')){
+            if(URLParams.has('puter.api_origin') && this.env === 'app'){
                 this.APIOrigin = decodeURIComponent(URLParams.get('puter.api_origin'));
-            }else if(URLParams.has('puter.domain')){
+            }else if(URLParams.has('puter.domain') && this.env === 'app'){
                 this.APIOrigin = 'https://api.' + URLParams.get('puter.domain');
             }
 
@@ -168,6 +184,9 @@ window.puter = (function() {
 
         // Initialize submodules
         initSubmodules = function(){
+            // Util
+            this.util = new Util();
+
             // Auth
             this.auth = new Auth(this.authToken, this.APIOrigin, this.appID, this.env);
             // OS
@@ -175,9 +194,11 @@ window.puter = (function() {
             // FileSystem
             this.fs = new FileSystem(this.authToken, this.APIOrigin, this.appID, this.env);
             // UI
-            this.ui = new UI(this.appInstanceID, this.parentInstanceID, this.appID, this.env);
+            this.ui = new UI(this.appInstanceID, this.parentInstanceID, this.appID, this.env, this.util);
             // Hosting
             this.hosting = new Hosting(this.authToken, this.APIOrigin, this.appID, this.env);
+            // Email
+            this.email = new Email(this.authToken, this.APIOrigin, this.appID);
             // Apps
             this.apps = new Apps(this.authToken, this.APIOrigin, this.appID, this.env);
             // AI
@@ -190,7 +211,7 @@ window.puter = (function() {
 
         updateSubmodules() {
             // Update submodules with new auth token and API origin
-            [this.os, this.fs, this.hosting, this.apps, this.ai, this.kv].forEach(module => {
+            [this.os, this.fs, this.hosting, this.email, this.apps, this.ai, this.kv].forEach(module => {
                 if(!module) return;
                 module.setAuthToken(this.authToken);
                 module.setAPIOrigin(this.APIOrigin);
@@ -244,10 +265,16 @@ window.puter = (function() {
             this.updateSubmodules();
         }
 
-        exit = function() {
+        exit = function(statusCode = 0) {
+            if (statusCode && (typeof statusCode !== 'number')) {
+                console.warn('puter.exit() requires status code to be a number. Treating it as 1');
+                statusCode = 1;
+            }
+
             window.parent.postMessage({
                 msg: "exit",
                 appInstanceID: this.appInstanceID,
+                statusCode,
             }, '*');
         }
 

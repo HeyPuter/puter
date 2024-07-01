@@ -70,7 +70,7 @@ export default {
         }
         
         lines[0] += COL + ctx.env.USER + END + '@' +
-            COL + 'puter.com' + END;
+            COL + ctx.env.HOSTNAME + END;
         lines[1] += '-----------------';
         lines[2] += COL + 'OS' + END + ': Puter'
         lines[3] += COL + 'Shell' + END + ': Puter Shell v' + SHELL_VERSIONS[0].v

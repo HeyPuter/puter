@@ -113,7 +113,7 @@ const zhtw = {
         log_into_another_account_anyway: '無論如何都要登入另一個帳號',
         log_out: '登出',
         move: '移動',
-        moving: "正在移動",
+        moving_file: "正在移動 %%",
         my_websites: "我的網站",
         name: '名稱',
         name_cannot_be_empty: '名稱不能為空。',

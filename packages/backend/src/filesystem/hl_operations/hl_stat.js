@@ -19,6 +19,7 @@
 const { chkperm } = require("../../helpers");
 const { Context } = require("../../util/context");
 const { HLFilesystemOperation } = require("./definitions");
+const APIError = require('../../api/APIError');
 
 class HLStat extends HLFilesystemOperation {
     static MODULES = {
@@ -46,13 +47,6 @@ class HLStat extends HLFilesystemOperation {
         const actor = context.get('actor');
         if ( ! await svc_acl.check(actor, subject, 'read') ) {
             throw await svc_acl.get_safe_acl_error(actor, subject, 'read');
-        }
-
-        // check permission
-        // TODO: this check is redundant now that ACL is used;
-        //   we will need to remove it to implement user-user permissions
-        if(user && !await chkperm(subject.entry, user.id, 'stat')){
-            throw { code:`forbidden`, message: `permission denied.`};
         }
 
         // TODO: why is this specific to stat?

@@ -74,7 +74,7 @@ class ResourceService {
     }
 
     free (uid) {
-        this.log.info(`freeing`, uid);
+        this.log.info(`freeing`, { uid });
         const entry = this.uidToEntry[uid];
         if ( ! entry ) return;
         delete this.uidToEntry[uid];

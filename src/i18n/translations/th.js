@@ -91,7 +91,7 @@ const th = {
         log_into_another_account_anyway: "ต้องการเข้าสู่บัญชีอื่น",
         log_out: "ออกจากระบบ",
         move: "ย้าย",
-        moving: "กำลังย้าย",
+        moving_file: "กำลังย้าย %%",
         my_websites: "เว็บไซต์ของฉัน",
         name: "ชื่อ",
         name_cannot_be_empty: "ไม่สามารถปล่อยช่องชื่อให้ว่างได้",

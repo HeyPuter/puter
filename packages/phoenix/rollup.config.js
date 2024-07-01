@@ -19,6 +19,8 @@
 import { nodeResolve } from '@rollup/plugin-node-resolve'
 import commonjs from '@rollup/plugin-commonjs';
 import copy from 'rollup-plugin-copy';
+import process from 'node:process';
+import path from 'node:path';
 
 const configFile = process.env.CONFIG_FILE ?? 'config/dev.js';
 await import(`./${configFile}`);
@@ -30,7 +32,9 @@ export default {
         format: "iife"
     },
     plugins: [
-        nodeResolve(),
+        nodeResolve({
+            rootDir: path.join(process.cwd(), '..'),
+        }),
         commonjs(),
         copy({
             targets: [

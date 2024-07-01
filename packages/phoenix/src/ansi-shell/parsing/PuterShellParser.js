@@ -21,10 +21,7 @@ import { buildParserFirstHalf } from "./buildParserFirstHalf.js";
 import { buildParserSecondHalf } from "./buildParserSecondHalf.js";
 
 export class PuterShellParser {
-    constructor () {
-        {
-        }
-    }
+    constructor () {}
     parseLineForSyntax () {}
     parseLineForProcessing (input) {
         const sp = new StrataParser();

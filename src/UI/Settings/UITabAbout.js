@@ -85,6 +85,7 @@ export default {
                                 <li>Selection <a target="_blank" href="https://github.com/simonwep/selection/blob/master/LICENSE">${i18n('license')}</a></li>
                                 <li>socket.io <a target="_blank" href="https://github.com/socketio/socket.io/blob/main/LICENSE">${i18n('license')}</a></li>
                                 <li>Wallpaper by <a target="_blank" href="https://unsplash.com/@fakurian?utm_content=creditCopyText&utm_medium=referral&utm_source=unsplash">Milad Fakurian</a> on <a target="_blank" href="https://unsplash.com/photos/blue-orange-and-yellow-wallpaper-E8Ufcyxz514?utm_content=creditCopyText&utm_medium=referral&utm_source=unsplash">Unsplash</a></li>
+                                <li>Inter font by The Inter Project Authors <a target="_blank" href="https://github.com/rsms/inter">${i18n('license')}</a></li>                            
                             </ul>
                         </div>
                     </div>
@@ -96,7 +97,7 @@ export default {
         puter.os.version()
         .then(res => {
             const deployed_date = new Date(res.deploy_timestamp).toLocaleString();
-            $el_window.find('.version').html(`Version: ${res.version} &bull; Server: ${res.location} &bull; Deployed: ${deployed_date}`);
+            $el_window.find('.version').html(`Version: ${html_encode(res.version)} &bull; Server: ${html_encode(res.location)} &bull; Deployed: ${html_encode(deployed_date)}`);
         })
         .catch(error => {
             console.error("Failed to fetch server info:", error);

@@ -50,6 +50,9 @@ module.exports = {
             // so I've doubled that and rounded up
             maxlen: 7000,
         },
+        metadata: {
+            type: 'json',
+        },
         maximize_on_start: 'flag',
         background: 'flag',
         subdomain: {
@@ -113,6 +116,9 @@ module.exports = {
             service: 'es:app',
             to: 'app',
             sql: { use_id: true },
+        },
+        protected: {
+            type: 'flag',
         },
 
         // OPERATIONS

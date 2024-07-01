@@ -1,32 +1,39 @@
 {
-    "index": "/src/index.js",
-    "lib_paths": [
-        "/lib/jquery-3.6.1/jquery-3.6.1.min.js",
-        "/lib/viselect.min.js",
-        "/lib/FileSaver.min.js",
-        "/lib/socket.io/socket.io.min.js",
-        "/lib/qrcode.min.js",
-        "/lib/jquery-ui-1.13.2/jquery-ui.min.js",
-        "/lib/lodash@4.17.21.min.js",
-        "/lib/jquery.dragster.js",
-        "/lib/jquery.menu-aim.js",
-        "/lib/html-entities.js",
-        "/lib/timeago.min.js",
-        "/lib/iro.min.js",
-        "/lib/isMobile.min.js",
-        "/lib/jszip-3.10.1.min.js"
-    ],
-    "css_paths": [
-        "/css/normalize.css",
-        "/lib/jquery-ui-1.13.2/jquery-ui.min.css",
-        "/css/style.css",
-        "/css/theme.css"
-    ],
-    "js_paths": [
-        "/src/initgui.js",
-        "/src/helpers.js",
-        "/src/IPC.js",
-        "/src/globals.js",
-        "/src/i18n/i18n.js"
-    ]
+    "development": {
+        "index": "/src/index.js",
+        "lib_paths": [
+            "/lib/jquery-3.6.1/jquery-3.6.1.min.js",
+            "/lib/viselect.min.js",
+            "/lib/FileSaver.min.js",
+            "/lib/socket.io/socket.io.min.js",
+            "/lib/qrcode.min.js",
+            "/lib/jquery-ui-1.13.2/jquery-ui.min.js",
+            "/lib/lodash@4.17.21.min.js",
+            "/lib/jquery.dragster.js",
+            "/lib/jquery.menu-aim.js",
+            "/lib/html-entities.js",
+            "/lib/timeago.min.js",
+            "/lib/iro.min.js",
+            "/lib/isMobile.min.js",
+            "/lib/jszip-3.10.1.min.js"
+        ],
+        "css_paths": [
+            "/css/normalize.css",
+            "/lib/jquery-ui-1.13.2/jquery-ui.min.css",
+            "/css/style.css",
+            "/css/theme.css"
+        ],
+        "js_paths": [
+            "/src/init_sync.js",
+            "/src/init_async.js",
+            "/src/helpers.js",
+            "/src/IPC.js",
+            "/src/globals.js",
+            "/src/i18n/i18n.js",
+            "/src/keyboard.js"
+        ]
+    },
+    "bundle": {
+        "index": ["/dist/gui.js", false]
+    }
 }

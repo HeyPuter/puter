@@ -6,12 +6,10 @@
   "scripts": {
     "test": "npx mocha"
   },
-  "workspaces": [
-    "packages/*"
-  ],
   "dependencies": {
     "@heyputer/kv.js": "^0.1.3",
     "@heyputer/multest": "^0.0.2",
+    "@heyputer/puter-js-common": "^1.0.0",
     "@opentelemetry/api": "^1.4.1",
     "@opentelemetry/auto-instrumentations-node": "^0.43.0",
     "@opentelemetry/exporter-trace-otlp-grpc": "^0.40.0",
@@ -30,11 +28,13 @@
     "composite-error": "^1.0.2",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.6",
+    "dedent": "^1.5.3",
     "express": "^4.18.2",
     "file-type": "^18.5.0",
     "form-data": "^4.0.0",
     "handlebars": "^4.7.8",
     "helmet": "^7.0.0",
+    "hi-base32": "^0.5.1",
     "html-entities": "^2.3.3",
     "is-glob": "^4.0.3",
     "isbot": "^3.7.1",
@@ -54,11 +54,13 @@
     "nodemailer": "^6.9.3",
     "on-finished": "^2.4.1",
     "openai": "^4.20.1",
+    "otpauth": "9.2.4",
     "prompt-sync": "^4.2.0",
     "recursive-readdir": "^2.2.3",
     "response-time": "^2.3.2",
     "seedrandom": "^3.0.5",
     "socket.io": "^4.6.2",
+    "socket.io-client": "^4.6.2",
     "ssh2": "^1.13.0",
     "string-hash": "^1.1.3",
     "string-length": "^6.0.0",

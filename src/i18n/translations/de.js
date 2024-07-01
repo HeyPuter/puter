@@ -83,7 +83,7 @@ const de = {
         log_in: "Einloggen",
         log_out: 'Ausloggen',
         move: 'Verschieben',
-        moving: "Verschiebe",
+        moving_file: "Verschiebe %%",
         my_websites: "Meine Webseiten",
         name: 'Name',
         name_cannot_be_empty: 'Name kann nicht leer sein.',
@@ -136,6 +136,7 @@ const de = {
         send: "Senden",
         send_password_recovery_email: "Senden Sie eine E-Mail zur Passwortwiederherstellung",
         session_saved: "Vielen Dank, dass Sie ein Konto erstellt haben. Diese Sitzung wurde gespeichert.",
+        settings: "Einstellungen",
         set_new_password: "Neues Passwort erstellen",
         share_to: "Teilen mit",
         show_all_windows: "Alle Fenster zeigen",
@@ -148,6 +149,10 @@ const de = {
         start: 'Start',
         storage_puter_used: 'Verwendet von Puter',
         taking_longer_than_usual: 'Es dauert etwas länger als gewöhnlich. Bitte warten…',
+        task_manager: "Task-Manager",
+        taskmgr_header_name: "Name",
+        taskmgr_header_status: "Status",
+        taskmgr_header_type: "Typ",
         text_document: 'Textdokument',
         tos_fineprint: `Indem Sie auf „Kostenloses Konto erstellen“ klicken, stimmen Sie den {{link=terms}}Nutzungsbedingungen{{/link}} und der {{link=privacy}}Datenschutzerklärung{{/link}} von Puter zu.`,
         trash: 'Papierkorb',
@@ -162,6 +167,36 @@ const de = {
         yes_release_it: 'Ja, veröffentlichen',
         you_have_been_referred_to_puter_by_a_friend: "Sie wurden von einem Freund an Puter verwiesen!",
         zip: "Zippen",
+        zipping_file: "Zippe %strong%",
+
+        // === 2FA Setup ===
+        setup2fa_1_step_heading: 'Öffnen Sie Ihre Authentifizierungs-App',      
+        setup2fa_1_instructions: `
+            Sie können jede Authentifizierungs-App verwenden, die das TOTP-Protokoll (Time-based One-Time Password) unterstützt.
+            Es gibt viele zur Auswahl, aber wenn Sie sich nicht sicher sind ist
+            <a target="_blank" href="https://authy.com/download">Authy</a>
+            eine gute Wahl für Android und iOS.
+        `,
+        setup2fa_2_step_heading: 'Scannen Sie den QR-Code',
+        setup2fa_3_step_heading: 'Geben Sie den 6-stelligen Code ein',
+        setup2fa_4_step_heading: 'Kopieren Sie Ihre Wiederherstellungscodes',
+        setup2fa_4_instructions: `
+            Diese Wiederherstellungscodes sind die einzige Möglichkeit, auf Ihr Konto zuzugreifen, wenn Sie Ihr Telefon verlieren oder Ihre Authentifizierungs-App nicht verwenden können.
+            Bewahren Sie sie unbedingt an einem sicheren Ort auf.
+        `,
+        setup2fa_5_step_heading: '2FA-Einrichtung bestätigen',
+        setup2fa_5_confirmation_1: 'Ich habe meine Wiederherstellungscodes an einem sicheren Ort gespeichert',
+        setup2fa_5_confirmation_2: 'Ich bin bereit, 2FA zu aktivieren',
+        setup2fa_5_button: '2FA aktivieren',
+
+        // === 2FA Login ===
+        login2fa_otp_title: '2FA-Code eingeben',
+        login2fa_otp_instructions: 'Geben Sie den 6-stelligen Code aus Ihrer Authentifizierungs-App ein.',
+        login2fa_recovery_title: 'Wiederherstellungscode eingeben',
+        login2fa_recovery_instructions: 'Geben Sie einen Ihrer Wiederherstellungscodes ein, um auf Ihr Konto zuzugreifen.',
+        login2fa_use_recovery_code: 'Einen Wiederherstellungscode verwenden',
+        login2fa_recovery_back: 'Zurück',
+        login2fa_recovery_placeholder: 'XXXXXXXX',
     }
 };
 

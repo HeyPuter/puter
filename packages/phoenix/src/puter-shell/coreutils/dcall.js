@@ -16,9 +16,17 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+function highlight(text) {
+    return `\x1B[92m${text}\x1B[0m`;
+}
+
 export default {
-    name: 'driver-call',
-    usage: 'driver-call METHOD [JSON]',
+    name: 'dcall',
+    usage: 'dcall INTERFACE:METHOD [ARGS]',
+    description: 'Send a request to a driver, and print the response.\n\n' +
+        'INTERFACE is the name of the driver interface.\n\n' +
+        `METHOD is the basic operation to perform, for example ${highlight('create')}, ${highlight('read')}, ${highlight('update')}, or ${highlight('delete')}. The valid methods will depend on the driver.\n\n` +
+        'ARGS is a JSON string that will be passed as the arguments to the driver method. This will depend on the driver and method.',
     args: {
         $: 'simple-parser',
         allowPositionals: true,

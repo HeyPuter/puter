@@ -106,20 +106,27 @@ module.exports = {
         methods: {
             get: {
                 description: 'Get a value by key.',
-                parameters: { key: { type: 'string', required: true } },
+                parameters: {
+                    key: { type: 'string', required: true },
+                    app_uid: { type: 'string', optional: true },
+                },
                 result: { type: 'json' },
             },
             set: {
                 description: 'Set a value by key.',
                 parameters: {
                     key: { type: 'string', required: true, },
-                    value: { type: 'json' }
+                    value: { type: 'json' },
+                    app_uid: { type: 'string', optional: true },
                 },
                 result: { type: 'void' },
             },
             del: {
                 description: 'Delete a value by key.',
-                parameters: { key: { type: 'string' } },
+                parameters: {
+                    key: { type: 'string' },
+                    app_uid: { type: 'string', optional: true },
+                },
                 result: { type: 'void' },
             },
             list: {
@@ -128,6 +135,7 @@ module.exports = {
                     as: {
                         type: 'string',
                     },
+                    app_uid: { type: 'string', optional: true },
                 },
                 result: { type: 'array' },
             },
@@ -141,6 +149,7 @@ module.exports = {
                 parameters: {
                     key: { type: 'string', required: true, },
                     amount: { type: 'number' },
+                    app_uid: { type: 'string', optional: true },
                 },
                 result: { type: 'number' },
             },
@@ -149,6 +158,7 @@ module.exports = {
                 parameters: {
                     key: { type: 'string', required: true, },
                     amount: { type: 'number' },
+                    app_uid: { type: 'string', optional: true },
                 },
                 result: { type: 'number' },
             },
@@ -158,6 +168,7 @@ module.exports = {
                 parameters: {
                     key: { type: 'string', required: true, },
                     timestamp: { type: 'number', required: true, },
+                    app_uid: { type: 'string', optional: true },
                 },
             },
             expire: {
@@ -165,6 +176,7 @@ module.exports = {
                 parameters: {
                     key: { type: 'string', required: true, },
                     ttl: { type: 'number', required: true, },
+                    app_uid: { type: 'string', optional: true },
                 },
             }
             */
@@ -270,5 +282,9 @@ module.exports = {
     'puter-subdomains': {
         ...ENTITY_STORAGE_INTERFACE,
         description: 'Manage subdomains on Puter.',
-    }
+    },
+    'puter-notifications': {
+        ...ENTITY_STORAGE_INTERFACE,
+        description: 'Read notifications on Puter.',
+    },
 };

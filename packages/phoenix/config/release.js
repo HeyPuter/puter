@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 globalThis.__CONFIG__ = {
-    origin: location.origin,
-    'shell.href': location.origin + '/puter-shell/',
+    origin: "https://xd.puter.sh",
     sdk_url: 'https://puter.com/puter.js/v2',
 };

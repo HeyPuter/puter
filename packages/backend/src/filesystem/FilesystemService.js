@@ -27,19 +27,20 @@ const SystemFSEntryService = require('./storage/SystemFSEntryService.js');
 const PerformanceMonitor = require('../monitor/PerformanceMonitor.js');
 const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector } = require('./node/selectors.js');
 const FSNodeContext = require('./FSNodeContext.js');
-const { AdvancedBase } = require('puter-js-common');
+const { AdvancedBase } = require('@heyputer/puter-js-common');
 const { Context } = require('../util/context.js');
 const { simple_retry } = require('../util/retryutil.js');
 const APIError = require('../api/APIError.js');
 const { LLMkdir } = require('./ll_operations/ll_mkdir.js');
 const { LLCWrite, LLOWrite } = require('./ll_operations/ll_write.js');
 const { LLCopy } = require('./ll_operations/ll_copy.js');
-const { PermissionUtil, PermissionRewriter, PermissionImplicator } = require('../services/auth/PermissionService.js');
+const { PermissionUtil, PermissionRewriter, PermissionImplicator, PermissionExploder } = require('../services/auth/PermissionService.js');
 const { DB_WRITE } = require("../services/database/consts");
 const { UserActorType } = require('../services/auth/Actor');
 const { get_user } = require('../helpers');
+const BaseService = require('../services/BaseService');
 
-class FilesystemService extends AdvancedBase {
+class FilesystemService extends BaseService {
     static MODULES = {
         _path: require('path'),
         uuidv4: require('uuid').v4,
@@ -47,11 +48,11 @@ class FilesystemService extends AdvancedBase {
         config: require('../config.js'),
     }
 
-    constructor (args) {
-        super(args);
+    old_constructor (args) {
+        // super(args);
         const { services } = args;
 
-        this.services = services;
+        // this.services = services;
 
         services.registerService('resourceService', ResourceService);
         services.registerService('sizeService', SizeService);
@@ -101,13 +102,10 @@ class FilesystemService extends AdvancedBase {
                 return result;
             }
         }
-
-        // TODO: eventually FilesystemService will extend BaseService
-        // and _init() will be called (and awaited) automatically
-        this._init();
     }
 
     async _init () {
+        this.old_constructor({ services: this.services });
         const svc_permission = this.services.get('permission');
         svc_permission.register_rewriter(PermissionRewriter.create({
             matcher: permission => {
@@ -137,8 +135,7 @@ class FilesystemService extends AdvancedBase {
             matcher: permission => {
                 return permission.startsWith('fs:');
             },
-            checker: async (actor, permission) => {
-                debugger;
+            checker: async ({ actor, permission }) => {
                 if ( !(actor.type instanceof UserActorType) ) {
                     return undefined;
                 }
@@ -164,6 +161,36 @@ class FilesystemService extends AdvancedBase {
                 }
 
                 return undefined;
+            },
+        }));
+        svc_permission.register_exploder(PermissionExploder.create({
+            matcher: permission => {
+                return permission.startsWith('fs:') &&
+                    PermissionUtil.split(permission).length >= 3;
+            },
+            exploder: async ({ permission }) => {
+                const permissions = [permission];
+                const parts = PermissionUtil.split(permission);
+
+                const specified_mode = parts[2];
+                
+                const rules = {
+                    see: ['list', 'read', 'write'],
+                    list: ['read', 'write'],
+                    read: ['write'],
+                };
+                
+                if ( rules.hasOwnProperty(specified_mode) ) {
+                    permissions.push(...rules[specified_mode].map(
+                        mode => PermissionUtil.join(
+                            parts[0], parts[1],
+                            mode,
+                            ...parts.slice(3),
+                        )
+                    ));
+                }
+                
+                return permissions;
             },
         }));
     }
@@ -363,7 +390,7 @@ class FilesystemService extends AdvancedBase {
             [new_path, old_path.length + 1, old_path + '%', user_id]
         );
 
-        const log = services.get('log-service').create('update_child_paths');
+        const log = this.services.get('log-service').create('update_child_paths');
         log.info(`updated ${old_path} -> ${new_path}`);
 
         monitor.end();

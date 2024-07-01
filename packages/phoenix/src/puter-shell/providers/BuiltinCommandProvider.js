@@ -31,4 +31,9 @@ export class BuiltinCommandProvider {
         }
         return undefined;
     }
+
+    async complete (query) {
+        return Object.keys(builtins)
+            .filter(commandName => commandName.startsWith(query));
+    }
 }

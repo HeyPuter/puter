@@ -83,7 +83,7 @@ const es = {
         log_in: "Iniciar sesión",
         log_out: 'Cerrar sesión',
         move: 'Mover',
-        moving: "Moviendo",
+        moving_file: "Moviendo %%",
         my_websites: "Mis páginas web",
         name: 'Nombre',
         name_cannot_be_empty: 'El nombre no puede estar vacío.',

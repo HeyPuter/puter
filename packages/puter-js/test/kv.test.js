@@ -1,3 +1,5 @@
+/* eslint-disable */
+// TODO: Make these more compatible with eslint
 window.kvTests = [
     testSetKeyWithValue = async function() {
         try {

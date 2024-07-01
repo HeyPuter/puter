@@ -1,16 +1,24 @@
 # Contributing to Puter's Backend
 
-## Initial Reading
+## Architecture
 
-- [puter-js-common's README.md](../../packages/puter-js-common/README.md)
-  - Whenever you see `AdvancedBase`, that's from here
-    - Many things in backend extend this. Anything that doesn't only doesn't
-      because it was written before `AdvancedBase` existed.
-  - Allows adding "traits" to classes
-    - Have you ever wanted to wrap every method of a class with
-      common behavior? This can do that!
+- [boot sequence](./boot-sequence.md)
+- [modules and services](./modules.md)
 
-## Where to Start
+## Features
+
+- [protected apps](../features/protected-apps.md)
+- [service scripts](../features/service-scripts.md)
+
+## Lists of Things
+
+- [list of permissions](../lists-of-things/list-of-permissions.md)
+
+## Code-First Approach
+
+If you prefer to understand a system by looking at the
+first files which are invoked and starting from there,
+here's a handy list!
 
 - [Kernel](../../src/Kernel.js), despite its intimidating name, is a
   relatively simple (< 200 LOC) class which loads the modules
@@ -55,8 +63,18 @@ If your answer is the second, you should find a way to
 In my experience, the harder I think about the correct way to implement
 something, the bigger a mistake I'm going to make; ***unless*** a big part
 of the reason I'm thinking so hard is because I want to find a solution
-that reduces complexity and has the right maintanence trade-off.
+that reduces complexity and has the right maintenance trade-off.
 There's no easy solution for this so just keep it in mind; there are some
 things we might write 2 times, 3 times, even more times over before we
 really get it right and *that's okay*; sometimes part of doing useful work is
 doing the useless work that reveals what the useful work is.
+
+## Underlying Constructs
+
+- [puter-js-common's README.md](../../packages/puter-js-common/README.md)
+  - Whenever you see `AdvancedBase`, that's from here
+    - Many things in backend extend this. Anything that doesn't only doesn't
+      because it was written before `AdvancedBase` existed.
+  - Allows adding "traits" to classes
+    - Have you ever wanted to wrap every method of a class with
+      common behavior? This can do that!

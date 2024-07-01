@@ -5,6 +5,9 @@
 // The implementation of this in packages/backend might not
 // work in older versions of node, so we instead re-implement
 // it here.
+import console from 'node:console';
+import process from 'node:process';
+
 const surrounding_box = (col, lines) => {
     const lengths = lines.map(line => line.length);
 
@@ -26,7 +29,7 @@ const surrounding_box = (col, lines) => {
     // Keeping track of WHY certain versions don't work
     const ver_info = [
         { under: 14, reasons: ['optional chaining is not available'] },
-        { under: 16, reasons: ['diskusage package ABI mismatch'] },
+        { under: 16, reasons: ['disk usage package ABI mismatch'] },
     ];
 
     const lowest_allowed = Math.max(...ver_info.map(r => r.under));
@@ -49,23 +52,29 @@ const surrounding_box = (col, lines) => {
     }
 }
 
+// Annoying polyfill for inconsistency in different node versions
+if ( ! import.meta.filename ) {
+    Object.defineProperty(import.meta, 'filename', {
+        get: () => import.meta.url.slice('file://'.length),
+    })
+}
+
 const main = async () => {
     const {
         Kernel,
         CoreModule,
         DatabaseModule,
-        PuterDriversModule,
         LocalDiskStorageModule,
-        SelfhostedModule
+        SelfHostedModule
     } = (await import('@heyputer/backend')).default;
 
-    console.log('kerne', Kernel);
-    const k = new Kernel();
+    const k = new Kernel({
+        entry_path: import.meta.filename
+    });
     k.add_module(new CoreModule());
     k.add_module(new DatabaseModule());
-    k.add_module(new PuterDriversModule());
     k.add_module(new LocalDiskStorageModule());
-    k.add_module(new SelfhostedModule()),
+    k.add_module(new SelfHostedModule());
     k.boot();
 };
 
@@ -93,13 +102,15 @@ const early_init_errors = [
     }
 ];
 
-const newstuff = {
-    // Nullish coalescing operator
-    nco: (...a) => a.reduce((acc, val) => acc == undefined ? val : acc),
-    // Optional chaining
-    oc: (obj, ...keys) => keys.reduce((acc, key) => acc ? acc[key] : undefined, obj),
-    oc_call: (maybe_fn, ...args) => maybe_fn ? maybe_fn(...args) : undefined,
-};1
+// null coalescing operator
+const nco = (...args) => {
+    for ( const arg of args ) {
+        if ( arg !== undefined && arg !== null ) {
+            return arg;
+        }
+    }
+    return undefined;
+}
 
 const _print_error_help = (error_help) => {
     const lines = [];
@@ -128,7 +139,8 @@ const _print_error_help = (error_help) => {
         await main();
     } catch (e) {
         for ( const error_help of early_init_errors ) {
-            if ( oc_call(oc(e, message, includes), error_help.text) ) {
+            const message = e && e.message;
+            if ( e.message && e.message.includes(error_help.text) ) {
                 _print_error_help(error_help);
                 break;
             }

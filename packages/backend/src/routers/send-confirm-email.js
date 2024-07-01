@@ -27,6 +27,11 @@ const { DB_WRITE } = require('../services/database/consts.js');
 // POST /send-confirm-email
 // -----------------------------------------------------------------------//
 router.post('/send-confirm-email', auth, express.json(), async (req, res, next)=>{
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('send-confirm-email') ) {
+        return res.status(429).send('Too many requests.');
+    }
+
     // check subdomain
     if(require('../helpers').subdomain(req) !== 'api')
         next();

@@ -1,8 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-external-link" width="24" height="24"
-    viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round"
-    stroke-linejoin="round">
-    <path stroke="none" d="M0 0h24v24H0z" fill="none" />
-    <path d="M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6" />
-    <path d="M11 13l9 -9" />
-    <path d="M15 4h5v5" />
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.2" viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+  <defs/>
+  <style>.a{fill:none}.b{fill:none;stroke:#000;stroke-linecap:round;stroke-linejoin:round;stroke-width:2}</style>
+  <path fill-rule="evenodd" class="a" d="m0 0h24v24h-24z"/>
+  <path class="b" d="m12 6h-6q-0.4 0-0.8 0.2-0.3 0.1-0.6 0.4-0.3 0.3-0.4 0.6-0.2 0.4-0.2 0.8v10q0 0.4 0.2 0.8 0.1 0.3 0.4 0.6 0.3 0.3 0.6 0.4 0.4 0.2 0.8 0.2h10q0.4 0 0.8-0.2 0.3-0.1 0.6-0.4 0.3-0.3 0.4-0.6 0.2-0.4 0.2-0.8v-6" style="stroke: rgb(255, 255, 255);"/>
+  <path class="b" d="m11 13l9-9" style="stroke: rgb(255, 255, 255);"/>
+  <path class="b" d="m15 4h5v5" style="stroke: rgb(255, 255, 255);"/>
 </svg>

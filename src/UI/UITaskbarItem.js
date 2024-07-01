@@ -18,6 +18,8 @@
  */
 
 import UIContextMenu from './UIContextMenu.js';
+import path from '../lib/path.js';
+import launch_app from "../helpers/launch_app.js"
 
 let tray_item_id = 1;
 
@@ -28,7 +30,7 @@ function UITaskbarItem(options){
     options.open_windows_count = options.open_windows_count ?? 0;
     options.lock_keep_in_taskbar = options.lock_keep_in_taskbar ?? false;
     options.append_to_taskbar = options.append_to_taskbar ?? true;
-    const element_id = global_element_id++;
+    const element_id = window.global_element_id++;
 
     h += `<div  class = "taskbar-item ${options.sortable ? 'taskbar-item-sortable' : ''} disable-user-select"
                 id = "taskbar-item-${tray_item_id}"
@@ -112,15 +114,15 @@ function UITaskbarItem(options){
         // -------------------------------------------
         if(menu_items.length > 0)
             menu_items.push('-');
-
         //------------------------------------------
         // New Window
         //------------------------------------------
-        if(options.app){
+        if(options.app && options.app !== 'trash'){
             menu_items.push({
                 html: 'New Window',
                 val: $(this).attr('data-id'),
                 onClick: function(){
+                    // is trash?
                     launch_app({
                         name: options.app,
                         maximized: (isMobile.phone || isMobile.tablet),
@@ -129,9 +131,25 @@ function UITaskbarItem(options){
             })
         }
         //------------------------------------------
+        // Open Trash
+        //------------------------------------------
+        else if(options.app && options.app === 'trash'){
+            menu_items.push({
+                html: 'Open Trash',
+                val: $(this).attr('data-id'),
+                onClick: function(){
+                    launch_app({
+                        name: options.app,
+                        path: window.trash_path,
+                        maximized: (isMobile.phone || isMobile.tablet),
+                    })
+                }
+            })
+        }
+        //------------------------------------------
         // Empty Trash
         //------------------------------------------
-        if(options.app === 'trash' && options.name === 'Trash'){
+        if(options.app && options.app === 'trash'){
             // divider
             menu_items.push('-');
 
@@ -140,11 +158,10 @@ function UITaskbarItem(options){
                 html: i18n('empty_trash'),
                 val: $(this).attr('data-id'),
                 onClick: async function(){
-                    empty_trash();
+                    window.empty_trash();
                 }
             })
         }
-
         //------------------------------------------
         // Remove from Taskbar
         //------------------------------------------
@@ -155,9 +172,9 @@ function UITaskbarItem(options){
                 onClick: function(){
                     $(el_taskbar_item).attr('data-keep-in-taskbar', 'false');
                     if($(el_taskbar_item).attr('data-open-windows') === '0'){
-                        remove_taskbar_item(el_taskbar_item);
+                        window.remove_taskbar_item(el_taskbar_item);
                     }
-                    update_taskbar();
+                    window.update_taskbar();
                     options.keep_in_taskbar = false;
                 }
             })
@@ -171,7 +188,7 @@ function UITaskbarItem(options){
                 val: $(this).attr('data-id'),
                 onClick: function(){
                     $(el_taskbar_item).attr('data-keep-in-taskbar', 'true');
-                    update_taskbar();
+                    window.update_taskbar();
                     options.keep_in_taskbar = true;
                 }
             })  
@@ -247,7 +264,7 @@ function UITaskbarItem(options){
         tolerance: 'pointer',
         drop: async function( event, ui ) {
             // Check if hovering over an item that is VISIBILE
-            if($(event.target).closest('.window').attr('data-id') !== $(mouseover_window).attr('data-id'))
+            if($(event.target).closest('.window').attr('data-id') !== $(window.mouseover_window).attr('data-id'))
                 return;
 
             // If ctrl is pressed and source is Trashed, cancel whole operation
@@ -294,7 +311,7 @@ function UITaskbarItem(options){
                 // open each item
                 for (let i = 0; i < items_to_sign.length; i++) {
                     const item = items_to_sign[i];
-                    launch_app({ 
+                    launch_app({
                         name: options.app, 
                         file_path: item.path,
                         // app_obj: open_item_meta.suggested_apps[0],
@@ -325,7 +342,7 @@ function UITaskbarItem(options){
         over: function(event, ui){
             // Check hovering over an item that is VISIBILE
             const $event_parent_win = $(event.target).closest('.window')
-            if( $event_parent_win.length > 0 && $event_parent_win.attr('data-id') !== $(mouseover_window).attr('data-id'))
+            if( $event_parent_win.length > 0 && $event_parent_win.attr('data-id') !== $(window.mouseover_window).attr('data-id'))
                 return;
             // Don't do anything if the dragged item is NOT a UIItem
             if(!$(ui.draggable).hasClass('item'))

@@ -1,3 +1,5 @@
+const BaseService = require("../BaseService");
+
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -77,19 +79,13 @@ class InformationObtainer {
  *         // code to obtain fsentry from path
  *     });
  */
-class InformationService {
-    constructor ({ services }) {
+class InformationService extends BaseService {
+    _construct () {
         this.providers_ = {};
-        this.services = services;
+    }
 
-        this.log = services.get('log-service').create('information-service');
-
-        (async () => {
-            await services.ready;
-            if ( services.has('commands') ) {
-                this._register_commands(services.get('commands'));
-            }
-        })();
+    _init () {
+        this._register_commands(this.services.get('commands'));
     }
 
     given (input) {

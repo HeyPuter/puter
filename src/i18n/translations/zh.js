@@ -87,7 +87,7 @@ const zh = {
         log_in: "登录",
         log_out: '登出',
         move: '移动',
-        moving: "移动",
+        moving_file: "移动 %%",
         my_websites: "我的网站",
         name: '名称',
         name_cannot_be_empty: '名称不能为空。',

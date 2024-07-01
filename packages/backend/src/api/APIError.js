@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { URLSearchParams } = require("node:url");
 const { quot } = require("../util/strutil");
 
 /**
@@ -27,6 +28,45 @@ const { quot } = require("../util/strutil");
  */
 module.exports = class APIError {
     static codes = {
+        // General
+        'unknown_error': {
+            status: 500,
+            message: () => `An unknown error occurred`,
+        },
+        'format_error': {
+            status: 400,
+            message: ({ message }) => `format error: ${message}`,
+        },
+        'temp_error': {
+            status: 400,
+            message: ({ message }) => `error: ${message}`,
+        },
+        'disallowed_value': {
+            status: 400,
+            message: ({ key ,allowed }) =>
+                `value of ${quot(key)} must be one of: ` +
+                allowed.map(v => quot(v)).join(', ')
+        },
+        'invalid_token': {
+            status: 400,
+            message: () => 'Invalid token'
+        },
+        // Things
+        'disallowed_thing': {
+            status: 400,
+            message: ({ thing_type, accepted }) =>
+                `Request contained a ${quot(thing_type)} in a ` +
+                `place where ${quot(thing_type)} isn't accepted` +
+                (
+                    accepted
+                        ? '; ' +
+                            'accepted types are: ' +
+                            accepted.map(v => quot(v)).join(', ')
+                        : ''
+                ) + '.'
+        },
+        
+        // Unorganized
         'item_with_same_name_exists': {
             status: 409,
             message: ({ entry_name }) => entry_name
@@ -196,6 +236,10 @@ module.exports = class APIError {
             status: 422,
             message: 'Directory is not empty.',
         },
+        'readdir_of_non_directory': {
+            status: 422,
+            message: 'Readdir target must be a directory.',
+        },
 
         // Write
         'offset_without_existing_file': {
@@ -219,6 +263,10 @@ module.exports = class APIError {
         'batch_missing_file': {
             status: 400,
             message: 'Missing fileinfo entry or BLOB for operation.',
+        },
+        'invalid_file_metadata': {
+            status: 400,
+            message: 'Invalid file metadata.',
         },
 
         // Open
@@ -319,6 +367,10 @@ module.exports = class APIError {
             status: 401,
             message: 'This authentication token is not supported here.',
         },
+        'token_expired': {
+            status: 401,
+            message: 'Authentication token has expired.',
+        },
         'account_suspended': {
             status: 403,
             message: 'Account suspended.',
@@ -330,6 +382,40 @@ module.exports = class APIError {
         'access_token_empty_permissions': {
             status: 403,
             message: 'Attempted to create an access token with no permissions.',
+        },
+        'invalid_action': {
+            status: 400,
+            message: ({ action }) => `Invalid action: ${quot(action)}.`,
+        },
+        '2fa_already_enabled': {
+            status: 409,
+            message: '2FA is already enabled.',
+        },
+        '2fa_not_configured': {
+            status: 409,
+            message: '2FA is not configured.',
+        },
+
+        // protected endpoints
+        'too_many_requests': {
+            status: 429,
+            message: 'Too many requests.',
+        },
+        'user_tokens_only': {
+            status: 403,
+            message: 'This endpoint must be requested with a user session',
+        },
+        'temporary_accounts_not_allowed': {
+            status: 403,
+            message: 'Temporary accounts cannot perform this action',
+        },
+        'password_required': {
+            status: 400,
+            message: 'Password is required.',
+        },
+        'password_mismatch': {
+            status: 403,
+            message: 'Password does not match.',
         },
 
         // Object Mapping
@@ -344,6 +430,50 @@ module.exports = class APIError {
         'entity_not_found': {
             status: 422,
             message: ({ identifier }) => `Entity not found: ${quot(identifier)}`,
+        },
+
+        // Share
+        'user_does_not_exist': {
+            status: 422,
+            message: ({ username }) => `The user ${quot(username)} does not exist.`
+        },
+        'invalid_username_or_email': {
+            status: 400,
+            message: ({ value }) =>
+                `The value ${quot(value)} is not a valid username or email.`
+        },
+        'invalid_path': {
+            status: 400,
+            message: ({ value }) =>
+                `The value ${quot(value)} is not a valid path.`
+        },
+        'future': {
+            status: 400,
+            message: ({ what }) => `Not supported yet: ${what}`
+        },
+        // Temporary solution for lack of error composition
+        'field_errors': {
+            status: 400,
+            message: ({ key, errors }) =>
+                `The value for ${quot(key)} has the following errors: ` +
+                errors.join('; ')
+        },
+        'share_expired': {
+            status: 422,
+            message: 'This share is expired.'
+        },
+        'email_must_be_confirmed': {
+            status: 422,
+            message: 'Email must be confirmed to apply a share.',
+        },
+        'no_need_to_request': {
+            status: 422,
+            message: 'This share is already valid for this user; ' +
+                'POST to /apply for access.'
+        },
+        'can_not_apply_to_this_user': {
+            status: 422,
+            message: 'This share can not be applied to this user.',
         },
 
         // Chat
@@ -447,6 +577,24 @@ module.exports = class APIError {
             $: 'heyputer:api/APIError',
             message: this.message,
             status: this.status,
+        };
+    }
+    
+    querystringize (extra) {
+        return new URLSearchParams(this.querystringize_(extra));
+    }
+    
+    querystringize_ (extra) {
+        const fields = {};
+        for ( const k in this.fields ) {
+            fields[`field_${k}`] = this.fields[k];
+        }
+        return {
+            ...extra,
+            error: true,
+            message: this.message,
+            status: this.status,
+            ...fields,
         };
     }
 

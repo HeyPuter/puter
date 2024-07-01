@@ -17,62 +17,78 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import Placeholder from '../util/Placeholder.js';
+import TeePromise from '../util/TeePromise.js';
+import Flexer from './Components/Flexer.js';
+import QRCodeView from './Components/QRCode.js';
 import UIWindow from './UIWindow.js'
 
+let checkbox_id_ = 0;
+
 async function UIWindowQR(options){
-    return new Promise(async (resolve) => {
-        options = options ?? {};
+    const confirmations = options.confirmations || [];
 
-        let h = '';
-        // close button containing the multiplication sign
-        h += `<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>`;
-        h += `<div class="otp-qr-code">`;
-            h += `<h1 style="text-align: center; font-size: 16px; padding: 10px; font-weight: 400; margin: -10px 10px 20px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">${i18n('scan_qr_c2a')}</h1>`;
-        h += `</div>`;
+    options = options ?? {};
 
-        const el_window = await UIWindow({
-            title: 'Instant Login!',
-            app: 'instant-login',
-            single_instance: true,
-            icon: null,
-            uid: null,
-            is_dir: false,
-            body_content: h,
-            has_head: false,
-            selectable_body: false,
-            allow_context_menu: false,
-            is_resizable: false,
-            is_droppable: false,
-            init_center: true,
-            allow_native_ctxmenu: false,
-            allow_user_select: false,
-            backdrop: true,
-            width: 350,
-            height: 'auto',
-            dominant: true,
-            show_in_taskbar: false,
-            draggable_body: true,
-            onAppend: function(this_window){
-            },
-            window_class: 'window-qr',
-            body_css: {
-                width: 'initial',
-                height: '100%',
-                'background-color': 'rgb(245 247 249)',
-                'backdrop-filter': 'blur(3px)',
-            }    
-        })
+    const placeholder_qr = Placeholder();
 
-        // generate auth token QR code
-        new QRCode($(el_window).find('.otp-qr-code').get(0), {
-            text: window.gui_origin + '?auth_token=' + window.auth_token,
-            width: 155,
-            height: 155,
-            colorDark : "#000000",
-            colorLight : "#ffffff",
-            correctLevel : QRCode.CorrectLevel.H
-        });        
+    let h = '';
+    // close button containing the multiplication sign
+    h += `<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>`;
+    h += `<div class="otp-qr-code">`;
+        h += `<h1 style="text-align: center; font-size: 16px; padding: 10px; font-weight: 400; margin: -10px 10px 20px 10px; -webkit-font-smoothing: antialiased; color: #5f626d;">${
+            i18n(options.message_i18n_key || 'scan_qr_generic')
+        }</h1>`;
+    h += `</div>`;
+
+    h += placeholder_qr.html;
+
+    const el_window = await UIWindow({
+        title: 'Instant Login!',
+        app: 'instant-login',
+        single_instance: true,
+        icon: null,
+        uid: null,
+        is_dir: false,
+        body_content: h,
+        has_head: false,
+        selectable_body: false,
+        allow_context_menu: false,
+        is_resizable: false,
+        is_droppable: false,
+        init_center: true,
+        allow_native_ctxmenu: false,
+        allow_user_select: false,
+        backdrop: true,
+        width: 450,
+        height: 'auto',
+        dominant: true,
+        show_in_taskbar: false,
+        draggable_body: true,
+        onAppend: function(this_window){
+        },
+        window_class: 'window-qr',
+        body_css: {
+            width: 'initial',
+            height: '100%',
+            'background-color': 'rgb(245 247 249)',
+            'backdrop-filter': 'blur(3px)',
+            padding: '50px 20px',
+        },
     })
+
+    const component_qr = new QRCodeView({
+        value: options.text,
+        size: 250,
+    });
+
+    const component_flexer = new Flexer({
+        children: [
+            component_qr,
+        ]
+    });
+
+    component_flexer.attach(placeholder_qr);
 }
 
 export default UIWindowQR

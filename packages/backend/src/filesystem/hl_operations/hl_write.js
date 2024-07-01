@@ -31,6 +31,7 @@ const { RootNodeSelector, NodePathSelector } = require("../node/selectors");
 const { is_valid_node_name } = require("../validation");
 const { HLFilesystemOperation } = require("./definitions");
 const { MkTree } = require("./hl_mkdir");
+const { Actor } = require("../../services/auth/Actor");
 
 class WriteCommonTrait {
     install_in_instance (instance) {
@@ -186,10 +187,6 @@ class HLWrite extends HLFilesystemOperation {
             throw APIError.create('cannot_write_to_root');
         }
 
-        if ( values.user && ! await chkperm(await parent.get('entry'), values.user.id, 'write') ) {
-            throw APIError.create('forbidden');
-        }
-
         try {
             // old validator is kept here to avoid changing the
             // error messages; eventually is_valid_node_name
@@ -221,6 +218,21 @@ class HLWrite extends HLFilesystemOperation {
 
         if ( values.offset !== undefined && ! dest_exists ) {
             throw APIError.create('offset_without_existing_file');
+        }
+        
+        // The correct ACL check here depends on context.
+        // ll_write checks ACL, but we need to shortcut it here
+        // or else we might send the user too much information.
+        {
+            const node_to_check =
+                ( dest_exists && overwrite && ! dedupe_name )
+                    ? destination : parent;
+
+            const actor = values.actor ?? Actor.adapt(values.user);
+            const svc_acl = context.get('services').get('acl');
+            if ( ! await svc_acl.check(actor, node_to_check, 'write') ) {
+                throw await svc_acl.get_safe_acl_error(actor, node_to_check, 'write');
+            }
         }
 
         if ( dest_exists ) {

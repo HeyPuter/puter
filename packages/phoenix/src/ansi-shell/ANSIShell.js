@@ -83,7 +83,7 @@ export class ANSIShell extends EventTarget {
         Object.defineProperty(this.env, 'PWD', {
             enumerable: true,
             get: () => this.variables.pwd,
-            set: v => this.variables.pwd = v
+            set: v => { this.variables.pwd = v }
         })
         Object.defineProperty(this.env, 'ROWS', {
             enumerable: true,
@@ -95,7 +95,7 @@ export class ANSIShell extends EventTarget {
         })
 
         this.export_('LANG', 'en_US.UTF-8');
-        this.export_('PS1', '[\\u@puter.com \\w]\\$ ');
+        this.export_('PS1', '[\\u@\\h \\w]\\$ ');
 
         for ( const k in env.getEnv() ) {
             console.log('setting', k, env.get(k));
@@ -160,6 +160,7 @@ export class ANSIShell extends EventTarget {
             }
             this.ctx.externs.out.write('error: ' + e.message + '\n');
             console.log(e);
+            this.ctx.locals.exit = -1;
             return;
         }
     }
@@ -225,6 +226,13 @@ export class ANSIShell extends EventTarget {
         const pipeline = await Pipeline.createFromAST(executionCtx, ast);
         
         await pipeline.execute(executionCtx);
+
+        // Store exit code for the next pipeline
+        // TODO: This feels like a hacky way of doing this.
+        this.ctx.locals.exit = executionCtx.locals.exit;
+        if ( this.ctx.locals.exit ) {
+            this.ctx.externs.out.write(`Exited with code ${this.ctx.locals.exit}\n`);
+        }
     }
 
     expandPromptString (str) {

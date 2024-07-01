@@ -31,7 +31,7 @@ Puter is an advanced, open-source internet operating system designed to be featu
 
 ## Getting Started
 
-After reading this section, please proceed to **Self-Hosting** and **Configuration** below.
+After reading this section, please proceed to [**Self-Hosting**](#%EF%B8%8F-self-hosting-%EF%B8%8F) and [**Configuration**](#configuration) below.
 Read these instructions carefully or you may see errors due to
 an invalid setup.
 
@@ -40,6 +40,7 @@ an invalid setup.
 ```bash
 git clone https://github.com/HeyPuter/puter
 cd puter
+cp .env.example .env
 npm install
 npm start
 ```
@@ -73,8 +74,21 @@ See [Configuration](#configuration) for next steps.
 
 <br/>
 
-## ⚠️ Self-Hosting ⚠️
-The self-hosted version of Puter is currently in alpha stage and should not be used in production yet. It is under active development and may contain bugs, other issues. Please exercise caution and use it for testing and evaluation purposes only.
+> [!WARNING]
+> The self-hosted version of Puter is currently in alpha stage and should not be used in production yet. It is under active development and may contain bugs, other issues. Please exercise caution and use it for testing and evaluation purposes only.
+
+### Self-Hosting Differences
+Currently, the self-hosted version of Puter is different in a few ways from [Puter.com](https://puter.com):
+- There is no built-in way to install or create other apps (see below)
+- Several "core" apps are missing, such as **Code** or **Draw**, because we can't include them in this repository
+- Some icons are different
+
+Work is ongoing to improve the **App Center** and make it available on self-hosted.
+Until then, it's possible to add other apps by manually editing the database file.
+This process is not recommended unless you know what you are doing.
+The file will appear after you first launch Puter, and should be found in `puter/data/puter-database.sqlite` for Docker,
+or `volatile/runtime/puter-database.sqlite` otherwise.
+You will need a database tool that can understand SQLite databases.
 
 <br/>
 

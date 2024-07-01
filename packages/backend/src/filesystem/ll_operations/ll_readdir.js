@@ -24,15 +24,17 @@ const { LLFilesystemOperation } = require("./definitions");
 class LLReadDir extends LLFilesystemOperation {
     async _run () {
         const { context } = this;
-        const { subject, user, actor } = this.values;
+        const { subject, user, actor, no_acl } = this.values;
 
         if ( ! await subject.exists() ) {
             throw APIError.create('subject_does_not_exist');
         }
 
         const svc_acl = context.get('services').get('acl');
-        if ( ! await svc_acl.check(actor, subject, 'list') ) {
-            throw await svc_acl.get_safe_acl_error(actor, subject, 'list');
+        if ( ! no_acl ) {
+            if ( ! await svc_acl.check(actor, subject, 'list') ) {
+                throw await svc_acl.get_safe_acl_error(actor, subject, 'list');
+            }
         }
 
         const subject_uuid = await subject.get('uid');

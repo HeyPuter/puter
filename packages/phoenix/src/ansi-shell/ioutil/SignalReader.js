@@ -40,9 +40,9 @@ export class SignalReader extends ProxyReader {
             return { value, done };
         }
 
-        const tmp_value = value;
+        let tmp_value = value;
 
-        if ( ! tmp_value instanceof Uint8Array ) {
+        if ( ! (tmp_value instanceof Uint8Array) ) {
             tmp_value = encoder.encode(value);
         }
 

@@ -45,8 +45,8 @@ const decorator_registry = {
 };
 
 const GH_LINK = {
-    'terminal': 'https://github.com/HeyPuter/terminal',
-    'phoenix': 'https://github.com/HeyPuter/phoenix',
+    'terminal': 'https://github.com/HeyPuter/puter/tree/main/packages/terminal',
+    'phoenix': 'https://github.com/HeyPuter/puter/tree/main/packages/phoenix',
 };
 
 export const launchPuterShell = async (ctx) => {
@@ -139,7 +139,7 @@ export const launchPuterShell = async (ctx) => {
     const fire = (text) => {
         // Define fire-like colors (ANSI 256-color codes)
         const fireColors = [202, 208, 166];
-        
+
         // Split the text into an array of characters
         const chars = text.split('');
 
@@ -166,16 +166,7 @@ export const launchPuterShell = async (ctx) => {
         `${fire('Phoenix Shell')} [v${SHELL_VERSIONS[0].v}]\n` +
         `⛷  try typing \x1B[34;1mhelp\x1B[0m or ` +
         `\x1B[34;1mchangelog\x1B[0m to get started.\n` +
-        '\n' +
-        `${
-            mklink(GH_LINK['phoenix'], fire('This shell'))
-        } and ${
-            mklink(GH_LINK['terminal'], blue('Puter\'s Terminal Emulator'))
-        } are free software:\n` +
-        // `- ${fire('phoenix')}: ` + mklink(GH_LINK['phoenix'], fire(GH_LINK['phoenix'])) + '\n' +
-        // `- ${blue('terminal')}: ` + mklink(GH_LINK['terminal'], blue(GH_LINK['terminal'])) + '\n' +
-        `- ${'phoenix'}: ` + mklink(GH_LINK['phoenix']) + '\n' +
-        `- ${'terminal'}: ` + mklink(GH_LINK['terminal']) + '\n' +
+        // '\n' +
         // `🔗  ${mklink('https://puter.com', 'puter.com')} ` +
         ''
         // `🔗  ${mklink('https://puter.com', 'puter.com')} ` +

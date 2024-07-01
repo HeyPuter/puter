@@ -26,18 +26,13 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/query/app'))
         app.use(require('../routers/change_username'))
         require('../routers/change_email')(app);
-        app.use(require('../routers/auth/get-user-app-token'))
-        app.use(require('../routers/auth/grant-user-app'))
-        app.use(require('../routers/auth/revoke-user-app'))
-        app.use(require('../routers/auth/grant-user-user'));
-        app.use(require('../routers/auth/revoke-user-user'));
-        app.use(require('../routers/auth/list-permissions'))
         app.use(require('../routers/auth/list-sessions'))
         app.use(require('../routers/auth/revoke-session'))
         app.use(require('../routers/auth/check-app'))
         app.use(require('../routers/auth/app-uid-from-origin'))
         app.use(require('../routers/auth/create-access-token'))
         app.use(require('../routers/auth/delete-own-user'))
+        app.use(require('../routers/auth/configure-2fa'))
         app.use(require('../routers/drivers/call'))
         app.use(require('../routers/drivers/list-interfaces'))
         app.use(require('../routers/drivers/usage'))
@@ -63,6 +58,7 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/send-confirm-email'))
         app.use(require('../routers/send-pass-recovery-email'))
         app.use(require('../routers/set-desktop-bg'))
+        app.use(require('../routers/verify-pass-recovery-token'))
         app.use(require('../routers/set-pass-using-token'))
         app.use(require('../routers/set_layout'))
         app.use(require('../routers/set_sort_by'))
@@ -71,6 +67,7 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/sites'))
         // app.use(require('../routers/filesystem_api/stat'))
         app.use(require('../routers/suggest_apps'))
+        app.use(require('../routers/healthcheck'))
         app.use(require('../routers/test'))
         app.use(require('../routers/update-taskbar-items'))
         require('../routers/whoami')(app);

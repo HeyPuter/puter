@@ -94,6 +94,9 @@ module.exports = {
             to: 'app',
             sql: { use_id: true },
         },
+        protected: {
+            type: 'flag',
+        },
     }
 };
 

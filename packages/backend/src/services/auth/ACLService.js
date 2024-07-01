@@ -53,6 +53,12 @@ class ACLService extends BaseService {
             }
             return false;
         }
+        
+        // Hard rule: anyone and anything can read /user/public directories
+        const public_modes = ['read', 'list', 'see'];
+        if ( public_modes.includes(mode) ) {
+            if ( await fsNode.isPublic() ) return true;
+        }
 
         // Access tokens only work if the authorizer has permission
         if ( actor.type instanceof AccessTokenActorType ) {
@@ -78,7 +84,7 @@ class ACLService extends BaseService {
                 return true;
             }
         }
-
+        
         // app-under-user only works if the user also has permission
         if ( actor.type instanceof AppUnderUserActorType ) {
             const user_actor = new Actor({
@@ -88,10 +94,28 @@ class ACLService extends BaseService {
 
             if ( ! user_perm ) return false;
         }
+        
+        // Hard rule: if app-under-user is accessing appdata directory
+        //            under a **different user**, allow,
+        //            IFF that appdata directory is shared with  user
+        //              (by "user also has permission" check above)
+        if (await (async () => {
+            if ( ! (actor.type instanceof AppUnderUserActorType) ) {
+                return false;
+            }
+            if ( await fsNode.getUserPart() === actor.type.user.username ) {
+                return false;
+            }
+            const components = await fsNode.getPathComponents();
+            if ( components[1] !== 'AppData' ) return false;
+            if ( components[2] !== actor.type.app.uid ) return false;
+            return true;
+        })()) return true;
 
         const svc_permission = await context.get('services').get('permission');
 
-        const modes = this._higher_modes(mode);
+        // const modes = this._higher_modes(mode);
+        const modes = [mode];
         let perm_fsNode = fsNode;
         while ( ! await perm_fsNode.get('is-root') ) {
             for ( const mode of modes ) {
@@ -100,8 +124,8 @@ class ACLService extends BaseService {
                     `fs:${await perm_fsNode.get('uid')}:${mode}`
                 );
                 if ( perm ) {
-                    console.log('TRUE BECAUSE PERMISSION', perm)
-                    console.log(`fs:${await perm_fsNode.get('uid')}:${mode}`)
+                    // console.log('TRUE BECAUSE PERMISSION', perm)
+                    // console.log(`fs:${await perm_fsNode.get('uid')}:${mode}`)
                     return true;
                 }
             }

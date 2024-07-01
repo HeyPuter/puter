@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 
 class WSPushService  extends AdvancedBase {
     static MODULES = {
@@ -36,6 +36,8 @@ class WSPushService  extends AdvancedBase {
             this._on_upload_progress.bind(this));
         this.svc_event.on('fs.storage.progress.*',
             this._on_upload_progress.bind(this));
+        this.svc_event.on('outer.gui.*',
+            this._on_outer_gui.bind(this));
     }
 
     async _on_fs_create (key, data) {
@@ -66,10 +68,10 @@ class WSPushService  extends AdvancedBase {
 
         Object.assign(response, metadata);
 
-        const io = socketio.getio();
-        for ( const user_id of user_id_list ) {
-            io.to(user_id).emit('item.added', response);
-        }
+        this.svc_event.emit('outer.gui.item.added', {
+            user_id_list,
+            response,
+        });
     }
 
     async _on_fs_update (key, data) {
@@ -100,10 +102,10 @@ class WSPushService  extends AdvancedBase {
 
         Object.assign(response, metadata);
 
-        const io = socketio.getio();
-        for ( const user_id of user_id_list ) {
-            io.to(user_id).emit('item.updated', response);
-        }
+        this.svc_event.emit('outer.gui.item.updated', {
+            user_id_list,
+            response,
+        });
     }
 
     async _on_fs_move (key, data) {
@@ -135,10 +137,10 @@ class WSPushService  extends AdvancedBase {
         response.old_path = old_path;
         Object.assign(response, metadata);
 
-        const io = socketio.getio();
-        for ( const user_id of user_id_list ) {
-            io.to(user_id).emit('item.moved', response);
-        }
+        this.svc_event.emit('outer.gui.item.moved', {
+            user_id_list,
+            response,
+        });
     }
 
     async _on_fs_pending (key, data) {
@@ -168,10 +170,10 @@ class WSPushService  extends AdvancedBase {
 
         Object.assign(response, metadata);
 
-        const io = socketio.getio();
-        for ( const user_id of user_id_list ) {
-            io.to(user_id).emit('item.pending', response);
-        }
+        this.svc_event.emit('outer.gui.item.pending', {
+            user_id_list,
+            response,
+        });
     }
 
     async _on_upload_progress (key, data) {
@@ -224,6 +226,27 @@ class WSPushService  extends AdvancedBase {
                 loaded_diff: delta,
             })
         })
+    }
+    
+    async _on_outer_gui (key, { user_id_list, response }, meta) {
+        key = key.slice('outer.gui.'.length);
+
+        const { socketio } = this.modules;
+
+        const io = socketio.getio();
+
+        for ( const user_id of user_id_list ) {
+            const room = io.sockets.adapter.rooms.get(user_id);
+            if ( ! room || room.size <= 0 ) {
+                continue;
+            }
+            io.to(user_id).emit(key, response);
+            this.svc_event.emit(`sent-to-user.${key}`, {
+                user_id,
+                response,
+                meta,
+            });
+        }
     }
 }
 

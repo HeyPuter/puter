@@ -116,7 +116,7 @@ const fi = {
         log_in: "Kirjaudu Sisään",
         log_out: 'Kirjaudu Ulos',
         move: 'Siirrä',
-        moving: "Siirretään",
+        moving_file: "Siirretään %%",
         my_websites: "Verkkosivustoni",
         name: 'Nimi',
         name_cannot_be_empty: 'Nimi ei voi olla tyhjä.',

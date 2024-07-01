@@ -89,6 +89,8 @@ class SessionService extends BaseService {
     }
 
     remove_internal_values_ (session) {
+        if ( session === undefined ) return;
+
         const copy = {
             ...session,
         };
@@ -128,12 +130,18 @@ class SessionService extends BaseService {
             if ( now - session.last_store > 5 * MINUTE ) {
                 this.log.debug('storing session meta: ' + session.uuid);
                 const unix_ts = Math.floor(now / 1000);
-                await this.db.write(
+                const { anyRowsAffected } = await this.db.write(
                     'UPDATE `sessions` ' +
                     'SET `meta` = ?, `last_activity` = ? ' +
                     'WHERE `uuid` = ?',
                     [JSON.stringify(session.meta), unix_ts, session.uuid],
                 );
+
+                if ( ! anyRowsAffected ) {
+                    delete this.sessions[key];
+                    continue;
+                }
+
                 session.last_store = now;
                 if (
                     ! user_updates[session.user_id] ||

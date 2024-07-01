@@ -82,7 +82,7 @@ const ro = {
         log_in: "Loghează-te",
         log_out: 'Deconectează-te',
         move: 'Mută',
-        moving: "Se mută",
+        moving_file: "Se mută %%",
         my_websites: "Site-urile mele",
         name: 'Nume',
         name_cannot_be_empty: 'Numele nu poate fi necompletat.',

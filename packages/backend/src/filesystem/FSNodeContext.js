@@ -25,6 +25,8 @@ const { Context } = require("../util/context");
 const { MultiDetachable } = require("../util/listenerutil");
 const { NodeRawEntrySelector } = require("./node/selectors");
 const { DB_READ } = require("../services/database/consts");
+const { UserActorType } = require("../services/auth/Actor");
+const { PermissionUtil } = require("../services/auth/PermissionService");
 
 /**
  * Container for information collected about a node
@@ -162,7 +164,35 @@ module.exports = class FSNodeContext {
         if ( this.found === false ) return undefined;
         return ! this.entry.parent_uid;
     }
+    
+    async isPublic () {
+        if ( this.isRoot ) return false;
+        const components = await this.getPathComponents();
+        if ( await this.isUserDirectory() ) return false;
+        if ( components[1] === 'Public' ) return true;
+        return false;
+    }
+    
+    async getPathComponents () {
+        if ( this.isRoot ) return [];
+        
+        let path = await this.get('path');
+        if ( path.startsWith('/') ) path = path.slice(1);
+        return path.split('/');
+    }
+    
+    async getUserPart () {
+        if ( this.isRoot ) return;
+        const components = await this.getPathComponents();
+        return components[0];
+    }
 
+    async getPathSize () {
+        if ( this.isRoot ) return;
+        const components = await this.getPathComponents();
+        return components.length;
+    }
+    
     async exists (fetch_options = {}) {
         await this.fetchEntry();
         if ( ! this.found ) {
@@ -208,8 +238,7 @@ module.exports = class FSNodeContext {
             return;
         }
 
-        // NOTE: commented out for now because it's too verbose
-        this.log.info('fetching entry: ' + this.selector.describe(true));
+        this.log.info('fetching entry: ' + this.selector.describe());
         // All services at the top (DEVLOG-401)
         const {
             traceService,
@@ -239,9 +268,6 @@ module.exports = class FSNodeContext {
 
             const callback = (resolver) => {
                 // NOTE: commented out for now because it's too verbose
-                this.log.noticeme(`resolved by ${resolver}`, {
-                    debug: fetch_entry_options.debug,
-                });
                 resolved = true;
                 detachables.detach();
                 rslv();
@@ -273,13 +299,10 @@ module.exports = class FSNodeContext {
             }
         });
 
-        this.log.debug('got past the promise')
-
         if ( resourceService.getResourceInfo(this.uid) ) {
             entry = await fsEntryService.get(this.uid, fetch_entry_options);
             this.log.debug('got an entry from the future');
         } else {
-            this.log.debug('resource is already free');
             entry = await fsEntryFetcher.find(
                 this.selector, fetch_entry_options);
         }
@@ -383,13 +406,55 @@ module.exports = class FSNodeContext {
      * then, stores them on the `permissions` property
      * of the fsentry.
      * @param {bool} force fetch shares if they were already fetched
-     *
-     * @deprecated sharing will use user-to-user permissions
      */
     async fetchShares (force) {
-        // NOOP: this was for legacy sharing functionality;
-        // this is being re-implemented with permissions
-        return;
+        if (this.entry.shares && ! force ) return;
+        
+        const actor = Context.get('actor');
+        if ( ! actor ) {
+            this.entry.shares = { users: [], apps: [] };
+            return;
+        }
+        
+        if ( ! (actor.type instanceof UserActorType) ) {
+            this.entry.shares = { users: [], apps: [] };
+            return;
+        }
+        
+        const svc_permission = this.services.get('permission');
+        
+        const permissions =
+            await svc_permission.query_issuer_permissions_by_prefix(
+                actor.type.user, `fs:${await this.get('uid')}:`);
+                
+        this.entry.shares = { users: [], apps: [] };
+
+        for ( const user_perm of permissions.users ) {
+            const access =
+                PermissionUtil.split(user_perm.permission).slice(-1)[0];
+            this.entry.shares.users.push({
+                user: {
+                    uid: user_perm.user.uuid,
+                    username: user_perm.user.username,
+                },
+                access,
+                permission: user_perm.permission,
+            });
+        }
+
+        for ( const app_perm of permissions.apps ) {
+            const access =
+                PermissionUtil.split(app_perm.permission).slice(-1)[0];
+            this.entry.shares.apps.push({
+                app: {
+                    icon: app_perm.app.icon,
+                    uid: app_perm.app.uid,
+                    name: app_perm.app.name,
+                },
+                access,
+                permission: app_perm.permission,
+            });
+        }
     }
 
     /**
@@ -734,7 +799,6 @@ module.exports = class FSNodeContext {
                     this.log.warn('null app');
                     continue;
                 }
-                this.log.debug('app?', { value:  app });
                 delete app.owner_user_id;
             }
         }

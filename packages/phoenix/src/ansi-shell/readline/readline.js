@@ -17,9 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { Context } from '../../context/context.js';
-import { CommandCompleter } from '../../puter-shell/completers/command_completer.js';
-import { FileCompleter } from '../../puter-shell/completers/file_completer.js';
-import { OptionCompleter } from '../../puter-shell/completers/option_completer.js';
+import { CommandCompleter } from '../../puter-shell/completers/CommandCompleter.js';
+import { FileCompleter } from '../../puter-shell/completers/FileCompleter.js';
+import { OptionCompleter } from '../../puter-shell/completers/OptionCompleter.js';
 import { Uint8List } from '../../util/bytes.js';
 import { StatefulProcessorBuilder } from '../../util/statemachine.js';
 import { ANSIContext } from '../ANSIContext.js';
@@ -151,11 +151,7 @@ const ReadlineProcessorBuilder = builder => builder
 
             if ( completions.length > 1 ) {
                 let inCommon = '';
-                for ( let i=0 ; true ; i++ ) {
-                    if ( ! completions.every(completion => {
-                        return completion.length > i;
-                    }) ) break;
-
+                for ( let i=0 ; completions.every(completion => completion.length > i) ; i++ ) {
                     let matches = true;
 
                     const chrFirst = completions[0][i];

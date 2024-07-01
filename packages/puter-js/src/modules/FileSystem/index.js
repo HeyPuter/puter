@@ -65,7 +65,7 @@ class FileSystem{
         }
 
         this.socket = io(this.APIOrigin, {
-            query: {
+            auth: {
                 auth_token: this.authToken,
             }
         });

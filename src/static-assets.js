@@ -27,7 +27,6 @@ const lib_paths =[
     `/lib/jquery-ui-1.13.2/jquery-ui.min.js`,
     `/lib/lodash@4.17.21.min.js`,
     `/lib/jquery.dragster.js`,
-    '/lib/jquery.menu-aim.js',
     `/lib/html-entities.js`,
     `/lib/timeago.min.js`,
     `/lib/iro.min.js`,
@@ -44,6 +43,8 @@ const css_paths = [
 
 // Ordered list of JS scripts
 const js_paths = [
+    '/init_sync.js',
+    '/init_async.js',
     '/initgui.js',
     '/helpers.js',
     '/IPC.js',

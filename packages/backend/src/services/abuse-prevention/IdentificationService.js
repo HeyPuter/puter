@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const BaseService = require("../BaseService");
 const { Context } = require("../../util/context");
 const config = require("../../config");
@@ -66,6 +66,10 @@ class Requester {
             config.api_base_url,
         ]
         return puter_origins.includes(this.origin);
+    }
+
+    get rl_identifier () {
+        return this.ip_forwarded || this.ip;
     }
 
     serialize () {

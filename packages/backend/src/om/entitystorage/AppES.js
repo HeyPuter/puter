@@ -23,7 +23,7 @@ const { AppUnderUserActorType } = require("../../services/auth/Actor");
 const { DB_WRITE } = require("../../services/database/consts");
 const { Context } = require("../../util/context");
 const { origin_from_url } = require("../../util/urlutil");
-const { Eq, Or } = require("../query/query");
+const { Eq, Like, Or } = require("../query/query");
 const { BaseES } = require("./BaseES");
 
 const uuidv4 = require('uuid').v4;
@@ -34,11 +34,17 @@ class AppES extends BaseES {
             const services = this.context.get('services');
             this.db = services.get('database').get(DB_WRITE, 'apps');
         },
-        async create_predicate (id) {
+        async create_predicate (id, ...args) {
             if ( id === 'user-can-edit' ) {
                 return new Eq({
                     key: 'owner',
                     value: Context.get('user').id,
+                });
+            }
+            if ( id === 'name-like' ) {
+                return new Like({
+                    key: 'name',
+                    value: args[0],
                 });
             }
         },

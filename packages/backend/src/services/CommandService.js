@@ -23,6 +23,10 @@ class Command {
         this.spec_ = spec;
     }
 
+    get id() {
+        return this.spec_.id;
+    }
+
     async execute(args, log) {
         log = log ?? console;
         const { id, name, description, handler } = this.spec_;
@@ -32,6 +36,13 @@ class Command {
             log.error(`command ${name ?? id} failed: ${err.message}`);
             log.error(err.stack);
         }
+    }
+
+    completeArgument(args) {
+        const completer = this.spec_.completer;
+        if ( completer )
+            return completer(args);
+        return [];
     }
 }
 
@@ -78,6 +89,14 @@ class CommandService extends BaseService {
         // TODO: add obvious-json as a tokenizer
         const args = text.split(/\s+/);
         await this.executeCommand(args, log);
+    }
+
+    get commandNames() {
+        return this.commands_.map(command => command.id);
+    }
+
+    getCommand(id) {
+        return this.commands_.find(command => command.id === id);
     }
 }
 

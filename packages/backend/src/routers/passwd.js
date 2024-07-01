@@ -18,7 +18,7 @@
  */
 "use strict"
 const express = require('express');
-const { invalidate_cached_user } = require('../helpers');
+const { invalidate_cached_user, get_user } = require('../helpers');
 const router = new express.Router();
 const auth = require('../middleware/auth.js');
 const { DB_WRITE } = require('../services/database/consts');
@@ -45,9 +45,15 @@ router.post('/passwd', auth, express.json(), async (req, res, next)=>{
     else if (typeof req.body.new_pass !== 'string')
         return res.status(400).send('new_pass must be a string.')
 
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('passwd') ) {
+        return res.status(429).send('Too many requests.');
+    }
+
     try{
+        const user = await get_user({ id: req.user.id, force: true });
         // check old_pass
-        const isMatch = await bcrypt.compare(req.body.old_pass, req.user.password)
+        const isMatch = await bcrypt.compare(req.body.old_pass, user.password)
         if(!isMatch)
             return res.status(400).send('old_pass does not match your current password.')
         // check new_pass length
@@ -56,10 +62,14 @@ router.post('/passwd', auth, express.json(), async (req, res, next)=>{
             return res.status(400).send('new_pass must be at least 6 characters long.')
         else{
             await db.write(
-                'UPDATE user SET password=? WHERE `id` = ?',
+                'UPDATE user SET password=?, `pass_recovery_token` = NULL, `change_email_confirm_token` = NULL WHERE `id` = ?',
                 [await bcrypt.hash(req.body.new_pass, 8), req.user.id]
             );
             invalidate_cached_user(req.user);
+
+            const svc_email = req.services.get('email');
+            svc_email.send_email({ email: user.email }, 'password_change_notification');
+
             return res.send('Password successfully updated.')
         }
     }catch(e){

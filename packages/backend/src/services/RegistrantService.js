@@ -55,7 +55,7 @@ class RegistrantService extends BaseService {
                 if ( data[k].from && ! seen.has(data[k].from) ) {
                     throw new Error(`Super type "${data[k].from}" not found for property type "${k}"`);
                 }
-                collection.set(k, PropType.create(ctx, data[k]));
+                collection.set(k, PropType.create(ctx, data[k], k));
                 seen.add(k);
             }
         }

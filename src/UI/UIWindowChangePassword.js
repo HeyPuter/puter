@@ -18,6 +18,7 @@
  */
 
 import UIWindow from './UIWindow.js'
+import check_password_strength from '../helpers/check_password_strength.js'
 
 async function UIWindowChangePassword(options){
     options = options ?? {};
@@ -88,31 +89,41 @@ async function UIWindowChangePassword(options){
         const new_password = $(el_window).find('.new-password').val();
         const confirm_new_password = $(el_window).find('.confirm-new-password').val();
 
-        let data;
+        // hide success message
+        $(el_window).find('.form-success-msg').hide();
 
-        if(current_password === '' || new_password === '' || confirm_new_password === ''){
+        // check if all fields are filled
+        if(!current_password || !new_password || !confirm_new_password){
             $(el_window).find('.form-error-msg').html('All fields are required.');
             $(el_window).find('.form-error-msg').fadeIn();
             return;
         }
+        // check if new password and confirm new password are the same
         else if(new_password !== confirm_new_password){
             $(el_window).find('.form-error-msg').html(i18n('passwords_do_not_match'));
             $(el_window).find('.form-error-msg').fadeIn();
             return;
         }
-        
+        // check password strength
+        const pass_strength = check_password_strength(new_password);
+        if(!pass_strength.overallPass){
+            $(el_window).find('.form-error-msg').html(i18n('password_strength_error'));
+            $(el_window).find('.form-error-msg').fadeIn();
+            return;
+        }
+
         $(el_window).find('.form-error-msg').hide();
-    
+
         $.ajax({
-            url: api_origin + "/passwd",
+            url: window.api_origin + "/user-protected/change-password",
             type: 'POST',
             async: true,
             headers: {
-                "Authorization": "Bearer "+auth_token
+                "Authorization": "Bearer "+window.auth_token
             },
             contentType: "application/json",
             data: JSON.stringify({ 
-                old_pass: current_password, 
+                password: current_password, 
                 new_pass: new_password,
             }),				
             success: function (data){
@@ -121,7 +132,7 @@ async function UIWindowChangePassword(options){
                 $(el_window).find('input').val('');
             },
             error: function (err){
-                $(el_window).find('.form-error-msg').html(err.responseText);
+                $(el_window).find('.form-error-msg').html(html_encode(err.responseText));
                 $(el_window).find('.form-error-msg').fadeIn();
             }
         });	

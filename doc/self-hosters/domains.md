@@ -1,4 +1,4 @@
-# Configurating Domains for Self-Hosted Puter
+# Configuring Domains for Self-Hosted Puter
 
 ## Local Network Configuration
 
@@ -51,7 +51,7 @@ Setting up a local DNS server on your network allows for flexible and scalable d
 
 - **Pi-hole**: Acts as both an ad-blocker and a DNS server. Ideal for easy setup and maintenance.
 - **BIND9**: Offers comprehensive DNS server capabilities for complex setups.
-- **Dnsmasq**: Lightweight and suitable for smaller networks or those new to running a DNS server.
+- **dnsmasq**: Lightweight and suitable for smaller networks or those new to running a DNS server.
 
 **contributors note:** feel free to add any software you're aware of
 which might help with this to the list. Also, feel free to add instructions here for specific software; our goal is for Puter to be easy to setup with tools you're already familiar with.
@@ -60,7 +60,7 @@ which might help with this to the list. Also, feel free to add instructions here
 
 1. Choose and install DNS server software on a device within your network.
 2. Configure the DNS server to resolve `puter.local` and `api.puter.local` to the IP address of your Puter hosting device.
-3. Update your router’s DHCP settings to distribute the DNS server's IP address to all devices on the network.
+3. Update your router's DHCP settings to distribute the DNS server's IP address to all devices on the network.
 
 By setting up a local DNS server, you gain the most flexibility and control over your network's domain name resolution, ensuring that all devices can access Puter and its API without manual configuration.
 
@@ -68,5 +68,5 @@ By setting up a local DNS server, you gain the most flexibility and control over
 
 Please note the self-hosting feature is still in alpha and a public production
 deployment is not recommended at this time. However, if you wish to host
-publically you can do so following the same steps you normally would to configure
+publicly you can do so following the same steps you normally would to configure
 a domain name and ensuring the `api` subdomain points to the server as well.

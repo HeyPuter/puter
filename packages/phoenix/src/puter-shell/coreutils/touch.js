@@ -18,7 +18,7 @@
  */
 import { Exit } from './coreutil_lib/exit.js';
 import { resolveRelativePath } from '../../util/path.js';
-import { ErrorCodes } from '../../platform/PosixError.js';
+import { ErrorCodes } from '@heyputer/puter-js-common/src/PosixError.js';
 
 export default {
     name: 'touch',

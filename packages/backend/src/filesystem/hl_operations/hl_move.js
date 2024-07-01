@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require("../../api/APIError");
-const { chkperm, validate_fsentry_name, is_ancestor_of } = require("../../helpers");
+const { chkperm, validate_fsentry_name, is_ancestor_of, df, get_user } = require("../../helpers");
 const { LLMove } = require("../ll_operations/ll_move");
 const { RootNodeSelector } = require("../node/selectors");
 const { HLFilesystemOperation } = require("./definitions");

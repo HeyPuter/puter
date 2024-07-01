@@ -43,7 +43,6 @@ class MonthlyUsageService extends BaseService {
                     year, month, key, actor.type.user.id, maybe_app_id, JSON.stringify(extra),
                     ...this.db.case({ mysql: [JSON.stringify(extra)], otherwise: [] }),
                 ]
-        console.log('VALS', vals);
 
         // UPSERT increment count
         try {

@@ -24,11 +24,11 @@ window.window_nav_history = {};
 window.window_nav_history_current_position = {};
 window.progress_tracker = [];
 window.upload_item_global_id = 0;
+window.app_instance_ids = new Set();
 
+window.menubars = [];
 window.download_progress = [];
 window.download_item_global_id = 0;
-
-window.TRUNCATE_LENGTH = 20;
 
 // This is the minimum width of the window for the sidebar to be shown
 window.window_width_threshold_for_sidebar = 500;
@@ -82,6 +82,7 @@ if(window.user !== undefined && window.user !== null){
     window.pictures_path = '/' + window.user.username + '/Photos';
     window.videos_path = '/' + window.user.username + '/Videos';
     window.audio_path = '/' + window.user.username + '/Audio';
+    window.public_path = '/' + window.user.username + '/Public';
     window.home_path = '/' + window.user.username;
 }
 window.root_dirname = 'Puter';
@@ -120,7 +121,7 @@ window.first_visit_animation = false;
 window.show_twitter_link = true;
 window.animate_window_opening = true;
 window.animate_window_closing = true;
-window.desktop_loading_fade_delay = (window.first_visit_ever && first_visit_animation ? 6000 : 1000);
+window.desktop_loading_fade_delay = (window.first_visit_ever && window.first_visit_animation ? 6000 : 1000);
 window.watchItems = [];
 window.appdata_signatures = {};
 window.appCallbackFunctions = [];
@@ -148,9 +149,13 @@ window.desktop_width = window.innerWidth;
 
 // {id: {left: 0, top: 0}}
 window.original_window_position = {};
+window.a_window_is_resizing = false;
 
 // recalculate desktop height and width on window resize
 $( window ).on( "resize", function() {
+    if(window.is_fullpage_mode) return;
+    if(window.a_window_is_resizing) return;
+
     const new_desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
     const new_desktop_width = window.innerWidth;
 
@@ -228,3 +233,10 @@ window.reset_item_positions = true; // The variable decides if the item position
 
 // default language
 window.locale = 'en';
+
+/* Menubar style
+ * 'window' - menubar is part of the window
+ * 'desktop' - menubar is part of the desktop
+ * 'system' - menubar is determined by the system (e.g. Windows, macOS)
+ */
+// window.menubar_style = 'desktop';

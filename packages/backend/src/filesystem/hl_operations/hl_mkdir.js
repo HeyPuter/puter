@@ -63,6 +63,7 @@ class MkTree extends HLFilesystemOperation {
 
     async _run () {
         const { values, context } = this;
+        const fs = context.get('services').get('filesystem');
 
         await this.create_branch_({
             parent_node: values.parent || await fs.node(new RootNodeSelector()),

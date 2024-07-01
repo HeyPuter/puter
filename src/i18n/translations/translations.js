@@ -28,6 +28,7 @@ import fi from './fi.js';
 import fr from './fr.js';
 import hy from './hy.js';
 import it from './it.js';
+import ig from './ig.js';
 import ko from './ko.js';
 import nb from './nb.js';
 import nl from './nl.js';
@@ -35,6 +36,7 @@ import nn from './nn.js';
 import pl from './pl.js';
 import pt from './pt.js';
 import ro from './ro.js';
+import ru from './ru.js';
 import sv from './sv.js';
 import th from './th.js';
 import tr from './tr.js';
@@ -58,11 +60,13 @@ export default {
     fr,
     hy,
     it,
+    ig,
     ko,
     nb,
     nl,
     nn,
     ro,
+    ru,
     pl,
     pt,
     sv,

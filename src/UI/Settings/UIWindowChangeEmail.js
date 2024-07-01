@@ -17,10 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import Placeholder from '../../util/Placeholder.js';
+import PasswordEntry from '../Components/PasswordEntry.js';
 import UIWindow from '../UIWindow.js'
 
+// TODO: DRY: We could specify a validator and endpoint instead of writing
+// a DOM tree and event handlers for each of these. (low priority)
 async function UIWindowChangeEmail(options){
     options = options ?? {};
+
+    const password_entry = new PasswordEntry({});
+    const place_password_entry = Placeholder();
 
     const internal_id = window.uuidv4();
     let h = '';
@@ -33,6 +40,11 @@ async function UIWindowChangeEmail(options){
         h += `<div style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">`;
             h += `<label for="confirm-new-email-${internal_id}">${i18n('new_email')}</label>`;
             h += `<input id="confirm-new-email-${internal_id}" type="text" name="new-email" class="new-email" autocomplete="off" />`;
+        h += `</div>`;
+        // password confirmation
+        h += `<div style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">`;
+            h += `<label>${i18n('account_password')}</label>`;
+            h += `${place_password_entry.html}`;
         h += `</div>`;
 
         // Change Email
@@ -73,11 +85,14 @@ async function UIWindowChangeEmail(options){
         ...options.window_options
     })
 
+    password_entry.attach(place_password_entry);
+
     $(el_window).find('.change-email-btn').on('click', function(e){
         // hide previous error/success msg
         $(el_window).find('.form-success-msg, .form-success-msg').hide();
 
         const new_email = $(el_window).find('.new-email').val();
+        const password = $(el_window).find('.password').val();
 
         if(!new_email){
             $(el_window).find('.form-error-msg').html(i18n('all_fields_required'));
@@ -93,15 +108,16 @@ async function UIWindowChangeEmail(options){
         $(el_window).find('.new-email').attr('disabled', true);
     
         $.ajax({
-            url: api_origin + "/change_email/start",
+            url: window.api_origin + "/user-protected/change-email",
             type: 'POST',
             async: true,
             headers: {
-                "Authorization": "Bearer "+auth_token
+                "Authorization": "Bearer "+window.auth_token
             },
             contentType: "application/json",
             data: JSON.stringify({ 
                 new_email: new_email, 
+                password: password_entry.get('value'),
             }),				
             success: function (data){
                 $(el_window).find('.form-success-msg').html(i18n('email_change_confirmation_sent'));

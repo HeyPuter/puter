@@ -27,7 +27,6 @@ export default {
 
         let result;
         try {
-            if ( ! ctx.locals.args ) debugger;
             result = parseArgs({ ...spec, args: ctx.locals.args });
         } catch (e) {
             await ctx.externs.out.write(
@@ -44,5 +43,7 @@ export default {
 
         ctx.locals.values = result.values;
         ctx.locals.positionals = result.positionals;
+        if (result.tokens)
+            ctx.locals.tokens = result.tokens;
     }
 }

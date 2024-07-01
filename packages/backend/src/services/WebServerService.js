@@ -28,6 +28,7 @@ const fs = require('fs');
 const auth = require('../middleware/auth');
 const { osclink } = require('../util/strutil');
 const { surrounding_box, es_import_promise } = require('../fun/dev-console-ui-utils');
+const auth2 = require('../middleware/auth2.js');
 
 class WebServerService extends BaseService {
     static MODULES = {
@@ -41,6 +42,24 @@ class WebServerService extends BaseService {
         ['on-finished']: require('on-finished'),
         morgan: require('morgan'),
     };
+
+    async ['__on_boot.consolidation'] () {
+        const app = this.app;
+        const services = this.services;
+        await services.emit('install.middlewares.context-aware', { app });
+        await services.emit('install.routes', {
+            app,
+            router_webhooks: this.router_webhooks,
+        });
+        await services.emit('install.routes-gui', { app });
+    }
+
+    async ['__on_boot.activation'] () {
+        const services = this.services;
+        await services.emit('start.webserver');
+        await services.emit('ready.webserver');
+        this.print_puter_logo_();
+    }
 
     async ['__on_start.webserver'] () {
         await es_import_promise;
@@ -109,20 +128,16 @@ class WebServerService extends BaseService {
         ports_to_try = null; // GC
 
         const url = config.origin;
-        
+
         this.startup_widget = () => {
             const link = `\x1B[34;1m${osclink(url)}\x1B[0m`;
             const lines = [
-                "",
                 `Puter is now live at: ${link}`,
-                `Type web:dismiss to dismiss this message`,
-                "",
+                `Type web:dismiss to un-stick this message`,
             ];
             const lengths = [
-                0,
                 (`Puter is now live at: `).length + url.length,
-                lines[2].length,
-                0,
+                lines[1].length,
             ];
             surrounding_box('34;1', lines, lengths);
             return lines;
@@ -131,8 +146,6 @@ class WebServerService extends BaseService {
             const svc_devConsole = this.services.get('dev-console', { optional: true });
             if ( svc_devConsole ) svc_devConsole.add_widget(this.startup_widget);
         }
-
-        this.print_puter_logo_();
 
         server.timeout = 1000 * 60 * 60 * 2; // 2 hours
         server.requestTimeout = 1000 * 60 * 60 * 2; // 2 hours
@@ -144,7 +157,7 @@ class WebServerService extends BaseService {
 
         // Socket.io middleware for authentication
         socketio.use(async (socket, next) => {
-            if (socket.handshake.query.auth_token) {
+            if (socket.handshake.auth.auth_token) {
                 try {
                     let auth_res = await jwt_auth(socket);
                     // successful auth
@@ -152,9 +165,14 @@ class WebServerService extends BaseService {
                     socket.token = auth_res.token;
                     // join user room
                     socket.join(socket.user.id);
+                    
+                    // setTimeout 0 is needed because we need to send
+                    // the notifications after this handler is done
+                    // setTimeout(() => {
+                    // }, 1000);
                     next();
                 } catch (e) {
-                    console.log('socket auth err');
+                    console.log('socket auth err', e);
                 }
             }
         });
@@ -164,8 +182,14 @@ class WebServerService extends BaseService {
             });
             socket.on('trash.is_empty', (msg) => {
                 socket.broadcast.to(socket.user.id).emit('trash.is_empty', msg);
+                const svc_event = this.services.get('event');
+                svc_event.emit('web.socket.user-connected', {
+                    user: socket.user
+                });
             });
         });
+        
+        await this.services.emit('install.websockets', { server });
     }
 
     async _init () {
@@ -255,7 +279,7 @@ class WebServerService extends BaseService {
                 onFinished(res, () => {
                     if ( res.statusCode !== 500 ) return;
                     if ( req.__error_handled ) return;
-                    const alarm = services.get('alarm');
+                    const alarm = this.services.get('alarm');
                     alarm.create('responded-500', 'server sent a 500 response', {
                         error: req.__error_source,
                         url: req.url,
@@ -282,6 +306,38 @@ class WebServerService extends BaseService {
 
             return next();
         });
+
+        // Validate host header against allowed domains to prevent host header injection
+        // https://www.owasp.org/index.php/Host_Header_Injection
+        app.use((req, res, next)=>{
+            const allowedDomains = [
+                config.domain.toLowerCase(),
+                config.static_hosting_domain.toLowerCase(),
+                'at.' + config.static_hosting_domain.toLowerCase(),
+            ];
+
+            // Retrieve the Host header and ensure it's in a valid format
+            const hostHeader = req.headers.host;
+
+            if (!hostHeader) {
+                return res.status(400).send('Missing Host header.');
+            }
+
+            // Parse the Host header to isolate the hostname (strip out port if present)
+            const hostName = hostHeader.split(':')[0].trim().toLowerCase();
+
+            // Check if the hostname matches any of the allowed domains or is a subdomain of an allowed domain
+            if (allowedDomains.some(allowedDomain => hostName === allowedDomain || hostName.endsWith('.' + allowedDomain))) {
+                next(); // Proceed if the host is valid
+            } else {
+                return res.status(400).send('Invalid Host header.');
+            }
+        })
+
+        // Web hooks need a router that occurs before JSON parse middleware
+        // so that signatures of the raw JSON can be verified
+        this.router_webhooks = express.Router();
+        app.use(this.router_webhooks);
 
         app.use(express.json({limit: '50mb'}));
 
@@ -314,7 +370,6 @@ class WebServerService extends BaseService {
                 req.subdomains[req.subdomains.length-1] === 'api'
             ) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
-                res.setHeader('Access-Control-Allow-Credentials', 'true');
             }
 
             // Request methods to allow

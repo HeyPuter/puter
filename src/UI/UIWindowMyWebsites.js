@@ -84,16 +84,16 @@ async function UIWindowMyWebsites(options){
                         h += `<img class="mywebsites-site-setting" data-site-uuid="${sites[i].uid}" src="${html_encode(window.icons['cog.svg'])}">`;
                         // there is a directory associated with this site
                         if(sites[i].root_dir){
-                            h += `<p class="mywebsites-dir-path" data-path="${html_encode(sites[i].root_dir.path)}" data-name="${sites[i].root_dir.name}" data-uuid="${sites[i].root_dir.id}">`;
+                            h += `<p class="mywebsites-dir-path" data-path="${html_encode(sites[i].root_dir.path)}" data-name="${html_encode(sites[i].root_dir.name)}" data-uuid="${sites[i].root_dir.id}">`;
                                 h+= `<img src="${html_encode(window.icons['folder.svg'])}">`;
-                                h+= `${sites[i].root_dir.path}`;
+                                h+= `${html_encode(sites[i].root_dir.path)}`;
                             h += `</p>`;
                             h += `<p style="margin-bottom:0; margin-top: 20px; font-size: 13px;">`;
-                                h += `<span class="mywebsites-dis-dir" data-dir-uuid="${sites[i].root_dir.id}" data-site-uuid="${sites[i].uid}">`;
+                                h += `<span class="mywebsites-dis-dir" data-dir-uuid="${html_encode(sites[i].root_dir.id)}" data-site-uuid="${html_encode(sites[i].uid)}">`;
                                 h += `<img style="width: 16px; margin-bottom: -2px; margin-right: 4px;" src="${html_encode(window.icons['plug.svg'])}">${i18n('disassociate_dir')}</span>`;
                             h += `</p>`;
                         }
-                        h += `<p class="mywebsites-no-dir-notice" data-site-uuid="${sites[i].uid}" style="${sites[i].root_dir ? `display:none;` : `display:block;`}">${i18n('no_dir_associated_with_site')}</p>`;
+                        h += `<p class="mywebsites-no-dir-notice" data-site-uuid="${html_encode(sites[i].uid)}" style="${sites[i].root_dir ? `display:none;` : `display:block;`}">${i18n('no_dir_associated_with_site')}</p>`;
                     h += `</div>`;
                 }
                 $(el_window).find('.window-body').html(h);
@@ -153,7 +153,7 @@ $(document).on('click', '.mywebsites-site-setting', function(e){
                     }
                 
                     $.ajax({
-                        url: api_origin + "/delete-site",
+                        url: window.api_origin + "/delete-site",
                         type: 'POST',
                         data: JSON.stringify({ 
                             site_uuid: $(e.target).attr('data-site-uuid'),
@@ -161,11 +161,11 @@ $(document).on('click', '.mywebsites-site-setting', function(e){
                         async: false,
                         contentType: "application/json",
                         headers: {
-                            "Authorization": "Bearer "+auth_token
+                            "Authorization": "Bearer "+window.auth_token
                         },
                         statusCode: {
                             401: function () {
-                                logout();
+                                window.logout();
                             },
                         },        
                         success: function (){ 

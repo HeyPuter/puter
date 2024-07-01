@@ -26,7 +26,8 @@ function UIWindowEmailConfirmationRequired(options){
         let final_code = '';
         let is_checking_code = false;
 
-        const submit_btn_txt = 'Confirm Email'
+        const submit_btn_txt = 'Confirm Email';
+
         let h = '';
         h += `<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>`;
         h += `<div style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; color: #3e5362;">`;
@@ -110,7 +111,7 @@ function UIWindowEmailConfirmationRequired(options){
 
             setTimeout(() => {
                 $.ajax({
-                    url: api_origin + "/confirm-email",
+                    url: window.api_origin + "/confirm-email",
                     type: 'POST',
                     data: JSON.stringify({
                         code: final_code,
@@ -118,17 +119,17 @@ function UIWindowEmailConfirmationRequired(options){
                     async: true,
                     contentType: "application/json",
                     headers: {
-                        "Authorization": "Bearer "+auth_token
+                        "Authorization": "Bearer "+window.auth_token
                     },
                     statusCode: {
                         401: function () {
-                            logout();
+                            window.logout();
                         },
                     },        
                     success: function (res){
                         if(res.email_confirmed){
                             $(el_window).close();
-                            refresh_user_data(window.auth_token)
+                            window.refresh_user_data(window.auth_token)
                             resolve(true);
                         }else{
                             $(el_window).find('.error').html('Invalid confirmation code.');
@@ -140,7 +141,7 @@ function UIWindowEmailConfirmationRequired(options){
                         }
                     },
                     error: function(res){
-                        $(el_window).find('.error').html(res.responseJSON.error);
+                        $(el_window).find('.error').html(html_encode(res.responseJSON.error));
                         $(el_window).find('.error').fadeIn();
                         $(el_window).find('.digit-input').val('');
                         $(el_window).find('.digit-input').first().focus();
@@ -157,16 +158,16 @@ function UIWindowEmailConfirmationRequired(options){
         // send email confirmation
         $(el_window).find('.send-conf-email').on('click', function(e){
             $.ajax({
-                url: api_origin + "/send-confirm-email",
+                url: window.api_origin + "/send-confirm-email",
                 type: 'POST',
                 async: true,
                 contentType: "application/json",
                 headers: {
-                    "Authorization": "Bearer "+auth_token
+                    "Authorization": "Bearer "+window.auth_token
                 },
                 statusCode: {
                     401: function () {
-                        logout();
+                        window.logout();
                     },
                 },        
                 success: async function (res){
@@ -185,7 +186,7 @@ function UIWindowEmailConfirmationRequired(options){
 
         // logout
         $(el_window).find('.conf-email-log-out').on('click', function(e){
-            logout();
+            window.logout();
             $(el_window).close();
         })
 

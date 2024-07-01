@@ -19,21 +19,22 @@
 
 import UITaskbarItem from './UITaskbarItem.js'
 import UIPopover from './UIPopover.js'
+import launch_app from "../helpers/launch_app.js"
 
 async function UITaskbar(options){
-    global_element_id++;
+    window.global_element_id++;
 
     options = options ?? {};
     options.content = options.content ?? '';
 
     // get launch apps
     $.ajax({
-        url: api_origin + "/get-launch-apps",
+        url: window.api_origin + "/get-launch-apps",
         type: 'GET',
         async: true,
         contentType: "application/json",
         headers: {
-            "Authorization": "Bearer "+auth_token
+            "Authorization": "Bearer "+window.auth_token
         },
         success: function (apps){ 
             window.launch_apps = apps;
@@ -41,7 +42,7 @@ async function UITaskbar(options){
     });
 
     let h = '';
-    h += `<div id="ui-taskbar_${global_element_id}" class="taskbar" style="height:${window.taskbar_height}px;"><span id='clock'></span></div>`;
+    h += `<div id="ui-taskbar_${window.global_element_id}" class="taskbar" style="height:${window.taskbar_height}px;"><span id='clock'></span></div>`;
 
     $('.desktop').append(h);
 
@@ -74,36 +75,36 @@ async function UITaskbar(options){
 
             // In the rare case that launch_apps is not populated yet, get it from the server
             // then populate the popover
-            if(!launch_apps || !launch_apps.recent || launch_apps.recent.length === 0){
+            if(!window.launch_apps || !window.launch_apps.recent || window.launch_apps.recent.length === 0){
                 // get launch apps
-                launch_apps = await $.ajax({
-                    url: api_origin + "/get-launch-apps",
+                window.launch_apps = await $.ajax({
+                    url: window.api_origin + "/get-launch-apps",
                     type: 'GET',
                     async: true,
                     contentType: "application/json",
                     headers: {
-                        "Authorization": "Bearer "+auth_token
+                        "Authorization": "Bearer "+window.auth_token
                     },
                 });
             }
             
             let apps_str = '';
 
-            apps_str += `<div style="margin-bottom: 10px; padding: 5px; position: relative;">`
+            apps_str += `<div class="launch-search-wrapper">`
                 apps_str += `<input style="background-image:url(${window.icons['magnifier-outline.svg']});" class="launch-search">`;
                 apps_str += `<img class="launch-search-clear" src="${window.icons['close.svg']}">`;
             apps_str += `</div>`;
             // -------------------------------------------
             // Recent apps
             // -------------------------------------------
-            if(launch_apps.recent.length > 0){
+            if(window.launch_apps.recent.length > 0){
                 // heading
                 apps_str += `<h1 class="start-section-heading start-section-heading-recent">${i18n('recent')}</h1>`;
 
                 // apps
                 apps_str += `<div class="launch-apps-recent">`;
-                for (let index = 0; index < window.launch_recent_apps_count && index < launch_apps.recent.length; index++) {
-                    const app_info = launch_apps.recent[index];
+                for (let index = 0; index < window.launch_recent_apps_count && index < window.launch_apps.recent.length; index++) {
+                    const app_info = window.launch_apps.recent[index];
                     apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
                         apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(app_info.icon)}" data-app-title="${html_encode(app_info.title)}">`;
                             apps_str += `<img class="start-app-icon" src="${html_encode(app_info.icon ? app_info.icon : window.icons['app.svg'])}">`;
@@ -116,14 +117,13 @@ async function UITaskbar(options){
             // -------------------------------------------
             // Reccomended apps
             // -------------------------------------------
-            if(launch_apps.recommended.length > 0){
+            if(window.launch_apps.recommended.length > 0){
                 // heading
-                apps_str += `<h1 class="start-section-heading start-section-heading-recommended" style="${launch_apps.recent.length > 0 ? 'padding-top: 30px;' : ''}">Recommended</h1>`;
-
+                apps_str += `<h1 class="start-section-heading start-section-heading-recommended" style="${window.launch_apps.recent.length > 0 ? 'padding-top: 30px;' : ''}">${i18n('recommended')}</h1>`;
                 // apps
                 apps_str += `<div class="launch-apps-recommended">`;
-                for (let index = 0; index < launch_apps.recommended.length; index++) {
-                    const app_info = launch_apps.recommended[index];
+                for (let index = 0; index < window.launch_apps.recommended.length; index++) {
+                    const app_info = window.launch_apps.recommended[index];
                     apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
                         apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(app_info.icon)}" data-app-title="${html_encode(app_info.title)}">`;
                             apps_str += `<img class="start-app-icon" src="${html_encode(app_info.icon ? app_info.icon : window.icons['app.svg'])}">`;
@@ -212,7 +212,7 @@ async function UITaskbar(options){
     //---------------------------------------------
     // add `Trash` to the taskbar
     //---------------------------------------------
-    const trash = await puter.fs.stat(trash_path);
+    const trash = await puter.fs.stat(window.trash_path);
     if(window.socket){
         window.socket.emit('trash.is_empty', {is_empty: trash.is_empty});
     }
@@ -225,7 +225,7 @@ async function UITaskbar(options){
         keep_in_taskbar: true,
         lock_keep_in_taskbar: true,
         onClick: function(){
-            let open_windows = $(`.window[data-path="${html_encode(trash_path)}"]`);
+            let open_windows = $(`.window[data-path="${html_encode(window.trash_path)}"]`);
             if(open_windows.length === 0){
                 launch_app({ name: 'explorer', path: window.trash_path});
             }else{
@@ -233,11 +233,11 @@ async function UITaskbar(options){
             }
         },
         onItemsDrop: function(items){
-            move_items(items, trash_path);
+            window.move_items(items, window.trash_path);
         }
     })
 
-    make_taskbar_sortable();
+    window.make_taskbar_sortable();
 }
 
 window.make_taskbar_sortable = function(){
@@ -259,7 +259,6 @@ window.make_taskbar_sortable = function(){
                     $(this).sortable('cancel');
                     $('.taskbar .start-app').remove();
                     return;
-                }else{
                 }
             }
         },
@@ -293,12 +292,12 @@ window.make_taskbar_sortable = function(){
                 $(el).insertAfter(ui.item);
                 // $(ui.item).insertBefore(`<h1>Hello!</h1>`);
                 $(el).show();
-                $(ui.item).removeItems();  
-                update_taskbar();  
+                $(ui.item).removeItems();
+                window.update_taskbar();
             }
             // only proceed to update DB if the item sorted was a pinned item otherwise no point in updating the taskbar in DB
             else if($(ui.item).attr('data-keep-in-taskbar') === 'true'){
-                update_taskbar();
+                window.update_taskbar();
             }
         },
     });

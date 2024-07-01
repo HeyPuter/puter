@@ -16,38 +16,51 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { Context } = require('./util/context');
+const BaseService = require("./services/BaseService");
+const useapi = require('useapi');
 
 class Kernel extends AdvancedBase {
-    constructor () {
+    constructor ({ entry_path } = {}) {
         super();
 
         this.modules = [];
+        this.useapi = useapi();
+
+        this.useapi.withuse(() => {
+            def('Module', AdvancedBase);
+            def('Service', BaseService);
+        });
+
+        this.entry_path = entry_path;
     }
 
     add_module (module) {
         this.modules.push(module);
     }
 
-    _runtime_init () {
+    _runtime_init (boot_parameters) {
         const kvjs = require('@heyputer/kv.js');
         const kv = new kvjs();
         global.kv = kv;
         global.cl = console.log;
-
+        
         const { RuntimeEnvironment } = require('./boot/RuntimeEnvironment');
         const { BootLogger } = require('./boot/BootLogger');
 
         // Temporary logger for boot process;
         // LoggerService will be initialized in app.js
         const bootLogger = new BootLogger();
+        this.bootLogger = bootLogger;
 
         // Determine config and runtime locations
         const runtimeEnv = new RuntimeEnvironment({
+            entry_path: this.entry_path,
             logger: bootLogger,
         });
-        runtimeEnv.init();
+        const environment = runtimeEnv.init();
+        this.environment = environment;
 
         // polyfills
         require('./polyfill/to-string-higher-radix');
@@ -60,8 +73,13 @@ class Kernel extends AdvancedBase {
         // const app = express();
         const config = require('./config');
 
+        globalThis.ll = () => {};
         globalThis.xtra_log = () => {};
         if ( config.env === 'dev' ) {
+            globalThis.ll = o => {
+                console.log('debug: ' + require('node:util').inspect(o));
+                return o;
+            };
             globalThis.xtra_log = (...args) => {
                 // append to file in temp
                 const fs = require('fs');
@@ -83,13 +101,16 @@ class Kernel extends AdvancedBase {
         // === START: Initialize Service Registry ===
         const { Container } = require('./services/Container');
 
-        const services = new Container();
+        const services = new Container({ logger: this.bootLogger });
         this.services = services;
         // app.set('services', services);
 
         const root_context = Context.create({
+            environment: this.environment,
+            useapi: this.useapi,
             services,
             config,
+            logger: this.bootLogger,
         }, 'app');
         globalThis.root_context = root_context;
 
@@ -106,9 +127,13 @@ class Kernel extends AdvancedBase {
     async _install_modules () {
         const { services } = this;
 
+        // Internal modules
         for ( const module of this.modules ) {
             await module.install(Context.get());
         }
+
+        // External modules
+        await this.install_extern_mods_();
 
         try {
             await services.init();
@@ -152,17 +177,7 @@ class Kernel extends AdvancedBase {
         const { services } = this;
 
         await services.ready;
-        {
-            const app = services.get('web-server').app;
-            app.use(async (req, res, next) => {
-                req.services = services;
-                next();
-            });
-            await services.emit('boot.services-initialized');
-            await services.emit('install.middlewares.context-aware', { app });
-            await services.emit('install.routes', { app });
-            await services.emit('install.routes-gui', { app });
-        }
+        await services.emit('boot.consolidation');
 
         // === END: Initialize Service Registry ===
 
@@ -178,9 +193,38 @@ class Kernel extends AdvancedBase {
             });
         })();
 
+        await services.emit('boot.activation');
+        await services.emit('boot.ready');
+    }
 
-        await services.emit('start.webserver');
-        await services.emit('ready.webserver');
+    async install_extern_mods_ () {
+        const path_ = require('path');
+        const fs = require('fs');
+
+        const mod_paths = this.environment.mod_paths;
+        for ( const mods_dirpath of mod_paths ) {
+            const mod_dirnames = fs.readdirSync(mods_dirpath);
+            for ( const mod_dirname of mod_dirnames ) {
+                const mod_path = path_.join(mods_dirpath, mod_dirname);
+
+                const stat = fs.statSync(mod_path);
+                if ( ! stat.isDirectory() ) {
+                    continue;
+                }
+
+                const mod_class = this.useapi.withuse(() => require(mod_path));
+                const mod = new mod_class();
+                if ( ! mod ) {
+                    continue;
+                }
+
+                if ( mod.install ) {
+                    this.useapi.awithuse(async () => {
+                        await mod.install(Context.get());
+                    });
+                }
+            }
+        }
     }
 }
 

@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const api_error_handler = require("../../api/api_error_handler");
 const config = require("../../config");
 const { get_user, get_app, id2path } = require("../../helpers");
@@ -24,13 +24,16 @@ const { Context } = require("../../util/context");
 const { NodeInternalIDSelector, NodePathSelector } = require("../../filesystem/node/selectors");
 const { TYPE_DIRECTORY } = require("../../filesystem/FSNodeContext");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
-const { Actor, UserActorType } = require("../../services/auth/Actor");
+const { Actor, UserActorType, SiteActorType } = require("../../services/auth/Actor");
 const APIError = require("../../api/APIError");
+
+const AT_DIRECTORY_NAMESPACE = '4aa6dc52-34c1-4b8a-b63c-a62b27f727cf';
 
 class PuterSiteMiddleware extends AdvancedBase {
     static MODULES = {
         path: require('path'),
         mime: require('mime-types'),
+        uuidv5: require('uuid').v5,
     }
     install (app) {
         app.use(this.run.bind(this));
@@ -62,13 +65,43 @@ class PuterSiteMiddleware extends AdvancedBase {
             req.subdomains[0] === 'devtest' ? 'devtest' :
             req.hostname.slice(0, -1 * (config.static_hosting_domain.length + 1));
 
-        let path = (req.baseUrl + req.path) ?? 'index.html';
+        let path = (req.baseUrl + req.path) || 'index.html';
 
         const context = Context.get();
         const services = context.get('services');
+        
+        const get_username_site = (async () => {
+            if ( ! subdomain.endsWith('.at') ) return;
+            const parts = subdomain.split('.');
+            if ( parts.length !== 2 ) return;
+            const username = parts[0];
+            if ( ! username.match(config.username_regex) ) {
+                return;
+            }
+            const svc_fs = services.get('filesystem');
+            const index_node = await svc_fs.node(new NodePathSelector(
+                `/${username}/Public/index.html`
+            ));
+            const node = await svc_fs.node(new NodePathSelector(
+                `/${username}/Public`
+            ));
+            if ( ! await index_node.exists() ) return;
 
-        const svc_puterSite = services.get('puter-site');
-        const site = await svc_puterSite.get_subdomain(subdomain);
+            return {
+                name: username + '.at',
+                uuid: this.modules.uuidv5(username, AT_DIRECTORY_NAMESPACE),
+                root_dir_id: await node.get('mysql-id'),
+            };
+        })
+
+        const site =
+            await get_username_site() ||
+            await (async () => {
+                const svc_puterSite = services.get('puter-site');
+                const site = await svc_puterSite.get_subdomain(subdomain);
+                return site;
+            })();
+
         if ( site === null ) {
             return res.status(404).send('Subdomain not found');
         }
@@ -117,7 +150,7 @@ class PuterSiteMiddleware extends AdvancedBase {
         }
 
         if ( ! subdomain_root_path || subdomain_root_path === '/' ) {
-            throw new APIError.create('forbidden');
+            throw APIError.create('forbidden');
         }
 
         const filepath = subdomain_root_path + decodeURIComponent(
@@ -145,14 +178,119 @@ class PuterSiteMiddleware extends AdvancedBase {
             await target_node.get('name')
         );
         res.set('Content-Type', contentType);
+        
+        const acl_config = {
+            no_acl: true,
+            actor: null,
+        };
+        
+        if ( site.protected ) {
+            const svc_auth = req.services.get('auth');
+            
+            const get_site_actor_from_token = async () => {
+                const site_token = req.cookies['puter.site.token'];
+                if ( ! site_token ) return;
+
+                let failed = false;
+                let site_actor;
+                try {
+                    site_actor =
+                        await svc_auth.authenticate_from_token(site_token);
+                } catch (e) {
+                    failed = true;
+                }
+
+                if ( failed ) return;
+                    
+                if ( ! site_actor ) return;
+
+                // security measure: if 'puter.site.token' is set
+                //   to a different actor type, someone is likely
+                //   trying to exploit the system.
+                if ( ! (site_actor.type instanceof SiteActorType) ) {
+                    return;
+                }
+                
+                acl_config.actor = site_actor;
+                
+                // Refresh the token if it's been 30 seconds since
+                // the last request
+                if (
+                    (Date.now() - site_actor.type.iat*1000)
+                    >
+                    1000*30
+                ) {
+                    const site_token = svc_auth.get_site_app_token({
+                        site_uid: site.uuid,
+                    });
+                    res.cookie('puter.site.token', site_token);
+                }
+                
+                return true;
+            };
+            
+            const make_site_actor_from_app_token = async () => {
+                const token = req.query['puter.auth.token'];
+
+                acl_config.no_acl = false;
+                
+                if ( ! token ) {
+                    const e = APIError.create('token_missing');
+                    return this.respond_error_({ req, res, e });
+                }
+                
+                const app_actor =
+                    await svc_auth.authenticate_from_token(token);
+                    
+                const user_actor =
+                    app_actor.get_related_actor(UserActorType);
+                
+                const svc_permission = req.services.get('permission');
+                const perm = await (async () => {
+                    if ( user_actor.type.user.id === site.user_id ) {
+                        return {};
+                    }
+                        
+                    return await svc_permission.check(
+                        user_actor, `site:uid#${site.uuid}:access`
+                    );
+                })();
+                
+                if ( ! perm ) {
+                    const e = APIError.create('forbidden');
+                    this.respond_error_({ req, res, e });
+                    return false;
+                }
+                
+                const site_actor = await Actor.create(SiteActorType, { site });
+                acl_config.actor = site_actor;
+
+                // This subdomain is allowed to keep the site actor token,
+                // so we send it here as a cookie so other html files can
+                // also load.
+                const site_token = svc_auth.get_site_app_token({
+                    site_uid: site.uuid,
+                });
+                res.cookie('puter.site.token', site_token);
+                return true;
+            }
+            
+            let ok = await get_site_actor_from_token();
+            if ( ! ok ) {
+                ok = await make_site_actor_from_app_token();
+            }
+            if ( ! ok ) return;
+
+            Object.freeze(acl_config);
+        }
 
         const ll_read = new LLRead();
+        // const actor = Actor.adapt(req.user);
+        console.log('what user?', req.user);
+        console.log('what actor?', acl_config.actor);
         const stream = await ll_read.run({
-            no_acl: true,
-            actor: new Actor({
-                user_uid: req.user ? req.user.uuid : null,
-                type: new UserActorType({ user: req.user }),
-            }),
+            no_acl: acl_config.no_acl,
+            actor: acl_config.actor,
             fsNode: target_node,
         });
 
@@ -188,6 +326,19 @@ class PuterSiteMiddleware extends AdvancedBase {
         res.write('</div>');
 
         return res.end();
+    }
+    
+    respond_error_ ({ req, res, e }) {
+        if ( ! (e instanceof APIError) ) {
+            // TODO: alarm here
+            e = APIError.create('unknown_error');
+        }
+        
+        res.redirect(`${config.origin}?${e.querystringize({
+            ...(req.query['puter.app_instance_id'] ? {
+                ['error_from_within_iframe']: true,
+            } : {})
+        })}`);
     }
 }
 

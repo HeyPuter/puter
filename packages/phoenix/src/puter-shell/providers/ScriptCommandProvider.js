@@ -24,7 +24,7 @@ export class ScriptCommandProvider {
     async lookup (id, { ctx }) {
         const { filesystem } = ctx.platform;
 
-        const is_path = id.match(/^[.\/]/);
+        const is_path = id.match(/^[./]/);
         if ( ! is_path ) return undefined;
 
         const absPath = resolveRelativePath(ctx.vars, id);
@@ -63,5 +63,10 @@ export class ScriptCommandProvider {
             return [ result ];
         }
         return undefined;
+    }
+
+    async complete (query, { ctx }) {
+        // TODO: Implement this
+        return [];
     }
 }

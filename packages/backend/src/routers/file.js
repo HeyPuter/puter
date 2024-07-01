@@ -96,7 +96,7 @@ router.get('/file', async (req, res, next)=>{
     res.resource_owner = fsentry[0].user_id;
 
     // try to deduce content-type
-    const contentType = mime.contentType(fsentry[0].name)
+    const contentType = "application/octet-stream";
 
     // update `accessed`
     db.write(

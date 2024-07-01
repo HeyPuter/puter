@@ -68,7 +68,6 @@ export class Coupler {
                 break;
             }
             if ( this.on_ ) {
-                if ( ! value ) debugger;
                 await this.target.write(value);
             }
         }

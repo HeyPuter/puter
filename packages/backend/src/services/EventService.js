@@ -36,9 +36,11 @@ class ScopedEventBus {
 class EventService extends BaseService {
     async _construct () {
         this.listeners_ = {};
+        this.global_listeners_ = [];
     }
 
-    emit (key, data) {
+    emit (key, data, meta) {
+        meta = meta ?? {};
         const parts = key.split('.');
         for ( let i = 0; i < parts.length; i++ ) {
             const part = i === parts.length - 1
@@ -55,7 +57,7 @@ class EventService extends BaseService {
                 // event dispatch.
                 (async () => {
                     try {
-                        await callback(key, data);
+                        await callback(key, data, meta);
                     } catch (e) {
                         this.errors.report('event-service.emit', {
                             source: e,
@@ -65,6 +67,22 @@ class EventService extends BaseService {
                     }
                 })();
             }
+        }
+        
+        for ( const callback of this.global_listeners_ ) {
+            // IIAFE wrapper to catch errors without blocking
+            // event dispatch.
+            (async () => {
+                try {
+                    await callback(key, data, meta);
+                } catch (e) {
+                    this.errors.report('event-service.emit', {
+                        source: e,
+                        trace: true,
+                        alarm: true,
+                    });
+                }
+            })();
         }
 
     }
@@ -85,6 +103,10 @@ class EventService extends BaseService {
         };
 
         return det;
+    }
+    
+    on_all (callback) {
+        this.global_listeners_.push(callback);
     }
 
     get_scoped (scope) {

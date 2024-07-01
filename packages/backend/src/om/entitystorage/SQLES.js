@@ -16,13 +16,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { BaseES } = require("./BaseES");
 
 const APIError = require("../../api/APIError");
 const { Entity } = require("./Entity");
 const { WeakConstructorTrait } = require("../../traits/WeakConstructorTrait");
-const { And, Or, Eq, Predicate, Null, PredicateUtil } = require("../query/query");
+const { And, Or, Eq, Like, Null, Predicate, PredicateUtil, IsNotNull } = require("../query/query");
 const { DB_WRITE } = require("../../services/database/consts");
 
 class RawCondition extends AdvancedBase {
@@ -44,22 +44,41 @@ class SQLES extends BaseES {
             }
         },
         async read (uid) {
-            const id_prop = this.om.properties[this.om.primary_identifier];
-            let id_col =
-                id_prop.descriptor.sql?.column_name ?? id_prop.name;
 
-            console.log('CALLING READ WITH UID ', uid);
-            // Temporary hack until multiple identifiers are supported
-            // (allows us to query using an internal ID; users can't do this)
-            if ( typeof uid === 'number' ) {
-                id_col = 'id';
-            }
+            const [stmt_where, where_vals] = await (async () => {
+                if ( typeof uid !== 'object' ) {
+                    const id_prop =
+                        this.om.properties[this.om.primary_identifier];
+                    let id_col =
+                        id_prop.descriptor.sql?.column_name ?? id_prop.name;
+                    // Temporary hack until multiple identifiers are supported
+                    // (allows us to query using an internal ID; users can't do this)
+                    if ( typeof uid === 'number' ) {
+                        id_col = 'id';
+                    }
+                    return [` WHERE ${id_col} = ?`, [uid]]
+                }
+                
+                if ( ! uid.hasOwnProperty('predicate') ) {
+                    throw new Error(
+                        'SQLES.read does not understand this input: ' +
+                        'object with no predicate property',
+                    );
+                }
+                let predicate = uid.predicate; // uid is actually a predicate
+                if ( predicate instanceof Predicate ) {
+                    predicate = await this.om_to_sql_condition_(predicate);
+                }
+                const stmt_where = ` WHERE ${predicate.sql} LIMIT 1` ;
+                const where_vals = predicate.values;
+                return [stmt_where, where_vals];
+            })();
 
             const stmt =
-                `SELECT * FROM ${this.om.sql.table_name} WHERE ${id_col} = ?`;
+                `SELECT * FROM ${this.om.sql.table_name}${stmt_where}`;
 
             const rows = await this.db.read(
-                stmt, [uid]
+                stmt, where_vals
             );
 
             if ( rows.length === 0 ) {
@@ -194,6 +213,29 @@ class SQLES extends BaseES {
                 let value = data[col_name];
                 value = await prop.sql_dereference(value);
 
+                // TODO: This is not an ideal implementation,
+                // but this is only 6 lines of code so doing this
+                // "properly" is not sensible at this time.
+                //
+                // This is here because:
+                // - SQLES has access to the "db" object
+                //
+                // Writing this in `json`'s `sql_reference` method
+                // is also not ideal because that places the concern
+                // of supporting different database backends to
+                // property types.
+                //
+                // Best solution: SQLES has a SQLRefinements by
+                // composition. This SQLRefinements is applied
+                // to property types for the duration of this
+                // function.
+                if ( prop.typ.name === 'json' ) {
+                    value = this.db.case({
+                        mysql: () => value,
+                        otherwise: () => JSON.parse(value ?? '{}'),
+                    })();
+                }
+
                 entity_data[prop.name] = value;
             }
             const entity = await Entity.create({ om: this.om }, entity_data);
@@ -286,6 +328,13 @@ class SQLES extends BaseES {
                 }
 
                 value = await prop.sql_reference(value);
+                
+                // TODO: This is done here for consistency;
+                // see the larger comment in sql_row_to_entity_
+                // which does the reverse operation.
+                if ( prop.typ.name === 'json' ) {
+                    value = JSON.stringify(value);
+                }
 
                 if ( value && options.use_id ) {
                     if ( value.hasOwnProperty('id') ) {
@@ -350,7 +399,39 @@ class SQLES extends BaseES {
                 const options = prop.descriptor.sql ?? {};
                 const col_name = options.column_name ?? prop.name;
 
-                const sql = `${col_name} = ?`;
+                const sql = value === null ? `${col_name} IS NULL` : `${col_name} = ?`;
+                const values = value === null ? [] : [value];
+
+                return new RawCondition({ sql, values });
+            }
+
+            if ( om_query instanceof IsNotNull ) {
+                const key = om_query.key;
+                let value = om_query.value;
+                const prop = this.om.properties[key];
+
+                value = await prop.sql_reference(value);
+
+                const options = prop.descriptor.sql ?? {};
+                const col_name = options.column_name ?? prop.name;
+
+                const sql = `${col_name} IS NOT NULL`;
+                const values = [value];
+
+                return new RawCondition({ sql, values });
+            }
+
+            if ( om_query instanceof Like ) {
+                const key = om_query.key;
+                let value = om_query.value;
+                const prop = this.om.properties[key];
+
+                value = await prop.sql_reference(value);
+
+                const options = prop.descriptor.sql ?? {};
+                const col_name = options.column_name ?? prop.name;
+
+                const sql = `${col_name} LIKE ?`;
                 const values = [value];
 
                 return new RawCondition({ sql, values });

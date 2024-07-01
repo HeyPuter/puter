@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import UIWindowThemeDialog from '../UIWindowThemeDialog.js';
 import changeLanguage from '../../i18n/i18nChangeLanguage.js';
 
 // About
@@ -33,10 +32,10 @@ export default {
             </div>`;
 
         // list of languages
-        const available_languages = listSupportedLanguages();
+        const available_languages = window.listSupportedLanguages();
         h += `<div class="language-list">`;
             for (let lang of available_languages) {
-                h += `<div class="language-item ${window.locale === lang.code ? 'active': ''}" data-lang="${lang.code}" data-english-name="${html_encode(lang.english_name)}">${lang.name}</div>`;
+                h += `<div class="language-item ${window.locale === lang.code ? 'active': ''}" data-lang="${lang.code}" data-english-name="${html_encode(lang.english_name)}">${html_encode(lang.name)}</div>`;
             }
         h += `</div>`;
         return h;

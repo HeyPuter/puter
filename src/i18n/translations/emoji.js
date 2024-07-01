@@ -92,7 +92,7 @@ const emoji = {
         log_into_another_account_anyway: '👤🔄',
         log_out: '🔚',
         move: '➡️',
-        moving: "➡️...",
+        moving_file: "➡️ %%...",
         my_websites: "🌐👤",
         name: '📛',
         name_cannot_be_empty: '📛❌',

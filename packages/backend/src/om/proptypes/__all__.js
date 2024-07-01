@@ -163,7 +163,7 @@ module.exports = {
         },
         async adapt (value, { descriptor }) {
             if ( descriptor.debug ) {
-                debugger;
+                debugger; // eslint-disable-line no-debugger
             }
             if ( ! descriptor.service ) return value;
             if ( ! value ) return null;

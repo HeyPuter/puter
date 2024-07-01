@@ -32,10 +32,6 @@ router.post('/contactUs', auth, express.json(), async (req, res, next)=>{
     if(require('../helpers').subdomain(req) !== 'api')
         next();
 
-    // check if user is verified
-    if((config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed)
-        return res.status(400).send({code: 'account_is_not_verified', message: 'Account is not verified'});
-
     // message is required
     if(!req.body.message)
         return res.status(400).send({message: 'message is required'})
@@ -45,6 +41,11 @@ router.post('/contactUs', auth, express.json(), async (req, res, next)=>{
     // message is too long
     else if(req.body.message.length > 100000)
         return res.status(400).send({message: 'message is too long'})
+
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('contact-us') ) {
+        return res.status(429).send('Too many requests.');
+    }
 
     // modules
     const db = req.services.get('database').get(DB_WRITE, 'feedback');
@@ -66,20 +67,8 @@ router.post('/contactUs', auth, express.json(), async (req, res, next)=>{
         let user = await get_user({id: req.user.id});
 
         // send email to support
-        const nodemailer = require("nodemailer");
-
-        // send email notif
-        let transporter = nodemailer.createTransport({
-            host: config.smtp_server,
-            port: config.smpt_port,
-            secure: true, // STARTTLS
-            auth: {
-                user: config.smtp_username,
-                pass: config.smtp_password,
-            },
-        });
-
-        transporter.sendMail({
+        const svc_email = req.services.get('email');
+        svc_email.sendMail({
             from: '"Puter" no-reply@puter.com', // sender address
             to: 'support@puter.com', // list of receivers
             replyTo: user.email === null ? undefined : user.email,

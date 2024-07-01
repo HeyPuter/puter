@@ -5,8 +5,10 @@ name: Docker Image CI
 # branch called `main`.
 on:
   push:
-    branches: ['release']
-  
+    tags:
+      - '*.*.*'
+    branches:
+      - 'main'
 
 # Defines two custom environment variables for the workflow. These are used
 # for the Container registry domain, and a name for the Docker image that
@@ -40,12 +42,12 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: Set up QEMU 
+
+      - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       # This step uses [docker/metadata-action](https://github.com/docker/metadata-action#about)
       # to extract tags and labels that will be applied to the specified image.
@@ -56,16 +58,10 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
           tags: |
-            type=schedule
-            type=ref,event=branch
-            type=ref,event=pr
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
-            type=sha
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=ref,event=branch
 
       # This step uses the `docker/build-push-action` action to build the
       # image, based on your repository's `Dockerfile`. If the build succeeds,
@@ -81,6 +77,8 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
           context: .
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

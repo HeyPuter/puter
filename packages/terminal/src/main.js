@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { Terminal } from 'xterm';
-import { FitAddon } from 'xterm-addon-fit';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
 import { PTY } from './pty/PTY';
 import { XDocumentANSIShell } from './pty/XDocumentANSIShell';
 
@@ -28,9 +28,7 @@ class XTermIO {
     }
 
     bind () {
-        this.term.onKey(this.handleKey.bind(this));
-
-        this.term.attachCustomKeyEventHandler(this.handleKeyBeforeProcess.bind(this));
+        this.term.onData(this.handleData.bind(this));
 
         (async () => {
             for ( ;; ) {
@@ -40,41 +38,8 @@ class XTermIO {
         })();
     }
 
-    async handleKeyBeforeProcess (evt) {
-        if ( evt.key === 'V' && evt.ctrlKey && evt.shiftKey && evt.type === 'keydown' ) {
-            const clipboard = navigator.clipboard;
-            const text = await clipboard.readText();
-            this.pty.out.write(text);
-        }
-    }
-
-    handleKey ({ key, domEvent }) {
-        const pty = this.pty;
-
-        const handlers = {
-            Enter: () => {
-                pty.out.write('\n');
-            },
-            // Backspace: () => {
-            //     pty.out.write('\x08');
-            // },
-            // Delete: () => {
-            //     pty.out.write('\x1B[3~');
-            // },
-            Home: () => {
-                pty.out.write('\x1B[H');
-            },
-            End: () => {
-                pty.out.write('\x1B[F');
-            }
-        }
-    
-        if ( handlers.hasOwnProperty(domEvent.key) ) {
-            const writeKey = handlers[domEvent.key]();
-            if ( ! writeKey ) return;
-        }
-
-        pty.out.write(key);
+    handleData ( data ) {
+        this.pty.out.write(data);
     }
 }
 

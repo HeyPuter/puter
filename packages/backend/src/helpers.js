@@ -176,63 +176,8 @@ async function id2uuid(id){
  * @param {string} options - `options`
  * @returns {Promise}
  */
- async function get_user(options){
-    /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'filesystem');
-
-    let user;
-
-    const cached = options.cached ?? true;
-
-    if ( cached ) {
-        if (options.username) user = kv.get('users:username:' + options.username);
-        else if (options.email) user = kv.get('users:email:' + options.email);
-        else if (options.uuid) user = kv.get('users:uuid:' + options.uuid);
-        else if (options.id) user = kv.get('users:id:' + options.id);
-        else if (options.referral_code) user = kv.get('users:referral_code:' + options.referral_code);
-
-        if ( user ) return user;
-    }
-
-    if(options.username)
-        user = await db.read("SELECT * FROM `user` WHERE `username` = ? LIMIT 1", [options.username]);
-    else if(options.email)
-        user = await db.read("SELECT * FROM `user` WHERE `email` = ? LIMIT 1", [options.email]);
-    else if(options.uuid)
-        user = await db.read("SELECT * FROM `user` WHERE `uuid` = ? LIMIT 1", [options.uuid]);
-    else if(options.id)
-        user = await db.read("SELECT * FROM `user` WHERE `id` = ? LIMIT 1", [options.id]);
-    else if(options.referral_code)
-        user = await db.read("SELECT * FROM `user` WHERE `referral_code` = ? LIMIT 1", [options.referral_code]);
-
-    if(!user || !user[0]){
-        if(options.username)
-            user = await db.pread("SELECT * FROM `user` WHERE `username` = ? LIMIT 1", [options.username])
-        else if(options.email)
-            user = await db.pread("SELECT * FROM `user` WHERE `email` = ? LIMIT 1", [options.email]);
-        else if(options.uuid)
-            user = await db.pread("SELECT * FROM `user` WHERE `uuid` = ? LIMIT 1", [options.uuid]);
-        else if(options.id)
-            user = await db.pread("SELECT * FROM `user` WHERE `id` = ? LIMIT 1", [options.id]);
-        else if(options.referral_code)
-            user = await db.pread("SELECT * FROM `user` WHERE `referral_code` = ? LIMIT 1", [options.referral_code]);
-    }
-
-    user = user ? user[0] : null;
-
-    if ( ! user ) return user;
-
-    try {
-        kv.set('users:username:' + user.username, user);
-        kv.set('users:email:' + user.email, user);
-        kv.set('users:uuid:' + user.uuid, user);
-        kv.set('users:id:' + user.id, user);
-        kv.set('users:referral_code:' + user.referral_code, user);
-    } catch (e) {
-        console.error(e);
-    }
-
-    return user;
+async function get_user(options) {
+    return await services.get('get-user').get_user(options);
 }
 
 /**
@@ -679,7 +624,7 @@ const get_descendants_0 = async (path, user, depth, return_thumbnail = false) =>
             [user.id]
         );
         // users that have shared files/dirs with this user
-        sharing_users = await db.read(
+        const sharing_users = await db.read(
             `SELECT DISTINCT(owner_user_id), user.username
                 FROM share
                 INNER JOIN user ON user.id = share.owner_user_id
@@ -717,7 +662,7 @@ const get_descendants_0 = async (path, user, depth, return_thumbnail = false) =>
             return [];
 
         // shared files/dirs with this user
-        shared_fsentries = await db.read(
+        const shared_fsentries = await db.read(
             `SELECT
                 fsentries.id, fsentries.user_id, fsentries.uuid, fsentries.parent_uid, fsentries.bucket, fsentries.bucket_region,
                 fsentries.name, fsentries.shortcut_to, fsentries.is_shortcut, fsentries.metadata, fsentries.is_dir, fsentries.modified,
@@ -897,7 +842,7 @@ const get_descendants = async (...args) => {
         if ( ! result || ! result[0] ) {
             errors.report('id2path.select', {
                 alarm: true,
-                message: `no result for ${entry_uid}: ${e.message}`,
+                message: `no result for ${entry_uid}`,
                 extra: {
                     entry_uid,
                 }
@@ -951,12 +896,12 @@ function cp(source_path, dest_path, user, overwrite, change_name, check_perms = 
     throw new Error(`legacy copy function called`);
 }
 
-isString =  function (variable) {
+function isString(variable) {
     return typeof variable === 'string' || variable instanceof String;
 }
 
 // checks to see if given variable is an object
-isObject = function (variable) {
+function isObject(variable) {
     return variable !== null && typeof variable === 'object';
 }
 
@@ -1112,7 +1057,9 @@ async function deleteUser(user_id){
         for(let i=0; i<files.length; i++){
             // init S3 SDK
             const svc_fs = Context.get('services').get('filesystem');
-            const storage = Context.get('storage');
+            const svc_mountpoint =
+                Context.get('services').get('mountpoint');
+            const storage = svc_mountpoint.get_storage();
             const op_delete = storage.create_delete();
             await op_delete.run({
                 node: await svc_fs.node(new NodeUIDSelector(files[i].uuid))
@@ -1144,8 +1091,8 @@ async function jwt_auth(req){
     else if(req.query && req.query.auth_token)
         token = req.query.auth_token;
     // Socket
-    else if(req.handshake && req.handshake.query && req.handshake.query.auth_token)
-        token = req.handshake.query.auth_token;
+    else if(req.handshake && req.handshake.auth && req.handshake.auth.auth_token)
+        token = req.handshake.auth.auth_token;
 
     if(!token || token === 'null')
         throw('No auth token found');
@@ -1488,10 +1435,12 @@ async function generate_system_fsentries(user){
     let documents_uuid = uuidv4();
     let pictures_uuid = uuidv4();
     let videos_uuid = uuidv4();
+    let public_uuid = uuidv4();
 
     const insert_res = await db.write(
         `INSERT INTO fsentries
         (uuid, parent_uid, user_id, name, path, is_dir, created, modified, immutable) VALUES
+        (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
         (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
         (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
         (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
@@ -1512,6 +1461,8 @@ async function generate_system_fsentries(user){
             pictures_uuid, root_dir.uid, user.id, 'Pictures', `/${user.username}/Pictures`, ts, ts,
             // Videos
             videos_uuid, root_dir.uid, user.id, 'Videos', `/${user.username}/Videos`, ts, ts,
+            // Public
+            public_uuid, root_dir.uid, user.id, 'Public', `/${user.username}/Public`, ts, ts,
         ]
     );
 
@@ -1522,6 +1473,7 @@ async function generate_system_fsentries(user){
     let documents_id = insert_res.insertId + 3;
     let pictures_id = insert_res.insertId + 4;
     let videos_id = insert_res.insertId + 5;
+    let public_id = insert_res.insertId + 6;
 
     // Asynchronously set the user's system folders uuids in database
     // This is for caching purposes, so we don't have to query the DB every time we need to access these folders
@@ -1531,13 +1483,13 @@ async function generate_system_fsentries(user){
     // (IIAFE manager doesn't exist yet, hence this is a TODO)
     db.write(
         `UPDATE user SET
-        trash_uuid=?, appdata_uuid=?, desktop_uuid=?, documents_uuid=?, pictures_uuid=?, videos_uuid=?,
-        trash_id=?, appdata_id=?, desktop_id=?, documents_id=?, pictures_id=?, videos_id=?
+        trash_uuid=?, appdata_uuid=?, desktop_uuid=?, documents_uuid=?, pictures_uuid=?, videos_uuid=?, public_uuid=?,
+        trash_id=?, appdata_id=?, desktop_id=?, documents_id=?, pictures_id=?, videos_id=?, public_id=?
 
         WHERE id=?`,
         [
-            trash_uuid, appdata_uuid, desktop_uuid, documents_uuid, pictures_uuid, videos_uuid,
-            trash_id, appdata_id, desktop_id, documents_id, pictures_id, videos_id,
+            trash_uuid, appdata_uuid, desktop_uuid, documents_uuid, pictures_uuid, videos_uuid, public_uuid,
+            trash_id, appdata_id, desktop_id, documents_id, pictures_id, videos_id, public_id,
             user.id
         ]
     );
@@ -1545,56 +1497,16 @@ async function generate_system_fsentries(user){
 }
 
 function send_email_verification_code(email_confirm_code, email){
-    const nodemailer = require("nodemailer");
-
-    // send email notif
-    let transporter = nodemailer.createTransport({
-        host: config.smtp_server,
-        port: config.smpt_port,
-        secure: true, // STARTTLS
-        auth: {
-            user: config.smtp_username,
-            pass: config.smtp_password,
-        },
-    });
-
-    transporter.sendMail({
-        from: '"Puter" no-reply@puter.com', // sender address
-        to: email, // list of receivers
-        subject: `${hyphenize_confirm_code(email_confirm_code)} is your confirmation code`, // Subject line
-        html: `<p>Hi there,</p>
-            <p><strong>${hyphenize_confirm_code(email_confirm_code)}</strong> is your email confirmation code.</p>
-            <p>Sincerely,</p>
-            <p>Puter</p>
-        `,
-    });
+    const svc_email = Context.get('services').get('email');
+    svc_email.send_email({ email }, 'email_verification_code', {
+        code: hyphenize_confirm_code(email_confirm_code),
+    })
 }
 
 function send_email_verification_token(email_confirm_token, email, user_uuid){
-    const nodemailer = require("nodemailer");
-
-    // send email notif
-    let transporter = nodemailer.createTransport({
-        host: config.smtp_server,
-        port: config.smpt_port,
-        secure: true, // STARTTLS
-        auth: {
-            user: config.smtp_username,
-            pass: config.smtp_password,
-        },
-    });
-
-    let link = `${config.origin}/confirm-email-by-token?user_uuid=${user_uuid}&token=${email_confirm_token}`;
-    transporter.sendMail({
-        from: '"Puter" no-reply@puter.com', // sender address
-        to: email, // list of receivers
-        subject: `Please confirm your email`, // Subject line
-        html: `<p>Hi there,</p>
-            <p>Please confirm your email address using this link: <strong><a href="${link}">${link}</a></strong>.</p>
-            <p>Sincerely,</p>
-            <p>Puter</p>
-        `,
-    });
+    const svc_email = Context.get('services').get('email');
+    const link = `${config.origin}/confirm-email-by-token?user_uuid=${user_uuid}&token=${email_confirm_token}`;
+    svc_email.send_email({ email }, 'email_verification_link', { link });
 }
 
 async function generate_random_username(){
@@ -1808,7 +1720,15 @@ async function suggest_app_for_fsentry(fsentry, options){
     monitor.end();
 
     // return list
-    return suggested_apps;
+    return suggested_apps.filter((suggested_app, pos, self) => {
+        // Remove any null values caused by calling `get_app()` for apps that don't exist.
+        // This happens on self-host because we don't include `code`, among others.
+        if (!suggested_app)
+            return false;
+
+        // Remove any duplicate entries
+        return self.indexOf(suggested_app) === pos;
+    });
 }
 
 function build_item_object(item){
@@ -1847,7 +1767,7 @@ async function get_taskbar_items(user) {
         try {
             taskbar_items_from_db = JSON.parse(user.taskbar_items);
         }catch(e){
-
+            // ignore errors
         }
     }
 

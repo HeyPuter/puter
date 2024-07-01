@@ -31,6 +31,7 @@ import module_dirname from './dirname.js'
 import module_echo from './echo.js'
 import module_env from './env.js'
 import module_errno from './errno.js'
+import module_exit from './exit.js'
 import module_false from './false.js'
 import module_grep from './grep.js'
 import module_head from './head.js'
@@ -75,6 +76,7 @@ export default {
     "echo": module_echo,
     "env": module_env,
     "errno": module_errno,
+    "exit": module_exit,
     "false": module_false,
     "grep": module_grep,
     "head": module_head,

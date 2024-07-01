@@ -31,7 +31,7 @@ export default {
         let h = `<h1>${i18n('account')}</h1>`;
 
         // change password button
-        if(!user.is_temp){
+        if(!window.user.is_temp){
             h += `<div class="settings-card">`;
                 h += `<strong>${i18n('password')}</strong>`;
                 h += `<div style="flex-grow:1;">`;
@@ -44,7 +44,7 @@ export default {
         h += `<div class="settings-card">`;
             h += `<div>`;
                 h += `<strong style="display:block;">${i18n('username')}</strong>`;
-                h += `<span class="username" style="display:block; margin-top:5px;">${user.username}</span>`;
+                h += `<span class="username" style="display:block; margin-top:5px;">${html_encode(window.user.username)}</span>`;
             h += `</div>`;
             h += `<div style="flex-grow:1;">`;
                 h += `<button class="button change-username" style="float:right;">${i18n('change_username')}</button>`;
@@ -52,25 +52,17 @@ export default {
         h += `</div>`;
 
         // change email button
-        if(user.email){
+        if(window.user.email){
             h += `<div class="settings-card">`;
                 h += `<div>`;
                     h += `<strong style="display:block;">${i18n('email')}</strong>`;
-                    h += `<span class="user-email" style="display:block; margin-top:5px;">${user.email}</span>`;
+                    h += `<span class="user-email" style="display:block; margin-top:5px;">${html_encode(window.user.email)}</span>`;
                 h += `</div>`;
                 h += `<div style="flex-grow:1;">`;
-                    h += `<button class="button change-email" style="margin-bottom: 10px; float:right;">${i18n('change_email')}</button>`;
+                    h += `<button class="button change-email" style="float:right;">${i18n('change_email')}</button>`;
                 h += `</div>`;
             h += `</div>`;
         }
-
-        // session manager
-        h += `<div class="settings-card">`;
-            h += `<strong>${i18n('sessions')}</strong>`;
-            h += `<div style="flex-grow:1;">`;
-                h += `<button class="button manage-sessions" style="float:right;">${i18n('manage_sessions')}</button>`;
-            h += `</div>`;
-        h += `</div>`;
 
         // 'Delete Account' button
         h += `<div class="settings-card settings-card-danger">`;
@@ -104,7 +96,6 @@ export default {
         });
 
         $el_window.find('.change-email').on('click', function (e) {
-            console.log('change email', $el_window.attr('data-element_uuid'));
             UIWindowChangeEmail({
                 window_options:{
                     parent_uuid: $el_window.attr('data-element_uuid'),

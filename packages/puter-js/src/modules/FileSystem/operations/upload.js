@@ -15,16 +15,19 @@ const upload = async function(items, dirPath, options = {}){
             }
         }
 
+        const error = (e) => {
+            // if error callback is provided, call it
+            if(options.error && typeof options.error === 'function')
+                options.error(e);
+            return reject(e);
+        };
+
         // xhr object to be used for the upload
         let xhr = new XMLHttpRequest();
 
         // Can not write to root
-        if(dirPath === '/'){
-            // if error callback is provided, call it
-            if(options.error && typeof options.error === 'function')
-                options.error('Can not upload to root directory.');
-            return reject('Can not upload to root directory.');
-        }
+        if(dirPath === '/')
+            return error('Can not upload to root directory.');
 
         // If dirPath is not provided or it's not starting with a slash, it means it's a relative path
         // in that case, we need to prepend the app's root directory to it
@@ -60,8 +63,6 @@ const upload = async function(items, dirPath, options = {}){
             for(let i=0; i<items.length; i++){
                 if(items[i] instanceof DataTransferItem || items[i] instanceof DataTransferItemList){
                     seemsToBeParsedDataTransferItems = true;
-                }else{
-                    
                 }
             }
         }
@@ -121,7 +122,11 @@ const upload = async function(items, dirPath, options = {}){
                 entries[i].filepath = entries[i].name;
                 entries[i].fullPath = entries[i].name;
             }
-        }       
+        }
+        // Anything else is invalid
+        else {
+            return error({ code: 'field_invalid', message: 'upload() items parameter is an invalid type' });
+        }
 
         // Will hold directories and files to be uploaded
         let dirs = [];
@@ -147,10 +152,7 @@ const upload = async function(items, dirPath, options = {}){
 
         // Continue only if there are actually any files/directories to upload
         if(dirs.length === 0 && files.length === 0){
-            if(options.error && typeof options.error === 'function'){
-                options.error({code: 'EMPTY_UPLOAD', message: 'No files or directories to upload.'});
-            }
-            return reject({code: 'EMPTY_UPLOAD', message: 'No files or directories to upload.'});
+            return error({code: 'EMPTY_UPLOAD', message: 'No files or directories to upload.'});
         }
 
         // Check storage capacity.
@@ -165,12 +167,10 @@ const upload = async function(items, dirPath, options = {}){
             try{
                 storage = await this.space();
                 if(storage.capacity - storage.used < total_size){
-                    if(options.error && typeof options.error === 'function'){
-                        options.error({code: 'NOT_ENOUGH_SPACE', message: 'Not enough storage space available.'});
-                    }
-                    return reject({code: 'NOT_ENOUGH_SPACE', message: 'Not enough storage space available.'});
+                    return error({code: 'NOT_ENOUGH_SPACE', message: 'Not enough storage space available.'});
                 }
             }catch(e){
+                // Ignored
             }
         }
     
@@ -369,18 +369,10 @@ const upload = async function(items, dirPath, options = {}){
                                 break;
                             }
                         }
-                        // if error callback is provided, call it
-                        if(options.error && typeof options.error === 'function'){
-                            options.error(failed_operation);
-                        }
-                        return reject(failed_operation);
+                        return error(failed_operation);
                     }
 
-                    // if error callback is provided, call it
-                    if(options.error && typeof options.error === 'function'){
-                        options.error(resp);
-                    }
-                    return reject(resp);
+                    return error(resp);
                 }
                 // Success
                 else{

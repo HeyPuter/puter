@@ -26,7 +26,7 @@ async function UIWindowFinalizeUserDeletion(options){
         let h = '';
 
         // if user is temporary, ask them to type in 'confirm' to delete their account
-        if(user.is_temp){
+        if(window.user.is_temp){
             h += `<div style="padding: 20px;">`;
                 h += `<div class="generic-close-window-button disable-user-select"> &times; </div>`;
                 h += `<img src="${window.icons['danger.svg']}"  class="account-deletion-confirmation-icon">`;
@@ -94,7 +94,7 @@ async function UIWindowFinalizeUserDeletion(options){
         $(el_window).find('.proceed-with-user-deletion').on('click', function(){
             $(el_window).find('.error-message').hide();
             // if user is temporary, check if they typed 'confirm'
-            if(user.is_temp){
+            if(window.user.is_temp){
                 if($(el_window).find('.confirm-temporary-user-deletion').val() !== 'confirm'){
                     $(el_window).find('.error-message').html(i18n('type_confirm_to_delete_account'), false);
                     $(el_window).find('.error-message').show();
@@ -112,19 +112,19 @@ async function UIWindowFinalizeUserDeletion(options){
 
             // delete user
             $.ajax({
-                url: api_origin + "/delete-own-user",
+                url: window.api_origin + "/delete-own-user",
                 type: 'POST',
                 async: true,
                 contentType: "application/json",
                 headers: {
-                    "Authorization": "Bearer " + auth_token
+                    "Authorization": "Bearer " + window.auth_token
                 },
                 data: JSON.stringify({
                     password: $(el_window).find('.confirm-user-deletion-password').val(),
                 }),
                 statusCode: {
                     401: function () {
-                        logout();
+                        window.logout();
                     },
                     400: function(){
                         $(el_window).find('.error-message').html(i18n('incorrect_password'));
@@ -136,10 +136,10 @@ async function UIWindowFinalizeUserDeletion(options){
                         // mark user as deleted
                         window.user.deleted = true;
                         // log user out
-                        logout();
+                        window.logout();
                     }
                     else{
-                        $(el_window).find('.error-message').html(data.error);
+                        $(el_window).find('.error-message').html(html_encode(data.error));
                         $(el_window).find('.error-message').show();
 
                     }

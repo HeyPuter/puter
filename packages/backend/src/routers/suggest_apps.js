@@ -21,6 +21,9 @@ const express = require('express');
 const router = new express.Router();
 const auth = require('../middleware/auth.js');
 const config = require('../config');
+const { Context } = require('../util/context.js');
+const fs = require('../middleware/fs.js');
+const { NodeInternalIDSelector } = require('../filesystem/node/selectors.js');
 
 // -----------------------------------------------------------------------// 
 // POST /suggest_apps
@@ -51,10 +54,24 @@ router.post('/suggest_apps', auth, express.json(), async (req, res, next)=>{
         if(fsentry === false)
             return res.status(400).send('Path not found.');
     }
+    
+    const services = Context.get('services');
+    const fs = services.get('filesystem')
+    const node = await fs.node(new NodeInternalIDSelector('mysql', fsentry.id, {
+        source: 'suggest_apps'
+    }))
 
     // check permission
-    if(!await chkperm(fsentry, req.user.id, 'read'))
-        return res.status(403).send({ code:`forbidden`, message: `permission denied.`});
+    const actor = req.actor ?? Context.get('actor');
+    if ( ! actor ) {
+        return res.status(500).send('failed to get Actor object');
+    }
+    const svc_acl = services.get('acl');
+    if ( ! await svc_acl.check(actor, node, 'read') ) {
+        (await svc_acl.get_safe_acl_error(actor, node, 'read'))
+            .write(res);
+        return;
+    }
     
     // get suggestions
     try{

@@ -116,7 +116,7 @@ const tr = {
         log_out: "Çıkış Yap",
         manage_sessions: "Oturumları Yönet",
         move: "Taşı",
-        moving: "Taşınıyor",
+        moving_file: "Taşınıyor %%",
         my_websites: "Web Sitelerim",
         name: "Ad",
         name_cannot_be_empty: "Ad boş olamaz.",
@@ -225,7 +225,6 @@ const tr = {
         yes_release_it: "Evet, Bırak",
         you_have_been_referred_to_puter_by_a_friend: "Bir arkadaşınız tarafından Puter'a yönlendirildiniz!",
         zip: "Sıkıştır",
-        storage_puter_used: "Puter tarafından kullanılıyor",
     }
 };
 

@@ -38,6 +38,8 @@ module.exports = eggspress('/clearItems', {
     }
 
     const svc_mysql = req.services.get('mysql');
+    // TODO: Check if used anywhere, maybe remove
+    // eslint-disable-next-line no-undef
     const dbrw = svc_mysql.get(DB_MODE_WRITE, 'kvstore-clearItems');
     await dbrw.execute(
         `DELETE FROM kv WHERE user_id=? AND app=?`,

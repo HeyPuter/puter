@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { WeakConstructorTrait } = require("../../traits/WeakConstructorTrait");
 
 class PropType extends AdvancedBase {
@@ -24,7 +24,7 @@ class PropType extends AdvancedBase {
         new WeakConstructorTrait(),
     ]
 
-    static create (context, data) {
+    static create (context, data, k) {
         const chains = {};
         const super_type = data.from && (() => {
             const registry = context.get('registry');
@@ -51,7 +51,7 @@ class PropType extends AdvancedBase {
         }
 
         return new PropType({
-            chains,
+            chains, name: k,
         });
     }
 
@@ -127,8 +127,6 @@ class PropType extends AdvancedBase {
 
     async is_set (value) {
         const is_setters = this.chains.is_set || [];
-
-        console.log('IS SETTERS', is_setters)
 
         for ( const is_setter of is_setters ) {
             const result = await is_setter(value);

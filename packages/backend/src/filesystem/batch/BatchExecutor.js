@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require('puter-js-common');
+const { AdvancedBase } = require('@heyputer/puter-js-common');
 const PathResolver = require('../../routers/filesystem_api/batch/PathResolver');
 const commands = require('./commands').commands;
 const { WorkUnit } = require('../../services/runtime-analysis/ExpectationService');
@@ -118,7 +118,7 @@ class BatchExecutor extends AdvancedBase {
                         alarm: true,
                     });
 
-                    e = APIError.adapt(e);
+                    e = APIError.adapt(e); // eslint-disable-line no-ex-assign
                 }
 
                 // Consume stream if there's a file

@@ -44,6 +44,11 @@ module.exports = eggspress(['/signup'], {
     if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
         next();
 
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('signup') ) {
+        return res.status(429).send('Too many requests.');
+    }
+
     // modules
     const db = req.services.get('database').get(DB_WRITE, 'auth');
     const bcrypt = require('bcrypt')
@@ -246,7 +251,7 @@ module.exports = eggspress(['/signup'], {
     // todo if pseudo user, assign directly no need to do another DB lookup
     const user_id = (pseudo_user === undefined) ? insert_res.insertId : pseudo_user.id;
 
-    const [user] = await db.read(
+    const [user] = await db.pread(
         'SELECT * FROM `user` WHERE `id` = ? LIMIT 1',
         [user_id]
     );

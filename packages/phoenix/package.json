@@ -1,5 +1,5 @@
 {
-  "name": "dev-ansi-terminal",
+  "name": "@heyputer/phoenix",
   "version": "0.0.0",
   "description": "ANSI Terminal for Puter",
   "main": "exports.js",
@@ -26,9 +26,7 @@
     "fs-mode-to-string": "^0.0.2",
     "json-query": "^2.2.2",
     "path-browserify": "^1.0.1",
-    "sinon": "^17.0.1",
-    "xterm": "^5.1.0",
-    "xterm-addon-fit": "^0.7.0"
+    "sinon": "^17.0.1"
   },
   "optionalDependencies": {
     "node-pty": "^1.0.0"

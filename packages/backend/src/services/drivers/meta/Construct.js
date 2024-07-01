@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { BasicBase } = require("puter-js-common/src/bases/BasicBase");
+const { BasicBase } = require("@heyputer/puter-js-common/src/bases/BasicBase");
 const types = require("../types");
 const { hash_serializable_object, stringify_serializable_object } = require("../../../util/datautil");
 
@@ -119,10 +119,6 @@ class TypeSpec extends BasicBase {
 
     equals (other) {
         return this.raw.$ === other.raw.$;
-        // for ( k in this.raw ) {
-        //     if ( this.raw[k] !== other.raw[k] ) return false;
-        // }
-        return true;
     }
 
     toString () {

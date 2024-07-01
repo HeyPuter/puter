@@ -48,8 +48,8 @@ const download = function(options){
         let item_download_progress = batch_download_progress[options.item_upload_id];
 
         let xhr = new XMLHttpRequest();
-        xhr.open("post", (api_origin + '/download'), true);
-        xhr.setRequestHeader("Authorization", "Bearer " + auth_token);
+        xhr.open("post", (window.api_origin + '/download'), true);
+        xhr.setRequestHeader("Authorization", "Bearer " + window.auth_token);
         xhr.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
 
         xhr.addEventListener('load', function(e){
@@ -89,7 +89,7 @@ const download = function(options){
         // Regularly check if this operation has been cancelled by the user
         //----------------------------------------------
         cancel_check_interval = setInterval(() => {
-            if(operation_cancelled[options.operation_id]){
+            if(window.operation_cancelled[options.operation_id]){
                 xhr.abort();
                 clearInterval(cancel_check_interval);
                 clearInterval(progress_check_interval);
@@ -108,9 +108,6 @@ const download = function(options){
             // Entire batch progress
             let batch_progress = ((batch_download_progress[0].cloud_uploaded + batch_download_progress[0].downloaded)/batch_download_progress[0].total * 100).toFixed(0);
             batch_progress = batch_progress > 100 ? 100 : batch_progress;
-
-            // Update the progress bar
-            $(`[data-download-operation-id="${options.operation_id}"]`).find('.download-progress-bar').css( 'width', batch_progress+'%');
 
             // If download is finished resolve promise
             if((item_progress >= 1 || item_progress === 0) && item){

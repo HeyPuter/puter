@@ -23,9 +23,9 @@ const router = express.Router();
 const _path = require('path');
 const _fs = require('fs');
 const auth = require('../middleware/auth.js');
-const { generate_puter_page_html } = require('../temp/puter_page_loader');
 const { Context } = require('../util/context');
 const { DB_READ } = require('../services/database/consts');
+const { PathBuilder } = require('../util/pathutil.js');
 
 let auth_user;
 
@@ -46,7 +46,7 @@ router.all('*', async function(req, res, next) {
     // cloud.js must be accessible globally regardless of subdomain
     // --------------------------------------
     else if (path === '/cloud.js') {
-        return res.sendFile(_path.join(__dirname, '../../puter.js/alpha.js'), function (err) {
+        return res.sendFile(_path.join(__dirname, config.defaultjs_asset_path, 'puter.js/alpha.js'), function (err) {
             if (err && err.statusCode) {
                 return res.status(err.statusCode).send('Error /cloud.js')
             }
@@ -56,14 +56,14 @@ router.all('*', async function(req, res, next) {
     // /puter.js/v1 must be accessible globally regardless of subdomain
     // --------------------------------------
     else if (path === '/puter.js/v1' || path === '/puter.js/v1/') {
-        return res.sendFile(_path.join(__dirname, '../../puter.js/v1.js'), function (err) {
+        return res.sendFile(_path.join(__dirname, config.defaultjs_asset_path, 'puter.js/v1.js'), function (err) {
             if (err && err.statusCode) {
                 return res.status(err.statusCode).send('Error /puter.js')
             }
         });
     }
     else if (path === '/puter.js/v2' || path === '/puter.js/v2/') {
-        return res.sendFile(_path.join(__dirname, '../../puter.js/v2.js'), function (err) {
+        return res.sendFile(_path.join(__dirname, config.defaultjs_asset_path, 'puter.js/v2.js'), function (err) {
             if (err && err.statusCode) {
                 return res.status(err.statusCode).send('Error /puter.js')
             }
@@ -74,14 +74,14 @@ router.all('*', async function(req, res, next) {
     // --------------------------------------
     else if( subdomain === 'js'){
         if (path === '/v1' || path === '/v1/') {
-            return res.sendFile(_path.join(__dirname, '../../puter.js/v1.js'), function (err) {
+            return res.sendFile(_path.join(__dirname, config.defaultjs_asset_path, 'puter.js/v1.js'), function (err) {
                 if (err && err.statusCode) {
                     return res.status(err.statusCode).send('Error /puter.js')
                 }
             });
         }
         if (path === '/v2' || path === '/v2/') {
-            return res.sendFile(_path.join(__dirname, '../../puter.js/v2.js'), function (err) {
+            return res.sendFile(_path.join(__dirname, config.defaultjs_asset_path, 'puter.js/v2.js'), function (err) {
                 if (err && err.statusCode) {
                     return res.status(err.statusCode).send('Error /puter.js')
                 }
@@ -176,7 +176,7 @@ router.all('*', async function(req, res, next) {
                 const user = await get_user({uuid: req.query.user_uuid})
 
                 // more validation
-                if(user === undefined || user === null || user === false)
+                if(!user)
                     h += '<p style="text-align:center; color:red;">User not found.</p>';
                 else if(user.unsubscribed === 1)
                     h += '<p style="text-align:center; color:green;">You are already unsubscribed.</p>';
@@ -208,7 +208,7 @@ router.all('*', async function(req, res, next) {
                 const {get_user} = require('../helpers')
 
                 // get user
-                const user = await get_user({uuid: req.query.user_uuid})
+                const user = await get_user({uuid: req.query.user_uuid, force: true})
 
                 // more validation
                 if(user === undefined || user === null || user === false)
@@ -219,6 +219,13 @@ router.all('*', async function(req, res, next) {
                     h += '<p style="text-align:center; color:red;">invalid token.</p>';
                 // mark user as confirmed
                 else{
+                    // If other users have the same unconfirmed email, revoke it
+                    await db.write(
+                        'UPDATE `user` SET `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `unconfirmed_change_email` = ?',
+                        [user.email],
+                    );
+
+                    // update user
                     await db.write(
                         "UPDATE `user` SET `email_confirmed` = 1, `requires_email_confirmation` = 0 WHERE id = ?",
                         [user.id]
@@ -246,6 +253,7 @@ router.all('*', async function(req, res, next) {
         // /assets/
         // ------------------------
         else if (path.startsWith('/assets/')) {
+            path = PathBuilder.resolve(path);
             return res.sendFile(path, { root: __dirname + '../../public' }, function (err) {
                 if (err && err.statusCode) {
                     return res.status(err.statusCode).send('Error /public/')
@@ -258,12 +266,15 @@ router.all('*', async function(req, res, next) {
         else{
             let canonical_url = config.origin + path;
             let app_name, app_title, description;
+            let launch_options = {
+                on_initialized: []
+            };
 
             // default title
             app_title = config.title;
 
             // /action/
-            if(path.startsWith('/action/')){
+            if(path.startsWith('/action/') || path.startsWith('/@')){
                 path = '/';
             }
             // /app/
@@ -282,6 +293,18 @@ router.all('*', async function(req, res, next) {
 
                 path = '/';
             }
+            else if (path.startsWith('/show/')) {
+                const filepath = path.slice('/show'.length);
+                launch_options.on_initialized.push({
+                    $: 'window-call',
+                    fn_name: 'launch_app',
+                    args: [{
+                        name: 'explorer',
+                        path: filepath,
+                    }],
+                });
+                path = '/';
+            }
 
             const manifest =
                 _fs.existsSync(_path.join(config.assets.gui, 'puter-gui.json'))
@@ -293,52 +316,19 @@ router.all('*', async function(req, res, next) {
 
             // index.js
             if(path === '/'){
-                const APP_ORIGIN = config.origin;
-                const API_ORIGIN = config.api_base_url;
-                return res.send(generate_puter_page_html({
-                    env: config.env,
-
-                    app_origin: APP_ORIGIN,
-                    api_origin: API_ORIGIN,
-                    use_bundled_gui: config.use_bundled_gui,
-
-                    manifest,
-                    gui_path: config.assets.gui,
-
-                    // page meta
-                    meta: {
-                        title: app_title,
-                        description: description || config.short_description,
-                        short_description: config.short_description,
-                        company: 'Puter Technologies Inc.',
-                        canonical_url: canonical_url,
-                    },
-
-                    // gui parameters
-                    gui_params: {
-                        app_name_regex: config.app_name_regex,
-                        app_name_max_length: config.app_name_max_length,
-                        app_title_max_length: config.app_title_max_length,
-                        subdomain_regex: config.subdomain_regex,
-                        subdomain_max_length: config.subdomain_max_length,
-                        domain: config.domain,
-                        protocol: config.protocol,
-                        env: config.env,
-                        api_base_url: config.api_base_url,
-                        thumb_width: config.thumb_width,
-                        thumb_height: config.thumb_height,
-                        contact_email: config.contact_email,
-                        max_fsentry_name_length: config.max_fsentry_name_length,
-                        require_email_verification_to_publish_website: config.require_email_verification_to_publish_website,
-                        short_description: config.short_description,
-                        long_description: config.long_description,
-                    },
-                }));
+                const svc_puterHomepage = Context.get('services').get('puter-homepage');
+                return svc_puterHomepage.send({ req, res }, {
+                    title: app_title,
+                    description: description || config.short_description,
+                    short_description: config.short_description,
+                    company: 'Puter Technologies Inc.',
+                    canonical_url: canonical_url,
+                }, launch_options);
             }
 
             // /dist/...
             else if(path.startsWith('/dist/') || path.startsWith('/src/')){
-                path = _path.resolve(path);
+                path = PathBuilder.resolve(path);
                 return res.sendFile(path, {root: config.assets.gui}, function(err){
                     if(err && err.statusCode){
                         return res.status(err.statusCode).send('Error /gui/dist/')
@@ -348,6 +338,7 @@ router.all('*', async function(req, res, next) {
 
             // All other paths
             else{
+                path = PathBuilder.resolve(path);
                 return res.sendFile(path, {root: _path.join(config.assets.gui, 'src')}, function(err){
                     if(err && err.statusCode){
                         return res.status(err.statusCode).send('Error /gui/')
@@ -364,7 +355,11 @@ router.all('*', async function(req, res, next) {
             subdomain === 'draw' || subdomain === 'camera' || subdomain === 'recorder' ||
             subdomain === 'dev-center' || subdomain === 'terminal'){
 
-        let root = _path.join(__dirname, '../../apps/', subdomain);
+        let root = PathBuilder
+            .add(__dirname)
+            .add(config.defaultjs_asset_path, { allow_traversal: true })
+            .add('apps').add(subdomain)
+            .build();
         if ( subdomain === 'docs' ) root += '/dist';
         root = _path.normalize(root);
 
@@ -402,7 +397,7 @@ router.all('*', async function(req, res, next) {
             });
         } catch (e) {
             console.error('error from sendFile', e);
-            return res.status(err.statusCode).send('Error /apps/')
+            return res.status(e.statusCode).send('Error /apps/')
         }
     }
     // --------------------------------------

@@ -44,7 +44,11 @@ window.i18n = function (key, replacements = [], encode_html = true) {
         str = key;
     }
     str = ReplacePlaceholders(str);
-    str = encode_html ? html_encode(str) : str;
+    if ( encode_html ) {
+        str = html_encode(str);
+        // html_encode doesn't render line breaks
+        str = str.replace(/\n/g, '<br />');
+    }
     // replace %% occurrences with the values in replacements
     // %% is for simple text replacements
     // %strong% is for <strong> tags

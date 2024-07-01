@@ -1,0 +1,9 @@
+CREATE TABLE `notification` (
+    `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+    `user_id` INTEGER NOT NULL,
+    `uid` TEXT NOT NULL UNIQUE,
+    `value` JSON NOT NULL,
+    `acknowledged` INTEGER DEFAULT NULL,
+    `shown` INTEGER DEFAULT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

@@ -16,13 +16,19 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { Context } = require("../../util/context");
 const { get_user, get_app } = require("../../helpers");
 
 // TODO: add these to configuration; production deployments should change these!
+
+// THIS IS NOT A LEAK
+// We use this to obscure user UUIDs, as some APIs require a user identifier
+// for abuse prevention. However, there are no services in selfhosted Puter
+// that currently make use of this, and we use different values on `puter.com`.
 const PRIVATE_UID_NAMESPACE = '1757dc3f-8f04-4d77-b939-ff899045696d';
 const PRIVATE_UID_SECRET = 'bf03f0e52f5d93c83822ad8558c625277ce3dddff8dc4a5cb0d3c8493571f770';
+// THIS IS NOT A LEAK (see above)
 
 class Actor extends AdvancedBase {
     static MODULES = {
@@ -176,6 +182,17 @@ class AccessTokenActorType {
     }
 }
 
+class SiteActorType {
+    constructor (o, ...a) {
+        for ( const k in o ) {
+            this[k] = o[k];
+        }
+    }
+    get uid () {
+        return `site:` + this.site.name
+    }
+}
+
 Actor.adapt = function (actor) {
     actor = actor || Context.get('actor');
 
@@ -202,4 +219,5 @@ module.exports = {
     UserActorType,
     AppUnderUserActorType,
     AccessTokenActorType,
+    SiteActorType,
 }

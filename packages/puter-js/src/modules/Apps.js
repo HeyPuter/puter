@@ -65,6 +65,7 @@ class Apps{
                     maximize_on_start: options_raw.maximizeOnStart,
                     background: options_raw.background,
                     filetype_associations: options_raw.filetypeAssociations,
+                    metadata: options_raw.metadata,
                 }
             };
         }
@@ -88,6 +89,7 @@ class Apps{
                 maximize_on_start: object_raw.maximizeOnStart,
                 background: object_raw.background,
                 filetype_associations: object_raw.filetypeAssociations,
+                metadata: object_raw.metadata,
             };
 
             options = { id: { name: args[0]}, object: object};

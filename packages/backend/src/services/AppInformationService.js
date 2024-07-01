@@ -170,14 +170,6 @@ class AppInformationService {
                 [origin + '%']
             ))[0];
 
-            if ( app.uid === 'app-eeec9a28-0eb1-5b63-a2dd-b99a8a3cf4c3' ) {
-                console.log('app?', app);
-                console.log('REFERRAL COUNT', referral_count, {
-                    sql,
-                    index_url: app.index_url,
-                });
-            }
-
             kv.set(key_referral_count, referral_count);
         }
 

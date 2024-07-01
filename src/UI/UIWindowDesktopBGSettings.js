@@ -34,6 +34,7 @@ async function UIWindowDesktopBGSettings(options){
             // type
             h += `<label>${i18n('background')}:</label>`;
             h += `<select class="desktop-bg-type" style="width: 150px; margin-bottom: 20px;">`
+                h += `<option value="default">${i18n('default')}</option>`;
                 h += `<option value="picture">${i18n('picture')}</option>`;
                 h += `<option value="color">${i18n('color')}</option>`;
             h += `</select>`;
@@ -109,18 +110,20 @@ async function UIWindowDesktopBGSettings(options){
             ...options.window_options,
         })
 
-        if(window.desktop_bg_url !== undefined && window.desktop_bg_url !== null){
-            $(el_window).find('.desktop-bg-settings-wrapper').hide();
+        const default_wallpaper = (window.gui_env === 'prod') ? '/dist/images/wallpaper.webp' :  '/images/wallpaper.webp';
+        $(el_window).find('.desktop-bg-settings-wrapper').hide();
+
+        if(window.desktop_bg_url === default_wallpaper) {
+            $(el_window).find('.desktop-bg-type').val('default');
+        }else if(window.desktop_bg_url !== undefined && window.desktop_bg_url !== null){
             $(el_window).find('.desktop-bg-settings-picture').show();
             $(el_window).find('.desktop-bg-type').val('picture');
         }else if(window.desktop_bg_color !== undefined && window.desktop_bg_color !== null){
-            $(el_window).find('.desktop-bg-settings-wrapper').hide();
             $(el_window).find('.desktop-bg-settings-color').show();
             $(el_window).find('.desktop-bg-type').val('color');
         }else{
-            $(el_window).find('.desktop-bg-settings-wrapper').hide();
-            $(el_window).find('.desktop-bg-settings-picture').show();
-            $(el_window).find('.desktop-bg-type').val('picture');
+            // Default fallback if no specific wallpaper settings are detected
+            $(el_window).find('.desktop-bg-type').val('default');
         }
 
         $(el_window).find('.desktop-bg-color-block:not(.desktop-bg-color-block-palette').on('click', async function(e){
@@ -146,12 +149,15 @@ async function UIWindowDesktopBGSettings(options){
 
         $(el_window).find('.desktop-bg-type').on('change', function(e){
             const type = $(this).val();
+            $(el_window).find('.desktop-bg-settings-wrapper').hide();
             if(type === 'picture'){
-                $(el_window).find('.desktop-bg-settings-wrapper').hide();
                 $(el_window).find('.desktop-bg-settings-picture').show();
             }else if(type==='color'){
-                $(el_window).find('.desktop-bg-settings-wrapper').hide();
                 $(el_window).find('.desktop-bg-settings-color').show();
+            }else if(type==='default') {
+                bg_color = undefined;
+                bg_fit = 'cover';
+                window.set_desktop_background({url: default_wallpaper, fit: bg_fit});
             }
         })
 
@@ -159,7 +165,7 @@ async function UIWindowDesktopBGSettings(options){
             // /set-desktop-bg
             try{
                 $.ajax({
-                    url: api_origin + "/set-desktop-bg",
+                    url: window.api_origin + "/set-desktop-bg",
                     type: 'POST',
                     data: JSON.stringify({ 
                         url: window.desktop_bg_url,
@@ -169,17 +175,18 @@ async function UIWindowDesktopBGSettings(options){
                     async: true,
                     contentType: "application/json",
                     headers: {
-                        "Authorization": "Bearer "+auth_token
+                        "Authorization": "Bearer "+window.auth_token
                     },
                     statusCode: {
                         401: function () {
-                            logout();
+                            window.logout();
                         },
                     },
                 })
                 $(el_window).close();
                 resolve(true);    
             }catch(err){
+                // Ignore
             }
         })
 

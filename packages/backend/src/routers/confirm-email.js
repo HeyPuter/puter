@@ -22,6 +22,7 @@ const { invalidate_cached_user } = require('../helpers');
 const router = new express.Router();
 const auth = require('../middleware/auth.js');
 const { DB_WRITE } = require('../services/database/consts');
+const APIError = require('../api/APIError.js');
 
 // -----------------------------------------------------------------------//
 // POST /confirm-email
@@ -34,6 +35,11 @@ router.post('/confirm-email', auth, express.json(), async (req, res, next)=>{
     if(!req.body.code)
         req.status(400).send('code is required');
 
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('confirm-email') ) {
+        return res.status(429).send('Too many requests.');
+    }
+
     // Modules
     const db = req.services.get('database').get(DB_WRITE, 'auth');
 
@@ -42,6 +48,22 @@ router.post('/confirm-email', auth, express.json(), async (req, res, next)=>{
         return res.status(429).send({error: 'Too many requests.'});
     // Set expiry for rate limit
     kv.expire(`confirm-email|${req.ip}|${req.body.email ?? req.body.username}`, 60 * 10, 'NX')
+
+    // Scenario: email was confirmed on another account already
+    const rows = await db.read(
+        'SELECT `id` FROM `user` WHERE `email` = ? AND `email_confirmed` = 1',
+        [req.body.email],
+    );
+    if ( rows.length > 0 ) {
+        APIError.create('email_already_in_use').write(res);
+        return;
+    }
+
+    // If other users have the same unconfirmed email, revoke it
+    await db.write(
+        'UPDATE `user` SET `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `unconfirmed_change_email` = ?',
+        [req.user.email],
+    );
 
     if(req.body.code === req.user.email_confirm_code) {
         await db.write(

@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("puter-js-common");
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { WeakConstructorTrait } = require("../../traits/WeakConstructorTrait");
 
 class Predicate extends AdvancedBase {
@@ -47,6 +47,21 @@ class Or extends Predicate {
 class Eq extends Predicate {
     async check (entity) {
         return (await entity.get(this.key)) == this.value;
+    }
+}
+
+class IsNotNull extends Predicate {
+    async check (entity) {
+        return (await entity.get(this.key)) !== null;
+    }
+}
+
+class Like extends Predicate {
+    async check (entity) {
+        // Convert SQL LIKE pattern to RegExp
+        // TODO: Support escaping the pattern characters
+        const regex = new RegExp(this.value.replaceAll('%', '.*').replaceAll('_', '.'), 'i');
+        return regex.test(await entity.get(this.key));
     }
 }
 
@@ -105,4 +120,6 @@ module.exports = {
     And,
     Or,
     Eq,
+    IsNotNull,
+    Like,
 };

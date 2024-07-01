@@ -82,7 +82,7 @@ const bn = {
         log_in: "প্রবেশ করুন",
         log_out: 'প্রস্থান',
         move: 'সরান',
-        moving: "চলন্ত",
+        moving_file: "চলন্ত %%",
         my_websites: "আমার ওয়েবসাইট",
         name: 'নাম',
         name_cannot_be_empty: 'নাম খালি রাখা যাবে না।',

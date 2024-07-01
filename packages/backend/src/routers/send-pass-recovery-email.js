@@ -23,6 +23,8 @@ const { body_parser_error_handler, get_user, invalidate_cached_user } = require(
 const config = require('../config');
 const { DB_WRITE } = require('../services/database/consts');
 
+const jwt = require('jsonwebtoken');
+
 // -----------------------------------------------------------------------//
 // POST /send-pass-recovery-email
 // -----------------------------------------------------------------------//
@@ -50,6 +52,12 @@ router.post('/send-pass-recovery-email', express.json(), body_parser_error_handl
     // if email is invalid, no need to do DB lookup anyway
     else if(req.body.email && !validator.isEmail(req.body.email))
         return res.status(400).send('Invalid email.')
+
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('send-pass-recovery-email') ) {
+        return res.status(429).send('Too many requests.');
+    }
+
 
     try{
         let user;
@@ -80,31 +88,20 @@ router.post('/send-pass-recovery-email', express.json(), body_parser_error_handl
         );
         invalidate_cached_user(user);
 
-        // prepare email
-        let transporter = nodemailer.createTransport({
-            host: config.smtp_server,
-            port: config.smpt_port,
-            secure: true, // STARTTLS
-            auth: {
-                user: config.smtp_username,
-                pass: config.smtp_password,
-            },
-        });
+        // create jwt
+        const jwt_token = jwt.sign({
+            user_uid: user.uuid,
+            token,
+            // email change invalidates password recovery
+            email: user.email,
+        }, config.jwt_secret, { expiresIn: '1h' });
 
         // create link
-        const rec_link = config.origin + '/action/set-new-password?user=' + user.uuid + '&token=' + token;
+        const rec_link = config.origin + '/action/set-new-password?token=' + jwt_token;
 
-        // send email
-        transporter.sendMail({
-            from: 'no-reply@puter.com', // sender address
-            to: user.email, // list of receivers
-            subject: "Password Recovery", // Subject line
-            html: `
-            <p>Hi there,</p>
-            <p>A password recovery request was issued for your account, please follow the link below to reset your password:</p>
-            <p><a href="${rec_link}">${rec_link}</a></p>
-            <p>Sincerely,</p>
-            <p>Puter</p>`,
+        const svc_email = req.services.get('email');
+        await svc_email.send_email({ email: user.email }, 'email_password_recovery', {
+            link: rec_link,
         });
 
         // Send response

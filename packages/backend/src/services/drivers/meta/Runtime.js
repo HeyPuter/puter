@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { BasicBase } = require("puter-js-common/src/bases/BasicBase");
+const { BasicBase } = require("@heyputer/puter-js-common/src/bases/BasicBase");
 const { TypeSpec } = require("./Construct");
 
 class RuntimeEntity extends BasicBase {

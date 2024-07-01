@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import path_ from "path-browserify";
+import path_ from "node:path";
 import child_process from "node:child_process";
 import stream from "node:stream";
 import { signals } from '../../ansi-shell/signals.js';
@@ -83,7 +83,6 @@ function spawn_process(ctx, executablePath) {
     // Repeatedly copy data from stdin to the child, while it's running.
     let data, done;
     const next_data = async () => {
-        // FIXME: This waits for one more read() after we finish.
         ({ value: data, done } = await Promise.race([
             exit_promise, sigint_promise, ctx.externs.in_.read(),
         ]));
@@ -135,7 +134,6 @@ function spawn_pty(ctx, executablePath) {
     // Repeatedly copy data from stdin to the child, while it's running.
     let data, done;
     const next_data = async () => {
-        // FIXME: This waits for one more read() after we finish.
         ({ value: data, done } = await Promise.race([
             exit_promise, sigint_promise, ctx.externs.in_.read(),
         ]));
@@ -167,9 +165,9 @@ function makeCommand(id, executablePath) {
 
 async function findCommandsInPath(id, ctx, firstOnly) {
     const PATH = ctx.env['PATH'];
-    if (!PATH)
+    if (!PATH || id.includes(path_.sep))
         return;
-    const pathDirectories = PATH.split(':');
+    const pathDirectories = PATH.split(path_.delimiter);
 
     const results = [];
 
@@ -199,5 +197,27 @@ export class PathCommandProvider {
 
     async lookupAll(id, { ctx }) {
         return findCommandsInPath(id, ctx, false);
+    }
+
+    async complete(query, { ctx }) {
+        if (query === '') return [];
+
+        const PATH = ctx.env['PATH'];
+        if (!PATH)
+            return [];
+        const path_directories = PATH.split(path_.delimiter);
+
+        const results = [];
+
+        for (const dir of path_directories) {
+            const dir_entries = await ctx.platform.filesystem.readdir(dir);
+            for (const dir_entry of dir_entries) {
+                if (dir_entry.name.startsWith(query)) {
+                    results.push(dir_entry.name);
+                }
+            }
+        }
+
+        return results;
     }
 }

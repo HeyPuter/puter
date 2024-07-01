@@ -19,10 +19,11 @@
 
 import UIWindow from './UIWindow.js'
 import UIPopover from './UIPopover.js'
+import socialLink from '../helpers/socialLink.js'
 
 async function UIWindowRefer(options){
     let h = '';
-    const url = `${gui_origin}/?r=${user.referral_code}`;
+    const url = `${window.gui_origin}/?r=${window.user.referral_code}`;
 
     h += `<div>`;
         h += `<div class="qr-code-window-close-btn generic-close-window-button disable-user-select"> &times; </div>`;
@@ -108,7 +109,7 @@ async function UIWindowRefer(options){
             document.execCommand('copy');
         }
 
-        $(this).html(i18n('copying'));
+        $(this).html(i18n('link_copied'));
         setTimeout(function(){
             $(copy_btn).html(i18n('copy_link'));
         }, 1000);

@@ -247,14 +247,14 @@ export class PreparedCommand {
         if ( ! ctx.cmdExecState.valid ) {
             ctx.locals.exit = -1;
             await ctx.externs.out.close();
-            return;
+            return 1;
         }
 
         if ( ctx.cmdExecState.printHelpAndExit ) {
             ctx.locals.exit = 0;
             await printUsage(command, ctx.externs.out, ctx.vars);
             await ctx.externs.out.close();
-            return;
+            return 0;
         }
 
         let execute = command.execute.bind(command);
@@ -291,13 +291,14 @@ export class PreparedCommand {
                     command.name + ': ' +
                     e.message + '\x1B[0m\n'
                 );
+                exit_code = -1;
             } else {
                 await ctx.externs.err.write(
                     '\x1B[31;1m' +
                     command.name + ': ' +
                     e.toString() + '\x1B[0m\n'
                 );
-                ctx.locals.exit = -1;
+                exit_code = -1;
             }
             if ( ! (e instanceof Exit) ) console.error(e);
         }
@@ -316,6 +317,8 @@ export class PreparedCommand {
 
             await filesystem.write(path, outputMemWriters[i].getAsBlob());
         }
+
+        return exit_code;
     }
 }
 
@@ -348,7 +351,7 @@ export class Pipeline {
         const valve = new Coupler(nextIn, pipeline_input_pipe.in);
         nextIn = pipeline_input_pipe.out;
 
-        // TOOD: this will eventually defer piping of certain
+        // TODO: this will eventually defer piping of certain
         //       sub-pipelines to the Puter Shell.
 
         for ( let i=0 ; i < preparedCommands.length ; i++ ) {
@@ -381,7 +384,9 @@ export class Pipeline {
             const command = preparedCommands[i];
             commandPromises.push(command.execute());
         }
-        await Promise.all(commandPromises);
+        const results = await Promise.all(commandPromises);
+        // TODO: Consider what to do about intermediate exit codes
+        ctx.locals.exit = results[results.length-1];
         await coupler.isDone;
 
         valve.close();

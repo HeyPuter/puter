@@ -54,6 +54,7 @@ class AppConnection extends EventListener {
                 this.#isOpen = false;
                 this.emit('close', {
                     appInstanceID: this.targetAppInstanceID,
+                    statusCode: event.data.statusCode,
                 });
             }
         });
@@ -149,7 +150,19 @@ class UI extends EventListener {
         this.#callbackFunctions[msg_id] = resolve;
     }
 
-    constructor (appInstanceID, parentInstanceID, appID, env) {
+    #postMessageWithObject = function(name, value) {
+        const dehydrator = this.util.rpc.getDehydrator({
+            target: this.messageTarget
+        });
+        this.messageTarget?.postMessage({
+            msg: name,
+            env: this.env,
+            appInstanceID: this.appInstanceID,
+            value: dehydrator.dehydrate(value),
+        }, '*');
+    }
+
+    constructor (appInstanceID, parentInstanceID, appID, env, util) {
         const eventNames = [
             'localeChanged',
             'themeChanged',
@@ -160,6 +173,7 @@ class UI extends EventListener {
         this.parentInstanceID = parentInstanceID;
         this.appID = appID;
         this.env = env;
+        this.util = util;
 
         if(this.env === 'app'){
             this.messageTarget = window.parent;
@@ -402,8 +416,8 @@ class UI extends EventListener {
             // Item Watch response
             else if(e.data.msg === "itemChanged" && e.data.data && e.data.data.uid){
                 //excute callback
-                if(itemWatchCallbackFunctions[e.data.data.uid] && typeof itemWatchCallbackFunctions[e.data.data.uid] === 'function')
-                    itemWatchCallbackFunctions[e.data.data.uid](e.data.data);
+                if(this.itemWatchCallbackFunctions[e.data.data.uid] && typeof this.itemWatchCallbackFunctions[e.data.data.uid] === 'function')
+                    this.itemWatchCallbackFunctions[e.data.data.uid](e.data.data);
             }
             // Broadcasts
             else if (e.data.msg === 'broadcast') {
@@ -414,6 +428,25 @@ class UI extends EventListener {
                 this.emit(name, data);
                 this.#lastBroadcastValue.set(name, data);
             }
+        });
+
+        // We need to send the mouse position to the host environment
+        // This is important since a lot of UI elements depend on the mouse position (e.g. ContextMenus, Tooltips, etc.)
+        // and the host environment needs to know the mouse position to show these elements correctly.
+        // The host environment can't just get the mouse position since when the mouse is over an iframe it 
+        // will not be able to get the mouse position. So we need to send the mouse position to the host environment.
+        document.addEventListener('mousemove', async (event)=>{
+            // Get the mouse position from the event object
+            this.mouseX = event.clientX;
+            this.mouseY = event.clientY;
+
+            // send the mouse position to the host environment
+            this.messageTarget?.postMessage({
+                msg: "mouseMoved",
+                appInstanceID: this.appInstanceID,
+                x: this.mouseX,
+                y: this.mouseY,
+            }, '*');
         });
     }
 
@@ -433,7 +466,10 @@ class UI extends EventListener {
             let URLParams = new URLSearchParams(window.location.search);
             if(URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url')){
                 let fpath = URLParams.get('puter.item.path');
-                fpath = `~/` + fpath.split('/').slice(2).join('/');
+
+                if(!fpath.startsWith('~/') && !fpath.startsWith('/'))
+                    fpath = '~/' + fpath
+
                 callback([new FSItem({
                     name: URLParams.get('puter.item.name'),
                     path: fpath,
@@ -462,7 +498,10 @@ class UI extends EventListener {
             let URLParams = new URLSearchParams(window.location.search);
             if(URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url')){
                 let fpath = URLParams.get('puter.item.path');
-                fpath = `~/` + fpath.split('/').slice(2).join('/');
+
+                if(!fpath.startsWith('~/') && !fpath.startsWith('/'))
+                    fpath = '~/' + fpath;
+
                 callback([new FSItem({
                     name: URLParams.get('puter.item.name'),
                     path: fpath,
@@ -611,34 +650,123 @@ class UI extends EventListener {
         })
     }
 
-    setWindowTitle = function(title, callback) {
+    setWindowTitle = function(title, window_id, callback) {
+        if(typeof window_id === 'function'){
+            callback = window_id;
+            window_id = undefined;
+        }else if(typeof window_id === "object" && window_id !== null){
+            window_id = window_id.id;
+        }
+
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('setWindowTitle', resolve, { new_title: title });
+            this.#postMessageWithCallback('setWindowTitle', resolve, { new_title: title, window_id: window_id});
         })
     }
 
-    setWindowWidth = function(width, callback) {
+    setWindowWidth = function(width, window_id, callback) {
+        if(typeof window_id === 'function'){
+            callback = window_id;
+            window_id = undefined;
+        }else if(typeof window_id === "object" && window_id !== null){
+            window_id = window_id.id;
+        }
+        
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('setWindowWidth', resolve, { width });
+            this.#postMessageWithCallback('setWindowWidth', resolve, { width: width, window_id: window_id });
         })
     }
 
-    setWindowHeight = function(height, callback) {
+    setWindowHeight = function(height, window_id, callback) {
+        if(typeof window_id === 'function'){
+            callback = window_id;
+            window_id = undefined;
+        }else if(typeof window_id === "object" && window_id !== null){
+            window_id = window_id.id;
+        }
+        
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('setWindowHeight', resolve, { height });
+            this.#postMessageWithCallback('setWindowHeight', resolve, { height: height, window_id: window_id });
         })
     }
 
-    setWindowSize = function(width, height, callback) {
+    setWindowSize = function(width, height, window_id, callback) {
+        if(typeof window_id === 'function'){
+            callback = window_id;
+            window_id = undefined;
+        }else if(typeof window_id === "object" && window_id !== null){
+            window_id = window_id.id;
+        }
+        
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('setWindowSize', resolve, { width, height });
+            this.#postMessageWithCallback('setWindowSize', resolve, { width: width, height: height, window_id: window_id });
         })
     }
 
-    setWindowPosition = function(x, y, callback) {
+    setWindowPosition = function(x, y, window_id, callback) {
+        if(typeof window_id === 'function'){
+            callback = window_id;
+            window_id = undefined;
+        }else if(typeof window_id === "object" && window_id !== null){
+            window_id = window_id.id;
+        }
+        
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('setWindowPosition', resolve, { x, y });
+            this.#postMessageWithCallback('setWindowPosition', resolve, { x, y, window_id });
         })
+    }
+
+    setWindowY = function(y, window_id, callback) {
+        if(typeof window_id === 'function'){
+            callback = window_id;
+            window_id = undefined;
+        }else if(typeof window_id === "object" && window_id !== null){
+            window_id = window_id.id;
+        }
+
+        return new Promise((resolve) => {
+            this.#postMessageWithCallback('setWindowY', resolve, { y, window_id });
+        })
+    }
+
+    setWindowX = function(x, window_id, callback) {
+        if(typeof window_id === 'function'){
+            callback = window_id;
+            window_id = undefined;
+        }else if(typeof window_id === "object" && window_id !== null){
+            window_id = window_id.id;
+        }
+
+        return new Promise((resolve) => {
+            this.#postMessageWithCallback('setWindowX', resolve, { x, window_id });
+        })
+    }
+
+    setMenubar = function(spec) {
+        this.#postMessageWithObject('setMenubar', spec);
+    }
+
+    disableMenuItem = function(item_id) {
+        this.#postMessageWithObject('disableMenuItem', {id: item_id});
+    }
+
+    enableMenuItem = function(item_id) {
+        this.#postMessageWithObject('enableMenuItem', {id: item_id});
+    }
+
+    setMenuItemIcon = function(item_id, icon) {
+        this.#postMessageWithObject('setMenuItemIcon', {id: item_id, icon: icon});
+    }
+
+    setMenuItemIconActive = function(item_id, icon) {
+        this.#postMessageWithObject('setMenuItemIconActive', {id: item_id, icon: icon});
+    }
+
+    setMenuItemChecked = function(item_id, checked) {
+        this.#postMessageWithObject('setMenuItemChecked', {id: item_id, checked: checked});
+    }
+
+    contextMenu = function(spec) {
+        this.#postMessageWithObject('contextMenu', spec);
     }
 
     /**
@@ -662,7 +790,7 @@ class UI extends EventListener {
             if (this.getEntriesFromDataTransferItems.didShowInfo) return
             if (err.name !== 'EncodingError') return
             this.getEntriesFromDataTransferItems.didShowInfo = true
-            const infoMsg = `${err.name} occured within datatransfer-files-promise module\n`
+            const infoMsg = `${err.name} occurred within datatransfer-files-promise module\n`
                 + `Error message: "${err.message}"\n`
                 + 'Try serving html over http if currently you are running it from the filesystem.'
             console.warn(infoMsg)
@@ -793,7 +921,9 @@ class UI extends EventListener {
 
     createWindow = function (options, callback) {
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('createWindow', resolve, { options: options ?? {} });
+            this.#postMessageWithCallback('createWindow', (res)=>{
+                resolve(res.window);
+            }, { options: options ?? {} });
         })
     }
 

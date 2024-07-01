@@ -17,11 +17,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import UIAlert from './UIAlert.js';
 import UIWindow from './UIWindow.js'
 
 async function UIWindowQR(options){
     return new Promise(async (resolve) => {
         options = options ?? {};
+
+        if ( ! window.user.email_confirmed ) {
+            await UIAlert({
+                message: i18n('contact_us_verification_required'),
+            });
+            return resolve();
+        }
 
         let h = '';
         h += `<div style="padding: 20px; margin-top: 0;">`;
@@ -76,12 +84,12 @@ async function UIWindowQR(options){
             if(message)
                 $(this).prop('disabled', true);
             $.ajax({
-                url: api_origin + "/contactUs",
+                url: window.api_origin + "/contactUs",
                 type: 'POST',
                 async: true,
                 contentType: "application/json",
                 headers: {
-                    "Authorization": "Bearer "+auth_token
+                    "Authorization": "Bearer "+window.auth_token
                 },    
                 data: JSON.stringify({ 
                     message: message,

@@ -16,6 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+/* eslint-disable no-control-regex */
+
 export function lengthIgnoringEscapes(text) {
     const escape = '\x1b';
     // There are a lot of different ones, but we only use graphics-mode ones, so only parse those for now.
