@@ -75,10 +75,6 @@ export default def(class Slider extends Component {
     `;
 
     create_template ({ template }) {
-        const min = this.get('min');
-        const max = this.get('max');
-        const value = this.get('value') ?? min;
-        const step = this.get('step') ?? 1;
         const label = this.get('label') ?? this.get('name');
 
         $(template).html(/*html*/`
@@ -87,16 +83,19 @@ export default def(class Slider extends Component {
                 <input class="slider-input" type="range">
             </div>
         `);
-
-        // Set attributes here to prevent XSS injection
-        $(template).find('.slider-input').attr('min', min);
-        $(template).find('.slider-input').attr('max', max);
-        $(template).find('.slider-input').attr('value', value);
-        $(template).find('.slider-input').attr('step', step);
     }
 
     on_ready ({ listen }) {
         const input = this.dom_.querySelector('.slider-input');
+
+        // Set attributes here to prevent XSS injection
+        {
+            const min = this.get('min');
+            input.setAttribute('min', min);
+            input.setAttribute('max', this.get('max'));
+            input.setAttribute('step', this.get('step') ?? 1);
+            input.value = this.get('value') ?? min;
+        }
 
         input.addEventListener('input', e => {
             const on_change = this.get('on_change');
