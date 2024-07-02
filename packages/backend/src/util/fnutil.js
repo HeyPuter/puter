@@ -9,6 +9,16 @@ const UtilFn = fn => {
     return fn;
 };
 
+const OnlyOnceFn = fn => {
+    let called = false;
+    return function onlyoncefn_call (...args) {
+        if ( called ) return;
+        called = true;
+        return fn(...args);
+    };
+};
+
 module.exports = {
     UtilFn,
+    OnlyOnceFn,
 };
