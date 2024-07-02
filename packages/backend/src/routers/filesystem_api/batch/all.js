@@ -28,6 +28,7 @@ const { TeePromise } = require("../../../util/promise");
 const { EWMA, MovingMode } = require("../../../util/opmath");
 const { get_app } = require('../../../helpers');
 const { valid_file_size } = require("../../../util/validutil");
+const { OnlyOnceFn } = require("../../../util/fnutil.js");
 
 const commands = require('../../../filesystem/batch/commands.js').commands;
 
@@ -137,7 +138,7 @@ module.exports = eggspress('/batch', {
     let total = 0;
     let total_tbd = true;
 
-    const on_first_file = () => {
+    const on_nonfile_data_end = OnlyOnceFn(() => {
         if ( request_error ) {
             return;
         }
@@ -160,7 +161,7 @@ module.exports = eggspress('/batch', {
             pending_operations.splice(index, 1)[0];
             response_promises.splice(index, 1);
         }
-    }
+    });
 
 
     //-------------------------------------------------------------
@@ -228,7 +229,7 @@ module.exports = eggspress('/batch', {
         if ( batch_exe.total_tbd ) {
             batch_exe.total_tbd = false;
             batch_widget.ic = pending_operations.length;
-            on_first_file();
+            on_nonfile_data_end();
         }
 
         if ( fileinfos.length == 0 ) {
@@ -276,6 +277,7 @@ module.exports = eggspress('/batch', {
     // Awaiting responses
     //-------------------------------------------------------------
     await still_reading;
+    on_nonfile_data_end();
 
     if ( request_error ) {
         return;
