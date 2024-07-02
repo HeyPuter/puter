@@ -265,7 +265,7 @@ router.all('*', async function(req, res, next) {
         // ------------------------
         else{
             let canonical_url = config.origin + path;
-            let app_name, app_title, description;
+            let app_name, app_title, app_description, app_icon;
             let launch_options = {
                 on_initialized: []
             };
@@ -283,7 +283,8 @@ router.all('*', async function(req, res, next) {
                 const app = await get_app({name: app_name});
                 if(app){
                     app_title = app.title;
-                    description = app.description;
+                    app_description = app.description;
+                    app_icon = app.icon;
                 }
                 // 404 - Not found!
                 else if(app_name){
@@ -319,10 +320,11 @@ router.all('*', async function(req, res, next) {
                 const svc_puterHomepage = Context.get('services').get('puter-homepage');
                 return svc_puterHomepage.send({ req, res }, {
                     title: app_title,
-                    description: description || config.short_description,
-                    short_description: config.short_description,
+                    description: app_description || config.short_description,
+                    short_description: app_description || config.short_description,
                     company: 'Puter Technologies Inc.',
                     canonical_url: canonical_url,
+                    icon: app_icon,
                 }, launch_options);
             }
 
