@@ -24,7 +24,7 @@ export default {
     icon: 'speedometer-outline.svg',
     html: () => {
         return `
-            <h1>Usage</h1>
+            <h1>${i18n('usage')}</h1>
             <div class="driver-usage">
                 <h3 style="margin-bottom: 5px; font-size: 14px;">${i18n('storage_usage')}</h3>
                 <div style="font-size: 13px; margin-bottom: 3px;">
