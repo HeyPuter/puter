@@ -1,3 +1,4 @@
+const Group = require("../../entities/Group");
 const BaseService = require("../BaseService");
 const { DB_WRITE } = require("../database/consts");
 
@@ -43,6 +44,54 @@ class GroupService extends BaseService {
         );
         
         return uid;
+    }
+
+    async list_groups_with_owner ({ owner_user_id }) {
+        const groups = await this.db.read(
+            'SELECT * FROM `group` WHERE owner_user_id=?',
+            [owner_user_id],
+        );
+        for ( const group of groups ) {
+            group.extra = this.db.case({
+                mysql: () => group.extra,
+                otherwise: () => JSON.parse(group.extra),
+            })();
+            group.metadata = this.db.case({
+                mysql: () => group.metadata,
+                otherwise: () => JSON.parse(group.metadata),
+            })();
+        }
+        return groups.map(g => Group(g));
+    }
+
+    async list_groups_with_member ({ user_id }) {
+        const groups = await this.db.read(
+            'SELECT * FROM `group` WHERE id IN (' +
+                'SELECT group_id FROM `jct_user_group` WHERE user_id=?)',
+            [user_id],
+        );
+        for ( const group of groups ) {
+            group.extra = this.db.case({
+                mysql: () => group.extra,
+                otherwise: () => JSON.parse(group.extra),
+            })();
+            group.metadata = this.db.case({
+                mysql: () => group.metadata,
+                otherwise: () => JSON.parse(group.metadata),
+            })();
+        }
+        return groups.map(g => Group(g));
+    }
+
+    async list_members ({ uid }) {
+        const users = await this.db.read(
+            'SELECT u.username FROM user u ' +
+            'JOIN (SELECT user_id FROM `jct_user_group` WHERE group_id = ' +
+                '(SELECT id FROM `group` WHERE uid=?)) ug ' +
+            'ON u.id = ug.user_id',
+            [uid],
+        );
+        return users.map(u => u.username);
     }
     
     async add_users ({ uid, users }) {
