@@ -109,6 +109,41 @@ await fetch(`${window.api_origin}/group/add-users`, {
 });
 ```
 
+## GET `/group/list`
+
+### Description
+
+List groups associated with the current user
+
+### Parameters
+
+_none_
+
+### Response Example
+
+```json
+{
+    "owned_groups": [
+        {
+            "uid": "c3bd4047-fc65-4da8-9363-e52195890de4",
+            "metadata": {},
+            "members": [
+                "default_user"
+            ]
+        }
+    ],
+    "in_groups": [
+        {
+            "uid": "c3bd4047-fc65-4da8-9363-e52195890de4",
+            "metadata": {},
+            "members": [
+                "default_user"
+            ]
+        }
+    ]
+}
+```
+
 # Group Permission Endpoints
 
 ## POST `/grant-user-group`
