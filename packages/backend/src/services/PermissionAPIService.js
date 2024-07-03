@@ -165,6 +165,30 @@ class PermissionAPIService extends BaseService {
                 res.json({});
             }
         }).attach(router);
+
+        Endpoint({
+            route: '/list',
+            methods: ['GET'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                const svc_group = this.services.get('group');
+                
+                // TODO: validate string and uuid for request
+
+                const owned_groups = await svc_group.list_groups_with_owner(
+                    { owner_user_id: req.user.id });
+
+                const in_groups = await svc_group.list_groups_with_member(
+                    { user_id: req.user.id });
+
+                res.json({
+                    owned_groups: await Promise.all(owned_groups.map(
+                        g => g.get_client_value())),
+                    in_groups: await Promise.all(in_groups.map(
+                        g => g.get_client_value())),
+                });
+            }
+        }).attach(router);
     }
 }
 
