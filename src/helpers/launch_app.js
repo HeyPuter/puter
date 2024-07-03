@@ -108,7 +108,7 @@ const launch_app = async (options)=>{
         const svc_process = globalThis.services.get('process');
         svc_process.register(process);
         if(options.path === window.home_path){
-            title = 'Home';
+            title = i18n('home');
             icon = window.icons['folder-home.svg'];
         }
         else if(options.path === window.trash_path){

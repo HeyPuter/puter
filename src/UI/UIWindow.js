@@ -263,13 +263,13 @@ async function UIWindow(options) {
                     draggable="false"
                 >`;
                 // favorites
-                h += `<h2 class="window-sidebar-title disable-user-select">Favorites</h2>`;
-                h += `<div draggable="false" title="Home" class="window-sidebar-item disable-user-select ${options.path === window.home_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.home_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-home.svg'])}">Home</div>`;
-                h += `<div draggable="false" title="Documents" class="window-sidebar-item disable-user-select ${options.path === window.docs_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.docs_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-documents.svg'])}">Documents</div>`;
-                h += `<div draggable="false" title="Public" class="window-sidebar-item disable-user-select ${options.path === window.public_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.public_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-public.svg'])}">Public</div>`;
-                h += `<div draggable="false" title="Pictures" class="window-sidebar-item disable-user-select ${options.path === window.pictures_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.pictures_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-pictures.svg'])}">Pictures</div>`;
-                h += `<div draggable="false" title="Desktop" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-desktop.svg'])}">Desktop</div>`;
-                h += `<div draggable="false" title="Videos" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-videos.svg'])}">Videos</div>`;
+                h += `<h2 class="window-sidebar-title disable-user-select">${i18n('favorites')}</h2>`;
+                h += `<div draggable="false" title="${i18n('home')}" class="window-sidebar-item disable-user-select ${options.path === window.home_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.home_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-home.svg'])}">${i18n('home')}</div>`;
+                h += `<div draggable="false" title="${i18n('documents')}" class="window-sidebar-item disable-user-select ${options.path === window.docs_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.docs_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-documents.svg'])}">${i18n('documents')}</div>`;
+                h += `<div draggable="false" title="${i18n('public')}" class="window-sidebar-item disable-user-select ${options.path === window.public_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.public_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-public.svg'])}">${i18n('public')}</div>`;
+                h += `<div draggable="false" title="${i18n('pictures')}" class="window-sidebar-item disable-user-select ${options.path === window.pictures_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.pictures_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-pictures.svg'])}">${i18n('pictures')}</div>`;
+                h += `<div draggable="false" title="${i18n('desktop')}" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-desktop.svg'])}">${i18n('desktop')}</div>`;
+                h += `<div draggable="false" title="${i18n('videos')}" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-videos.svg'])}">${i18n('videos')}</div>`;
             h += `</div>`;
 
         }
@@ -862,7 +862,7 @@ async function UIWindow(options) {
 
                 // build item for context menu
                 items.push({
-                    html: `<span>${history_item === window.home_path ? 'Home' : path.basename(history_item)}</span>`,
+                    html: `<span>${history_item === window.home_path ? i18n('home') : path.basename(history_item)}</span>`,
                     val: index,
                     onClick: async function(e){
                         let history_index = e.value;
@@ -2828,10 +2828,10 @@ window.update_window_path = async function(el_window, target_path){
             $(el_window).find('.window-head-title').text('Desktop')
         }else if (target_path === window.home_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-home.svg']);
-            $(el_window).find('.window-head-title').text('Home')
+            $(el_window).find('.window-head-title').text(i18n('home'))
         }else if (target_path === window.docs_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-documents.svg']);
-            $(el_window).find('.window-head-title').text('Documents')
+            $(el_window).find('.window-head-title').text(i18n('documents'))
         }else if (target_path === window.public_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-public.svg']);
             $(el_window).find('.window-head-title').text('Public')
@@ -2864,7 +2864,7 @@ window.update_window_path = async function(el_window, target_path){
                 $(el_window_item_container).attr('data-uid', fsentry.id);
                 // title
                 if (target_path === window.home_path)
-                    $(el_window).find('.window-head-title').text('Home')
+                    $(el_window).find('.window-head-title').text(i18n('home'))
                 else
                     $(el_window).find('.window-head-title').text(fsentry.name);
                 // data-name

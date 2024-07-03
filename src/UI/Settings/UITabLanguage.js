@@ -28,7 +28,7 @@ export default {
 
         // search
         h += `<div class="search-container" style="margin-bottom: 10px;">
-                <input type="text" class="search search-language" placeholder="Search">
+                <input type="text" class="search search-language" placeholder="${i18n('search')}">
             </div>`;
 
         // list of languages
