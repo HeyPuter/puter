@@ -1,4 +1,6 @@
+const APIError = require("../../api/APIError");
 const Group = require("../../entities/Group");
+const { DENY_SERVICE_INSTRUCTION } = require("../AnomalyService");
 const BaseService = require("../BaseService");
 const { DB_WRITE } = require("../database/consts");
 
@@ -9,6 +11,11 @@ class GroupService extends BaseService {
 
     _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'permissions');
+
+        const svc_anomaly = this.services.get('anomaly');
+        svc_anomaly.register('groups-user-hour', {
+            high: 20,
+        });
     }
     
     async get({ uid }) {
@@ -31,7 +38,24 @@ class GroupService extends BaseService {
         metadata = metadata ?? {};
         
         const uid = this.modules.uuidv4();
-        
+
+        const [{ n_groups }] = await this.db.read(
+            "SELECT COUNT(*) AS n_groups FROM `group` WHERE " +
+            "owner_user_id=? AND " +
+            "created_at >= datetime('now', '-1 hour')",
+            [owner_user_id]
+        );
+
+        const svc_anomaly = this.services.get('anomaly');
+        const anomaly = await svc_anomaly.note('groups-user-hour', {
+            value: n_groups,
+            user_id: owner_user_id,
+        });
+
+        if ( anomaly && anomaly.has(DENY_SERVICE_INSTRUCTION) ) {
+            throw APIError.create('too_many_requests');
+        }
+
         await this.db.write(
             'INSERT INTO `group` ' +
             '(`uid`, `owner_user_id`, `extra`, `metadata`) ' +
