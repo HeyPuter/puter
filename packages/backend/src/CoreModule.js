@@ -295,6 +295,9 @@ const install = async ({ services, app, useapi }) => {
 
     const { MountpointService } = require('./services/MountpointService');
     services.registerService('mountpoint', MountpointService);
+
+    const { AnomalyService } = require('./services/AnomalyService');
+    services.registerService('anomaly', AnomalyService);
 }
 
 const install_legacy = async ({ services }) => {
