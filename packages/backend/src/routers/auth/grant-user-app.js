@@ -44,6 +44,12 @@ module.exports = eggspress('/auth/grant-user-app', {
         throw APIError.create('field_missing', null, { key: 'app_uid' });
     }
 
+    if ( ! req.body.permission ) {
+        throw APIError.create('field_missing', null, {
+            key: 'permission'
+        });
+    }
+
     const token = await svc_permission.grant_user_app_permission(
         actor, req.body.app_uid, req.body.permission,
         req.body.extra || {}, req.body.meta || {}

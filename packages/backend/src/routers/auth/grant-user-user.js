@@ -21,6 +21,12 @@ module.exports = eggspress('/auth/grant-user-user', {
         throw APIError.create('field_missing', null, { key: 'target_username' });
     }
 
+    if ( ! req.body.permission ) {
+        throw APIError.create('field_missing', null, {
+            key: 'permission'
+        });
+    }
+
     await svc_permission.grant_user_user_permission(
         actor, req.body.target_username, req.body.permission,
         req.body.extra || {}, req.body.meta || {}
