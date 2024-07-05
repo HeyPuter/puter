@@ -369,7 +369,7 @@ async function UIWindow(options) {
                 // Add 'This folder is empty' message by default
                 h += `<div class="explorer-empty-message">This folder is empty</div>`;
 
-                h += `<div class="explorer-error-message">Error message is missing</div>`;
+                h += `<div class="explorer-error-message">${i18n('error_message_is_missing')}</div>`;
 
                 // Loading spinner
                 h += `<div class="explorer-loading-spinner">`;
@@ -394,11 +394,11 @@ async function UIWindow(options) {
             h += `<div class="window-filedialog-prompt">`;
                 h += `<div style="display:flex;">`;
                     h += `<input type="text" class="savefiledialog-filename" autocorrect="off" spellcheck="false" value="${html_encode(options.saveFileDialog_default_filename) ?? ''}">`;
-                    h += `<button class="button button-small filedialog-cancel-btn">Cancel</button>`;
+                    h += `<button class="button button-small filedialog-cancel-btn">${i18n('cancel')}</button>`;
                     h += `<button class="button `;
                         if(options.saveFileDialog_default_filename === undefined || options.saveFileDialog_default_filename === '')
                             h+= `disabled `; 
-                    h += `button-small button-primary savefiledialog-save-btn">Save</button>`;
+                    h += `button-small button-primary savefiledialog-save-btn">${i18n('save')}</button>`;
                 h += `</div>`;
             h += `</div>`;
         }
@@ -407,8 +407,8 @@ async function UIWindow(options) {
         else if(options.is_openFileDialog){
             h += `<div class="window-filedialog-prompt">`;
                 h += `<div style="text-align:right;">`;
-                    h += `<button class="button button-small filedialog-cancel-btn">Cancel</button>`;
-                    h += `<button class="button disabled button-small button-primary openfiledialog-open-btn">Open</button>`;
+                    h += `<button class="button button-small filedialog-cancel-btn">${i18n('cancel')}</button>`;
+                    h += `<button class="button disabled button-small button-primary openfiledialog-open-btn">${i18n('open')}</button>`;
                 h += `</div>`;
             h += `</div>`;
         }
@@ -417,8 +417,8 @@ async function UIWindow(options) {
         else if(options.is_directoryPicker){
             h += `<div class="window-filedialog-prompt">`;
                 h += `<div style="text-align:right;">`;
-                    h += `<button class="button button-small filedialog-cancel-btn">Cancel</button>`;
-                    h += `<button class="button button-small button-primary directorypicker-select-btn" style="margin-left:10px;">Select</button>`;
+                    h += `<button class="button button-small filedialog-cancel-btn">${i18n('cancel')}</button>`;
+                    h += `<button class="button button-small button-primary directorypicker-select-btn" style="margin-left:10px;">${i18n('select')}</button>`;
                 h += `</div>`;
             h += `</div>`;
         }
@@ -3240,10 +3240,10 @@ window.set_sort_by = function(item_uid, sort_by, sort_order){
 window.explore_table_headers = function(){
     let h = ``;
     h += `<div class="explore-table-headers">`;
-        h += `<div class="explore-table-headers-th explore-table-headers-th--name">Name<span class="header-sort-icon"></span></div>`;
-        h += `<div class="explore-table-headers-th explore-table-headers-th--modified">Modified<span class="header-sort-icon"></span></div>`;
-        h += `<div class="explore-table-headers-th explore-table-headers-th--size">Size<span class="header-sort-icon"></span></div>`;
-        h += `<div class="explore-table-headers-th explore-table-headers-th--type">Type<span class="header-sort-icon"></span></div>`;
+        h += `<div class="explore-table-headers-th explore-table-headers-th--name">${i18n('name')}<span class="header-sort-icon"></span></div>`;
+        h += `<div class="explore-table-headers-th explore-table-headers-th--modified">${i18n('modified')}<span class="header-sort-icon"></span></div>`;
+        h += `<div class="explore-table-headers-th explore-table-headers-th--size">${i18n('size')}<span class="header-sort-icon"></span></div>`;
+        h += `<div class="explore-table-headers-th explore-table-headers-th--type">${i18n('type')}<span class="header-sort-icon"></span></div>`;
     h += `</div>`;
     return h;
 }

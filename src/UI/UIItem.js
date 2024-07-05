@@ -110,7 +110,7 @@ function UIItem(options){
         // type
         h += `<div class="item-attr item-attr--type">`;
             if(options.is_dir)
-                h += `<span>Folder</span>`;
+                h += `<span>${i18n('folder')}</span>`;
             else
                 h += `<span>${options.type ? html_encode(options.type) : '-'}</span>`;
         h += `</div>`;

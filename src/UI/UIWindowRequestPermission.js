@@ -65,8 +65,8 @@ async function UIWindowRequestPermission(options){
                 // todo show the real description of action
                 h += `<p class="perm-description">${html_encode(driver.description)}</p>`;
                 // Allow/Don't Allow
-                h += `<button type="button" class="app-auth-allow button button-primary button-block" style="margin-top: 10px;">Allow</button>`;
-                h += `<button type="button" class="app-auth-dont-allow button button-default button-block" style="margin-top: 10px;">Don't Allow</button>`;
+                h += `<button type="button" class="app-auth-allow button button-primary button-block" style="margin-top: 10px;">${i18n('allow')}</button>`;
+                h += `<button type="button" class="app-auth-dont-allow button button-default button-block" style="margin-top: 10px;">${i18n('dont_allow')}</button>`;
             h += `</div>`;
         h += `</div>`;
         

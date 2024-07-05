@@ -1014,7 +1014,7 @@ async function UIDesktop(options){
     $(ht).insertBefore(el_desktop);
 
     // notification container
-    $('body').append(`<div class="notification-container"><div class="notifications-close-all">Close all</div></div>`);
+    $('body').append(`<div class="notification-container"><div class="notifications-close-all">${i18n('close_all')}</div></div>`);
 
     // adjust window container to take into account the toolbar height
     $('.window-container').css('top', window.toolbar_height);

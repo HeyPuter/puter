@@ -32,7 +32,7 @@ function UIWindowEmailConfirmationRequired(options){
         h += `<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>`;
         h += `<div style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; color: #3e5362;">`;
             h += `<img src="${html_encode(window.icons['mail.svg'])}" style="display:block; margin:10px auto 10px;">`;
-            h += `<h3 style="text-align:center; font-weight: 500; font-size: 20px;">Confirm Your Email Address</h3>`;
+            h += `<h3 style="text-align:center; font-weight: 500; font-size: 20px;">${i18n('confirm_your_email_address')}</h3>`;
             h += `<form>`;
                 h += `<p style="text-align:center; padding: 0 20px;">To continue, please enter the 6-digit confirmation code sent to <strong style="font-weight: 500;">${window.user.email}</strong></p>`;
                 h += `<div class="error"></div>`;

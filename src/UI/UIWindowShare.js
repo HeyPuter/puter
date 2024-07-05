@@ -58,12 +58,12 @@ async function UIWindowShare(items, recipient){
                 h += `<div class="error"></div>`;
                 // Username/email
                 h += `<div style="overflow: hidden;">`;
-                    h += `<label style="font-size: 16px; font-weight: 600;">Share with:</label>`;
+                    h += `<label style="font-size: 16px; font-weight: 600;">${i18n('share_with')}</label>`;
                     h += `<div style="display: flex;">`;
                         // Username/email
                         h += `<input placeholder="username" class="access-recipient" value="${html_encode(recipient ?? '')}" style="border-right: none; margin-bottom: 10px; border-top-right-radius: 0; border-bottom-right-radius: 0;" type="text" autocomplete="recipient_email_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                         // Share
-                        h += `<button class="give-access-btn button button-primary button-normal" style="border-top-left-radius: 0; border-bottom-left-radius: 0;" ${!recipient ? 'disabled' : ''}>Share</button>`
+                        h += `<button class="give-access-btn button button-primary button-normal" style="border-top-left-radius: 0; border-bottom-left-radius: 0;" ${!recipient ? 'disabled' : ''}>${i18n('share')}</button>`
                     h += `</div>`;                
                 h += `</div>`;
             h += `</form>`;

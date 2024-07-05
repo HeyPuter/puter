@@ -28,7 +28,7 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
             h += `<img src="${html_encode(window.icons['c-check.svg'])}" style="width:80px; height:80px; display: block; margin:10px auto;">`;
             h += `<p style="text-align:center;">${i18n('dir_published_as_website', `<strong>${html_encode(target_dir_name)}</strong>`, false)}<p>`;
             h += `<p style="text-align:center;"><a class="publishWebsite-published-link" target="_blank"></a><img class="publishWebsite-published-link-icon" src="${html_encode(window.icons['launch.svg'])}"></p>`;
-            h += `<button class="button button-normal button-block button-primary publish-window-ok-btn" style="margin-top:20px;">OK</button>`;
+            h += `<button class="button button-normal button-block button-primary publish-window-ok-btn" style="margin-top:20px;">${i18n('ok')}</button>`;
         h+= `</div>`;
         // form
         h += `<form class="window-publishWebsite-form">`;
