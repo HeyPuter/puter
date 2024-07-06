@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
 const en = {
     name: "English",
     english_name: "English",
@@ -68,7 +69,7 @@ const en = {
         confirm_session_revoke: "Are you sure you want to revoke this session?",
         confirm_your_email_address: "Confirm Your Email Address",
         contact_us: "Contact Us",
-        contact_us_verification_required: "You must have a verified email address to to use this.",
+        contact_us_verification_required: "You must have a verified email address to use this.",
         contain: 'Contain',
         continue: "Continue",
         copy: 'Copy',
