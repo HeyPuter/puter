@@ -18,6 +18,7 @@
  */
 const pl = {
     name: "Polski",
+    english_name: "Polish",
     code: "pl",
     dictionary: {
         access_granted_to: "Przyznano dostęp do",
