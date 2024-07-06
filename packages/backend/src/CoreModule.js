@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require("@heyputer/puter-js-common");
+const Library = require("./definitions/Library");
 const { NotificationES } = require("./om/entitystorage/NotificationES");
 const { ProtectedAppES } = require("./om/entitystorage/ProtectedAppES");
 const { Context } = require('./util/context');
@@ -49,16 +50,19 @@ const install = async ({ services, app, useapi }) => {
     useapi.withuse(() => {
         def('Service', require('./services/BaseService'));
         def('Module', AdvancedBase);
+        def('Library', Library);
 
         def('puter.middlewares.auth', require('./middleware/auth2'));
     });
     
     // === LIBRARIES ===
-    const ArrayUtil = require('./libraries/ArrayUtil');
-    services.registerService('util-array', ArrayUtil);
+    useapi.withuse(() => {
+        const ArrayUtil = require('./libraries/ArrayUtil');
+        services.registerService('util-array', ArrayUtil);
     
-    const LibTypeTagged = require('./libraries/LibTypeTagged');
-    services.registerService('lib-type-tagged', LibTypeTagged);
+        const LibTypeTagged = require('./libraries/LibTypeTagged');
+        services.registerService('lib-type-tagged', LibTypeTagged);
+    });
     
     // === SERVICES ===
 

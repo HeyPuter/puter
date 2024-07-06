@@ -1,6 +1,4 @@
-const Library = require("../definitions/Library");
-
-class ArrayUtil extends Library {
+class ArrayUtil extends use.Library {
     /**
      * 
      * @param {*} marked_map 

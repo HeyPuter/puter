@@ -1,7 +1,6 @@
-const Library = require("../definitions/Library");
 const { whatis } = require("../util/langutil");
 
-class LibTypeTagged extends Library {
+class LibTypeTagged extends use.Library {
     process (o) {
         const could_be = whatis(o) === 'object' || Array.isArray(o);
         if ( ! could_be ) return {
