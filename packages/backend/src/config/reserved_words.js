@@ -145,6 +145,7 @@ module.exports = [
     'portal',
     'private',
     'public',
+    'puter',
     'remote',
     'sandbox',
     'sdk',
