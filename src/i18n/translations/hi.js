@@ -339,4 +339,4 @@ const hi = {
     }
 };
 
-export default en;
+export default hi;
