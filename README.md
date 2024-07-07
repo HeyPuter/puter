@@ -48,7 +48,6 @@ This will launch Puter at http://localhost:4000 (or the next available port).
 
 ### 🐳 Docker
 
-**note:** it is **not** necessary to run this within a clone of this repository. For contributors, it is recommended to use the [Local Development](#local-development) instructions.
 
 ```bash
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
@@ -59,7 +58,6 @@ mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 100
 
 ### 🐙 Docker Compose
 
-**note:** it is **not** necessary to run this within a clone of this repository. For contributors, it is recommended to use the [Local Development](#local-development) instructions.
 
 ```bash
 mkdir -p puter/config puter/data
