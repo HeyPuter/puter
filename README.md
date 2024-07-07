@@ -27,8 +27,8 @@
 
 Puter is an advanced, open-source internet operating system designed to be feature-rich, exceptionally fast, and highly extensible. Puter can be used as:
 
-- An alternative to Dropbox, Google Drive, OneDrive, etc. with a fresh interface and powerful features.
 - A platform for building and hosting websites, web apps, and games.
+- An alternative to Dropbox, Google Drive, OneDrive, etc. with a fresh interface and powerful features.
 - Remote desktop environment for servers and workstations.
 - A friendly, open-source project and community to learn about web development, cloud computing, distributed systems, and much more!
 
@@ -79,11 +79,6 @@ Puter is available as a hosted service at [**puter.com**](https://puter.com).
 <br/>
 
 
-### 🏠 Self-Hosting
-
-Please refer to the [**Self-Hosting instructions**](./doc/self-hosters/instructions.md).
-
-<br/>
 
 ##  License
 
