@@ -32,7 +32,7 @@ Puter is an advanced, open-source internet operating system designed to be featu
 ## Getting Started
 
 
-### Local Development
+### 💻 Local Development
 
 ```bash
 git clone https://github.com/HeyPuter/puter
@@ -46,7 +46,7 @@ This will launch Puter at http://localhost:4000 (or the next available port).
 
 <br/>
 
-### Using Docker
+### 🐳 Using Docker
 
 **note:** it is **not** necessary to run this within a clone of this repository. For contributors, it is recommended to use the [Local Development](#local-development) instructions.
 
@@ -57,7 +57,7 @@ mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 100
 <br/>
 
 
-### Using Docker Compose
+### 🐙 Using Docker Compose
 
 **note:** it is **not** necessary to run this within a clone of this repository. For contributors, it is recommended to use the [Local Development](#local-development) instructions.
 
@@ -70,7 +70,7 @@ docker compose up
 <br/>
 
 
-### Self-Hosting
+### 🏠 Self-Hosting
 
 Please refer to the [**Self-Hosting instructions**](./doc/self-hosters/instructions.md).
 
