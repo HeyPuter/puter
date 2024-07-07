@@ -31,9 +31,6 @@ Puter is an advanced, open-source internet operating system designed to be featu
 
 ## Getting Started
 
-After reading this section, please proceed to [**Self-Hosting**](#%EF%B8%8F-self-hosting-%EF%B8%8F) and [**Configuration**](#configuration) below.
-Read these instructions carefully or you may see errors due to
-an invalid setup.
 
 ### Local Development
 
@@ -68,66 +65,9 @@ wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
 
-<br/>
+### Self-Hosting
 
-See [Configuration](#configuration) for next steps.
-
-<br/>
-
-> [!WARNING]
-> The self-hosted version of Puter is currently in alpha stage and should not be used in production yet. It is under active development and may contain bugs, other issues. Please exercise caution and use it for testing and evaluation purposes only.
-
-### Self-Hosting Differences
-Currently, the self-hosted version of Puter is different in a few ways from [Puter.com](https://puter.com):
-- There is no built-in way to install or create other apps (see below)
-- Several "core" apps are missing, such as **Code** or **Draw**, because we can't include them in this repository
-- Some icons are different
-
-Work is ongoing to improve the **App Center** and make it available on self-hosted.
-Until then, it's possible to add other apps by manually editing the database file.
-This process is not recommended unless you know what you are doing.
-The file will appear after you first launch Puter, and should be found in `puter/data/puter-database.sqlite` for Docker,
-or `volatile/runtime/puter-database.sqlite` otherwise.
-You will need a database tool that can understand SQLite databases.
-
-<br/>
-
-## Configuration
-
-Running the server will generate a configuration file in one of these locations:
-- `config/config.json` when [Using Docker](#using-docker)
-- `volatile/config/config.json` in [Local Development](#local-development)
-- `/etc/puter/config.json` on a server (or within a Docker container)
-
-### Domain Name
-
-To access Puter on your device, you can simply go to the address printed in
-the server console (usually `puter.localhost:4100`).
-
-To access Puter from another device, a domain name must be configured, as well as
-an `api` subdomain. For example, `example.local` might be the domain name pointing
-to the IP address of the server running puter, and `api.example.com` must point to
-this address as well. This domain must be specified in the configuration file
-(usually `volatile/config/config.json`) as well.
-
-See [domain configuration](./doc/self-hosters/domains.md) for more information.
-
-### Configure the Port
-
-- You can specify a custom port by setting `http_port` to a desired value
-- If you're using a reverse-proxy such as nginx or cloudflare, you should
-  also set `pub_port` to the public (external) port (usually `443`)
-- If you have HTTPS enabled on your reverse-proxy, ensure that
-  `protocol` in config.json is set accordingly
-
-### Default User
-
-By default, Puter will create a user called `default_user`.
-This user will have a randomly generated password, which will be printed
-in the development console.
-A warning will persist in the dev console until this user's
-password is changed. Please login to this user and change the password as
-your first step.
+Please refer to the [**Self-Hosting instructions**](./doc/self-hosters/instructions.md).
 
 <br/>
 
