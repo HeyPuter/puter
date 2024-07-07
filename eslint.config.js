@@ -55,6 +55,9 @@ export default [
             globals: {
                 ...globals.browser,
                 ...globals.commonjs,
+                // Weird false positives
+                "Buffer": true,
+                // Puter Common
                 "puter": true,
                 "i18n": true,
                 "html_encode": true,
