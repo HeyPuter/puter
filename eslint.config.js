@@ -10,7 +10,7 @@ export default [
             "**/*.min.js",
             "**/src/lib/**",
             "**/dist/",
-            "packages/backend/src/public/assets/**",
+            "src/backend/src/public/assets/**",
         ],
     },
     {
@@ -27,7 +27,7 @@ export default [
     {
         // Back end
         files: [
-            "packages/backend/**/*.js",
+            "src/backend/**/*.js",
             "mods/**/*.js",
             "dev-server.js",
             "utils.js",
@@ -45,13 +45,10 @@ export default [
     {
         // Front end
         files: [
-            "index.js",
-            "initgui.js",
             "src/**/*.js",
-            "packages/**/*.js",
         ],
         ignores: [
-            "packages/backend/**/*.js",
+            "src/backend/**/*.js",
         ],
         languageOptions: {
             globals: {
@@ -118,7 +115,7 @@ export default [
     {
         // Phoenix
         files: [
-            "packages/phoenix/**/*.js",
+            "src/phoenix/**/*.js",
         ],
         languageOptions: {
             globals: {
