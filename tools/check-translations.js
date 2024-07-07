@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import translations from '../src/i18n/translations/translations.js';
+import translations from '../src/gui/src/i18n/translations/translations.js';
 import fs from 'fs';
 
 let hadError = false;
@@ -27,7 +27,7 @@ function reportError(message) {
 
 // Check that each translation file is recorded in `translations`
 async function checkTranslationRegistrations() {
-    const files = await fs.promises.readdir('./src/i18n/translations');
+    const files = await fs.promises.readdir('./src/gui/src/i18n/translations');
     for (const fileName of files) {
         if (!fileName.endsWith('.js')) continue;
         const translationName = fileName.substring(0, fileName.length - 3);
@@ -77,8 +77,8 @@ async function checkTranslationUsage() {
     const enDictionary = translations.en.dictionary;
 
     const sourceDirectories = [
-        './src/helpers',
-        './src/UI',
+        './src/gui/src/helpers',
+        './src/gui/src/UI',
     ];
 
     // Looks for i18n() calls using either ' or " for the key string.
