@@ -25,7 +25,12 @@
 
 ## Puter
 
-Puter is an advanced, open-source internet operating system designed to be feature-rich, exceptionally fast, and highly extensible. It can be used to build remote desktop environments or serve as an interface for cloud storage services, remote servers, web hosting platforms, and more.
+Puter is an advanced, open-source internet operating system designed to be feature-rich, exceptionally fast, and highly extensible. Puter can be used as:
+
+- An alternative to Dropbox, Google Drive, OneDrive, etc. with a fresh interface and powerful features.
+- A platform for building and hosting websites, web apps, and games.
+- Remote desktop environment for servers and workstations.
+- A friendly, open-source project and community to learn about web development, cloud computing, distributed systems, and much more!
 
 <br/>
 
@@ -83,34 +88,6 @@ Please refer to the [**Self-Hosting instructions**](./doc/self-hosters/instructi
 ##  License
 
 This repository is licensed under AGPL-3.0; However, our SDK (puter.js) is also available under Apache 2.0, as indicated by the license file in that section (packages/puter-js) of this repository.
-
-<br/>
-
-## FAQ
-
-### ❓ What's the use case for Puter?
-
-Puter can be used as:
-
-- An alternative to Dropbox, Google Drive, OneDrive, etc. with a fresh interface and powerful features.
-- Remote desktop environment for servers and workstations.
-- A platform for building and hosting websites, web apps, and games.
-- A friendly, open-source project and community to learn about web development, cloud computing, distributed systems, and much more!
-
-<br/>
-
-
-### ❓ Why isn't Puter built with React, Angular, Vue, etc.?
-
-For performance reasons, Puter is built with vanilla JavaScript and jQuery. Additionally, we'd like to avoid complex abstractions and to remain in control of the entire stack, as much as possible.
-
-Also partly inspired by some of our favorite projects that are not built with frameworks: [VSCode](https://github.com/microsoft/vscode), [Photopea](https://www.photopea.com/), and [OnlyOffice](https://www.onlyoffice.com/).
-
-<br/>
-
-### ❓ Why jQuery?
-
-Puter interacts directly with the DOM and jQuery provides an elegant yet powerful API to manipulate the DOM, handle events, and much more. It's also fast, mature, and battle-tested. 
 
 <br/>
 
