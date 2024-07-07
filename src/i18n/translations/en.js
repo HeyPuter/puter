@@ -49,6 +49,7 @@ const en = {
         close_all_windows_and_log_out: 'Close Windows and Log Out',
         change_always_open_with: "Do you want to always open this type of file with",
         color: 'Color',
+        confirm: 'Confirm',
         confirm_2fa_setup: 'I have added the code to my authenticator app',
         confirm_2fa_recovery: 'I have saved my recovery codes in a secure location',
         confirm_account_for_free_referral_storage_c2a: 'Create an account and confirm your email address to receive 1 GB of free storage. Your friend will get 1 GB of free storage too.',

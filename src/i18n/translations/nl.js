@@ -41,6 +41,7 @@ const nl = {
 		close_all_windows_and_log_out: 'Alle schermen sluiten en afmelden',
 		change_always_open_with: "Dit type bestand altijd openen met",
 		color: 'Kleur',
+		confirm: 'Bevestig',
 		confirm_account_for_free_referral_storage_c2a: 'Maak een account en bevestig uw emailadres om 1 GB aan gratis opslag te ontvangen. Uw vriend krijgt ook 1 GB aan gratis opslag.',
 		confirm_delete_multiple_items: 'Weet u zeker dat u deze bestanden permanent wilt verwijderen?',
 		confirm_delete_single_item: 'Weet u zeker dat u dit bestand permanent wilt verwijderen?',
