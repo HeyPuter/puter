@@ -11,6 +11,7 @@ export default [
             "**/src/lib/**",
             "**/dist/",
             "src/backend/src/public/assets/**",
+            "incubator/**"
         ],
     },
     {
