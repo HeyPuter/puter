@@ -27,9 +27,10 @@
 
 Puter is an advanced, open-source internet operating system designed to be feature-rich, exceptionally fast, and highly extensible. Puter can be used as:
 
-- A platform for building and hosting websites, web apps, and games.
+- A privacy-first personal cloud to keep all your files, apps, and games in one secure place, accessible from anywhere at any time.
+- A platform for building and publishing websites, web apps, and games.
 - An alternative to Dropbox, Google Drive, OneDrive, etc. with a fresh interface and powerful features.
-- Remote desktop environment for servers and workstations.
+- A remote desktop environment for servers and workstations.
 - A friendly, open-source project and community to learn about web development, cloud computing, distributed systems, and much more!
 
 <br/>
