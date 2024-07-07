@@ -86,6 +86,11 @@ class DevWatcherService extends BaseService {
                 global_config: this.global_config
             });
         }
+        console.log(
+            'command',
+            command,
+            ...args
+        )
         const proc = this.modules.spawn(command, args, {
             shell: true,
             env: {
