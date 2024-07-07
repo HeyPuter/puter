@@ -1,5 +1,5 @@
 {
-  "name": "puter.com",
+  "name": "@heyputer/gui",
   "version": "2.3.0",
   "author": "Puter Technologies Inc.",
   "license": "AGPL-3.0-only",
@@ -25,10 +25,9 @@
     "webpack-cli": "^5.1.1"
   },
   "scripts": {
-    "test": "mocha ./src/phoenix/test ./src/phoenix/packages/contextlink/test",
+    "test": "mocha ./packages/phoenix/test ./packages/phoenix/packages/contextlink/test",
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
-    "start": "node run-selfhosted.js",
-    "build": "cd src/gui; node ./build.js",
+    "build": "node ./build.js",
     "check-translations": "node tools/check-translations.js"
   },
   "workspaces": [

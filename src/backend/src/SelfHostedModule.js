@@ -21,13 +21,13 @@ class SelfHostedModule extends AdvancedBase {
             commands: [
                 {
                     name: 'puter.js:webpack-watch',
-                    directory: 'packages/puter-js',
+                    directory: 'src/puter-js',
                     command: 'npm',
                     args: ['run', 'start-webpack'],
                 },
                 {
                     name: 'terminal:rollup-watch',
-                    directory: 'packages/terminal',
+                    directory: 'src/terminal',
                     command: 'npx',
                     args: ['rollup', '-c', 'rollup.config.js', '--watch'],
                     env: {
@@ -36,7 +36,7 @@ class SelfHostedModule extends AdvancedBase {
                 },
                 {
                     name: 'phoenix:rollup-watch',
-                    directory: 'packages/phoenix',
+                    directory: 'src/phoenix',
                     command: 'npx',
                     args: ['rollup', '-c', 'rollup.config.js', '--watch'],
                     env: {
@@ -45,7 +45,7 @@ class SelfHostedModule extends AdvancedBase {
                 },
                 {
                     name: 'git:rollup-watch',
-                    directory: 'packages/git',
+                    directory: 'src/git',
                     command: 'npx',
                     args: ['rollup', '-c', 'rollup.config.js', '--watch'],
                     env: {
@@ -60,19 +60,19 @@ class SelfHostedModule extends AdvancedBase {
             directories: [
                 {
                     prefix: '/sdk',
-                    path: path_.resolve(__dirname, '../../../packages/puter-js/dist'),
+                    path: path_.resolve(__dirname, '../../../src/puter-js/dist'),
                 },
                 {
                     prefix: '/builtin/terminal',
-                    path: path_.resolve(__dirname, '../../../packages/terminal/dist'),
+                    path: path_.resolve(__dirname, '../../../src/terminal/dist'),
                 },
                 {
                     prefix: '/builtin/phoenix',
-                    path: path_.resolve(__dirname, '../../../packages/phoenix/dist'),
+                    path: path_.resolve(__dirname, '../../../src/phoenix/dist'),
                 },
                 {
                     prefix: '/builtin/git',
-                    path: path_.resolve(__dirname, '../../../packages/git/dist'),
+                    path: path_.resolve(__dirname, '../../../src/git/dist'),
                 },
             ],
         });
