@@ -58,7 +58,7 @@ $(document).ready(function () {
     $('#loading').show();
 
     // get dev profile
-    setTimeout(function () {
+    setTimeout(async function () {
         puter.ui.onLaunchedWithItems(async function (items) {
             source_path = items[0].path;
             // if source_path is provided, this means that the user is creating a new app/updating an existing app
@@ -71,48 +71,50 @@ $(document).ready(function () {
             }
         })
 
-        puter.apps.getDeveloperProfile(async function (dev_profile) {
-            developer = dev_profile;
-            if (dev_profile.approved_for_incentive_program && !dev_profile.joined_incentive_program) {
-                $('#join-incentive-program').show();
-            }
+        if(domain === 'puter.com'){
+            puter.apps.getDeveloperProfile(async function (dev_profile) {
+                developer = dev_profile;
+                if (dev_profile.approved_for_incentive_program && !dev_profile.joined_incentive_program) {
+                    $('#join-incentive-program').show();
+                }
 
-            // show earn money c2a only if dev is not approved for incentive program or has already joined
-            if (!dev_profile.approved_for_incentive_program || dev_profile.joined_incentive_program) {
-                puter.kv.get('earn-money-c2a-closed').then((value) => {
-                    if (value?.result || value === true || value === "true")
-                        return;
+                // show earn money c2a only if dev is not approved for incentive program or has already joined
+                if (!dev_profile.approved_for_incentive_program || dev_profile.joined_incentive_program) {
+                    puter.kv.get('earn-money-c2a-closed').then((value) => {
+                        if (value?.result || value === true || value === "true")
+                            return;
 
-                    $('#earn-money').get(0).showModal();
-                });
-            }
-
-            // get apps
-            puter.apps.list().then((resp) => {
-                apps = resp;
-
-                // hide loading
-                $('#loading').hide();
-
-                // set apps
-                if (apps.length > 0) {
-                    if (activeTab === 'apps') {
-                        $('#no-apps-notice').hide();
-                        $('#app-list').show();
-                    }
-                    $('.app-card').remove();
-                    apps.forEach(app => {
-                        $('#app-list-table > tbody').append(generate_app_card(app));
+                        $('#earn-money').get(0).showModal();
                     });
-                    sort_apps();
-                } else {
-                    $('#no-apps-notice').show();
+                }
+
+                // show payout method tab if dev has joined incentive program
+                if (dev_profile.joined_incentive_program) {
+                    $('.tab-btn[data-tab="payout-method"]').show();
+                    $('#payout-method-email').html(dev_profile.paypal);
                 }
             })
-            // show payout method tab if dev has joined incentive program
-            if (dev_profile.joined_incentive_program) {
-                $('.tab-btn[data-tab="payout-method"]').show();
-                $('#payout-method-email').html(dev_profile.paypal);
+        }
+        // get apps
+        puter.apps.list().then((resp) => {
+            apps = resp;
+
+            // hide loading
+            $('#loading').hide();
+
+            // set apps
+            if (apps.length > 0) {
+                if (activeTab === 'apps') {
+                    $('#no-apps-notice').hide();
+                    $('#app-list').show();
+                }
+                $('.app-card').remove();
+                apps.forEach(app => {
+                    $('#app-list-table > tbody').append(generate_app_card(app));
+                });
+                sort_apps();
+            } else {
+                $('#no-apps-notice').show();
             }
         })
     }, 1000);
