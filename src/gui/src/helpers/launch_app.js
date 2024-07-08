@@ -224,6 +224,14 @@ const launch_app = async (options)=>{
 
         iframe_url.searchParams.append('puter.domain', window.app_domain);
 
+        // get URL parts
+        const url = new URL(window.location.href);
+  
+        iframe_url.searchParams.append('puter.origin', url.origin);
+        iframe_url.searchParams.append('puter.hostname', url.hostname);
+        iframe_url.searchParams.append('puter.port', url.port);
+        iframe_url.searchParams.append('puter.protocol', url.protocol.slice(0, -1));
+      
         if(window.api_origin)
             iframe_url.searchParams.append('puter.api_origin', window.api_origin);
 

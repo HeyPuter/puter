@@ -56,6 +56,28 @@ if (URLParams.has('puter.domain')) {
     domain = URLParams.get('puter.domain')
 }
 
+// static hosting domain
+let static_hosting_domain = 'puter.site';
+if(domain === 'puter.localhost'){
+    static_hosting_domain = 'site.puter.localhost';
+}
+
+if (URLParams.has('puter.port') && URLParams.get('puter.port')) {
+    static_hosting_domain = static_hosting_domain + `:` + URLParams.get('puter.port');
+}
+
+// protocol
+let protocol = 'https';
+if (URLParams.has('puter.protocol')) {
+    protocol = URLParams.get('puter.protocol');
+}
+
+// port
+let port = '';
+if (URLParams.has('puter.port') && URLParams.get('puter.port')) {
+    port = URLParams.get('puter.port');
+}
+
 $(document).ready(function () {
     $('#loading').show();
 
@@ -244,7 +266,7 @@ async function create_app(title, source_path = null, items = null) {
             puter.apps.update(app.name, {
                 title: title,
                 name: name,
-                indexURL: source_path ? `https://${name}.puter.site` : 'https://dev-center.puter.com/coming-soon.html',
+                indexURL: source_path ? protocol + `://${name}.` + static_hosting_domain : 'https://dev-center.puter.com/coming-soon.html',
                 icon: icon,
                 description: ' ',
                 maximizeOnStart: false,
@@ -375,7 +397,7 @@ $(document).on('click', '.delete-app', async function (e) {
 
 // generate app link
 function applink(app) {
-    return `https://${domain}/app/${app.name}`;
+    return protocol + `://${domain}${ port ? ':' + port : '' }/app/${app.name}`;
 }
 
 //----------------------------------------------------
@@ -1279,7 +1301,7 @@ window.deploy = async function (app, items) {
         puter.hosting.create(hostname, appdata_dir.path).then(async (res) => {
             // TODO this endpoint needs to be able to update only the specified fields
             puter.apps.update(currently_editing_app.name, {
-                indexURL: `https://${hostname}.puter.site`,
+                indexURL: protocol + `://${hostname}.` + static_hosting_domain,
                 title: currently_editing_app.title,
                 name: currently_editing_app.name,
                 icon: currently_editing_app.icon,
@@ -1289,7 +1311,7 @@ window.deploy = async function (app, items) {
                 filetypeAssociations: currently_editing_app.filetype_associations,
             })
             // set the 'Index URL' field for the 'Settings' tab
-            $('#edit-app-index-url').val(`https://${hostname}.puter.site`);
+            $('#edit-app-index-url').val(protocol + `://${hostname}.` + static_hosting_domain);
             // show success message
             $('.deploy-success-msg').show();
             // reset drop area
@@ -1323,7 +1345,7 @@ window.deploy = async function (app, items) {
                 puter.hosting.create(hostname, appdata_dir.path).then(async (res) => {
                     // TODO this endpoint needs to be able to update only the specified fields
                     puter.apps.update(currently_editing_app.name, {
-                        indexURL: `https://${hostname}.puter.site`,
+                        indexURL: protocol + `://${hostname}.` + static_hosting_domain,
                         title: currently_editing_app.title,
                         name: currently_editing_app.name,
                         icon: currently_editing_app.icon,
@@ -1333,7 +1355,7 @@ window.deploy = async function (app, items) {
                         filetypeAssociations: currently_editing_app.filetype_associations,
                     })
                     // set the 'Index URL' field for the 'Settings' tab
-                    $('#edit-app-index-url').val(`https://${hostname}.puter.site`);
+                    $('#edit-app-index-url').val(protocol + `://${hostname}.` + static_hosting_domain);
                     // show success message
                     $('.deploy-success-msg').show();
                     // reset drop area
