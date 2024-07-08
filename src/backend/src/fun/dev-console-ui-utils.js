@@ -15,6 +15,23 @@ const surrounding_box = (col, lines, lengths) => {
         lengths = lines.map(line => stringLength(line));
     }
     
+    const probably_docker = (() => {
+        try {
+            // I don't know what the value of this is in Docker,
+            // but what I do know is it'll throw an exception
+            // when I do this to it.
+            Array(process.stdout.columns - 1);
+        } catch (e) {
+            return true;
+        }
+    })();
+
+    if ( probably_docker ) {
+        // We just won't try to render any decoration on Docker;
+        // it's not worth potentially breaking the output.
+        return;
+    }
+
     const max_length = process.stdout.columns - 6;
     // const max_length = Math.max(...lengths);
 
