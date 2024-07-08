@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const en = {
+const ar = {
     name: "العربية",
     english_name: "Arabic",
     code: "ar",
