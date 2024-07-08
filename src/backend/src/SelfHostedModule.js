@@ -74,6 +74,10 @@ class SelfHostedModule extends AdvancedBase {
                     prefix: '/builtin/git',
                     path: path_.resolve(__dirname, '../../../src/git/dist'),
                 },
+                {
+                    prefix: '/builtin/dev-center',
+                    path: path_.resolve(__dirname, '../../../src/dev-center'),
+                },
             ],
         });
         
