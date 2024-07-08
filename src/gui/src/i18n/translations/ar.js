@@ -53,7 +53,7 @@ const en = {
 	    confirm_2fa_setup: "لقد أضفت الرمز إلى تطبيق المصادقة",
 	    confirm_2fa_recovery: "لقد حفظت رموز الاسترداد في مكان آمن",
 	    confirm_account_for_free_referral_storage_c2a: "أنشئ حسابًا وقم بتأكيد عنوان بريدك الإلكتروني للحصول على 1 جيجابايت من مساحة التخزين المجانية. سيحصل صديقك أيضًا على 1 جيجابايت من مساحة التخزين المجانية.",
-	    confirm_code_generic_incorrect: "رمز غير صحيح."
+	    confirm_code_generic_incorrect: "رمز غير صحيح.",
         confirm_code_generic_too_many_requests: "طلبات كثيرة جدًا. يرجى الانتظار بضع دقائق.",
 	    confirm_code_generic_submit: "إرسال الرمز",
 	    confirm_code_generic_try_again: "حاول مرة أخرى",
@@ -93,7 +93,7 @@ const en = {
 		date_modified: "تاريخ التعديل",
 		default: "افتراضي",
 		delete: "حذف",
-		delete_account: "حذف الحساب"
+		delete_account: "حذف الحساب",
         delete_permanently: "حذف نهائي",
 	    deleting_file: "جارٍ حذف %%",
 	    deploy_as_app: "نشر كتطبيق",
@@ -133,7 +133,7 @@ const en = {
 	    feedback_c2a: "يرجى استخدام النموذج أدناه لإرسال ملاحظاتك وتعليقاتك وتقرير الأخطاء.",
 	    feedback_sent_confirmation: "شكرًا لتواصلك معنا. إذا كان لديك بريد إلكتروني مرتبط بحسابك، ستتلقى ردًا منا في أقرب وقت ممكن.",
 	    fit: "ملائمة",
-	    folder: "مجلد"
+	    folder: "مجلد",
         force_quit: "إنهاء بالقوة",
 	    forgot_pass_c2a: "هل نسيت كلمة المرور؟",
 	    from: "من",
@@ -173,7 +173,7 @@ const en = {
 	    name_cannot_be_empty: "الاسم لا يمكن أن يكون فارغًا.",
 	    name_cannot_contain_double_period: "الاسم لا يمكن أن يكون '..'.",
 	    name_cannot_contain_period: "الاسم لا يمكن أن يكون '.'.",
-	    name_cannot_contain_slash: "الاسم لا يمكن أن يحتوي على '/'."
+	    name_cannot_contain_slash: "الاسم لا يمكن أن يحتوي على '/'.",
         name_must_be_string: "الاسم يجب أن يكون نصًا فقط.",
 	    name_too_long: "الاسم لا يمكن أن يكون أطول من %% حرف.",
 	    new: "جديد",
@@ -233,7 +233,7 @@ const en = {
 	    refer_friends_social_media_c2a: "احصل على 1 جيجابايت من التخزين المجاني على Puter.com!",
 	    refresh: "تحديث",
 	    release_address_confirmation: "هل أنت متأكد أنك تريد تحرير هذا العنوان؟",
-	    remove_from_taskbar: "إزالة من شريط المهام"
+	    remove_from_taskbar: "إزالة من شريط المهام",
         rename: "إعادة تسمية",
 	    repeat: "تكرار",
 	    replace: "استبدال",
@@ -293,7 +293,7 @@ const en = {
 	    trash: "المهملات",
 	    two_factor: "المصادقة الثنائية",
 	    two_factor_disabled: "تم تعطيل المصادقة الثنائية",
-	    two_factor_enabled: "تم تمكين المصادقة الثنائية"
+	    two_factor_enabled: "تم تمكين المصادقة الثنائية",
         type: "نوع",
 	    type_confirm_to_delete_account: "اكتب 'تأكيد' لحذف حسابك.",
 	    ui_colors: "ألوان واجهة المستخدم",
@@ -315,7 +315,7 @@ const en = {
 	    yes_release_it: "نعم، أطلقه",
 	    you_have_been_referred_to_puter_by_a_friend: "تم إحالتك إلى Puter بواسطة صديق!",
 	    zip: "ضغط",
-	    zipping_file: "جارٍ ضغط %strong%"
+	    zipping_file: "جارٍ ضغط %strong%",
 
         // === 2FA Setup ===
         setup2fa_1_step_heading: "افتح تطبيق المصادقة الخاص بك",
@@ -335,7 +335,7 @@ const en = {
 	    setup2fa_5_step_heading: "تأكيد إعداد المصادقة الثنائية (2FA)",
 	    setup2fa_5_confirmation_1: "لقد قمت بحفظ رموز الاسترداد في مكان آمن",
 	    setup2fa_5_confirmation_2: "أنا جاهز لتمكين المصادقة الثنائية (2FA)",
-	    setup2fa_5_button: "تمكين المصادقة الثنائية (2FA)"
+	    setup2fa_5_button: "تمكين المصادقة الثنائية (2FA)",
 
         // === 2FA Login ===
         login2fa_otp_title: "أدخل رمز المصادقة الثنائية (2FA)",
