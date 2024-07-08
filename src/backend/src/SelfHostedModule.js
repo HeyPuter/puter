@@ -55,7 +55,7 @@ class SelfHostedModule extends AdvancedBase {
             ],
         });
 
-        const ServeStaticFilesService = require("./services/ServceStaticFilesService");
+        const { ServeStaticFilesService } = require("./services/ServeStaticFilesService");
         services.registerService('__serve-puterjs', ServeStaticFilesService, {
             directories: [
                 {

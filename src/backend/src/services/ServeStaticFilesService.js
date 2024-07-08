@@ -14,4 +14,4 @@ class ServeStaticFilesService extends BaseService {
     }
 }
 
-module.exports = ServeStaticFilesService;
+module.exports = { ServeStaticFilesService };
