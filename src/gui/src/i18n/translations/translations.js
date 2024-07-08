@@ -75,6 +75,7 @@ export default {
     sv,
     th,
     tr,
+    ua,
     zh,
     zhtw,
     ur,
