@@ -42,6 +42,7 @@ import sv from './sv.js';
 import th from './th.js';
 import tr from './tr.js';
 import ur from './ur.js';
+import ua from './ua.js';
 import zh from './zh.js';
 import zhtw from './zhtw.js';
 import emoji from './emoji.js';
