@@ -58,6 +58,11 @@ class DBKVStore extends Driver {
                 `SELECT * FROM kv WHERE user_id=? AND (app IS NULL OR app = 'global') AND kkey_hash=? LIMIT 1`,
                 [ user.id, key_hash ]
             );
+            
+            if ( kv[0] ) kv[0].value = db.case({
+                mysql: () => kv[0].value,
+                otherwise: () => JSON.parse(kv[0].value ?? 'null'),
+            })();
 
             return kv[0]?.value ?? null;
         },
@@ -74,10 +79,11 @@ class DBKVStore extends Driver {
             }
 
             // Validate the value
-            value = value === undefined ? null : String(value);
+            value = value === undefined ? null : value;
             if (
                 value !== null &&
-                Buffer.byteLength(value, 'utf8') > config.kv_max_value_size
+                Buffer.byteLength(JSON.stringify(value), 'utf8') >
+                    config.kv_max_value_size
             ) {
                 throw new Error(`value is too large. Max size is ${config.kv_max_value_size}.`);
             }
@@ -102,7 +108,8 @@ class DBKVStore extends Driver {
                         sqlite: 'ON CONFLICT(user_id, app, kkey_hash) DO UPDATE SET value = excluded.value',
                     }),
                     [
-                        user.id, app?.uid ?? 'global', key_hash, key, value,
+                        user.id, app?.uid ?? 'global', key_hash, key,
+                        JSON.stringify(value),
                         ...db.case({ mysql: [value], otherwise: [] }),
                     ]
                 );
@@ -164,7 +171,10 @@ class DBKVStore extends Driver {
 
             rows = rows.map(row => ({
                 key: row.kkey,
-                value: row.value,
+                value: db.case({
+                    mysql: () => row.value,
+                    otherwise: () => JSON.parse(row.value ?? 'null')
+                })(),
             }));
 
             as = as || 'entries';
