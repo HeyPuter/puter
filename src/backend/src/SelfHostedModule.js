@@ -76,6 +76,13 @@ class SelfHostedModule extends AdvancedBase {
                 },
             ],
         });
+        
+        const { ServeSingleFileService } = require('./services/ServeSingeFileService');
+        services.registerService('__serve-puterjs-new', ServeSingleFileService, {
+            path: path_.resolve(__dirname,
+                '../../../src/puter-js/dist/puter.dev.js'),
+            route: '/puter.js/v2',
+        });
     }
 }
 
