@@ -23,7 +23,7 @@ let source_path
 let apps = [];
 let sortBy = 'created_at';
 let sortDirection = 'desc';
-const dev_center_uid = 'app-240a43f4-43b1-49bc-b9fc-c8ae719dab77';
+const dev_center_uid = puter.appID;
 let developer;
 let activeTab = 'apps';
 let currently_editing_app;
@@ -33,14 +33,16 @@ let search_query;
 const deploying_spinner = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><style>.spinner_P7sC{transform-origin:center;animation:spinner_svv2 .75s infinite linear}@keyframes spinner_svv2{100%{transform:rotate(360deg)}}</style><path d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z" class="spinner_P7sC"/></svg>`;
 const loading_spinner = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><style>.spinner_P7sC{transform-origin:center;animation:spinner_svv2 .75s infinite linear}@keyframes spinner_svv2{100%{transform:rotate(360deg)}}</style><path d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z" class="spinner_P7sC"/></svg>`;
 const drop_area_placeholder = `<p>Drop your app folder and files here to deploy.</p><p style="font-size: 16px; margin-top: 0px;">HTML, JS, CSS, ...</p>`;
-const index_missing_error = `Please upload an 'index.html' file or if you're uploading a directory, make sure it contains an 'index.html' file at its root.`
+const index_missing_error = `Please upload an 'index.html' file or if you're uploading a directory, make sure it contains an 'index.html' file at its root.`;
 
 // authUsername
-if (URLParams.has('puter.auth.username')) {
-    authUsername = URLParams.get('puter.auth.username');
-} else {
-    //todo error and terminate
-}
+(async () => {
+    let user = await puter.auth.getUser();
+
+    if (user?.username) {
+        authUsername = user.username;
+    }
+})()
 
 // source_path
 if (URLParams.has('source_path')) {
