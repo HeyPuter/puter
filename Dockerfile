@@ -28,7 +28,7 @@ RUN npm cache clean --force \
     && npm ci
 
 # Run the build command if necessary
-RUN npm run build
+RUN cd src/gui && npm run build && cd -
 
 # Production stage
 FROM node:21-alpine
@@ -46,7 +46,7 @@ RUN mkdir -p /opt/puter/app
 WORKDIR /opt/puter/app
 
 # Copy built artifacts and necessary files from the build stage
-COPY --from=build /app/dist ./dist
+COPY --from=build /app/src/gui/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY . .
 
