@@ -42,7 +42,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         this.db = new Database(this.config.path);
 
         // Database upgrade logic
-        const TARGET_VERSION = 20;
+        const TARGET_VERSION = 21;
 
         if ( do_setup ) {
             this.log.noticeme(`SETUP: creating database at ${this.config.path}`);
@@ -69,6 +69,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 '0020_dev-center.sql',
                 '0021_app-owner-id.sql',
                 '0022_dev-center-max.sql',
+                '0023_fix-kv.sql',
             ].map(p => path_.join(__dirname, 'sqlite_setup', p));
             const fs = require('fs');
             for ( const filename of sql_files ) {
@@ -163,6 +164,10 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
         if ( user_version <= 19 ) {
             upgrade_files.push('0022_dev-center-max.sql');
+        }
+
+        if ( user_version <= 20 ) {
+            upgrade_files.push('0023_fix-kv.sql');
         }
 
         if ( upgrade_files.length > 0 ) {
