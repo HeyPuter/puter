@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2024 Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 ;(function(){'use strict';function ba(a,b){function c(x){x=x.toString(16);return"#"+"0".repeat(6-x.length)+x}function d(x,C,S,P){x.style.width="";x.style.height="";P&&(x.style.transform="");var aa=x.getBoundingClientRect();P?x.style.transform=(1===C?"":" scaleX("+C+")")+(1===S?"":" scaleY("+S+")"):(0===C%1&&0===S%1?(e.style.imageRendering="crisp-edges",e.style.imageRendering="pixelated",e.style["-ms-interpolation-mode"]="nearest-neighbor"):(e.style.imageRendering="",e.style["-ms-interpolation-mode"]=""),P=window.devicePixelRatio||
 1,0!==P%1&&(C/=P,S/=P));1!==C&&(x.style.width=aa.width*C+"px");1!==S&&(x.style.height=aa.height*S+"px")}console.assert(a,"1st argument must be a DOM container");var e=a.getElementsByTagName("canvas")[0],g=e.getContext("2d",{alpha:!1}),f=a.getElementsByTagName("div")[0],k=document.createElement("div"),l,m,n=1,p=1,t=1,q,z=!1,w,u,I,U=!1,ea=this;a=new Uint16Array([8962,199,252,233,226,228,224,229,231,234,235,232,239,238,236,196,197,201,230,198,244,246,242,251,249,255,214,220,162,163,165,8359,402,225,
 237,243,250,241,209,170,186,191,8976,172,189,188,161,171,187,9617,9618,9619,9474,9508,9569,9570,9558,9557,9571,9553,9559,9565,9564,9563,9488,9492,9524,9516,9500,9472,9532,9566,9567,9562,9556,9577,9574,9568,9552,9580,9575,9576,9572,9573,9561,9560,9554,9555,9579,9578,9496,9484,9608,9604,9612,9616,9600,945,223,915,960,931,963,181,964,934,920,937,948,8734,966,949,8745,8801,177,8805,8804,8992,8993,247,8776,176,8729,183,8730,8319,178,9632,160]);for(var Ab=new Uint16Array([32,9786,9787,9829,9830,9827,9824,

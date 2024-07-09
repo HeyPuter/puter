@@ -1,5 +1,8 @@
 {
-    "ignore": ["**/!(*.js|*.css)", "**/assets/**"],
+    "ignore": [
+        "**/!(*.js|*.css)", "**/assets/**", "**/lib/**",
+        "eslint.config.js"
+    ],
     "license": "doc/license_header.txt",
     "licenseFormats": {
         "js": {
