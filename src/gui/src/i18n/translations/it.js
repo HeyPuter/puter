@@ -45,7 +45,7 @@ const it = {
         account_password: "Verifica Account Password",
         access_granted_to: "Accesso garantito a",
         add_existing_account: "Aggiungi un account esistente",
-        all_fields_required: "Tutte i campi sono richiesti.",
+        all_fields_required: "Tutti i campi sono richiesti.",
         allow: "Consenti",
         apply: "Applica",
         ascending: 'Ascendente',
