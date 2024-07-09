@@ -43,7 +43,6 @@ Puter is an advanced, open-source internet operating system designed to be featu
 ```bash
 git clone https://github.com/HeyPuter/puter
 cd puter
-cp .env.example .env
 npm install
 npm start
 ```
