@@ -32,7 +32,8 @@
     "check-translations": "node tools/check-translations.js"
   },
   "workspaces": [
-    "src/*"
+    "src/*",
+    "tools/*"
   ],
   "nodemonConfig": {
     "ext": "js, json, mjs, jsx, svg, css",
