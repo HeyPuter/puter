@@ -28,7 +28,7 @@
   "scripts": {
     "test": "mocha ./src/phoenix/test ./src/phoenix/packages/contextlink/test",
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
-    "start": "node run-selfhosted.js",
+    "start": "node ./tools/run-selfhosted.js",
     "build": "cd src/gui; node ./build.js",
     "check-translations": "node tools/check-translations.js"
   },
