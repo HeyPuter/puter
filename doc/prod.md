@@ -124,6 +124,18 @@ The GUI is a single page application (SPA) and as best practice any route under 
 
 In other words, consider the routes above as "reserved" for Puter.
 
+### Publish My Website 
+
+Right-click anywhere on the desktop to display options
+From the options menu, select "New".
+Then, choose "Folder".
+Give the folder a name according to your preference.
+
+After creating the folder:
+
+Right-click on the folder.
+Select the option "Publish as Website".
+
 ### Best Practices
 
 - The `title` tags and meta tags (`<title></title>`, `<meta property="og:title"`, `<meta name="twitter:title"`, ...) should be dynamically set by the server. For example, if the URL is of an app (e.g. `https://puter.com/app/editor`) the `title` tags and meta tags should contain the app's title rather than the generic Puter title.
