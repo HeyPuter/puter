@@ -33,7 +33,8 @@
   },
   "workspaces": [
     "src/*",
-    "tools/*"
+    "tools/*",
+    "experiments/js-parse-and-output"
   ],
   "nodemonConfig": {
     "ext": "js, json, mjs, jsx, svg, css",
