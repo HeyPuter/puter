@@ -21,7 +21,6 @@ import { generateDevHtml, build } from "./utils.js";
 import { argv } from 'node:process';
 import chalk from 'chalk';
 import dotenv from 'dotenv';
-import path_ from 'path';
 dotenv.config();
 
 const app = express();
@@ -67,11 +66,11 @@ app.use(express.static('./'));
 
 if(env === "prod"){
     // make sure to serve the ./dist/ folder maps to the root of the website
-    app.use(express.static('./src/gui/dist/'));
+    app.use(express.static('./dist/'));
 }
 
 if(env === "dev"){
-    app.use(express.static('./src/gui/src/'));
+    app.use(express.static('./src/'));
 }
 
 export { app };
