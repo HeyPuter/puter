@@ -184,7 +184,7 @@ const en = {
         new_username: "New Username",
         no: 'No',
         no_dir_associated_with_site: 'No directory associated with this address.',
-        no_websites_published: "You have not published any websites yet.",
+        no_websites_published: "You have not published any websites yet. Right click on a folder to get started.",
         ok: 'OK',
         open: "Open",
         open_in_new_tab: "Open in New Tab",

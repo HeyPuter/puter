@@ -183,7 +183,7 @@ const it = {
         new_username: "Nuovo Nome Utente",
         no: 'No',
         no_dir_associated_with_site: 'Nessuna directory è stata associata all’indirizzo.',
-        no_websites_published: "Non hai pubblicato nessun sito web.",
+        no_websites_published: "Non hai pubblicato nessun sito web. Clicca tasto destro su una cartella per iniziare.",
         ok: 'OK',
         open: "Apri",
         open_in_new_tab: "Apri in una nuova scheda",
