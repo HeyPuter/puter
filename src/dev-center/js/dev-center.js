@@ -145,6 +145,13 @@ $(document).ready(function () {
     }, 1000);
 });
 
+/**
+ * Refreshes the list of apps in the UI.
+ * 
+ * @param {boolean} [show_loading=false] - Whether to show a loading indicator while refreshing.
+ * 
+ */
+
 function refresh_app_list(show_loading = false) {
     if (show_loading)
         $('#loading').show();
@@ -402,9 +409,29 @@ function applink(app) {
     return protocol + `://${domain}${ port ? ':' + port : '' }/app/${app.name}`;
 }
 
-//----------------------------------------------------
-// Generate the 'App Settings' section
-//----------------------------------------------------
+/**
+ * Generates the HTML for the app editing section.
+ * 
+ * @param {Object} app - The app object containing details of the app to be edited.
+ *  * 
+ * @returns {string} HTML string for the app editing section.
+ * 
+ * @description
+ * This function creates the HTML for the app editing interface, including:
+ * - App icon and title display
+ * - Options to open, add to desktop, or delete the app
+ * - Tabs for deployment and settings
+ * - Form fields for editing various app properties
+ * - Display of app statistics
+ * 
+ * The generated HTML includes interactive elements and placeholders for 
+ * dynamic content to be filled or updated by other functions.
+ * 
+ * @example
+ * const appEditHTML = generate_edit_app_section(myAppObject);
+ * $('#edit-app').html(appEditHTML);
+ */
+
 function generate_edit_app_section(app) {
     if(app.result)
         app = app.result;
@@ -1013,6 +1040,30 @@ async function getBase64ImageFromUrl(imageUrl) {
     })
 }
 
+/**
+ * Generates HTML for an individual app card in the app list.
+ * 
+ * @param {Object} app - The app object containing details of the app.
+ *  * 
+ * @returns {string} HTML string representing the app card.
+ * 
+ * @description
+ * This function creates an HTML string for an app card, which includes:
+ * - Checkbox for app selection
+ * - App icon and title
+ * - Links to open, edit, add to desktop, or delete the app
+ * - Display of app statistics (user count, open count)
+ * - Creation date
+ * - Incentive program status badge (if applicable)
+ * 
+ * The generated HTML is designed to be inserted into the app list table.
+ * It includes data attributes for various interactive features and 
+ * event handling.
+ * 
+ * @example
+ * const appCardHTML = generate_app_card(myAppObject);
+ * $('#app-list-table > tbody').append(appCardHTML);
+ */
 function generate_app_card(app) {
     let h = ``;
     h += `<tr class="app-card" data-uid="${html_encode(app.uid)}" data-title="${html_encode(app.title)}" data-name="${html_encode(app.name)}">`;
