@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
 const ru = {
     name: "Русский",
     english_name: "Russian",
@@ -152,7 +153,7 @@ const ru = {
         keep_in_taskbar: 'Сохранить на Панели Задач',
         language: "Язык",
         license: "Лицензия",
-        lightness: 'Легкость',
+        lightness: 'Легкость', //нужен контекст
         link_copied: "Ссылка скопирована",
         loading: 'Загружается',
         log_in: "Войти",
@@ -218,8 +219,9 @@ const ru = {
         process_status_running: "Выполняется",
         process_type_app: 'Прил',
         process_type_init: 'Иниц',
-        process_type_ui: 'UI',
+        process_type_ui: 'Пользовательский интерфейс',
         properties: "Свойства",
+        public: "Общий",
         publish: "Опубликовать",
         public: 'Общий доступ',
         publish_as_website: 'Опубликовать как сайт',
@@ -243,7 +245,7 @@ const ru = {
         restore: "Восстановить",
         save: 'Сохранить',
         saturation: 'Насыщенность',
-        save_account: 'Сохранить учетную запись',
+        save_account: 'Сохранить Учетную запись',
         save_account_to_get_copy_link: "Пожалуйста, создайте учетную запись, чтобы продолжить.",
         save_account_to_publish: 'Пожалуйста, создайте учетную запись, чтобы продолжить.',
         save_session: 'Сохранить сеанс',

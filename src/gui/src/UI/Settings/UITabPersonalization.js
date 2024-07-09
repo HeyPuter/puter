@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
 import UIWindowThemeDialog from '../UIWindowThemeDialog.js';
 import UIWindowDesktopBGSettings from '../UIWindowDesktopBGSettings.js';
 

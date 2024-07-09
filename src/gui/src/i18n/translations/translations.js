@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
 import ar from './ar.js';
 import bn from './bn.js';
 import br from './br.js';
@@ -42,6 +43,7 @@ import sv from './sv.js';
 import th from './th.js';
 import tr from './tr.js';
 import ur from './ur.js';
+import ua from './ua.js';
 import zh from './zh.js';
 import zhtw from './zhtw.js';
 import emoji from './emoji.js';
@@ -74,6 +76,7 @@ export default {
     sv,
     th,
     tr,
+    ua,
     zh,
     zhtw,
     ur,

@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+
 const fr = {
     name: "Français",
     english_name: "French",

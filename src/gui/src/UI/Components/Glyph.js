@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+
 import { Component } from "../../util/Component.js";
 
 export default def(class Glyph extends Component {

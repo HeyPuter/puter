@@ -19,6 +19,7 @@
     "express": "^4.18.2",
     "globals": "^15.0.0",
     "html-entities": "^2.3.3",
+    "license-check-and-add": "^4.0.5",
     "nodemon": "^3.1.0",
     "uglify-js": "^3.17.4",
     "webpack": "^5.88.2",
@@ -27,12 +28,14 @@
   "scripts": {
     "test": "mocha ./src/phoenix/test ./src/phoenix/packages/contextlink/test",
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
-    "start": "node run-selfhosted.js",
+    "start": "node ./tools/run-selfhosted.js",
     "build": "cd src/gui; node ./build.js",
     "check-translations": "node tools/check-translations.js"
   },
   "workspaces": [
-    "src/*"
+    "src/*",
+    "tools/*",
+    "experiments/js-parse-and-output"
   ],
   "nodemonConfig": {
     "ext": "js, json, mjs, jsx, svg, css",
@@ -43,6 +46,7 @@
   },
   "dependencies": {
     "json-colorizer": "^3.0.1",
+    "simple-git": "^3.25.0",
     "string-template": "^1.0.0",
     "uuid": "^9.0.1"
   }

@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
 const zhtw = {
     name: "繁體中文",
     english_name: "Traditional Chinese",
