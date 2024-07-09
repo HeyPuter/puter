@@ -25,4 +25,6 @@ This document will be updated on an _as-needed_ basis.
 - `track:` is used to track common patterns.
   - Anything written after `track:` must be registered in
     [track-comments.md](../devmeta/track-comments.md)
-
+- `wet:` is usesd to track anything that doesn't adhere
+  to the DRY principle; the following message should describe
+  where similar code is
