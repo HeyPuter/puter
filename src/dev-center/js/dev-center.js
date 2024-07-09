@@ -62,6 +62,7 @@ if(domain === 'puter.localhost'){
     static_hosting_domain = 'site.puter.localhost';
 }
 
+// port
 if (URLParams.has('puter.port') && URLParams.get('puter.port')) {
     static_hosting_domain = static_hosting_domain + `:` + URLParams.get('puter.port');
 }
@@ -81,7 +82,6 @@ if (URLParams.has('puter.port') && URLParams.get('puter.port')) {
 $(document).ready(function () {
     $('#loading').show();
 
-    // get dev profile
     setTimeout(async function () {
         puter.ui.onLaunchedWithItems(async function (items) {
             source_path = items[0].path;
@@ -95,6 +95,7 @@ $(document).ready(function () {
             }
         })
 
+        // Get dev profile. This is only for puter.com for now as we don't have dev profiles in self-hosted Puter
         if(domain === 'puter.com'){
             puter.apps.getDeveloperProfile(async function (dev_profile) {
                 developer = dev_profile;
@@ -119,7 +120,7 @@ $(document).ready(function () {
                 }
             })
         }
-        // get apps
+        // Get apps
         puter.apps.list().then((resp) => {
             apps = resp;
 
@@ -176,16 +177,16 @@ $(document).on('click', '.tab-btn', function (e) {
     $(this).addClass('active');
     $('section[data-tab="' + $(this).attr('data-tab') + '"]').show();
 
-    // ------------------------------
+    // ---------------------------------------------------------------
     // Apps tab
-    // ------------------------------
+    // ---------------------------------------------------------------
     if ($(this).attr('data-tab') === 'apps') {
         refresh_app_list();
         activeTab = 'apps';
     }
-    // ------------------------------
+    // ---------------------------------------------------------------
     // Payout Method tab
-    // ------------------------------
+    // ---------------------------------------------------------------
     else if ($(this).attr('data-tab') === 'payout-method') {
         activeTab = 'payout-method';
         $('#loading').show();
@@ -317,6 +318,7 @@ async function create_app(title, source_path = null, items = null) {
             document.body.scrollTop = document.documentElement.scrollTop = 0;
         })
 }
+
 
 $(document).on('click', '.deploy-btn', function (e) {
     deploy(currently_editing_app, dropped_items);
@@ -856,8 +858,6 @@ $('#earn-money::backdrop').click(async function (e) {
     puter.kv.set('earn-money-c2a-closed', 'true')
 })
 
-
-
 $(document).on('click', '.edit-app-open-app-btn', async function (e) {
     puter.ui.launchApp($(this).attr('data-app-name'))
 })
@@ -983,8 +983,10 @@ $(document).on('click', '#edit-app-icon', async function (e) {
         let image = reader.result;
         // Get file extension
         let fileExtension = res2.name.split('.').pop();
+
         // Get MIME type
         let mimeType = getMimeType(fileExtension);
+
         // Replace MIME type in the data URL
         image = image.replace('data:application/octet-stream;base64', `data:image/${mimeType};base64`);
 
@@ -1066,10 +1068,7 @@ function generate_app_card(app) {
     h += `</td>`;
 
     h += `<td style="vertical-align:middle; min-width:200px;">`;
-    // // Open App
-    // h += `<button class="open-app-btn button button-small" data-app-name="${html_encode(app.name)}">Open App</button>`;
-    // // Settings
-    // h += `<span class="edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}"><img src="./img/settings.svg"></span>`;
+
     // "Approved for incentive program"
     if (app.approved_for_incentive_program)
         h += `<span style="float:right;
@@ -1084,7 +1083,6 @@ function generate_app_card(app) {
     return h;
 }
 
-
 /**
  * Formats a binary-byte integer into the human-readable form with units.
  * 
@@ -1098,6 +1096,9 @@ window.byte_format = (bytes) => {
     return Math.round(bytes / Math.pow(1024, i), 2) + ' ' + sizes[i];
 };
 
+/**
+ * check if a string is a valid email address
+ */
 function validateEmail(email) {
     var re = /\S+@\S+\.\S+/;
     return re.test(email);
@@ -1852,19 +1853,28 @@ $(document).on('change', '.select-all-apps', function (e) {
     }
 })
 
-// Function to map file extensions to MIME types
+/**
+ * Get the MIME type for a given file extension.
+ *
+ * @param {string} extension - The file extension (with or without leading dot).
+ * @returns {string} The corresponding MIME type, or 'application/octet-stream' if not found.
+ */
 function getMimeType(extension) {
     const mimeTypes = {
-        jpg: 'jpeg',
-        jpeg: 'jpeg',
-        png: 'png',
-        gif: 'gif',
-        bmp: 'bmp',
-        webp: 'webp',
-        svg: 'svg+xml',
-        tiff: 'tiff',
-        ico: 'vnd.microsoft.icon'
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        png: 'image/png',
+        gif: 'image/gif',
+        bmp: 'image/bmp',
+        webp: 'image/webp',
+        svg: 'image/svg+xml',
+        tiff: 'image/tiff',
+        ico: 'image/x-icon'
     };
 
-    return mimeTypes[extension.toLowerCase()] || 'octet-stream';
+    // Remove leading dot if present and convert to lowercase
+    const cleanExtension = extension.replace(/^\./, '').toLowerCase();
+
+    // Return the MIME type if found, otherwise return 'application/octet-stream'
+    return mimeTypes[cleanExtension] || 'application/octet-stream';
 }
