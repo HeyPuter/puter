@@ -78,14 +78,6 @@ Puter is available as a hosted service at [**puter.com**](https://puter.com).
 
 <br/>
 
-
-
-##  License
-
-This repository is licensed under AGPL-3.0; However, our SDK (puter.js) is also available under Apache 2.0, as indicated by the license file in that section (packages/puter-js) of this repository.
-
-<br/>
-
 ## #DoesItRunPuter
 
 - [Minecraft](https://twitter.com/HeyPuter/status/1771957571496092036) | [video](https://www.youtube.com/watch?v=GIowZUXkg5g)
@@ -99,3 +91,12 @@ This repository is licensed under AGPL-3.0; However, our SDK (puter.js) is also 
 - [Tesla Model Y](https://twitter.com/HeyPuter/status/1772858333751636310)
 - [Nintendo Switch](https://twitter.com/HeyPuter/status/1780645795240538518)
 - [Steam Deck](https://twitter.com/everythingSung/status/1782162352403828793)
+- [Ladybird Browser](https://x.com/HeyPuter/status/1810783504503800035)
+
+<br/>
+
+##  License
+
+This repository, including all its contents, sub-projects, modules, and components, is licensed under [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) unless explicitly stated otherwise. Third-party libraries included in this repository may be subject to their own licenses.
+
+<br/>
