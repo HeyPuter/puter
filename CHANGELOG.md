@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.0](https://github.com/HeyPuter/puter/compare/v2.4.0...v2.5.0) (2024-07-09)
+
+
+### Features
+
+* JSON support for kv driver ([3ed7916](https://github.com/HeyPuter/puter/commit/3ed7916856f03eafbe0891f2ab39c34d20d2bd24))
+* update BR translation ([42a6b39](https://github.com/HeyPuter/puter/commit/42a6b3938a588b8b4d1bd976c37e9c6e58408c75))
+
 ## 2.4.0 (2024-07-08)
 
 
