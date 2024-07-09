@@ -24,8 +24,15 @@ COPY package*.json ./
 COPY . .
 
 # Install node modules
-RUN npm cache clean --force \
-    && npm ci
+RUN npm cache clean --force && \
+    for i in 1 2 3; do \
+        npm ci && break || \
+        if [ $i -lt 3 ]; then \
+            sleep 15; \
+        else \
+            exit 1; \
+        fi; \
+    done
 
 # Run the build command if necessary
 RUN cd src/gui && npm run build && cd -
