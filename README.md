@@ -88,6 +88,7 @@ You can reach out to us and the community in several ways:
 - Reddit: [https://www.reddit.com/r/puter/](https://www.reddit.com/r/puter/)
 - Email maintainers at [hi@puter.com](mailto:hi@puter.com)
 
+We are always happy to help you with any questions you may have. Don't hesitate to ask!
 
 <br/>
 
