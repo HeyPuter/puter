@@ -80,7 +80,7 @@ Puter is available as a hosted service at [**puter.com**](https://puter.com).
 
 ## Support
 
-You can reach out to us and the community in several ways:
+Connect with the maintainers and community through these channels:
 
 - Bug report or feature request? Please [open an issue](https://github.com/HeyPuter/puter/issues/new/choose).
 - Discord: [https://discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
