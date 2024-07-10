@@ -123,7 +123,7 @@ const LicenseChecker = ({
             }
         }
         
-        console.log('headers', headers);
+        // console.log('headers', headers);
 
         const combined = headers_lines.slice(top, bottom).flat();
         const combined_txt = combined.join('\n');
@@ -165,7 +165,7 @@ const license_check_test = async ({ options }) => {
     });
     
     const walk_iterator = walk({
-        excludes: EXCLUDE_LISTS.NOT_SOURCE,
+        excludes: EXCLUDE_LISTS.NOT_AGPL,
     }, path_.join(__dirname, '../..'));
     for await ( const value of walk_iterator ) {
         if ( value.is_dir ) continue;
@@ -216,7 +216,7 @@ const cmd_check_fn = async () => {
     };
     
     const walk_iterator = walk({
-        excludes: EXCLUDE_LISTS.NOT_SOURCE,
+        excludes: EXCLUDE_LISTS.NOT_AGPL,
     }, path_.join(__dirname, '../..'));
     for await ( const value of walk_iterator ) {
         if ( value.is_dir ) continue;
@@ -355,7 +355,7 @@ const cmd_sync_fn = async () => {
     };
     
     const walk_iterator = walk({
-        excludes: EXCLUDE_LISTS.NOT_SOURCE,
+        excludes: EXCLUDE_LISTS.NOT_AGPL,
     }, '.');
     for await ( const value of walk_iterator ) {
         if ( value.is_dir ) continue;
@@ -378,7 +378,7 @@ const cmd_sync_fn = async () => {
             continue;
         }
         if ( ! diff_info.has_header ) {
-            if ( false ) fs.writeFileSync(
+            fs.writeFileSync(
                 value.path,
                 comment_parser.output_comment({
                     style: 'block',
