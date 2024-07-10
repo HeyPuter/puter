@@ -19,6 +19,7 @@
 
 const levenshtein = require('js-levenshtein');
 const DiffMatchPatch = require('diff-match-patch');
+const enq = require('enquirer');
 const dmp = new DiffMatchPatch();
 const dedent = require('dedent');
 
@@ -121,6 +122,8 @@ const LicenseChecker = ({
                 break;
             }
         }
+        
+        console.log('headers', headers);
 
         const combined = headers_lines.slice(top, bottom).flat();
         const combined_txt = combined.join('\n');
@@ -129,6 +132,12 @@ const LicenseChecker = ({
             header1: desired_header,
             header2: combined_txt,
         })
+        
+        if ( diff_info.distance > 0.7*desired_header.length ) {
+            return {
+                has_header: false,
+            };
+        }
         
         diff_info.range = [
             headers[top].range[0],
@@ -385,6 +394,18 @@ const cmd_sync_fn = async () => {
             if ( diff_info.distance !== 0 ) {
                 counts.conflict++;
                 process.stdout.write(`\x1B[31;1mCONFLICT\x1B[0m\n`);
+                process.stdout.write('\x1B[36;1m=======\x1B[0m\n');
+                process.stdout.write(diff_info.term_diff);
+                process.stdout.write('\n\x1B[36;1m=======\x1B[0m\n');
+                const prompt = new enq.Select({
+                    message: 'Select Action',
+                    choices: [
+                        { name: 'skip', message: 'Skip' },
+                        { name: 'replace', message: 'Replace' },
+                    ]
+                })
+                const action = await prompt.run();
+                console.log('action', action);
             } else {
                 counts.ok++;
                 process.stdout.write(`\x1B[32;1mOK\x1B[0m\n`);

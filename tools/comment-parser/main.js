@@ -128,8 +128,7 @@ const BlockCommentParser = ({
     return {
         parse: async (stream) => {
             stream.skip_whitespace();
-            stream.debug('starting at', await stream.debug())
-            if ( ! stream.matches(start) ) return;
+            if ( ! await stream.matches(start) ) return;
             stream.fwd(start.length);
             const contents = await stream.get_until(end);
             if ( ! contents ) return;
@@ -221,7 +220,7 @@ const CommentParser = () => {
                 javascript: {
                     parsers: [
                         ['lines', {
-                            prefix: '// ',
+                            prefix: '//',
                         }],
                         ['block', {
                             start: '/*',
@@ -231,7 +230,7 @@ const CommentParser = () => {
                     ],
                     writers: {
                         lines: ['lines', {
-                            prefix: '//'
+                            prefix: '// '
                         }],
                         block: ['block', {
                             start: '/*',
@@ -312,6 +311,7 @@ const CommentParser = () => {
                     break;
                 }
             }
+            console.log('comment?', comment);
             if ( ! comment ) break;
             results.push(comment);
         }
