@@ -405,7 +405,17 @@ const cmd_sync_fn = async () => {
                     ]
                 })
                 const action = await prompt.run();
-                console.log('action', action);
+                if ( action === 'skip' ) continue;
+                const before = source.slice(0, diff_info.range[0]);
+                const after = source.slice(diff_info.range[1]);
+                const new_source = before +
+                    comment_parser.output_comment({
+                        style: 'block',
+                        filename: value.name,
+                        text: desired_header,
+                    }) +
+                    after;
+                fs.writeFileSync(value.path, new_source);
             } else {
                 counts.ok++;
                 process.stdout.write(`\x1B[32;1mOK\x1B[0m\n`);
