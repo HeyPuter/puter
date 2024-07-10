@@ -161,6 +161,35 @@ const ro = {
         yes_release_it: 'Da, eliberează-l',
         you_have_been_referred_to_puter_by_a_friend: "Ai fost invitat pe Puter de către un prieten!",
         zip: "Zip",
+
+        // === 2FA Setup ===
+        setup2fa_1_step_heading: 'Deschideți aplicația dvs. de autentificare',      
+        setup2fa_1_instructions: `
+            Puteți folosi orice aplicație de autentificare care suportă protocolul TOTP.
+            Sunt multe valabile, dar daca nu sunteți sigur(ă),
+            <a target="_blank" href="https://authy.com/download">Authy</a>
+            este o alegere solidă pentru Android și iOS.
+        `,
+        setup2fa_2_step_heading: 'Scanați codul QR',
+        setup2fa_3_step_heading: 'Introduceți codul de 6 cifre',
+        setup2fa_4_step_heading: 'Copiați codurile de recuperare',
+        setup2fa_4_instructions: `
+            Aceste coduri de recuperare sunt singura metoră de acces al contului dvs. dacă vă pierdeți telefonul sau nu mai puteți folosi aplicația de autentificare.
+            Fiți sigur(ă) să le păstrați într-un loc sigur.
+        `,
+        setup2fa_5_step_heading: 'Confirmați configurarea 2FA',
+        setup2fa_5_confirmation_1: 'Mi-am salvat codurile de recuperare într-o locație sigură.',
+        setup2fa_5_confirmation_2: 'Sunt pregătit(ă) să activez 2FA',
+        setup2fa_5_button: 'Activare 2FA',
+
+        // === 2FA Login ===
+        login2fa_otp_title: 'Introduceți codul 2FA',
+        login2fa_otp_instructions: 'Introduceți codul de 6 cifre din aplicația dvs. de autentificare.',
+        login2fa_recovery_title: 'Introduceți codul de recuperare',
+        login2fa_recovery_instructions: 'Introduceți una din codurile de recuperare ale dvs. pentru a vă acesa contul.',
+        login2fa_use_recovery_code: 'Utilizați un cod de recuperare',
+        login2fa_recovery_back: 'Înapoi',
+        login2fa_recovery_placeholder: 'XXXXXXXX',
     }
 }
 
