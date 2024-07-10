@@ -78,6 +78,19 @@ Puter is available as a hosted service at [**puter.com**](https://puter.com).
 
 <br/>
 
+## Support
+
+You can reach out to us and the community in several ways:
+
+- Bug report or feature request? Please [open an issue](https://github.com/HeyPuter/puter/issues/new/choose).
+- Discord: [https://discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
+- X (Twitter): [https://x.com/HeyPuter](https://x.com/HeyPuter)
+- Reddit: [https://www.reddit.com/r/puter/](https://www.reddit.com/r/puter/)
+- Email maintainers at [hi@puter.com](mailto:hi@puter.com)
+
+
+<br/>
+
 ## #DoesItRunPuter
 
 - [Minecraft](https://twitter.com/HeyPuter/status/1771957571496092036) | [video](https://www.youtube.com/watch?v=GIowZUXkg5g)
