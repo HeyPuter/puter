@@ -28,8 +28,10 @@ const EXCLUDE_LISTS = {
         /\/node_modules$/,
         /^node_modules$/,
         /package-lock\.json/,
+        /^src\/dev-center\/js/,
         /src\/backend\/src\/public\/assets/,
-        /^src\/gui\/src\/lib/
+        /^src\/gui\/src\/lib/,
+        /^src\/puter\.js/,
     ]
 };
 

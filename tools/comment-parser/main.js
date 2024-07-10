@@ -235,7 +235,7 @@ const CommentParser = () => {
                         }],
                         block: ['block', {
                             start: '/*',
-                            end: '*/',
+                            end: ' */',
                             prefix: ' * ',
                         }]
                     },
