@@ -417,6 +417,49 @@ const cmd_sync_fn = async () => {
                     after;
                 fs.writeFileSync(value.path, new_source);
             } else {
+                let cut_diff_info = diff_info;
+                let cut_source = source;
+                const cut_header = async () => {
+                    cut_source = cut_source.slice(cut_diff_info.range[1]);
+                    cut_diff_info = await license_checker.compare({
+                        filename: value.name,
+                        source: cut_source,
+                    });
+                };
+                await cut_header();
+                const cut_range = [
+                    diff_info.range[1],
+                    diff_info.range[1],
+                ];
+                const cut_diff_infos = [];
+                while ( cut_diff_info.has_header ) {
+                    cut_diff_infos.push(cut_diff_info);
+                    cut_range[1] = cut_diff_info.range[1];
+                    await cut_header();
+                }
+                if ( cut_range[0] !== cut_range[1] ) {
+                    process.stdout.write(`\x1B[31;1mDUPLICATE\x1B[0m\n`);
+                    process.stdout.write('\x1B[36;1m==== KEEP ====\x1B[0m\n');
+                    process.stdout.write(diff_info.term_diff + '\n');
+                    process.stdout.write('\x1B[36;1m==== REMOVE ====\x1B[0m\n');
+                    for ( const diff_info of cut_diff_infos ) {
+                        process.stdout.write(diff_info.term_diff);
+                    }
+                    process.stdout.write('\n\x1B[36;1m=======\x1B[0m\n');
+                    const prompt = new enq.Select({
+                        message: 'Select Action',
+                        choices: [
+                            { name: 'skip', message: 'Skip' },
+                            { name: 'remove', message: 'Remove' },
+                        ]
+                    })
+                    const action = await prompt.run();
+                    if ( action === 'skip' ) continue;
+                    const new_source =
+                        source.slice(0, cut_range[0]) +
+                        source.slice(cut_range[1]);
+                    fs.writeFileSync(value.path, new_source);
+                }
                 counts.ok++;
                 process.stdout.write(`\x1B[32;1mOK\x1B[0m\n`);
             }
