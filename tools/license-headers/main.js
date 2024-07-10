@@ -434,7 +434,7 @@ const cmd_sync_fn = async () => {
                 const cut_diff_infos = [];
                 while ( cut_diff_info.has_header ) {
                     cut_diff_infos.push(cut_diff_info);
-                    cut_range[1] = cut_diff_info.range[1];
+                    cut_range[1] += cut_diff_info.range[1];
                     await cut_header();
                 }
                 if ( cut_range[0] !== cut_range[1] ) {
