@@ -20,6 +20,19 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path_ = require('path');
 
+const EXCLUDE_LISTS = {
+    NOT_SOURCE: [
+        /^\.git/,
+        /^volatile\//,
+        /^node_modules\//,
+        /\/node_modules$/,
+        /^node_modules$/,
+        /package-lock\.json/,
+        /src\/backend\/src\/public\/assets/,
+        /^src\/gui\/src\/lib/
+    ]
+};
+
 const hl_readdir = async path => {
     const names = await fs.promises.readdir(path);
     const entries = [];
@@ -130,15 +143,7 @@ const blame = async (path) => {
 const walk_test = async () => {
     // console.log(await hl_readdir('.'));
     for await ( const value of walk({
-        excludes: [
-            /^\.git/,
-            /^volatile\//,
-            /^node_modules\//,
-            /\/node_modules$/,
-            /^node_modules$/,
-            /package-lock\.json/,
-            /^src\/gui\/dist/,
-        ]
+        excludes: EXCLUDE_LISTS.NOT_SOURCE,
     }, '.') ) {
         if ( ! value.is_dir ) continue;
         console.log('value', value.path);
@@ -170,16 +175,7 @@ git blame parsing.
 const walk_and_blame = async () => {
     // console.log(await hl_readdir('.'));
     for await ( const value of walk({
-        excludes: [
-            /^\.git/,
-            /^volatile\//,
-            /^node_modules\//,
-            /\/node_modules$/,
-            /^node_modules$/,
-            /package-lock\.json/,
-            /src\/backend\/src\/public\/assets/,
-            /^src\/gui\/src\/lib/
-        ]
+        excludes: EXCLUDE_LISTS.NOT_SOURCE,
     }, '.') ) {
         if ( value.is_dir ) continue;
         console.log('value', value.path);
@@ -194,6 +190,12 @@ const walk_and_blame = async () => {
     console.log('AUTHORS', authors);
 }
 
-const main = walk_and_blame;
+if ( require.main === module ) {
+    const main = walk_and_blame;
+    main();
+}
 
-main();
+module.exports = {
+    walk,
+    EXCLUDE_LISTS,
+};
