@@ -31,6 +31,7 @@ import hi from './hi.js';
 import hy from './hy.js';
 import it from './it.js';
 import ig from './ig.js';
+import ja from './ja.js';
 import ko from './ko.js';
 import nb from './nb.js';
 import nl from './nl.js';
@@ -65,6 +66,7 @@ export default {
     hy,
     it,
     ig,
+    ja,
     ko,
     nb,
     nl,
