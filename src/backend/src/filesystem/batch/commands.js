@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require("@heyputer/puter-js-common");
-const { AsyncProviderTrait } = require("../../traits/AsyncProviderTrait");
+const { AsyncProviderFeature } = require("../../traits/AsyncProviderFeature");
 const { HLMkdir, QuickMkdir } = require("../hl_operations/hl_mkdir");
 const { Context } = require("../../util/context");
 const { HLWrite } = require("../hl_operations/hl_write");
@@ -32,8 +32,8 @@ const { HLRemove } = require("../hl_operations/hl_remove");
 
 
 class BatchCommand extends AdvancedBase {
-    static TRAITS = [
-        new AsyncProviderTrait(),
+    static FEATURES = [
+        new AsyncProviderFeature(),
     ]
     static async run (executor, parameters) {
         const instance = new this();

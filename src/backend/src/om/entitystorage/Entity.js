@@ -17,11 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require("@heyputer/puter-js-common");
-const { WeakConstructorTrait } = require("../../traits/WeakConstructorTrait");
+const { WeakConstructorFeature } = require("../../traits/WeakConstructorFeature");
 
 class Entity extends AdvancedBase {
-    static TRAITS = [
-        new WeakConstructorTrait(),
+    static FEATURES = [
+        new WeakConstructorFeature(),
     ]
 
     constructor (args) {

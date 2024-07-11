@@ -45,7 +45,7 @@ module.exports = {
         }
 
         instance.modules = modules;
-
+        
         // This "require" function can shadow the real one so
         // that editor tools are aware of the modules that
         // are being used.

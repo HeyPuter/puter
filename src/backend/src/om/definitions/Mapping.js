@@ -18,7 +18,7 @@
  */
 const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { instance_ } = require("../../monitor/PerformanceMonitor");
-const { WeakConstructorTrait } = require("../../traits/WeakConstructorTrait");
+const { WeakConstructorFeature } = require("../../traits/WeakConstructorFeature");
 const { Property } = require("./Property");
 const { Entity } = require("../entitystorage/Entity");
 const FSNodeContext = require("../../filesystem/FSNodeContext");
@@ -29,13 +29,13 @@ const FSNodeContext = require("../../filesystem/FSNodeContext");
  * Both wrapping and registering are done by RegistrantService.
  */
 class Mapping extends AdvancedBase {
-    static TRAITS = [
+    static FEATURES = [
         // Whenever you can override something, it's reasonable to want
         // to pull the desired implementation from somewhere else to
         // avoid repeating yourself. Class constructors are one of a few
         // examples where this is typically not possible.
         // However, javascript is magic, and we do what we want.
-        new WeakConstructorTrait(),
+        new WeakConstructorFeature(),
     ]
 
     static create (context, data) {

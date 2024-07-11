@@ -40,7 +40,7 @@ class EntityStoreService extends BaseService {
         });
     }
 
-    // TODO: can replace these with MethodProxyTrait
+    // TODO: can replace these with MethodProxyFeature
     async create (entity) {
         return await this.upstream.upsert(entity, { old_entity: null });
     }

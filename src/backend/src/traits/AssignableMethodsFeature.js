@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-class AssignableMethodsTrait {
+class AssignableMethodsFeature {
     install_in_instance (instance) {
         const methods = instance._get_merged_static_object('METHODS');
 
@@ -27,5 +27,5 @@ class AssignableMethodsTrait {
 }
 
 module.exports = {
-    AssignableMethodsTrait
+    AssignableMethodsFeature
 };

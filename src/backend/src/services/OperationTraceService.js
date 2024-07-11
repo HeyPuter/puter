@@ -18,10 +18,10 @@
  */
 const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { Context } = require("../util/context");
-const { ContextAwareTrait } = require("../traits/ContextAwareTrait");
-const { OtelTrait } = require("../traits/OtelTrait");
+const { ContextAwareFeature } = require("../traits/ContextAwareFeature");
+const { OtelFeature } = require("../traits/OtelFeature");
 const APIError = require("../api/APIError");
-const { AssignableMethodsTrait } = require("../traits/AssignableMethodsTrait");
+const { AssignableMethodsFeature } = require("../traits/AssignableMethodsFeature");
 
 const CONTEXT_KEY = Context.make_context_key('operation-trace');
 
@@ -220,10 +220,10 @@ class OperationTraceService {
 }
 
 class BaseOperation extends AdvancedBase {
-    static TRAITS = [
-        new ContextAwareTrait(),
-        new OtelTrait(['run']),
-        new AssignableMethodsTrait(),
+    static FEATURES = [
+        new ContextAwareFeature(),
+        new OtelFeature(['run']),
+        new AssignableMethodsFeature(),
     ]
 
     async run (values) {
