@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { get_user, get_app } = require("../../helpers");
-const { AssignableMethodsTrait } = require("../../traits/AssignableMethodsTrait");
+const { AssignableMethodsFeature } = require("../../traits/AssignableMethodsFeature");
 const { Context } = require("../../util/context");
 const BaseService = require("../BaseService");
 const { DB_WRITE } = require("../database/consts");

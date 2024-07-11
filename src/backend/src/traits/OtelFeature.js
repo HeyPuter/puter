@@ -18,7 +18,7 @@
  */
 const { Context } = require("../util/context");
 
-class OtelTrait {
+class OtelFeature {
     constructor (method_include_list) {
         this.method_include_list = method_include_list;
     }
@@ -44,7 +44,7 @@ class OtelTrait {
     }
 }
 
-class SyncOtelTrait {
+class SyncOtelFeature {
     constructor (method_include_list) {
         this.method_include_list = method_include_list;
     }
@@ -72,5 +72,5 @@ class SyncOtelTrait {
 }
 
 module.exports = {
-    OtelTrait
+    OtelFeature
 };

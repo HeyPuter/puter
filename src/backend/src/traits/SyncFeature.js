@@ -16,14 +16,26 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-class WeakConstructorTrait {
-    install_in_instance(instance, { parameters }) {
-        for ( const key in parameters ) {
-            instance[key] = parameters[key];
+const { Lock } = require("../util/promise");
+
+class SyncFeature {
+    constructor (method_include_list) {
+        this.method_include_list = method_include_list;
+    }
+
+    install_in_instance (instance) {
+        for ( const method_name of this.method_include_list ) {
+            const original_method = instance[method_name];
+            const lock = new Lock();
+            instance[method_name] = async (...args) => {
+                return await lock.acquire(async () => {
+                    return await original_method.call(instance, ...args);
+                });
+            }
         }
     }
 }
 
 module.exports = {
-    WeakConstructorTrait,
+    SyncFeature,
 };

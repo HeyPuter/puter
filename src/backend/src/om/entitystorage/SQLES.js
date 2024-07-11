@@ -21,14 +21,14 @@ const { BaseES } = require("./BaseES");
 
 const APIError = require("../../api/APIError");
 const { Entity } = require("./Entity");
-const { WeakConstructorTrait } = require("../../traits/WeakConstructorTrait");
+const { WeakConstructorFeature } = require("../../traits/WeakConstructorFeature");
 const { And, Or, Eq, Like, Null, Predicate, PredicateUtil, IsNotNull } = require("../query/query");
 const { DB_WRITE } = require("../../services/database/consts");
 
 class RawCondition extends AdvancedBase {
     // properties: sql:string, values:any[]
-    static TRAITS = [
-        new WeakConstructorTrait(),
+    static FEATURES = [
+        new WeakConstructorFeature(),
     ]
 }
 

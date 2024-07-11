@@ -21,7 +21,7 @@ const { id2path } = require("../../helpers");
 
 const { PuterPath } = require("../lib/PuterPath");
 const { NodeUIDSelector } = require("../node/selectors");
-const { OtelTrait } = require("../../traits/OtelTrait");
+const { OtelFeature } = require("../../traits/OtelFeature");
 const { Context } = require("../../util/context");
 const { DB_WRITE } = require("../../services/database/consts");
 
@@ -195,8 +195,8 @@ class DatabaseFSEntryService extends AdvancedBase {
     static STATUS_READY = {};
     static STATUS_RUNNING_JOB = {};
 
-    static TRAITS = [
-        new OtelTrait([
+    static FEATURES = [
+        new OtelFeature([
             'insert',
             'update',
             'delete',

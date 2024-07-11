@@ -16,26 +16,26 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Lock } = require("../util/promise");
+const { BasicBase } = require("./BasicBase");
 
-class SyncTrait {
-    constructor (method_include_list) {
-        this.method_include_list = method_include_list;
+class FeatureBase extends BasicBase {
+    constructor (parameters, ...a) {
+        super(parameters, ...a);
+        for ( const feature of this.features ) {
+            feature.install_in_instance(
+                this,
+                {
+                    parameters: parameters || {},
+                }
+            )
+        }
     }
 
-    install_in_instance (instance) {
-        for ( const method_name of this.method_include_list ) {
-            const original_method = instance[method_name];
-            const lock = new Lock();
-            instance[method_name] = async (...args) => {
-                return await lock.acquire(async () => {
-                    return await original_method.call(instance, ...args);
-                });
-            }
-        }
+    get features () {
+        return this._get_merged_static_array('FEATURES');
     }
 }
 
 module.exports = {
-    SyncTrait,
+    FeatureBase,
 };

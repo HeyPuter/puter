@@ -20,7 +20,7 @@ const { AdvancedBase } = require("@heyputer/puter-js-common");
 const APIError = require("../../api/APIError");
 const { Context } = require("../../util/context");
 const BaseService = require("../BaseService");
-const { SyncTrait } = require("../../traits/SyncTrait");
+const { SyncFeature } = require("../../traits/SyncFeature");
 const { DB_WRITE } = require("../database/consts");
 
 const ts_to_sql = (ts) => Math.floor(ts / 1000);
@@ -31,8 +31,8 @@ class RateLimitService extends BaseService {
         kv: globalThis.kv,
     }
 
-    static TRAITS = [
-        new SyncTrait([
+    static FEATURES = [
+        new SyncFeature([
             'check_and_increment',
         ]),
     ]
