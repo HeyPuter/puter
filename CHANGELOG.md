@@ -1,5 +1,37 @@
 # Changelog
 
+## v2.4.1 (2024-07-11)
+
+### Puter
+
+
+#### Features
+
+- update BR translation ([42a6b39](https://github.com/HeyPuter/puter/commit/42a6b3938a588b8b4d1bd976c37e9c6e58408c75))
+- JSON support for kv driver ([3ed7916](https://github.com/HeyPuter/puter/commit/3ed7916856f03eafbe0891f2ab39c34d20d2bd24))
+
+#### Translations
+
+- Update bn.js file formatting ([cff488f](https://github.com/HeyPuter/puter/commit/cff488f4f4378ca6c7568a585a665f2a3b87b89c))
+- Issue#530 - Update bengali translations ([92abc99](https://github.com/HeyPuter/puter/commit/92abc9947f811f94f17a5ee5a4b73ee2b210900a))
+- Added missing Romanian translations. ([8440f56](https://github.com/HeyPuter/puter/commit/8440f566b91c9eb4f01addcb850061e3fbe3afc7))
+- Add 2FA Romanian translations ([473b651](https://github.com/HeyPuter/puter/commit/473b6512c697854e3f3badae1eb7b87742954da5))
+- Add Japanese Translation ([47ec74f](https://github.com/HeyPuter/puter/commit/47ec74f0aa6adb3952e6460909029a4acb0c3039))
+- Completing Italian translation based on English file ([f5a8ee1](https://github.com/HeyPuter/puter/commit/f5a8ee1c6ab950d62c90b6257791f026a508b4e4))
+- Completing Italian translation based on English file. ([a96abb5](https://github.com/HeyPuter/puter/commit/a96abb5793528d0dc56d75f95d771e1dcf5960d1))
+- Completing Arabic translation based on English file ([78a0ace](https://github.com/HeyPuter/puter/commit/78a0acea6980b6d491da4874edbd98e17c0d9577))
+- Update Arabic translations in src/gui/src/i18n/translations/ar.js to match English version in src/gui/src/i18n/translations/en.js ([fe5be7f](https://github.com/HeyPuter/puter/commit/fe5be7f3cf7f336730137293ba86a637e8d8591d))
+- Update Arabic translations in src/gui/src/i18n/translations/ar.js to match English version in src/gui/src/i18n/translations/en.js ([bffa192](https://github.com/HeyPuter/puter/commit/bffa192805216fc17045cd8d629f34784dca7f3f))
+- Ukrainian updated ([e61039f](https://github.com/HeyPuter/puter/commit/e61039faf409b0ad85c7513b0123f3f2e92ebe32))
+- Update ru.js issue #547 ([17145d0](https://github.com/HeyPuter/puter/commit/17145d0be6a9a1445947cc0c4bec8f16a475144c))
+- Russian translation fixed ([8836011](https://github.com/HeyPuter/puter/commit/883601142873f10d69c84874499065a7d29af054))
+
+#### Bug Fixes
+
+- remove flag that breaks puter-js webpack ([7aadae5](https://github.com/HeyPuter/puter/commit/7aadae58ce1a51f925bf64c3d65ac1fa6971b164))
+- Improve `getMimeType` to remove trailing dot in the extension if preset ([535475b](https://github.com/HeyPuter/puter/commit/535475b3c36a37e3319ed067a24fb671790dcda3))
+
+
 ## 2.4.0 (2024-07-08)
 
 
