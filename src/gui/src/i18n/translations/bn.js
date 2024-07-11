@@ -183,8 +183,7 @@ const bn = {
     new_username: "নতুন ব্যবহারকারীর নাম",
     no: "না",
     no_dir_associated_with_site: "এই ঠিকানা সম্পর্কিত কোনও ডিরেক্টরি নেই।",
-    no_websites_published:
-      "আপনি এখনও কোনও ওয়েবসাইট প্রকাশ করেননি। শুরু করতে একটি ফোল্ডারে ক্লিক করুন।",
+    no_websites_published: "আপনি এখনও কোনও ওয়েবসাইট প্রকাশ করেননি। শুরু করতে একটি ফোল্ডারে ক্লিক করুন।",
     ok: "ঠিক আছে",
     open: "খোলা",
     open_in_new_tab: "নতুন ট্যাবে খুলুন",
@@ -337,17 +336,15 @@ const bn = {
     নিশ্চিত করুন যে আপনি তাদের একটি নিরাপদ জায়গায় সংরক্ষণ করেছেন।
   `,
     setup2fa_5_step_heading: "2FA সেটআপ নিশ্চিত করুন",
-    setup2fa_5_confirmation_1:
-      "আমি আমার পুনরুদ্ধার কোডগুলি একটি নিরাপদ অবস্থানে সংরক্ষণ করেছি",
+    setup2fa_5_confirmation_1: "আমি আমার পুনরুদ্ধার কোডগুলি একটি নিরাপদ অবস্থানে সংরক্ষণ করেছি",
     setup2fa_5_confirmation_2: "আমি 2FA সক্ষম করার জন্য প্রস্তুত",
     setup2fa_5_button: "2FA সক্ষম করুন",
 
+    // === 2FA Login ===
     login2fa_otp_title: "2FA কোড লিখুন",
-    login2fa_otp_instructions:
-      "আপনার প্রামাণিকতা অ্যাপ থেকে 6-টি অংকের কোড লিখুন।",
+    login2fa_otp_instructions: "আপনার প্রামাণিকতা অ্যাপ থেকে 6-টি অংকের কোড লিখুন।",
     login2fa_recovery_title: "একটি পুনরুদ্ধার কোড লিখুন",
-    login2fa_recovery_instructions:
-      "আপনার অ্যাকাউন্টে অ্যাক্সেস পাওয়ার জন্য আপনার পুনরুদ্ধার কোডগুলির মধ্য থেকে একটি লিখুন।",
+    login2fa_recovery_instructions: "আপনার অ্যাকাউন্টে অ্যাক্সেস পাওয়ার জন্য আপনার পুনরুদ্ধার কোডগুলির মধ্য থেকে একটি লিখুন।",
     login2fa_use_recovery_code: "একটি পুনরুদ্ধার কোড ব্যবহার করুন",
     login2fa_recovery_back: "পিছনে",
     login2fa_recovery_placeholder: "XXXXXXXX",
