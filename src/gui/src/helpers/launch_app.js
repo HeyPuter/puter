@@ -197,7 +197,7 @@ const launch_app = async (options)=>{
 
         // In godmode, we add the super token to the iframe URL
         // so that the app can access everything.
-        if (app_info.godmode && app_info.godmode === 1){
+        if (app_info.godmode && (app_info.godmode === true || app_info.godmode === 1)){
             iframe_url.searchParams.append('puter.auth.token', window.auth_token);
             iframe_url.searchParams.append('puter.auth.username', window.user.username);
         } 
