@@ -41,7 +41,10 @@ class ValidationES extends BaseES {
             console.log('OLD ENT', extra.old_entity);
 
             for ( const prop of Object.values(this.om.properties) ) {
-                if ( prop.descriptor.protected ) {
+                if (
+                    prop.descriptor.protected ||
+                    prop.descriptor.read_only
+                ) {
                     await entity.del(prop.name);
                 }
             }

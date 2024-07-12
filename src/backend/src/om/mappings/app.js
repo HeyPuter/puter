@@ -142,7 +142,7 @@ module.exports = {
         // SYSTEM
         godmode: {
             type: 'flag',
-            protected: true,
+            read_only: true,
         },
     }
 }
