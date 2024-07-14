@@ -82,10 +82,11 @@ Puter is available as a hosted service at [**puter.com**](https://puter.com).
 
 Connect with the maintainers and community through these channels:
 
-- Bug report or feature request? Please [open an issue](https://github.com/HeyPuter/puter/issues/new/choose).
-- Discord: [https://discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
-- X (Twitter): [https://x.com/HeyPuter](https://x.com/HeyPuter)
-- Reddit: [https://reddit.com/r/puter/](https://www.reddit.com/r/puter/)
+- Bug report or feature request? Please [open an issue](github.com/HeyPuter/puter/issues/new/choose).
+- Discord: [discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
+- X (Twitter): [x.com/HeyPuter](https://x.com/HeyPuter)
+- Reddit: [reddit.com/r/puter/](https://www.reddit.com/r/puter/)
+- Mastodon: [mastodon.social/@puter](https://mastodon.social/@puter)
 - Email maintainers at [hi@puter.com](mailto:hi@puter.com)
 
 We are always happy to help you with any questions you may have. Don't hesitate to ask!
