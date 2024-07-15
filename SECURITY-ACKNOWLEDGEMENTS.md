@@ -5,3 +5,4 @@ We would like to thank the following security researchers for their responsible 
 
 - Tim Suess: [GitHub](https://github.com/blackfortresslabs) | [Email](tim@blackfortresslabs.com) | [Website](https://www.blackfortresslabs.com)
 - xyzeva: [Github](https://github.com/xyzeva) | [Email](mailto:xyzeva@riseup.net) | [Website](https://kibty.town/)
+- Yusuf Kelany: [GitHub](https://github.com/YusufYaser) | [Twitter](x.com/RealYusufYaser)
