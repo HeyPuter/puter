@@ -64,10 +64,24 @@ mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 100
 ### 🐙 Docker Compose
 
 
+#### Linux/macOS
 ```bash
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
+docker compose up
+```
+<br/>
+
+#### Windows
+
+
+```powershell
+mkdir -p puter
+cd puter
+New-Item -Path "puter\config" -ItemType Directory -Force
+New-Item -Path "puter\data" -ItemType Directory -Force
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
 <br/>
