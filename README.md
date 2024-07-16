@@ -61,9 +61,10 @@ mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 100
 <br/>
 
 
-### 🐙 x 🍎🐧 Docker Compose (non-windows)
+### 🐙 Docker Compose
 
 
+#### Linux/macOS
 ```bash
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
@@ -72,7 +73,7 @@ docker compose up
 ```
 <br/>
 
-### 🐙 x 🪟 Docker Compose (windows powershell)
+#### Windows
 
 
 ```powershell
