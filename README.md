@@ -19,7 +19,7 @@
     <a href="https://hackerone.com/puter_h1b">Bug Bounty</a>
 </p>
 
-<h3 align="center"><img width="1000" style="border-radius:5px;" alt="screenshot" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>
+<h3 align="center"><img width="800" style="border-radius:5px;" alt="screenshot" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>
 
 <br/>
 
