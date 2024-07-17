@@ -56,9 +56,6 @@ const surrounding_box = (col, lines, lengths) => {
     const c = str => `\x1b[${col}m${str}\x1b[0m`;
     const bar = c(Array(max_length + 4).fill('━').join(''));
     for ( let i = 0 ; i < lines.length ; i++ ) {
-        require('fs').appendFileSync('/tmp/asdfqwer',
-            '' + lines[i] +':'+ lines[i].length +':'+ lengths[i]+
-                ':'+max_length+'\n');
         if ( lengths[i] < max_length ) {
             lines[i] += Array(max_length - lengths[i])
                 .fill(' ')
