@@ -18,7 +18,6 @@ const {
     SelfHostedModule
 } = (await import('@heyputer/backend')).default;
 
-console.log('kerne', Kernel);
 const k = new Kernel();
 k.add_module(new CoreModule());
 k.add_module(new DatabaseModule());

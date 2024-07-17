@@ -33,7 +33,7 @@ const { HLFilesystemOperation } = require("./definitions");
 const { MkTree } = require("./hl_mkdir");
 const { Actor } = require("../../services/auth/Actor");
 
-class WriteCommonTrait {
+class WriteCommonFeature {
     install_in_instance (instance) {
         instance._verify_size = async function () {
             if (
@@ -84,8 +84,8 @@ class HLWrite extends HLFilesystemOperation {
         - create shortcuts
     `
 
-    static TRAITS = [
-        new WriteCommonTrait(),
+    static FEATURES = [
+        new WriteCommonFeature(),
     ]
 
     static PARAMETERS = {

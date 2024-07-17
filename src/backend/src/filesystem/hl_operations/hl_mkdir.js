@@ -26,8 +26,8 @@ const StringParam = require('../../api/filesystem/StringParam');
 const FlagParam = require("../../api/filesystem/FlagParam");
 const UserParam = require('../../api/filesystem/UserParam');
 const FSNodeContext = require('../FSNodeContext');
-const { ContextAwareTrait } = require('../../traits/ContextAwareTrait');
-const { OtelTrait } = require('../../traits/OtelTrait');
+const { ContextAwareFeature } = require('../../traits/ContextAwareFeature');
+const { OtelFeature } = require('../../traits/OtelFeature');
 const { HLFilesystemOperation } = require('./definitions');
 const { is_valid_path } = require('../validation');
 const { HLRemove } = require('./hl_remove');
@@ -249,8 +249,8 @@ class HLMkdir extends HLFilesystemOperation {
         parent_directories_created: () => [],
     }
 
-    static TRAITS = [
-        new OtelTrait([
+    static FEATURES = [
+        new OtelFeature([
             '_get_existing_parent',
             '_create_parents',
         ]),

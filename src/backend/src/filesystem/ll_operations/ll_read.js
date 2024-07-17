@@ -26,6 +26,24 @@ const { buffer_to_stream } = require("../../util/streamutil");
 const { TYPE_SYMLINK, TYPE_DIRECTORY } = require("../FSNodeContext");
 const { LLFilesystemOperation } = require("./definitions");
 
+const dry_checks = [
+        async function check_ACL_for_read (a) {
+            if ( a.get('no_acl') ) return;
+            const context = a.iget('context');
+            const svc_acl = context.get('services').get('acl');
+            const { fsNode, actor } = a.values();
+            if ( ! await svc_acl.check(actor, fsNode, 'read') ) {
+                throw await svc_acl.get_safe_acl_error(actor, fsNode, 'read');
+            }
+        },
+        async function type_check_for_read (a) {
+            const fsNode = a.get('fsNode');
+            if ( await fsNode.get('type') === TYPE_DIRECTORY ) {
+                throw APIError.create('cannot_read_a_directory');
+            }
+        },
+];
+
 class LLRead extends LLFilesystemOperation {
     static METHODS = {
         _run: new Sequence({
@@ -39,12 +57,7 @@ class LLRead extends LLFilesystemOperation {
                     throw APIError.create('subject_does_not_exist');
                 }
             },
-            async function type_check_for_read (a) {
-                const fsNode = a.get('fsNode');
-                if ( await fsNode.get('type') === TYPE_DIRECTORY ) {
-                    throw APIError.create('cannot_read_a_directory');
-                }
-            },
+            ...dry_checks,
             async function resolve_symlink (a) {
                 let fsNode = a.get('fsNode');
                 let type = await fsNode.get('type');
@@ -54,15 +67,7 @@ class LLRead extends LLFilesystemOperation {
                 }
                 a.set('fsNode', fsNode);
             },
-            async function check_ACL_for_read (a) {
-                if ( a.get('no_acl') ) return;
-                const context = a.iget('context');
-                const svc_acl = context.get('services').get('acl');
-                const { fsNode, actor } = a.values();
-                if ( ! await svc_acl.check(actor, fsNode, 'read') ) {
-                    throw await svc_acl.get_safe_acl_error(actor, fsNode, 'read');
-                }
-            },
+            ...dry_checks,
             async function calculate_has_range (a) {
                 const { offset, length } = a.values();
                 const fsNode = a.get('fsNode');

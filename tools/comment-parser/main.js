@@ -1,3 +1,22 @@
+/*
+ * Copyright (C) 2024 Puter Technologies Inc.
+ * 
+ * This file is part of Puter.
+ * 
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 const lib = {};
 lib.dedent_lines = lines => {
     // If any lines are just spaces, remove the spaces
@@ -128,8 +147,7 @@ const BlockCommentParser = ({
     return {
         parse: async (stream) => {
             stream.skip_whitespace();
-            stream.debug('starting at', await stream.debug())
-            if ( ! stream.matches(start) ) return;
+            if ( ! await stream.matches(start) ) return;
             stream.fwd(start.length);
             const contents = await stream.get_until(end);
             if ( ! contents ) return;
@@ -221,7 +239,7 @@ const CommentParser = () => {
                 javascript: {
                     parsers: [
                         ['lines', {
-                            prefix: '// ',
+                            prefix: '//',
                         }],
                         ['block', {
                             start: '/*',
@@ -231,11 +249,11 @@ const CommentParser = () => {
                     ],
                     writers: {
                         lines: ['lines', {
-                            prefix: '//'
+                            prefix: '// '
                         }],
                         block: ['block', {
                             start: '/*',
-                            end: '*/',
+                            end: ' */',
                             prefix: ' * ',
                         }]
                     },
@@ -312,6 +330,7 @@ const CommentParser = () => {
                     break;
                 }
             }
+            // console.log('comment?', comment);
             if ( ! comment ) break;
             results.push(comment);
         }

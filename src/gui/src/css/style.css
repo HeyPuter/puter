@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
- @font-face {
+@font-face {
     font-family: 'Inter';
     src: url('/fonts/Inter-Thin.ttf') format('truetype');
     font-weight: 100;
@@ -805,6 +805,7 @@ span.header-sort-icon img {
 .window-menubar:not(.window-menubar-global):empty {
     display: none !important;
 }
+
 .window-menubar {
     display: flex;
     box-sizing: border-box;
@@ -815,7 +816,7 @@ span.header-sort-icon img {
     padding: 2px 5px;
 }
 
-.window-menubar-global{
+.window-menubar-global {
     background-color: transparent;
     color: white;
     border-bottom: none;
@@ -825,7 +826,8 @@ span.header-sort-icon img {
     margin-left: 15px;
     padding: 0;
 }
-.window-menubar-global .window-menubar-item span{
+
+.window-menubar-global .window-menubar-item span {
     padding: 3px 10px;
     font-size: 13px;
     border-radius: 3px;
@@ -1595,13 +1597,16 @@ span.header-sort-icon img {
     display: none;
     pointer-events: none;
 }
+
 .context-menu .has-open-context-menu-submenu,
 .context-menu .context-menu-item-active {
     border-radius: 4px;
 }
-.context-menu .has-open-context-menu-submenu{
+
+.context-menu .has-open-context-menu-submenu {
     background-color: #dfdfdf;
 }
+
 .context-menu .context-menu-item-active {
     background-color: var(--select-color);
     color: white;
@@ -2456,10 +2461,11 @@ label {
 /*****************************************************
  * Notification
  *****************************************************/
-.notification, .notification-wrapper{
+.notification, .notification-wrapper {
     width: 320px;
     border-radius: 11px;
 }
+
 .notification {
     min-height: 54px;
     background: #ffffffcd;
@@ -2472,9 +2478,11 @@ label {
     flex-direction: row;
     pointer-events: all;
 }
-.notification-wrapper{
+
+.notification-wrapper {
     overflow: visible;
 }
+
 .notification-close {
     position: absolute;
     background: white;
@@ -2491,7 +2499,8 @@ label {
 .notification:hover .notification-close {
     display: block;
 }
-.notification-icon{
+
+.notification-icon {
     width: 40px;
     margin: 10px 5px 10px 15px;
     border-radius: 50%;
@@ -2500,25 +2509,30 @@ label {
     align-items: center;
     filter: drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
 }
-.notification-icon img{
+
+.notification-icon img {
     width: 35px;
     height: 35px;
 }
-.notification-title{
+
+.notification-title {
     font-size: 12px;
     font-weight: 600;
 }
-.notification-text{
-    font-size: 12px; 
+
+.notification-text {
+    font-size: 12px;
     margin-top: 4px;
 }
-.notification-content{
-    flex-grow:1;
+
+.notification-content {
+    flex-grow: 1;
     display: flex;
     flex-direction: column;
     padding: 10px;
 }
-.notification-container{
+
+.notification-container {
     position: absolute;
     top: 40px;
     right: 10px;
@@ -2527,7 +2541,7 @@ label {
     pointer-events: none;
 }
 
-.notifications-close-all{
+.notifications-close-all {
     opacity: 0;
     position: absolute;
     top: 0px;
@@ -2542,16 +2556,20 @@ label {
     cursor: pointer;
     filter: drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
 }
-.notifications-close-all:hover{
+
+.notifications-close-all:hover {
     background-color: #dee1e3;
 }
-.notification-container.has-multiple{
+
+.notification-container.has-multiple {
     pointer-events: all;
 }
-.notification-container.has-multiple:hover .notifications-close-all{
+
+.notification-container.has-multiple:hover .notifications-close-all {
     pointer-events: all;
     opacity: 1 !important;
 }
+
 /*****************************************************
  * Start
  *****************************************************/
@@ -3027,12 +3045,13 @@ fieldset[name=number-code] {
     border: 2px solid #CCC;
 }
 
-.launch-search-wrapper{
-    margin-bottom: 10px; 
-    padding: 5px; 
+.launch-search-wrapper {
+    margin-bottom: 10px;
+    padding: 5px;
     position: relative;
 }
-.device-phone .launch-search-wrapper{
+
+.device-phone .launch-search-wrapper {
     margin-top: 15px;
 }
 
@@ -3572,7 +3591,7 @@ fieldset[name=number-code] {
     background-color: #f9f9f9;
     border-right: 1px solid #e0e0e0;
     padding: 20px;
-
+    position: relative;
 }
 
 .settings-sidebar-item {
@@ -3996,4 +4015,118 @@ fieldset[name=number-code] {
     flex-direction: row;
     gap: 10px;
     justify-content: flex-end;
+}
+
+/* Extra small devices (phones, less than 576px) */
+@media (max-width: 575.98px) {
+    .hidden-xs {
+        display: none !important;
+    }
+}
+
+/* Small devices (landscape phones, 576px and up) */
+@media (min-width: 576px) and (max-width: 767.98px) {
+    .hidden-sm {
+        display: none !important;
+    }
+}
+
+/* Medium devices (tablets, 768px and up) */
+@media (min-width: 768px) and (max-width: 991.98px) {
+    .hidden-md {
+        display: none !important;
+    }
+}
+
+/* Large devices (desktops, 992px and up) */
+@media (min-width: 992px) and (max-width: 1199.98px) {
+    .hidden-lg {
+        display: none !important;
+    }
+}
+
+/* Extra large devices (large desktops, 1200px and up) */
+@media (min-width: 1200px) {
+    .hidden-xl {
+        display: none !important;
+    }
+}
+
+/* Visible classes */
+.visible-xs,
+.visible-sm,
+.visible-md,
+.visible-lg,
+.visible-xl {
+    display: none !important;
+}
+
+@media (max-width: 575.98px) {
+    .visible-xs {
+        display: block !important;
+    }
+    .settings-sidebar {
+        display: none;
+        position: fixed;
+        height: 100%;
+        z-index: 9;
+    }
+}
+
+@media (min-width: 576px) and (max-width: 767.98px) {
+    .visible-sm {
+        display: block !important;
+    }
+    .settings-sidebar {
+        display: none;
+        position: fixed;
+        height: 100%;
+        z-index: 9;
+    }
+}
+
+@media (min-width: 768px) and (max-width: 991.98px) {
+    .visible-md {
+        display: block !important;
+    }
+}
+
+@media (min-width: 992px) and (max-width: 1199.98px) {
+    .visible-lg {
+        display: block !important;
+    }
+}
+
+@media (min-width: 1200px) {
+    .visible-xl {
+        display: block !important;
+    }
+}
+
+.sidebar-toggle{
+	position: fixed;
+    z-index: 9999999999;
+    top: 32px;
+    left: 2px;
+	border: 0;
+	padding-top: 5px;
+	padding-bottom: 5px;
+}
+.sidebar-toggle .sidebar-toggle-button {
+	height: 20px;
+    width: 20px;
+}
+
+.sidebar-toggle span:nth-child(1) {
+	margin-top: 5px;
+}
+
+.sidebar-toggle span {
+	border-bottom: 2px solid #858585;
+	display: block;
+	margin-bottom: 5px;
+	width: 100%;
+}
+.settings-sidebar.active {
+    display: block;
 }

@@ -16,26 +16,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { BasicBase } = require("./BasicBase");
-
-class TraitBase extends BasicBase {
-    constructor (parameters, ...a) {
-        super(parameters, ...a);
-        for ( const trait of this.traits ) {
-            trait.install_in_instance(
-                this,
-                {
-                    parameters: parameters || {},
-                }
-            )
+class WeakConstructorFeature {
+    install_in_instance(instance, { parameters }) {
+        for ( const key in parameters ) {
+            instance[key] = parameters[key];
         }
-    }
-
-    get traits () {
-        return this._get_merged_static_array('TRAITS');
     }
 }
 
 module.exports = {
-    TraitBase,
+    WeakConstructorFeature,
 };

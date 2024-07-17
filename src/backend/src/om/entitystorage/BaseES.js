@@ -17,15 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require("@heyputer/puter-js-common");
-const { WeakConstructorTrait } = require("../../traits/WeakConstructorTrait");
+const { WeakConstructorFeature } = require("../../traits/WeakConstructorFeature");
 const { Context } = require("../../util/context");
 
 /**
  * BaseES is a base class for Entity Store classes.
  */
 class BaseES extends AdvancedBase {
-    static TRAITS = [
-        new WeakConstructorTrait(),
+    static FEATURES = [
+        new WeakConstructorFeature(),
     ]
 
     // Default implementations

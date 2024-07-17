@@ -18,7 +18,7 @@
  */
 const { Context } = require("../util/context");
 
-class ContextAwareTrait {
+class ContextAwareFeature {
     install_in_instance (instance) {
         instance.context = Context.get();
         instance.x = instance.context;
@@ -26,5 +26,5 @@ class ContextAwareTrait {
 }
 
 module.exports = {
-    ContextAwareTrait,
+    ContextAwareFeature,
 };

@@ -13,6 +13,7 @@
     "console-table-printer": "^2.12.1",
     "dedent": "^1.5.3",
     "diff-match-patch": "^1.0.5",
+    "enquirer": "^2.4.1",
     "js-levenshtein": "^1.1.6",
     "yaml": "^2.4.5"
   }

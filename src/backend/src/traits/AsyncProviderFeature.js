@@ -16,18 +16,18 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-class AsyncProviderTrait {
+class AsyncProviderFeature {
     install_in_instance (instance) {
         instance.valueListeners_ = {};
         instance.valueFactories_ = {};
         instance.values_ = {};
         instance.rejections_ = {};
 
-        instance.provideValue = AsyncProviderTrait.prototype.provideValue;
-        instance.rejectValue = AsyncProviderTrait.prototype.rejectValue;
-        instance.awaitValue = AsyncProviderTrait.prototype.awaitValue;
-        instance.onValue = AsyncProviderTrait.prototype.onValue;
-        instance.setFactory = AsyncProviderTrait.prototype.setFactory;
+        instance.provideValue = AsyncProviderFeature.prototype.provideValue;
+        instance.rejectValue = AsyncProviderFeature.prototype.rejectValue;
+        instance.awaitValue = AsyncProviderFeature.prototype.awaitValue;
+        instance.onValue = AsyncProviderFeature.prototype.onValue;
+        instance.setFactory = AsyncProviderFeature.prototype.setFactory;
     }
 
     provideValue (key, value) {
@@ -116,5 +116,5 @@ class AsyncProviderTrait {
 }
 
 module.exports = {
-    AsyncProviderTrait
+    AsyncProviderFeature
 };

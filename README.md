@@ -19,7 +19,7 @@
     <a href="https://hackerone.com/puter_h1b">Bug Bounty</a>
 </p>
 
-<h3 align="center"><img width="700" style="border-radius:5px;" alt="screenshot" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>
+<h3 align="center"><img width="800" style="border-radius:5px;" alt="screenshot" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>
 
 <br/>
 
@@ -64,10 +64,24 @@ mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 100
 ### 🐙 Docker Compose
 
 
+#### Linux/macOS
 ```bash
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
+docker compose up
+```
+<br/>
+
+#### Windows
+
+
+```powershell
+mkdir -p puter
+cd puter
+New-Item -Path "puter\config" -ItemType Directory -Force
+New-Item -Path "puter\data" -ItemType Directory -Force
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
 <br/>
@@ -82,32 +96,17 @@ Puter is available as a hosted service at [**puter.com**](https://puter.com).
 
 Connect with the maintainers and community through these channels:
 
-- Bug report or feature request? Please [open an issue](https://github.com/HeyPuter/puter/issues/new/choose).
-- Discord: [https://discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
-- X (Twitter): [https://x.com/HeyPuter](https://x.com/HeyPuter)
-- Reddit: [https://www.reddit.com/r/puter/](https://www.reddit.com/r/puter/)
+- Bug report or feature request? Please [open an issue](github.com/HeyPuter/puter/issues/new/choose).
+- Discord: [discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
+- X (Twitter): [x.com/HeyPuter](https://x.com/HeyPuter)
+- Reddit: [reddit.com/r/puter/](https://www.reddit.com/r/puter/)
+- Mastodon: [mastodon.social/@puter](https://mastodon.social/@puter)
 - Email maintainers at [hi@puter.com](mailto:hi@puter.com)
 
 We are always happy to help you with any questions you may have. Don't hesitate to ask!
 
 <br/>
 
-## #DoesItRunPuter
-
-- [Minecraft](https://twitter.com/HeyPuter/status/1771957571496092036) | [video](https://www.youtube.com/watch?v=GIowZUXkg5g)
-- [Samsung Watch](https://twitter.com/CharmunkDev/status/1781501714543030554)
-- [PlayStation 4](https://twitter.com/HeyPuter/status/1767978053014270059)
-- [Skyworth TV](https://twitter.com/ericalexdube/status/1767983049277411564)
-- [A Fridge!](https://twitter.com/HeyPuter/status/1778890003797745842)
-- [Oculus Quest 2](https://twitter.com/HeyPuter/status/1768664081756754012)
-- [Tesla Model 3](https://twitter.com/EricLighthall/status/1781479732997214501)
-- [Tesla Model S](https://twitter.com/HeyPuter/status/1767971178864587057)
-- [Tesla Model Y](https://twitter.com/HeyPuter/status/1772858333751636310)
-- [Nintendo Switch](https://twitter.com/HeyPuter/status/1780645795240538518)
-- [Steam Deck](https://twitter.com/everythingSung/status/1782162352403828793)
-- [Ladybird Browser](https://x.com/HeyPuter/status/1810783504503800035)
-
-<br/>
 
 ##  License
 

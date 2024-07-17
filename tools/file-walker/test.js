@@ -28,10 +28,17 @@ const EXCLUDE_LISTS = {
         /\/node_modules$/,
         /^node_modules$/,
         /package-lock\.json/,
+        /^src\/dev-center\/js/,
         /src\/backend\/src\/public\/assets/,
-        /^src\/gui\/src\/lib/
+        /^src\/gui\/src\/lib/,
+        /^eslint\.config\.js$/,
     ]
 };
+
+EXCLUDE_LISTS.NOT_AGPL = [
+    ...EXCLUDE_LISTS.NOT_SOURCE,
+    /^src\/puter-js/,
+];
 
 const hl_readdir = async path => {
     const names = await fs.promises.readdir(path);
