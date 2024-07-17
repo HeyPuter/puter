@@ -31,6 +31,7 @@ const { BaseDatabaseAccessService } = require('./services/database/BaseDatabaseA
 const { LLRmNode } = require('./filesystem/ll_operations/ll_rmnode');
 const { Context } = require('./util/context');
 const { NodeUIDSelector } = require('./filesystem/node/selectors');
+const { PathBuilder } = require('./util/pathutil');
 
 let systemfs = null;
 let services = null;
@@ -1155,8 +1156,12 @@ async function jwt_auth(req){
 async function mkdir(options){
     const fs = systemfs;
 
-    const dirpath           = _path.dirname(_path.resolve('/', options.path));
-    let target_name         = _path.basename(_path.resolve('/', options.path));
+    debugger;
+
+    const resolved_path = PathBuilder.resolve(options.path, { puterfs: true });
+
+    const dirpath           = _path.dirname(resolved_path);
+    let target_name         = _path.basename(resolved_path);
     const overwrite         = options.overwrite ?? false;
     const dedupe_name       = options.dedupe_name ?? false;
     const immutable         = options.immutable ?? false;
@@ -1182,7 +1187,7 @@ async function mkdir(options){
 
     // dirpath not found
     if(parent === false && !create_missing_parents)
-        throw "Target path not found";
+        throw new Error("Target path not found");
     // create missing parent directories
     else if(parent === false && create_missing_parents){
         const dirs = _path.resolve('/', dirpath).split('/');
@@ -1206,7 +1211,7 @@ async function mkdir(options){
         // try setting parent again
         parent = await convert_path_to_fsentry(dirpath);
         if(parent === false)
-            throw "Target path not found";
+            throw new Error("Target path not found");
     }
 
     // check permission

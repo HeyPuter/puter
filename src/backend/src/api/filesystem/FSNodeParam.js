@@ -19,6 +19,7 @@
 const { is_valid_path } = require("../../filesystem/validation");
 const { is_valid_uuid4 } = require("../../helpers");
 const { Context } = require("../../util/context");
+const { PathBuilder } = require("../../util/pathutil");
 const APIError = require("../APIError");
 const _path = require('path');
 
@@ -73,6 +74,7 @@ module.exports = class FSNodeParam {
             });
         }
 
-        return await fs.node({ path: _path.resolve('/', uidOrPath) });
+        const resolved_path = PathBuilder.resolve(uidOrPath, { puterfs: true });
+        return await fs.node({ path: resolved_path });
     }
 }

@@ -81,16 +81,6 @@ module.exports = eggspress('/readdir', {
     const no_thumbs = req.values.no_thumbs;
     const no_assocs = req.values.no_assocs;
 
-    {
-        const fs = require('fs');
-        fs.appendFileSync('/tmp/readdir.log',
-            JSON.stringify({
-                recursive,
-                no_thumbs,
-                no_assocs,
-            }, null, 2) + '\n');
-    }
-
     const hl_readdir = new HLReadDir();
     const result = await hl_readdir.run({
         subject,

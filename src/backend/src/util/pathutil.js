@@ -28,25 +28,40 @@ class PathBuilder extends AdvancedBase {
         path: require('path'),
     }
 
-    constructor() {
+    constructor(parameters = {}) {
         super();
+        if ( parameters.puterfs ) {
+            this.modules.path =
+                this.modules.path.posix;
+        }
         this.path_ = '';
     }
 
-    static create () {
-        return new PathBuilder();
+    static create (parameters) {
+        return new PathBuilder(parameters);
     }
 
     static add (fragment, options) {
         return PathBuilder.create().add(fragment, options);
     }
 
-    static resolve (fragment) {
-        const p = PathBuilder.create();
+    static resolve (fragment, parameters = {}) {
+        const { puterfs } = parameters;
+
+        const p = PathBuilder.create(parameters);
         const require = p.require;
         const node_path = require('path');
         fragment = node_path.resolve(fragment);
-        return p.add(fragment).build();
+        if ( process.platform === 'win32' && !parameters.puterfs ) {
+            fragment = '/' + fragment.slice('c:\\'.length); // >:-(
+        }
+        let result = p.add(fragment).build();
+        if ( puterfs && process.platform === 'win32' &&
+            result.startsWith('\\')
+        ) {
+            result = '/' + result.slice(1);
+        }
+        return result;
     }
     
     add (fragment, options) {
