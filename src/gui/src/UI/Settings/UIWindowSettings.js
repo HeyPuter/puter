@@ -33,11 +33,15 @@ async function UIWindowSettings(options){
 
         h += `<div class="settings-container">`;
         h += `<div class="settings">`;
-            // side bar
+            // sidebar toggle
+            h += `<button class="sidebar-toggle hidden-lg hidden-xl"><div class="sidebar-toggle-button"><span></span><span></span><span></span></div></button>`;
+            // sidebar
             h += `<div class="settings-sidebar disable-user-select disable-context-menu">`;
-            tabs.forEach((tab, i) => {
-                h += `<div class="settings-sidebar-item disable-context-menu disable-user-select ${i === 0 ? 'active' : ''}" data-settings="${tab.id}" style="background-image: url(${window.icons[tab.icon]});">${i18n(tab.title_i18n_key)}</div>`;
-            });
+                // sidebar items
+                h += `<div class="settings-sidebar-burger disable-context-menu disable-user-select" style="background-image: url(${window.icons['menu']});"></div>`;
+                tabs.forEach((tab, i) => {
+                    h += `<div class="settings-sidebar-item disable-context-menu disable-user-select ${i === 0 ? 'active' : ''}" data-settings="${tab.id}" style="background-image: url(${window.icons[tab.icon]});">${i18n(tab.title_i18n_key)}</div>`;
+                });
             h += `</div>`;
 
             // content
@@ -123,5 +127,45 @@ async function UIWindowSettings(options){
     });
 }
 
+$(document).on('mousedown', '.sidebar-toggle', function(e) {
+    e.preventDefault();
+    $('.settings-sidebar').toggleClass('active');
+    $('.sidebar-toggle-button').toggleClass('active');
+    // move sidebar toggle button
+    setTimeout(() => {
+        $('.sidebar-toggle').css({
+            left: $('.settings-sidebar').hasClass('active') ? 243 : 2
+        });   
+    }, 10);
+})
+
+$(document).on('click', '.settings-sidebar-item', function(e) {
+    // hide sidebar
+    $('.settings-sidebar').removeClass('active');
+    // move sidebar toggle button ro the right
+    setTimeout(() => {
+        $('.sidebar-toggle').css({
+            left: 2
+        });   
+    }, 10);
+
+})
+
+// clicking anywhere on the page will close the sidebar
+$(document).on('click', function(e) {
+    // print event target class
+    
+    if (!$(e.target).closest('.settings-sidebar').length && !$(e.target).closest('.sidebar-toggle-button').length && !$(e.target).hasClass('sidebar-toggle-button') && !$(e.target).hasClass('sidebar-toggle')) {
+        $('.settings-sidebar').removeClass('active');
+        $('.sidebar-toggle-button').removeClass('active');
+        // move sidebar toggle button ro the right
+        setTimeout(() => {
+            $('.sidebar-toggle').css({
+                left: 2
+            });   
+        }, 10);
+
+    }
+})
 
 export default UIWindowSettings
