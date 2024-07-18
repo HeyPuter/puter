@@ -4,7 +4,7 @@
   "description": "ANSI Terminal for Puter",
   "main": "exports.js",
   "scripts": {
-    "test": "mocha ./test"
+    "test": "npx mocha"
   },
   "author": "Puter Technologies Inc.",
   "license": "AGPL-3.0-only",
