@@ -20,6 +20,7 @@
     "globals": "^15.0.0",
     "html-entities": "^2.3.3",
     "license-check-and-add": "^4.0.5",
+    "mocha": "^10.6.0",
     "nodemon": "^3.1.0",
     "uglify-js": "^3.17.4",
     "webpack": "^5.88.2",
