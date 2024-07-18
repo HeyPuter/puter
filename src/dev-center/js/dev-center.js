@@ -566,7 +566,7 @@ async function edit_app_section(cur_app_name) {
                 let items = e.detail.items;
 
                 // ----------------------------------------------------
-                // one file dropped
+                // one Puter files dropped
                 // ----------------------------------------------------
                 if (items.length === 1 && !items[0].isDirectory) {
                     if (items[0].name.toLowerCase() === 'index.html') {
@@ -592,7 +592,41 @@ async function edit_app_section(cur_app_name) {
                     return;
                 }
                 // ----------------------------------------------------
-                // one directory dropped
+                // Multiple Puter files dropped
+                // ----------------------------------------------------
+                else if (items.length > 1) {
+                    let hasIndexHtml = false;
+                    for (let item of items) {
+                        if (item.name.toLowerCase() === 'index.html') {
+                            hasIndexHtml = true;
+                            break;
+                        }
+                    }
+
+                    if (hasIndexHtml) {
+                        dropped_items = items;
+                        $('.drop-area').removeClass('drop-area-hover');
+                        $('.drop-area').addClass('drop-area-ready-to-deploy');
+                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${items.length} items</p><p>Ready to deploy 🚀</p>`;
+                        $('.drop-area').html(drop_area_content);
+
+                        // enable deploy button
+                        $('.deploy-btn').removeClass('disabled');
+                    } else {
+                        puter.ui.alert(`You need to have an index.html file in your deployment.`, [
+                            {
+                                label: 'Ok',
+                            },
+                        ]);
+                        $('.drop-area').removeClass('drop-area-ready-to-deploy');
+                        $('.drop-area').removeClass('drop-area-hover');
+                        $('.deploy-btn').addClass('disabled');
+                        dropped_items = [];
+                    }
+                    return;
+                }
+                // ----------------------------------------------------
+                // One Puter directory dropped
                 // ----------------------------------------------------
                 else if (items.length === 1 && items[0].isDirectory) {
                     let children = await puter.fs.readdir(items[0].path);
@@ -1306,13 +1340,15 @@ window.deploy = async function (app, items) {
     }
 
     // --------------------------------------------------------------------
-    // (A) Puter Items: If 'items' is a string and starts with /, it's a path to a Puter item
+    // (A) One Puter Item: If 'items' is a string and starts with /, it's a path to a Puter item
     // --------------------------------------------------------------------
     if (typeof items === 'string' && (items.startsWith('/') || items.startsWith('~'))) {
         // perform stat on 'items'
         const stat = await puter.fs.stat(items);
 
+        // --------------------------------------------------------------------
         // Puter Directory
+        // --------------------------------------------------------------------
         // Perform readdir on 'items'
         // todo there is apparently a bug in Puter where sometimes path is literally missing from the items
         // returned by readdir. This is the 'path' that readdit didn't return a path for: "~/Desktop/particle-clicker-master"
@@ -1332,7 +1368,9 @@ window.deploy = async function (app, items) {
                 }
             }
         }
+        // --------------------------------------------------------------------
         // Puter File
+        // --------------------------------------------------------------------
         else {
             // copy the 'files' to the app directory
             await puter.fs.copy(
@@ -1369,9 +1407,57 @@ window.deploy = async function (app, items) {
             reset_drop_area();
         })
     }
+    // --------------------------------------------------------------------
+    // (B) Multiple Puter Items: If `items` is an Array `items[0]` has `uid` 
+    // then it's a Puter Item Array.
+    // --------------------------------------------------------------------
+    else if (Array.isArray(items) && items[0].uid) {
+        // If there's no index.html in the root, return
+        if (!hasRootIndexHtml)
+            return;
+
+        // copy the 'files' to the app directory
+        for (let item of items) {
+            // perform copy
+            await puter.fs.copy(
+                item.fullPath ? item.fullPath : item.path ? item.path : item.filepath,
+                appdata_dir.path,
+                { overwrite: true }
+            );
+            // update progress
+            $('.deploy-percent').text(`(${Math.round((items.indexOf(item) / items.length) * 100)}%)`);
+        }
+
+        // generate new hostname with a random suffix
+        let hostname = `${currently_editing_app.name}-${(Math.random() + 1).toString(36).substring(7)}`;
+
+        // --------------------------------------------------------------------
+        // Create a router for the app with the fresh hostname
+        // we change hostname every time to prevent caching issues
+        // --------------------------------------------------------------------
+        puter.hosting.create(hostname, appdata_dir.path).then(async (res) => {
+            // TODO this endpoint needs to be able to update only the specified fields
+            puter.apps.update(currently_editing_app.name, {
+                indexURL: protocol + `://${hostname}.` + static_hosting_domain,
+                title: currently_editing_app.title,
+                name: currently_editing_app.name,
+                icon: currently_editing_app.icon,
+                description: currently_editing_app.description,
+                maximizeOnStart: currently_editing_app.maximize_on_start,
+                background: currently_editing_app.background,
+                filetypeAssociations: currently_editing_app.filetype_associations,
+            })
+            // set the 'Index URL' field for the 'Settings' tab
+            $('#edit-app-index-url').val(protocol + `://${hostname}.` + static_hosting_domain);
+            // show success message
+            $('.deploy-success-msg').show();
+            // reset drop area
+            reset_drop_area();
+        })
+    }
 
     // --------------------------------------------------------------------
-    // (B) Local Items: Upload new deploy
+    // (C) Local Items: Upload new deploy
     // --------------------------------------------------------------------
     else {
         puter.fs.upload(
