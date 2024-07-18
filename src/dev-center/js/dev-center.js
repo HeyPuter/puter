@@ -435,6 +435,8 @@ function generate_edit_app_section(app) {
     if(app.result)
         app = app.result;
 
+    let maximize_on_start = app.maximize_on_start ? 'checked' : '';
+
     let h = ``;
     h += `
         <div class="edit-app-navbar">
@@ -486,11 +488,6 @@ function generate_edit_app_section(app) {
                 <input type="text" style="width: 362px;" class="app-uid" value="${html_encode(app.uid)}" readonly>
 
                 <div>
-                    <input type="checkbox" id="edit-app-maximize-on-start" name="edit-app-maximize-on-start" value="true" style="margin-top:30px;" ${app.maximize_on_start ? 'checked' : ''}>
-                    <label for="edit-app-maximize-on-start" style="display: inline;">Maximize window on start</label>
-                </div>
-                
-                <div>
                     <input type="checkbox" id="edit-app-background" name="edit-app-background" value="true" style="margin-top:30px;" ${app.background ? 'checked' : ''}>
                     <label for="edit-app-background" style="display: inline;">Run as a background process.</label>
                 </div>
@@ -498,6 +495,35 @@ function generate_edit_app_section(app) {
                 <div>
                     <input type="checkbox" id="edit-app-fullpage-on-landing" name="edit-app-fullpage-on-landing" value="true" style="margin-top:30px;" ${app.metadata?.fullpage_on_landing ? 'checked' : ''}>
                     <label for="edit-app-fullpage-on-landing" style="display: inline;">Load in full-page mode when a user lands directly on this app.</label>
+                </div>
+
+                <div>
+                    <input type="checkbox" id="edit-app-maximize-on-start" name="edit-app-maximize-on-start" value="true" style="margin-top:30px;" ${maximize_on_start ? 'checked' : ''}>
+                    <label for="edit-app-maximize-on-start" style="display: inline;">Maximize window on start</label>
+                </div>
+                
+                <div>
+                    <label for="edit-app-window-width">Window Width</label>
+                    <input type="number" id="edit-app-window-width" placeholder="800" value="${html_encode(app.metadata?.window_size?.width ?? 800)}" style="width:200px;" ${maximize_on_start ? 'disabled' : ''}>
+                    <label for="edit-app-window-height">Window Height</label>
+                    <input type="number" id="edit-app-window-height" placeholder="600" value="${html_encode(app.metadata?.window_size?.height ?? 600)}" style="width:200px;" ${maximize_on_start ? 'disabled' : ''}>
+                </div>
+
+                <div style="margin-top:30px;">
+                    <label for="edit-app-window-top">Window Top</label>
+                    <input type="number" id="edit-app-window-top" placeholder="100" value="${app.metadata?.window_position?.top ? html_encode(app.metadata.window_position.top) : ''}" style="width:200px;" ${maximize_on_start ? 'disabled' : ''}>
+                    <label for="edit-app-window-left">Window Left</label>
+                    <input type="number" id="edit-app-window-left" placeholder="100" value="${app.metadata?.window_position?.left ? html_encode(app.metadata.window_position.left) : ''}" style="width:200px;" ${maximize_on_start ? 'disabled' : ''}>
+                </div>
+
+                <div style="margin-top:30px;">
+                    <input type="checkbox" id="edit-app-window-resizable" name="edit-app-window-resizable" value="true" ${app.metadata?.window_resizable ? 'checked' : ''}>
+                    <label for="edit-app-window-resizable" style="display: inline;">Window Resizable</label>
+                </div>
+
+                <div style="margin-top:30px;">
+                    <input type="checkbox" id="edit-app-hide-titlebar" name="edit-app-hide-titlebar" value="true" ${app.metadata?.hide_titlebar ? 'checked' : ''}>
+                    <label for="edit-app-hide-titlebar" style="display: inline;">Hide Titlebar</label>
                 </div>
 
                 <label for="edit-app-icon">Icon</label>
@@ -804,6 +830,11 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
     const index_url = $('#edit-app-index-url').val();
     const description = $('#edit-app-description').val();
     const uid = $('#edit-app-uid').val();
+    const height = $('#edit-app-window-height').val();
+    const width = $('#edit-app-window-width').val();
+    const top = $('#edit-app-window-top').val();
+    const left = $('#edit-app-window-left').val();
+
     let filetype_associations = $('#edit-app-filetype-associations').val();
 
     let icon;
@@ -827,6 +858,24 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         error = `<strong>Index URL</strong> must be a valid url.`;
     else if (!index_url.toLowerCase().startsWith('https://') && !index_url.toLowerCase().startsWith('http://'))
         error = `<strong>Index URL</strong> must start with 'https://' or 'http://'.`;
+    // height must be a number
+    else if (isNaN(height))
+        error = `<strong>Window Height</strong> must be a number.`;
+    // height must be greater than 0
+    else if (height <= 0)
+        error = `<strong>Window Height</strong> must be greater than 0.`;
+    // width must be a number
+    else if (isNaN(width))
+        error = `<strong>Window Width</strong> must be a number.`;
+    // width must be greater than 0
+    else if (width <= 0)
+        error = `<strong>Window Width</strong> must be greater than 0.`;
+    // top must be a number
+    else if (top && isNaN(top))
+        error = `<strong>Window Top</strong> must be a number.`;
+    // left must be a number
+    else if (left && isNaN(left))
+        error = `<strong>Window Left</strong> must be a number.`;
 
     // download icon from URL
     else {
@@ -871,6 +920,16 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         background: $('#edit-app-background').is(":checked"),
         metadata: {
             fullpage_on_landing: $('#edit-app-fullpage-on-landing').is(":checked"),
+            window_size: {
+                width: width ?? 800,
+                height: height ?? 600,
+            },
+            window_position: {
+                top: top,
+                left: left,
+            },
+            window_resizable: $('#edit-app-window-resizable').is(":checked"),
+            hide_titlebar: $('#edit-app-hide-titlebar').is(":checked"),
         },
         filetypeAssociations: filetype_associations,
     }).then(async (app) => {
@@ -2014,3 +2073,14 @@ function getMimeType(extension) {
     // Return the MIME type if found, otherwise return 'application/octet-stream'
     return mimeTypes[cleanExtension] || 'application/octet-stream';
 }
+
+// if edit-app-maximize-on-start is checked, disable window size and position fields
+$(document).on('change', '#edit-app-maximize-on-start', function (e) {
+    if ($(this).is(':checked')) {
+        $('#edit-app-window-width, #edit-app-window-height').prop('disabled', true);
+        $('#edit-app-window-top, #edit-app-window-left').prop('disabled', true);
+    } else {
+        $('#edit-app-window-width, #edit-app-window-height').prop('disabled', false);
+        $('#edit-app-window-top, #edit-app-window-left').prop('disabled', false);
+    }
+})

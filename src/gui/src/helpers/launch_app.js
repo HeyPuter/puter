@@ -36,7 +36,7 @@ const launch_app = async (options)=>{
     }
 
     // If the app object is not provided, get it from the server
-    let app_info = options.app_obj ?? await window.get_apps(options.name);
+    let app_info = options.app_obj ?? await puter.apps.get(options.name);
 
     // For backward compatibility reasons we need to make sure that both `uuid` and `uid` are set
     app_info.uuid = app_info.uuid ?? app_info.uid;
@@ -68,7 +68,7 @@ const launch_app = async (options)=>{
     //-----------------------------------
     // maximize on start
     //-----------------------------------
-    if(app_info.maximize_on_start && app_info.maximize_on_start === 1)
+    if(app_info.maximize_on_start)
         options.maximized = 1;
 
     //-----------------------------------
@@ -254,6 +254,44 @@ const launch_app = async (options)=>{
         // register app_instance_uid
         window.app_instance_ids.add(uuid);
 
+        // width
+        let window_width;
+        if(app_info.metadata?.window_size?.width !== undefined)
+            window_width = parseFloat(app_info.metadata.window_size.width);
+        if(options.maximized)
+            window_width = '100%';
+
+        // height
+        let window_height;
+        if(app_info.metadata?.window_size?.height !== undefined){
+            window_height = parseFloat(app_info.metadata.window_size.height);
+        }if(options.maximized)
+            window_height = `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)`;
+
+        // top
+        let top;
+        if(app_info.metadata?.window_position?.top !== undefined)
+            top = parseFloat(app_info.metadata.window_position.top) + window.toolbar_height + 1;
+        if(options.maximized)
+            top = 0;
+
+        // left
+        let left;
+        if(app_info.metadata?.window_position?.left !== undefined)
+            left = parseFloat(app_info.metadata.window_position.left);
+        if(options.maximized)
+            left = 0;
+
+        // window_resizable
+        let window_resizable = true;
+        if(app_info.metadata?.window_resizable !== undefined && typeof app_info.metadata.window_resizable === 'boolean')
+            window_resizable = app_info.metadata.window_resizable;
+
+        // hide_titlebar
+        let hide_titlebar = false;
+        if(app_info.metadata?.hide_titlebar !== undefined && typeof app_info.metadata.hide_titlebar === 'boolean')
+            hide_titlebar = app_info.metadata.hide_titlebar;
+
         // open window
         el_win = UIWindow({
             element_uuid: uuid,
@@ -264,18 +302,21 @@ const launch_app = async (options)=>{
             window_class: 'window-app',
             update_window_url: true,
             app_uuid: app_info.uuid ?? app_info.uid,
-            top: options.maximized ? 0 : undefined,
-            left: options.maximized ? 0 : undefined,
-            height: options.maximized ? `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)` : undefined,
-            width: options.maximized ? `100%` : undefined,
+            top: top,
+            left: left,
+            height: window_height,
+            width: window_width,
             app: options.name,
             is_visible: ! app_info.background,
             is_maximized: options.maximized,
             is_fullpage: options.is_fullpage,
             ...window_options,
+            is_resizable: window_resizable,
+            has_head: ! hide_titlebar,
             show_in_taskbar: app_info.background ? false : window_options?.show_in_taskbar,
         });
 
+        // If the app is not in the background, show the window
         if ( ! app_info.background ) {
             $(el_win).show();
         }

@@ -278,7 +278,7 @@ label, input[type="text"] {
     text-decoration: underline;
 }
 
-input[type="text"], textarea {
+input[type="text"], textarea, input[type="number"] {
     display: block;
     width: 100%;
     height: 34px;
