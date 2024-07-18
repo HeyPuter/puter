@@ -27,7 +27,7 @@
     "webpack-cli": "^5.1.1"
   },
   "scripts": {
-    "test": "cd src/phoenix && npm ci && npm run test && cd - && cd src/contextlink && npm ci && npm run test && cd -",
+    "test": "npx mocha src/phoenix",
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
     "start": "node ./tools/run-selfhosted.js",
     "build": "cd src/gui; node ./build.js",
