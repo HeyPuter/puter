@@ -2,7 +2,13 @@
 
 This document describes the boot sequence of Puter's backend.
 
-**Constriction**
+**Runtime Environment**
+  - Configuration directory is determined
+  - Runtime directory is determined
+  - Mod directory is determined
+  - Services are instantiated
+
+**Construction**
   - Data structures are created
 
 **Initialization**
