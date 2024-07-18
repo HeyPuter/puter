@@ -100,10 +100,12 @@ module.exports = eggspress(['/signup'], {
     }
 
     // temporary user
-    if(req.body.is_temp){
+    if(req.body.is_temp && !config.disable_temp_users){
         req.body.username = await generate_random_username();
         req.body.email = req.body.username + '@gmail.com';
         req.body.password = 'sadasdfasdfsadfsa';
+    }else if(config.disable_temp_users){
+        return res.status(400).send('Temp users are disabled.');
     }
 
     // send_confirmation_code

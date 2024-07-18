@@ -831,7 +831,7 @@ window.initgui = async function(options){
     // -------------------------------------------------------------------------------------
     // Un-authed but not first visit -> try to log in/sign up
     // -------------------------------------------------------------------------------------
-    if(!window.is_auth() && !window.first_visit_ever){
+    if(!window.is_auth() && (!window.first_visit_ever || window.disable_temp_users)){
         if(window.logged_in_users.length > 0){
             UIWindowSessionList();
         }
@@ -849,7 +849,7 @@ window.initgui = async function(options){
     // -------------------------------------------------------------------------------------
     // Un-authed and first visit ever -> create temp user
     // -------------------------------------------------------------------------------------
-    else if(!window.is_auth() && window.first_visit_ever){
+    else if(!window.is_auth() && window.first_visit_ever && !window.disable_temp_users){
         let referrer;
         try{
             referrer = new URL(window.location.href).pathname;

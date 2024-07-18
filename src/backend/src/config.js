@@ -25,6 +25,9 @@ let config = {};
 // Static defaults
 config.servers = [];
 
+// Will disable the auto-generated temp users. If a user lands on the site, they will be required to sign up or log in.
+config.disable_temp_users = false;
+
 config.max_file_size = 100_000_000_000,
 config.max_thumb_size = 1_000,
 config.max_fsentry_name_length = 767,
@@ -130,7 +133,6 @@ const config_pointer = {};
     config_pointer.__proto__ = config;
     config_to_export = config_pointer;
 }
-
 
 // We have some methods that can be called on `config`
 {
