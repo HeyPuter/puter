@@ -23,6 +23,9 @@ COPY package*.json ./
 # Copy the source files
 COPY . .
 
+# Install mocha
+RUN npm install -g mocha
+
 # Install node modules
 RUN npm cache clean --force && \
     for i in 1 2 3; do \
