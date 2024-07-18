@@ -3,6 +3,51 @@
     "short_name": "Puter",
     "display": "standalone",
     "start_url": "/",
+    "id": "puter",
+    "description": "Personal Cloud Computer: All your files, apps, and games in one place accessible from anywhere at any time.",
+    "dir": "auto",
+    "lang": "en",
+    "orientation": "any",
+    "scope": "/",
+    "categories": [
+        "productivity",
+        "entertainment",
+        "games",
+        "navigation",
+        "utilities"
+    ],
+    "shortcuts": [
+        {
+            "name": "Notepad",
+            "short_name": "Notepad",
+            "description": "Cloud Notepad",
+            "url": "/app/editor"
+        },
+        {
+            "name": "Dev Center",
+            "short_name": "Dev Center",
+            "description": "Publish your apps and games on the Puter",
+            "url": "/app/dev-center"
+        },
+        {
+            "name": "Camera",
+            "short_name": "Camera",
+            "description": "Take a picture or record a video",
+            "url": "/app/camera"
+        },
+        {
+            "name":"Recorder",
+            "short_name":"Recorder",
+            "description":"Record audio notes and voice memos", 
+            "url":"/app/recorder"
+        },
+        {
+            "name": "Terminal",
+            "short_name": "Terminal",
+            "description": "Terminal",
+            "url": "/app/terminal"
+        }
+    ],
     "icons": [
         {
             "src": "/favicons/android-icon-36x36.png",
@@ -40,5 +85,7 @@
             "type": "image/png",
             "density": "4.0"
         }
-    ]
+    ],
+    "theme_color": "#000000",
+    "background_color": "#000000"
 }
