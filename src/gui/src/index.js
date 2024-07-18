@@ -31,6 +31,7 @@ window.puter_gui_enabled = true;
  * @param {string} [options.api_origin='https://api.puter.com'] - The origin URL for the API.
  * @param {number} [options.max_item_name_length=500] - Maximum allowed length for an item name.
  * @param {boolean} [options.require_email_verification_to_publish_website=true] - Flag to decide whether email verification is required to publish a website.
+ * @param {boolean} [options.disable_temp_users=false] - Flag to disable auto-generated temporary users.
  *
  * @property {string} [options.app_domain] - Extracted domain name from gui_origin. It's derived automatically if not provided.
  * @property {string} [window.gui_env] - The environment in which the GUI is running (e.g., "dev" or "prod").
@@ -54,6 +55,7 @@ window.gui = async function(options){
     window.api_origin = options.api_origin ?? "https://api.puter.com";
     window.max_item_name_length = options.max_item_name_length ?? 500;
     window.require_email_verification_to_publish_website = options.require_email_verification_to_publish_website ?? true;
+    window.disable_temp_users = options.disable_temp_users ?? false;
 
     // DEV: Load the initgui.js file if we are in development mode
     if(!window.gui_env || window.gui_env === "dev"){
@@ -73,6 +75,7 @@ window.gui = async function(options){
 
     // 🚀 Launch the GUI 🚀
     window.initgui(options);
+
 }
 
 /**

@@ -108,6 +108,7 @@ class PuterHomepageService extends BaseService {
                 require_email_verification_to_publish_website: config.require_email_verification_to_publish_website,
                 short_description: config.short_description,
                 long_description: config.long_description,
+                disable_temp_users: config.disable_temp_users,
             },
         }));
     }
