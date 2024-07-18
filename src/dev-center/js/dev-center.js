@@ -62,21 +62,20 @@ if(domain === 'puter.localhost'){
     static_hosting_domain = 'site.puter.localhost';
 }
 
-// port
+// add port to static_hosting_domain if provided
 if (URLParams.has('puter.port') && URLParams.get('puter.port')) {
-    static_hosting_domain = static_hosting_domain + `:` + URLParams.get('puter.port');
+    static_hosting_domain = static_hosting_domain + `:` + html_encode(URLParams.get('puter.port'));
 }
 
 // protocol
 let protocol = 'https';
-if (URLParams.has('puter.protocol')) {
-    protocol = URLParams.get('puter.protocol');
-}
+if (URLParams.has('puter.protocol') && URLParams.get('puter.protocol') === 'http')
+    protocol = 'http';
 
 // port
 let port = '';
 if (URLParams.has('puter.port') && URLParams.get('puter.port')) {
-    port = URLParams.get('puter.port');
+    port = html_encode(URLParams.get('puter.port'));
 }
 
 $(document).ready(function () {
