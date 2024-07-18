@@ -25,6 +25,7 @@ class AdvancedBase extends FeatureBase {
     static FEATURES = [
         require('./features/NodeModuleDIFeature'),
         require('./features/PropertiesFeature'),
+        require('./features/TraitsFeature'),
     ]
 }
 
