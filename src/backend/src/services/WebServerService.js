@@ -360,6 +360,8 @@ class WebServerService extends BaseService {
 
         app.use(function (req, res, next) {
             const origin = req.headers.origin;
+            
+            const is_site = req.hostname.endsWith(config.static_hosting_domain);
 
             if ( req.path === '/signup' || req.path === '/login' ) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
@@ -386,9 +388,14 @@ class WebServerService extends BaseService {
             // to the API (e.g. in case you use sessions)
             // res.setHeader('Access-Control-Allow-Credentials', true);
 
-            //needed for SharedArrayBuffer
-            // res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-            // res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
+            // Needed for SharedArrayBuffer
+            // NOTE: This is put behind a configuration flag because we
+            //       need some experimentation to ensure the interface
+            //       between apps and Puter doesn't break.
+            if ( config.cross_origin_isolation ) {
+                res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+                res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+            }
             res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
             // Pass to next layer of middleware
 
