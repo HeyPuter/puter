@@ -89,8 +89,8 @@ class DevWatcherService extends BaseService {
     log_ (name, isErr, line) {
         let txt = `[${name}:`;
         txt += isErr
-            ? `\x1B[31;1merr\x1B[0m`
-            : `\x1B[32;1mout\x1B[0m`;
+            ? `\x1B[34;1m2\x1B[0m`
+            : `\x1B[32;1m1\x1B[0m`;
         txt += '] ' + line;
         this.log.info(txt);
     }
