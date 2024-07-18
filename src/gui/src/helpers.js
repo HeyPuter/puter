@@ -1169,7 +1169,13 @@ window.trigger_download = (paths)=>{
 
     urls.forEach(async function (e) {                
         const anti_csrf = await (async () => {
-            const resp = await fetch(`${window.gui_origin}/get-anticsrf-token`);
+            const resp = await fetch(
+                `${window.gui_origin}/get-anticsrf-token`,{
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + window.auth_token,
+                    }
+                },)
             const { token } = await resp.json();
             return token;
         })();
