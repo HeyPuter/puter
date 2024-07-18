@@ -21,7 +21,12 @@ const { BasicBase } = require("./BasicBase");
 class FeatureBase extends BasicBase {
     constructor (parameters, ...a) {
         super(parameters, ...a);
-        for ( const feature of this.features ) {
+        
+        this._ = {
+            features: this._get_merged_static_array('FEATURES'),
+        };
+        
+        for ( const feature of this._.features ) {
             feature.install_in_instance(
                 this,
                 {
@@ -29,10 +34,6 @@ class FeatureBase extends BasicBase {
                 }
             )
         }
-    }
-
-    get features () {
-        return this._get_merged_static_array('FEATURES');
     }
 }
 

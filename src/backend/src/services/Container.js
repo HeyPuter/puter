@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { AdvancedBase } = require("@heyputer/puter-js-common");
 const config = require("../config");
 const { Context } = require("../util/context");
 const { CompositeError } = require("../util/errorutil");
@@ -26,6 +27,7 @@ class Container {
     constructor ({ logger }) {
         this.logger = logger;
         this.instances_ = {};
+        this.implementors_ = {};
         this.ready = new TeePromise();
     }
     /**
@@ -37,9 +39,24 @@ class Container {
      */
     registerService (name, cls, args) {
         const my_config = config.services?.[name] || {};
-        this.instances_[name] = cls.getInstance
+        const instance = cls.getInstance
             ? cls.getInstance({ services: this, config, my_config, name, args })
             : new cls({ services: this, config, my_config, name, args }) ;
+        this.instances_[name] = instance;
+        
+        if ( !(instance instanceof AdvancedBase) ) return;
+        
+        const traits = instance.list_traits();
+        for ( const trait of traits ) {
+            if ( ! this.implementors_[trait] ) {
+                this.implementors_[trait] = [];
+            }
+            this.implementors_[trait].push({
+                name,
+                instance,
+                impl: instance.as(trait),
+            });
+        }
     }
     /**
      * patchService allows overriding methods on a service that is already
@@ -54,6 +71,15 @@ class Container {
         const patch_instance = new patch();
         patch_instance.patch({ original_service, args });
     }
+    
+    // get_implementors returns a list of implementors for the specified
+    // interface name.
+    get_implementors (interface_name) {
+        const internal_list = this.implementors_[interface_name];
+        const clone = [...internal_list];
+        return clone;
+    }
+    
     set (name, instance) { this.instances_[name] = instance; }
     get (name, opts) {
         if ( this.instances_[name] ) {

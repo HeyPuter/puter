@@ -43,6 +43,10 @@ class MapCollection extends AdvancedBase {
     del (key) {
         return this.kv.del(this._mk_key(key));
     }
+    
+    keys () {
+        return this.kv.keys(`registry:map:${this.map_id}:*`);
+    }
 
     _mk_key (key) {
         return `registry:map:${this.map_id}:${key}`;
@@ -56,6 +60,16 @@ class RegistryService extends BaseService {
 
     _construct () {
         this.collections_ = {};
+    }
+
+    async ['__on_boot.consolidation'] () {
+        const services = this.services;
+        await services.emit('registry.collections', {
+            svc_registry: this,
+        });
+        await services.emit('registry.entries', {
+            svc_registry: this,
+        });
     }
 
     register_collection (name) {

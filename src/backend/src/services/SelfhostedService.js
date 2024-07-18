@@ -29,7 +29,6 @@ class SelfhostedService extends BaseService {
     async _init () {
         const svc_driver = this.services.get('driver');
 
-        svc_driver.register_driver('helloworld', new HelloWorld());
         svc_driver.register_driver('puter-kvstore', new DBKVStore());
         svc_driver.register_driver('puter-apps', new EntityStoreImplementation({ service: 'es:app' }));
         svc_driver.register_driver('puter-subdomains', new EntityStoreImplementation({ service: 'es:subdomain' }));

@@ -302,6 +302,9 @@ const install = async ({ services, app, useapi }) => {
 
     const { AnomalyService } = require('./services/AnomalyService');
     services.registerService('anomaly', AnomalyService);
+    
+    const { HelloWorldService } = require('./services/HelloWorldService');
+    services.registerService('hello-world', HelloWorldService);
 }
 
 const install_legacy = async ({ services }) => {
