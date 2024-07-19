@@ -20,9 +20,13 @@ const { Sequence } = require("../../codex/Sequence");
 const { get_user } = require("../../helpers");
 const { Actor, UserActorType } = require("../../services/auth/Actor");
 
-
-
 module.exports = new Sequence([
+    async function grant_if_system (a) {
+        const { actor } = a.values();
+        if ( actor.type.user.username === 'system' ) {
+            return a.stop({});
+        }
+    },
     async function rewrite_permission (a) {
         let { permission } = a.values();
         permission = await a.icall('_rewrite_permission', permission);
