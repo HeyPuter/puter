@@ -24,7 +24,7 @@ const BaseService = require("./BaseService");
 const { Actor, UserActorType } = require("./auth/Actor");
 const { DB_WRITE } = require("./database/consts");
 
-const USERNAME = 'default_user';
+const USERNAME = 'admin';
 
 class DefaultUserService extends BaseService {
     static MODULES = {
@@ -34,11 +34,11 @@ class DefaultUserService extends BaseService {
     async _init () {
     }
     async ['__on_ready.webserver'] () {
-        // check if a user named `default-user` exists
+        // check if a user named `admin` exists
         let user = await get_user({ username: USERNAME, cached: false });
         if ( ! user ) user = await this.create_default_user_();
 
-        // check if user named `default-user` is using default password
+        // check if user named `admin` is using default password
         const require = this.require;
         const tmp_password = await this.get_tmp_password_(user);
         const bcrypt = require('bcrypt');
@@ -51,7 +51,7 @@ class DefaultUserService extends BaseService {
         // show console widget
         this.default_user_widget = () => {
             const lines = [
-                `Your default user has been created!`,
+                `Your admin user has been created!`,
                 `\x1B[31;1musername:\x1B[0m ${USERNAME}`,
                 `\x1B[32;1mpassword:\x1B[0m ${tmp_password}`,
                 `(change the password to remove this message)`
@@ -82,7 +82,7 @@ class DefaultUserService extends BaseService {
         }, interval);
     }
     async create_default_user_ () {
-        const db = this.services.get('database').get(DB_WRITE, 'default-user');
+        const db = this.services.get('database').get(DB_WRITE, USERNAME);
         await db.write(
             `
                 INSERT INTO user (uuid, username, free_storage)
@@ -94,7 +94,12 @@ class DefaultUserService extends BaseService {
                 1024 * 1024 * 1024 * 10, // 10 GB
             ],
         );
-        const user = await get_user({ username: USERNAME });
+        const svc_group = this.services.get('group');
+        await svc_group.add_users({
+            uid: 'ca342a5e-b13d-4dee-9048-58b11a57cc55', // admin
+            users: [USERNAME]
+        });
+        const user = await get_user({ username: USERNAME, cached: false });
         const tmp_password = await this.get_tmp_password_(user);
         const bcrypt = require('bcrypt');
         const password_hashed = await bcrypt.hash(tmp_password, 8);
