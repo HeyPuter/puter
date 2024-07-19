@@ -22,14 +22,14 @@ async function UIWindowShare(items, recipient){
     return new Promise(async (resolve) => {
         let h = '';
         h += `<div style="padding: 30px 40px 20px; border-bottom: 1px solid #ced7e1;">`;
-            h += `<div class="qr-code-window-close-btn generic-close-window-button" style="margin: 5px;"> &times; </div>`;
+            h += `<div class="generic-close-window-button" style="margin: 5px;"> &times; </div>`;
 
             //------------------------------------------------
-            // Icon
+            // Icons
             //------------------------------------------------
             
-            // 1 item shared
-            h += `<div style="display:flex; justify-content: center; margin-bottom: 10px;">`;
+            h += `<div style="display:flex; justify-content: center; margin-bottom: 10px; disable-user-select">`;
+                // 1 item shared
                 if(items.length === 1)
                     h += `<img src="${items[0].icon}" style="width:70px; height:70px;">`;
                 // 2 items shared
@@ -58,7 +58,6 @@ async function UIWindowShare(items, recipient){
                     h += `<img src="${items[3].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -35px; z-index:2; transform:scale(0.4);">`;
                     h += `<img src="${items[4].icon}" style="width:70px; height:70px; margin-left:-60px; margin-top: -45px; z-index:1; transform:scale(0.2);">`;
                 }
-
             h += `</div>`;
 
             // ------------------------------------------------

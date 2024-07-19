@@ -36,7 +36,17 @@ const launch_app = async (options)=>{
     }
 
     // If the app object is not provided, get it from the server
-    let app_info = options.app_obj ?? await puter.apps.get(options.name);
+    let app_info;
+    
+    // explorer is a special case
+    if(options.name === 'explorer'){
+        console.log('explorer');
+        app_info = [];
+    }
+    else if(options.app_obj)
+        app_info = options.app_obj;
+    else
+        app_info = await puter.apps.get(options.name);
 
     // For backward compatibility reasons we need to make sure that both `uuid` and `uid` are set
     app_info.uuid = app_info.uuid ?? app_info.uid;
