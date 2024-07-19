@@ -392,7 +392,7 @@ class WebServerService extends BaseService {
             // NOTE: This is put behind a configuration flag because we
             //       need some experimentation to ensure the interface
             //       between apps and Puter doesn't break.
-            if ( config.cross_origin_isolation ) {
+            if ( config.cross_origin_isolation && is_site ) {
                 res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
                 res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
             }
