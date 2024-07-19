@@ -42,7 +42,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         this.db = new Database(this.config.path);
 
         // Database upgrade logic
-        const TARGET_VERSION = 22;
+        const TARGET_VERSION = 23;
 
         if ( do_setup ) {
             this.log.noticeme(`SETUP: creating database at ${this.config.path}`);
@@ -71,6 +71,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 '0022_dev-center-max.sql',
                 '0023_fix-kv.sql',
                 '0024_default-groups.sql',
+                '0025_system-user.dbmig.js'
             ].map(p => path_.join(__dirname, 'sqlite_setup', p));
             const fs = require('fs');
             for ( const filename of sql_files ) {
@@ -175,6 +176,10 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             upgrade_files.push('0024_default-groups.sql');
         }
 
+        if ( user_version <= 22 ) {
+            upgrade_files.push('0025_system-user.dbmig.js');
+        }
+
         if ( upgrade_files.length > 0 ) {
             this.log.noticeme(`Database out of date: ${this.config.path}`);
             this.log.noticeme(`UPGRADING DATABASE: ${user_version} -> ${TARGET_VERSION}`);
@@ -188,7 +193,20 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 const basename = path_.basename(filename);
                 this.log.noticeme(`applying ${basename}`);
                 const contents = fs.readFileSync(filename, 'utf8');
-                this.db.exec(contents);
+                switch ( path_.extname(filename) ) {
+                    case '.sql':
+                        this.db.exec(contents);
+                        break;
+                    case '.js':
+                        await this.run_js_migration_({
+                            filename, contents,
+                        });
+                        break;
+                    default:
+                        throw new Error(
+                            `unrecognized migration type: ${filename}`
+                        );
+                }
             }
 
             // Update version number
@@ -272,6 +290,17 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             }
             return p;
         });
+    }
+    
+    async run_js_migration_ ({ filename, contents }) {
+        contents = `(async () => {${contents}})()`;
+        const vm = require('vm');
+        const context = vm.createContext({
+            read: this.read.bind(this),
+            write: this.write.bind(this),
+            log: this.log,
+        });
+        await vm.runInContext(contents, context);
     }
 
     _register_commands (commands) {
