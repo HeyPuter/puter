@@ -837,6 +837,60 @@ window.create_file = async(options)=>{
     }
 }
 
+window.available_templates = async () => {
+    console.log(window.user.username)
+    const baseRoute = `/${window.user.username}`
+    const keywords = ["template", "templates", i18n('template')]
+    //make sure all its lowercase
+    const lowerCaseKeywords = keywords.map(keywords => keywords.toLowerCase())
+
+    //create file
+    try{
+        // search the folder name i18n("template"), "template" or "templates"
+        const files = await puter.fs.readdir(baseRoute)
+
+        const hasTemplateFolder = files.find(file => lowerCaseKeywords.includes(file.name.toLowerCase()))
+        console.log(hasTemplateFolder)
+
+        if(!hasTemplateFolder){
+            console.log("No template folder")
+            return []
+        }
+
+        const hasTemplateFiles = await puter.fs.readdir(baseRoute + "/" + hasTemplateFolder.name)
+        console.log(hasTemplateFiles)
+
+        if(hasTemplateFiles.length == 0) {
+            console.log("There are no templates")
+            return []
+        }
+
+        let result = []
+
+        hasTemplateFiles.forEach(element => {
+            console.log(element)
+            const elementInformation = element.name.split(".")
+            const name = elementInformation[0]
+            let extension = elementInformation[1]
+            console.log(extension)
+            if(extension == "txt") extension = "text"
+            const itemStructure = {
+                html: `${extension.toUpperCase()} ${name}`,
+                extension:extension,
+                name: element.name
+            }
+            console.log(extension)
+            result.push(itemStructure)
+        });
+        
+        // return result
+        return result
+        
+    } catch (err) {
+        console.log(err)
+    }
+}
+
 window.create_shortcut = async(filename, is_dir, basedir, appendto_element, shortcut_to, shortcut_to_path)=>{
     let dirname = basedir;
     const extname = path.extname(filename);
