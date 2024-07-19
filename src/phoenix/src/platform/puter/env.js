@@ -22,7 +22,7 @@ export const CreateEnvProvider = ({ config }) => {
             return {
                 USER: config['puter.auth.username'],
                 HOME: '/' + config['puter.auth.username'],
-                HOSTNAME: config['puter.domain'],
+                HOSTNAME: config['puter.domain'] ?? 'puter.com',
             }
         },
 
