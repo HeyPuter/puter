@@ -88,7 +88,7 @@ const implicit_user_app_permissions = [
 ];
 
 const implicit_user_permissions = {
-    'driver': {},
+    // 'driver': {},
 };
 
 class PermissionRewriter {

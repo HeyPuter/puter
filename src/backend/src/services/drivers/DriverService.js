@@ -91,7 +91,6 @@ class DriverService extends BaseService {
         try {
             return await this._call(...a);
         } catch ( e ) {
-            console.error(e);
             return this._driver_response_from_error(e);
         }
     }
