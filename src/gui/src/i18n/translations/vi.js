@@ -296,7 +296,7 @@ const vi = {
         two_factor_disabled: '2FA đã tắt',
         two_factor_enabled: '2FA đã bật',
         type: 'Loại',
-        type_confirm_to_delete_account: "Gõ 'xác nhận' để xóa tài khoản của bạn.", // "Type 'confirm' to delete your account."
+        type_confirm_to_delete_account: "Gõ 'confirm' để xóa tài khoản của bạn.",
         ui_colors: "Màu sắc giao diện",
         ui_manage_sessions: "Quản lý phiên",
         ui_revoke: "Thu hồi",
