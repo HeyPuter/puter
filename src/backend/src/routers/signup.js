@@ -214,6 +214,14 @@ module.exports = eggspress(['/signup'], {
             'UPDATE `user` SET `last_activity_ts` = now() WHERE id=? LIMIT 1',
             [insert_res.insertId]
         );
+        
+        // TODO: cache group id
+        const svc_group = req.services.get('group');
+        await svc_group.add_users({
+            uid: req.body.is_temp ?
+                config.default_temp_group : config.default_user_group,
+            users: [req.body.username]
+        });
     }
     // -----------------------------------
     // Pseudo User converting
@@ -243,6 +251,17 @@ module.exports = eggspress(['/signup'], {
                 referred_by_user ? referred_by_user.id : null,
             ]
         );
+
+        // TODO: cache group ids
+        const svc_group = req.services.get('group');
+        await svc_group.remove_users({
+            uid: config.default_temp_group,
+            users: [req.body.username],
+        });
+        await svc_group.add_users({
+            uid: config.default_user_group,
+            users: [req.body.username]
+        });
 
         // record activity
         db.write('UPDATE `user` SET `last_activity_ts` = now() WHERE id=? LIMIT 1', [pseudo_user.id]);

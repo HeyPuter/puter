@@ -16,15 +16,54 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { QuickMkdir } = require("../filesystem/hl_operations/hl_mkdir");
+const { HLWrite } = require("../filesystem/hl_operations/hl_write");
+const { NodePathSelector } = require("../filesystem/node/selectors");
 const { surrounding_box } = require("../fun/dev-console-ui-utils");
 const { get_user, generate_system_fsentries, invalidate_cached_user } = require("../helpers");
 const { Context } = require("../util/context");
 const { asyncSafeSetInterval } = require("../util/promise");
+const { buffer_to_stream } = require("../util/streamutil");
 const BaseService = require("./BaseService");
 const { Actor, UserActorType } = require("./auth/Actor");
 const { DB_WRITE } = require("./database/consts");
 
 const USERNAME = 'admin';
+
+const DEFAULT_FILES = {
+    '.policy': {
+        'drivers.json': JSON.stringify({
+            "temp": {
+                "kv": {
+                    "rate-limit": {
+                        "max": 1000,
+                        "period": 30000
+                    }
+                },
+                "es": {
+                    "date-limit": {
+                        "max": 1000,
+                        "period": 30000
+                    }
+                },
+            },
+            "user": {
+                "kv": {
+                    "rate-limit": {
+                        "max": 3000,
+                        "period": 30000
+                    }
+                },
+                "es": {
+                    "rate-limit": {
+                        "max": 3000,
+                        "period": 30000
+                    }
+                }
+            }
+        }, undefined, '    '),
+    }
+};
 
 class DefaultUserService extends BaseService {
     static MODULES = {
@@ -100,6 +139,7 @@ class DefaultUserService extends BaseService {
             users: [USERNAME]
         });
         const user = await get_user({ username: USERNAME, cached: false });
+        const actor = Actor.adapt(user);
         const tmp_password = await this.get_tmp_password_(user);
         const bcrypt = require('bcrypt');
         const password_hashed = await bcrypt.hash(tmp_password, 8);
@@ -112,6 +152,46 @@ class DefaultUserService extends BaseService {
         );
         user.password = password_hashed;
         await generate_system_fsentries(user);
+        // generate default files for admin user
+        const svc_fs = this.services.get('filesystem');
+        const make_tree_ = async ({ components, tree }) => {
+            const parent = await svc_fs.node(
+                new NodePathSelector('/'+components.join('/')),
+            );
+            for ( const k in tree ) {
+                if ( typeof tree[k] === 'string' ) {
+                    const buffer = Buffer.from(tree[k], 'utf-8');
+                    const hl_write = new HLWrite();
+                    await hl_write.run({
+                        destination_or_parent: parent,
+                        specified_name: k,
+                        file: {
+                            size: buffer.length,
+                            stream: buffer_to_stream(buffer),
+                        },
+                        user,
+                    });
+                } else {
+                    const hl_qmkdir = new QuickMkdir();
+                    await hl_qmkdir.run({
+                        parent,
+                        path: k,
+                    });
+                    const components_ = [...components, k];
+                    await make_tree_({
+                        components: components_,
+                        tree: tree[k],
+                    });
+                }
+                
+            }
+        };
+        await Context.get().sub({ user, actor }).arun(async () => {
+            await make_tree_({
+                components: ['admin'],
+                tree: DEFAULT_FILES
+            });
+        });
         invalidate_cached_user(user);
         await new Promise(rslv => setTimeout(rslv, 2000));
         return user;
