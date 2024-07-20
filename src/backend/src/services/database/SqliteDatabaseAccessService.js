@@ -18,6 +18,7 @@
  */
 const { es_import_promise } = require("../../fun/dev-console-ui-utils");
 const { surrounding_box } = require("../../fun/dev-console-ui-utils");
+const structutil = require("../../util/structutil");
 const { BaseDatabaseAccessService } = require("./BaseDatabaseAccessService");
 
 class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
@@ -42,7 +43,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         this.db = new Database(this.config.path);
 
         // Database upgrade logic
-        const TARGET_VERSION = 23;
+        const TARGET_VERSION = 24;
 
         if ( do_setup ) {
             this.log.noticeme(`SETUP: creating database at ${this.config.path}`);
@@ -71,7 +72,8 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 '0022_dev-center-max.sql',
                 '0023_fix-kv.sql',
                 '0024_default-groups.sql',
-                '0025_system-user.dbmig.js'
+                '0025_system-user.dbmig.js',
+                '0026_user-groups.dbmig.js',
             ].map(p => path_.join(__dirname, 'sqlite_setup', p));
             const fs = require('fs');
             for ( const filename of sql_files ) {
@@ -178,6 +180,10 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
         if ( user_version <= 22 ) {
             upgrade_files.push('0025_system-user.dbmig.js');
+        }
+
+        if ( user_version <= 23 ) {
+            upgrade_files.push('0026_user-groups.dbmig.js');
         }
 
         if ( upgrade_files.length > 0 ) {
@@ -299,6 +305,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             read: this.read.bind(this),
             write: this.write.bind(this),
             log: this.log,
+            structutil,
         });
         await vm.runInContext(contents, context);
     }
