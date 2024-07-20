@@ -295,7 +295,7 @@ const pl = {
         two_factor_disabled: 'Uwierzytelnianie dwuetapowe zablokowane',
         two_factor_enabled: 'Uwierzytelnianie dwuetapowe odblokowane',
         type: 'Wpisz',
-        type_confirm_to_delete_account: "Wpisz 'potwierdzam', aby skasować swoje konto.",
+        type_confirm_to_delete_account: "Wpisz 'confirm', aby skasować swoje konto.",
         ui_colors: "Kolory interfejsu użytkownika",
         ui_manage_sessions: "Menedżer sesji",
         ui_revoke: "Unieważnij",

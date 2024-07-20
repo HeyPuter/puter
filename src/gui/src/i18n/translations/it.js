@@ -295,7 +295,7 @@ const it = {
         two_factor_disabled: '2FA Disabilitata',
         two_factor_enabled: '2FA Abilitata',
         type: 'Tipo',
-        type_confirm_to_delete_account: "Scrivi 'conferma' per eliminare il tuo account.",
+        type_confirm_to_delete_account: "Scrivi 'confirm' per eliminare il tuo account.",
         ui_colors: "Colori dell'interfaccia",
         ui_manage_sessions: "Session Manager",
         ui_revoke: "Revoca",

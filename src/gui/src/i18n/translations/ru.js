@@ -296,7 +296,7 @@ const ru = {
         two_factor_disabled: 'Двухфакторная аутентификация отключена',
         two_factor_enabled: 'Двухфакторная аутентификация включена',
         type: 'Тип',
-        type_confirm_to_delete_account: "Введите 'подтвердить', чтобы удалить учетную запись.",
+        type_confirm_to_delete_account: "Введите 'confirm', чтобы удалить учетную запись.",
         ui_colors: "Цвета пользовательского интерфейса",
         ui_manage_sessions: "Менеджер Сеансов",
         ui_revoke: "Отозвать",

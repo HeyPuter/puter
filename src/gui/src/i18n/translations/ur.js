@@ -302,7 +302,7 @@ const ur = {
     two_factor_enabled: "2FA فعال",
     type: "لکہنا",
     type_confirm_to_delete_account:
-      "اپنا اکاؤنٹ حذف کرنے کے لیے 'تصدیق' ٹائپ کریں۔",
+      "اپنا اکاؤنٹ حذف کرنے کے لیے 'confirm' ٹائپ کریں۔",
     ui_colors: "UI رنگ",
     ui_manage_sessions: "سیشن مینیجر",
     ui_revoke: "منسوخ کرنا",

@@ -296,7 +296,7 @@ const zh = {
         two_factor_disabled: '关闭二次身份验证',
         two_factor_enabled: '启用二次身份验证',
         type: '类型',
-        type_confirm_to_delete_account: "请输入 confirm 以确认删除账号.",
+        type_confirm_to_delete_account: "请输入「confirm」以确认删除账号.",
         ui_colors: "界面颜色",
         ui_manage_sessions: "会话管理",
         ui_revoke: "取消",

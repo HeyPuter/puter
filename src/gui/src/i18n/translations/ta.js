@@ -294,7 +294,7 @@ const ta = {
         two_factor_disabled: '2FA முடக்கப்பட்டது',
         two_factor_enabled: '2FA இயக்கப்பட்டது',
         type: 'வகை',
-        type_confirm_to_delete_account: "உங்கள் கணக்கை நீக்க, 'உறுதிப்படுத்து' என தட்டச்சு செய்யவும்.",
+        type_confirm_to_delete_account: "உங்கள் கணக்கை நீக்க, 'confirm' என தட்டச்சு செய்யவும்.",
         ui_colors: "UI நிறங்கள்",
         ui_manage_sessions: "அமர்வு மேலாளர்",
         ui_revoke: "திரும்பப் பெறு",

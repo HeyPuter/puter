@@ -188,7 +188,7 @@ const nl = {
 		tos_fineprint: `Door te klikken op 'Maak Gratis Account' gaat u akkoord met Puter's {{link=terms}}Gebruiksvoorwaarden{{/link}} en {{link=privacy}}Privacybeleid{{/link}}.`,
 		trash: 'Prullenbak',
 		type: 'Type',
-		type_confirm_to_delete_account: "Type 'bevestig' om uw account te verwijderen.",
+		type_confirm_to_delete_account: "Type 'confirm' om uw account te verwijderen.",
 		undo: 'Ongedaan maken',
 		unlimited: 'Onbeperkt',
 		unzip: "Uitpakken",

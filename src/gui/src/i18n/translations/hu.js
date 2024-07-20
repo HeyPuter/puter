@@ -291,7 +291,7 @@ const hu = {
                         two_factor_disabled: "2FA letiltva",
                         two_factor_enabled: "2FA engedélyezve",
                         type: "Típus",
-                        type_confirm_to_delete_account: "Írd be, hogy 'megerősít' a fiók törléséhez.",
+                        type_confirm_to_delete_account: "Írd be, hogy 'confirm' a fiók törléséhez.",
                         ui_colors: "UI színek",
                         ui_manage_sessions: "Munkamenetkezelő",
                         ui_revoke: "Visszavonás",

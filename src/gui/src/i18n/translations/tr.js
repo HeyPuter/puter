@@ -295,7 +295,7 @@ const tr = {
         two_factor_disabled: "İki Faktörlü Doğrulama Devre Dışı",
         two_factor_enabled: "İki Faktörlü Doğrulama Etkin",
         type: "Tür",
-        type_confirm_to_delete_account: "Hesabınızı silmek için 'onayla' yazın.",
+        type_confirm_to_delete_account: "Hesabınızı silmek için 'confirm' yazın.",
         ui_colors: "Arayüz Renkleri",
         ui_manage_sessions: "Oturum Yöneticisi",
         ui_revoke: "Sonlandır",

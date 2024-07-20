@@ -292,7 +292,7 @@ const ua = {
         two_factor_disabled: "Двофакторна аутентифікація вимкнена",
         two_factor_enabled:"Двофакторна аутентифікація увімкнена",
         type: 'Тип',
-        type_confirm_to_delete_account: "Введіть 'Підтвердити', щоб видалити обліковий запис.",
+        type_confirm_to_delete_account: "Введіть 'confirm', щоб видалити обліковий запис.",
         ui_colors: "Кольори UI",
         ui_manage_sessions: "Менеджер Сеансів",
         ui_revoke: "Відкликати",

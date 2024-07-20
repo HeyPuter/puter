@@ -295,7 +295,7 @@ const ar = {
 	    two_factor_disabled: "تم تعطيل المصادقة الثنائية",
 	    two_factor_enabled: "تم تمكين المصادقة الثنائية",
         type: "نوع",
-	    type_confirm_to_delete_account: "اكتب 'تأكيد' لحذف حسابك.",
+	    type_confirm_to_delete_account: "اكتب 'confirm' لحذف حسابك.",
 	    ui_colors: "ألوان واجهة المستخدم",
 	    ui_manage_sessions: "مدير الجلسات",
 	    ui_revoke: "إلغاء",

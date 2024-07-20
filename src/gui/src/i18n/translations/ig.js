@@ -231,7 +231,7 @@ const ig = {
         transparency: "nghọta",
         trash: 'ahịhịa',
         type: 'Ụdị',
-        type_confirm_to_delete_account: "Pịnye 'kwenye' ka ihichapụ akaụntụ gị.",
+        type_confirm_to_delete_account: "Pịnye 'confirm' ka ihichapụ akaụntụ gị.",
         ui_colors: "Agba UI",
         ui_manage_sessions: "Onye njikwa oge",
         ui_revoke: "Kagbuo",

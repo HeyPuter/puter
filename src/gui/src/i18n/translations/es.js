@@ -302,7 +302,7 @@ const es = {
         two_factor_disabled: '2FA Deshabilitadp',
         two_factor_enabled: '2FA Habilitado',
         type: 'Tipo',
-        type_confirm_to_delete_account: "Ingrese 'Confirmar' para borrar esta cuenta.",
+        type_confirm_to_delete_account: "Ingrese 'confirm' para borrar esta cuenta.",
         ui_colors: "Colores de interfaz",
         ui_manage_sessions: "Administrador de sesión",
         ui_revoke: "Revocar",

@@ -298,7 +298,7 @@ const bn = {
     two_factor_disabled: "2FA অক্ষম",
     two_factor_enabled: "2FA সক্ষম",
     type: "ধরণ",
-    type_confirm_to_delete_account: "অ্যাকাউন্ট মোছার জন্য 'অনুমোদন' টাইপ করুন।",
+    type_confirm_to_delete_account: "অ্যাকাউন্ট মোছার জন্য 'confirm' টাইপ করুন।",
     ui_colors: "ইউআই রঙ",
     ui_manage_sessions: "সেশন ম্যানেজার",
     ui_revoke: "প্রত্যাহার করুন",

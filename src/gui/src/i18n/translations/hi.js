@@ -295,7 +295,7 @@ const hi = {
         two_factor_disabled: '2एफए अक्षम',
         two_factor_enabled: '2एफए सक्षम',
         type: 'प्रकार',
-        type_confirm_to_delete_account: "अपना खाता हटाने के लिए 'पुष्टि करें' टाइप करें।",
+        type_confirm_to_delete_account: "अपना खाता हटाने के लिए 'confirm' टाइप करें।",
         ui_colors: "यूआई रंग",
         ui_manage_sessions: "सत्र प्रबंधक",
         ui_revoke: "रद्द",
