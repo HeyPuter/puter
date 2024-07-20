@@ -266,28 +266,28 @@ const launch_app = async (options)=>{
 
         // width
         let window_width;
-        if(app_info.metadata?.window_size?.width !== undefined)
+        if(app_info.metadata?.window_size?.width !== undefined && app_info.metadata?.window_size?.width !== '')
             window_width = parseFloat(app_info.metadata.window_size.width);
         if(options.maximized)
             window_width = '100%';
 
         // height
         let window_height;
-        if(app_info.metadata?.window_size?.height !== undefined){
+        if(app_info.metadata?.window_size?.height !== undefined && app_info.metadata?.window_size?.height !== ''){
             window_height = parseFloat(app_info.metadata.window_size.height);
         }if(options.maximized)
             window_height = `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)`;
 
         // top
         let top;
-        if(app_info.metadata?.window_position?.top !== undefined)
+        if(app_info.metadata?.window_position?.top !== undefined && app_info.metadata?.window_position?.top !== '')
             top = parseFloat(app_info.metadata.window_position.top) + window.toolbar_height + 1;
         if(options.maximized)
             top = 0;
 
         // left
         let left;
-        if(app_info.metadata?.window_position?.left !== undefined)
+        if(app_info.metadata?.window_position?.left !== undefined && app_info.metadata?.window_position?.left !== '')
             left = parseFloat(app_info.metadata.window_position.left);
         if(options.maximized)
             left = 0;
