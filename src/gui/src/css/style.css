@@ -158,7 +158,7 @@ body {
     z-index: -9999;
 }
 
-input[type=text], input[type=password], input[type=email], select {
+input[type=text], input[type=password], input[type=email], select, .form-input {
     width: 100%;
     padding: 8px;
     border: 1px solid #ccc;
@@ -175,7 +175,7 @@ input[type=text], input[type=password], input[type=email], select {
     font-size: 17px;
 }
 
-input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, select:focus {
+input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, select:focus, .form-input:focus {
     border: 2px solid #01a0fd;
     padding: 7px;
 }
@@ -4129,4 +4129,12 @@ fieldset[name=number-code] {
 }
 .settings-sidebar.active {
     display: block;
+}
+.profile-picture{
+    background-size: cover;
+    background-position: center;
+    border-radius: 50%;
+}
+.change-profile-picture{
+    cursor: pointer;
 }

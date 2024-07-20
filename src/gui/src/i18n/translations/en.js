@@ -221,6 +221,7 @@ const en = {
         process_type_app: 'App',
         process_type_init: 'Init',
         process_type_ui: 'UI',
+        profile_picture: "Profile Picture",
         properties: "Properties",
         public: 'Public',
         publish: "Publish",
