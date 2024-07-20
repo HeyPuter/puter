@@ -109,6 +109,7 @@ class PuterHomepageService extends BaseService {
                 short_description: config.short_description,
                 long_description: config.long_description,
                 disable_temp_users: config.disable_temp_users,
+                co_isolation_enabled: req.co_isolation_enabled,
             },
         }));
     }

@@ -56,6 +56,7 @@ window.gui = async function(options){
     window.max_item_name_length = options.max_item_name_length ?? 500;
     window.require_email_verification_to_publish_website = options.require_email_verification_to_publish_website ?? true;
     window.disable_temp_users = options.disable_temp_users ?? false;
+    window.co_isolation_enabled = options.co_isolation_enabled;
 
     // DEV: Load the initgui.js file if we are in development mode
     if(!window.gui_env || window.gui_env === "dev"){

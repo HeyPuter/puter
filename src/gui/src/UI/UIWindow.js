@@ -323,6 +323,10 @@ async function UIWindow(options) {
                         frameborder="0" 
                         ${options.iframe_url ? 'src="'+ html_encode(options.iframe_url)+'"' : ''}
                         ${options.iframe_srcdoc ? 'srcdoc="'+ html_encode(options.iframe_srcdoc) +'"' : ''}
+                        ${window.co_isolation_enabled
+                            ? 'credentialless allow="cross-origin-isolated" '
+                            : ''
+                        }
                         allow = "accelerometer; camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; fullscreen;"
                         allowtransparency="true"
                         allowpaymentrequest="true" 

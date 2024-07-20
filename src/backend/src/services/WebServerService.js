@@ -357,11 +357,29 @@ class WebServerService extends BaseService {
         app.use(helmet.xssFilter());
         // app.use(helmet.referrerPolicy());
         app.disable('x-powered-by');
+    
+        const uaParser = require('ua-parser-js');
+        app.use(function (req, res, next) {
+            const ua_header = req.headers['user-agent'];
+            const ua = uaParser(ua_header);
+            req.ua = ua;
+            console.log('\x1B[26;1m===== UA =====\x1B[0m', ua);
+            next();
+        });
+
+        app.use(function (req, res, next) {
+            req.co_isolation_enabled =
+                ['Chrome', 'Edge'].includes(req.ua.browser.name)
+                && (Number(req.ua.browser.major) >= 110);
+            next();
+        });
 
         app.use(function (req, res, next) {
             const origin = req.headers.origin;
             
             const is_site = req.hostname.endsWith(config.static_hosting_domain);
+            
+            const co_isolation_okay = is_site || req.co_isolation_enabled;
 
             if ( req.path === '/signup' || req.path === '/login' ) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
@@ -392,7 +410,7 @@ class WebServerService extends BaseService {
             // NOTE: This is put behind a configuration flag because we
             //       need some experimentation to ensure the interface
             //       between apps and Puter doesn't break.
-            if ( config.cross_origin_isolation && is_site ) {
+            if ( config.cross_origin_isolation && co_isolation_okay ) {
                 res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
                 res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
             }
