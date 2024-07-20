@@ -49,6 +49,7 @@ import ua from './ua.js';
 import zh from './zh.js';
 import hu from './hu.js';
 import zhtw from './zhtw.js';
+import vi from "./vi.js";
 import emoji from './emoji.js';
 
 
@@ -86,5 +87,6 @@ export default {
     hu,
     zhtw,
     ur,
+    vi,
     emoji,
 };
