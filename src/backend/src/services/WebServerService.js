@@ -378,9 +378,10 @@ class WebServerService extends BaseService {
             const origin = req.headers.origin;
             
             const is_site = req.hostname.endsWith(config.static_hosting_domain);
+            const is_popup = !! req.query.embedded_in_popup;
             
-            const co_isolation_okay = is_site || req.co_isolation_enabled;
-
+            const co_isolation_okay = !is_popup && (is_site || req.co_isolation_enabled);
+            
             if ( req.path === '/signup' || req.path === '/login' ) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
             }
