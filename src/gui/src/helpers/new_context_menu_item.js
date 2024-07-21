@@ -91,10 +91,6 @@ const new_context_menu_item = function(dirname, append_to_element){
         baseItems.push({
             html: "No templates found",
             icon: `<img src="${html_encode(window.icons['file-template.svg'])}" class="ctx-item-icon">`,
-            //Add function to ask user to create new template folder
-            // onClick: function() {
-            //     window.create_file({dirname: dirname, append_to_element: append_to_element, name: template.name});
-            // }
         });
     }
 
