@@ -878,22 +878,17 @@ window.available_templates = async () => {
                 ? ''
                 : element.name.slice(extIndex + 1);
 
-            console.log(extension)
             if(extension == "txt") extension = "text"
             
-            // TODO: should use path join utility
-            const path =
-                baseRoute + "/" +
-                hasTemplateFolder.name + '/' +
-                element.name;
+            const _path = path.join( baseRoute, hasTemplateFolder.name, element.name);
 
+            console.log(_path)
             const itemStructure = {
-                path,
+                path: _path,
                 html: `${extension.toUpperCase()} ${name}`,
                 extension:extension,
                 name: element.name
             }
-            console.log(extension)
             result.push(itemStructure)
         });
         
