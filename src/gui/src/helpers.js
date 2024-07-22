@@ -855,7 +855,6 @@ window.available_templates = async () => {
         console.log(hasTemplateFolder)
 
         if(!hasTemplateFolder){
-            console.log("No template folder")
             return []
         }
 
@@ -863,7 +862,6 @@ window.available_templates = async () => {
         console.log(hasTemplateFiles)
 
         if(hasTemplateFiles.length == 0) {
-            console.log("There are no templates")
             return []
         }
 

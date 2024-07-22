@@ -70,12 +70,14 @@ const new_context_menu_item = function(dirname, append_to_element){
                 });
             }
         },
-        // divider
-        '-'
     ];
 
     //Show file_templates on the lower part of "New"
     if (window.file_templates.length > 0) {
+        // divider
+        baseItems.push('-');
+
+        // User templates
         baseItems.push({
             html: "User templates",
             icon: `<img src="${html_encode(window.icons['file-template.svg'])}" class="ctx-item-icon">`,
@@ -88,10 +90,10 @@ const new_context_menu_item = function(dirname, append_to_element){
             }))
         });
     } else {
-        baseItems.push({
-            html: "No templates found",
-            icon: `<img src="${html_encode(window.icons['file-template.svg'])}" class="ctx-item-icon">`,
-        });
+        // baseItems.push({
+        //     html: "No templates found",
+        //     icon: `<img src="${html_encode(window.icons['file-template.svg'])}" class="ctx-item-icon">`,
+        // });
     }
 
     //Conditional rendering for the templates
