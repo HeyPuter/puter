@@ -108,8 +108,6 @@ const launch_services = async function (options) {
         const svc_process = globalThis.services.get('process');
         svc_process.get_init().chstatus(PROCESS_RUNNING);
     }
-    // Search and store user templates
-    window.file_templates = await window.available_templates()
 };
 
 // This code snippet addresses the issue flagged by Lighthouse regarding the use of

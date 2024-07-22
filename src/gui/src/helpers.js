@@ -432,7 +432,7 @@ window.refresh_user_data = async (auth_token)=>{
     }
 }
 
-window.update_auth_data = (auth_token, user)=>{
+window.update_auth_data = async (auth_token, user)=>{
     window.auth_token = auth_token;
     localStorage.setItem('auth_token', auth_token);
 
@@ -493,6 +493,9 @@ window.update_auth_data = (auth_token, user)=>{
         $('.user-options-login-btn, .user-options-create-account-btn').hide();
         $('.user-options-menu-btn').show();
     }
+
+    // Search and store user templates
+    window.file_templates = await window.available_templates()
 }
 
 window.mutate_user_preferences = function(user_preferences_delta) {
@@ -838,7 +841,6 @@ window.create_file = async(options)=>{
 }
 
 window.available_templates = async () => {
-    console.log(window.user.username)
     const baseRoute = `/${window.user.username}`
     const keywords = ["template", "templates", i18n('template')]
     //make sure all its lowercase
