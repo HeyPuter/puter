@@ -215,7 +215,7 @@ async function UIDesktop(options){
 
         // Update matching items
         // set new item name
-        $(`.item[data-uid='${html_encode(item.uid)}'] .item-name`).html(html_encode(truncate_filename(item.name)).replaceAll(' ', '&nbsp;'));
+        $(`.item[data-uid='${html_encode(item.uid)}'] .item-name`).html(html_encode(truncate_filename(item.name)));
 
         // Set new icon
         const new_icon = (item.is_dir ? window.icons['folder.svg'] : (await item_icon(item)).image);
@@ -419,7 +419,7 @@ async function UIDesktop(options){
 
         // Update matching items
         // Set new item name
-        $(`.item[data-uid='${html_encode(item.uid)}'] .item-name`).html(html_encode(truncate_filename(item.name)).replaceAll(' ', '&nbsp;'));
+        $(`.item[data-uid='${html_encode(item.uid)}'] .item-name`).html(html_encode(truncate_filename(item.name)));
 
         // Set new icon
         const new_icon = (item.is_dir ? window.icons['folder.svg'] : (await item_icon(item)).image);

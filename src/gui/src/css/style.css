@@ -77,7 +77,10 @@
     font-optical-sizing: auto;
     font-style: normal;
     font-variation-settings: "slnt"0;
+}
 
+pre{
+    font-family: "Inter", "Helvetica Neue", HelveticaNeue, Helvetica, Arial, sans-serif;
 }
 
 :root {
@@ -617,8 +620,9 @@ span.header-sort-icon img {
     display: inline-block;
     font-weight: bold;
     border-radius: 4px;
-    line-break: anywhere;
     box-sizing: border-box;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 .item-name {

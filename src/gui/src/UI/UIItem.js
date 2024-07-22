@@ -162,7 +162,7 @@ function UIItem(options){
         h += `</div>`;
 
         // name
-        h += `<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${options.is_trash ? i18n('trash') : html_encode(truncate_filename(options.name)).replaceAll(' ', '&nbsp;')}</span>`
+        h += `<pre class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${options.is_trash ? i18n('trash') : html_encode(truncate_filename(options.name))}</pre>`
         // name editor
         h += `<textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${html_encode(options.name)}</textarea>`
     h += `</div>`;
@@ -653,7 +653,7 @@ function UIItem(options){
                 UIAlert(`The name ".." is not allowed, because it is a reserved name. Please choose another name.`)
             }
 
-            $(el_item_name).html(html_encode(truncate_filename(options.name)).replaceAll(' ', '&nbsp;'));
+            $(el_item_name).html(html_encode(truncate_filename(options.name)));
             $(el_item_name).show();
             $(el_item_name_editor).val($(el_item).attr('data-name'));
             $(el_item_name_editor).hide();
@@ -1412,7 +1412,7 @@ function UIItem(options){
     // --------------------------------------------------------
     $(el_item_name_editor).on('input keypress focus', function(){
         const val = $(el_item_name_editor).val();
-        $('.item-name-shadow').html(html_encode(val).replaceAll(' ', '&nbsp;'));
+        $('.item-name-shadow').html(html_encode(val));
         if(val !== ''){
             const w = $('.item-name-shadow').width();
             const h = $('.item-name-shadow').height();

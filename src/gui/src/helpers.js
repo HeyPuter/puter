@@ -2095,7 +2095,7 @@ window.rename_file = async(options, new_name, old_name, old_path, el_item, el_it
             }
 
             // Set new item name
-            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name`).html(html_encode(truncate_filename(new_name)).replaceAll(' ', '&nbsp;'));
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name`).html(html_encode(truncate_filename(new_name)));
             $(el_item_name).show();
 
             // Hide item name editor

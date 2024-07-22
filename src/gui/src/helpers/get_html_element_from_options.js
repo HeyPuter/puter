@@ -136,7 +136,7 @@ const get_html_element_from_options = async function(options){
         h += `</div>`;
 
         // name
-        h += `<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${html_encode(truncate_filename(options.name)).replaceAll(' ', '&nbsp;')}</span>`
+        h += `<span class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${html_encode(truncate_filename(options.name))}</span>`
         // name editor
         h += `<textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${html_encode(options.name)}</textarea>`
     h += `</div>`;
