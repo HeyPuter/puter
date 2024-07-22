@@ -27,52 +27,80 @@
  */
 
 const new_context_menu_item = function(dirname, append_to_element){
+    
+    const baseItems = [
+        // New Folder
+        {
+            html: i18n('new_folder'),
+            icon: `<img src="${html_encode(window.icons['folder.svg'])}" class="ctx-item-icon">`,
+            onClick: function() {
+                window.create_folder(dirname, append_to_element);
+            },
+        },
+        // divider
+        '-',
+        // Text Document
+        {
+            html: i18n('text_document'),
+            icon: `<img src="${html_encode(window.icons['file-text.svg'])}" class="ctx-item-icon">`,
+            onClick: async function() {
+                window.create_file({dirname: dirname, append_to_element: append_to_element, name: 'New File.txt'});
+            }
+        },
+        // HTML Document
+        {
+            html: i18n('html_document'),
+            icon: `<img src="${html_encode(window.icons['file-html.svg'])}" class="ctx-item-icon">`,
+            onClick: async function() {
+                window.create_file({dirname: dirname, append_to_element: append_to_element, name: 'New File.html'});
+            }
+        },
+        // JPG Image
+        {
+            html: i18n('jpeg_image'),
+            icon: `<img src="${html_encode(window.icons['file-image.svg'])}" class="ctx-item-icon">`,
+            onClick: async function() {
+                var canvas = document.createElement("canvas");
+
+                canvas.width = 800;
+                canvas.height = 600;
+
+                canvas.toBlob((blob) => {
+                    window.create_file({dirname: dirname, append_to_element: append_to_element, name: 'New Image.jpg', content: blob});
+                });
+            }
+        },
+    ];
+
+    //Show file_templates on the lower part of "New"
+    if (window.file_templates.length > 0) {
+        // divider
+        baseItems.push('-');
+
+        // User templates
+        baseItems.push({
+            html: "User templates",
+            icon: `<img src="${html_encode(window.icons['file-template.svg'])}" class="ctx-item-icon">`,
+            items: window.file_templates.map(template => ({
+                html: template.html,
+                icon: `<img src="${html_encode(window.icons[`file-${template.extension}.svg`])}" class="ctx-item-icon">`,
+                onClick: function() {
+                    window.create_file({dirname: dirname, append_to_element: append_to_element, name: template.name});
+                }
+            }))
+        });
+    } else {
+        // baseItems.push({
+        //     html: "No templates found",
+        //     icon: `<img src="${html_encode(window.icons['file-template.svg'])}" class="ctx-item-icon">`,
+        // });
+    }
+
+    //Conditional rendering for the templates
     return {
         html: i18n('new'),
-        items: [
-            // New Folder
-            {
-                html: i18n('new_folder'),
-                icon: `<img src="${html_encode(window.icons['folder.svg'])}" class="ctx-item-icon">`,
-                onClick: function(){
-                    window.create_folder(dirname, append_to_element);
-                }
-            },
-            // divider
-            '-',
-            // Text Document
-            {
-                html: i18n('text_document'),
-                icon: `<img src="${html_encode(window.icons['file-text.svg'])}" class="ctx-item-icon">`,
-                onClick: async function(){
-                    window.create_file({dirname: dirname, append_to_element: append_to_element, name: 'New File.txt'});
-                }
-            },
-            // HTML Document
-            {
-                html: i18n('html_document'),
-                icon: `<img src="${html_encode(window.icons['file-html.svg'])}" class="ctx-item-icon">`,
-                onClick: async function(){
-                    window.create_file({dirname: dirname, append_to_element: append_to_element, name: 'New File.html'});
-                }
-            },
-            // JPG Image
-            {
-                html: i18n('jpeg_image'),
-                icon: `<img src="${html_encode(window.icons['file-image.svg'])}" class="ctx-item-icon">`,
-                onClick: async function(){
-                    var canvas = document.createElement("canvas");
-
-                    canvas.width = 800;
-                    canvas.height = 600;
-                    
-                    canvas.toBlob((blob) =>{
-                        window.create_file({dirname: dirname, append_to_element: append_to_element, name: 'New Image.jpg', content: blob});
-                    });
-                }
-            },
-        ]
-    }
+        items: baseItems
+    };
 }
 
 export default new_context_menu_item;

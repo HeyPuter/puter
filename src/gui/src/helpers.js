@@ -432,7 +432,7 @@ window.refresh_user_data = async (auth_token)=>{
     }
 }
 
-window.update_auth_data = (auth_token, user)=>{
+window.update_auth_data = async (auth_token, user)=>{
     window.auth_token = auth_token;
     localStorage.setItem('auth_token', auth_token);
 
@@ -493,6 +493,9 @@ window.update_auth_data = (auth_token, user)=>{
         $('.user-options-login-btn, .user-options-create-account-btn').hide();
         $('.user-options-menu-btn').show();
     }
+
+    // Search and store user templates
+    window.file_templates = await window.available_templates()
 }
 
 window.mutate_user_preferences = function(user_preferences_delta) {
@@ -834,6 +837,57 @@ window.create_file = async(options)=>{
         });
     }catch(err){
         console.log(err);
+    }
+}
+
+window.available_templates = async () => {
+    const baseRoute = `/${window.user.username}`
+    const keywords = ["template", "templates", i18n('template')]
+    //make sure all its lowercase
+    const lowerCaseKeywords = keywords.map(keywords => keywords.toLowerCase())
+
+    //create file
+    try{
+        // search the folder name i18n("template"), "template" or "templates"
+        const files = await puter.fs.readdir(baseRoute)
+
+        const hasTemplateFolder = files.find(file => lowerCaseKeywords.includes(file.name.toLowerCase()))
+        console.log(hasTemplateFolder)
+
+        if(!hasTemplateFolder){
+            return []
+        }
+
+        const hasTemplateFiles = await puter.fs.readdir(baseRoute + "/" + hasTemplateFolder.name)
+        console.log(hasTemplateFiles)
+
+        if(hasTemplateFiles.length == 0) {
+            return []
+        }
+
+        let result = []
+
+        hasTemplateFiles.forEach(element => {
+            console.log(element)
+            const elementInformation = element.name.split(".")
+            const name = elementInformation[0]
+            let extension = elementInformation[1]
+            console.log(extension)
+            if(extension == "txt") extension = "text"
+            const itemStructure = {
+                html: `${extension.toUpperCase()} ${name}`,
+                extension:extension,
+                name: element.name
+            }
+            console.log(extension)
+            result.push(itemStructure)
+        });
+        
+        // return result
+        return result
+        
+    } catch (err) {
+        console.log(err)
     }
 }
 
