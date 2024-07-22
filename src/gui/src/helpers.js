@@ -869,17 +869,26 @@ window.available_templates = async () => {
 
         hasTemplateFiles.forEach(element => {
             console.log(element)
-            const elementInformation = element.name.split(".")
-            const name = elementInformation[0]
-            let extension = elementInformation[1]
-            console.log(extension)
+            
+            const extIndex = element.name.lastIndexOf('.');
+            const name = extIndex === -1
+                ? element.name
+                : element.name.slice(0, extIndex);
+            let extension = extIndex === -1
+                ? ''
+                : element.name.slice(extIndex + 1);
+
             if(extension == "txt") extension = "text"
+            
+            const _path = path.join( baseRoute, hasTemplateFolder.name, element.name);
+
+            console.log(_path)
             const itemStructure = {
+                path: _path,
                 html: `${extension.toUpperCase()} ${name}`,
                 extension:extension,
                 name: element.name
             }
-            console.log(extension)
             result.push(itemStructure)
         });
         

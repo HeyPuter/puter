@@ -84,8 +84,14 @@ const new_context_menu_item = function(dirname, append_to_element){
             items: window.file_templates.map(template => ({
                 html: template.html,
                 icon: `<img src="${html_encode(window.icons[`file-${template.extension}.svg`])}" class="ctx-item-icon">`,
-                onClick: function() {
-                    window.create_file({dirname: dirname, append_to_element: append_to_element, name: template.name});
+                onClick: async function () {
+                    const content = await puter.fs.read(template.path);
+                    window.create_file({
+                        dirname: dirname,
+                        append_to_element: append_to_element,
+                        name: template.name,
+                        content,
+                    });
                 }
             }))
         });
