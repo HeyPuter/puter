@@ -243,7 +243,33 @@ class PermissionService extends BaseService {
             return res;
         });
     }
+    
+    async scan (actor, permission) {
+        const reading = [];
 
+        {
+            const old_perm = permission;
+            permission = await this._rewrite_permission(permission);
+            if ( permission !== old_perm ) {
+                reading.push({
+                    $: 'rewrite',
+                    from: old_perm,
+                    to: permission,
+                });
+            }
+        }
+        
+        
+        await require('../../structured/sequence/scan-user-permission')
+            .call(this, {
+                actor,
+                permission,
+                reading,
+            });
+            
+        return reading;
+    }
+    
     async check__ (actor, permission) {
         permission = await this._rewrite_permission(permission);
 
@@ -855,6 +881,23 @@ class PermissionService extends BaseService {
                     })
 
                     await this.grant_user_app_permission(actor, app_uid, permission, extra);
+                }
+            },
+            {
+                id: 'scan',
+                handler: async (args, ctx) => {
+                    const [ username, permission ] = args;
+
+                    // actor from username
+                    const actor = new Actor({
+                        type: new UserActorType({
+                            user: await get_user({ username }),
+                        }),
+                    })
+
+                    const reading = await this.scan(actor, permission);
+                    const util = require('node:util');
+                    ctx.log(JSON.stringify(reading, undefined, '  '));
                 }
             }
         ]);
