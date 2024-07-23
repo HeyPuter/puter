@@ -16,76 +16,17 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const {
+    implicit_user_app_permissions,
+    default_implicit_user_app_permissions
+} = require("../../data/hardcoded-permissions");
+
 const { get_user, get_app } = require("../../helpers");
 const { AssignableMethodsFeature } = require("../../traits/AssignableMethodsFeature");
 const { Context } = require("../../util/context");
 const BaseService = require("../BaseService");
 const { DB_WRITE } = require("../database/consts");
 const { UserActorType, Actor, AppUnderUserActorType, AccessTokenActorType, SiteActorType } = require("./Actor");
-
-const default_implicit_user_app_permissions = {
-    'driver:helloworld:greet': {},
-    'driver:puter-kvstore': {},
-    'driver:puter-ocr:recognize': {},
-    'driver:puter-chat-completion': {},
-    'driver:puter-image-generation': {},
-    'driver:puter-tts': {},
-    'driver:puter-apps': {},
-    'driver:puter-subdomains': {},
-    'driver:temp-email': {},
-};
-
-const implicit_user_app_permissions = [
-    {
-        id: 'builtin-apps',
-        apps: [
-            'app-0bef044f-918f-4cbf-a0c0-b4a17ee81085', // about
-            'app-838dfbc4-bf8b-48c2-b47b-c4adc77fab58', // editor
-            'app-58282b08-990a-4906-95f7-fa37ff92452b', // draw
-            'app-0087b701-da09-4f49-a37d-2d6bcabc81ee', // minipaint
-            'app-3fea7529-266e-47d9-8776-31649cd06557', // terminal
-            'app-5584fbf7-ed69-41fc-99cd-85da21b1ef51', // camera
-            'app-7bdca1a4-6373-4c98-ad97-03ff2d608ca1', // recorder
-            'app-240a43f4-43b1-49bc-b9fc-c8ae719dab77', // dev-center
-            'app-a2ae72a4-1ba3-4a29-b5c0-6de1be5cf178', // app-center
-            'app-74378e84-b9cd-5910-bcb1-3c50fa96d6e7', // https://nj.puter.site
-            'app-13a38aeb-f9f6-54f0-9bd3-9d4dd655ccfe', // https://cdpn.io
-            'app-dce8f797-82b0-5d95-a2f8-ebe4d71b9c54', // https://null.jsbin.com
-            'app-93005ce0-80d1-50d9-9b1e-9c453c375d56', // https://markus.puter.com
-        ],
-        permissions: {
-            'driver:helloworld:greet': {},
-            'driver:puter-ocr:recognize': {},
-            'driver:puter-kvstore:get': {},
-            'driver:puter-kvstore:set': {},
-            'driver:puter-kvstore:del': {},
-            'driver:puter-kvstore:list': {},
-            'driver:puter-kvstore:flush': {},
-            'driver:puter-chat-completion:complete': {},
-            'driver:puter-image-generation:generate': {},
-            'driver:puter-analytics:create_trace': {},
-            'driver:puter-analytics:record': {},
-        },
-    },
-    {
-        id: 'local-testing',
-        apps: [
-            'app-a392f3e5-35ca-5dac-ae10-785696cc7dec', // https://localhost
-            'app-a6263561-6a84-5d52-9891-02956f9fac65', // https://127.0.0.1
-            'app-26149f0b-8304-5228-b995-772dadcf410e', // http://localhost
-            'app-c2e27728-66d9-54dd-87cd-6f4e9b92e3e3', // http://127.0.0.1
-        ],
-        permissions: {
-            'driver:helloworld:greet': {},
-            'driver:puter-ocr:recognize': {},
-            'driver:puter-kvstore:get': {},
-            'driver:puter-kvstore:set': {},
-            'driver:puter-kvstore:del': {},
-            'driver:puter-kvstore:list': {},
-            'driver:puter-kvstore:flush': {},
-        },
-    },
-];
 
 const implicit_user_permissions = {
     // 'driver': {},
@@ -891,6 +832,25 @@ class PermissionService extends BaseService {
                     // actor from username
                     const actor = new Actor({
                         type: new UserActorType({
+                            user: await get_user({ username }),
+                        }),
+                    })
+
+                    const reading = await this.scan(actor, permission);
+                    const util = require('node:util');
+                    ctx.log(JSON.stringify(reading, undefined, '  '));
+                }
+            },
+            {
+                id: 'scan-app',
+                handler: async (args, ctx) => {
+                    const [ username, app_name, permission ] = args;
+                    const app = await get_app({ name: app_name });
+
+                    // actor from username
+                    const actor = new Actor({
+                        type: new AppUnderUserActorType({
+                            app,
                             user: await get_user({ username }),
                         }),
                     })

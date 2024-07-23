@@ -25,6 +25,9 @@ module.exports = new Sequence([
     async function grant_if_system (a) {
         const reading = a.get('reading');
         const { actor } = a.values();
+        if ( !(actor.type instanceof UserActorType)  ) {
+            return;
+        }
         if ( actor.type.user.username === 'system' ) {
             reading.push({
                 $: 'option',
