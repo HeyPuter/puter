@@ -852,14 +852,12 @@ window.available_templates = async () => {
         const files = await puter.fs.readdir(baseRoute)
 
         const hasTemplateFolder = files.find(file => lowerCaseKeywords.includes(file.name.toLowerCase()))
-        console.log(hasTemplateFolder)
 
         if(!hasTemplateFolder){
             return []
         }
 
         const hasTemplateFiles = await puter.fs.readdir(baseRoute + "/" + hasTemplateFolder.name)
-        console.log(hasTemplateFiles)
 
         if(hasTemplateFiles.length == 0) {
             return []
@@ -868,8 +866,6 @@ window.available_templates = async () => {
         let result = []
 
         hasTemplateFiles.forEach(element => {
-            console.log(element)
-            
             const extIndex = element.name.lastIndexOf('.');
             const name = extIndex === -1
                 ? element.name
@@ -882,7 +878,6 @@ window.available_templates = async () => {
             
             const _path = path.join( baseRoute, hasTemplateFolder.name, element.name);
 
-            console.log(_path)
             const itemStructure = {
                 path: _path,
                 html: `${extension.toUpperCase()} ${name}`,
