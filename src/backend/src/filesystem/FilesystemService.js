@@ -132,6 +132,7 @@ class FilesystemService extends BaseService {
             },
         }));
         svc_permission.register_implicator(PermissionImplicator.create({
+            id: 'is-owner',
             matcher: permission => {
                 return permission.startsWith('fs:');
             },
@@ -164,6 +165,7 @@ class FilesystemService extends BaseService {
             },
         }));
         svc_permission.register_exploder(PermissionExploder.create({
+            id: 'fs-access-levels',
             matcher: permission => {
                 return permission.startsWith('fs:') &&
                     PermissionUtil.split(permission).length >= 3;

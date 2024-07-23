@@ -50,6 +50,7 @@ class PuterSiteService extends BaseService {
         
         // Imply that sites can read their own files
         svc_permission.register_implicator(PermissionImplicator.create({
+            id: 'in-site',
             matcher: permission => {
                 return permission.startsWith('fs:');
             },
