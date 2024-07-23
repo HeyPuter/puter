@@ -195,13 +195,19 @@ class PermissionService extends BaseService {
             permission_options = [permission_options];
         }
 
+        const start_ts = Date.now();
         await require('../../structured/sequence/scan-permission')
             .call(this, {
                 actor,
                 permission_options,
                 reading,
             });
-            
+        const end_ts = Date.now();
+        reading.push({
+            $: 'time',
+            value: end_ts - start_ts,
+        });
+
         return reading;
     }
     
