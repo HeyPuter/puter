@@ -22,6 +22,7 @@ const { get_user } = require("../../helpers");
 const { Context } = require("../../util/context");
 const BaseService = require("../BaseService");
 const { AppUnderUserActorType, UserActorType, Actor, SystemActorType, AccessTokenActorType } = require("./Actor");
+const { PermissionUtil } = require("./PermissionService");
 
 class ACLService extends BaseService {
     async check (actor, resource, mode) {
@@ -119,11 +120,12 @@ class ACLService extends BaseService {
         let perm_fsNode = fsNode;
         while ( ! await perm_fsNode.get('is-root') ) {
             for ( const mode of modes ) {
-                const perm = await svc_permission.check(
+                const reading = await svc_permission.scan(
                     actor,
                     `fs:${await perm_fsNode.get('uid')}:${mode}`
                 );
-                if ( perm ) {
+                const options = PermissionUtil.reading_to_options(reading);
+                if ( options.length > 0 ) {
                     // console.log('TRUE BECAUSE PERMISSION', perm)
                     // console.log(`fs:${await perm_fsNode.get('uid')}:${mode}`)
                     return true;

@@ -154,6 +154,18 @@ class PermissionUtil {
             .join(':')
             ;
     }
+    
+    static reading_to_options (reading, options = []) {
+        for ( let finding of reading ) {
+            if ( finding.$ === 'option' ) {
+                options.push(finding);
+            }
+            if ( finding.$ === 'path' ) {
+                this.reading_to_options(finding.reading, options);
+            }
+        }
+        return options;
+    }
 }
 
 class PermissionService extends BaseService {
@@ -827,8 +839,8 @@ class PermissionService extends BaseService {
                         }),
                     })
 
-                    const reading = await this.scan(actor, permission);
-                    const util = require('node:util');
+                    let reading = await this.scan(actor, permission);
+                    // reading = PermissionUtil.reading_to_options(reading);
                     ctx.log(JSON.stringify(reading, undefined, '  '));
                 }
             },
@@ -847,7 +859,7 @@ class PermissionService extends BaseService {
                     })
 
                     const reading = await this.scan(actor, permission);
-                    const util = require('node:util');
+                    // reading = PermissionUtil.reading_to_options(reading);
                     ctx.log(JSON.stringify(reading, undefined, '  '));
                 }
             }
