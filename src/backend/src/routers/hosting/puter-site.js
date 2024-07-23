@@ -26,6 +26,7 @@ const { TYPE_DIRECTORY } = require("../../filesystem/FSNodeContext");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Actor, UserActorType, SiteActorType } = require("../../services/auth/Actor");
 const APIError = require("../../api/APIError");
+const { PermissionUtil } = require("../../services/auth/PermissionService");
 
 const AT_DIRECTORY_NAMESPACE = '4aa6dc52-34c1-4b8a-b63c-a62b27f727cf';
 
@@ -251,9 +252,11 @@ class PuterSiteMiddleware extends AdvancedBase {
                         return {};
                     }
                         
-                    return await svc_permission.check(
+                    const reading = await svc_permission.scan(
                         user_actor, `site:uid#${site.uuid}:access`
                     );
+                    const options = PermissionUtil.reading_to_options(reading);
+                    return options.length > 0;
                 })();
                 
                 if ( ! perm ) {
