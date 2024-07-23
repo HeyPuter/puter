@@ -10,9 +10,11 @@ const PERMISSION_SCANNERS = [
         name: 'implied',
         async scan (a) {
             const reading = a.get('reading');
-            const { actor, permission } = a.values();
+            const { actor, permission_options } = a.values();
             
             const _permission_implicators = a.iget('_permission_implicators');
+
+            for ( const permission of permission_options )
             for ( const implicator of _permission_implicators ) {
                 if ( ! implicator.matches(permission) ) {
                     continue;
@@ -24,8 +26,9 @@ const PERMISSION_SCANNERS = [
                 if ( implied ) {
                     reading.push({
                         $: 'option',
+                        permission,
                         source: 'implied',
-                        by: `implicator:${implicator.id}`,
+                        by: implicator.id,
                         data: implied,
                     });
                 }
@@ -74,6 +77,7 @@ const PERMISSION_SCANNERS = [
                 reading.push({
                     $: 'path',
                     via: 'user',
+                    permission: row.permission,
                     // issuer: issuer_actor,
                     issuer_username: issuer_actor.type.user.username,
                     reading: issuer_reading,
@@ -119,6 +123,7 @@ const PERMISSION_SCANNERS = [
                     $: 'path',
                     via: 'user-group',
                     // issuer: issuer_actor,
+                    permission: row.permission,
                     issuer_username: issuer_actor.type.user.username,
                     reading: issuer_reading,
                     group_id: row.group_id,
@@ -158,6 +163,7 @@ const PERMISSION_SCANNERS = [
                     if ( implicit_permissions[permission] ) {
                         reading.push({
                             $: 'option',
+                            permission,
                             source: 'implied',
                             by: 'user-app-hc-2',
                             data: implicit_permissions[permission],
@@ -189,6 +195,7 @@ const PERMISSION_SCANNERS = [
                 reading.push({
                     $: 'path',
                     via: 'user-app',
+                    permission: row.permission,
                     issuer_username: actor.type.user.username,
                     reading: issuer_reading,
                 });

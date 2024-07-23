@@ -185,26 +185,17 @@ class PermissionService extends BaseService {
         });
     }
     
-    async scan (actor, permission) {
+    async scan (actor, permission_options) {
         const reading = [];
-
-        {
-            const old_perm = permission;
-            permission = await this._rewrite_permission(permission);
-            if ( permission !== old_perm ) {
-                reading.push({
-                    $: 'rewrite',
-                    from: old_perm,
-                    to: permission,
-                });
-            }
+        
+        if ( ! Array.isArray(permission_options) ) {
+            permission_options = [permission_options];
         }
-        
-        
-        await require('../../structured/sequence/scan-user-permission')
+
+        await require('../../structured/sequence/scan-permission')
             .call(this, {
                 actor,
-                permission,
+                permission_options,
                 reading,
             });
             

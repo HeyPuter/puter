@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { permission } = require("process");
 const { Sequence } = require("../../codex/Sequence");
 const { get_user } = require("../../helpers");
 const { Actor, UserActorType } = require("../../services/auth/Actor");
@@ -31,22 +32,43 @@ module.exports = new Sequence([
         if ( actor.type.user.username === 'system' ) {
             reading.push({
                 $: 'option',
+                permission: '*',
                 source: 'implied',
+                by: 'system',
                 data: {}
             })
             return a.stop({});
         }
     },
     async function rewrite_permission (a) {
-        let { permission } = a.values();
-        permission = await a.icall('_rewrite_permission', permission);
-        a.values({ permission });
+        let { reading, permission_options } = a.values();
+        for ( let i=0 ; i < permission_options.length ; i++ ) {
+            const old_perm = permission_options[i];
+            const permission = await a.icall('_rewrite_permission', old_perm);
+            if ( permission === old_perm ) continue;
+            permission_options[i] = permission;
+            reading.push({
+                $: 'rewrite',
+                from: old_perm,
+                to: permission,
+            });
+        }
     },
     async function explode_permission (a) {
-        const { permission } = a.values();
-        const permission_options =
-            await a.icall('get_higher_permissions', permission);
-        a.values({ permission_options });
+        const { reading, permission_options } = a.values();
+        for ( let i=0 ; i < permission_options.length ; i++ ) {
+            const permission = permission_options[i];
+            permission_options[i] =
+                await a.icall('get_higher_permissions', permission);
+            if ( permission_options[i].length > 1 ) {
+                reading.push({
+                    $: 'explode',
+                    from: permission,
+                    to: permission_options[i],
+                });
+            }
+        }
+        a.set('permission_options', permission_options.flat());
     },
     async function run_scanners (a) {
         const scanners = PERMISSION_SCANNERS;
