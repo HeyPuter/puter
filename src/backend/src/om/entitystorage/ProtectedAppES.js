@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AppUnderUserActorType, UserActorType } = require("../../services/auth/Actor");
+const { PermissionUtil } = require("../../services/auth/PermissionService");
 const { Context } = require("../../util/context");
 const { BaseES } = require("./BaseES");
 
@@ -84,11 +85,12 @@ class ProtectedAppES extends BaseES {
         const app_uid = await entity.get('uid');
         const svc_permission = services.get('permission');
         const permission_to_check = `app:uid#${app_uid}:access`;
-        const perm = await svc_permission.check(
+        const reading = await svc_permission.scan(
             actor, permission_to_check,
         );
+        const options = PermissionUtil.reading_to_options(reading);
         
-        if ( perm ) return;
+        if ( options.length > 0 ) return;
         
         // `true` here means "do not send downstream"
         return true;

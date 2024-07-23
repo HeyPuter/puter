@@ -22,6 +22,7 @@ const { DriverError } = require("./DriverError");
 const { TypedValue } = require("./meta/Runtime");
 const BaseService = require("../BaseService");
 const { Driver } = require("../../definitions/Driver");
+const { PermissionUtil } = require("../auth/PermissionService");
 
 /**
  * DriverService provides the functionality of Puter drivers.
@@ -109,8 +110,9 @@ class DriverService extends BaseService {
         const services = Context.get('services');
         const svc_permission = services.get('permission');
 
-        const perm = await svc_permission.check(actor, `driver:${interface_name}:${method}`);
-        if ( ! perm ) {
+        const reading = await svc_permission.scan(actor, `driver:${interface_name}:${method}`);
+        const options = PermissionUtil.reading_to_options(reading);
+        if ( ! (options.length > 0) ) {
             throw APIError.create('permission_denied');
         }
 

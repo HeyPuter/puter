@@ -23,6 +23,7 @@ const { NodeUIDSelector, NodePathSelector } = require("../../filesystem/node/sel
 const { NodeChildSelector } = require("../../filesystem/node/selectors");
 const { get_app } = require("../../helpers");
 const { UserActorType, Actor, AppUnderUserActorType } = require("../../services/auth/Actor");
+const { PermissionUtil } = require("../../services/auth/PermissionService");
 const { Context } = require("../../util/context");
 
 module.exports = eggspress('/auth/check-app', {
@@ -68,7 +69,9 @@ module.exports = eggspress('/auth/check-app', {
         }),
     });
 
-    const authenticated = !! await svc_permission.check(app_actor, 'flag:app-is-authenticated');
+    const reading = await svc_permission.scan(app_actor, 'flag:app-is-authenticated');
+    const options = PermissionUtil.reading_to_options(reading);
+    const authenticated = options.length > 0;
 
     let token;
     if ( authenticated ) token = await svc_auth.get_user_app_token(app_uid);
