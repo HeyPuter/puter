@@ -21,10 +21,10 @@ import { simpleGit } from 'simple-git';
 const REPO_URL = 'https://github.com/HeyPuter/puter';
 
 const params = {
-    from: 'v2.4.0',
+    from: 'v2.4.1',
     // from: 'v2.4.0',
-    to: 'v2.4.1',
-    date: '2024-07-11',
+    to: 'v2.4.2',
+    date: '2024-07-22',
 };
 
 const git = simpleGit();
@@ -72,6 +72,9 @@ const scopes = {
     tools: {
         ignore: true,
     },
+    security: {
+        label: 'Security',
+    },
 };
 
 const scope_aliases = {
@@ -79,6 +82,15 @@ const scope_aliases = {
     ui: 'gui',
     parsely: 'phoenix',
 };
+
+const complicated_cases = [
+    function fix_i18n ({ commit, meta }) {
+        if ( meta.type === 'fix' && meta.scope === 'i18n' ) {
+            meta.type = 'i18n';
+            meta.scope = undefined;
+        }
+    }
+];
 
 const retro_prefixes_0 = {
     i18n: [
@@ -95,15 +107,43 @@ const retro_prefixes_0 = {
         '8440f566b91c9eb4f01addcb850061e3fbe3afc7',
         '92abc9947f811f94f17a5ee5a4b73ee2b210900a',
         'cff488f4f4378ca6c7568a585a665f2a3b87b89c',
-        
+        '3b8af7cc5c1be8ed67be827360bbfe0f0b5027e9',
+        '84e31eff2f58584d8fab7dd10606f2f6ced933a2',
+        '81781f80afc07cd1e6278906cdc68c8092fbfedf',
+        '56820cf6ee56ff810a6b495a281ccbb2e7f9d8fb',
+        '69a80ab3d2c94ee43d96021c3bcbdab04a4b5dc6',
+        '8e297cd7e30757073e2f96593c363a273b639466',
+        '151527825f1eb4b060aaf97feb7d18af4fcddbf2',
+        '8bece96f6224a060d5b408e08c58865fadb8b79c',
+        '333d6e3b651e460caca04a896cbc8c175555b79b',
+        '8a3d0430f39f872b8a460c344cce652c340b700b',
+        'b9e73b7288aebb14e6bbf1915743e9157fc950b1',
+        'c2d3d69dbe33f36fcae13bcbc8e2a31a86025af9',
+        '382fb24dbb1737a8a54ed2491f80b2e2276cde61',
     ],
     fix: [
         '535475b3c36a37e3319ed067a24fb671790dcda3',
+        '45f131f8eaf94cf3951ca7ffeb6f311590233b8a',
+        '02e1b1e8f5f8e22d7ab39ebff99f7dd8e08a4221',
     ],
     doc: [
         '338004474f078a00608af1d0ebf8a7f9534bad28',
         '6c4c73a9e85ff8eb5e7663dcce11f4d1f824032b',
+        'c19c18bfcf163b37e3d173b8fa50393dfb9f540f',
     ],
+    feat: [
+        '8e7306c23be01ee6c31cdb4c99f2fb1f71a2247f',
+    ],
+    meta: [
+        'b3c1b128e2d8519bc816cdcd3220c8f40e05bb01',
+        '452b7495b1736df90bc748dbf818407488875754',
+    ],
+};
+
+const message_changes = {
+    '1f7f094282fae915a2436701cfb756444cd3f781': 'feat: add new file templates',
+    '64e4299ac0a4c9e1de7a9d089e2d7529a9530818': 'doc: docker instructions for Windows',
+    'f897e844989083b0b369ba0ce4d2c5a9f3db5ad8': 'fix: #432',
 };
 
 const retro_prefixes = {};
@@ -122,12 +162,18 @@ const ensure_scope = name => {
 };
 
 for ( const commit of commits ) {
+    if ( message_changes.hasOwnProperty(commit.hash) ) {
+        commit.message = message_changes[commit.hash];
+    }
     if ( retro_prefixes.hasOwnProperty(commit.hash) ) {
         commit.message = retro_prefixes[commit.hash] + ': ' +
             commit.message;
     }
     const meta = parse_conventional_commit(commit.message);
     if ( ! meta ) continue;
+    for ( const transformer of complicated_cases ) {
+        transformer({ commit, meta });
+    }
     let scope = meta.scope ?? 'puter';
     while ( scope in scope_aliases ) {
         scope = scope_aliases[scope];
@@ -145,7 +191,7 @@ for ( const commit of commits ) {
 }
 
 let s = '';
-s += `## ${params.from} (${params.date})\n\n`;
+s += `## ${params.to} (${params.date})\n\n`;
 for ( const scope_name in data ) {
     const scope = data[scope_name];
     s += `### ${scopes[scope_name].label}\n\n`;

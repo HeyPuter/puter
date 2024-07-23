@@ -1,5 +1,64 @@
 # Changelog
 
+## v2.4.2 (2024-07-22)
+
+### Puter
+
+#### Features
+
+- add new file templates ([1f7f094](https://github.com/HeyPuter/puter/commit/1f7f094282fae915a2436701cfb756444cd3f781))
+- add cross_origin_isolation option ([e539932](https://github.com/HeyPuter/puter/commit/e53993207077aecd2c01712519251993bb2562bc))
+- add option to disable temporary users ([f9333b3](https://github.com/HeyPuter/puter/commit/f9333b3d1e05bd0dffaecd2e29afd08ea61559fc))
+- add some default groups ([ba50d0f](https://github.com/HeyPuter/puter/commit/ba50d0f96d58075abec067d24e6532bd874093f0))
+- Add support for dropping multiple Puter items onto Dev Center (close #311) ([8e7306c](https://github.com/HeyPuter/puter/commit/8e7306c23be01ee6c31cdb4c99f2fb1f71a2247f))
+
+#### Translations
+
+- Update ig.js ([382fb24](https://github.com/HeyPuter/puter/commit/382fb24dbb1737a8a54ed2491f80b2e2276cde61))
+- feat: add vietnamese localization-a ([c2d3d69](https://github.com/HeyPuter/puter/commit/c2d3d69dbe33f36fcae13bcbc8e2a31a86025af9))
+- Update zhtw.js, Complete Traditional Chinese translation based on English file #550 ([b9e73b7](https://github.com/HeyPuter/puter/commit/b9e73b7288aebb14e6bbf1915743e9157fc950b1))
+- update zhtw.js to match en.js ([37fd666](https://github.com/HeyPuter/puter/commit/37fd666a9a6788d5f0c59311499f29896b48bc82))
+- Add Tamil translation to translations.js ([8a3d043](https://github.com/HeyPuter/puter/commit/8a3d0430f39f872b8a460c344cce652c340b700b))
+- Move Tamil translation to the rest of translations ([333d6e3](https://github.com/HeyPuter/puter/commit/333d6e3b651e460caca04a896cbc8c175555b79b))
+- Translation improvements, mainly style and context-based ([8bece96](https://github.com/HeyPuter/puter/commit/8bece96f6224a060d5b408e08c58865fadb8b79c))
+- update translation file es.js to be up to date with the file en.js ([1515278](https://github.com/HeyPuter/puter/commit/151527825f1eb4b060aaf97feb7d18af4fcddbf2))
+- Translate en.js as of 2024-07-10 ([8e297cd](https://github.com/HeyPuter/puter/commit/8e297cd7e30757073e2f96593c363a273b639466))
+- Create hu.js hungarian language ([69a80ab](https://github.com/HeyPuter/puter/commit/69a80ab3d2c94ee43d96021c3bcbdab04a4b5dc6))
+- Update translations.js to Hungarian lang ([56820cf](https://github.com/HeyPuter/puter/commit/56820cf6ee56ff810a6b495a281ccbb2e7f9d8fb))
+- Tamil translation ([81781f8](https://github.com/HeyPuter/puter/commit/81781f80afc07cd1e6278906cdc68c8092fbfedf))
+- Update it.js ([84e31ef](https://github.com/HeyPuter/puter/commit/84e31eff2f58584d8fab7dd10606f2f6ced933a2))
+- Update Armenian translation file ([3b8af7c](https://github.com/HeyPuter/puter/commit/3b8af7cc5c1be8ed67be827360bbfe0f0b5027e9))
+
+#### Bug Fixes
+
+- fix templates ([5d2a6fc](https://github.com/HeyPuter/puter/commit/5d2a6fce305a3dcd4857f52ebb75f529dffe4790))
+- popup login in co isolation mode ([8f87770](https://github.com/HeyPuter/puter/commit/8f87770cebab32c00cb10133979d426306685292))
+- add necessary iframe attributes for co isolation ([2a5cec7](https://github.com/HeyPuter/puter/commit/2a5cec7ee914c9c97ae90b85464f9fc5332ad2fb))
+- chore: fix confirm for type_confirm_to_delete_account ([02e1b1e](https://github.com/HeyPuter/puter/commit/02e1b1e8f5f8e22d7ab39ebff99f7dd8e08a4221))
+- syntax error and formatting issue ([3a09e84](https://github.com/HeyPuter/puter/commit/3a09e84838fe8b74bd050641620eec87d9f59dfc))
+- #432 ([f897e84](https://github.com/HeyPuter/puter/commit/f897e844989083b0b369ba0ce4d2c5a9f3db5ad8))
+- `launch_app` not considering `explorer` as a special case ([98e6964](https://github.com/HeyPuter/puter/commit/98e69642d027a83975a0b2b825317213098bb689))
+- well kinda (HOSTNAME in phoenix) ([7043b94](https://github.com/HeyPuter/puter/commit/7043b9400c63842c4c54d82724167666708d3119))
+- it was github actions the entire time ([602a198](https://github.com/HeyPuter/puter/commit/602a19895c05b45a7d283470e7af3ae786be1bf2))
+- fix CI attempt #7 ([614f2c5](https://github.com/HeyPuter/puter/commit/614f2c5061525f230ccd879bfb047434ac46a9ba))
+- fix CI attempt #6 ([9d549b1](https://github.com/HeyPuter/puter/commit/9d549b192d149eac96c316ded645bf7c2e96153d))
+- fix CI attempt #5 ([74adcdd](https://github.com/HeyPuter/puter/commit/74adcddc1d60e0a513408a0716ed2b301126225d))
+- fix CI attempt #4 ([84b993b](https://github.com/HeyPuter/puter/commit/84b993bce913c3ad99127063bcfaae19331b199c))
+- fix CI attempt #3 ([3bca973](https://github.com/HeyPuter/puter/commit/3bca973f5f4e65a2bd24c634c347fbd681a7458b))
+- fix CI attempt #2 ([aebe89a](https://github.com/HeyPuter/puter/commit/aebe89a1acb070764551e8e89e325325ffbed8f9))
+- run mocha within packages in monorepo ([58c199c](https://github.com/HeyPuter/puter/commit/58c199c15356ac087a04b16dd18e8fe0f1aea359))
+- make webpack output not look like errors ([ad3d318](https://github.com/HeyPuter/puter/commit/ad3d318d07377c78c0429247225655e489b68be4))
+- No scrollbar for session list ([45f131f](https://github.com/HeyPuter/puter/commit/45f131f8eaf94cf3951ca7ffeb6f311590233b8a))
+- fix path issues under win32 platform ([d80f2fa](https://github.com/HeyPuter/puter/commit/d80f2fa847bfaef98dc8d482898f5c15f268e4bd))
+- remove abnoxious debug file ([5c636d4](https://github.com/HeyPuter/puter/commit/5c636d4fd25e14ba3813f7fca3b70ff7bd6860e7))
+- read_only fields in ES ([e8f4c32](https://github.com/HeyPuter/puter/commit/e8f4c328bff5c36b95fe460b80803e12e619f8ee))
+
+### Security
+
+#### Bug Fixes
+
+- hoist acl check in ll_read ([6a2fbc1](https://github.com/HeyPuter/puter/commit/6a2fbc1925952ecceed741afe138270d1eeda7b7))
+
 ## v2.4.1 (2024-07-11)
 
 ### Puter
