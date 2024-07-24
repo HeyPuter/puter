@@ -62,7 +62,57 @@ const implicit_user_app_permissions = [
     },
 ];
 
+const hardcoded_user_group_permissions = {
+    system: {
+        'b7220104-7905-4985-b996-649fdcdb3c8f': {
+            'driver:puter-kvstore': {
+                $: 'json-address',
+                path: '/admin/.policy/drivers.json',
+                selector: 'temp.kv'
+            },
+            'driver:puter-notifications': {
+                $: 'json-address',
+                path: '/admin/.policy/drivers.json',
+                selector: 'temp.es'
+            },
+            'driver:puter-apps': {
+                $: 'json-address',
+                path: '/admin/.policy/drivers.json',
+                selector: 'temp.es'
+            },
+            'driver:puter-subdomains': {
+                $: 'json-address',
+                path: '/admin/.policy/drivers.json',
+                selector: 'temp.es'
+            },
+        },
+        '78b1b1dd-c959-44d2-b02c-8735671f9997': {
+            'driver:puter-kvstore': {
+                $: 'json-address',
+                path: '/admin/.policy/drivers.json',
+                selector: 'user.kv'
+            },
+            'driver:puter-notifications': {
+                $: 'json-address',
+                path: '/admin/.policy/drivers.json',
+                selector: 'user.es'
+            },
+            'driver:puter-apps': {
+                $: 'json-address',
+                path: '/admin/.policy/drivers.json',
+                selector: 'user.es'
+            },
+            'driver:puter-subdomains': {
+                $: 'json-address',
+                path: '/admin/.policy/drivers.json',
+                selector: 'user.es'
+            },
+        },
+    },
+};
+
 module.exports = {
     implicit_user_app_permissions,
     default_implicit_user_app_permissions,
+    hardcoded_user_group_permissions,
 };
