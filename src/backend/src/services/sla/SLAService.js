@@ -102,7 +102,7 @@ class SLAService extends BaseService {
                         max: 40,
                         period: 30000,
                     },
-                    monthly_limit: 1000,
+                    monthly_limit: 3000,
                 },
                 'driver:impl:public-openai-image-generation:generate': {
                     rate_limit: {
