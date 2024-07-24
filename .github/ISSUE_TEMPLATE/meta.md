@@ -1,12 +1,11 @@
 ---
 name: Meta suggestion
-about: Suggest an idea for the ecosystem around Puter, its "health" files, or other meta files
+about: Suggest an idea for the community and ecosystem around Puter including the metadata files
 title: ''
 labels:
   - idea
   - meta
-assignees: ''
-
+assignees: 'jelveh'
 ---
 
 
