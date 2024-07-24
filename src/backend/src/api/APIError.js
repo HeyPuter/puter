@@ -321,7 +321,13 @@ module.exports = class APIError {
         },
         'no_implementation_available': {
             status: 502,
-            message: ({ interface_name }) => `No implementation available for interface ${quot(interface_name)}`,
+            message: ({
+                iface,
+                interface_name,
+                driver
+            }) => `No implementation available for ` +
+                (iface ?? interface_name) ? 'interface' : 'driver' +
+                ' ' + quot(iface ?? interface_name ?? driver) + '.',
         },
         'method_not_found': {
             status: 404,

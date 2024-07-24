@@ -65,6 +65,7 @@ const implicit_user_app_permissions = [
 const hardcoded_user_group_permissions = {
     system: {
         'b7220104-7905-4985-b996-649fdcdb3c8f': {
+            'service:helloworld:ii:helloworld': {},
             'driver:puter-kvstore': {
                 $: 'json-address',
                 path: '/admin/.policy/drivers.json',
@@ -87,6 +88,7 @@ const hardcoded_user_group_permissions = {
             },
         },
         '78b1b1dd-c959-44d2-b02c-8735671f9997': {
+            'service:helloworld:ii:helloworld': {},
             'driver:puter-kvstore': {
                 $: 'json-address',
                 path: '/admin/.policy/drivers.json',

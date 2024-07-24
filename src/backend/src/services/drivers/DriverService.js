@@ -81,6 +81,7 @@ class DriverService extends BaseService {
             return this.interface_to_implementation[interface_name];
         }
         
+        return;
         this.log.noticeme('HERE IT IS');
         const options = this.services.get_implementors(interface_name);
         this.log.info('test', { options });
@@ -88,16 +89,17 @@ class DriverService extends BaseService {
         return options[0];
     }
 
-    async call (...a) {
+    async call (o) {
         try {
-            return await this._call(...a);
+            return await this._call(o);
         } catch ( e ) {
+            console.error(e);
             return this._driver_response_from_error(e);
         }
     }
 
-    async _call (interface_name, method, args) {
-        const processed_args = await this._process_args(interface_name, method, args);
+    async _call ({ driver, iface, method, args }) {
+        const processed_args = await this._process_args(iface, method, args);
         if ( Context.get('test_mode') ) {
             processed_args.test_mode = true;
         }
@@ -110,18 +112,44 @@ class DriverService extends BaseService {
         const services = Context.get('services');
         const svc_permission = services.get('permission');
 
-        const reading = await svc_permission.scan(actor, `driver:${interface_name}:${method}`);
+
+        const svc_registry = this.services.get('registry');
+        const c_interfaces = svc_registry.get('interfaces');
+        
+        driver = driver ?? iface;
+
+        const driver_service_exists = (() => {
+            return this.services.has(driver) &&
+                this.services.get(driver).list_traits()
+                    .includes(iface);
+        })();
+        if ( driver_service_exists ) {
+            const service = this.services.get(driver);
+            const reading = await svc_permission.scan(
+                actor,
+                PermissionUtil.join('driver', driver, 'ii', iface),
+            );
+            const options = PermissionUtil.reading_to_options(reading);
+            if ( options.length > 0 ) {
+                return await this.call_new_({
+                    service_name: driver,
+                    service,
+                    method,
+                    args: processed_args,
+                    iface,
+                });
+            }
+        }
+
+        const reading = await svc_permission.scan(actor, `driver:${iface}:${method}`);
         const options = PermissionUtil.reading_to_options(reading);
         if ( ! (options.length > 0) ) {
             throw APIError.create('permission_denied');
         }
 
-        const svc_registry = this.services.get('registry');
-        const c_interfaces = svc_registry.get('interfaces');
-
-        const instance = this.get_default_implementation(interface_name);
+        const instance = this.get_default_implementation(iface);
         if ( ! instance ) {
-            throw APIError.create('no_implementation_available', null, { interface_name })
+            throw APIError.create('no_implementation_available', null, { iface })
         }
         const meta = await (async () => {
             if ( instance instanceof Driver ) {
@@ -142,7 +170,7 @@ class DriverService extends BaseService {
                 result = await instance.impl[method](processed_args);
             }
             if ( result instanceof TypedValue ) {
-                const interface_ = c_interfaces.get(interface_name);
+                const interface_ = c_interfaces.get(iface);
                 let desired_type = interface_.methods[method]
                     .result_choices[0].type;
                 const svc_coercion = services.get('coercion');
@@ -151,8 +179,9 @@ class DriverService extends BaseService {
             }
             return { success: true, ...meta, result };
         } catch ( e ) {
+            console.error(e);
             let for_user = (e instanceof APIError) || (e instanceof DriverError);
-            if ( ! for_user ) this.errors.report(`driver:${interface_name}:${method}`, {
+            if ( ! for_user ) this.errors.report(`driver:${iface}:${method}`, {
                 source: e,
                 trace: true,
                 // TODO: alarm will not be suitable for all errors.
@@ -163,6 +192,35 @@ class DriverService extends BaseService {
             });
             return this._driver_response_from_error(e, meta);
         }
+    }
+    
+    async call_new_ ({
+        service_name,
+        service, method, args,
+        iface,
+    }) {
+        const svc_registry = this.services.get('registry');
+        const c_interfaces = svc_registry.get('interfaces');
+        let result = await service.as(iface)[method](args);
+        if ( result instanceof TypedValue ) {
+            const interface_ = c_interfaces.get(iface);
+            let desired_type = interface_.methods[method]
+                .result_choices[0].type;
+            const svc_coercion = services.get('coercion');
+            result = await svc_coercion.coerce(desired_type, result);
+        }
+        const service_meta = {};
+        if ( service.list_traits().includes('version') ) {
+            service_meta.version = service.as('version').get_version();
+        }
+        return {
+            success: true,
+            service: {
+                ...service_meta,
+                name: service_name,
+            },
+            result
+        };
     }
 
     async _driver_response_from_error (e, meta) {

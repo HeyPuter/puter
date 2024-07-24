@@ -70,7 +70,7 @@ const ENTITY_STORAGE_INTERFACE = {
 }
 
 module.exports = {
-    'helloworld': {
+    'hello-world': {
         description: 'A simple driver that returns a greeting.',
         methods: {
             greet: {
