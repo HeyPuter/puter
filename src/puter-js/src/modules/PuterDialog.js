@@ -347,7 +347,7 @@ class PuterDialog extends HTMLElement {
             let title = 'Puter';
             var left = (screen.width/2)-(w/2);
             var top = (screen.height/2)-(h/2);
-            window.open(puter.defaultGUIOrigin + '/?embedded_in_popup=true&request_auth=true', 
+            window.open(puter.defaultGUIOrigin + '/?embedded_in_popup=true&request_auth=true' + (window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''), 
             title, 
             'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left);
         })

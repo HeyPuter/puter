@@ -45,13 +45,12 @@ class Auth{
     signIn = () =>{
         return new Promise((resolve, reject) => {
             let msg_id = this.#messageID++;
-
             let w = 600;
             let h = 600;
             let title = 'Puter';
             var left = (screen.width/2)-(w/2);
             var top = (screen.height/2)-(h/2);
-            window.open(puter.defaultGUIOrigin + '/action/sign-in?embedded_in_popup=true&msg_id=' + msg_id, 
+            window.open(puter.defaultGUIOrigin + '/action/sign-in?embedded_in_popup=true&msg_id=' + msg_id + (window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''), 
             title, 
             'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left);
 
