@@ -34,6 +34,8 @@ class SelfHostedModule extends AdvancedBase {
 
         const DevWatcherService = require('./services/DevWatcherService');
         const path_ = require('path');
+
+        if ( ! config.no_devwatch )
         services.registerService('__dev-watcher', DevWatcherService, {
             root: path_.resolve(__dirname, '../../../'),
             commands: [

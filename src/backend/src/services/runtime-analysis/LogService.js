@@ -339,6 +339,7 @@ class LogService extends BaseService {
 
         let logger;
 
+        if ( ! config.no_winston )
         logger = new WinstonLogger(
             winston.createLogger({
                 levels: WINSTON_LEVELS,
