@@ -37,12 +37,14 @@ class DriverService extends BaseService {
         this.interface_to_implementation = {};
     }
     
-    async ['__on_registry.collections'] (_, { svc_registry }) {
+    async ['__on_registry.collections'] () {
+        const svc_registry = this.services.get('registry');
         svc_registry.register_collection('interfaces');
         svc_registry.register_collection('drivers');
     }
-    async ['__on_registry.entries'] (_, { svc_registry }) {
+    async ['__on_registry.entries'] () {
         const services = this.services;
+        const svc_registry = services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');
         const col_drivers = svc_registry.get('drivers');
         {
