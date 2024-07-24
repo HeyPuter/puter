@@ -58,7 +58,7 @@ module.exports = eggspress('/drivers/call', {
     const interface_name = req.body.interface;
     const test_mode = req.body.test_mode;
 
-    const params = req.headers['content-type'].includes('multipart/form-data')
+    const args = req.headers['content-type'].includes('multipart/form-data')
         ? await _handle_multipart(req)
         : req.body.args;
 
@@ -66,7 +66,11 @@ module.exports = eggspress('/drivers/call', {
     if ( test_mode ) context = context.sub({ test_mode: true });
 
     const result = await context.arun(async () => {
-        return await svc_driver.call(interface_name, req.body.method, params);
+        return await svc_driver.call({
+            iface: interface_name,
+            method: req.body.method,
+            args
+        });
     });
 
     _respond(res, result);

@@ -72,11 +72,14 @@ router.post('/setItem', auth, express.json(), async (req, res, next)=>{
     const svc_driver = Context.get('services').get('driver');
     let driver_result;
     try {
-        const driver_response = await svc_driver.call(
-            'puter-kvstore', 'set', {
+        const driver_response = await svc_driver.call({
+            iface: 'puter-kvstore',
+            method: 'set',
+            args: {
                 key: req.body.key,
                 value: req.body.value,
-            });
+            },
+        });
         if ( ! driver_response.success ) {
             throw new Error(driver_response.error?.message ?? 'Unknown error');
         }

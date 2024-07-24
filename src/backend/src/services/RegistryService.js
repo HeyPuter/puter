@@ -35,6 +35,10 @@ class MapCollection extends AdvancedBase {
     get (key) {
         return this.kv.get(this._mk_key(key));
     }
+    
+    exists (key) {
+        return this.kv.exists(this._mk_key(key));
+    }
 
     set (key, value) {
         return this.kv.set(this._mk_key(key), value);

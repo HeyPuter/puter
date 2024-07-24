@@ -201,16 +201,23 @@ class DefaultUserService extends BaseService {
         const actor = await Actor.create(UserActorType, { user });
         return await Context.get().sub({ actor }).arun(async () => {
             const svc_driver = this.services.get('driver');
-            const driver_response = await svc_driver.call(
-                'puter-kvstore', 'get', { key: 'tmp_password' });
+            const driver_response = await svc_driver.call({
+                iface: 'puter-kvstore',
+                method: 'get',
+                args: { key: 'tmp_password' },
+            });
 
             if ( driver_response.result ) return driver_response.result;
 
             const tmp_password = require('crypto').randomBytes(4).toString('hex');
-            await svc_driver.call(
-                'puter-kvstore', 'set', {
+            await svc_driver.call({
+                iface: 'puter-kvstore',
+                method: 'set',
+                args: {
                     key: 'tmp_password',
-                    value: tmp_password });
+                    value: tmp_password,
+                }
+            });
             return tmp_password;
         });
     }
@@ -223,10 +230,14 @@ class DefaultUserService extends BaseService {
             const tmp_password = require('crypto').randomBytes(4).toString('hex');
             const bcrypt = require('bcrypt');
             const password_hashed = await bcrypt.hash(tmp_password, 8);
-            await svc_driver.call(
-                'puter-kvstore', 'set', {
+            await svc_driver.call({
+                iface: 'puter-kvstore',
+                method: 'set',
+                args: {
                     key: 'tmp_password',
-                    value: tmp_password });
+                    value: tmp_password,
+                }
+            });
             await db.write(
                 `UPDATE user SET password = ? WHERE id = ?`,
                 [

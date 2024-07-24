@@ -60,8 +60,11 @@ router.post('/getItem', auth, express.json(), async (req, res, next)=>{
     const svc_driver = Context.get('services').get('driver');
     let driver_result;
     try {
-        const driver_response = await svc_driver.call(
-            'puter-kvstore', 'get', { key: req.body.key });
+        const driver_response = await svc_driver.call({
+            iface: 'puter-kvstore',
+            method: 'get',
+            args: { key: req.body.key },
+        });
         if ( ! driver_response.success ) {
             throw new Error(driver_response.error?.message ?? 'Unknown error');
         }
