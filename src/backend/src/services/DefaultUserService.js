@@ -71,6 +71,7 @@ class DefaultUserService extends BaseService {
         uuidv4: require('uuid').v4,
     }
     async _init () {
+        this._register_commands(this.services.get('commands'));
     }
     async ['__on_ready.webserver'] () {
         // check if a user named `admin` exists
@@ -212,6 +213,41 @@ class DefaultUserService extends BaseService {
                     value: tmp_password });
             return tmp_password;
         });
+    }
+    async force_tmp_password_ (user) {
+        const db = this.services.get('database')
+            .get(DB_WRITE, 'terminal-password-reset');
+        const actor = await Actor.create(UserActorType, { user });
+        return await Context.get().sub({ actor }).arun(async () => {
+            const svc_driver = this.services.get('driver');
+            const tmp_password = require('crypto').randomBytes(4).toString('hex');
+            const bcrypt = require('bcrypt');
+            const password_hashed = await bcrypt.hash(tmp_password, 8);
+            await svc_driver.call(
+                'puter-kvstore', 'set', {
+                    key: 'tmp_password',
+                    value: tmp_password });
+            await db.write(
+                `UPDATE user SET password = ? WHERE id = ?`,
+                [
+                    password_hashed,
+                    user.id,
+                ],
+            );
+            return tmp_password;
+        });
+    }
+    _register_commands (commands) {
+        commands.registerCommands('default-user', [
+            {
+                id: 'reset-password',
+                handler: async (args, ctx) => {
+                    const [ username ] = args;
+                    const user = await get_user({ username });
+                    await this.force_tmp_password_(user);
+                }
+            }
+        ]);
     }
 }
 
