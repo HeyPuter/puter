@@ -119,8 +119,11 @@ class BroadcastService extends BaseService {
         }
     }
     
-    async ['__on_install.websockets'] (_, { server }) {
+    async ['__on_install.websockets'] () {
         const svc_event = this.services.get('event');
+        const svc_webServer = this.services.get('web-server');
+        
+        const server = svc_webServer.get_server();
 
         const io = require('socket.io')(server, {
             cors: { origin: '*' },

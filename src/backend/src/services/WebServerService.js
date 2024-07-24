@@ -189,7 +189,12 @@ class WebServerService extends BaseService {
             });
         });
         
-        await this.services.emit('install.websockets', { server });
+        this.server_ = server;
+        await this.services.emit('install.websockets');
+    }
+    
+    get_server () {
+        return this.server_;
     }
 
     async _init () {
