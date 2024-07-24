@@ -1,9 +1,17 @@
 const {
     default_implicit_user_app_permissions,
     implicit_user_app_permissions,
+    hardcoded_user_group_permissions,
 } = require("../data/hardcoded-permissions");
 const { get_user } = require("../helpers");
 const { Actor, UserActorType, AppUnderUserActorType } = require("../services/auth/Actor");
+
+/*
+    OPTIMAL FOLD LEVEL: 3
+    
+    "Ctrl+K, Ctrl+3" or "⌘K, ⌘3";
+    "Ctrl+K, Ctrl+J" or "⌘K, ⌘J";
+*/
 
 const PERMISSION_SCANNERS = [
     {
@@ -82,6 +90,54 @@ const PERMISSION_SCANNERS = [
                     issuer_username: issuer_actor.type.user.username,
                     reading: issuer_reading,
                 });
+            }
+        }
+    },
+    {
+        name: 'hc-user-group-user',
+        async scan (a) {
+            const { reading, actor, permission_options } = a.values();
+            if ( !(actor.type instanceof UserActorType)  ) {
+                return;
+            }
+
+            const svc_group = await a.iget('services').get('group');
+            const groups = await svc_group.list_groups_with_member(
+                { user_id: actor.type.user.id });
+            console.log('uh, groups?', actor.type.user.id, groups);
+            const group_uids = {};
+            for ( const group of groups ) {
+                group_uids[group.values.uid] = group;
+            }
+            console.log('group uids', group_uids);
+            
+            for ( const issuer_username in hardcoded_user_group_permissions ) {
+                const issuer_actor = new Actor({
+                    type: new UserActorType({
+                        user: await get_user({ username: issuer_username }),
+                    }),
+                });
+                const issuer_groups =
+                    hardcoded_user_group_permissions[issuer_username];
+                console.log('issuer groups', issuer_groups);
+                for ( const group_uid in issuer_groups ) {
+                    if ( ! group_uids[group_uid] ) continue;
+                    const issuer_group = issuer_groups[group_uid];
+                    for ( const permission of permission_options ) {
+                        console.log('permission?', permission);
+                        if ( ! issuer_group.hasOwnProperty(permission) ) continue;
+                        const issuer_reading =
+                            await a.icall('scan', issuer_actor, permission)
+                        reading.push({
+                            $: 'path',
+                            via: 'hc-user-group',
+                            permission,
+                            issuer_username,
+                            reading: issuer_reading,
+                            group_id: group_uids[group_uid].id,
+                        });
+                    }
+                }
             }
         }
     },
