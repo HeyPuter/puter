@@ -24,6 +24,7 @@ const BaseService = require("../BaseService");
 const { Driver } = require("../../definitions/Driver");
 const { PermissionUtil } = require("../auth/PermissionService");
 const { PolicyEnforcer } = require("./PolicyEnforcer");
+const { Invoker } = require("@heyputer/puter-js-common/src/libs/invoker");
 
 /**
  * DriverService provides the functionality of Puter drivers.
@@ -185,32 +186,16 @@ class DriverService extends BaseService {
                     driver, method,
                 });
                 
-                try {
-                    await policy_enforcer.check();
-                    const result = await this.call_new_({
-                        service_name: driver,
-                        service,
-                        method,
-                        args: processed_args,
-                        iface,
-                    });
-                    await policy_enforcer.on_success();
-                    return result;
-                } catch (e) {
-                    policy_enforcer.on_fail();
-                    console.error(e);
-                    let for_user = (e instanceof APIError) || (e instanceof DriverError);
-                    if ( ! for_user ) this.errors.report(`driver:${iface}:${method}`, {
-                        source: e,
-                        trace: true,
-                        // TODO: alarm will not be suitable for all errors.
-                        alarm: true,
-                        extra: {
-                            args,
-                        }
-                    });
-                    return this._driver_response_from_error(e, meta);
-                }
+                await policy_enforcer.check();
+                const result = await this.call_new_({
+                    service_name: driver,
+                    service,
+                    method,
+                    args: processed_args,
+                    iface,
+                });
+                await policy_enforcer.on_success();
+                return result;
             }
         }
 
@@ -298,28 +283,44 @@ class DriverService extends BaseService {
         service, method, args,
         iface,
     }) {
-        const svc_registry = this.services.get('registry');
-        const c_interfaces = svc_registry.get('interfaces');
-        let result = await service.as(iface)[method](args);
-        if ( result instanceof TypedValue ) {
-            const interface_ = c_interfaces.get(iface);
-            let desired_type = interface_.methods[method]
-                .result_choices[0].type;
-            const svc_coercion = services.get('coercion');
-            result = await svc_coercion.coerce(desired_type, result);
-        }
-        const service_meta = {};
-        if ( service.list_traits().includes('version') ) {
-            service_meta.version = service.as('version').get_version();
-        }
-        return {
-            success: true,
-            service: {
-                ...service_meta,
-                name: service_name,
+        const invoker = Invoker.create({
+            decorators: [
+                {
+                    name: 'add metadata',
+                    on_return: async result => {
+                        const service_meta = {};
+                        if ( service.list_traits().includes('version') ) {
+                            service_meta.version = service.as('version').get_version();
+                        }
+                        return {
+                            success: true,
+                            service: {
+                                ...service_meta,
+                                name: service_name,
+                            },
+                            result,
+                        };
+                    },
+                },
+                {
+                    name: 'result coercion',
+                    on_return: async (result) => {
+                        if ( result instanceof TypedValue ) {
+                            const interface_ = c_interfaces.get(iface);
+                            let desired_type = interface_.methods[method]
+                                .result_choices[0].type;
+                            const svc_coercion = services.get('coercion');
+                            result = await svc_coercion.coerce(desired_type, result);
+                        }
+                        return result;
+                    },
+                },
+            ],
+            delegate: async (args) => {
+                return await service.as(iface)[method](args);
             },
-            result
-        };
+        });
+        return await invoker.run(args);
     }
 
     async _driver_response_from_error (e, meta) {
