@@ -23,7 +23,6 @@ const { TypedValue } = require("./meta/Runtime");
 const BaseService = require("../BaseService");
 const { Driver } = require("../../definitions/Driver");
 const { PermissionUtil } = require("../auth/PermissionService");
-const { PolicyEnforcer } = require("./PolicyEnforcer");
 const { Invoker } = require("@heyputer/puter-js-common/src/libs/invoker");
 
 /**
@@ -129,74 +128,12 @@ class DriverService extends BaseService {
         })();
         if ( driver_service_exists ) {
             const service = this.services.get(driver);
-            const reading = await svc_permission.scan(
+            return await this.call_new_({
                 actor,
-                PermissionUtil.join('service', driver, 'ii', iface),
-            );
-            console.log({
-                perm: PermissionUtil.join('service', driver, 'ii', iface),
-                reading,
+                service,
+                service_name: driver,
+                iface, method, args: processed_args,
             });
-            const options = PermissionUtil.reading_to_options(reading);
-            if ( options.length > 0 ) {
-                const option = await this.select_best_option_(options);
-                const policies = await this.get_policies_for_option_(option);
-                console.log('SLA', JSON.stringify(policies, undefined, '  '));
-                
-                // NOT FINAL: For now we apply monthly usage logic
-                // to the first holder of the permission. Later this
-                // will be changed so monthly usage can cascade across
-                // multiple actors. I decided not to implement this
-                // immediately because it's a hefty time sink and it's
-                // going to be some time before we can offer this feature
-                // to the end-user either way.
-                
-                let effective_policy = null;
-                for ( const policy of policies ) {
-                    if ( policy.holder ) {
-                        effective_policy = policy;
-                        break;
-                    }
-                }
-                
-                if ( ! effective_policy ) {
-                    throw new Error(
-                        'policies with no effective user are not yet ' +
-                        'supported'
-                    );
-                }
-
-                // NOT FINAL: this will be handled by 'get_policies_for_option_'
-                // when cascading monthly usage is implemented.
-                const svc_systemData = this.services.get('system-data');
-                const svc_su = this.services.get('su');
-                effective_policy = await svc_su.sudo(async () => {
-                    return await svc_systemData.interpret(effective_policy.data);
-                });
-                
-                effective_policy = effective_policy.policy;
-                
-                console.log('EFFECTIVE',
-                    JSON.stringify(effective_policy, undefined, '  '));
-                    
-                const policy_enforcer = new PolicyEnforcer({
-                    services: this.services,
-                    actor,
-                    policy: effective_policy,
-                    driver, method,
-                });
-                
-                await policy_enforcer.check();
-                const result = await this.call_new_({
-                    service_name: driver,
-                    service,
-                    method,
-                    args: processed_args,
-                    iface,
-                });
-                await policy_enforcer.on_success();
-                return result;
-            }
         }
 
         const reading = await svc_permission.scan(actor, `driver:${iface}:${method}`);
@@ -279,10 +216,64 @@ class DriverService extends BaseService {
     }
     
     async call_new_ ({
+        actor,
+        service,
         service_name,
-        service, method, args,
-        iface,
+        iface, method, args,
     }) {
+        const svc_permission = this.services.get('permission');
+        const reading = await svc_permission.scan(
+            actor,
+            PermissionUtil.join('service', service_name, 'ii', iface),
+        );
+        console.log({
+            perm: PermissionUtil.join('service', service_name, 'ii', iface),
+            reading,
+        });
+        const options = PermissionUtil.reading_to_options(reading);
+        if ( options.length <= 0 ) {
+            throw APIError.create('forbidden');
+        }
+        const option = await this.select_best_option_(options);
+        const policies = await this.get_policies_for_option_(option);
+        console.log('SLA', JSON.stringify(policies, undefined, '  '));
+        
+        // NOT FINAL: For now we apply monthly usage logic
+        // to the first holder of the permission. Later this
+        // will be changed so monthly usage can cascade across
+        // multiple actors. I decided not to implement this
+        // immediately because it's a hefty time sink and it's
+        // going to be some time before we can offer this feature
+        // to the end-user either way.
+        
+        let effective_policy = null;
+        for ( const policy of policies ) {
+            if ( policy.holder ) {
+                effective_policy = policy;
+                break;
+            }
+        }
+        
+        if ( ! effective_policy ) {
+            throw new Error(
+                'policies with no effective user are not yet ' +
+                'supported'
+            );
+        }
+
+        // NOT FINAL: this will be handled by 'get_policies_for_option_'
+        // when cascading monthly usage is implemented.
+        const svc_systemData = this.services.get('system-data');
+        const svc_su = this.services.get('su');
+        effective_policy = await svc_su.sudo(async () => {
+            return await svc_systemData.interpret(effective_policy.data);
+        });
+        
+        effective_policy = effective_policy.policy;
+        
+        console.log('EFFECTIVE',
+            JSON.stringify(effective_policy, undefined, '  '));
+            
         const invoker = Invoker.create({
             decorators: [
                 {
@@ -322,7 +313,7 @@ class DriverService extends BaseService {
         });
         return await invoker.run(args);
     }
-
+    
     async _driver_response_from_error (e, meta) {
         let serializable = (e instanceof APIError) || (e instanceof DriverError);
         if ( serializable ) {
