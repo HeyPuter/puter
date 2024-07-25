@@ -62,53 +62,29 @@ const implicit_user_app_permissions = [
     },
 ];
 
+const policy_perm = selector => ({
+    policy: {
+        $: 'json-address',
+        path: '/admin/.policy/drivers.json',
+        selector,
+    }
+});
+
 const hardcoded_user_group_permissions = {
     system: {
         'b7220104-7905-4985-b996-649fdcdb3c8f': {
-            'service:helloworld:ii:helloworld': {},
-            'driver:puter-kvstore': {
-                $: 'json-address',
-                path: '/admin/.policy/drivers.json',
-                selector: 'temp.kv'
-            },
-            'driver:puter-notifications': {
-                $: 'json-address',
-                path: '/admin/.policy/drivers.json',
-                selector: 'temp.es'
-            },
-            'driver:puter-apps': {
-                $: 'json-address',
-                path: '/admin/.policy/drivers.json',
-                selector: 'temp.es'
-            },
-            'driver:puter-subdomains': {
-                $: 'json-address',
-                path: '/admin/.policy/drivers.json',
-                selector: 'temp.es'
-            },
+            'service:hello-world:ii:hello-world': policy_perm('temp.es'),
+            'driver:puter-kvstore': policy_perm('temp.kv'),
+            'driver:puter-notifications': policy_perm('temp.es'),
+            'driver:puter-apps': policy_perm('temp.es'),
+            'driver:puter-subdomains': policy_perm('temp.es'),
         },
         '78b1b1dd-c959-44d2-b02c-8735671f9997': {
-            'service:helloworld:ii:helloworld': {},
-            'driver:puter-kvstore': {
-                $: 'json-address',
-                path: '/admin/.policy/drivers.json',
-                selector: 'user.kv'
-            },
-            'driver:puter-notifications': {
-                $: 'json-address',
-                path: '/admin/.policy/drivers.json',
-                selector: 'user.es'
-            },
-            'driver:puter-apps': {
-                $: 'json-address',
-                path: '/admin/.policy/drivers.json',
-                selector: 'user.es'
-            },
-            'driver:puter-subdomains': {
-                $: 'json-address',
-                path: '/admin/.policy/drivers.json',
-                selector: 'user.es'
-            },
+            'service:hello-world:ii:hello-world': policy_perm('user.es'),
+            'driver:puter-kvstore': policy_perm('user.kv'),
+            'driver:puter-notifications': policy_perm('user.es'),
+            'driver:puter-apps': policy_perm('user.es'),
+            'driver:puter-subdomains': policy_perm('user.es'),
         },
     },
 };

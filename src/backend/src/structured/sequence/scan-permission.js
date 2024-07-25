@@ -25,14 +25,15 @@ const { PERMISSION_SCANNERS } = require("../../unstructured/permission-scanners"
 module.exports = new Sequence([
     async function grant_if_system (a) {
         const reading = a.get('reading');
-        const { actor } = a.values();
+        const { actor, permission_options } = a.values();
         if ( !(actor.type instanceof UserActorType)  ) {
             return;
         }
         if ( actor.type.user.username === 'system' ) {
             reading.push({
                 $: 'option',
-                permission: '*',
+                key: `sys`,
+                permission: permission_options[0],
                 source: 'implied',
                 by: 'system',
                 data: {}

@@ -305,6 +305,12 @@ const install = async ({ services, app, useapi }) => {
     
     const { HelloWorldService } = require('./services/HelloWorldService');
     services.registerService('hello-world', HelloWorldService);
+    
+    const { SystemDataService } = require('./services/SystemDataService');
+    services.registerService('system-data', SystemDataService);
+    
+    const { SUService } = require('./services/SUService');
+    services.registerService('su', SUService);
 }
 
 const install_legacy = async ({ services }) => {

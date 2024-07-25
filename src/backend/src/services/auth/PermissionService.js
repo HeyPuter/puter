@@ -155,13 +155,39 @@ class PermissionUtil {
             ;
     }
     
-    static reading_to_options (reading, options = []) {
+    static reading_to_options (
+        // actual arguments
+        reading, parameters = {},
+        // recursion state
+        options = [], extras = [], path = [],
+    ) {
+        const to_path_item = finding => ({
+            key: finding.key,
+            holder: finding.holder_username,
+            data: finding.data,
+        });
         for ( let finding of reading ) {
             if ( finding.$ === 'option' ) {
-                options.push(finding);
+                path = [to_path_item(finding), ...path];
+                options.push({
+                    ...finding,
+                    data: [
+                        ...(finding.data ? [finding.data] : []),
+                        ...extras,
+                    ],
+                    path,
+                });
             }
             if ( finding.$ === 'path' ) {
-                this.reading_to_options(finding.reading, options);
+                const new_extras = ( finding.data ) ? [
+                    finding.data,
+                    ...extras,
+                ] : [];
+                const new_path = [to_path_item(finding), ...path];
+                this.reading_to_options(
+                    finding.reading, parameters,
+                    options, new_extras, new_path,
+                );
             }
         }
         return options;
@@ -672,7 +698,7 @@ class PermissionService extends BaseService {
                     })
 
                     let reading = await this.scan(actor, permission);
-                    // reading = PermissionUtil.reading_to_options(reading);
+                    reading = PermissionUtil.reading_to_options(reading);
                     ctx.log(JSON.stringify(reading, undefined, '  '));
                 }
             },

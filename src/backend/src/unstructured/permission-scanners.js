@@ -74,6 +74,11 @@ const PERMISSION_SCANNERS = [
             // Return the first matching permission where the
             // issuer also has the permission granted
             for ( const row of rows ) {
+                row.extra = db.case({
+                    mysql: () => row.extra,
+                    otherwise: () => JSON.parse(row.extra ?? '{}')
+                })();
+
                 const issuer_actor = new Actor({
                     type: new UserActorType({
                         user: await get_user({ id: row.issuer_user_id }),
@@ -86,7 +91,8 @@ const PERMISSION_SCANNERS = [
                     $: 'path',
                     via: 'user',
                     permission: row.permission,
-                    // issuer: issuer_actor,
+                    data: row.extra,
+                    holder_username: actor.type.user.username,
                     issuer_username: issuer_actor.type.user.username,
                     reading: issuer_reading,
                 });
@@ -132,6 +138,8 @@ const PERMISSION_SCANNERS = [
                             $: 'path',
                             via: 'hc-user-group',
                             permission,
+                            data: issuer_group[permission],
+                            holder_username: actor.type.user.username,
                             issuer_username,
                             reading: issuer_reading,
                             group_id: group_uids[group_uid].id,
@@ -167,6 +175,11 @@ const PERMISSION_SCANNERS = [
             );
 
             for ( const row of rows ) {
+                row.extra = db.case({
+                    mysql: () => row.extra,
+                    otherwise: () => JSON.parse(row.extra ?? '{}')
+                })();
+
                 const issuer_actor = new Actor({
                     type: new UserActorType({
                         user: await get_user({ id: row.user_id }),
@@ -180,6 +193,8 @@ const PERMISSION_SCANNERS = [
                     via: 'user-group',
                     // issuer: issuer_actor,
                     permission: row.permission,
+                    data: row.extra,
+                    holder_username: actor.type.user.username,
                     issuer_username: issuer_actor.type.user.username,
                     reading: issuer_reading,
                     group_id: row.group_id,
@@ -246,12 +261,17 @@ const PERMISSION_SCANNERS = [
             
             if ( rows[0] ) {
                 const row = rows[0];
+                row.extra = db.case({
+                    mysql: () => row.extra,
+                    otherwise: () => JSON.parse(row.extra ?? '{}')
+                })();
                 const issuer_actor = actor.get_related_actor(UserActorType);
                 const issuer_reading = await a.icall('scan', issuer_actor, row.permission);
                 reading.push({
                     $: 'path',
                     via: 'user-app',
                     permission: row.permission,
+                    data: row.extra,
                     issuer_username: actor.type.user.username,
                     reading: issuer_reading,
                 });
