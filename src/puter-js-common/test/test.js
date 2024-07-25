@@ -19,6 +19,7 @@
 const { expect } = require('chai');
 const { BasicBase } = require('../src/bases/BasicBase');
 const { AdvancedBase } = require('../src/AdvancedBase');
+const { Invoker } = require('../src/libs/invoker');
 
 class ClassA extends BasicBase {
     static STATIC_OBJ = {
@@ -70,3 +71,40 @@ describe('AdvancedBase', () => {
     });
 });
 
+describe('lib:invoker', () => {
+    it('works', async () => {
+        const invoker = Invoker.create({
+            decorators: [
+                {
+                    name: 'uphill both ways',
+                    on_call: (args) => {
+                        return {
+                            ...args,
+                            n: args.n + 1,
+                        };
+                    },
+                    on_return: (result) => {
+                        return {
+                            n: result.n + 1,
+                        };
+                    },
+                },
+                {
+                    name: 'error number five',
+                    on_error: a => {
+                        a.cancel_error();
+                        return { n: 5 };
+                    },
+                }
+            ],
+            async delegate (args) {
+                const { n } = args;
+                if ( n === 3 ) {
+                    throw new Error('test error');
+                }
+                return { n: 'oops' };
+            }
+        });
+        expect(await invoker.run({ n: 2 })).to.deep.equal({ n: 6 });
+    });
+});
