@@ -278,6 +278,8 @@ class DriverService extends BaseService {
         console.log('EFFECTIVE',
             JSON.stringify(effective_policy, undefined, '  '));
             
+        const method_key = `V1:${service_name}:${iface}:${method}`;
+            
         const invoker = Invoker.create({
             decorators: [
                 {
@@ -294,6 +296,35 @@ class DriverService extends BaseService {
                             );
                         });
                         return args;
+                    },
+                },
+                {
+                    name: 'enforce monthly usage limit',
+                    on_call: async args => {
+                        if ( ! effective_policy['monthly-limit'] ) return args;
+                        const svc_monthlyUsage = services.get('monthly-usage');
+                        const count = await svc_monthlyUsage.check_2(
+                            actor, method_key
+                        );
+                        if ( count >= effective_policy['monthly-limit'] ) {
+                            throw APIError.create('monthly_limit_exceeded', null, {
+                                method_key,
+                                limit: effective_policy['monthly-limit'],
+                            });
+                        }
+                        return args;
+                    },
+                    on_return: async result => {
+                        console.log('monthly usage is returning');
+                        const svc_monthlyUsage = services.get('monthly-usage');
+                        const extra = {
+                            'driver.interface': iface,
+                            'driver.implementation': service_name,
+                            'driver.method': method,
+                        };
+                        console.log('calling the increment method')
+                        await svc_monthlyUsage.increment(actor, method_key, extra);
+                        return result;
                     },
                 },
                 {
