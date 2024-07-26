@@ -34,47 +34,21 @@ class MonthlyUsageService extends BaseService {
 
         const maybe_app_id = actor.type.app?.id;
 
-        if ( this.db.case({ sqlite: true, otherwise: false }) ) {
-            return;
-        }
-
-        const vals =
-                [
-                    year, month, key, actor.type.user.id, maybe_app_id, JSON.stringify(extra),
-                    ...this.db.case({ mysql: [JSON.stringify(extra)], otherwise: [] }),
-                ]
-
         // UPSERT increment count
-        try {
-            await this.db.write(
-                'INSERT INTO `service_usage_monthly` (`year`, `month`, `key`, `count`, `user_id`, `app_id`, `extra`) ' +
-                'VALUES (?, ?, ?, 1, ?, ?, ?) ' +
-                this.db.case({
-                    mysql: 'ON DUPLICATE KEY UPDATE `count` = `count` + 1, `extra` = ?',
-                    sqlite: ' ',
-                    // sqlite: 'ON CONFLICT(`year`, `month`, `key`, `user_id`, `app_id`) ' +
-                    //     'DO UPDATE SET `count` = `count` + 1 AND `extra` = ?',
-                }),
-                [
-                    year, month, key, actor.type.user.id, maybe_app_id ?? null, JSON.stringify(extra),
-                    ...this.db.case({ mysql: [JSON.stringify(extra)], otherwise: [] }),
-                ]
-            );
-        } catch (e) {
-            // if ( e.code !== 'SQLITE_ERROR' && e.code !== 'SQLITE_CONSTRAINT_PRIMARYKEY' ) throw e;
-            // The "ON CONFLICT" clause isn't currently working.
-            await this.db.write(
-                'UPDATE `service_usage_monthly` ' +
-                'SET `count` = `count` + 1, `extra` = ? ' +
-                'WHERE `year` = ? AND `month` = ? AND `key` = ? ' +
-                'AND `user_id` = ? AND `app_id` = ?',
-                [
-                    JSON.stringify(extra),
-                    year, month, key, actor.type.user.id, maybe_app_id,
-                ]
-            );
-
-        }
+        await this.db.write(
+            'INSERT INTO `service_usage_monthly` (`year`, `month`, `key`, `count`, `user_id`, `app_id`, `extra`) ' +
+            'VALUES (?, ?, ?, 1, ?, ?, ?) ' +
+            this.db.case({
+                mysql: 'ON DUPLICATE KEY UPDATE `count` = `count` + 1, `extra` = ?',
+                // sqlite: ' ',
+                otherwise: 'ON CONFLICT(`year`, `month`, `key`) ' +
+                    'DO UPDATE SET `count` = `count` + 1, `extra` = ?',
+            }),
+            [
+                year, month, key, actor.type.user.id, maybe_app_id ?? null, JSON.stringify(extra),
+                ...this.db.case({ mysql: [JSON.stringify(extra)], otherwise: [JSON.stringify({ a: 1 })] }),
+            ]
+        );
     }
 
     async check (actor, specifiers) {
@@ -84,6 +58,18 @@ class MonthlyUsageService extends BaseService {
 
         if ( actor.type instanceof AppUnderUserActorType ) {
             return await this._app_under_user_check(actor, specifiers);
+        }
+
+    }
+
+    async check_2 (actor, key) {
+        key = `${actor.uid}:${key}`;
+        if ( actor.type instanceof UserActorType ) {
+            return await this._user_check_2(actor, key);
+        }
+
+        if ( actor.type instanceof AppUnderUserActorType ) {
+            return await this._app_under_user_check_2(actor, key);
         }
 
     }
@@ -106,6 +92,36 @@ class MonthlyUsageService extends BaseService {
         return rows[0]?.sum || 0;
     }
 
+    async _user_check_2 (actor, key) {
+        const year = new Date().getUTCFullYear();
+        // months are zero-indexed by getUTCMonth, which could be confusing
+        const month = new Date().getUTCMonth() + 1;
+
+        console.log(
+            'what check query?',
+            'SELECT SUM(`count`) AS sum FROM `service_usage_monthly` ' +
+            'WHERE `year` = ? AND `month` = ? AND `user_id` = ? ' +
+            'AND `key` = ?',
+            [
+                year, month, actor.type.user.id,
+                key,
+            ]
+        );
+        const rows = await this.db.read(
+            'SELECT SUM(`count`) AS sum FROM `service_usage_monthly` ' +
+            'WHERE `year` = ? AND `month` = ? AND `user_id` = ? ' +
+            'AND `key` = ?',
+            [
+                year, month, actor.type.user.id,
+                key,
+            ]
+        );
+        
+        console.log('what rows?', rows);
+        
+        return rows[0]?.sum || 0;
+    }
+
     async _app_under_user_check (actor, specifiers) {
         const year = new Date().getUTCFullYear();
         // months are zero-indexed by getUTCMonth, which could be confusing
@@ -123,6 +139,27 @@ class MonthlyUsageService extends BaseService {
                 year, month, actor.type.user.id,
                 actor.type.app.id,
                 specifiers,
+            ]
+        );
+
+        return rows[0]?.count || 0;
+    }
+
+    async _app_under_user_check_2 (actor, key) {
+        const year = new Date().getUTCFullYear();
+        // months are zero-indexed by getUTCMonth, which could be confusing
+        const month = new Date().getUTCMonth() + 1;
+
+        // SELECT count
+        const rows = await this.db.read(
+            'SELECT `count` FROM `service_usage_monthly` ' +
+            'WHERE `year` = ? AND `month` = ? AND `user_id` = ? ' +
+            'AND `app_id` = ? ' +
+            'AND `key` = ?',
+            [
+                year, month, actor.type.user.id,
+                actor.type.app.id,
+                key,
             ]
         );
 
