@@ -22,10 +22,15 @@ class SUService extends BaseService {
     async get_system_actor () {
         return this.sys_actor_;
     }
-    async sudo (callback) {
+    async sudo (actor, callback) {
+        if ( ! callback ) {
+            callback = actor;
+            actor = await this.sys_actor_;
+        }
+        actor = Actor.adapt(actor);
         return await Context.get().sub({
-            user: await this.sys_user_,
-            actor: await this.sys_actor_,
+            actor,
+            user: actor.type.user,
         }).arun(callback);
     }
 }

@@ -24,6 +24,7 @@ const BaseService = require("../BaseService");
 const { Driver } = require("../../definitions/Driver");
 const { PermissionUtil } = require("../auth/PermissionService");
 const { Invoker } = require("@heyputer/puter-js-common/src/libs/invoker");
+const { get_user } = require("../../helpers");
 
 /**
  * DriverService provides the functionality of Puter drivers.
@@ -261,6 +262,9 @@ class DriverService extends BaseService {
             );
         }
 
+        const policy_holder = await get_user(
+            { username: effective_policy.holder });
+
         // NOT FINAL: this will be handled by 'get_policies_for_option_'
         // when cascading monthly usage is implemented.
         const svc_systemData = this.services.get('system-data');
@@ -276,6 +280,22 @@ class DriverService extends BaseService {
             
         const invoker = Invoker.create({
             decorators: [
+                {
+                    name: 'enforce logical rate-limit',
+                    on_call: async args => {
+                        if ( ! effective_policy['rate-limit'] ) return args;
+                        const svc_su = this.services.get('su');
+                        const svc_rateLimit = this.services.get('rate-limit');
+                        await svc_su.sudo(policy_holder, async () => {
+                            await svc_rateLimit.check_and_increment(
+                                `V1:${service_name}:${iface}:${method}`,
+                                effective_policy['rate-limit'].max,
+                                effective_policy['rate-limit'].period,
+                            );
+                        });
+                        return args;
+                    },
+                },
                 {
                     name: 'add metadata',
                     on_return: async result => {
