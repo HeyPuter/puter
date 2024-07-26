@@ -52,6 +52,7 @@ import hu from './hu.js';
 import zhtw from './zhtw.js';
 import vi from "./vi.js";
 import emoji from './emoji.js';
+import id from './id.js';
 
 
 
@@ -91,4 +92,5 @@ export default {
     ur,
     vi,
     emoji,
+    id,
 };
