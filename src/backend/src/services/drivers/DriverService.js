@@ -43,16 +43,24 @@ class DriverService extends BaseService {
         const svc_registry = this.services.get('registry');
         svc_registry.register_collection('interfaces');
         svc_registry.register_collection('drivers');
+        svc_registry.register_collection('types');
     }
     async ['__on_registry.entries'] () {
         const services = this.services;
         const svc_registry = services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');
         const col_drivers = svc_registry.get('drivers');
+        const col_types = svc_registry.get('types');
         {
             const default_interfaces = require('./interfaces');
             for ( const k in default_interfaces ) {
                 col_interfaces.set(k, default_interfaces[k]);
+            }
+        }
+        {
+            const types = this.modules.types;
+            for ( const k in types ) {
+                col_types.set(k, types[k]);
             }
         }
         await services.emit('driver.register.interfaces',
@@ -387,6 +395,7 @@ class DriverService extends BaseService {
     async _process_args (interface_name, method_name, args) {
         const svc_registry = this.services.get('registry');
         const c_interfaces = svc_registry.get('interfaces');
+        const c_types = svc_registry.get('types');
 
         // Note: 'interface' is a strict mode reserved word.
         const interface_ = c_interfaces.get(interface_name);
@@ -399,9 +408,10 @@ class DriverService extends BaseService {
         if ( ! method ) {
             throw APIError.create('method_not_found', null, { interface_name, method_name });
         }
+        
         for ( const [arg_name, arg_descriptor] of Object.entries(method.parameters) ) {
             const arg_value = args[arg_name];
-            const arg_behaviour = this.modules.types[arg_descriptor.type];
+            const arg_behaviour = c_types.get(arg_descriptor.type);
 
             // TODO: eventually put this in arg behaviour base class.
             // There's a particular way I want to do this that involves
