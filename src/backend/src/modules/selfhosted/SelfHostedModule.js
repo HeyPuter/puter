@@ -17,27 +17,30 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require("@heyputer/puter-js-common");
-const config = require("./config");
+const config = require("../../config");
 
 class SelfHostedModule extends AdvancedBase {
     async install (context) {
         const services = context.get('services');
 
-        const { SelfhostedService } = require('./services/SelfhostedService');
+        const { SelfhostedService } = require('./SelfhostedService');
         services.registerService('__selfhosted', SelfhostedService);
 
-        const DefaultUserService = require('./services/DefaultUserService');
+        const DefaultUserService = require('./DefaultUserService');
         services.registerService('__default-user', DefaultUserService);
 
-        const ComplainAboutVersionsService = require('./services/ComplainAboutVersionsService');
+        const ComplainAboutVersionsService = require('./ComplainAboutVersionsService');
         services.registerService('complain-about-versions', ComplainAboutVersionsService);
 
-        const DevWatcherService = require('./services/DevWatcherService');
+        const DevWatcherService = require('./DevWatcherService');
         const path_ = require('path');
+
+        // TODO: sucks
+        const RELATIVE_PATH = '../../../../../';
 
         if ( ! config.no_devwatch )
         services.registerService('__dev-watcher', DevWatcherService, {
-            root: path_.resolve(__dirname, '../../../'),
+            root: path_.resolve(__dirname, RELATIVE_PATH),
             commands: [
                 {
                     name: 'puter.js:webpack-watch',
@@ -75,36 +78,37 @@ class SelfHostedModule extends AdvancedBase {
             ],
         });
 
-        const { ServeStaticFilesService } = require("./services/ServeStaticFilesService");
+        const { ServeStaticFilesService } = require("./ServeStaticFilesService");
         services.registerService('__serve-puterjs', ServeStaticFilesService, {
             directories: [
                 {
                     prefix: '/sdk',
-                    path: path_.resolve(__dirname, '../../../src/puter-js/dist'),
+                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/puter-js/dist'),
                 },
                 {
                     prefix: '/builtin/terminal',
-                    path: path_.resolve(__dirname, '../../../src/terminal/dist'),
+                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/terminal/dist'),
                 },
                 {
                     prefix: '/builtin/phoenix',
-                    path: path_.resolve(__dirname, '../../../src/phoenix/dist'),
+                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/phoenix/dist'),
                 },
                 {
                     prefix: '/builtin/git',
-                    path: path_.resolve(__dirname, '../../../src/git/dist'),
+                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/git/dist'),
                 },
                 {
                     prefix: '/builtin/dev-center',
-                    path: path_.resolve(__dirname, '../../../src/dev-center'),
+                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/dev-center'),
                 },
             ],
         });
         
-        const { ServeSingleFileService } = require('./services/ServeSingeFileService');
+        const { ServeSingleFileService } = require('./ServeSingeFileService');
         services.registerService('__serve-puterjs-new', ServeSingleFileService, {
             path: path_.resolve(__dirname,
-                '../../../src/puter-js/dist/puter.dev.js'),
+                RELATIVE_PATH,
+                'src/puter-js/dist/puter.dev.js'),
             route: '/puter.js/v2',
         });
     }

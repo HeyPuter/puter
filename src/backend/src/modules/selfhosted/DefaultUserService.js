@@ -16,17 +16,17 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { QuickMkdir } = require("../filesystem/hl_operations/hl_mkdir");
-const { HLWrite } = require("../filesystem/hl_operations/hl_write");
-const { NodePathSelector } = require("../filesystem/node/selectors");
-const { surrounding_box } = require("../fun/dev-console-ui-utils");
-const { get_user, generate_system_fsentries, invalidate_cached_user } = require("../helpers");
-const { Context } = require("../util/context");
-const { asyncSafeSetInterval } = require("../util/promise");
-const { buffer_to_stream } = require("../util/streamutil");
-const BaseService = require("./BaseService");
-const { Actor, UserActorType } = require("./auth/Actor");
-const { DB_WRITE } = require("./database/consts");
+const { QuickMkdir } = require("../../filesystem/hl_operations/hl_mkdir");
+const { HLWrite } = require("../../filesystem/hl_operations/hl_write");
+const { NodePathSelector } = require("../../filesystem/node/selectors");
+const { surrounding_box } = require("../../fun/dev-console-ui-utils");
+const { get_user, generate_system_fsentries, invalidate_cached_user } = require("../../helpers");
+const { Context } = require("../../util/context");
+const { asyncSafeSetInterval } = require("../../util/promise");
+const { buffer_to_stream } = require("../../util/streamutil");
+const BaseService = require("../../services/BaseService");
+const { Actor, UserActorType } = require("../../services/auth/Actor");
+const { DB_WRITE } = require("../../services/database/consts");
 
 const USERNAME = 'admin';
 

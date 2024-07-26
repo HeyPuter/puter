@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { BaseService } = require("../../exports");
-const { surrounding_box } = require("../fun/dev-console-ui-utils");
+const { BaseService } = require("../../../exports");
+const { surrounding_box } = require("../../fun/dev-console-ui-utils");
 
 class ComplainAboutVersionsService extends BaseService {
     static DESCRIPTION = `
