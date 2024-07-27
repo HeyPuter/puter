@@ -27,6 +27,7 @@ const { buffer_to_stream } = require("../../util/streamutil");
 const BaseService = require("../../services/BaseService");
 const { Actor, UserActorType } = require("../../services/auth/Actor");
 const { DB_WRITE } = require("../../services/database/consts");
+const { quot } = require("../../util/strutil");
 
 const USERNAME = 'admin';
 
@@ -255,7 +256,8 @@ class DefaultUserService extends BaseService {
                 handler: async (args, ctx) => {
                     const [ username ] = args;
                     const user = await get_user({ username });
-                    await this.force_tmp_password_(user);
+                    const tmp_pwd = await this.force_tmp_password_(user);
+                    ctx.log(`New password for ${quot(username)} is: ${tmp_pwd}`);
                 }
             }
         ]);
