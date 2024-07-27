@@ -18,6 +18,7 @@
  */
 const { es_import_promise } = require("../../fun/dev-console-ui-utils");
 const { surrounding_box } = require("../../fun/dev-console-ui-utils");
+const { CompositeError } = require("../../util/errorutil");
 const structutil = require("../../util/structutil");
 const { BaseDatabaseAccessService } = require("./BaseDatabaseAccessService");
 
@@ -45,50 +46,17 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         // Database upgrade logic
         const TARGET_VERSION = 24;
 
-        if ( do_setup ) {
-            this.log.noticeme(`SETUP: creating database at ${this.config.path}`);
-            const sql_files = [
-                '0001_create-tables.sql',
-                '0002_add-default-apps.sql',
-                '0003_user-permissions.sql',
-                '0004_sessions.sql',
-                '0005_background-apps.sql',
-                '0006_update-apps.sql',
-                '0007_sessions.sql',
-                '0008_otp.sql',
-                '0009_app-prefix-fix.sql',
-                '0010_add-git-app.sql',
-                '0011_notification.sql',
-                '0012_appmetadata.sql',
-                '0013_protected-apps.sql',
-                '0014_share.sql',
-                '0015_group.sql',
-                '0016_group-permissions.sql',
-                '0017_publicdirs.sql',
-                '0018_fix-0003.sql',
-                '0019_fix-0016.sql',
-                '0020_dev-center.sql',
-                '0021_app-owner-id.sql',
-                '0022_dev-center-max.sql',
-                '0023_fix-kv.sql',
-                '0024_default-groups.sql',
-                '0025_system-user.dbmig.js',
-                '0026_user-groups.dbmig.js',
-            ].map(p => path_.join(__dirname, 'sqlite_setup', p));
-            const fs = require('fs');
-            for ( const filename of sql_files ) {
-                const basename = path_.basename(filename);
-                this.log.noticeme(`applying ${basename}`);
-                const contents = fs.readFileSync(filename, 'utf8');
-                this.db.exec(contents);
-            }
-            await this.db.exec(`PRAGMA user_version = ${TARGET_VERSION};`);
-        }
-
-        const [{ user_version }] = await this._read('PRAGMA user_version');
+        const [{ user_version }] = do_setup
+            ? [{ user_version: -1 }]
+            : await this._read('PRAGMA user_version');
         this.log.info('database version: ' + user_version);
 
         const upgrade_files = [];
+
+        if ( user_version === -1 ) {
+            upgrade_files.push('0001_create-tables.sql');
+            upgrade_files.push('0002_add-default-apps.sql');
+        }
 
         if ( user_version <= 0 ) {
             upgrade_files.push('0003_user-permissions.sql');
@@ -201,12 +169,26 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 const contents = fs.readFileSync(filename, 'utf8');
                 switch ( path_.extname(filename) ) {
                     case '.sql':
-                        this.db.exec(contents);
+                        const stmts = contents.split(/;\s*\n/);
+                        for ( let i=0 ; i < stmts.length ; i++ ) {
+                            if ( stmts[i].trim() === '' ) continue;
+                            const stmt = stmts[i] + ';';
+                            try {
+                                this.db.exec(stmt);
+                            } catch (e) {
+                                debugger;
+                                throw new CompositeError(`failed to apply: ${basename} at line ${i}`, e);
+                            }
+                        }
                         break;
                     case '.js':
-                        await this.run_js_migration_({
-                            filename, contents,
-                        });
+                        try {
+                            await this.run_js_migration_({
+                                filename, contents,
+                            });
+                        } catch (e) {
+                            throw new CompositeError(`failed to apply: ${basename}`, e);
+                        }
                         break;
                     default:
                         throw new Error(

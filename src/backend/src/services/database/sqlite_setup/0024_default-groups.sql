@@ -20,15 +20,3 @@ INSERT INTO `group` (
         '{"type": "default", "name": "developer"}',
         '{"title": "Developer", "color": "#32a852"}')
     ;
-
-INSERT INTO `jct_user_group` (
-    `user_id`,
-    `group_id`,
-    `extra`,
-    `metadata`
-) VALUES (
-    1,
-    (SELECT `id` FROM `group` WHERE uid='ca342a5e-b13d-4dee-9048-58b11a57cc55'),
-    '{}',
-    '{"default": true}'
-);
