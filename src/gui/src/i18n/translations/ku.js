@@ -1,23 +1,25 @@
 /**
- * مافی چاپ و بڵاوکردنەوە (C) 2024 پوتەر تەکنەلۆجی هەژمار.
+ * Copyright (C) 2024 Puter Technologies Inc.
  *
- * ئەم فایلە بەشێکە لە پوتەر.
+ * This file is part of Puter.
  *
- * Bryar Ghafoor کردوویە بە کوردی بڕیار غفور
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- * پوتەر سەرووخۆ ئازادیە: ئەتەوێت دەبێتەوە یان تێکەڵ دەکەیت
- * بە مەرجەکانی GNU Affero General Public License وەک بڵاوکراوی
- * لە ڕووی فریستە فوندەیشنی فری، یان بەرژەی 3ی لایسەنسەکە، یان
- * (بە مەرجەکانی کەسانەکان یان) بەرژەی داهاتوو.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
- * ئەم پرۆگرامە بڵاو دەکرێتەوە بەو پەیوەندییەی ئەوی تایبەتمەندە،
- * بەڵام بێ گەرنەکی وا، بێ گەرنەکی خەریکێی بۆ
- * فەروش یان تەواوبوون بۆ مەبەستێکی تایبەتی. بینە بەرژەی
- * GNU Affero General Public License بۆ زانیاری زۆرتر.
- *
- * دەبێت کۆپیێک لە GNU Affero General Public License وەرگیراوی
- * ئەم پرۆگرامە بۆ خۆت. گەر نەخێر، بینە <https://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
+//
+// Bryar Ghafoor کردوویە بە کوردی بڕیار غفور
+//
 
 const ku = {
   name: "کوردی",
