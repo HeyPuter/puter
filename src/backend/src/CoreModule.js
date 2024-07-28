@@ -311,6 +311,12 @@ const install = async ({ services, app, useapi }) => {
     
     const { SUService } = require('./services/SUService');
     services.registerService('su', SUService);
+
+    const { ShutdownService } = require('./services/ShutdownService');
+    services.registerService('shutdown', ShutdownService);
+
+    const { BootScriptService } = require('./services/BootScriptService');
+    services.registerService('boot-script', BootScriptService);
 }
 
 const install_legacy = async ({ services }) => {

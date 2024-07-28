@@ -20,6 +20,9 @@ const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { Context } = require('./util/context');
 const BaseService = require("./services/BaseService");
 const useapi = require('useapi');
+const yargs = require('yargs/yargs')
+const { hideBin } = require('yargs/helpers')
+
 
 class Kernel extends AdvancedBase {
     constructor ({ entry_path } = {}) {
@@ -67,7 +70,9 @@ class Kernel extends AdvancedBase {
     }
 
     boot () {
-        this._runtime_init();
+        const args = yargs(hideBin(process.argv)).argv
+
+        this._runtime_init({ args });
 
         // const express = require('express')
         // const app = express();
@@ -111,6 +116,7 @@ class Kernel extends AdvancedBase {
             services,
             config,
             logger: this.bootLogger,
+            args,
         }, 'app');
         globalThis.root_context = root_context;
 

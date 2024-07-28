@@ -28,6 +28,7 @@ const { generate_identifier } = require('../../util/identifier.js');
 const { stringify_log_entry } = require('./LogService.js');
 const BaseService = require('../BaseService.js');
 const { split_lines } = require('../../util/stdioutil.js');
+const { Context } = require('../../util/context.js');
 
 class AlarmService extends BaseService {
     async _construct () {
@@ -249,6 +250,15 @@ class AlarmService extends BaseService {
             const svc_devConsole = this.services.get('dev-console');
             svc_devConsole.turn_on_the_warning_lights();
             svc_devConsole.add_widget(this.alarm_widget);
+        }
+
+        const args = Context.get('args');
+        if ( args['quit-on-alarm'] ) {
+            const svc_shutdown = this.services.get('shutdown');
+            svc_shutdown.shutdown({
+                reason: '--quit-on-alarm is set',
+                code: 1,
+            });
         }
 
         if ( alarm.no_alert ) return;

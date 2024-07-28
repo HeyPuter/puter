@@ -18,6 +18,7 @@
  */
 const { es_import_promise } = require("../../fun/dev-console-ui-utils");
 const { surrounding_box } = require("../../fun/dev-console-ui-utils");
+const { Context } = require("../../util/context");
 const { CompositeError } = require("../../util/errorutil");
 const structutil = require("../../util/structutil");
 const { BaseDatabaseAccessService } = require("./BaseDatabaseAccessService");
@@ -44,7 +45,14 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         this.db = new Database(this.config.path);
 
         // Database upgrade logic
-        const TARGET_VERSION = 24;
+        const HIGHEST_VERSION = 24;
+        const TARGET_VERSION = (() => {
+            const args = Context.get('args');
+            if ( args['database-target-version'] ) {
+                return parseInt(args['database-target-version']);
+            }
+            return HIGHEST_VERSION;
+        })();
 
         const [{ user_version }] = do_setup
             ? [{ user_version: -1 }]
@@ -53,105 +61,93 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
         const upgrade_files = [];
 
-        if ( user_version === -1 ) {
-            upgrade_files.push('0001_create-tables.sql');
-            upgrade_files.push('0002_add-default-apps.sql');
-        }
+        const available_migrations = [
+            [-1, [
+                '0001_create-tables.sql',
+                '0002_add-default-apps.sql',
+            ]],
+            [0, [
+                '0003_user-permissions.sql',
+            ]],
+            [1, [
+                '0004_sessions.sql',
+            ]],
+            [2, [
+                '0005_background-apps.sql',
+            ]],
+            [3, [
+                '0006_update-apps.sql',
+            ]],
+            [4, [
+                '0007_sessions.sql',
+            ]],
+            [5, [
+                '0008_otp.sql',
+            ]],
+            [6, [
+                '0009_app-prefix-fix.sql',
+            ]],
+            [7, [
+                '0010_add-git-app.sql',
+            ]],
+            [8, [
+                '0011_notification.sql',
+            ]],
+            [9, [
+                '0012_appmetadata.sql',
+            ]],
+            [10, [
+                '0013_protected-apps.sql',
+            ]],
+            [11, [
+                '0014_share.sql',
+            ]],
+            [12, [
+                '0015_group.sql',
+            ]],
+            [13, [
+                '0016_group-permissions.sql',
+            ]],
+            [14, [
+                '0017_publicdirs.sql',
+            ]],
+            [15, [
+                '0018_fix-0003.sql',
+            ]],
+            [16, [
+                '0019_fix-0016.sql',
+            ]],
+            [17, [
+                '0020_dev-center.sql',
+            ]],
+            [18, [
+                '0021_app-owner-id.sql',
+            ]],
+            [19, [
+                '0022_dev-center-max.sql',
+            ]],
+            [20, [
+                '0023_fix-kv.sql',
+            ]],
+            [21, [
+                '0024_default-groups.sql',
+            ]],
+            [22, [
+                '0025_system-user.dbmig.js',
+            ]],
+            [23, [
+                '0026_user-groups.dbmig.js',
+            ]],
+        ];
 
-        if ( user_version <= 0 ) {
-            upgrade_files.push('0003_user-permissions.sql');
-        }
-
-        if ( user_version <= 1 ) {
-            upgrade_files.push('0004_sessions.sql');
-        }
-
-        if ( user_version <= 2 ) {
-            upgrade_files.push('0005_background-apps.sql');
-        }
-
-        if ( user_version <= 3 ) {
-            upgrade_files.push('0006_update-apps.sql');
-        }
-
-        if ( user_version <= 4 ) {
-            upgrade_files.push('0007_sessions.sql');
-        }
-
-        if ( user_version <= 5 ) {
-            upgrade_files.push('0008_otp.sql');
-        }
-
-        if ( user_version <= 6 ) {
-            upgrade_files.push('0009_app-prefix-fix.sql');
-        }
-
-        if ( user_version <= 7 ) {
-            upgrade_files.push('0010_add-git-app.sql');
-        }
-
-        if ( user_version <= 8 ) {
-            upgrade_files.push('0011_notification.sql');
-        }
-
-        if ( user_version <= 9 ) {
-            upgrade_files.push('0012_appmetadata.sql');
-        }
-
-        if ( user_version <= 10 ) {
-            upgrade_files.push('0013_protected-apps.sql');
-        }
-
-        if ( user_version <= 11 ) {
-            upgrade_files.push('0014_share.sql');
-        }
-
-        if ( user_version <= 12 ) {
-            upgrade_files.push('0015_group.sql');
-        }
-
-        if ( user_version <= 13 ) {
-            upgrade_files.push('0016_group-permissions.sql');
-        }
-
-        if ( user_version <= 14 ) {
-            upgrade_files.push('0017_publicdirs.sql');
-        }
-
-        if ( user_version <= 15 ) {
-            upgrade_files.push('0018_fix-0003.sql');
-        }
-
-        if ( user_version <= 16 ) {
-            upgrade_files.push('0019_fix-0016.sql');
-        }
-
-        if ( user_version <= 17 ) {
-            upgrade_files.push('0020_dev-center.sql');
-        }
-
-        if ( user_version <= 18 ) {
-            upgrade_files.push('0021_app-owner-id.sql');
-        }
-
-        if ( user_version <= 19 ) {
-            upgrade_files.push('0022_dev-center-max.sql');
-        }
-
-        if ( user_version <= 20 ) {
-            upgrade_files.push('0023_fix-kv.sql');
-        }
-
-        if ( user_version <= 21 ) {
-            upgrade_files.push('0024_default-groups.sql');
-        }
-
-        if ( user_version <= 22 ) {
-            upgrade_files.push('0025_system-user.dbmig.js');
-        }
-
-        if ( user_version <= 23 ) {
-            upgrade_files.push('0026_user-groups.dbmig.js');
+        for ( const [v_lt_or_eq, files] of available_migrations ) {
+            if ( v_lt_or_eq + 1 >= TARGET_VERSION && TARGET_VERSION !== HIGHEST_VERSION ) {
+                this.log.noticeme(`Early exit: target version set to ${TARGET_VERSION}`);
+                break;
+            }
+            if ( user_version <= v_lt_or_eq ) {
+                upgrade_files.push(...files);
+            }
         }
 
         if ( upgrade_files.length > 0 ) {

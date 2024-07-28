@@ -71,7 +71,8 @@
     "uuid": "^9.0.0",
     "validator": "^13.9.0",
     "winston": "^3.9.0",
-    "winston-daily-rotate-file": "^4.7.1"
+    "winston-daily-rotate-file": "^4.7.1",
+    "yargs": "^17.7.2"
   },
   "devDependencies": {
     "@types/node": "^20.5.3",
