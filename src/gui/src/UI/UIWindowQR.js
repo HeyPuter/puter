@@ -18,7 +18,6 @@
  */
 
 import Placeholder from '../util/Placeholder.js';
-import TeePromise from '../util/TeePromise.js';
 import Flexer from './Components/Flexer.js';
 import QRCodeView from './Components/QRCode.js';
 import UIWindow from './UIWindow.js'

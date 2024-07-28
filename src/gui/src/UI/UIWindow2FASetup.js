@@ -48,8 +48,6 @@ import RecoveryCodesView from "./Components/RecoveryCodesView.js";
 import StepHeading from "./Components/StepHeading.js";
 import StepView from "./Components/StepView.js";
 import StringView from "./Components/StringView.js";
-import TestView from "./Components/TestView.js";
-import UIAlert from "./UIAlert.js";
 import UIComponentWindow from "./UIComponentWindow.js";
 
 const UIWindow2FASetup = async function UIWindow2FASetup () {

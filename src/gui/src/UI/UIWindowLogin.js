@@ -21,13 +21,11 @@ import UIWindow from './UIWindow.js'
 import UIWindowSignup from './UIWindowSignup.js'
 import UIWindowRecoverPassword from './UIWindowRecoverPassword.js'
 import TeePromise from '../util/TeePromise.js';
-import UIAlert from './UIAlert.js';
 import UIComponentWindow from './UIComponentWindow.js';
 import Flexer from './Components/Flexer.js';
 import CodeEntryView from './Components/CodeEntryView.js';
 import JustHTML from './Components/JustHTML.js';
 import StepView from './Components/StepView.js';
-import TestView from './Components/TestView.js';
 import Button from './Components/Button.js';
 import RecoveryCodeEntryView from './Components/RecoveryCodeEntryView.js';
 

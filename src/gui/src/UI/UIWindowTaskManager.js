@@ -23,8 +23,6 @@ import UIWindow from "./UIWindow.js";
 import { Component, defineComponent } from '../util/Component.js';
 import UIComponentWindow from './UIComponentWindow.js';
 import Table from './Components/Table.js';
-import Placeholder from '../util/Placeholder.js';
-import TestView from './Components/TestView.js';
 
 const end_process = async (uuid, force) => {
     const svc_process = globalThis.services.get('process');
