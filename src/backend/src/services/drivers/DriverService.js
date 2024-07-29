@@ -111,6 +111,7 @@ class DriverService extends BaseService {
     }
 
     async _call ({ driver, iface, method, args }) {
+        console.log('??', driver, iface, method, args);
         const processed_args = await this._process_args(iface, method, args);
         if ( Context.get('test_mode') ) {
             processed_args.test_mode = true;
@@ -293,7 +294,7 @@ class DriverService extends BaseService {
                 {
                     name: 'enforce logical rate-limit',
                     on_call: async args => {
-                        if ( ! effective_policy['rate-limit'] ) return args;
+                        if ( ! effective_policy?.['rate-limit'] ) return args;
                         const svc_su = this.services.get('su');
                         const svc_rateLimit = this.services.get('rate-limit');
                         await svc_su.sudo(policy_holder, async () => {
@@ -309,7 +310,7 @@ class DriverService extends BaseService {
                 {
                     name: 'enforce monthly usage limit',
                     on_call: async args => {
-                        if ( ! effective_policy['monthly-limit'] ) return args;
+                        if ( ! effective_policy?.['monthly-limit'] ) return args;
                         const svc_monthlyUsage = services.get('monthly-usage');
                         const count = await svc_monthlyUsage.check_2(
                             actor, method_key
@@ -356,9 +357,18 @@ class DriverService extends BaseService {
                     name: 'result coercion',
                     on_return: async (result) => {
                         if ( result instanceof TypedValue ) {
+                            const svc_registry = this.services.get('registry');
+                            const c_interfaces = svc_registry.get('interfaces');
+
+                            console.log('????--1', iface);
                             const interface_ = c_interfaces.get(iface);
-                            let desired_type = interface_.methods[method]
-                                .result_choices[0].type;
+                            console.log('????--2', interface_);
+                            const method_spec = interface_.methods[method];
+                            let desired_type =
+                                method_spec.result_choices
+                                    ? method_spec.result_choices[0].type
+                                    : method_spec.result.type
+                                    ;
                             const svc_coercion = services.get('coercion');
                             result = await svc_coercion.coerce(desired_type, result);
                         }

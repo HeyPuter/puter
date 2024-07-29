@@ -83,7 +83,8 @@ const main = async () => {
         CoreModule,
         DatabaseModule,
         LocalDiskStorageModule,
-        SelfHostedModule
+        SelfHostedModule,
+        TestDriversModule,
     } = (await import('@heyputer/backend')).default;
 
     const k = new Kernel({
@@ -93,6 +94,7 @@ const main = async () => {
     k.add_module(new DatabaseModule());
     k.add_module(new LocalDiskStorageModule());
     k.add_module(new SelfHostedModule());
+    k.add_module(new TestDriversModule());
     k.boot();
 };
 
