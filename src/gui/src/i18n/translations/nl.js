@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import en from "./en.js";
 
 const nl = {
 	name: 'Nederlands',
@@ -297,7 +296,7 @@ const nl = {
 		two_factor_disabled: '2FA Uitgeschakeld',
 		two_factor_enabled: '2FA Ingeschakeld',
 		type: 'Type',
-		type_confirm_to_delete_account: 'Typ 'bevestigen' om je account te verwijderen.',
+		type_confirm_to_delete_account: 'Typ \'bevestigen\' om je account te verwijderen.',
 		ui_colors: 'UI Kleuren',
 		ui_manage_sessions: 'Sessiebeheer',
 		ui_revoke: 'Intrekken',
