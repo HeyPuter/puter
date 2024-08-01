@@ -19,16 +19,14 @@
 const { AdvancedBase } = require("@heyputer/puter-js-common");
 const { Context } = require("../../util/context");
 const { get_user, get_app } = require("../../helpers");
+const config = require("../../config");
 
 // TODO: add these to configuration; production deployments should change these!
 
-// THIS IS NOT A LEAK
-// We use this to obscure user UUIDs, as some APIs require a user identifier
-// for abuse prevention. However, there are no services in selfhosted Puter
-// that currently make use of this, and we use different values on `puter.com`.
-const PRIVATE_UID_NAMESPACE = '1757dc3f-8f04-4d77-b939-ff899045696d';
-const PRIVATE_UID_SECRET = 'bf03f0e52f5d93c83822ad8558c625277ce3dddff8dc4a5cb0d3c8493571f770';
-// THIS IS NOT A LEAK (see above)
+const PRIVATE_UID_NAMESPACE = config.private_uid_namespace
+    ?? require('crypto').randomUUID();
+const PRIVATE_UID_SECRET = config.private_uid_secret
+    ?? require('crypto').randomBytes(24).toString('hex');
 
 class Actor extends AdvancedBase {
     static MODULES = {
