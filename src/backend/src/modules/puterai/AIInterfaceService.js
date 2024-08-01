@@ -70,6 +70,34 @@ class AIInterfaceService extends BaseService {
                 }
             }
         });
+
+        col_interfaces.set('puter-tts', {
+            description: 'Text-to-speech.',
+            methods: {
+                list_voices: {
+                    description: 'List available voices.',
+                    parameters: {},
+                },
+                synthesize: {
+                    description: 'Synthesize speech from text.',
+                    parameters: {
+                        text: { type: 'string' },
+                        voice: { type: 'string' },
+                        language: { type: 'string' },
+                        ssml: { type: 'flag' },
+                    },
+                    result_choices: [
+                        {
+                            names: ['audio'],
+                            type: {
+                                $: 'stream',
+                                content_type: 'audio',
+                            }
+                        },
+                    ]
+                },
+            }
+        })
     }
 }
 
