@@ -195,10 +195,11 @@ class RuntimeEnvironment extends AdvancedBase {
         format: require('string-template'),
     }
 
-    constructor ({ logger, entry_path }) {
+    constructor ({ logger, entry_path, boot_parameters }) {
         super();
         this.logger = logger;
         this.entry_path = entry_path;
+        this.boot_parameters = boot_parameters;
         this.path_checks = path_checks(this)(this.modules);
         this.config_paths = config_paths(this)(this.modules);
         this.runtime_paths = runtime_paths(this)(this.modules);
@@ -258,15 +259,44 @@ class RuntimeEnvironment extends AdvancedBase {
             }
         }
 
+        const owrite_config = this.boot_parameters.args.overwriteConfig;
+
         const { fs, path_, crypto } = this.modules;
-        let config_values = {};
-        if ( !using_config ) {
+        if ( !using_config || owrite_config ) {
+            const generated_values = {};
+            generated_values.cookie_name = crypto.randomUUID();
+            generated_values.jwt_secret = crypto.randomUUID();
+            generated_values.url_signature_secret = crypto.randomUUID();
+            generated_values.private_uid_secret = crypto.randomBytes(24).toString('hex');
+            generated_values.private_uid_namespace = crypto.randomUUID();
+            if ( using_config ) {
+                this.logger.info(
+                    `Overwriting ${quot(using_config)} because ` +
+                    `${hl('--overwrite-config')} is set`
+                );
+                // make backup
+                fs.copyFileSync(
+                    path_.join(config_path_entry.path, using_config),
+                    path_.join(config_path_entry.path, using_config + '.bak'),
+                );
+                // preserve generated values
+                {
+                    const config_raw = fs.readFileSync(
+                        path_.join(config_path_entry.path, using_config),
+                        'utf8',
+                    );
+                    const config_values = JSON.parse(config_raw);
+                    for ( const k in generated_values ) {
+                        if ( config_values[k] ) {
+                            generated_values[k] = config_values[k];
+                        }
+                    }
+                }
+            }
             const generated_config = {
                 ...default_config,
+                ...generated_values,
             };
-            generated_config.cookie_name = crypto.randomUUID();
-            generated_config.jwt_secret = crypto.randomUUID();
-            generated_config.url_signature_secret = crypto.randomUUID();
             generated_config[""] = null; // for trailing comma
             fs.writeFileSync(
                 path_.join(config_path_entry.path, 'config.json'),

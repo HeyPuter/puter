@@ -61,6 +61,7 @@ class Kernel extends AdvancedBase {
         const runtimeEnv = new RuntimeEnvironment({
             entry_path: this.entry_path,
             logger: bootLogger,
+            boot_parameters,
         });
         const environment = runtimeEnv.init();
         this.environment = environment;
