@@ -85,6 +85,7 @@ const main = async () => {
         LocalDiskStorageModule,
         SelfHostedModule,
         TestDriversModule,
+        PuterAIModule,
     } = (await import('@heyputer/backend')).default;
 
     const k = new Kernel({
@@ -95,6 +96,7 @@ const main = async () => {
     k.add_module(new LocalDiskStorageModule());
     k.add_module(new SelfHostedModule());
     k.add_module(new TestDriversModule());
+    k.add_module(new PuterAIModule());
     k.boot();
 };
 

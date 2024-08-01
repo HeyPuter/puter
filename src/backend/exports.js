@@ -26,6 +26,7 @@ const { testlaunch } = require("./src/index.js");
 const BaseService = require("./src/services/BaseService.js");
 const { Context } = require("./src/util/context.js");
 const { TestDriversModule } = require("./src/modules/test-drivers/TestDriversModule.js");
+const { PuterAIModule } = require("./src/modules/puterai/PuterAIModule.js");
 
 
 module.exports = {
@@ -48,4 +49,5 @@ module.exports = {
     LocalDiskStorageModule,
     SelfHostedModule,
     TestDriversModule,
+    PuterAIModule,
 };
