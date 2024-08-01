@@ -21,6 +21,7 @@ const { Context } = require("../../util/context");
 const { MultiValue } = require("../../util/multivalue");
 const { stream_to_buffer } = require("../../util/streamutil");
 const { PassThrough } = require("stream");
+const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 
 /**
  * FileFacade
@@ -77,17 +78,14 @@ class FileFacade extends AdvancedBase {
             if ( ! await fsNode.exists() ) return null;
 
             const context = Context.get();
-            const services = context.get('services');
-            const svc_filesystem = services.get('filesystem');
 
-            const dst_stream = new PassThrough();
-
-            svc_filesystem.read(context, dst_stream, {
+            const ll_read = new LLRead();
+            const stream = await ll_read.run({
+                actor: context.get('actor'),
                 fsNode,
-                user: context.get('user'),
             });
 
-            return dst_stream;
+            return stream;
         });
 
         this.values.add_factory('stream', 'web_url', async web_url => {

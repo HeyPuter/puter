@@ -644,6 +644,10 @@ module.exports = class FSNodeContext {
             if ( ! await this.exists() ) {
                 throw new Error('file does not exist');
             }
+            // return null for local filesystem
+            if ( ! this.entry.bucket ) {
+                return null;
+            }
             return {
                 bucket: this.entry.bucket,
                 bucket_region: this.entry.bucket_region,

@@ -120,7 +120,10 @@ class LLRead extends LLFilesystemOperation {
 
                 const { fsNode, version_id, offset, length, has_range } = a.values();
 
-                const location = await fsNode.get('s3:location');
+                // Empty object here is in the case of local fiesystem,
+                // where s3:location will return null.
+                // TODO: storage interface shouldn't have S3-specific properties.
+                const location = await fsNode.get('s3:location') ?? {};
 
                 const stream = (await storage.create_read_stream(await fsNode.get('uid'), {
                     // TODO: fs:decouple-s3
