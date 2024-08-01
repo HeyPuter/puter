@@ -40,6 +40,7 @@ class CoercionService extends BaseService {
                 content_type: 'image'
             },
             coerce: async typed_value => {
+                this.log.noticeme('coercion is running!');
                 const response = await CoercionService.MODULES.axios.get(typed_value.value, {
                     responseType: 'stream',
                 });

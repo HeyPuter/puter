@@ -98,6 +98,10 @@ class File extends BaseType {
     }
 
     async consolidate (ctx, input, { arg_name }) {
+        if ( input instanceof FileFacade ) {
+            return input;
+        }
+
         const result = new FileFacade();
         // DRY: Part of this is duplicating FSNodeParam, but FSNodeParam is
         //      subject to change in PR #647, so this should be updated later.
