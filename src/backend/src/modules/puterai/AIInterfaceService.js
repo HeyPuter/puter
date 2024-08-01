@@ -24,6 +24,20 @@ class AIInterfaceService extends BaseService {
                 },
             }
         });
+
+        col_interfaces.set('puter-chat-completion', {
+            description: 'Chatbot.',
+            methods: {
+                complete: {
+                    description: 'Get completions for a chat log.',
+                    parameters: {
+                        messages: { type: 'json' },
+                        vision: { type: 'flag' },
+                    },
+                    result: { type: 'json' }
+                }
+            }
+        });
     }
 }
 
