@@ -9,6 +9,9 @@ class PuterAIModule extends AdvancedBase {
 
         const { AWSTextractService } = require('./AWSTextractService');
         services.registerService('aws-textract', AWSTextractService);
+
+        const { OpenAICompletionService } = require('./OpenAICompletionService');
+        services.registerService('openai-completion', OpenAICompletionService);
     }
 }
 
