@@ -12,6 +12,9 @@ class PuterAIModule extends AdvancedBase {
 
         const { OpenAICompletionService } = require('./OpenAICompletionService');
         services.registerService('openai-completion', OpenAICompletionService);
+
+        const { OpenAIImageGenerationService } = require('./OpenAIImageGenerationService');
+        services.registerService('openai-image-generation', OpenAIImageGenerationService);
     }
 }
 

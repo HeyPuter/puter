@@ -38,6 +38,38 @@ class AIInterfaceService extends BaseService {
                 }
             }
         });
+
+        col_interfaces.set('puter-image-generation', {
+            description: 'AI Image Generation.',
+            methods: {
+                generate: {
+                    description: 'Generate an image from a prompt.',
+                    parameters: {
+                        prompt: { type: 'string' },
+                    },
+                    result_choices: [
+                        {
+                            names: ['image'],
+                            type: {
+                                $: 'stream',
+                                content_type: 'image',
+                            }
+                        },
+                        {
+                            names: ['url'],
+                            type: {
+                                $: 'string:url:web',
+                                content_type: 'image',
+                            }
+                        },
+                    ],
+                    result: {
+                        description: 'URL of the generated image.',
+                        type: 'string'
+                    }
+                }
+            }
+        });
     }
 }
 

@@ -42,3 +42,21 @@ await (await fetch("http://api.puter.localhost:4100/drivers/call", {
     "method": "POST",
 })).json();
 ```
+
+```javascript
+URL.createObjectURL(await (await fetch("http://api.puter.localhost:4100/drivers/call", {
+  "headers": {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${puter.authToken}`,
+  },
+  "body": JSON.stringify({
+      interface: 'puter-image-generation',
+      driver: 'openai-image-generation',
+      method: 'generate',
+      args: {
+        prompt: 'photorealistic teapot made of swiss cheese',
+      }
+  }),
+  "method": "POST",
+})).blob());
+```
