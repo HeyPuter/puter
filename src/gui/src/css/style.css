@@ -3865,14 +3865,28 @@ fieldset[name=number-code] {
     border-radius: 4px;
     margin-bottom: 10px;
     margin-right: 10px;
+    font-size: 13px;
+    position: relative;
 }
 
 .language-item:hover {
     background-color: #f6f6f6;
 }
 
+.language-item .checkmark{
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    margin-left: 10px;
+    display: none;
+    position: absolute;
+    right: 10px;
+}
 .language-item.active {
     background-color: #e0e0e0;
+}
+.language-item.active .checkmark {
+    display: inline-block;
 }
 
 .settings-card {

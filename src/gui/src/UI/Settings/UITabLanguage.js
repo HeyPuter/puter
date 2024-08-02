@@ -36,7 +36,7 @@ export default {
         const available_languages = window.listSupportedLanguages();
         h += `<div class="language-list">`;
             for (let lang of available_languages) {
-                h += `<div class="language-item ${window.locale === lang.code ? 'active': ''}" data-lang="${lang.code}" data-english-name="${html_encode(lang.english_name)}">${html_encode(lang.name)}</div>`;
+                h += `<div class="language-item ${window.locale === lang.code ? 'active': ''}" data-lang="${lang.code}" data-english-name="${html_encode(lang.english_name)}">${html_encode(lang.name)}<img class="checkmark" src="${window.icons['checkmark.svg']}"></div>`;
             }
         h += `</div>`;
         return h;
