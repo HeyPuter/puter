@@ -592,7 +592,7 @@ async function edit_app_section(cur_app_name) {
                 let items = e.detail.items;
 
                 // ----------------------------------------------------
-                // one Puter files dropped
+                // One Puter file dropped
                 // ----------------------------------------------------
                 if (items.length === 1 && !items[0].isDirectory) {
                     if (items[0].name.toLowerCase() === 'index.html') {
@@ -745,6 +745,7 @@ async function edit_app_section(cur_app_name) {
             else if (rootKeys.length > 3)
                 rootItems = rootKeys[0] + ', ' + rootKeys[1] + ', and ' + (rootKeys.length - 2) + ' more item' + (rootKeys.length - 2 > 1 ? 's' : '');
 
+            rootItems = html_encode(rootItems);
             $('.drop-area').removeClass('drop-area-hover');
             $('.drop-area').addClass('drop-area-ready-to-deploy');
             drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p>`;
