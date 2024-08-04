@@ -128,8 +128,18 @@ class DriverService extends BaseService {
 
         const svc_registry = this.services.get('registry');
         const c_interfaces = svc_registry.get('interfaces');
+
+        // There used to be only an 'interface' parameter but no 'driver'
+        // parameter. To support outdated clients we use this hard-coded
+        // table to map interfaces to default drivers.
+        const iface_to_driver = {
+            ['puter-ocr']: 'aws-textract',
+            ['puter-tts']: 'aws-polly',
+            ['puter-chat-completion']: 'openai-completion',
+            ['puter-image-generation']: 'openai-image-generation',
+        }
         
-        driver = driver ?? iface;
+        driver = driver ?? iface_to_driver[iface] ?? iface;
 
         const driver_service_exists = (() => {
             return this.services.has(driver) &&
