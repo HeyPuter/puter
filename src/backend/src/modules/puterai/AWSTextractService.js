@@ -1,6 +1,7 @@
 const { TextractClient, AnalyzeDocumentCommand, InvalidS3ObjectException } = require("@aws-sdk/client-textract");
 
 const BaseService = require("../../services/BaseService");
+const APIError = require("../../api/APIError");
 
 class AWSTextractService extends BaseService {
     _construct () {
@@ -10,6 +11,23 @@ class AWSTextractService extends BaseService {
     static IMPLEMENTS = {
         ['puter-ocr']: {
             async recognize ({ source, test_mode }) {
+                if ( test_mode ) {
+                    return {
+                        blocks: [
+                            {
+                                type: 'text/textract:WORD',
+                                confidence: 0.9999998807907104,
+                                text: 'Hello',
+                            },
+                            {
+                                type: 'text/puter:sample-output',
+                                confidence: 1,
+                                text: 'The test_mode flag is set to true. This is a sample output.',
+                            },
+                        ]
+                    };
+                }
+
                 const resp = await this.analyze_document(source);
 
                 // Simplify the response for common interface
