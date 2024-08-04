@@ -19,16 +19,16 @@ class OpenAIImageGenerationService extends BaseService {
     static IMPLEMENTS = {
         ['puter-image-generation']: {
             async generate ({ prompt, test_mode }) {
-                const url = await this.generate(prompt, {
-                    ratio: this.constructor.RATIO_SQUARE,
-                });
-
                 if ( test_mode ) {
                     return new TypedValue({
                         $: 'string:url:web',
                         content_type: 'image',
                     }, 'https://puter-sample-data.puter.site/image_example.png');
                 }
+
+                const url = await this.generate(prompt, {
+                    ratio: this.constructor.RATIO_SQUARE,
+                });
 
                 const image = new TypedValue({
                     $: 'string:url:web',

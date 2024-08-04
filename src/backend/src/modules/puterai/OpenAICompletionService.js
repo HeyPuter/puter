@@ -20,7 +20,32 @@ class OpenAICompletionService extends BaseService {
 
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
-            async complete ({ messages, vision }) {
+            async complete ({ messages, test_mode }) {
+                if ( test_mode ) {
+                    const { LoremIpsum } = require('lorem-ipsum');
+                    const li = new LoremIpsum({
+                        sentencesPerParagraph: {
+                            max: 8,
+                            min: 4
+                        },
+                        wordsPerSentence: {
+                            max: 20,
+                            min: 12
+                        },
+                    });
+                    return {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": li.generateParagraphs(
+                                Math.floor(Math.random() * 3) + 1
+                            ),
+                        },
+                        "logprobs": null,
+                        "finish_reason": "stop"
+                    }
+                }
+
                 const model = 'gpt-4o';
                 return await this.complete(messages, {
                     model,
