@@ -121,6 +121,15 @@ const early_init_errors = [
         suggestions: [
             'try running `npm install`'
         ],
+    },
+    {
+        text: 'Cannot write to path',
+        notes: [
+            'this usually happens when /var/puter isn\'t chown\'d to the right UID'
+        ],
+        suggestions: [
+            'check issue #645 on our github'
+        ]
     }
 ];
 
