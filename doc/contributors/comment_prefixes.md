@@ -28,3 +28,6 @@ This document will be updated on an _as-needed_ basis.
 - `wet:` is usesd to track anything that doesn't adhere
   to the DRY principle; the following message should describe
   where similar code is
+- `compare(<identifier>):` is used to note differences between other
+  implementations of a similar idea
+- `name:` pedantic commentary on the name of something
