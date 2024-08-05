@@ -27,6 +27,7 @@ const BaseService = require("./src/services/BaseService.js");
 const { Context } = require("./src/util/context.js");
 const { TestDriversModule } = require("./src/modules/test-drivers/TestDriversModule.js");
 const { PuterAIModule } = require("./src/modules/puterai/PuterAIModule.js");
+const { BroadcastModule } = require("./src/modules/broadcast/BroadcastModule.js");
 
 
 module.exports = {
@@ -50,4 +51,5 @@ module.exports = {
     SelfHostedModule,
     TestDriversModule,
     PuterAIModule,
+    BroadcastModule,
 };

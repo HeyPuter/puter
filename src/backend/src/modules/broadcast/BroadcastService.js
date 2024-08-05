@@ -17,9 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require("@heyputer/puter-js-common");
-const { Endpoint } = require("../util/expressutil");
-const { UserActorType } = require("./auth/Actor");
-const BaseService = require("./BaseService");
+const BaseService = require("../../services/BaseService");
 
 class KeyPairHelper extends AdvancedBase {
     static MODULES = {
