@@ -1,0 +1,12 @@
+{
+  "name": "keygen",
+  "version": "1.0.0",
+  "main": "gen-peer-keys.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "AGPL-3.0-only",
+  "description": ""
+}
