@@ -96,7 +96,7 @@ const main = async () => {
     k.add_module(new LocalDiskStorageModule());
     k.add_module(new SelfHostedModule());
     k.add_module(new TestDriversModule());
-    k.add_module(new PuterAIModule());
+    // k.add_module(new PuterAIModule());
     k.boot();
 };
 

@@ -252,7 +252,7 @@ class AlarmService extends BaseService {
             svc_devConsole.add_widget(this.alarm_widget);
         }
 
-        const args = Context.get('args');
+        const args = Context.get('args') ?? {};
         if ( args['quit-on-alarm'] ) {
             const svc_shutdown = this.services.get('shutdown');
             svc_shutdown.shutdown({
