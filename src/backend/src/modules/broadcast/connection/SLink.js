@@ -65,6 +65,11 @@ class SLink extends BaseLink {
         throw new Error('cannot send via SLink yet');
     }
 
+    disconnect () {
+        this.socket.disconnect();
+        this.state = this.constructor.OFFLINE;
+    }
+
     constructor ({
         keys,
         trustedKeys,
