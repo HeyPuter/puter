@@ -132,6 +132,7 @@ async function UIWindowDesktopBGSettings(options){
         $(el_window).find('.desktop-bg-color-block-palette input').on('change', async function(e){
             window.set_desktop_background({color: $(this).val()})
         })
+
         $(el_window).on('file_opened', function(e){
             let selected_file = Array.isArray(e.detail) ? e.detail[0] : e.detail;
             const fit = $(el_window).find('.desktop-bg-fit').val();

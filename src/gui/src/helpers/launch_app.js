@@ -40,7 +40,6 @@ const launch_app = async (options)=>{
     
     // explorer is a special case
     if(options.name === 'explorer'){
-        console.log('explorer');
         app_info = [];
     }
     else if(options.app_obj)

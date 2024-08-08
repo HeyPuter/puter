@@ -27,7 +27,7 @@ import UIWindowManageSessions from '../UIWindowManageSessions.js';
 export default {
     id: 'account',
     title_i18n_key: 'account',
-    icon: 'user.svg',
+    icon: 'gear.svg',
     html: () => {
         let h = `<h1>${i18n('account')}</h1>`;
 

@@ -19,6 +19,7 @@
 import { Service } from "../definitions.js";
 
 import AboutTab from '../UI/Settings/UITabAbout.js';
+import ProfileTab from '../UI/Settings/UITabProfile.js';
 import UsageTab from '../UI/Settings/UITabUsage.js';
 import AccountTab from '../UI/Settings/UITabAccount.js';
 import SecurityTab from '../UI/Settings/UITabSecurity.js';
@@ -31,6 +32,7 @@ export class SettingsService extends Service {
     async _init () {
         ;[
             AboutTab,
+            ProfileTab,
             UsageTab,
             AccountTab,
             SecurityTab,

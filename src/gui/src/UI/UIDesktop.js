@@ -1005,7 +1005,7 @@ async function UIDesktop(options){
             ht += `<div class="toolbar-btn qr-btn" title="QR code" style="background-image:url(${window.icons['qr.svg']})"></div>`;
         
         // user options menu
-        ht += `<div class="toolbar-btn user-options-menu-btn" style="background-image:url(${window.icons['profile.svg']})">`;
+        ht += `<div class="toolbar-btn user-options-menu-btn profile-pic" style="background-image:url(${window.user.profile.picture ? window.user.profile.picture : window.icons['profile.svg']})">`;
             h += `<span class="user-options-menu-username">${window.user.username}</span>`;
         ht += `</div>`;
     ht += `</div>`;
@@ -1226,6 +1226,10 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
 
         // create menu items
         users_arr.forEach(l_user => {
+            // construct profile picture image
+            let profile_pic = l_user.profile?.picture ? l_user.profile.picture : window.icons['profile.svg'];
+            profile_pic = `<img src="${profile_pic}" style="width: 20px; height: 20px; border-radius: 50%; margin-right: 5px;">`;
+
             items.push(            
                 {
                     html: l_user.username,
