@@ -60,6 +60,9 @@ class Context {
     static describe () {
         return this.get().describe();
     }
+    static arun (cb) {
+        return this.get().arun(cb);
+    }
     get (k) {
         return this.values_[k];
     }

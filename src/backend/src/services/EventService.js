@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { Context } = require("../util/context");
 const BaseService = require("./BaseService");
 
 class ScopedEventBus {
@@ -55,7 +56,7 @@ class EventService extends BaseService {
 
                 // IIAFE wrapper to catch errors without blocking
                 // event dispatch.
-                (async () => {
+                Context.arun(async () => {
                     try {
                         await callback(key, data, meta);
                     } catch (e) {
@@ -65,14 +66,14 @@ class EventService extends BaseService {
                             alarm: true,
                         });
                     }
-                })();
+                });
             }
         }
         
         for ( const callback of this.global_listeners_ ) {
             // IIAFE wrapper to catch errors without blocking
             // event dispatch.
-            (async () => {
+            Context.arun(async () => {
                 try {
                     await callback(key, data, meta);
                 } catch (e) {
@@ -82,7 +83,7 @@ class EventService extends BaseService {
                         alarm: true,
                     });
                 }
-            })();
+            });
         }
 
     }
