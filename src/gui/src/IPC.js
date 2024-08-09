@@ -497,6 +497,11 @@ window.addEventListener('message', async (event) => {
         if(!window.menubars[event.data.appInstanceID])
             window.menubars[event.data.appInstanceID] = value.items;
 
+        // disable system context menu
+        $menubar.on('contextmenu', (e) => {
+            e.preventDefault();
+        });
+
         const sanitize_items = items => {
             return items.map(item => {
                 // Check if the item is just '-'

@@ -468,7 +468,7 @@ class UI extends EventListener {
                 let fpath = URLParams.get('puter.item.path');
 
                 if(!fpath.startsWith('~/') && !fpath.startsWith('/'))
-                    fpath = '~/' + fpath
+                    fpath = '~/' + fpath;
 
                 callback([new FSItem({
                     name: URLParams.get('puter.item.name'),

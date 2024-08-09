@@ -362,13 +362,12 @@ class WebServerService extends BaseService {
         app.use(helmet.xssFilter());
         // app.use(helmet.referrerPolicy());
         app.disable('x-powered-by');
-    
+        
         const uaParser = require('ua-parser-js');
         app.use(function (req, res, next) {
             const ua_header = req.headers['user-agent'];
             const ua = uaParser(ua_header);
             req.ua = ua;
-            console.log('\x1B[26;1m===== UA =====\x1B[0m', ua);
             next();
         });
 
@@ -382,11 +381,20 @@ class WebServerService extends BaseService {
         app.use(function (req, res, next) {
             const origin = req.headers.origin;
             
-            const is_site = req.hostname.endsWith(config.static_hosting_domain);
+            const is_site =
+                req.hostname.endsWith(config.static_hosting_domain) ||
+                req.hostname === 'docs.puter.com'
+                ;
             const is_popup = !! req.query.embedded_in_popup;
-            
-            const co_isolation_okay = !is_popup && (is_site || req.co_isolation_enabled);
-            
+            const is_parent_co = !! req.query.cross_origin_isolated;
+            const is_app = !! req.query['puter.app_instance_id'];
+
+            const co_isolation_okay =
+                (!is_popup || is_parent_co) &&
+                (is_app || !is_site) &&
+                req.co_isolation_enabled
+                ;
+
             if ( req.path === '/signup' || req.path === '/login' ) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
             }
