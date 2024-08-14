@@ -73,6 +73,7 @@ const policy_perm = selector => ({
 const hardcoded_user_group_permissions = {
     system: {
         'ca342a5e-b13d-4dee-9048-58b11a57cc55': {
+            'driver': {},
             'service': {},
             'feature': {},
         },
