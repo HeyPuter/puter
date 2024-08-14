@@ -16,6 +16,8 @@
     ·
     <a href="https://discord.com/invite/PQcx7Teh8u">Discord</a>
     ·
+    <a href="https://www.youtube.com/@EricsPuterVideos">YouTube</a>
+    ·
     <a href="https://reddit.com/r/puter">Reddit</a>
     ·
     <a href="https://twitter.com/HeyPuter">X (Twitter)</a>
