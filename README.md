@@ -135,3 +135,4 @@ This repository, including all its contents, sub-projects, modules, and componen
 
 - [Danish / Dansk](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.da.md)
 - [English](https://github.com/HeyPuter/puter/blob/main/README.md)
+- [Portuguese / Português](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.pt.md)
