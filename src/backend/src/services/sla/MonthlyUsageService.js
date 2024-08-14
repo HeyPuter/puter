@@ -33,6 +33,7 @@ class MonthlyUsageService extends BaseService {
         const month = new Date().getUTCMonth() + 1;
 
         const maybe_app_id = actor.type.app?.id;
+        const stringified = JSON.stringify(extra);
 
         // UPSERT increment count
         await this.db.write(
@@ -45,8 +46,8 @@ class MonthlyUsageService extends BaseService {
                     'DO UPDATE SET `count` = `count` + 1, `extra` = ?',
             }),
             [
-                year, month, key, actor.type.user.id, maybe_app_id ?? null, JSON.stringify(extra),
-                ...this.db.case({ mysql: [JSON.stringify(extra)], otherwise: [JSON.stringify({ a: 1 })] }),
+                year, month, key, actor.type.user.id, maybe_app_id ?? null, stringified,
+                stringified,
             ]
         );
     }
