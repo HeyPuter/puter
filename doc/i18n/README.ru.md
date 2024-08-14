@@ -53,7 +53,7 @@ npm install
 npm start
 ```
 
-Это запустит Puter по адресу http://localhost:4000 (или на следующем доступном порту).
+Это запустит Puter по адресу http://puter.localhost:4100 (или на следующем доступном порту).
 
 <br/>
 
