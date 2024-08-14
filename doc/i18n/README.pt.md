@@ -112,7 +112,7 @@ O Puter está disponível como um serviço hospedado em [**puter.com**](https://
 
 Conecte-se com os mantenedores e a comunidade através destes canais:
 
-- Relato de bug ou solicitação de recurso? Por favor, [abra um tópico](github.com/HeyPuter/puter/issues/new/choose).
+- Relato de bug ou solicitação de recurso? Por favor, [abra um tópico](https://github.com/HeyPuter/puter/issues/new/choose).
 - Discord: [discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
 - X (Twitter): [x.com/HeyPuter](https://x.com/HeyPuter)
 - Reddit: [reddit.com/r/puter/](https://www.reddit.com/r/puter/)
