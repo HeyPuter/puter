@@ -130,3 +130,8 @@ We are always happy to help you with any questions you may have. Don't hesitate 
 This repository, including all its contents, sub-projects, modules, and components, is licensed under [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) unless explicitly stated otherwise. Third-party libraries included in this repository may be subject to their own licenses.
 
 <br/>
+
+## Translations
+
+- [Danish / Dansk](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.da.md)
+- [English](https://github.com/HeyPuter/puter/blob/main/README.md)
