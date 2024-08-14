@@ -74,6 +74,7 @@ const hardcoded_user_group_permissions = {
     system: {
         'ca342a5e-b13d-4dee-9048-58b11a57cc55': {
             'service': {},
+            'feature': {},
         },
         'b7220104-7905-4985-b996-649fdcdb3c8f': {
             'service:hello-world:ii:hello-world': policy_perm('temp.es'),

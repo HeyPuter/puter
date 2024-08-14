@@ -19,6 +19,7 @@
 const APIError = require("../api/APIError");
 const { get_user } = require("../helpers");
 const configurable_auth = require("../middleware/configurable_auth");
+const featureflag = require("../middleware/featureflag.js");
 const { Context } = require("../util/context");
 const { Endpoint } = require("../util/expressutil");
 const { whatis } = require("../util/langutil");
@@ -246,7 +247,10 @@ class ShareService extends BaseService {
         Endpoint({
             route: '/',
             methods: ['POST'],
-            mw: [configurable_auth()],
+            mw: [
+                configurable_auth(),
+                featureflag({ feature: 'share' }),
+            ],
             handler: async (req, res) => {
                 const actor = Actor.adapt(req.user);
                 return await share_sequence.call(this, {
