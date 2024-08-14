@@ -112,7 +112,7 @@ Puter er tilgængelig som en hosted tjeneste på [**puter.com**](https://puter.c
 
 Kom i kontakt med vedligeholderne og fællesskabet gennem disse kanaler:
 
-- Bugrapport eller funktionønske? Åbn [venligst en sag](github.com/HeyPuter/puter/issues/new/choose).
+- Bugrapport eller funktionønske? Åbn [venligst en sag](https://github.com/HeyPuter/puter/issues/new/choose).
 - Discord: [discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
 - X (Twitter): [x.com/HeyPuter](https://x.com/HeyPuter)
 - Reddit: [reddit.com/r/puter/](https://www.reddit.com/r/puter/)

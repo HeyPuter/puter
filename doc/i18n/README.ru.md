@@ -112,7 +112,7 @@ Puter доступен как облачный сервис на [**puter.com**]
 
 Свяжитесь с разработчиками и сообществом этими способами:
 
-- Отчет об ошибке или запрос функции? Пожалуйста, [откройте вопрос](github.com/HeyPuter/puter/issues/new/choose).
+- Отчет об ошибке или запрос функции? Пожалуйста, [откройте вопрос](https://github.com/HeyPuter/puter/issues/new/choose).
 - Discord: [discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
 - X (Twitter): [x.com/HeyPuter](https://x.com/HeyPuter)
 - Reddit: [reddit.com/r/puter/](https://www.reddit.com/r/puter/)
