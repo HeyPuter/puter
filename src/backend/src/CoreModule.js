@@ -314,6 +314,9 @@ const install = async ({ services, app, useapi }) => {
 
     const { BootScriptService } = require('./services/BootScriptService');
     services.registerService('boot-script', BootScriptService);
+
+    const { FeatureFlagService } = require('./services/FeatureFlagService');
+    services.registerService('feature-flag', FeatureFlagService);
 }
 
 const install_legacy = async ({ services }) => {
