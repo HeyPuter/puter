@@ -25,6 +25,13 @@ const { AppUnderUserActorType, UserActorType, Actor, SystemActorType, AccessToke
 const { PermissionUtil } = require("./PermissionService");
 
 class ACLService extends BaseService {
+    async _init () {
+        const svc_featureFlag = this.services.get('feature-flag');
+        svc_featureFlag.register('public-folders', {
+            $: 'config-flag',
+            value: this.global_config.enable_public_folders ?? false,
+        });
+    }
     async check (actor, resource, mode) {
         const ld = (Context.get('logdent') ?? 0) + 1;
         return await Context.get().sub({ logdent: ld }).arun(async () => {

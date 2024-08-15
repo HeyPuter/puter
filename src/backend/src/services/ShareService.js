@@ -37,6 +37,13 @@ class ShareService extends BaseService {
 
     async _init () {
         this.db = await this.services.get('database').get(DB_WRITE, 'share');
+
+        // registry "share" as a feature flag so gui is informed
+        // about whether or not a user has access to this feature
+        const svc_featureFlag = this.services.get('feature-flag');
+        svc_featureFlag.register('share', {
+            $: 'permission-flag'
+        });
     }
     
     ['__on_install.routes'] (_, { app }) {

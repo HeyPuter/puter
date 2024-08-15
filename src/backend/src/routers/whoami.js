@@ -61,7 +61,10 @@ const WHOAMI_GET = eggspress('/whoami', {
 
     // Get whoami values from other services
     const svc_whoami = req.services.get('whoami');
-    const provider_details = await svc_whoami.get_details({ user: req.user });
+    const provider_details = await svc_whoami.get_details({
+        user: req.user,
+        actor: actor,
+    });
     Object.assign(details, provider_details);
 
     if ( ! is_user ) {
