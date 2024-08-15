@@ -26,7 +26,7 @@ const _path = require('path');
 //
 // If `<type>` is `multi`, then the format differs slightly:
 // <env>:<service>:<class>:multi:<type>:<property>:<id-property>:<id>
-// where `<id-property>` specifies the propery being used for the id
+// where `<id-property>` specifies the property being used for the id
 
 class SystemFSEntryService {
     constructor ({ services }) {
