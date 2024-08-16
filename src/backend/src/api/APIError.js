@@ -470,7 +470,8 @@ module.exports = class APIError {
         },
         'email_must_be_confirmed': {
             status: 422,
-            message: 'Email must be confirmed to apply a share.',
+            message: ({action}) =>
+                `Email must be confirmed to ${action ?? 'apply a share'}.`,
         },
         'no_need_to_request': {
             status: 422,
