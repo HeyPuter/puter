@@ -105,6 +105,12 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
         }
 
         const user = await get_user({ id: req.user.id, force: true });
+        
+        if ( ! user.email_confirmed ) {
+            throw APIError.create('email_must_be_confirmed', null, {
+                action: 'enable 2FA'
+            });
+        }
 
         // Verify that 2FA isn't already enabled
         if ( user.otp_enabled ) {
