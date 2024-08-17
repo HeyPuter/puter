@@ -83,6 +83,7 @@ const update_username_in_gui = function(new_username){
     window.pictures_path = '/' + new_username + '/Pictures';
     window.videos_path = '/' + new_username + '/Videos';
     window.desktop_path = '/' + new_username + '/Desktop';
+    window.public_path = '/' + new_username + '/Public';
     window.home_path = '/' + new_username;
 }
 
