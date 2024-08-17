@@ -127,6 +127,6 @@ Sorularınız varsa size her zaman yardımcı olmaktan mutluluk duyarız. Sormak
 
 ##  Lisans
 
-Bu depo, tüm içeriği, alt projeleri, modülleri ve bileşenleri dahil olmak üzere, aksi açıkça belirtilmedikçe [AGPL-3.0] (https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) altında lisanslanmıştır. Bu depoda yer alan üçüncü taraf kütüphaneler kendi lisanslarına tabi olabilir.
+Bu depo, tüm içeriği, alt projeleri, modülleri ve bileşenleri dahil olmak üzere, aksi açıkça belirtilmedikçe [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) altında lisanslanmıştır. Bu depoda yer alan üçüncü taraf kütüphaneler kendi lisanslarına tabi olabilir.
 
 <br/>
