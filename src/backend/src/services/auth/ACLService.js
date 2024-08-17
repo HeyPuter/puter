@@ -18,7 +18,6 @@
  */
 const APIError = require("../../api/APIError");
 const { NodePathSelector } = require("../../filesystem/node/selectors");
-const { get_user } = require("../../helpers");
 const { Context } = require("../../util/context");
 const BaseService = require("../BaseService");
 const { AppUnderUserActorType, UserActorType, Actor, SystemActorType, AccessTokenActorType } = require("./Actor");
@@ -64,10 +63,21 @@ class ACLService extends BaseService {
         
         // Hard rule: anyone and anything can read /user/public directories
         if ( this.global_config.enable_public_folders ) {
-            const public_modes = ['read', 'list', 'see'];
-            if ( public_modes.includes(mode) ) {
-                if ( await fsNode.isPublic() ) return true;
-            }
+            const public_modes = Object.freeze(['read', 'list', 'see']);
+            let is_public;
+            await (async () => {
+                if ( ! public_modes.includes(mode) ) return;
+                if ( ! (await fsNode.isPublic()) ) return;
+                
+                const svc_getUser = this.services.get('get-user');
+                
+                const username = await fsNode.getUserPart();
+                const user = await svc_getUser.get_user({ username });
+                if ( ! user.email_confirmed ) return;
+                
+                is_public = true;
+            })();
+            if ( is_public ) return true;
         }
 
         // Access tokens only work if the authorizer has permission
