@@ -70,7 +70,8 @@ router.post('/confirm-email', auth, express.json(), async (req, res, next)=>{
             "UPDATE `user` SET `email_confirmed` = 1, `requires_email_confirmation` = 0 WHERE id = ? LIMIT 1",
             [req.user.id],
         );
-        invalidate_cached_user(req.user);
+        const svc_getUser = req.services.get('get-user');
+        await svc_getUser.get_user({ id: req.user.id, force: true });
     }
 
     // Build response object
