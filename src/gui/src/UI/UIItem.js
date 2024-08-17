@@ -782,7 +782,7 @@ function UIItem(options){
                 // -------------------------------------------
                 menu_items.push('-');
             }
-            if(!are_trashed){
+            if(!are_trashed && (!window.user.feature_flags || window.user.feature_flags.share !== false)){
                 menu_items.push({
                     html: 'Share With…',
                     onClick: async function(){
@@ -1086,7 +1086,7 @@ function UIItem(options){
             // -------------------------------------------
             // Share With…
             // -------------------------------------------
-            if(!is_trashed && !is_trash){
+            if(!is_trashed && !is_trash  && (!window.user.feature_flags || window.user.feature_flags.share !== false)){
                 menu_items.push({
                     html: 'Share With…',
                     onClick: async function(){
