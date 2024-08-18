@@ -73,7 +73,9 @@ class ACLService extends BaseService {
                 
                 const username = await fsNode.getUserPart();
                 const user = await svc_getUser.get_user({ username });
-                if ( ! user.email_confirmed ) return;
+                if ( ! (user.email_confirmed || user.username === 'admin') ) {
+                    return;
+                }
                 
                 is_public = true;
             })();
