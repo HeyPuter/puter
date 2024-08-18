@@ -659,6 +659,13 @@ module.exports = class FSNodeContext {
             await this.fetchEntry();
             return this.isRoot;
         }
+        
+        if ( key === 'writable' ) {
+            const actor = Context.get('actor');
+            if ( !actor || !actor.type.user ) return undefined;
+            const svc_acl = this.services.get('acl');
+            return await svc_acl.check(actor, this, 'write');
+        }
 
         throw new Error(`unrecognize key for FSNodeContext.get: ${key}`);
     }
@@ -789,6 +796,7 @@ module.exports = class FSNodeContext {
 
         fsentry.dirname = _path.dirname(fsentry.path);
         fsentry.dirpath = fsentry.dirname;
+        fsentry.writable = await this.get('writable');
 
         // Do not send internal IDs to clients
         fsentry.id = res.uuid;
