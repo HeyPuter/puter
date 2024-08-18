@@ -105,6 +105,9 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
             if ( alert_resp !== 'yes' ) {
                 return;
             }
+            
+
+            const anti_csrf = await services.get('anti-csrf').token();
 
             const resp = await fetch(`${window.api_origin}/auth/revoke-session`, {
                 method: 'POST',
@@ -114,6 +117,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                 },
                 body: JSON.stringify({
                     uuid: session.uuid,
+                    anti_csrf,
                 }),
             });
             if ( resp.ok ) {

@@ -45,6 +45,7 @@ import UIComponentWindow from './UI/UIComponentWindow.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
 import { LaunchOnInitService } from './services/LaunchOnInitService.js';
 import item_icon from './helpers/item_icon.js';
+import { AntiCSRFService } from './services/AntiCSRFService.js';
 
 const launch_services = async function (options) {
     // === Services Data Structures ===
@@ -79,6 +80,7 @@ const launch_services = async function (options) {
     register('process', new ProcessService());
     register('locale', new LocaleService());
     register('settings', new SettingsService());
+    register('anti-csrf', new AntiCSRFService());
     register('__launch-on-init', new LaunchOnInitService());
 
     // === Service-Script Services ===

@@ -36,6 +36,11 @@ module.exports = eggspress('/auth/revoke-session', {
         throw APIError.create('forbidden');
     }
 
+    const svc_antiCSRF = req.services.get('anti-csrf');
+    if ( ! svc_antiCSRF.consume_token(actor.type.user.uuid, req.body.anti_csrf) ) {
+        return res.status(400).json({ message: 'incorrect anti-CSRF token' });
+    }
+
     // Ensure valid UUID
     if ( ! req.body.uuid || typeof req.body.uuid !== 'string' ) {
         throw APIError.create('field_invalid', null, {
