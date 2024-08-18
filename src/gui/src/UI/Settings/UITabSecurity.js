@@ -53,7 +53,7 @@ export default {
         h += `</div>`;
 
         // configure 2FA
-        if(!user.is_temp){
+        if(!user.is_temp && user.email_confirmed){
             h += `<div class="settings-card settings-card-security ${user.otp ? 'settings-card-success' : 'settings-card-warning'}">`;
                 h += `<div>`;
                     h += `<strong style="display:block;">${i18n('two_factor')}</strong>`;

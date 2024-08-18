@@ -47,7 +47,8 @@ const WHOAMI_GET = eggspress('/whoami', {
         uuid: req.user.uuid,
         email: req.user.email,
         unconfirmed_email: req.user.email,
-        email_confirmed: req.user.email_confirmed,
+        email_confirmed: req.user.email_confirmed
+            || req.user.username === 'admin',
         requires_email_confirmation: req.user.requires_email_confirmation,
         desktop_bg_url: req.user.desktop_bg_url,
         desktop_bg_color: req.user.desktop_bg_color,
@@ -168,7 +169,8 @@ WHOAMI_POST.post('/whoami', auth, fs, express.json(), async (req, response, next
         username: req.user.username,
         uuid: req.user.uuid,
         email: req.user.email,
-        email_confirmed: req.user.email_confirmed,
+        email_confirmed: req.user.email_confirmed
+            || req.user.username === 'admin',
         requires_email_confirmation: req.user.requires_email_confirmation,
         desktop_bg_url: req.user.desktop_bg_url,
         desktop_bg_color: req.user.desktop_bg_color,
