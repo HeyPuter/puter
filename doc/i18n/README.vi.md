@@ -1,7 +1,7 @@
 <h3 align="center"><img width="80" alt="Puter.com, Máy Tính Đám Mây Cá Nhân: Tất cả các tệp, ứng dụng, và trò chơi của bạn ở một nơi, có thể truy cập từ bất cứ đâu vào bất kỳ lúc nào." src="https://assets.puter.site/puter-logo.png"></h3>
 <h3 align="center">Hệ điều hành Internet! Miễn phí, Mã nguồn mở và Có thể tự lưu trữ.</h3>
 <p align="center">
-    <img alt="Kích thước repo GitHub" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="Phiên bản phát hành GitHub" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=phiên%20bản%20mới%20nhất"> <img alt="Giấy phép GitHub" src="https://img.shields.io/github/license/HeyPuter/puter">
+    <img alt="Kích thước repo GitHub" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="Phiên bản phát hành GitHub" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=Phi%C3%AAn%20b%E1%BA%A3n%20ph%C3%A1t%20h%C3%A0nh%20GitHub"> <img alt="Giấy phép GitHub" src="https://img.shields.io/github/license/HeyPuter/puter">
 </p>
 <p align="center">
     <a href="https://puter.com/"><strong>« DEMO TRỰC TIẾP »</strong></a>
