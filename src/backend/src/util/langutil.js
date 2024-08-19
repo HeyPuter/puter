@@ -26,6 +26,9 @@ const whatis = thing => {
     return typeof thing;
 };
 
+const nou = v => v === null || v === undefined;
+
 module.exports = {
     whatis,
+    nou,
 };
