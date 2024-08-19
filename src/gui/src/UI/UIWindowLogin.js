@@ -7,12 +7,12 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -36,59 +36,61 @@ async function UIWindowLogin(options){
     options.send_confirmation_code = options.send_confirmation_code ?? false;
     options.show_password = options.show_password ?? false;
 
+    var showSignupButton = false;    //false/true
+
     return new Promise(async (resolve) => {
         const internal_id = window.uuidv4();
         let h = ``;
         h += `<div style="max-width: 500px; min-width: 340px;">`;
-            if(!options.has_head && options.show_close_button !== false)
-                h += `<div class="generic-close-window-button"> &times; </div>`;
-            h += `<div style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
-                // title
-                h += `<h1 class="login-form-title">${i18n('log_in')}</h1>`;
-                // login form
-                h += `<form class="login-form">`;
-                    // error msg
-                    h += `<div class="login-error-msg"></div>`;
-                    // username/email
-                    h += `<div style="overflow: hidden;">`;
-                        h += `<label for="email_or_username-${internal_id}">${i18n('email_or_username')}</label>`;
-                        h += `<input id="email_or_username-${internal_id}" class="email_or_username" type="text" name="email_or_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false" autocomplete="username"/>`;
-                    h += `</div>`;
-                    // password with conditional type based based on options.show_password
-                    h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px; position: relative;">`;
-                    h += `<label for="password-${internal_id}">${i18n('password')}</label>`;
-                    h += `<input id="password-${internal_id}" class="password" type="${options.show_password ? "text" : "password"}" name="password" autocomplete="current-password"/>`;
-                    // show/hide icon
-                    h += `<span style="position: absolute; right: 5%; top: 50%; cursor: pointer;" id="toggle-show-password-${internal_id}">
+        if(!options.has_head && options.show_close_button !== false)
+            h += `<div class="generic-close-window-button"> &times; </div>`;
+        h += `<div style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
+        // title
+        h += `<h1 class="login-form-title">${i18n('log_in')}</h1>`;
+        // login form
+        h += `<form class="login-form">`;
+        // error msg
+        h += `<div class="login-error-msg"></div>`;
+        // username/email
+        h += `<div style="overflow: hidden;">`;
+        h += `<label for="email_or_username-${internal_id}">${i18n('email_or_username')}</label>`;
+        h += `<input id="email_or_username-${internal_id}" class="email_or_username" type="text" name="email_or_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false" autocomplete="username"/>`;
+        h += `</div>`;
+        // password with conditional type based based on options.show_password
+        h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px; position: relative;">`;
+        h += `<label for="password-${internal_id}">${i18n('password')}</label>`;
+        h += `<input id="password-${internal_id}" class="password" type="${options.show_password ? "text" : "password"}" name="password" autocomplete="current-password"/>`;
+        // show/hide icon
+        h += `<span style="position: absolute; right: 5%; top: 50%; cursor: pointer;" id="toggle-show-password-${internal_id}">
                                 <img class="toggle-show-password-icon" src="${options.show_password ? window.icons["eye-closed.svg"] : window.icons["eye-open.svg"]}" width="20" height="20">
                             </span>`;
-                    h += `</div>`;
-                    // login
-                    h += `<button class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
-                    // password recovery
-                    h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>`;
-                    // server and version info
-                    h += `<div id="version-placeholder" class="version" style="text-align:center;"></div>`;
-                h += `</form>`;
+        h += `</div>`;
+        // login
+        h += `<button class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
+        // password recovery
+        h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>`;
+        // server and version info
+        h += `<div id="version-placeholder" class="version" style="text-align:center;"></div>`;
+        h += `</form>`;
+        h += `</div>`;
+        // create account link
+        if((options.show_signup_button === undefined || options.show_signup_button) && showSignupButton){
+            h += `<div class="c2a-wrapper" style="padding:20px;">`;
+            h += `<button class="signup-c2a-clickable">${i18n('create_free_account')}</button>`;
             h += `</div>`;
-            // create account link
-            if(options.show_signup_button === undefined || options.show_signup_button){
-                h += `<div class="c2a-wrapper" style="padding:20px;">`;
-                    h += `<button class="signup-c2a-clickable">${i18n('create_free_account')}</button>`;
-                h += `</div>`;
-            }
+        }
         h += `</div>`;
 
         // server and version infomration
         puter.os.version()
-        .then(res => {
-            const deployed_date = new Date(res.deploy_timestamp).toLocaleString();
-            $("#version-placeholder").html(`Version: ${html_encode(res.version)} &bull; Server: ${html_encode(res.location)} &bull; Deployed: ${html_encode(deployed_date)}`);
-        })
-        .catch(() => {
-            $("#version-placeholder").html("Failed to load version or server information.");
-        });
-        
+            .then(res => {
+                const deployed_date = new Date(res.deploy_timestamp).toLocaleString();
+                $("#version-placeholder").html(`Version: ${html_encode(res.version)} &bull; Server: ${html_encode(res.location)} &bull; Deployed: ${html_encode(deployed_date)}`);
+            })
+            .catch(() => {
+                $("#version-placeholder").html("Failed to load version or server information.");
+            });
+
         const el_window = await UIWindow({
             title: null,
             app: 'login',
@@ -129,7 +131,7 @@ async function UIWindowLogin(options){
                 'flex-direction': 'column',
                 'justify-content': 'center',
                 'align-items': 'center',
-            }    
+            }
         })
 
         $(el_window).find('.forgot-password-link').on('click', function(e){
@@ -145,32 +147,32 @@ async function UIWindowLogin(options){
             const email_username = $(el_window).find('.email_or_username').val();
             const password = $(el_window).find('.password').val();
             let data;
-        
+
             if(window.is_email(email_username)){
-                data = JSON.stringify({ 
-                    email: email_username, 
+                data = JSON.stringify({
+                    email: email_username,
                     password: password
                 })
             }else{
-                data = JSON.stringify({ 
-                    username: email_username, 
+                data = JSON.stringify({
+                    username: email_username,
                     password: password
                 })
             }
-        
+
             $(el_window).find('.login-error-msg').hide();
-        
+
             let headers = {};
             if(window.custom_headers)
                 headers = window.custom_headers;
-    
+
             $.ajax({
                 url: window.gui_origin + "/login",
                 type: 'POST',
                 async: false,
                 headers: headers,
                 contentType: "application/json",
-                data: data,				
+                data: data,
                 success: async function (data){
                     let p = Promise.resolve();
                     if ( data.next_step === 'otp' ) {
@@ -184,11 +186,11 @@ async function UIWindowLogin(options){
                                 new JustHTML({
                                     html: /*html*/`
                                         <h3 style="text-align:center; font-weight: 500; font-size: 20px;">${
-                                            i18n('login2fa_otp_title')
-                                        }</h3>
+                                        i18n('login2fa_otp_title')
+                                    }</h3>
                                         <p style="text-align:center; padding: 0 20px;">${
-                                            i18n('login2fa_otp_instructions')
-                                        }</p>
+                                        i18n('login2fa_otp_instructions')
+                                    }</p>
                                     `
                                 }),
                                 new CodeEntryView({
@@ -253,11 +255,11 @@ async function UIWindowLogin(options){
                                 new JustHTML({
                                     html: /*html*/`
                                         <h3 style="text-align:center; font-weight: 500; font-size: 20px;">${
-                                            i18n('login2fa_recovery_title')
-                                        }</h3>
+                                        i18n('login2fa_recovery_title')
+                                    }</h3>
                                         <p style="text-align:center; padding: 0 20px;">${
-                                            i18n('login2fa_recovery_instructions')
-                                        }</p>
+                                        i18n('login2fa_recovery_instructions')
+                                    }</p>
                                     `
                                 }),
                                 new RecoveryCodeEntryView({
@@ -334,7 +336,7 @@ async function UIWindowLogin(options){
                     await p;
 
                     window.update_auth_data(data.token, data.user);
-                    
+
                     if(options.reload_on_success){
                         window.onbeforeunload = null;
                         window.location.replace('/');
@@ -369,8 +371,8 @@ async function UIWindowLogin(options){
                     }
                     $(el_window).find('.login-error-msg').fadeIn();
                 }
-            });	
-        })  
+            });
+        })
 
         $(el_window).find('.login-form').on('submit', function(e){
             e.preventDefault();
@@ -398,9 +400,9 @@ async function UIWindowLogin(options){
             // hide/show password and update icon
             $(el_window).find(".password").attr("type", options.show_password ? "text" : "password");
             $(el_window).find(".toggle-show-password-icon").attr("src", options.show_password ? window.icons["eye-closed.svg"] : window.icons["eye-open.svg"],
-          )
-      })
-    }) 
+            )
+        })
+    })
 }
 
 export default UIWindowLogin
