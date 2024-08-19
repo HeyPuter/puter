@@ -61,7 +61,7 @@ class FeatureFlagService extends BaseService {
                 continue;
             }
             const svc_permission = this.services.get('permission');
-            const reading = await svc_permission.scan(actor, `feature:`);
+            const reading = await svc_permission.scan(actor, `feature:${key}`);
             const l = PermissionUtil.reading_to_options(reading);
             summary[key] = l.length > 0;
         }
