@@ -37,16 +37,10 @@ export const Component = def(class Component extends HTMLElement {
 
         // Automatically define components for all HTML elements
         on_other_registered(({ cls }) => {
-            console.log('detected class', cls.ID);
             if ( cls.ID === 'ui.component.StepHeading' ) {
                 globalThis.sh_shouldbe = cls;
-                console.log(
-                    'this is what StepHeading should be',
-                    cls
-                );
             }
             if ( globalThis.lib.is_subclass(cls, HTMLElement) ) {
-                console.log('registering as an element');
                 defineComponent(cls);
             }
         });
@@ -222,9 +216,6 @@ export const defineComponent = (component) => {
         // TODO: This is necessary because files can be loaded from
         // both `/src/UI` and `/UI` in the URL; we need to fix that
         if ( customElements.get(name) ) return;
-
-        // console.log('[surely] defining', name, 'as', component);
-
         customElements.define(name, component);
         component.defined_as = name;
     }
