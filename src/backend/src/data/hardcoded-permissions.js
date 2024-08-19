@@ -8,6 +8,8 @@ const default_implicit_user_app_permissions = {
     'driver:puter-apps': {},
     'driver:puter-subdomains': {},
     'driver:temp-email': {},
+    'service': {},
+    'feature': {},
 };
 
 const implicit_user_app_permissions = [
