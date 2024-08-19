@@ -24,6 +24,7 @@ const {
 const { get_user, get_app } = require("../../helpers");
 const { AssignableMethodsFeature } = require("../../traits/AssignableMethodsFeature");
 const { Context } = require("../../util/context");
+const { get_a_letter, cylog } = require("../../util/debugutil");
 const BaseService = require("../BaseService");
 const { DB_WRITE } = require("../database/consts");
 const { UserActorType, Actor, AppUnderUserActorType, AccessTokenActorType, SiteActorType } = require("./Actor");
@@ -220,6 +221,10 @@ class PermissionService extends BaseService {
         if ( ! Array.isArray(permission_options) ) {
             permission_options = [permission_options];
         }
+        
+        // TODO: command to enable these logs
+        // const l = get_a_letter();
+        // cylog(l, 'ACT & PERM:', actor.uid, permission_options);
 
         const start_ts = Date.now();
         await require('../../structured/sequence/scan-permission')
@@ -229,6 +234,10 @@ class PermissionService extends BaseService {
                 reading,
             });
         const end_ts = Date.now();
+        
+        // TODO: command to enable these logs
+        // cylog(l, 'READING', JSON.stringify(reading, null, '  '));
+
         reading.push({
             $: 'time',
             value: end_ts - start_ts,

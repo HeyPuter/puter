@@ -56,7 +56,12 @@ module.exports = new Sequence([
         }
     },
     async function explode_permission (a) {
-        const { reading, permission_options } = a.values();
+        let { reading, permission_options } = a.values();
+
+        // VERY nasty bugs can happen if this array is not cloned!
+        // (this was learned the hard way)
+        permission_options = [...permission_options];
+
         for ( let i=0 ; i < permission_options.length ; i++ ) {
             const permission = permission_options[i];
             permission_options[i] =

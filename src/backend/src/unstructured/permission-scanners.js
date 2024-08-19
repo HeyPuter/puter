@@ -213,15 +213,22 @@ const PERMISSION_SCANNERS = [
             
             const app_uid = actor.type.app.uid;
             
+            const issuer_actor = actor.get_related_actor(UserActorType);
+            const issuer_reading = await a.icall('scan', issuer_actor, permission_options);
+            
             for ( const permission of permission_options ) {
                 {
+
                     const implied = default_implicit_user_app_permissions[permission];
                     if ( implied ) {
                         reading.push({
-                            $: 'option',
-                            source: 'implied',
+                            $: 'path',
+                            permission,
+                            source: 'user-app-implied',
                             by: 'user-app-hc-1',
                             data: implied,
+                            issuer_username: actor.type.user.username,
+                            reading: issuer_reading,
                         });
                     }
                 } {
@@ -233,11 +240,13 @@ const PERMISSION_SCANNERS = [
                     }
                     if ( implicit_permissions[permission] ) {
                         reading.push({
-                            $: 'option',
+                            $: 'path',
                             permission,
-                            source: 'implied',
+                            source: 'user-app-implied',
                             by: 'user-app-hc-2',
                             data: implicit_permissions[permission],
+                            issuer_username: actor.type.user.username,
+                            reading: issuer_reading,
                         });
                     }
                 }
@@ -246,7 +255,7 @@ const PERMISSION_SCANNERS = [
             let sql_perm = permission_options.map(() =>
                 `\`permission\` = ?`).join(' OR ');
             if ( permission_options.length > 1 ) sql_perm = '(' + sql_perm + ')';
-
+            
             // SELECT permission
             const rows = await db.read(
                 'SELECT * FROM `user_to_app_permissions` ' +
