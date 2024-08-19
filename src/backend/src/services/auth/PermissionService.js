@@ -707,7 +707,7 @@ class PermissionService extends BaseService {
                     })
 
                     let reading = await this.scan(actor, permission);
-                    reading = PermissionUtil.reading_to_options(reading);
+                    // reading = PermissionUtil.reading_to_options(reading);
                     ctx.log(JSON.stringify(reading, undefined, '  '));
                 }
             },
