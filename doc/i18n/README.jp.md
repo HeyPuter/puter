@@ -6,7 +6,6 @@
 <p align="center">
     <img alt="GitHub リポジトリサイズ" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="GitHub リリース" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=%E6%9C%80%E6%96%B0%E3%83%90%E3%83%BC%E3%82%B8%E3%83%A7%E3%83%B3"> <img alt="GitHub ライセンス" src="https://img.shields.io/github/license/HeyPuter/puter">
 </p>
-
 <p align="center">
     <a href="https://puter.com/"><strong>« ライブデモ »</strong></a>
     <br />
