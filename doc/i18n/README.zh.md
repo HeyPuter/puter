@@ -1,10 +1,12 @@
-<h3 align="center"><img width="80" alt="Puter.com, O Computador Pessoal em Nuvem: Todos os seus arquivos, aplicativos e jogos em um único lugar, acessíveis de qualquer lugar e a qualquer hora." src="https://assets.puter.site/puter-logo.png"></h3>
 
-<h3 align="center">O Sistema Operacional da Internet! Gratuito, de Código Aberto e Auto-Hospedável.</h3>
+<h3 align="center"><img width="80" alt="Puter.com，个人云计算机：所有文件、应用程序和游戏在一个地方，随时随地可访问。" src="https://assets.puter.site/puter-logo.png"></h3>
+
+<h3 align="center">互联网操作系统！免费、开源且可自行托管。</h3>
 
 <p align="center">
-    <img alt="Tamanho do repositório do GitHub" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="Lançamento no GitHub" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=latest%20version"> <img alt="Licença do GitHub" src="https://img.shields.io/github/license/HeyPuter/puter">
+    <img alt="GitHub repo size" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="GitHub Release" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=latest%20version"> <img alt="GitHub License" src="https://img.shields.io/github/license/HeyPuter/puter">
 </p>
+
 <p align="center">
 <a href="https://github.com/HeyPuter/puter/blob/main/README.md"><img alt="English" src="https://img.shields.io/badge/English-lightgrey"></a>
 <a href="https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.da.md"><img alt="Danish (Dansk)" src="https://img.shields.io/badge/Danish%20(Dansk)-lightgrey"></a>
@@ -17,8 +19,12 @@
 <a href="https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.vi.md"><img alt="Vietnamese (Tiếng Việt)" src="https://img.shields.io/badge/Vietnamese%20(Tiếng%20Việt)-lightgrey"></a>
 <a href="https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.zh.md"><img alt="Chinese (中文)" src="https://img.shields.io/badge/Chinese%20(中文)-lightgrey"></a>
 </p>
+
+
+
+
 <p align="center">
-    <a href="https://puter.com/"><strong>« DEMONSTRAÇÃO AO VIVO »</strong></a>
+    <a href="https://puter.com/"><strong>« 在线演示 »</strong></a>
     <br />
     <br />
     <a href="https://puter.com">Puter.com</a>
@@ -33,7 +39,7 @@
     ·
     <a href="https://twitter.com/HeyPuter">X (Twitter)</a>
     ·
-    <a href="https://hackerone.com/puter_h1b">Recompensa por Bugs</a>
+    <a href="https://hackerone.com/puter_h1b">漏洞报告</a>
 </p>
 
 <h3 align="center"><img width="800" style="border-radius:5px;" alt="screenshot" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>
@@ -42,20 +48,20 @@
 
 ## Puter
 
-Puter é um sistema operacional de internet avançado e de código aberto, projetado para ser rico em recursos, excepcionalmente rápido e altamente extensível. Puter pode ser usado como:
+Puter 是一个先进的开源互联网操作系统，设计为功能丰富、速度极快且高度可扩展。Puter 可用作：
 
-- Um serviço de nuvem pessoal com foco na privacidade para manter todos os seus arquivos, aplicativos e jogos em um local seguro, acessível de qualquer lugar e a qualquer hora.
-- Uma plataforma para construir e publicar websites, aplicativos web e jogos.
-- Uma alternativa ao Dropbox, Google Drive, OneDrive, etc., com uma interface renovada e recursos poderosos.
-- Um ambiente de desktop remoto para servidores e estações de trabalho.
-- Um projeto e comunidade de código aberto e amigável para aprender sobre desenvolvimento web, computação em nuvem, sistemas distribuídos e muito mais!
+- 一个以隐私为优先的个人云，将所有文件、应用程序和游戏保存在一个安全的地方，随时随地可访问。
+- 构建和发布网站、Web 应用程序和游戏的平台。
+- Dropbox、Google Drive、OneDrive 等的替代品，具有全新的界面和强大的功能。
+- 服务器和工作站的远程桌面环境。
+- 一个友好的开源项目和社区，学习 Web 开发、云计算、分布式系统等更多内容！
 
 <br/>
 
-## Iniciando o Projeto
+## 入门指南
 
 
-### 💻 Desenvolvimento Local
+### 💻 本地开发
 
 ```bash
 git clone https://github.com/HeyPuter/puter
@@ -64,7 +70,7 @@ npm install
 npm start
 ```
 
-Isso iniciará o Puter em http://puter.localhost:4100 (ou na próxima porta disponível).
+这将会在 http://puter.localhost:4100（或下一个可用端口）启动 Puter。
 
 <br/>
 
@@ -105,39 +111,39 @@ docker compose up
 
 ### ☁️ Puter.com
 
-O Puter está disponível como um serviço hospedado em [**puter.com**](https://puter.com).
+Puter 可以作为托管服务使用，访问 [**puter.com**](https://puter.com)。
 
 <br/>
 
-## Requerimentos do sistema
+## 系统要求
 
-- **Sistema operacional:** Linux, macOS, Windows
-- **RAM:** 2GB mínimo (4GB recomendado)
-- **Espaço de disco:** 1GB de espaço disponível
-- **Node.js:** Versão 16+ (Versão 22+ recomendada)
-- **npm:** Última versão estável
+- **操作系统：** Linux, macOS, Windows
+- **内存：** 最低 2GB（推荐 4GB）
+- **磁盘空间：** 1GB 可用空间
+- **Node.js：** 版本 16+（推荐 22+）
+- **npm：** 最新稳定版本
 
 <br/>
 
-## Suporte
+## 支持
 
-Conecte-se com os mantenedores e a comunidade através destes canais:
+通过以下渠道与维护者和社区联系：
 
-- Relato de bug ou solicitação de recurso? Por favor, [abra um tópico](https://github.com/HeyPuter/puter/issues/new/choose).
+- 有 Bug 报告或功能请求？请 [提交问题](https://github.com/HeyPuter/puter/issues/new/choose)。
 - Discord: [discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
 - X (Twitter): [x.com/HeyPuter](https://x.com/HeyPuter)
 - Reddit: [reddit.com/r/puter/](https://www.reddit.com/r/puter/)
 - Mastodon: [mastodon.social/@puter](https://mastodon.social/@puter)
-- Problemas de segurança? [security@puter.com](mailto:security@puter.com)
-- Envie um email para os mantenedores em [hi@puter.com](mailto:hi@puter.com)
+- 安全问题？请联系 [security@puter.com](mailto:security@puter.com)
+- 电子邮件维护者 [hi@puter.com](mailto:hi@puter.com)
 
-Estamos sempre felizes em ajudá-lo com quaisquer perguntas que você possa ter. Não hesite em perguntar!
+我们随时乐意帮助您解答任何问题，欢迎随时联系！
 
 <br/>
 
 
-##  Licença
+## 许可证
 
-Este repositório, incluindo todos os seus conteúdos, subprojetos, módulos e componentes, está licenciado sob [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) a menos que explicitamente indicado de outra forma. Bibliotecas de terceiros incluídas neste repositório podem estar sujeitas às suas próprias licenças.
+本仓库，包括其所有内容、子项目、模块和组件，除非另有明确说明，否则均遵循 [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) 许可证。 本仓库中包含的第三方库可能受其各自的许可证约束。
 
 <br/>

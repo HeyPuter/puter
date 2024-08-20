@@ -4,6 +4,18 @@
     <img alt="Kích thước repo GitHub" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="Phiên bản phát hành GitHub" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=Phi%C3%AAn%20b%E1%BA%A3n%20ph%C3%A1t%20h%C3%A0nh%20GitHub"> <img alt="Giấy phép GitHub" src="https://img.shields.io/github/license/HeyPuter/puter">
 </p>
 <p align="center">
+<a href="https://github.com/HeyPuter/puter/blob/main/README.md"><img alt="English" src="https://img.shields.io/badge/English-lightgrey"></a>
+<a href="https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.da.md"><img alt="Danish (Dansk)" src="https://img.shields.io/badge/Danish%20(Dansk)-lightgrey"></a>
+<a href="https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.hi.md"><img alt="Hindi (हिंदी)" src="https://img.shields.io/badge/Hindi%20(हिंदी)-lightgrey"></a>
+<a href="https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.jp.md"><img alt="Japanese (日本語)" src="https://img.shields.io/badge/Japanese%20(日本語)-lightgrey"></a>
+<a href="https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.pt.md"><img alt="Portuguese (Português)" src="https://img.shields.io/badge/Portuguese%20(Português)-lightgrey"></a>
+<a href="https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ru.md"><img alt="Russian (Русский)" src="https://img.shields.io/badge/Russian%20(Русский)-lightgrey"></a>
+<a href="https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.es.md"><img alt="Spanish (Español)" src="https://img.shields.io/badge/Spanish%20(Español)-lightgrey"></a>
+<a href="https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.tr.md"><img alt="Turkish (Türkçe)" src="https://img.shields.io/badge/Turkish%20(Türkçe)-lightgrey"></a>
+<a href="https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.vi.md"><img alt="Vietnamese (Tiếng Việt)" src="https://img.shields.io/badge/Vietnamese%20(Tiếng%20Việt)-lightgrey"></a>
+<a href="https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.zh.md"><img alt="Chinese (中文)" src="https://img.shields.io/badge/Chinese%20(中文)-lightgrey"></a>
+</p>
+<p align="center">
     <a href="https://puter.com/"><strong>« DEMO TRỰC TIẾP »</strong></a>
     <br />
     <br />
