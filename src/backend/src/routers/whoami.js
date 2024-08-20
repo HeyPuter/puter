@@ -73,6 +73,7 @@ const WHOAMI_GET = eggspress('/whoami', {
         // delete details.username;
         // delete details.uuid;
         delete details.email;
+        delete details.unconfirmed_email;
         delete details.desktop_bg_url;
         delete details.desktop_bg_color;
         delete details.desktop_bg_fit;
