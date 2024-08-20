@@ -53,7 +53,7 @@ class LLWriteBase extends LLFilesystemOperation {
         const storage = svc_mountpoint.get_storage();
 
         bucket        ??= config.s3_bucket;
-        bucket_region ??= config.s3_region;
+        bucket_region ??= config.s3_region ?? config.region;
 
         let upload_tracker = new UploadProgressTracker();
 
@@ -251,7 +251,7 @@ class LLCWrite extends LLWriteBase {
         this.field('fsentry-uid', uid);
 
         // determine bucket region
-        let bucket_region = config.s3_region;
+        let bucket_region = config.s3_region ?? config.region;
         let bucket = config.s3_bucket;
 
         this.checkpoint('before acl');
