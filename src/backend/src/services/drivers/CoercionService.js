@@ -88,7 +88,7 @@ class CoercionService extends BaseService {
             return coerced;
         }
 
-        return undefined;
+        return typed_value;
     }
 }
 
