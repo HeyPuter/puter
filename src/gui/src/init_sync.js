@@ -39,7 +39,8 @@
 // something like this was also done in backend and it proved useful.
 (scope => {
     globalThis.logger = {
-        info: (...a) => console.log('%c[INIT/INFO]', 'color: #4287f5', ...a),
+        info: (...a) => {},
+        // info: (...a) => console.log('%c[INIT/INFO]', 'color: #4287f5', ...a),
     };
 })(globalThis);
 logger.info('start -> blocking initialization');
