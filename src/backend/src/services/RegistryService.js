@@ -49,7 +49,8 @@ class MapCollection extends AdvancedBase {
     }
     
     keys () {
-        return this.kv.keys(`registry:map:${this.map_id}:*`);
+        const keys = this.kv.keys(`registry:map:${this.map_id}:*`);
+        return keys.map(k => k.slice(`registry:map:${this.map_id}:`.length));
     }
 
     _mk_key (key) {

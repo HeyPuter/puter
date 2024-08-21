@@ -317,6 +317,9 @@ const install = async ({ services, app, useapi }) => {
 
     const { FeatureFlagService } = require('./services/FeatureFlagService');
     services.registerService('feature-flag', FeatureFlagService);
+
+    const { KernelInfoService } = require('./services/KernelInfoService');
+    services.registerService('kernel-info', KernelInfoService);
 }
 
 const install_legacy = async ({ services }) => {

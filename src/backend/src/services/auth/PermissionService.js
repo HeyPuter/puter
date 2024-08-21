@@ -214,6 +214,14 @@ class PermissionService extends BaseService {
         }
         return permission;
     }
+    
+    async check (actor, permission_options) {
+        // TODO: optimized implementation for check instead of
+        //       delegating to the scan() method
+        const reading = await this.scan(actor, permission_options);
+        const options = PermissionUtil.reading_to_options(reading);
+        return options.length > 0;
+    }
 
     async scan (actor, permission_options) {
         const reading = [];

@@ -78,6 +78,7 @@ const hardcoded_user_group_permissions = {
             'driver': {},
             'service': {},
             'feature': {},
+            'kernel-info': {},
         },
         'b7220104-7905-4985-b996-649fdcdb3c8f': {
             'service:hello-world:ii:hello-world': policy_perm('temp.es'),
