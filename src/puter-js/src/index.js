@@ -11,6 +11,7 @@ import FSItem from './modules/FSItem.js';
 import * as utils from './lib/utils.js';
 import path from './lib/path.js';
 import Util from './modules/Util.js';
+import Drivers from './modules/Drivers.js';
 
 window.puter = (function() {
     'use strict';
@@ -58,6 +59,8 @@ window.puter = (function() {
         // --------------------------------------------
         constructor(options) {
             options = options ?? {};
+            
+            this.modules_ = [];
 
             // Holds the query parameters found in the current URL
             let URLParams = new URLSearchParams(window.location.search);
@@ -181,6 +184,11 @@ window.puter = (function() {
                 }
             }
         }
+        
+        registerModule (name, instance) {
+            this.modules_.push(name);
+            this[name] = instance;
+        }
 
         // Initialize submodules
         initSubmodules = function(){
@@ -188,34 +196,46 @@ window.puter = (function() {
             this.util = new Util();
 
             // Auth
-            this.auth = new Auth(this.authToken, this.APIOrigin, this.appID, this.env);
+            this.registerModule('auth',
+                             new Auth(this.authToken, this.APIOrigin, this.appID, this.env));
             // OS
-            this.os = new OS(this.authToken, this.APIOrigin, this.appID, this.env);
+            this.registerModule('os',
+                             new OS(this.authToken, this.APIOrigin, this.appID, this.env));
             // FileSystem
-            this.fs = new FileSystem(this.authToken, this.APIOrigin, this.appID, this.env);
+            this.registerModule('fs',
+                             new FileSystem(this.authToken, this.APIOrigin, this.appID, this.env));
             // UI
-            this.ui = new UI(this.appInstanceID, this.parentInstanceID, this.appID, this.env, this.util);
+            this.registerModule('ui',
+                             new UI(this.appInstanceID, this.parentInstanceID, this.appID, this.env, this.util));
             // Hosting
-            this.hosting = new Hosting(this.authToken, this.APIOrigin, this.appID, this.env);
+            this.registerModule('hosting',
+                             new Hosting(this.authToken, this.APIOrigin, this.appID, this.env));
             // Email
-            this.email = new Email(this.authToken, this.APIOrigin, this.appID);
+            this.registerModule('email',
+                             new Email(this.authToken, this.APIOrigin, this.appID));
             // Apps
-            this.apps = new Apps(this.authToken, this.APIOrigin, this.appID, this.env);
+            this.registerModule('apps',
+                             new Apps(this.authToken, this.APIOrigin, this.appID, this.env));
             // AI
-            this.ai = new AI(this.authToken, this.APIOrigin, this.appID, this.env);
+            this.registerModule('ai',
+                             new AI(this.authToken, this.APIOrigin, this.appID, this.env));
             // Key-Value Store
-            this.kv = new KV(this.authToken, this.APIOrigin, this.appID, this.env);
+            this.registerModule('kv',
+                             new KV(this.authToken, this.APIOrigin, this.appID, this.env));
+            // Drivers
+            this.registerModule('drivers',
+                             new Drivers(this.authToken, this.APIOrigin, this.appID, this.env));
             // Path
             this.path = path;
         }
 
         updateSubmodules() {
             // Update submodules with new auth token and API origin
-            [this.os, this.fs, this.hosting, this.email, this.apps, this.ai, this.kv].forEach(module => {
-                if(!module) return;
-                module.setAuthToken(this.authToken);
-                module.setAPIOrigin(this.APIOrigin);
-            });
+            for ( const name of this.modules_ ) {
+                if ( ! this[name] ) continue;
+                this[name]?.setAuthToken?.(this.authToken);
+                this[name]?.setAPIOrigin?.(this.APIOrigin);
+            }
         }
 
         setAppID = function (appID) {
