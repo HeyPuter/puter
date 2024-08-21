@@ -1143,6 +1143,32 @@ async function UIDesktop(options){
             })
         }
     })
+
+
+    //--------------------------------------------------------------------------------------
+    // Trying to view a user's public folder?
+    // i.e. https://puter.com/@<username>
+    //--------------------------------------------------------------------------------------
+    const url_paths = window.location.pathname.split('/').filter(element => element);
+    if(url_paths[0]?.startsWith('@')){
+        let username = url_paths[0].substring(1);
+        let item_path = '/' + username + '/Public';
+
+        // check if username has valid characters
+        if(!username.match(/^[a-z0-9_]+$/i)){
+            UIAlert({
+                message: 'Invalid username.'
+            });
+        }else{
+            UIWindow({
+                path: item_path,
+                title: path.basename(item_path),
+                icon: await item_icon({is_dir: true, path: item_path}),
+                is_dir: true,
+                app: 'explorer',
+            });
+        }
+    }
 }
 
 $(document).on('contextmenu taphold', '.taskbar', function(event){
