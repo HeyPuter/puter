@@ -33,8 +33,9 @@ class AIInterfaceService extends BaseService {
                     parameters: {
                         messages: { type: 'json' },
                         vision: { type: 'flag' },
+                        stream: { type: 'flag' },
                     },
-                    result: { type: 'json' }
+                    result: { type: 'json' },
                 }
             }
         });
