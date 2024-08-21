@@ -50,6 +50,7 @@ const js_paths = [
     '/IPC.js',
     '/globals.js',
     `/i18n/i18n.js`,
+    `/keyboard.js`
 ]
 
 export { lib_paths, css_paths, js_paths };
