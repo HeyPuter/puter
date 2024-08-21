@@ -29,7 +29,33 @@ class Container {
         this.instances_ = {};
         this.implementors_ = {};
         this.ready = new TeePromise();
+        
+        this.modname_ = null;
+        this.modules_ = {}
     }
+    
+    registerModule (name, module) {
+        this.modules_[name] = {
+            services_l: [],
+            services_m: {},
+            module
+        };
+        this.setModuleName(name);
+    }
+    
+    /**
+     * Sets the name of the current module registering services.
+     * 
+     * Note: this is an antipattern; it would be a bit better to
+     * provide the module name while registering a service, but
+     * this requires making an implementor of Container's interface
+     * with this as a hidden variable so as not to break existing
+     * modules.
+     */
+    setModuleName (name) {
+        this.modname_ = name;
+    }
+
     /**
      * registerService registers a service with the servuces container.
      * 
@@ -43,6 +69,12 @@ class Container {
             ? cls.getInstance({ services: this, config, my_config, name, args })
             : new cls({ services: this, config, my_config, name, args }) ;
         this.instances_[name] = instance;
+        
+        if ( this.modname_ ) {
+            const mod_entry = this.modules_[this.modname_];
+            mod_entry.services_l.push(name);
+            mod_entry.services_m[name] = true;
+        }
         
         if ( !(instance instanceof AdvancedBase) ) return;
         

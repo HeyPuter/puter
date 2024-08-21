@@ -136,6 +136,7 @@ class Kernel extends AdvancedBase {
 
         // Internal modules
         for ( const module of this.modules ) {
+            services.registerModule(module.constructor.name, module);
             await module.install(Context.get());
         }
 
