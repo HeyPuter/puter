@@ -28,6 +28,11 @@ class PuterAIModule extends AdvancedBase {
             const { OpenAIImageGenerationService } = require('./OpenAIImageGenerationService');
             services.registerService('openai-image-generation', OpenAIImageGenerationService);
         }
+        
+        if ( !! config?.services?.claude ) {
+            const { ClaudeService } = require('./ClaudeService');
+            services.registerService('claude', ClaudeService);
+        }
     }
 }
 
