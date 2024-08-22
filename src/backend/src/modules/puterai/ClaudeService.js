@@ -41,6 +41,7 @@ class ClaudeService extends BaseService {
                     if ( whatis(message.content) !== 'array' ) {
                         message.content = [message.content];
                     }
+                    if ( ! message.role ) message.role = 'user';
                     if ( message.role === 'user' && previous_was_user ) {
                         const last_msg = adapted_messages[adapted_messages.length-1];
                         last_msg.content.push(
