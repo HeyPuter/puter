@@ -144,10 +144,15 @@ class AI{
         }
 
         // ai.chat(prompt)
+        if(typeof args[0] === 'string'){
+            options = { messages: [{ content: args[0] }] };
+        }
+
         // ai.chat(prompt, testMode)
         if (typeof args[0] === 'string' && (!args[1] || typeof args[1] === 'boolean')) {
             options = { messages: [{ content: args[0] }] };
         }
+
         // ai.chat(prompt, imageURL/File)
         // ai.chat(prompt, imageURL/File, testMode)
         else if (typeof args[0] === 'string' && (typeof args[1] === 'string' || args[1] instanceof File)) {
@@ -210,6 +215,7 @@ class AI{
                 break;
             }
         }
+
 
         // does settings contain `model`? add it to options
         if (settings.model) {
