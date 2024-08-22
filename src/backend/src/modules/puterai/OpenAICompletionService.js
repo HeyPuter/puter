@@ -23,7 +23,7 @@ class OpenAICompletionService extends BaseService {
 
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
-            async complete ({ messages, test_mode, stream }) {
+            async complete ({ messages, test_mode, stream, model }) {
                 if ( test_mode ) {
                     const { LoremIpsum } = require('lorem-ipsum');
                     const li = new LoremIpsum({
@@ -49,9 +49,8 @@ class OpenAICompletionService extends BaseService {
                     }
                 }
 
-                const model = 'gpt-4o';
                 return await this.complete(messages, {
-                    model,
+                    model: model ?? 'gpt-4o',
                     moderation: true,
                     stream,
                 });

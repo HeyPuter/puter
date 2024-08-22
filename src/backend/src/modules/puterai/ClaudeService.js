@@ -26,7 +26,7 @@ class ClaudeService extends BaseService {
     
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
-            async complete ({ messages, stream }) {
+            async complete ({ messages, stream, model }) {
                 const adapted_messages = [];
                 
                 const system_prompts = [];
@@ -67,7 +67,7 @@ class ClaudeService extends BaseService {
                     }, stream);
                     (async () => {
                         const completion = await this.anthropic.messages.stream({
-                            model: 'claude-3-5-sonnet-20240620',
+                            model: model ?? 'claude-3-5-sonnet-20240620',
                             max_tokens: 1000,
                             temperature: 0,
                             system: PUTER_PROMPT + JSON.stringify(system_prompts),
