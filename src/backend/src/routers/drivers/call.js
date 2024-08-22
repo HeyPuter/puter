@@ -73,7 +73,7 @@ module.exports = eggspress('/drivers/call', {
     const result = await context.arun(async () => {
         return await svc_driver.call({
             iface: interface_name,
-            driver: body.driver,
+            driver: body.driver ?? body.service,
             method: body.method,
             format: body.format,
             args: body.args,
