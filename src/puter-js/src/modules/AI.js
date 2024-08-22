@@ -236,6 +236,11 @@ class AI{
             driver = 'together-ai';
         }
 
+        // stream flag from settings
+        if(settings.stream !== undefined && typeof settings.stream === 'boolean'){
+            options.stream = settings.stream;
+        }
+
         // Call the original chat.complete method
         return await utils.make_driver_method(['messages'], 'puter-chat-completion', driver, 'complete', {
             test_mode: testMode ?? false,
