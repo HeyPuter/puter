@@ -3,7 +3,7 @@
 <h3 align="center">L'OS Internet ! Gratuit, open-source et auto-hébergeable.</h3>
 
 <p align="center">
-    <img alt="Taille du dépôt GitHub" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="Version GitHub" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=dernière%20version"> <img alt="Licence GitHub" src="https://img.shields.io/github/license/HeyPuter/puter">
+    <img alt="Taille du dépôt GitHub" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="Version GitHub" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=derni%C3%A8re%20version"> <img alt="Licence GitHub" src="https://img.shields.io/github/license/HeyPuter/puter">
 </p>
 <p align="center">
     <a href="https://puter.com/"><strong>« DÉMO EN DIRECT »</strong></a>
