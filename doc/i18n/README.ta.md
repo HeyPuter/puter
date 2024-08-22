@@ -3,7 +3,7 @@
 <h3 align="center">இன்டர்நெட் OS! இலவசம், ஓப்பன் சோர்ஸ் மற்றும் Self-Hostable</h3>
 
 <p align="center">
-    <img alt="GitHub repo size" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="GitHub Release" src="https://img. shields.io/github/v/release/HeyPuter/puter?label=latest%20version"> <img alt="GitHub உரிமம்" src="https://img.shields.io/github/license/HeyPuter/puter" >
+    <img alt="GitHub repo size" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="GitHub Release" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=latest%20version"> <img alt="GitHub உரிமம்" src="https://img.shields.io/github/license/HeyPuter/puter" >
 </p>
 <p align="center">
     <a href="https://puter.com/"><strong>« லைவ் டெமோ »</strong></a>
