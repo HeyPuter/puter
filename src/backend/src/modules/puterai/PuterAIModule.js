@@ -33,6 +33,11 @@ class PuterAIModule extends AdvancedBase {
             const { ClaudeService } = require('./ClaudeService');
             services.registerService('claude', ClaudeService);
         }
+
+        if ( !! config?.services?.['together-ai'] ) {
+            const { TogetherAIService } = require('./TogetherAIService');
+            services.registerService('together-ai', TogetherAIService);
+        }
     }
 }
 
