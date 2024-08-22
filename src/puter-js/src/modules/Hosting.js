@@ -39,7 +39,7 @@ class Hosting{
     }
 
     // todo document the `Subdomain` object.
-    list = utils.make_driver_method([], 'puter-subdomains', 'select');
+    list = utils.make_driver_method([], 'puter-subdomains', undefined, 'select');
 
     create = async (...args) => {
         let options = {};
@@ -74,7 +74,7 @@ class Hosting{
             options = { object: args[0] };
         }
         // Call the original chat.complete method
-        return await utils.make_driver_method(['object'], 'puter-subdomains', 'create').call(this, options);
+        return await utils.make_driver_method(['object'], 'puter-subdomains', undefined, 'create').call(this, options);
     }
 
     update = async(...args) => {
@@ -97,7 +97,7 @@ class Hosting{
         }
 
         // Call the original chat.complete method
-        return await utils.make_driver_method(['object'], 'puter-subdomains', 'update').call(this, options);
+        return await utils.make_driver_method(['object'], 'puter-subdomains', undefined, 'update').call(this, options);
     }
 
     get = async(...args) => {
@@ -113,7 +113,7 @@ class Hosting{
 
             options = { id: {subdomain: args[0]}};
         }
-        return utils.make_driver_method(['uid'], 'puter-subdomains', 'read').call(this, options);
+        return utils.make_driver_method(['uid'], 'puter-subdomains', undefined, 'read').call(this, options);
     }
 
     delete = async(...args) => {
@@ -129,7 +129,7 @@ class Hosting{
 
             options = { id: {subdomain: args[0]}};
         }
-        return utils.make_driver_method(['uid'], 'puter-subdomains', 'delete').call(this, options);
+        return utils.make_driver_method(['uid'], 'puter-subdomains', undefined, 'delete').call(this, options);
     }
 }
 

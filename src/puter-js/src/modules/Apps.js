@@ -42,7 +42,7 @@ class Apps{
 
         options = { "predicate": ['user-can-edit'] };
         
-        return utils.make_driver_method(['uid'], 'puter-apps', 'select').call(this, options);
+        return utils.make_driver_method(['uid'], 'puter-apps', undefined, 'select').call(this, options);
     }
 
     create = async (...args) => {
@@ -70,7 +70,7 @@ class Apps{
             };
         }
         // Call the original chat.complete method
-        return await utils.make_driver_method(['object'], 'puter-apps', 'create').call(this, options);
+        return await utils.make_driver_method(['object'], 'puter-apps', undefined, 'create').call(this, options);
     }
 
     update = async(...args) => {
@@ -96,7 +96,7 @@ class Apps{
         }
 
         // Call the original chat.complete method
-        return await utils.make_driver_method(['object'], 'puter-apps', 'update').call(this, options);
+        return await utils.make_driver_method(['object'], 'puter-apps', undefined, 'update').call(this, options);
     }
 
     get = async(...args) => {
@@ -106,7 +106,7 @@ class Apps{
         if (Array.isArray(args) && typeof args[0] === 'string') {
             options = { id: {name: args[0]}};
         }
-        return utils.make_driver_method(['uid'], 'puter-apps', 'read').call(this, options);
+        return utils.make_driver_method(['uid'], 'puter-apps', undefined, 'read').call(this, options);
     }
 
     delete = async(...args) => {
@@ -116,7 +116,7 @@ class Apps{
         if (Array.isArray(args) && typeof args[0] === 'string') {
             options = { id: {name: args[0]}};
         }
-        return utils.make_driver_method(['uid'], 'puter-apps', 'delete').call(this, options);
+        return utils.make_driver_method(['uid'], 'puter-apps', undefined, 'delete').call(this, options);
     }
 
     getDeveloperProfile = function(...args){

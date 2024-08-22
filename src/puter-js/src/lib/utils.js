@@ -181,9 +181,10 @@ class Valid {
  * Makes the hybrid promise/callback function for a particular driver method
  * @param {string[]} arg_defs - argument names (for now; definitions eventually)
  * @param {string} driverInterface - name of the interface
+ * @param {string} driverName - name of the driver
  * @param {string} driverMethod - name of the method
  */
-function make_driver_method(arg_defs, driverInterface, driverMethod, settings = {}) {
+function make_driver_method(arg_defs, driverInterface, driverName, driverMethod, settings = {}) {
     return async function (...args) {
         let driverArgs = {};
         let options = {};
@@ -214,11 +215,11 @@ function make_driver_method(arg_defs, driverInterface, driverMethod, settings = 
             driverArgs = settings.preprocess(driverArgs);
         }
 
-        return await driverCall(options, driverInterface, driverMethod, driverArgs, settings);
+        return await driverCall(options, driverInterface, driverName, driverMethod, driverArgs, settings);
     };
 }
 
-async function driverCall (options, driverInterface, driverMethod, driverArgs, settings) {
+async function driverCall (options, driverInterface, driverName, driverMethod, driverArgs, settings) {
     const tp = new TeePromise();
 
     driverCall_(
@@ -226,6 +227,7 @@ async function driverCall (options, driverInterface, driverMethod, driverArgs, s
         tp.resolve.bind(tp),
         tp.reject.bind(tp),
         driverInterface,
+        driverName,
         driverMethod,
         driverArgs,
         undefined,
@@ -240,7 +242,7 @@ async function driverCall (options, driverInterface, driverMethod, driverArgs, s
 async function driverCall_(
     options = {},
     resolve_func, reject_func,
-    driverInterface, driverMethod, driverArgs,
+    driverInterface, driverName, driverMethod, driverArgs,
     method,
     contentType = 'application/json;charset=UTF-8',
     settings = {},
@@ -342,6 +344,7 @@ async function driverCall_(
     // send request
     xhr.send(JSON.stringify({
         interface: driverInterface,
+        driver: driverName,
         test_mode: settings?.test_mode, 
         method: driverMethod,
         args: driverArgs,

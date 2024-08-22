@@ -47,7 +47,7 @@ class KV{
      * `key` size cannot be larger than 1mb.
      * `value` size cannot be larger than 10mb.
      */
-    set = utils.make_driver_method(['key', 'value'], 'puter-kvstore', 'set',{
+    set = utils.make_driver_method(['key', 'value'], 'puter-kvstore', undefined, 'set',{
         preprocess: (args)=>{
             // key cannot be undefined or null
             if(args.key === undefined || args.key === null){
@@ -68,7 +68,7 @@ class KV{
     /**
      * Resolves to the value if the key exists, or `undefined` if the key does not exist. Rejects with an error on failure.
      */
-    get = utils.make_driver_method(['key'], 'puter-kvstore', 'get', {
+    get = utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'get', {
         preprocess: (args)=>{
             // key size cannot be larger than MAX_KEY_SIZE
             if(args.key.length > this.MAX_KEY_SIZE){
@@ -98,7 +98,7 @@ class KV{
             throw ({message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large'});
         }
 
-        return utils.make_driver_method(['key'], 'puter-kvstore', 'incr').call(this, options);
+        return utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'incr').call(this, options);
     }
 
     decr = async(...args) => {
@@ -117,12 +117,12 @@ class KV{
             throw ({message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large'});
         }
 
-        return utils.make_driver_method(['key'], 'puter-kvstore', 'decr').call(this, options);
+        return utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'decr').call(this, options);
     }
 
     // resolves to 'true' on success, or rejects with an error on failure
     // will still resolve to 'true' if the key does not exist
-    del = utils.make_driver_method(['key'], 'puter-kvstore', 'del', {
+    del = utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'del', {
         preprocess: (args)=>{
             // key size cannot be larger than this.MAX_KEY_SIZE
             if(args.key.length > this.MAX_KEY_SIZE){
@@ -154,7 +154,7 @@ class KV{
             pattern = args[0];
         }
 
-        return utils.make_driver_method([], 'puter-kvstore', 'list', {
+        return utils.make_driver_method([], 'puter-kvstore', undefined, 'list', {
             transform: (res)=>{
                 // glob pattern was provided
                 if(pattern){
@@ -179,7 +179,7 @@ class KV{
 
     // resolve to 'true' on success, or rejects with an error on failure
     // will still resolve to 'true' if there are no keys
-    flush = utils.make_driver_method([], 'puter-kvstore', 'flush')
+    flush = utils.make_driver_method([], 'puter-kvstore', undefined, 'flush')
 
     // clear is an alias for flush
     clear = this.flush;

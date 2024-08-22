@@ -69,7 +69,7 @@ class AI{
             testMode = true;
         }
     
-        return await utils.make_driver_method(['source'], 'puter-ocr', 'recognize', {
+        return await utils.make_driver_method(['source'], 'puter-ocr', 'aws-textract', 'recognize', {
             test_mode: testMode ?? false,
             transform: async (result) => {
                 let str = '';
@@ -113,7 +113,7 @@ class AI{
             testMode = true;
         }
     
-        return await utils.make_driver_method(['source'], 'puter-tts', 'synthesize', {
+        return await utils.make_driver_method(['source'], 'puter-tts', 'aws-polly', 'synthesize', {
             responseType: 'blob',
             test_mode: testMode ?? false,
             transform: async (result) => {
@@ -132,7 +132,11 @@ class AI{
     // if object, it's treated as the full argument object that the API expects
     chat = async (...args) => {
         let options = {};
+        let settings = {};
         let testMode = false;
+
+        // default driver is openai-completion
+        let driver = 'openai-completion';
 
         // Check that the argument is not undefined or null
         if(!args){ 
@@ -199,8 +203,35 @@ class AI{
             testMode = true;
         }
     
+        // if any of the args is an object, assume it's the settings object
+        for (let i = 0; i < args.length; i++) {
+            if (typeof args[i] === 'object') {
+                settings = args[i];
+                break;
+            }
+        }
+
+        // does settings contain `model`? add it to options
+        if (settings.model) {
+            options.model = settings.model;
+        }
+
+        // convert to the correct model name if necessary
+        if( options.model === 'claude-3-5-sonnet' || options.model === 'claude'){
+            options.model = 'claude-3-5-sonnet-20240620';
+        }
+
+        // map model to the appropriate driver
+        if (!options.model || options.model === 'gpt-4o' || options.model === 'gpt-4o-mini') {
+            driver = 'openai-completion';
+        }else if(options.model === 'claude-3-haiku-20240307' || options.model === 'claude-3-5-sonnet-20240620'){
+            driver = 'claude';
+        }else if(options.model === 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo' || options.model === 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo' || options.model === 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo' || options.model === `google/gemma-2-27b-it`){
+            driver = 'together-ai';
+        }
+
         // Call the original chat.complete method
-        return await utils.make_driver_method(['messages'], 'puter-chat-completion', 'complete', {
+        return await utils.make_driver_method(['messages'], 'puter-chat-completion', driver, 'complete', {
             test_mode: testMode ?? false,
             transform: async (result) => {
                 result.toString = () => {
@@ -235,7 +266,7 @@ class AI{
         }
     
         // Call the original chat.complete method
-        return await utils.make_driver_method(['prompt'], 'puter-image-generation', 'generate', {
+        return await utils.make_driver_method(['prompt'], 'puter-image-generation', undefined, 'generate', {
             responseType: 'blob',
             test_mode: testMode ?? false,
             transform: async blob => {
