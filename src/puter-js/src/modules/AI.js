@@ -209,8 +209,13 @@ class AI{
         }
     
         // if any of the args is an object, assume it's the settings object
+        const is_object = v => {
+            return typeof v === 'object' &&
+                !Array.isArray(v) &&
+                v !== null;
+        };
         for (let i = 0; i < args.length; i++) {
-            if (typeof args[i] === 'object') {
+            if (is_object(args[i])) {
                 settings = args[i];
                 break;
             }
