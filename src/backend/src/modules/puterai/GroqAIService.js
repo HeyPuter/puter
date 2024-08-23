@@ -54,6 +54,7 @@ class GroqAIService extends BaseService {
                             });
                             stream.write(str + '\n');
                         }
+                        stream.end();
                     })();
                     return retval;
                 }
