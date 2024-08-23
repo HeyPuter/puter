@@ -111,8 +111,14 @@ module.exports = eggspress('/sign', {
         }
 
         const svc_acl = Context.get('services').get('acl');
-        if ( ! await svc_acl.check(actor, node, 'see') ) {
-            throw await svc_acl.get_safe_acl_error(actor, node, 'see');
+        if ( ! await svc_acl.check(actor, node, 'read') ) {
+            throw await svc_acl.get_safe_acl_error(actor, node, 'read');
+        }
+        
+        if ( item.action === 'write' ) {
+            if ( ! await svc_acl.check(actor, node, 'write') ) {
+                throw await svc_acl.get_safe_acl_error(actor, node, 'write');
+            }
         }
 
         if ( app !== null ) {

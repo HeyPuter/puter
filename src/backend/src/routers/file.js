@@ -39,6 +39,12 @@ router.get('/file', async (req, res, next)=>{
         console.log(e)
         return res.status(403).send(e);
     }
+    
+    let can_write = false;
+    try{
+        validate_signature_auth(get_url_from_req(req), 'write');
+        can_write = true;
+    }catch(e){}
 
     const log = req.services.get('log-service').create('/file');
     const errors = req.services.get('error-service').create(log);
@@ -80,7 +86,8 @@ router.get('/file', async (req, res, next)=>{
         if(children.length>0){
             for(const child of children){
                 // sign file
-                const signed_child = await sign_file(child, 'write');
+                const signed_child = await sign_file(child,
+                    can_write ? 'write' : 'read');
                 signed_children.push(signed_child);
             }
         }

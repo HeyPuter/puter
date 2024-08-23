@@ -54,11 +54,16 @@ module.exports = eggspress('/open_item', {
     }
 
     const svc_acl = Context.get('services').get('acl');
-    if ( ! await svc_acl.check(actor, subject, 'see') ) {
-        throw await svc_acl.get_safe_acl_error(actor, subject, 'see');
+    if ( ! await svc_acl.check(actor, subject, 'read') ) {
+        throw await svc_acl.get_safe_acl_error(actor, subject, 'read');
+    }
+    
+    let action = 'write';
+    if ( ! await svc_acl.check(actor, subject, 'write') ) {
+        action = 'read';
     }
 
-    const signature = await sign_file(subject.entry, 'write');
+    const signature = await sign_file(subject.entry, action);
     const suggested_apps = await suggest_app_for_fsentry(subject.entry);
     console.log('suggested apps?', suggested_apps);
     const apps_only_one = suggested_apps.slice(0,1);
