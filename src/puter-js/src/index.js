@@ -352,7 +352,7 @@ window.puter = (function() {
 
         print = function(...args){
             for(let arg of args){
-                document.getElementsByTagName('body')[0].append(arg);
+                document.body.innerHTML += arg;
             }
         }
     }
