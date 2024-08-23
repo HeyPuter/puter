@@ -22,6 +22,14 @@ class TogetherAIService extends BaseService {
     
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
+            async list () {
+                let models = this.modules.kv.get(`${this.kvkey}:models`);
+                if ( models ) return models;
+                models = await this.together.models.list();
+                this.modules.kv.set(
+                    `${this.kvkey}:models`, models, { EX: 5*60 });
+                return models;
+            },
             async complete ({ messages, stream, model }) {
                 console.log('model?', model);
                 const completion = await this.together.chat.completions.create({

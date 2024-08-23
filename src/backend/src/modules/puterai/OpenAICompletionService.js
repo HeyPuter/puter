@@ -23,6 +23,12 @@ class OpenAICompletionService extends BaseService {
 
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
+            async list () {
+                return [
+                    'gpt-4o',
+                    'gpt-4o-mini',
+                ];
+            },
             async complete ({ messages, test_mode, stream, model }) {
                 if ( test_mode ) {
                     const { LoremIpsum } = require('lorem-ipsum');

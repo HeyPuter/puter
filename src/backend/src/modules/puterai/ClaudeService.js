@@ -26,6 +26,12 @@ class ClaudeService extends BaseService {
     
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
+            async list () {
+                return [
+                    'claude-3-5-sonnet-20240620',
+                    'claude-3-haiku-20240307',
+                ];
+            },
             async complete ({ messages, stream, model }) {
                 const adapted_messages = [];
                 
