@@ -43,6 +43,11 @@ class PuterAIModule extends AdvancedBase {
             const { MistralAIService } = require('./MistralAIService');
             services.registerService('mistral', MistralAIService);
         }
+        
+        if ( !! config?.services?.['groq'] ) {
+            const { GroqAIService } = require('./GroqAIService');
+            services.registerService('groq', GroqAIService);
+        }
     }
 }
 
