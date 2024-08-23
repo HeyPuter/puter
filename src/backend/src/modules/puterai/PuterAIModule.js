@@ -38,6 +38,11 @@ class PuterAIModule extends AdvancedBase {
             const { TogetherAIService } = require('./TogetherAIService');
             services.registerService('together-ai', TogetherAIService);
         }
+        
+        if ( !! config?.services?.['mistral'] ) {
+            const { MistralAIService } = require('./MistralAIService');
+            services.registerService('mistral', MistralAIService);
+        }
     }
 }
 

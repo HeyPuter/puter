@@ -13,6 +13,7 @@
     "@heyputer/kv.js": "^0.1.3",
     "@heyputer/multest": "^0.0.2",
     "@heyputer/puter-js-common": "^1.0.0",
+    "@mistralai/mistralai": "^1.0.3",
     "@opentelemetry/api": "^1.4.1",
     "@opentelemetry/auto-instrumentations-node": "^0.43.0",
     "@opentelemetry/exporter-trace-otlp-grpc": "^0.40.0",

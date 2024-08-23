@@ -226,6 +226,9 @@ class AI{
         if( options.model === 'claude-3-5-sonnet' || options.model === 'claude'){
             options.model = 'claude-3-5-sonnet-20240620';
         }
+        if ( options.model === 'mistral' ) {
+            options.model = 'mistral-large-latest';
+        }
 
         // map model to the appropriate driver
         if (!options.model || options.model === 'gpt-4o' || options.model === 'gpt-4o-mini') {
@@ -234,6 +237,8 @@ class AI{
             driver = 'claude';
         }else if(options.model === 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo' || options.model === 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo' || options.model === 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo' || options.model === `google/gemma-2-27b-it`){
             driver = 'together-ai';
+        }else if(options.model === 'mistral-large-latest' || options.model === 'codestral-latest'){
+            driver = 'mistral';
         }
 
         // stream flag from settings

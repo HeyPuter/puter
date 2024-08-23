@@ -48,7 +48,6 @@ class TogetherAIService extends BaseService {
                     }, stream);
                     (async () => {
                         for await ( const chunk of completion ) {
-                            console.log('IT IS THIS STRING', chunk);
                             if ( chunk.choices.length < 1 ) continue;
                             if ( chunk.choices[0].finish_reason ) {
                                 stream.end();
