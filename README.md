@@ -138,6 +138,7 @@ This repository, including all its contents, sub-projects, modules, and componen
 - [English](https://github.com/HeyPuter/puter/blob/main/README.md)
 - [French / Français](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.da.md)
 - [Hindi / हिंदी](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.hi.md)
+- [Indonesian / Bahasa Indonesia](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.id.md)
 - [Italian / Italiano](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.it.md)
 - [Japanese / 日本語](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.jp.md)
 - [Portuguese / Português](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.pt.md)
