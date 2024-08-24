@@ -994,6 +994,9 @@ async function UIDesktop(options){
             ht += `<div class="toolbar-btn refer-btn" title="Refer" style="background-image:url(${window.icons['gift.svg']});"></div>`;
         }
 
+        // github
+        ht += `<a href="https://github.com/HeyPuter/puter" target="_blank" class="toolbar-btn" title="GitHub" style="background-image:url(${window.icons['logo-github-white.svg']});"></a>`;
+
         // do not show the fullscreen button on mobile devices since it's broken
         if(!isMobile.phone){
             // fullscreen button
