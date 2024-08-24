@@ -3,7 +3,7 @@
 <h3 align="center">Sistemul de Operare Internet! Gratuit, Open-Source și Găzduibil Autonom.</h3>
 
 <p align="center">
-    <img alt="Mărime repo GitHub" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="Versiune GitHub Release" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=cea%20mai%20recentă%20versiune"> <img alt="Licență GitHub" src="https://img.shields.io/github/license/HeyPuter/puter">
+    <img alt="Mărime repo GitHub" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="Versiune GitHub Release" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=cea%20mai%20recent%C4%83%20versiune"> <img alt="Licență GitHub" src="https://img.shields.io/github/license/HeyPuter/puter">
 </p>
 <p align="center">
     <a href="https://puter.com/"><strong>« DEMO LIVE »</strong></a>
