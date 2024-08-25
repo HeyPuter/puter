@@ -107,8 +107,9 @@ ProxyPass / http://localhost:4100/
 ProxyPassReverse / http://localhost:4100/
 ```
 #### -Edit ./src/backend/src/config.js
-add after let config = {};
-```config.api_base_url = 'https://api.puter.domain.com';
+Add after ```let config = {};```
+```
+config.api_base_url = 'https://api.puter.domain.com';
 config.origin='https://puter.domain.com';
 config.http_port=443;´
 config.pub_port=443;
@@ -116,13 +117,13 @@ config.protocol='https';
 ```
 
 #### -Edit ./node_modules/@heyputer/backend/src/services/WebServerService.js and  ./src/backend/src/services/WebServerService.js
-search for
+Search for
 ```if (allowedDomains.some(allowedDomain => hostName ===```
 and change the line to
 ```if (allowedDomains.some(allowedDomain => hostName === "puter.domain.com" || hostName.endsWith('.' + allowedDomain))) {```
 
 #### -Edit ./volatile/config/config.json
-change ```"domain": "puter.localost"``` to ```"domain": "puter.domain.com"```
+Change ```"domain": "puter.localhost"``` to ```"domain": "puter.domain.com"```
 
 #### -Run sed to replace the domain in all remaining files
 ``` grep -rl "puter.localhost:4100" . | xargs sed -i 's/puter.localhost:4001/puter.domain.com/g' ```
