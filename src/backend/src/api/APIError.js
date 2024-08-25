@@ -482,6 +482,10 @@ module.exports = class APIError {
             status: 422,
             message: 'This share can not be applied to this user.',
         },
+        'no_origin_for_app': {
+            status: 400,
+            message: 'Puter apps must have a valid URL.'
+        },
 
         // Chat
         // TODO: specifying these errors here might be a violation
