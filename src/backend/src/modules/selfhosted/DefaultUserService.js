@@ -42,7 +42,7 @@ const DEFAULT_FILES = {
                     }
                 },
                 "es": {
-                    "date-limit": {
+                    "rate-limit": {
                         "max": 1000,
                         "period": 30000
                     }
