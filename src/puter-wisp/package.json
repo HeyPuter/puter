@@ -1,5 +1,5 @@
 {
-  "name": "puter-wisp",
+  "name": "@heyputer/puter-wisp",
   "version": "1.0.0",
   "main": "exports.js",
   "scripts": {
