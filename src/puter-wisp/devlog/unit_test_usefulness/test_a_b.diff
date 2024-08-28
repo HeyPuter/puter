@@ -1,0 +1,18 @@
+31d30
+<             console.log('got from carry!', this.carry);
+51c50
+<             if ( this.carry.length >= 0 && v === undefined ) {
+---
+>             if ( this.carry.length > 0 && v === undefined ) {
+120a120,130
+>                 if ( this.state.hold ) {
+>                     const old_val = value;
+>                     let size = this.state.hold.length + value.length;
+>                     value = new Uint8Array(size);
+>                     value.set(this.state.hold, 0);
+>                     value.set(old_val, this.state.hold.length);
+>                 }
+>                 if ( value.length < 4 ) {
+>                     this.state.hold = value;
+>                     return undefined;
+>                 }
