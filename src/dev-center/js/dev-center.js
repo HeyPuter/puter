@@ -440,7 +440,7 @@ function generate_edit_app_section(app) {
     let h = ``;
     h += `
         <div class="edit-app-navbar">
-            <div style="float:left; min-width: 700px;">
+            <div style="flex-grow:1;">
                 <img class="app-icon" data-uid="${html_encode(app.uid)}" src="${html_encode(!app.icon ? './img/app.svg' : app.icon)}">
                 <h3 class="app-title" data-uid="${html_encode(app.uid)}">${html_encode(app.title)}</h3>
                 <div style="margin-top: 4px; margin-bottom: 4px;">
