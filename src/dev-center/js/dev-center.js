@@ -519,9 +519,9 @@ function generate_edit_app_section(app) {
                 
                 <div>
                     <label for="edit-app-window-width">Initial window width</label>
-                    <input type="number" id="edit-app-window-width" placeholder="800" value="${html_encode(app.metadata?.window_size?.width ?? 800)}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                    <input type="number" id="edit-app-window-width" placeholder="680" value="${html_encode(app.metadata?.window_size?.width ?? 680)}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
                     <label for="edit-app-window-height">Initial window height</label>
-                    <input type="number" id="edit-app-window-height" placeholder="600" value="${html_encode(app.metadata?.window_size?.height ?? 600)}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                    <input type="number" id="edit-app-window-height" placeholder="380" value="${html_encode(app.metadata?.window_size?.height ?? 380)}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
                 </div>
 
                 <div style="margin-top:30px;">
@@ -1318,11 +1318,31 @@ function sort_apps() {
     let sorted_apps;
 
     // sort
-    if (sortDirection === 'asc')
-        sorted_apps = apps.sort((a, b) => a[sortBy] > b[sortBy] ? 1 : -1);
-    else
-        sorted_apps = apps.sort((a, b) => a[sortBy] < b[sortBy] ? 1 : -1);
-
+    if (sortDirection === 'asc'){
+        sorted_apps = apps.sort((a, b) => {
+            if(sortBy === 'name'){
+                return a[sortBy].localeCompare(b[sortBy]);
+            }else if(sortBy === 'created_at'){
+                return new Date(a[sortBy]) - new Date(b[sortBy]);
+            } else if(sortBy === 'user_count' || sortBy === 'open_count'){
+                return a.stats[sortBy] - b.stats[sortBy];
+            }else{
+                a[sortBy] > b[sortBy] ? 1 : -1
+            }
+        });
+    }else{
+        sorted_apps = apps.sort((a, b) => {
+            if(sortBy === 'name'){
+                return b[sortBy].localeCompare(a[sortBy]);
+            }else if(sortBy === 'created_at'){
+                return new Date(b[sortBy]) - new Date(a[sortBy]);
+            } else if(sortBy === 'user_count' || sortBy === 'open_count'){
+                return b.stats[sortBy] - a.stats[sortBy];
+            }else{
+                b[sortBy] > a[sortBy] ? 1 : -1
+            }
+        });
+    }
     // refresh app list
     $('.app-card').remove();
     sorted_apps.forEach(app => {
