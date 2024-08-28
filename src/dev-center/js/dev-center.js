@@ -1111,7 +1111,7 @@ $(document).on('click', '#edit-app-icon', async function (e) {
         let mimeType = getMimeType(fileExtension);
 
         // Replace MIME type in the data URL
-        image = image.replace('data:application/octet-stream;base64', `data:image/${mimeType};base64`);
+        image = image.replace('data:application/octet-stream;base64', `data:${mimeType};base64`);
 
         $('#edit-app-icon').css('background-image', `url(${image})`);
         $('#edit-app-icon').attr('data-base64', image);
