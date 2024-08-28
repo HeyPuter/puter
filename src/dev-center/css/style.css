@@ -264,6 +264,7 @@ section {
 
 label, input[type="text"] {
     display: block;
+    user-select: none;
 }
 
 #delete-app {
