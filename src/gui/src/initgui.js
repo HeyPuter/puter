@@ -188,30 +188,7 @@ window.initgui = async function(options){
     // will hold the result of the whoami API call
     let whoami;
 
-    const url_paths = window.location.pathname.split('/').filter(element => element);
-
-    //--------------------------------------------------------------------------------------
-    // Determine if an app was launched from URL
-    // i.e. https://puter.com/app/<app_name>
-    //--------------------------------------------------------------------------------------
-    if(url_paths[0]?.toLocaleLowerCase() === 'app' && url_paths[1]){
-        window.app_launched_from_url = url_paths[1];
-
-        // get app metadata
-        try{
-            window.app_launched_from_url = await puter.apps.get(window.app_launched_from_url)
-            window.is_fullpage_mode = window.app_launched_from_url.metadata?.fullpage_on_landing ?? false;
-        }catch(e){
-            console.error(e);
-        }
-
-        // get query params, any param that doesn't start with 'puter.' will be passed to the app
-        window.app_query_params = {};
-        for (let [key, value] of window.url_query_params) {
-            if(!key.startsWith('puter.'))
-                window.app_query_params[key] = value;
-        }
-    }
+    window.url_paths = window.location.pathname.split('/').filter(element => element);
 
     //--------------------------------------------------------------------------------------
     // Extract 'action' from URL
@@ -234,7 +211,6 @@ window.initgui = async function(options){
         // Puter is in fullpage mode.
         window.is_fullpage_mode = true;
     }
-
 
     // Launch services before any UI is rendered
     await launch_services(options);
