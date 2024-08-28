@@ -7,7 +7,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-only",
   "directories": {
     "test": "test"
   },
