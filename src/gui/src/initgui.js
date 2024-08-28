@@ -46,6 +46,8 @@ import update_mouse_position from './helpers/update_mouse_position.js';
 import { LaunchOnInitService } from './services/LaunchOnInitService.js';
 import item_icon from './helpers/item_icon.js';
 import { AntiCSRFService } from './services/AntiCSRFService.js';
+import { IPCService } from './services/IPCService.js';
+import { ExecService } from './services/ExecService.js';
 
 const launch_services = async function (options) {
     // === Services Data Structures ===
@@ -75,6 +77,8 @@ const launch_services = async function (options) {
     globalThis.service_script_api_promise.resolve(service_script_api);
 
     // === Builtin Services ===
+    register('ipc', new IPCService());
+    register('exec', new ExecService());
     register('broadcast', new BroadcastService());
     register('theme', new ThemeService());
     register('process', new ProcessService());
