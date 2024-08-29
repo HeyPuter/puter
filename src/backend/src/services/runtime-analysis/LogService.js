@@ -462,6 +462,11 @@ class LogService extends BaseService {
         {
             const fs = require('fs');
             const path = '/var/puter/logs/heyputer';
+            // Making this directory if it doesn't exist causes issues
+            // for users running with development instructions
+            if ( ! fs.existsSync('/var/puter') ) {
+                return;
+            }
             try {
                 fs.mkdirSync(path, { recursive: true });
                 this.log_directory = path;
