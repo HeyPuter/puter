@@ -29,7 +29,6 @@ import download from './helpers/download.js';
 import path from "./lib/path.js";
 import UIContextMenu from './UI/UIContextMenu.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
-import launch_app from './helpers/launch_app.js';
 import item_icon from './helpers/item_icon.js';
 
 window.ipc_handlers = {};
@@ -90,14 +89,21 @@ window.addEventListener('message', async (event) => {
     const app_name = $(target_iframe).attr('data-app');
     const app_uuid = $el_parent_window.attr('data-app_uuid');
     
+    // New IPC handlers should be registered here.
+    // Do this by calling `register_ipc_handler` of IPCService.
     if ( window.ipc_handlers.hasOwnProperty(event.data.msg) ) {
-        console.log('got message to new IPC handler', event.data.msg);
+        // The IPC context contains information about the call
         const ipc_context = {
             appInstanceId: event.data.appInstanceID,
         };
+        
+        // Registered IPC handlers are an object with a `handle()`
+        // method. We call it "spec" here, meaning specification.
         const spec = window.ipc_handlers[event.data.msg];
         await spec.handler(event.data, { msg_id, ipc_context });
-        console.log('^ end of that thing');
+        
+        // Early-return to avoid redundant invokation of any
+        // legacy IPC handler.
         return;
     }
 

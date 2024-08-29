@@ -1,6 +1,10 @@
 import { Service } from "../definitions.js";
 
 export class IPCService extends Service {
+    static description = `
+        Allows other services to expose methods to apps.
+    `
+
     async _init () {
         //
     }
