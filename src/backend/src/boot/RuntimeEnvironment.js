@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/puter-js-common");
+const { AdvancedBase } = require("@heyputer/putil");
 const { quot } = require("../util/strutil");
 const { TechnicalError } = require("../errors/TechnicalError");
 const { print_error_help } = require("../errors/error_help_details");

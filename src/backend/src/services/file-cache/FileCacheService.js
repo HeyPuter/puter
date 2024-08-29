@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const TeePromise = require("@heyputer/multest/src/util/TeePromise");
-const { AdvancedBase } = require("@heyputer/puter-js-common");
+const { AdvancedBase } = require("@heyputer/putil");
 const { FileTracker } = require("./FileTracker");
 const { pausing_tee } = require("../../util/streamutil");
 

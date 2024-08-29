@@ -35,7 +35,7 @@ To function properly, Puter needs **CoreModule**, a database module,
 and a storage module.
 
 A module extends
-[AdvancedBase](../../../puter-js-common/README.md)
+[AdvancedBase](../../../putil/README.md)
 and implements
 an `install` method. The install method has one parameter, a
 [Context](../../src/util/context.js)

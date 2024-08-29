@@ -71,7 +71,7 @@ doing the useless work that reveals what the useful work is.
 
 ## Underlying Constructs
 
-- [puter-js-common's README.md](../../packages/puter-js-common/README.md)
+- [putil's README.md](../../packages/putil/README.md)
   - Whenever you see `AdvancedBase`, that's from here
     - Many things in backend extend this. Anything that doesn't only doesn't
       because it was written before `AdvancedBase` existed.
