@@ -19,7 +19,7 @@
 import assert from 'assert';
 import { MakeTestContext } from './harness.js'
 import builtins from '../../src/puter-shell/coreutils/__exports__.js';
-import { ErrorCodes, ErrorMetadata } from '@heyputer/puter-js-common/src/PosixError.js';
+import { ErrorCodes, ErrorMetadata } from '@heyputer/putil/src/PosixError.js';
 
 export const runErrnoTests = () => {
     describe('errno', function () {
