@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putil");
+const { AdvancedBase } = require("@heyputer/putility");
 const api_error_handler = require("../../api/api_error_handler");
 const config = require("../../config");
 const { get_user, get_app, id2path } = require("../../helpers");

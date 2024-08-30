@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putil");
+const { AdvancedBase } = require("@heyputer/putility");
 const config = require("../../config");
 
 class SelfHostedModule extends AdvancedBase {
@@ -110,6 +110,18 @@ class SelfHostedModule extends AdvancedBase {
                 RELATIVE_PATH,
                 'src/puter-js/dist/puter.dev.js'),
             route: '/puter.js/v2',
+        });
+        services.registerService('__serve-putilityjs-new', ServeSingleFileService, {
+            path: path_.resolve(__dirname,
+                RELATIVE_PATH,
+                'src/putility/dist/putility.dev.js'),
+            route: '/putility.js/v1',
+        });
+        services.registerService('__serve-gui-js', ServeSingleFileService, {
+            path: path_.resolve(__dirname,
+                RELATIVE_PATH,
+                'src/gui/dist/gui.dev.js'),
+            route: '/putility.js/v1',
         });
     }
 }

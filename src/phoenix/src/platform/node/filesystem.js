@@ -20,7 +20,7 @@ import fs from 'fs';
 import path_ from 'path';
 
 import modeString from 'fs-mode-to-string';
-import { ErrorCodes, PosixError } from '@heyputer/putil/src/PosixError.js';
+import { ErrorCodes, PosixError } from '@heyputer/putility/src/PosixError.js';
 
 // DRY: Almost the same as puter/filesystem.js
 function wrapAPIs(apis) {

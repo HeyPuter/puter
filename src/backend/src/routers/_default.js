@@ -87,6 +87,13 @@ router.all('*', async function(req, res, next) {
                 }
             });
         }
+        if (path === '/putility/v1') {
+            return res.sendFile(_path.join(__dirname, config.defaultjs_asset_path, 'putility.js/v1.js'), function (err) {
+                if (err && err.statusCode) {
+                    return res.status(err.statusCode).send('Error /putility.js')
+                }
+            });
+        }
     }
 
     const db = Context.get('services').get('database').get(DB_READ, 'default');

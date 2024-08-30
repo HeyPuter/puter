@@ -1,4 +1,4 @@
-const { AdvancedBase } = require("@heyputer/putil");
+const { AdvancedBase } = require("@heyputer/putility");
 const config = require("../../config");
 
 class PuterAIModule extends AdvancedBase {

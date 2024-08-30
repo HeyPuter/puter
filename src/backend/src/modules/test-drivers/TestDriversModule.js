@@ -1,4 +1,4 @@
-const { AdvancedBase } = require("@heyputer/putil");
+const { AdvancedBase } = require("@heyputer/putility");
 
 class TestDriversModule extends AdvancedBase {
     async install (context) {

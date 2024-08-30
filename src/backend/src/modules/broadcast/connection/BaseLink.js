@@ -1,4 +1,4 @@
-const { AdvancedBase } = require("@heyputer/putil");
+const { AdvancedBase } = require("@heyputer/putility");
 const { ChannelFeature } = require("../../../traits/ChannelFeature");
 
 class BaseLink extends AdvancedBase {

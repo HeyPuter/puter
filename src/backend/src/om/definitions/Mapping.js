@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putil");
+const { AdvancedBase } = require("@heyputer/putility");
 const { instance_ } = require("../../monitor/PerformanceMonitor");
 const { WeakConstructorFeature } = require("../../traits/WeakConstructorFeature");
 const { Property } = require("./Property");

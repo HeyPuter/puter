@@ -1,4 +1,4 @@
-const { AdvancedBase } = require('@heyputer/putil');
+const { AdvancedBase } = require('@heyputer/putility');
 
 class KeyPairHelper extends AdvancedBase {
     static MODULES = {
