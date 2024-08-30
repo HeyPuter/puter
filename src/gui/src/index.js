@@ -71,7 +71,6 @@ window.gui = async function(options){
         await window.loadScript('https://js.puter.com/v2/');
         // Load the minified bundles
         await window.loadCSS('/dist/bundle.min.css');
-        await window.loadScript('/dist/bundle.min.js');
     }
 
     // 🚀 Launch the GUI 🚀
