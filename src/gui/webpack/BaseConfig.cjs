@@ -1,6 +1,6 @@
 const path = require('path');
 const EmitPlugin = require('./EmitPlugin.cjs');
-module.exports = (options) => {
+module.exports = (options = {}) => {
     const config = {};
     config.entry = [
         './src/init_sync.js',
@@ -15,7 +15,7 @@ module.exports = (options) => {
     ];
     config.output = {
         path: path.resolve(__dirname, '../dist'),
-        filename: 'gui.bundle.js',
+        filename: 'bundle.min.js',
     };
     config.plugins = [
         EmitPlugin({
