@@ -6,7 +6,7 @@ module.exports = ({ dir, options }) => function () {
     const compiler = this;
     compiler.hooks.emit.tapAsync('EmitPlugin', async (compilation, callback) => {
         let prefix_text = '';
-        prefix_text += 'window.gui_env="dev";\n';
+        prefix_text += `window.gui_env="${options.env}";\n`;
 
         // -----------------------------------------------
         // Combine all images into a single js file
