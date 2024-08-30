@@ -257,7 +257,7 @@ class PuterHomepageService extends BaseService {
         }
 
         <!-- Load the GUI script -->
-        <script src="/dist/gui.bundle.js"></script>
+        <script src="/dist/bundle.min.js"></script>
         <!-- Initialize GUI when document is loaded -->
         <script type="module">
         window.addEventListener('load', function() {
