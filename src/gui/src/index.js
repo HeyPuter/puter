@@ -61,7 +61,6 @@ window.gui = async function(options){
     // DEV: Load the initgui.js file if we are in development mode
     if(!window.gui_env || window.gui_env === "dev"){
         await window.loadScript('/sdk/puter.dev.js');
-        await window.loadScript('/putil.js/v1');
         // await window.loadScript(`${options.asset_dir}/initgui.js`, {isModule: true});
     }
 
@@ -69,7 +68,6 @@ window.gui = async function(options){
     // note: the order of the bundles is important
     // note: Build script will prepend `window.gui_env="prod"` to the top of the file
     else if(window.gui_env === "prod"){
-        await window.loadScript('https://js.puter.com/putil/v1/');
         await window.loadScript('https://js.puter.com/v2/');
         // Load the minified bundles
         await window.loadCSS('/dist/bundle.min.css');
