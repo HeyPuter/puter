@@ -130,7 +130,10 @@ async function build(options){
         main_array.push(path.join(__dirname, 'src', js_paths[i]));
     }
     webpack({
-        ...BaseConfig(options),
+        ...BaseConfig({
+            ...options,
+            env: 'prod',
+        }),
         mode: 'production',
         optimization: {
             minimize: true,
