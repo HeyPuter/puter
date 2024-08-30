@@ -49,6 +49,12 @@ class SelfHostedModule extends AdvancedBase {
                     args: ['run', 'start-webpack'],
                 },
                 {
+                    name: 'gui:webpack-watch',
+                    directory: 'src/gui',
+                    command: 'npm',
+                    args: ['run', 'start-webpack'],
+                },
+                {
                     name: 'terminal:rollup-watch',
                     directory: 'src/terminal',
                     command: 'npx',
