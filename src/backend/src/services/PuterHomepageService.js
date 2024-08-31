@@ -255,46 +255,9 @@ class PuterHomepageService extends BaseService {
                 ? `<script>window.gui_env = 'prod';</script>`
                 : ''
         }
-        ${
-            ((!bundled && manifest?.lib_paths)
-                ? manifest.lib_paths.map(path => `<script type="text/javascript" src="${path}"></script>\n`)
-                : []).join('')
-        }
 
-        <script>
-        window.icons = {};
-
-        ${(() => {
-            if ( !(!bundled && manifest) ) return '';
-            const html = [];
-            fs_.readdirSync(path_.join(gui_path, 'src/icons')).forEach(file => {
-                // skip dotfiles
-                if(file.startsWith('.'))
-                    return;
-                // load image
-                let buff = new Buffer.from(fs_.readFileSync(path_.join(gui_path, 'src/icons') + '/' + file));
-                // convert to base64
-                let base64data = buff.toString('base64');
-                // add to `window.icons`
-                if(file.endsWith('.png'))
-                    html.push(`window.icons['${file}'] = "data:image/png;base64,${base64data}";\n`);
-                else if(file.endsWith('.svg'))
-                    html.push(`window.icons['${file}'] = "data:image/svg+xml;base64,${base64data}";\n`);
-            })
-            return html.join('');
-        })()}
-        </script>
-
-        ${
-            ((!bundled && manifest?.js_paths)
-                ? manifest.js_paths.map(path => writeScriptTag(path))
-                : []).join('')
-        }
         <!-- Load the GUI script -->
-        <script ${
-            // !bundled ? ' type="module"' : ''
-            ' type="module"'
-        } src="${(!bundled && manifest?.index) || '/dist/gui.js'}"></script>
+        <script src="/dist/bundle.min.js"></script>
         <!-- Initialize GUI when document is loaded -->
         <script type="module">
         window.addEventListener('load', function() {

@@ -117,7 +117,7 @@ module.exports = eggspress('/sign', {
         
         if ( item.action === 'write' ) {
             if ( ! await svc_acl.check(actor, node, 'write') ) {
-                throw await svc_acl.get_safe_acl_error(actor, node, 'write');
+                item.action = 'read';
             }
         }
 

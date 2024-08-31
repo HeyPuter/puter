@@ -20,10 +20,12 @@ import { encode } from 'html-entities';
 import fs from 'fs';
 import path from 'path';
 import webpack from 'webpack';
+import webpack_config from './webpack.config.cjs';
 import CleanCSS from 'clean-css';
 import uglifyjs from 'uglify-js';
 import { lib_paths, css_paths, js_paths } from './src/static-assets.js';
 import { fileURLToPath } from 'url';
+import BaseConfig from './webpack/BaseConfig.cjs';
 
 // Polyfill __dirname, which doesn't exist in modules mode
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -128,14 +130,11 @@ async function build(options){
         main_array.push(path.join(__dirname, 'src', js_paths[i]));
     }
     webpack({
+        ...BaseConfig({
+            ...options,
+            env: 'prod',
+        }),
         mode: 'production',
-        entry: {
-            main: main_array,
-        },
-            output: {
-            path: path.resolve(__dirname, 'dist'),
-            filename: '[name].js',
-        },
         optimization: {
             minimize: true,
         },
@@ -147,9 +146,9 @@ async function build(options){
         if(options?.verbose)
             console.log(stats.toString());
         // write to ./dist/bundle.min.js
-        fs.writeFileSync(path.join(__dirname, 'dist', 'bundle.min.js'), icons + '\n\n\n' + js + '\n\n\n' + fs.readFileSync(path.join(__dirname, 'dist', 'main.js')));
+        // fs.writeFileSync(path.join(__dirname, 'dist', 'bundle.min.js'), fs.readFileSync(path.join(__dirname, 'dist', 'main.js')));
         // remove ./dist/main.js
-        fs.unlinkSync(path.join(__dirname, 'dist', 'main.js'));
+        // fs.unlinkSync(path.join(__dirname, 'dist', 'main.js'));
     });
 
     // Copy index.js to dist/gui.js

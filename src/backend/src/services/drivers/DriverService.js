@@ -23,7 +23,7 @@ const { TypedValue } = require("./meta/Runtime");
 const BaseService = require("../BaseService");
 const { Driver } = require("../../definitions/Driver");
 const { PermissionUtil } = require("../auth/PermissionService");
-const { Invoker } = require("@heyputer/puter-js-common/src/libs/invoker");
+const { Invoker } = require("../../../../putility/src/libs/invoker");
 const { get_user } = require("../../helpers");
 
 /**

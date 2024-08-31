@@ -440,7 +440,7 @@ function generate_edit_app_section(app) {
     let h = ``;
     h += `
         <div class="edit-app-navbar">
-            <div style="float:left; min-width: 700px;">
+            <div style="flex-grow:1;">
                 <img class="app-icon" data-uid="${html_encode(app.uid)}" src="${html_encode(!app.icon ? './img/app.svg' : app.icon)}">
                 <h3 class="app-title" data-uid="${html_encode(app.uid)}">${html_encode(app.title)}</h3>
                 <div style="margin-top: 4px; margin-bottom: 4px;">
@@ -475,6 +475,7 @@ function generate_edit_app_section(app) {
                 <div class="success" id="edit-app-success">App has been successfully updated.<span class="close-success-msg">&times;</span></div>
                 <input type="hidden" id="edit-app-uid" value="${html_encode(app.uid)}">
 
+                <h3 style="border-bottom: 1px solid #EEE; margin-top: 40px;">Basic Info</h3>
                 <label for="edit-app-title">Title</label>
                 <input type="text" id="edit-app-title" placeholder="My Awesome App!" value="${html_encode(app.title)}">
 
@@ -486,45 +487,6 @@ function generate_edit_app_section(app) {
                 
                 <label for="edit-app-app-id">App ID</label>
                 <input type="text" style="width: 362px;" class="app-uid" value="${html_encode(app.uid)}" readonly>
-
-                <div>
-                    <input type="checkbox" id="edit-app-background" name="edit-app-background" value="true" style="margin-top:30px;" ${app.background ? 'checked' : ''}>
-                    <label for="edit-app-background" style="display: inline;">Run as a background process.</label>
-                </div>
-
-                <div>
-                    <input type="checkbox" id="edit-app-fullpage-on-landing" name="edit-app-fullpage-on-landing" value="true" style="margin-top:30px;" ${app.metadata?.fullpage_on_landing ? 'checked' : ''}>
-                    <label for="edit-app-fullpage-on-landing" style="display: inline;">Load in full-page mode when a user lands directly on this app.</label>
-                </div>
-
-                <div>
-                    <input type="checkbox" id="edit-app-maximize-on-start" name="edit-app-maximize-on-start" value="true" style="margin-top:30px;" ${maximize_on_start ? 'checked' : ''}>
-                    <label for="edit-app-maximize-on-start" style="display: inline;">Maximize window on start</label>
-                </div>
-                
-                <div>
-                    <label for="edit-app-window-width">Window Width</label>
-                    <input type="number" id="edit-app-window-width" placeholder="800" value="${html_encode(app.metadata?.window_size?.width ?? 800)}" style="width:200px;" ${maximize_on_start ? 'disabled' : ''}>
-                    <label for="edit-app-window-height">Window Height</label>
-                    <input type="number" id="edit-app-window-height" placeholder="600" value="${html_encode(app.metadata?.window_size?.height ?? 600)}" style="width:200px;" ${maximize_on_start ? 'disabled' : ''}>
-                </div>
-
-                <div style="margin-top:30px;">
-                    <label for="edit-app-window-top">Window Top</label>
-                    <input type="number" id="edit-app-window-top" placeholder="100" value="${app.metadata?.window_position?.top ? html_encode(app.metadata.window_position.top) : ''}" style="width:200px;" ${maximize_on_start ? 'disabled' : ''}>
-                    <label for="edit-app-window-left">Window Left</label>
-                    <input type="number" id="edit-app-window-left" placeholder="100" value="${app.metadata?.window_position?.left ? html_encode(app.metadata.window_position.left) : ''}" style="width:200px;" ${maximize_on_start ? 'disabled' : ''}>
-                </div>
-
-                <div style="margin-top:30px;">
-                    <input type="checkbox" id="edit-app-window-resizable" name="edit-app-window-resizable" value="true" ${app.metadata?.window_resizable ? 'checked' : ''}>
-                    <label for="edit-app-window-resizable" style="display: inline;">Window Resizable</label>
-                </div>
-
-                <div style="margin-top:30px;">
-                    <input type="checkbox" id="edit-app-hide-titlebar" name="edit-app-hide-titlebar" value="true" ${app.metadata?.hide_titlebar ? 'checked' : ''}>
-                    <label for="edit-app-hide-titlebar" style="display: inline;">Hide Titlebar</label>
-                </div>
 
                 <label for="edit-app-icon">Icon</label>
                 <div id="edit-app-icon" style="background-image:url(${!app.icon ? './img/app.svg' : html_encode(app.icon)});" ${app.icon ? 'data-url="' + html_encode(app.icon) + '"' : ''}>
@@ -539,6 +501,47 @@ function generate_edit_app_section(app) {
                 <p style="margin-top: 10px; font-size:13px;">A comma-separated list of file type specifiers. For example if you include <code>.txt</code>, your apps could be opened when a user clicks on a TXT file.</p>
                 <textarea id="edit-app-filetype-associations" placeholder=".txt, .jpg, application/json">${app.filetype_associations}</textarea>
 
+                <h3 style="border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window Settings</h3>
+                <div>
+                    <input type="checkbox" id="edit-app-background" name="edit-app-background" value="true" style="margin-top:30px;" ${app.background ? 'checked' : ''}>
+                    <label for="edit-app-background" style="display: inline;">Run as a background process.</label>
+                </div>
+
+                <div>
+                    <input type="checkbox" id="edit-app-fullpage-on-landing" name="edit-app-fullpage-on-landing" value="true" style="margin-top:30px;" ${app.metadata?.fullpage_on_landing ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                    <label for="edit-app-fullpage-on-landing" style="display: inline;">Load in full-page mode when a user lands directly on this app.</label>
+                </div>
+
+                <div>
+                    <input type="checkbox" id="edit-app-maximize-on-start" name="edit-app-maximize-on-start" value="true" style="margin-top:30px;" ${maximize_on_start ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                    <label for="edit-app-maximize-on-start" style="display: inline;">Maximize window on start</label>
+                </div>
+                
+                <div>
+                    <label for="edit-app-window-width">Initial window width</label>
+                    <input type="number" id="edit-app-window-width" placeholder="680" value="${html_encode(app.metadata?.window_size?.width ?? 680)}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                    <label for="edit-app-window-height">Initial window height</label>
+                    <input type="number" id="edit-app-window-height" placeholder="380" value="${html_encode(app.metadata?.window_size?.height ?? 380)}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                </div>
+
+                <div style="margin-top:30px;">
+                    <label for="edit-app-window-top">Initial window top</label>
+                    <input type="number" id="edit-app-window-top" placeholder="100" value="${app.metadata?.window_position?.top ? html_encode(app.metadata.window_position.top) : ''}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                    <label for="edit-app-window-left">Initial window left</label>
+                    <input type="number" id="edit-app-window-left" placeholder="100" value="${app.metadata?.window_position?.left ? html_encode(app.metadata.window_position.left) : ''}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                </div>
+
+                <div style="margin-top:30px;">
+                    <input type="checkbox" id="edit-app-window-resizable" name="edit-app-window-resizable" value="true" ${app.metadata?.window_resizable ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                    <label for="edit-app-window-resizable" style="display: inline;">Resizable window</label>
+                </div>
+
+                <div style="margin-top:30px;">
+                    <input type="checkbox" id="edit-app-hide-titlebar" name="edit-app-hide-titlebar" value="true" ${app.metadata?.hide_titlebar ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                    <label for="edit-app-hide-titlebar" style="display: inline;">Hide window titlebar</label>
+                </div>
+
+                <hr style="margin-top: 40px;">
                 <button type="button" class="edit-app-save-btn button button-primary">Save</button>
             </form>
         </div>
@@ -1108,7 +1111,7 @@ $(document).on('click', '#edit-app-icon', async function (e) {
         let mimeType = getMimeType(fileExtension);
 
         // Replace MIME type in the data URL
-        image = image.replace('data:application/octet-stream;base64', `data:image/${mimeType};base64`);
+        image = image.replace('data:application/octet-stream;base64', `data:${mimeType};base64`);
 
         $('#edit-app-icon').css('background-image', `url(${image})`);
         $('#edit-app-icon').attr('data-base64', image);
@@ -1315,11 +1318,31 @@ function sort_apps() {
     let sorted_apps;
 
     // sort
-    if (sortDirection === 'asc')
-        sorted_apps = apps.sort((a, b) => a[sortBy] > b[sortBy] ? 1 : -1);
-    else
-        sorted_apps = apps.sort((a, b) => a[sortBy] < b[sortBy] ? 1 : -1);
-
+    if (sortDirection === 'asc'){
+        sorted_apps = apps.sort((a, b) => {
+            if(sortBy === 'name'){
+                return a[sortBy].localeCompare(b[sortBy]);
+            }else if(sortBy === 'created_at'){
+                return new Date(a[sortBy]) - new Date(b[sortBy]);
+            } else if(sortBy === 'user_count' || sortBy === 'open_count'){
+                return a.stats[sortBy] - b.stats[sortBy];
+            }else{
+                a[sortBy] > b[sortBy] ? 1 : -1
+            }
+        });
+    }else{
+        sorted_apps = apps.sort((a, b) => {
+            if(sortBy === 'name'){
+                return b[sortBy].localeCompare(a[sortBy]);
+            }else if(sortBy === 'created_at'){
+                return new Date(b[sortBy]) - new Date(a[sortBy]);
+            } else if(sortBy === 'user_count' || sortBy === 'open_count'){
+                return b.stats[sortBy] - a.stats[sortBy];
+            }else{
+                b[sortBy] > a[sortBy] ? 1 : -1
+            }
+        });
+    }
     // refresh app list
     $('.app-card').remove();
     sorted_apps.forEach(app => {
@@ -2085,3 +2108,29 @@ $(document).on('change', '#edit-app-maximize-on-start', function (e) {
         $('#edit-app-window-top, #edit-app-window-left').prop('disabled', false);
     }
 })
+
+$(document).on('change', '#edit-app-background', function (e) {
+    if($('#edit-app-background').is(":checked")){
+        disable_window_settings()
+    }else{
+        enable_window_settings()
+    }
+})
+
+function disable_window_settings(){
+    $('#edit-app-maximize-on-start').prop('disabled', true);
+    $('#edit-app-fullpage-on-landing').prop('disabled', true);
+    $('#edit-app-window-width, #edit-app-window-height').prop('disabled', true);
+    $('#edit-app-window-top, #edit-app-window-left').prop('disabled', true);
+    $('#edit-app-window-resizable').prop('disabled', true);
+    $('#edit-app-hide-titlebar').prop('disabled', true);
+}
+
+function enable_window_settings(){
+    $('#edit-app-maximize-on-start').prop('disabled', false);
+    $('#edit-app-fullpage-on-landing').prop('disabled', false);
+    $('#edit-app-window-width, #edit-app-window-height').prop('disabled', false);
+    $('#edit-app-window-top, #edit-app-window-left').prop('disabled', false);
+    $('#edit-app-window-resizable').prop('disabled', false);
+    $('#edit-app-hide-titlebar').prop('disabled', false);
+}

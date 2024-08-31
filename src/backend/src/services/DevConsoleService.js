@@ -20,11 +20,26 @@ const { consoleLogManager } = require('../util/consolelog');
 const BaseService = require('./BaseService');
 
 class DevConsoleService extends BaseService {
+    static MODULES = {
+        fs: require('fs'),
+    }
+
     _construct () {
         this.static_lines = [];
         this.widgets = [];
         this.identifiers = {};
         this.has_updates = false;
+        
+        try {
+            const require = this.require;
+            const fs = require('fs');
+            this.is_docker = fs.existsSync('/.dockerenv');
+        } catch (e) {
+            // if this fails, we assume is_docker should
+            // be false.
+            this.log.error(e.message);
+            this.is_docker = false;
+        }
     }
 
     turn_on_the_warning_lights () {
@@ -60,7 +75,7 @@ class DevConsoleService extends BaseService {
         let positions = [];
         for ( const w of this.widgets ) {
             let output; try {
-                output = w();
+                output = w({ is_docker: this.is_docker });
             } catch ( e ) {
                 consoleLogManager.log_raw('error', e);
                 to_remove.push(w);
@@ -78,6 +93,7 @@ class DevConsoleService extends BaseService {
         for ( let i = this.widgets.length-1 ; i >= 0 ; i-- ) {
             if ( size_ok() ) break;
             const w = this.widgets[i];
+            if ( w.critical ) continue; 
             if ( ! w.unimportant ) continue;
             n_hidden++;
             const [start, length] = positions[i];
@@ -89,8 +105,9 @@ class DevConsoleService extends BaseService {
         }
         for ( let i = this.widgets.length-1 ; i >= 0 ; i-- ) {
             if ( size_ok() ) break;
-            n_hidden++;
             const w = this.widgets[i];
+            if ( w.critical ) continue; 
+            n_hidden++;
             const [start, length] = positions[i];
             this.static_lines.splice(start, length);
         }

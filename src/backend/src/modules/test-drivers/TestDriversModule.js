@@ -1,4 +1,4 @@
-const { AdvancedBase } = require("@heyputer/puter-js-common");
+const { AdvancedBase } = require("@heyputer/putility");
 
 class TestDriversModule extends AdvancedBase {
     async install (context) {

@@ -42,7 +42,7 @@ const DEFAULT_FILES = {
                     }
                 },
                 "es": {
-                    "date-limit": {
+                    "rate-limit": {
                         "max": 1000,
                         "period": 30000
                     }
@@ -90,7 +90,18 @@ class DefaultUserService extends BaseService {
         if ( ! is_default_password ) return;
 
         // show console widget
-        this.default_user_widget = () => {
+        this.default_user_widget = ({ is_docker }) => {
+            if ( is_docker ) {
+                // In Docker we keep the output as simple as possible because
+                // we're unable to determine the size of the terminal
+                return [
+                    'Password for `admin`: ' + tmp_password,
+                    // TODO: possible bug
+                    // These blank lines are necessary for it to render and
+                    // I'm not entirely sure why anymore.
+                    '', '',
+                ];
+            }
             const lines = [
                 `Your admin user has been created!`,
                 `\x1B[31;1musername:\x1B[0m ${USERNAME}`,
@@ -100,6 +111,7 @@ class DefaultUserService extends BaseService {
             surrounding_box('31;1', lines);
             return lines;
         };
+        this.default_user_widget.critical = true;
         this.start_poll_({ tmp_password, user });
         const svc_devConsole = this.services.get('dev-console');
         svc_devConsole.add_widget(this.default_user_widget);

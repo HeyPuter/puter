@@ -1,0 +1,15 @@
+{
+  "name": "@heyputer/puter-wisp",
+  "version": "1.0.0",
+  "main": "exports.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "AGPL-3.0-only",
+  "directories": {
+    "test": "test"
+  },
+  "description": ""
+}

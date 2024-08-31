@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/puter-js-common");
+const { AdvancedBase } = require("../../../putility");
 const { Context } = require("../util/context");
 const { ContextAwareFeature } = require("../traits/ContextAwareFeature");
 const { OtelFeature } = require("../traits/OtelFeature");

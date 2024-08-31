@@ -55,6 +55,7 @@ class MistralAIService extends BaseService {
                             });
                             stream.write(str + '\n');
                         }
+                        stream.end();
                     })();
                     return retval;
                 }

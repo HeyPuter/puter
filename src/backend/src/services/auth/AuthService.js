@@ -442,6 +442,9 @@ class AuthService extends BaseService {
 
     async app_uid_from_origin (origin) {
         origin = this._origin_from_url(origin);
+        if ( origin === null ) {
+            throw APIError.create('no_origin_for_app');
+        }
         return await this._app_uid_from_origin(origin);
     }
 

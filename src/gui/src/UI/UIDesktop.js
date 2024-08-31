@@ -986,13 +986,16 @@ async function UIDesktop(options){
 
         // 'show desktop'
         if(window.is_fullpage_mode){
-            ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased" target="_blank" title="Show Desktop">Show Desktop <img src="${window.icons['launch-white.svg']}" style="width: 15px; height: 15px; margin-left: 5px;"></a>`;
+            ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased" target="_blank" title="Show Desktop">Show Desktop <img src="${window.icons['launch-white.svg']}" style="width: 10px; height: 10px; margin-left: 5px;"></a>`;
         }
 
         // refer
         if(window.user.referral_code){
             ht += `<div class="toolbar-btn refer-btn" title="Refer" style="background-image:url(${window.icons['gift.svg']});"></div>`;
         }
+
+        // github
+        ht += `<a href="https://github.com/HeyPuter/puter" target="_blank" class="toolbar-btn" title="GitHub" style="background-image:url(${window.icons['logo-github-white.svg']});"></a>`;
 
         // do not show the fullscreen button on mobile devices since it's broken
         if(!isMobile.phone){
@@ -1018,6 +1021,29 @@ async function UIDesktop(options){
 
     // adjust window container to take into account the toolbar height
     $('.window-container').css('top', window.toolbar_height);
+
+
+    //--------------------------------------------------------------------------------------
+    // Determine if an app was launched from URL
+    // i.e. https://puter.com/app/<app_name>
+    //--------------------------------------------------------------------------------------
+    if(window.url_paths[0]?.toLocaleLowerCase() === 'app' && window.url_paths[1]){
+        window.app_launched_from_url = window.url_paths[1];
+        // get app metadata
+        try{
+            window.app_launched_from_url = await puter.apps.get(window.url_paths[1])
+            window.is_fullpage_mode = window.app_launched_from_url.metadata?.fullpage_on_landing ?? false;
+        }catch(e){
+            console.error(e);
+        }
+
+        // get query params, any param that doesn't start with 'puter.' will be passed to the app
+        window.app_query_params = {};
+        for (let [key, value] of window.url_query_params) {
+            if(!key.startsWith('puter.'))
+                window.app_query_params[key] = value;
+        }
+    }
 
     // ---------------------------------------------
     // Run apps from insta-login URL

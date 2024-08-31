@@ -264,6 +264,7 @@ section {
 
 label, input[type="text"] {
     display: block;
+    user-select: none;
 }
 
 #delete-app {
@@ -854,7 +855,11 @@ ol li:before {
     float:right; margin-bottom: 10px;
 }
 .edit-app-navbar{
-    overflow: hidden; margin-bottom: 60px; margin-top: 20px;
+    overflow: hidden; 
+    margin-bottom: 60px; 
+    margin-top: 20px;
+    display: flex;
+    align-items: center;
 }
 .app-title{
     margin-top:0px; 

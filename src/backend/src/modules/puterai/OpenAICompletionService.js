@@ -91,8 +91,7 @@ class OpenAICompletionService extends BaseService {
             throw new Error('`messages` must be an array');
         }
 
-        model = model ?? 'gpt-3.5-turbo';
-        // model = model ?? 'gpt-4o';
+        model = model ?? 'gpt-4o-mini';
 
         for ( let i = 0; i < messages.length; i++ ) {
             let msg = messages[i];
@@ -233,6 +232,7 @@ class OpenAICompletionService extends BaseService {
                     });
                     stream.write(str + '\n');
                 }
+                stream.end();
             })();
             return retval;
         }

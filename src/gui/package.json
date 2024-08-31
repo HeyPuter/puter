@@ -28,7 +28,8 @@
     "test": "mocha ./packages/phoenix/test ./packages/phoenix/packages/contextlink/test",
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
     "build": "node ./build.js",
-    "check-translations": "node tools/check-translations.js"
+    "check-translations": "node tools/check-translations.js",
+    "start-webpack": "webpack --watch --devtool source-map"
   },
   "workspaces": [
     "src/*"

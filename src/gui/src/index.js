@@ -61,7 +61,7 @@ window.gui = async function(options){
     // DEV: Load the initgui.js file if we are in development mode
     if(!window.gui_env || window.gui_env === "dev"){
         await window.loadScript('/sdk/puter.dev.js');
-        await window.loadScript(`${options.asset_dir}/initgui.js`, {isModule: true});
+        // await window.loadScript(`${options.asset_dir}/initgui.js`, {isModule: true});
     }
 
     // PROD: load the minified bundles if we are in production mode
@@ -71,7 +71,6 @@ window.gui = async function(options){
         await window.loadScript('https://js.puter.com/v2/');
         // Load the minified bundles
         await window.loadCSS('/dist/bundle.min.css');
-        await window.loadScript('/dist/bundle.min.js');
     }
 
     // 🚀 Launch the GUI 🚀

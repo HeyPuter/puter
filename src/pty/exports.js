@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { libs } from '@heyputer/puter-js-common';
+import { libs } from '@heyputer/putility';
 const { TeePromise, raceCase } = libs.promise;
 
 const encoder = new TextEncoder();

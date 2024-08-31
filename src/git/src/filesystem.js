@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { PosixError } from '@heyputer/puter-js-common/src/PosixError.js';
+import { PosixError } from '@heyputer/putility/src/PosixError.js';
 import path_ from 'path-browserify';
 
 let debug = false;

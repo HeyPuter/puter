@@ -279,15 +279,12 @@ async function driverCall_(
     // ===============================================
     
     let is_stream = false;
-    let got_headers = false;
     let signal_stream_update = null;
     let lastLength = 0;
     let response_complete = false;
     const parts_received = [];
     xhr.onreadystatechange = () => {
-        if ( got_headers ) return;
-        got_headers = true;
-        if ( xhr.readyState >= 2 ) {
+        if ( xhr.readyState === 2 ) {
             if ( xhr.getResponseHeader("Content-Type") !==
                 'application/x-ndjson'
             ) return;
@@ -311,6 +308,12 @@ async function driverCall_(
         
             return resolve_func(Stream());
         }
+        if ( xhr.readyState === 4 ) {
+            response_complete = true;
+            if ( is_stream ) {
+                signal_stream_update?.();
+            }
+        }
     };
 
     xhr.onprogress = function() {
@@ -323,19 +326,13 @@ async function driverCall_(
         signal_stream_update();
     };
     
-    xhr.addEventListener('load', () => {
-        response_complete = true;
-    });
-
     // ========================
     // === END OF STREAMING ===
     // ========================
 
     // load: success or error
     xhr.addEventListener('load', async function(response){
-        response_complete = true;
         if ( is_stream ) {
-            signal_stream_update?.();
             return;
         }
         const resp = await parseResponse(response.target);
