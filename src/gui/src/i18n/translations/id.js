@@ -207,7 +207,7 @@ const id = {
         personalization: "Personalisasi",
         pick_name_for_website: "Pilih nama untuk situs web Anda:",
         picture: "Gambar",
-        pictures: "Gambar-gambar",
+        pictures: "Gambar",
         plural_suffix: "s",
         powered_by_puter_js: `Ditenagai oleh {{link=docs}}Puter.js{{/link}}`,
         preparing: "Memproses...",
