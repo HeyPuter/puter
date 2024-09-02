@@ -42,7 +42,6 @@ Puter is an advanced, open-source internet operating system designed to be featu
 
 ## Getting Started
 
-
 ### 💻 Local Development
 
 ```bash
@@ -58,28 +57,26 @@ This will launch Puter at http://puter.localhost:4100 (or the next available por
 
 ### 🐳 Docker
 
-
 ```bash
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
 ```
 
 <br/>
 
-
 ### 🐙 Docker Compose
 
-
 #### Linux/macOS
+
 ```bash
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+
 <br/>
 
 #### Windows
-
 
 ```powershell
 mkdir -p puter
@@ -89,6 +86,7 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ### ☁️ Puter.com
@@ -123,8 +121,7 @@ We are always happy to help you with any questions you may have. Don't hesitate 
 
 <br/>
 
-
-##  License
+## License
 
 This repository, including all its contents, sub-projects, modules, and components, is licensed under [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) unless explicitly stated otherwise. Third-party libraries included in this repository may be subject to their own licenses.
 
@@ -132,6 +129,7 @@ This repository, including all its contents, sub-projects, modules, and componen
 
 ## Translations
 
+- [Farsi / فارسی](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.fa.md)
 - [Arabic / العربية](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ar.md)
 - [Bengali / বাংলা](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.bn.md)
 - [Chinese / 中文](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.zh.md)
