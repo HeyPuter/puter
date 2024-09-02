@@ -17,6 +17,16 @@ class AppConnection extends EventListener {
     // Whether the target app uses the Puter SDK, and so accepts messages
     // (Closing and close events will still function.)
     #usesSDK;
+    
+    static from (values, { appInstanceID, messageTarget }) {
+        const connection = new AppConnection(
+            messageTarget,
+            appInstanceID,
+            values.appInstanceID,
+            values.usesSDK
+        );
+        return connection;
+    }
 
     constructor(messageTarget, appInstanceID, targetAppInstanceID, usesSDK) {
         super([
@@ -160,6 +170,33 @@ class UI extends EventListener {
             appInstanceID: this.appInstanceID,
             value: dehydrator.dehydrate(value),
         }, '*');
+    }
+    
+    #ipc_stub = async function ({
+        callback,
+        method,
+        parameters,
+    }) {
+        let p, resolve;
+        await new Promise(done_setting_resolve => {
+            p = new Promise(resolve_ => {
+                resolve = resolve_;
+                done_setting_resolve();
+            });
+        });
+        if ( ! resolve ) debugger;
+        const callback_id = this.util.rpc.registerCallback(resolve);
+        this.messageTarget?.postMessage({
+            $: 'puter-ipc', v: 2,
+            appInstanceID: this.appInstanceID,
+            env: this.env,
+            msg: method,
+            parameters,
+            uuid: callback_id,
+        }, '*');
+        const ret = await p;
+        if ( callback ) callback(ret);
+        return ret;
     }
 
     constructor (appInstanceID, parentInstanceID, appID, env, util) {
@@ -339,7 +376,7 @@ class UI extends EventListener {
             }
             // Determine if this is a response to a previous message and if so, is there
             // a callback function for this message? if answer is yes to both then execute the callback
-            else if(e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id]){
+            else if(e.data.original_msg_id !== undefined && this.#callbackFunctions[e.data.original_msg_id]){
                 if(e.data.msg === 'fileOpenPicked'){
                     // 1 item returned
                     if(e.data.items.length === 1){
@@ -399,11 +436,6 @@ class UI extends EventListener {
                 else if(e.data.msg === "fileSaved"){
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](new FSItem(e.data.saved_file)); 
-                }
-                else if (e.data.msg === 'childAppLaunched') {
-                    // execute callback with a new AppConnection to the child
-                    const connection = new AppConnection(this.messageTarget, this.appInstanceID, e.data.child_instance_id, e.data.uses_sdk);
-                    this.#callbackFunctions[e.data.original_msg_id](connection);
                 }
                 else{
                     // execute callback
@@ -903,16 +935,20 @@ class UI extends EventListener {
     }
 
     // Returns a Promise<AppConnection>
-    launchApp = function(appName, args, callback) {
-        return new Promise((resolve) => {
-            // if appName is an object and args is not set, then appName is actually args
-            if (typeof appName === 'object' && !args) {
-                args = appName;
-                appName = undefined;
-            }
-
-            this.#postMessageWithCallback('launchApp', resolve, { app_name: appName, args });
-        })
+    launchApp = async function launchApp(app_name, args, callback) {
+        const app_info = await this.#ipc_stub({
+            method: 'launchApp',
+            callback,
+            parameters: {
+                app_name,
+                args,
+            },
+        });
+        
+        return AppConnection.from(app_info, {
+            appInstanceID: this.appInstanceID,
+            messageTarget: this.messageTarget,
+        });
     }
 
     parentApp() {
