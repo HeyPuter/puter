@@ -17,14 +17,23 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 module.exports = {
+    name: 'Properties',
     install_in_instance: (instance) => {
         const properties = instance._get_merged_static_object('PROPERTIES');
 
+        instance.onchange = (name, callback) => {
+            instance.__properties[name].listeners.push(callback);
+        };
+
+        instance.__properties = {};
+
         for ( const k in properties ) {
-            if ( typeof properties[k] === 'function' ) {
-                instance[k] = properties[k]();
-                continue;
-            }
+            const state = {
+                definition: properties[k],
+                listeners: [],
+                value: undefined,
+            };
+            instance.__properties[k] = state;
 
             if ( typeof properties[k] === 'object' ) {
                 // This will be supported in the future.
@@ -32,7 +41,29 @@ module.exports = {
                     `is not a supported property specification.`);
             }
 
-            instance[k] = properties[k];
+            let value = (() => {
+                if ( typeof properties[k] === 'function' ) {
+                    return properties[k]();
+                }
+
+                return properties[k];
+            })();
+
+            Object.defineProperty(instance, k, {
+                get: () => {
+                    return state.value;
+                },
+                set: (value) => {
+                    for ( const listener of instance.__properties[k].listeners ) {
+                        listener(value, {
+                            old_value: instance[k],
+                        });
+                    }
+                    state.value = value;
+                },
+            });
+
+            state.value = value;
         }
     }
 }

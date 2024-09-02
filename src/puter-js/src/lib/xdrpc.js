@@ -4,7 +4,7 @@
  */
 
 // Since `Symbol` is not clonable, we use a UUID to identify RPCs.
-const $SCOPE = '9a9c83a4-7897-43a0-93b9-53217b84fde6';
+export const $SCOPE = '9a9c83a4-7897-43a0-93b9-53217b84fde6';
 
 /**
  * The CallbackManager is used to manage callbacks for RPCs.
@@ -12,7 +12,7 @@ const $SCOPE = '9a9c83a4-7897-43a0-93b9-53217b84fde6';
  * the functions that are being called remotely.
  */
 export class CallbackManager {
-    #messageId = 0;
+    #messageId = 1;
 
     constructor () {
         this.callbacks = new Map();
@@ -32,6 +32,8 @@ export class CallbackManager {
                 const { id, args } = data;
                 const callback = this.callbacks.get(id);
                 if (callback) {
+                    debugger;
+                    console.log('callback?', callback, id, args);
                     callback(...args);
                 }
             }
