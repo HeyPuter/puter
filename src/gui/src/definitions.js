@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { AdvancedBase } from "@heyputer/putility";
+
 export class Service {
     construct (o) {
         this.$puter = {};
@@ -33,20 +35,36 @@ export class Service {
 export const PROCESS_INITIALIZING = { i18n_key: 'initializing' };
 export const PROCESS_RUNNING = { i18n_key: 'running' };
 
+export const PROCESS_IPC_PENDING = { i18n_key: 'pending' };
+export const PROCESS_IPC_NA = { i18n_key: 'N/A' };
+export const PROCESS_IPC_ATTACHED = { i18n_key: 'attached' };
+
 // Something is cloning these objects, so '===' checks don't work.
 // To work around this, the `i` property is used to compare them.
 export const END_SOFT = { i: 0, end: true, i18n_key: 'end_soft' };
 export const END_HARD = { i: 1, end: true, i18n_key: 'end_hard' };
 
-export class Process {
+export class Process extends AdvancedBase{
+    static PROPERTIES = {
+        status: () => PROCESS_INITIALIZING,
+        ipc_status: () => PROCESS_IPC_PENDING,
+    }
     constructor ({ uuid, parent, name, meta }) {
+        super();
+
         this.uuid = uuid;
         this.parent = parent;
         this.name = name;
         this.meta = meta;
         this.references = {};
-
-        this.status = PROCESS_INITIALIZING;
+        
+        Object.defineProperty(this.references, 'iframe', {
+            get: () => {
+                // note: Might eventually make sense to make the
+                // fn on window call here instead.
+                return window.iframe_for_app_instance(this.uuid);
+            }
+        })
 
         this._construct();
     }
@@ -110,6 +128,11 @@ export class PortalProcess extends Process {
                 bypass_iframe_messaging: sig.i === END_HARD.i
             });
         }
+    }
+    
+    send (channel, object, context) {
+        const target = this.references.iframe.contentWindow;
+        // NEXT: ...
     }
 };
 export class PseudoProcess extends Process {

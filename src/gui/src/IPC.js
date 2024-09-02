@@ -30,6 +30,7 @@ import path from "./lib/path.js";
 import UIContextMenu from './UI/UIContextMenu.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
 import item_icon from './helpers/item_icon.js';
+import { PROCESS_IPC_ATTACHED } from './definitions.js';
 
 window.ipc_handlers = {};
 /**
@@ -92,18 +93,44 @@ window.addEventListener('message', async (event) => {
     // New IPC handlers should be registered here.
     // Do this by calling `register_ipc_handler` of IPCService.
     if ( window.ipc_handlers.hasOwnProperty(event.data.msg) ) {
+        const services = globalThis.services;
+        const svc_process = services.get('process');
+
+        // Add version info to old puter.js messages
+        // (and coerce them into the format of new ones)
+        if ( event.data.$ === undefined ) {
+            event.data.$ = 'puter-ipc';
+            event.data.v = 1;
+            event.data.parameters = {...event.data};
+            delete event.data.parameters.msg;
+            delete event.data.parameters.appInstanceId;
+            delete event.data.parameters.env;
+            delete event.data.parameters.uuid;
+        }
+        
         // The IPC context contains information about the call
+        const iframe = window.iframe_for_app_instance(
+            event.data.appInstanceID);
+        const process = svc_process.get_by_uuid(event.data.appInstanceID);
         const ipc_context = {
-            appInstanceId: event.data.appInstanceID,
+            caller: {
+                process: process,
+                app: {
+                    appInstanceID: event.data.appInstanceID,
+                    iframe,
+                    window: $el_parent_window,
+                },
+            },
         };
         
         // Registered IPC handlers are an object with a `handle()`
         // method. We call it "spec" here, meaning specification.
         const spec = window.ipc_handlers[event.data.msg];
-        await spec.handler(event.data, { msg_id, ipc_context });
+        let retval = await spec.handler(
+            event.data.parameters, { msg_id, ipc_context });
+            
+        puter.util.rpc.send(iframe.contentWindow, msg_id, retval);
         
-        // Early-return to avoid redundant invokation of any
-        // legacy IPC handler.
         return;
     }
 
@@ -112,25 +139,16 @@ window.addEventListener('message', async (event) => {
     // READY
     //-------------------------------------------------
     if(event.data.msg === 'READY'){
-        $(target_iframe).attr('data-appUsesSDK', 'true');
+        const services = globalThis.services;
+        const svc_process = services.get('process');
+        const process = svc_process.get_by_uuid(event.data.appInstanceID);
 
-        // If we were waiting to launch this as a child app, report to the parent that it succeeded.
-        window.report_app_launched(event.data.appInstanceID, { uses_sdk: true });
-
-        // Send any saved broadcasts to the new app
-        globalThis.services.get('broadcast').sendSavedBroadcastsTo(event.data.appInstanceID);
-
-        // If `window-active` is set (meanign the window is focused), focus the window one more time
-        // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)
-        if($el_parent_window.hasClass('window-active')){
-            $el_parent_window.focusWindow();
-        }
-
+        process.ipc_status = PROCESS_IPC_ATTACHED;
     }
     //-------------------------------------------------
     // windowFocused
     //-------------------------------------------------
-    else if(event.data.msg === 'windowFocused'){
+    if(event.data.msg === 'windowFocused'){
         // TODO: Respond to this
     }
     //--------------------------------------------------------

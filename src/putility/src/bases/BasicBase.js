@@ -30,8 +30,10 @@ class BasicBase {
     _get_merged_static_array (key) {
         const chain = this._get_inheritance_chain();
         const values = [];
+        let last = null;
         for ( const cls of chain ) {
-            if ( cls[key] ) {
+            if ( cls[key] && cls[key] !== last ) {
+                last = cls[key];
                 values.push(...cls[key]);
             }
         }
@@ -39,6 +41,7 @@ class BasicBase {
     }
 
     _get_merged_static_object (key) {
+        // TODO: check objects by reference - same object in a subclass shouldn't count
         const chain = this._get_inheritance_chain();
         const values = {};
         for ( const cls of chain ) {

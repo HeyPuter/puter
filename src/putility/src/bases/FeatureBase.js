@@ -25,7 +25,7 @@ class FeatureBase extends BasicBase {
         this._ = {
             features: this._get_merged_static_array('FEATURES'),
         };
-        
+
         for ( const feature of this._.features ) {
             feature.install_in_instance(
                 this,
