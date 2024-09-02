@@ -27,13 +27,10 @@ export class CallbackManager {
     attach_to_source (source) {
         source.addEventListener('message', event => {
             const { data } = event;
-            debugger;
             if (data && typeof data === 'object' && data.$SCOPE === $SCOPE) {
                 const { id, args } = data;
                 const callback = this.callbacks.get(id);
                 if (callback) {
-                    debugger;
-                    console.log('callback?', callback, id, args);
                     callback(...args);
                 }
             }

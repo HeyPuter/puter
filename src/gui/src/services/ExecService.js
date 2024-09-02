@@ -61,7 +61,6 @@ export class ExecService extends Service {
             if ($(parent_iframe).attr('data-appUsesSdk') !== 'true') {
                 send_child_launched_msg({ uses_sdk: false });
                 // We also have to report an extra close event because the real one was sent already
-                console.log('reporting app closed');
                 window.report_app_closed(child_process.uuid);
             }
         });
