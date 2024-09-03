@@ -313,6 +313,9 @@ async function UIWindow(options) {
                 style="${!options.has_head ? ' height: 100%;' : ''}">`;
             // iframe, for apps
             if(options.iframe_url || options.iframe_srcdoc){
+                let allow_str = `camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; fullscreen;`;
+                if(window.co_isolation_enabled)
+                    allow_str += ' cross-origin-isolated;';
                 // <iframe>
                 // Important: we don't allow allow-same-origin when iframe_srcdoc is used because this would allow the iframe to access the parent window's DOM, localStorage, etc.
                 // this is a security risk and must be avoided.
@@ -323,14 +326,13 @@ async function UIWindow(options) {
                         ${options.iframe_url ? 'src="'+ html_encode(options.iframe_url)+'"' : ''}
                         ${options.iframe_srcdoc ? 'srcdoc="'+ html_encode(options.iframe_srcdoc) +'"' : ''}
                         ${window.co_isolation_enabled
-                            ? 'credentialless allow="cross-origin-isolated" '
+                            ? 'credentialless '
                             : ''
                         }
-                        allow = "accelerometer; camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; fullscreen;"
+                        allow = "${allow_str}"
                         allowtransparency="true"
                         allowpaymentrequest="true" 
                         allowfullscreen="true"
-                        allow="microphone"
                         webkitallowfullscreen="webkitallowfullscreen" 
                         mozallowfullscreen="mozallowfullscreen"
                         sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox ${options.iframe_srcdoc ? '' : 'allow-same-origin'} allow-scripts allow-top-navigation-by-user-activation allow-downloads allow-presentation allow-storage-access-by-user-activation"></iframe>`;
