@@ -29,6 +29,14 @@ export class XDocumentANSIShell {
 
         shell.on('message', message => {
             // When the shell reports it's ready, send configuration
+            if (message.$ === 'ioctl.request') {
+                if (message.requestCode === 104) {
+                    shell.postMessage({
+                        $: 'ioctl.set',
+                        windowSize: this.internal_.windowSize,
+                    });
+                }
+            }
             if (message.$ === 'ready') {
                 const params = Object.fromEntries(
                     new URLSearchParams(window.location.search)

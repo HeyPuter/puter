@@ -136,6 +136,9 @@ export const launchPuterShell = async (ctx) => {
         }));
     });
 
+    // NEXT
+    ptt.TIOCGWINSZ();
+
     const fire = (text) => {
         // Define fire-like colors (ANSI 256-color codes)
         const fireColors = [202, 208, 166];

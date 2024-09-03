@@ -30,10 +30,11 @@ window.main_shell = async () => {
             .entries()
     );
 
-    let resolveConfigured = null;
-    const configured_ = new Promise(rslv => {
-        resolveConfigured = rslv;
-    });
+    // let resolveConfigured = null;
+    // const configured_ = new Promise(rslv => {
+    //     resolveConfigured = rslv;
+    // });
+    const puterSDK = globalThis.puter;
 
     const terminal = puter.ui.parentApp();
     if (!terminal) {
@@ -45,9 +46,10 @@ window.main_shell = async () => {
         if (message.$ === 'config') {
             const configValues = { ...message };
             // Only copy the config that we actually need
-            config['puter.auth.username'] = configValues['puter.auth.username'];
+            // config['puter.auth.username'] = configValues['puter.auth.username'];
             config['puter.auth.token'] = configValues['puter.auth.token'];
-            resolveConfigured();
+            // console.log('set!');
+            // resolveConfigured();
         }
     });
     terminal.on('close', () => {
@@ -59,14 +61,17 @@ window.main_shell = async () => {
 
     terminal.postMessage({ $: 'ready' });
 
-    await configured_;
-
-    const puterSDK = globalThis.puter;
-    if ( config['puter.auth.token'] ) {
-        await puterSDK.setAuthToken(config['puter.auth.token']);
-    }
-
     const ptt = new XDocumentPTT(terminal);
+
+    // await configured_;
+    const user = await puterSDK.auth.getUser();
+    config['puter.auth.username'] = user.username;
+    // await new Promise(rslv => setTimeout(rslv, 0));
+
+    // if ( config['puter.auth.token'] ) {
+    //     await puterSDK.setAuthToken(config['puter.auth.token']);
+    // }
+
     await launchPuterShell(new Context({
         ptt,
         config, puterSDK,

@@ -21,7 +21,26 @@ import { BetterReader } from "dev-pty";
 const encoder = new TextEncoder();
 
 export class XDocumentPTT {
+    static IOCTL = {
+        TIOCGWINSZ: {
+            id: 104,
+        },
+    }
     constructor(terminalConnection) {
+        for ( const k in XDocumentPTT.IOCTL ) {
+            this[k] = async () => {
+                return await new Promise((resolve, reject) => {
+                    terminalConnection.postMessage({
+                        $: 'ioctl.request',
+                        requestCode: XDocumentPTT.IOCTL[k].id,
+                    });
+                    this.once('ioctl.set', evt => {
+                        resolve(evt);
+                    });
+                });
+            };
+        }
+
         this.ioctl_listeners = {};
 
         this.readableStream = new ReadableStream({

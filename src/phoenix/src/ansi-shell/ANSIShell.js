@@ -91,7 +91,10 @@ export class ANSIShell extends EventTarget {
         })
         Object.defineProperty(this.env, 'COLS', {
             enumerable: true,
-            get: () => this.variables.size?.cols ?? 0
+            get: () => {
+                const v = this.variables.size?.cols ?? 0
+                return v;
+            }
         })
 
         this.export_('LANG', 'en_US.UTF-8');
