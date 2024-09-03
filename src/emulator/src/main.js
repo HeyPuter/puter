@@ -1,0 +1,1 @@
+puter.ui.launchApp('editor');

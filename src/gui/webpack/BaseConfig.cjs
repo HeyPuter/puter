@@ -1,6 +1,6 @@
 const path = require('path');
 const EmitPlugin = require('./EmitPlugin.cjs');
-module.exports = (options = {}) => {
+module.exports = async (options = {}) => {
     const config = {};
     config.entry = [
         './src/init_sync.js',
@@ -18,7 +18,7 @@ module.exports = (options = {}) => {
         filename: 'bundle.min.js',
     };
     config.plugins = [
-        EmitPlugin({
+        await EmitPlugin({
             options,
             dir: path.join(__dirname, '../src/icons'),
         }),

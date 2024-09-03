@@ -129,11 +129,11 @@ async function build(options){
     for(let i = 0; i < js_paths.length; i++){
         main_array.push(path.join(__dirname, 'src', js_paths[i]));
     }
-    webpack({
-        ...BaseConfig({
+    await webpack({
+        ...(await BaseConfig({
             ...options,
             env: 'prod',
-        }),
+        })),
         mode: 'production',
         optimization: {
             minimize: true,
