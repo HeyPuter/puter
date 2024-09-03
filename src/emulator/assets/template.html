@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<head>
+  <meta charset="utf-8">
+  <title><%= htmlWebpackPlugin.options.title || 'Webpack App'%></title>
+
+  <% if (htmlWebpackPlugin.files.favicon) { %>
+  <link rel="shortcut icon" href="<%= htmlWebpackPlugin.files.favicon%>">
+  <% } %>
+  <% if (htmlWebpackPlugin.options.mobile) { %>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <% } %>
+
+  <% for (var css in htmlWebpackPlugin.files.css) { %>
+  <link href="<%= htmlWebpackPlugin.files.css[css] %>" rel="stylesheet">
+  <% } %>
+  
+  <script src="/puter.js/v2"></script>
+  <script src="/vendor/v86/libv86.js"></script>
+</head>
+<body>
+
+<% if (htmlWebpackPlugin.options.appMountId) { %>
+<div id="<%= htmlWebpackPlugin.options.appMountId%>"></div>
+<% } %>
+
+<% if (htmlWebpackPlugin.options.appMountIds && htmlWebpackPlugin.options.appMountIds.length > 0) { %>
+<% for (var index in htmlWebpackPlugin.options.appMountIds) { %>
+<div id="<%= htmlWebpackPlugin.options.appMountIds[index]%>"></div>
+<% } %>
+<% } %>
+
+<% if (htmlWebpackPlugin.options.window) { %>
+<script>
+  <% for (var varName in htmlWebpackPlugin.options.window) { %>
+    window['<%=varName%>'] = <%= JSON.stringify(htmlWebpackPlugin.options.window[varName]) %>;
+  <% } %>
+</script>
+<% } %>
+
+<% for (var chunk in htmlWebpackPlugin.files.chunks) { %>
+<script src="<%= htmlWebpackPlugin.files.chunks[chunk].entry %>"></script>
+<% } %>
+
+</body>
+</html>

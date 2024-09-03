@@ -81,6 +81,12 @@ class SelfHostedModule extends AdvancedBase {
                         PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
                     }
                 },
+                {
+                    name: 'emulator:webpack-watch',
+                    directory: 'src/emulator',
+                    command: 'npm',
+                    args: ['run', 'start-webpack'],
+                },
             ],
         });
 
@@ -106,6 +112,18 @@ class SelfHostedModule extends AdvancedBase {
                 {
                     prefix: '/builtin/dev-center',
                     path: path_.resolve(__dirname, RELATIVE_PATH, 'src/dev-center'),
+                },
+                {
+                    prefix: '/builtin/dev-center',
+                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/dev-center'),
+                },
+                {
+                    prefix: '/builtin/emulator',
+                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/emulator/dist'),
+                },
+                {
+                    prefix: '/vendor/v86',
+                    path: path_.resolve(__dirname, RELATIVE_PATH, 'submodules/v86/build'),
                 },
             ],
         });

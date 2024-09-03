@@ -1,0 +1,3 @@
+[submodule "submodules/v86"]
+	path = submodules/v86
+	url = git@github.com:copy/v86.git
