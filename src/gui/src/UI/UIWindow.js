@@ -330,6 +330,7 @@ async function UIWindow(options) {
                         allowtransparency="true"
                         allowpaymentrequest="true" 
                         allowfullscreen="true"
+                        allow="microphone"
                         webkitallowfullscreen="webkitallowfullscreen" 
                         mozallowfullscreen="mozallowfullscreen"
                         sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox ${options.iframe_srcdoc ? '' : 'allow-same-origin'} allow-scripts allow-top-navigation-by-user-activation allow-downloads allow-presentation allow-storage-access-by-user-activation"></iframe>`;
