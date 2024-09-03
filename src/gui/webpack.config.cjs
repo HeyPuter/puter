@@ -1,8 +1,8 @@
 const BaseConfig = require('./webpack/BaseConfig.cjs');
 
-module.exports = {
-    ...BaseConfig({ env: 'dev' }),
+module.exports = async () => ({
+    ...(await BaseConfig({ env: 'dev' })),
     optimization: {
         minimize: false
     },
-};
+});
