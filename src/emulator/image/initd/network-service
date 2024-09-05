@@ -1,0 +1,17 @@
+#!/sbin/openrc-run
+
+description="Run network setup"
+
+start() {
+  ebegin "Running network setup"
+  modprobe ne2k-pci
+  ifupdown ifup eth0
+  ip link set lo up
+  echo "nameserver 192.168.86.1" > /etc/resolv.conf
+  eend $?
+}
+
+stop() {
+  ebegin "Stopping network setup"
+  eend $?
+}
