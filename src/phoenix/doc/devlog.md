@@ -1150,3 +1150,43 @@ This change can be made incrementally as follows:
   - update the command to use the new implementation
 - Once all commands are updated, the XDocumentPuterShell class will
   be dormant and can safely be removed.
+
+## 2024-09-04
+
+### Terminal I/O
+
+Prior to recent changes it was not possible to run phoenix shell inside
+another instance of phoenix shell. The following had to be resolved for
+this to work:
+- Phoenix was waiting for a configuration object from the parent app,
+  under the assumption that this parent app is a terminal. Phoenix now
+  does not require this configuration object.
+- Initial terminal size had to be requested for by Phoenix after some
+  initialization to avoid a race condition.
+- Apps called by an application under a terminal were not able to control
+  `echo` behavior.
+
+The new IO functionality follows the
+[Selective Layer Implementation Pattern](https://puter.com/@ed/documentation/glossary.md##Selective-Layer-Implementation-Pattern)
+with the following implemented:
+- IOCTL: `TIOCGWINSZ`, sent via postMessage
+- signal: `ioctl.set` event to simulate "SIGWINCH",
+  but this should be merged with existing code that
+  implements the concept of signals.
+- ptt.termios: a high-level mimic of termios
+  (currently only echo control is implemented)
+
+XDocumentPTT now implements `TIOCGWINSZ` (named after the POSIX equivalent)
+which requests the window size. This function calls `postMessage` on the
+AppConnection with the following
+[type-tagged object](../../../doc/api/type-tagged.md):
+`{ $: 'ioctl.request', requestCode: 104 }`.
+
+The window size information is still provided
+by the badly-named `ioctl.set` event, which should later be changed to
+a similar convention, like `{ $: 'signal', code: 28 }`.
+
+The termios implementation is a high-level mimic and does not actually
+use the underlying IOCTL implementation. Instead it sends a type-tagged
+object that looks like `{ $: 'chtermios', termios: { echo: false } }`,
+where `echo` can be `true` or `false`.

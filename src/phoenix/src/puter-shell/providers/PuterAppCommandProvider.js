@@ -88,6 +88,15 @@ export class PuterAppCommandProvider {
                         if (message.$ === 'stdout') {
                             ctx.externs.out.write(decoder.decode(message.data));
                         }
+                        if (message.$ === 'chtermios') {
+                            if ( message.termios.echo !== undefined ) {
+                                if ( message.termios.echo ) {
+                                    ctx.externs.echo.on();
+                                } else {
+                                    ctx.externs.echo.off();
+                                }
+                            }
+                        }
                     });
 
                     // Repeatedly copy data from stdin to the child, while it's running.
@@ -108,6 +117,7 @@ export class PuterAppCommandProvider {
                     setTimeout(next_data, 0);
                 }
 
+                // TODO: propagate sigint to the app
                 return Promise.race([ app_close_promise, sigint_promise ]);
             }
         };
