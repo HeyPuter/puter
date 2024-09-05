@@ -19,6 +19,7 @@
     "express": "^4.18.2",
     "globals": "^15.0.0",
     "html-entities": "^2.3.3",
+    "html-webpack-plugin": "^5.6.0",
     "license-check-and-add": "^4.0.5",
     "mocha": "^10.6.0",
     "nodemon": "^3.1.0",
