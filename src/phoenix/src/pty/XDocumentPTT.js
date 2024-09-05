@@ -26,7 +26,7 @@ export class XDocumentPTT {
             id: 104,
         },
     }
-    constructor(terminalConnection) {
+    constructor(terminalConnection, opts = {}) {
         for ( const k in XDocumentPTT.IOCTL ) {
             this[k] = async () => {
                 return await new Promise((resolve, reject) => {
@@ -75,8 +75,10 @@ export class XDocumentPTT {
             }
         });
         this.out = this.writableStream.getWriter();
-        this.in = this.readableStream.getReader();
-        this.in = new BetterReader({ delegate: this.in });
+        if ( ! opts.disableReader ) {
+            this.in = this.readableStream.getReader();
+            this.in = new BetterReader({ delegate: this.in });
+        }
 
         terminalConnection.on('message', message => {
             if (message.$ === 'ioctl.set') {

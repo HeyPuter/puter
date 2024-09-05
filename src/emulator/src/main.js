@@ -1,282 +1,13 @@
 "use strict";
-// puter.ui.launchApp('editor');
 
-// Libs    
-    // SO: 40031688
-    function buf2hex(buffer) { // buffer is an ArrayBuffer
-        return [...new Uint8Array(buffer)]
-            .map(x => x.toString(16).padStart(2, '0'))
-            .join('');
-    }
-
-class ATStream {
-    constructor ({ delegate, acc, transform, observe }) {
-        this.delegate = delegate;
-        if ( acc ) this.acc = acc;
-        if ( transform ) this.transform = transform;
-        if ( observe ) this.observe = observe;
-        this.state = {};
-        this.carry = [];
-    }
-    [Symbol.asyncIterator]() { return this; }
-    async next_value_ () {
-        if ( this.carry.length > 0 ) {
-            console.log('got from carry!', this.carry);
-            return {
-                value: this.carry.shift(),
-                done: false,
-            };
-        }
-        return await this.delegate.next();
-    }
-    async acc ({ value }) {
-        return value;
-    }
-    async next_ () {
-        for (;;) {
-            const ret = await this.next_value_();
-            if ( ret.done ) return ret;
-            const v = await this.acc({
-                state: this.state,
-                value: ret.value,
-                carry: v => this.carry.push(v),
-            });
-            if ( this.carry.length >= 0 && v === undefined ) {
-                throw new Error(`no value, but carry value exists`);
-            }
-            if ( v === undefined ) continue;
-            // We have a value, clear the state!
-            this.state = {};
-            if ( this.transform ) {
-                const new_value = await this.transform(
-                    { value: ret.value });
-                return { ...ret, value: new_value };
-            }
-            return { ...ret, value: v };
-        }
-    }
-    async next () {
-        const ret = await this.next_();
-        if ( this.observe && !ret.done ) {
-            this.observe(ret);
-        }
-        return ret;
-    }
-    async enqueue_ (v) {
-        this.queue.push(v);
-    }
-}
-
-const NewCallbackByteStream = () => {
-    let listener;
-    let queue = [];
-    const NOOP = () => {};
-    let signal = NOOP;
-    (async () => {
-        for (;;) {
-            const v = await new Promise((rslv, rjct) => {
-                listener = rslv;
-            });
-            queue.push(v);
-            signal();
-        }
-    })();
-    const stream = {
-        [Symbol.asyncIterator](){
-            return this;
-        },
-        async next () {
-            if ( queue.length > 0 ) {
-                return {
-                    value: queue.shift(),
-                    done: false,
-                };
-            }
-            await new Promise(rslv => {
-                signal = rslv;
-            });
-            signal = NOOP;
-            const v = queue.shift();
-            return { value: v, done: false };
-        }
-    };
-    stream.listener = data => {
-        listener(data);
-    };
-    return stream;
-}
-
-// Tiny inline little-endian integer library
-const get_int = (n_bytes, array8, signed=false) => {
-    return (v => signed ? v : v >>> 0)(
-        array8.slice(0,n_bytes).reduce((v,e,i)=>v|=e<<8*i,0));
-}
-const to_int = (n_bytes, num) => {
-    return (new Uint8Array()).map((_,i)=>(num>>8*i)&0xFF);
-}
-
-const NewVirtioFrameStream = byteStream => {
-    return new ATStream({
-        delegate: byteStream,
-        async acc ({ value, carry }) {
-            if ( ! this.state.buffer ) {
-                const size = get_int(4, value);
-                // 512MiB limit in case of attempted abuse or a bug
-                // (assuming this won't happen under normal conditions)
-                if ( size > 512*(1024**2) ) {
-                    throw new Error(`Way too much data! (${size} bytes)`);
-                }
-                value = value.slice(4);
-                this.state.buffer = new Uint8Array(size);
-                this.state.index = 0;
-            }
-                
-            const needed = this.state.buffer.length - this.state.index;
-            if ( value.length > needed ) {
-                const remaining = value.slice(needed);
-                console.log('we got more bytes than we needed',
-                    needed,
-                    remaining,
-                    value.length,
-                    this.state.buffer.length,
-                    this.state.index,
-                );
-                carry(remaining);
-            }
-            
-            const amount = Math.min(value.length, needed);
-            const added = value.slice(0, amount);
-            this.state.buffer.set(added, this.state.index);
-            this.state.index += amount;
-            
-            if ( this.state.index > this.state.buffer.length ) {
-                throw new Error('WUT');
-            }
-            if ( this.state.index == this.state.buffer.length ) {
-                return this.state.buffer;
-            }
-        }
-    });
-};
-
-const wisp_types = [
-    {
-        id: 3,
-        label: 'CONTINUE',
-        describe: ({ payload }) => {
-            return `buffer: ${get_int(4, payload)}B`;
-        },
-        getAttributes ({ payload }) {
-            return {
-                buffer_size: get_int(4, payload),
-            };
-        }
-    },
-    {
-        id: 5,
-        label: 'INFO',
-        describe: ({ payload }) => {
-            return `v${payload[0]}.${payload[1]} ` +
-                buf2hex(payload.slice(2));
-        },
-        getAttributes ({ payload }) {
-            return {
-                version_major: payload[0],
-                version_minor: payload[1],
-                extensions: payload.slice(2),
-            }
-        }
-    },
-];
-
-class WispPacket {
-    static SEND = Symbol('SEND');
-    static RECV = Symbol('RECV');
-    constructor ({ data, direction, extra }) {
-        this.direction = direction;
-        this.data_ = data;
-        this.extra = extra ?? {};
-        this.types_ = {
-            1: { label: 'CONNECT' },
-            2: { label: 'DATA' },
-            4: { label: 'CLOSE' },
-        };
-        for ( const item of wisp_types ) {
-            this.types_[item.id] = item;
-        }
-    }
-    get type () {
-        const i_ = this.data_[0];
-        return this.types_[i_];
-    }
-    get attributes () {
-        if ( ! this.type.getAttributes ) return {};
-        const attrs = {};
-        Object.assign(attrs, this.type.getAttributes({
-            payload: this.data_.slice(5),
-        }));
-        Object.assign(attrs, this.extra);
-        return attrs;
-    }
-    toVirtioFrame () {
-        const arry = new Uint8Array(this.data_.length + 4);
-        arry.set(to_int(4, this.data_.length), 0);
-        arry.set(this.data_, 4);
-        return arry;
-    }
-    describe () {
-        return this.type.label + '(' +
-            (this.type.describe?.({
-                payload: this.data_.slice(5),
-            }) ?? '?') + ')';
-    }
-    log () {
-        const arrow =
-            this.direction === this.constructor.SEND ? '->' :
-            this.direction === this.constructor.RECV ? '<-' :
-            '<>' ;
-        console.groupCollapsed(`WISP ${arrow} ${this.describe()}`);
-        const attrs = this.attributes;
-        for ( const k in attrs ) {
-            console.log(k, attrs[k]);
-        }
-        console.groupEnd();
-    }
-    reflect () {
-        const reflected = new WispPacket({
-            data: this.data_,
-            direction:
-                this.direction === this.constructor.SEND ?
-                    this.constructor.RECV :
-                this.direction === this.constructor.RECV ?
-                    this.constructor.SEND :
-                undefined,
-            extra: {
-                reflectedFrom: this,
-            }
-        });
-        return reflected;
-    }
-}
-
-for ( const item of wisp_types ) {
-    WispPacket[item.label] = item;
-}
-
-const NewWispPacketStream = frameStream => {
-    return new ATStream({
-        delegate: frameStream,
-        transform ({ value }) {
-            return new WispPacket({
-                data: value,
-                direction: WispPacket.RECV,
-            });
-        },
-        observe ({ value }) {
-            value.log();
-        }
-    });
-}
+const { XDocumentPTT } = require("../../phoenix/src/pty/XDocumentPTT");
+const {
+    NewWispPacketStream,
+    WispPacket,
+    NewCallbackByteStream,
+    NewVirtioFrameStream,
+    DataBuilder,
+} = require("../../puter-wisp/src/exports");
 
 class WispClient {
     constructor ({
@@ -347,28 +78,132 @@ window.onload = async function()
         byteStream.listener);
     const virtioStream = NewVirtioFrameStream(byteStream);
     const wispStream = NewWispPacketStream(virtioStream);
+
+    const shell = puter.ui.parentApp();
+    const ptt = new XDocumentPTT(shell, {
+        disableReader: true,
+    })
+
+    ptt.termios.echo = false;
     
     class PTYManager {
+        static STATE_INIT = {
+            name: 'init',
+            handlers: {
+                [WispPacket.INFO.id]: function ({ packet }) {
+                    this.client.send(packet.reflect());
+                    this.state = this.constructor.STATE_READY;
+                }
+            }
+        };
+        static STATE_READY = {
+            name: 'ready',
+            handlers: {
+                [WispPacket.DATA.id]: function ({ packet }) {
+                    console.log('stream id?', packet.streamId);
+                    const pty = this.stream_listeners_[packet.streamId];
+                    pty.on_payload(packet.payload);
+                }
+            },
+            on: function () {
+                const pty = this.getPTY();
+                console.log('PTY created', pty);
+                pty.on_payload = data => {
+                    ptt.out.write(data);
+                }
+                (async () => {
+                    // for (;;) {
+                    //     const buff = await ptt.in.read();
+                    //     if ( buff === undefined ) continue;
+                    //     console.log('this is what ptt in gave', buff);
+                    //     pty.send(buff);
+                    // }
+                    const stream = ptt.readableStream;
+                    for await ( const chunk of stream ) {
+                        if ( chunk === undefined ) {
+                            console.error('huh, missing chunk', chunk);
+                            continue;
+                        }
+                        pty.send(chunk);
+                    }
+                })()
+            },
+        }
+
+        set state (value) {
+            console.log('[PTYManager] State updated: ', value.name);
+            this.state_ = value;
+            if ( this.state_.on ) {
+                this.state_.on.call(this)
+            }
+        }
+        get state () { return this.state_ }
+
         constructor ({ client }) {
+            this.streamId = 0;
+            this.state_ = null;
             this.client = client;
+            this.state = this.constructor.STATE_INIT;
+            this.stream_listeners_ = {};
         }
         init () {
             this.run_();
         }
         async run_ () {
-            const handlers_ = {
-                [WispPacket.INFO.id]: ({ packet }) => {
-                    // console.log('guess we doing info packets now', packet);
-                    this.client.send(packet.reflect());
-                }
-            };
             for await ( const packet of this.client.packetStream ) {
-                // console.log('what we got here?',
-                //     packet.type,
-                //     packet,
-                // );
-                handlers_[packet.type.id]?.({ packet });
+                const handlers_ = this.state_.handlers;
+                if ( ! handlers_[packet.type.id] ) {
+                    console.error(`No handler for packet type ${packet.type.id}`);
+                    console.log(handlers_, this);
+                    continue;
+                }
+                handlers_[packet.type.id].call(this, { packet });
             }
+        }
+
+        getPTY () {
+            const streamId = ++this.streamId;
+            const data = new DataBuilder({ leb: true })
+                .uint8(0x01)
+                .uint32(streamId)
+                .uint8(0x03)
+                .uint16(10)
+                .utf8('/bin/bash')
+                // .utf8('/usr/bin/htop')
+                .build();
+            const packet = new WispPacket(
+                { data, direction: WispPacket.SEND });
+            this.client.send(packet);
+            const pty = new PTY({ client: this.client, streamId });
+            console.log('setting to stream id', streamId);
+            this.stream_listeners_[streamId] = pty;
+            return pty;
+        }
+    }
+
+    class PTY {
+        constructor ({ client, streamId }) {
+            this.client = client;
+            this.streamId = streamId;
+        }
+
+        on_payload (data) {
+
+        }
+
+        send (data) {
+            // convert text into buffers
+            if ( typeof data === 'string' ) {
+                data = (new TextEncoder()).encode(data, 'utf-8')
+            }
+            data = new DataBuilder({ leb: true })
+                .uint8(0x02)
+                .uint32(this.streamId)
+                .cat(data)
+                .build();
+            const packet = new WispPacket(
+                { data, direction: WispPacket.SEND });
+            this.client.send(packet);
         }
     }
     
@@ -376,9 +211,11 @@ window.onload = async function()
         client: new WispClient({
             packetStream: wispStream,
             sendFn: packet => {
+                const virtioframe = packet.toVirtioFrame();
+                console.log('virtio frame', virtioframe);
                 emulator.bus.send(
                     "virtio-console0-input-bytes",
-                    packet.toVirtioFrame(),
+                    virtioframe,
                 );
             }
         })

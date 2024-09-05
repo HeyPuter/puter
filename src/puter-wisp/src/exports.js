@@ -13,7 +13,7 @@ lib.get_int = (n_bytes, array8, signed=false) => {
         array8.slice(0,n_bytes).reduce((v,e,i)=>v|=e<<8*i,0));
 }
 lib.to_int = (n_bytes, num) => {
-    return (new Uint8Array()).map((_,i)=>(num>>8*i)&0xFF);
+    return (new Uint8Array(n_bytes)).map((_,i)=>(num>>8*i)&0xFF);
 }
 
 // Accumulator and/or Transformer (and/or Observer) Stream
@@ -184,6 +184,26 @@ const wisp_types = [
         }
     },
     {
+        id: 1,
+        label: 'CONNECT',
+        describe: ({ attributes }) => {
+            return `${
+                attributes.type === 1 ? 'TCP' :
+                attributes.type === 2 ? 'UDP' :
+                attributes.type === 3 ? 'PTY' :
+                'UNKNOWN'
+            } ${attributes.host}:${attributes.port}`;
+        },
+        getAttributes: ({ payload }) => {
+            const type = payload[0];
+            const port = lib.get_int(2, payload.slice(1));
+            const host = new TextDecoder().decode(payload.slice(3));
+            return {
+                type, port, host,
+            };
+        }
+    },
+    {
         id: 5,
         label: 'INFO',
         describe: ({ payload }) => {
@@ -198,6 +218,20 @@ const wisp_types = [
             }
         }
     },
+    {
+        id: 2,
+        label: 'DATA',
+        describe: ({ attributes }) => {
+            return `${attributes.length}B`;
+        },
+        getAttributes ({ payload }) {
+            return {
+                length: payload.length,
+                contents: payload,
+                utf8: new TextDecoder().decode(payload),
+            }
+        }
+    },
 ];
 
 class WispPacket {
@@ -208,8 +242,6 @@ class WispPacket {
         this.data_ = data;
         this.extra = extra ?? {};
         this.types_ = {
-            1: { label: 'CONNECT' },
-            2: { label: 'DATA' },
             4: { label: 'CLOSE' },
         };
         for ( const item of wisp_types ) {
@@ -222,14 +254,28 @@ class WispPacket {
     }
     get attributes () {
         if ( ! this.type.getAttributes ) return {};
-        const attrs = {};
+        const attrs = {
+            streamId: this.streamId,
+        };
         Object.assign(attrs, this.type.getAttributes({
             payload: this.data_.slice(5),
         }));
         Object.assign(attrs, this.extra);
         return attrs;
     }
+    get payload () {
+        return this.data_.slice(5);
+    }
+    get streamId () {
+        return lib.get_int(4, this.data_.slice(1));
+    }
     toVirtioFrame () {
+        console.log(
+            'WISP packet to virtio frame',
+            this.data_,
+            this.data_.length,
+            lib.to_int(4, this.data_.length),
+        );
         const arry = new Uint8Array(this.data_.length + 4);
         arry.set(lib.to_int(4, this.data_.length), 0);
         arry.set(this.data_, 4);
@@ -238,6 +284,7 @@ class WispPacket {
     describe () {
         return this.type.label + '(' +
             (this.type.describe?.({
+                attributes: this.attributes,
                 payload: this.data_.slice(5),
             }) ?? '?') + ')';
     }
@@ -290,9 +337,60 @@ const NewWispPacketStream = frameStream => {
     });
 }
 
+class DataBuilder {
+    constructor ({ leb } = {}) {
+        this.pos = 0;
+        this.steps = [];
+        this.leb = leb;
+    }
+    uint8(value) {
+        this.steps.push(['setUint8', this.pos, value]);
+        this.pos++;
+        return this;
+    }
+    uint16(value, leb) {
+        leb ??= this.leb;
+        this.steps.push(['setUint8', this.pos, value, leb]);
+        this.pos += 2;
+        return this;
+    }
+    uint32(value, leb) {
+        leb ??= this.leb;
+        this.steps.push(['setUint32', this.pos, value, leb]);
+        this.pos += 4;
+        return this;
+    }
+    utf8(value) {
+        const encoded = new TextEncoder().encode(value);
+        this.steps.push(['array', 'set', encoded, this.pos]);
+        this.pos += encoded.length;
+        return this;
+    }
+    cat(data) {
+        this.steps.push(['array', 'set', data, this.pos]);
+        this.pos += data.length;
+        return this;
+    }
+    build () {
+        const array = new Uint8Array(this.pos);
+        const view = new DataView(array.buffer);
+        for ( const step of this.steps ) {
+            let target = view;
+            let fn_name = step.shift();
+            if ( fn_name === 'array' ) {
+                fn_name = step.shift();
+                target = array;
+            }
+            target[fn_name](...step);
+        }
+        return array;
+    }
+}
+
 module.exports = {
     NewCallbackByteStream,
     NewVirtioFrameStream,
     NewWispPacketStream,
     WispPacket,
+    DataBuilder,
 };
