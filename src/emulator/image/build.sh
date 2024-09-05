@@ -10,7 +10,7 @@ else
 fi
 
 
-IMAGES="$(dirname "$0")"/build/x86images
+IMAGES="$(dirname "$0")"/build
 OUT_ROOTFS_TAR="$IMAGES"/rootfs.tar
 OUT_ROOTFS_BIN="$IMAGES"/rootfs.bin
 OUT_ROOTFS_MNT="$IMAGES"/rootfs.mntpoint
@@ -43,8 +43,3 @@ rm -rf "$OUT_ROOTFS_MNT"
 
 echo "done! created"
 sudo chown -R $USER:$USER $IMAGES/boot
-cd "$IMAGES"
-mkdir -p rootfs
-split -b50M rootfs.bin rootfs/
-cd ../
-find x86images/rootfs/* | jq -Rnc "[inputs]"

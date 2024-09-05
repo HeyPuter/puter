@@ -52,6 +52,4 @@ RUN rc-update add savecache shutdown
 
 COPY rootfs/ /
 
-RUN setup-hostname puter-alpine
-
 RUN bash

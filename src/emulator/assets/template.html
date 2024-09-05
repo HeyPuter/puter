@@ -16,6 +16,20 @@
   
   <script src="/puter.js/v2"></script>
   <script src="/vendor/v86/libv86.js"></script>
+  <style>
+      div {
+          font-size: 12px;
+          line-height: 16px;
+      }
+      BODY {
+          background-color: #111;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 100vh;
+          overflow: hidden;
+      }
+  </style>
 </head>
 <body>
 
@@ -40,6 +54,11 @@
 <% for (var chunk in htmlWebpackPlugin.files.chunks) { %>
 <script src="<%= htmlWebpackPlugin.files.chunks[chunk].entry %>"></script>
 <% } %>
+
+<div id="screen_container">
+    <div style="white-space: pre; font: 14px monospace; line-height: 14px"></div>
+    <canvas style="display: none"></canvas>
+</div>
 
 </body>
 </html>
