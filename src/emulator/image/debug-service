@@ -1,0 +1,19 @@
+#!/sbin/openrc-run
+
+description="Run debug init"
+
+depend() {
+    after twisp-service
+}
+
+start() {
+  ebegin "Running Debug Init"
+  echo " 🛠 bash will be on tty2"
+  setsid bash < /dev/tty2 > /dev/tty2 2>&1 &
+  eend $?
+}
+
+stop() {
+  ebegin "Stopping Debug Init"
+  eend $?
+}

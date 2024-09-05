@@ -1,0 +1,14 @@
+#!/sbin/openrc-run
+
+description="Run Essential Boot Scripts"
+
+start() {
+  ebegin "Running Essential Boot Scripts"
+  mount / -o remount,rw
+  eend $?
+}
+
+stop() {
+  ebegin "Stopping Essential Boot Scripts"
+  eend $?
+}
