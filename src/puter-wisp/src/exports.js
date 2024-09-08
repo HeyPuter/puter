@@ -77,19 +77,9 @@ class ATStream {
 }
 
 const NewCallbackByteStream = () => {
-    let listener;
     let queue = [];
     const NOOP = () => {};
     let signal = NOOP;
-    (async () => {
-        for (;;) {
-            const v = await new Promise((rslv, rjct) => {
-                listener = rslv;
-            });
-            queue.push(v);
-            signal();
-        }
-    })();
     const stream = {
         [Symbol.asyncIterator](){
             return this;
@@ -110,7 +100,8 @@ const NewCallbackByteStream = () => {
         }
     };
     stream.listener = data => {
-        listener(data);
+        queue.push(data);
+        signal();
     };
     return stream;
 }
