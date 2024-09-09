@@ -108,9 +108,20 @@ window.onload = async function()
             on: function () {
                 const pty = this.getPTY();
                 console.log('PTY created', pty);
+
+                // resize
+                ptt.on('ioctl.set', evt => {
+                    console.log('event?', evt);
+                    pty.resize(evt.windowSize);
+                });
+                ptt.TIOCGWINSZ();
+
+                // data from PTY
                 pty.on_payload = data => {
                     ptt.out.write(data);
                 }
+
+                // data to PTY
                 (async () => {
                     // for (;;) {
                     //     const buff = await ptt.in.read();
@@ -200,6 +211,19 @@ window.onload = async function()
                 .uint8(0x02)
                 .uint32(this.streamId)
                 .cat(data)
+                .build();
+            const packet = new WispPacket(
+                { data, direction: WispPacket.SEND });
+            this.client.send(packet);
+        }
+
+        resize ({ rows, cols }) {
+            console.log('resize called!');
+            const data = new DataBuilder({ leb: true })
+                .uint8(0xf0)
+                .uint32(this.streamId)
+                .uint16(rows)
+                .uint16(cols)
                 .build();
             const packet = new WispPacket(
                 { data, direction: WispPacket.SEND });
