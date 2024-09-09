@@ -66,6 +66,16 @@ export class ProcessService extends Service {
         return this.uuid_to_treelist.get(uuid);
     }
 
+    select_by_name (name) {
+        const list = [];
+        for ( const process of this.processes ) {
+            if ( process.name === name ) {
+                list.push(process);
+            }
+        }
+        return list;
+    }
+
     register (process) {
         this.register_(process);
         this.attach_to_parent_(process);

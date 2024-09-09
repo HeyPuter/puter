@@ -85,6 +85,10 @@ export class Process extends AdvancedBase{
         this._signal(sig);
     }
 
+    handle_connection (other_process) {
+        throw new Error('Not implemented');
+    }
+
     get type () {
         const _to_type_name = (name) => {
             return name.replace(/Process$/, '').toLowerCase();
@@ -138,6 +142,15 @@ export class PortalProcess extends Process {
     send (channel, object, context) {
         const target = this.references.iframe.contentWindow;
         // NEXT: ...
+    }
+
+    handle_connection (other_process, args) {
+        const target = this.references.iframe.contentWindow;
+        target.postMessage({
+            msg: 'connection',
+            appInstanceID: other_process.uuid,
+            args,
+        });
     }
 };
 export class PseudoProcess extends Process {
