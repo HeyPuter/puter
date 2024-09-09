@@ -23,6 +23,10 @@ class WispClient {
     }
 }
 
+puter.ui.on('connection', event => {
+    console.log('emulator got connection event', event);
+});
+
 window.onload = async function()
 {
     const resp = await fetch(

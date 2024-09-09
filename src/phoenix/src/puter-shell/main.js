@@ -35,6 +35,7 @@ import { MultiWriter } from '../ansi-shell/ioutil/MultiWriter.js';
 import { CompositeCommandProvider } from './providers/CompositeCommandProvider.js';
 import { ScriptCommandProvider } from './providers/ScriptCommandProvider.js';
 import { PuterAppCommandProvider } from './providers/PuterAppCommandProvider.js';
+import { EmuCommandProvider } from './providers/EmuCommandProvider.js';
 
 const argparser_registry = {
     [SimpleArgParser.name]: SimpleArgParser
@@ -92,6 +93,7 @@ export const launchPuterShell = async (ctx) => {
         // PuterAppCommandProvider is only usable on Puter
         ...(ctx.platform.name === 'puter' ? [new PuterAppCommandProvider()] : []),
         new ScriptCommandProvider(),
+        new EmuCommandProvider(),
     ]);
 
     ctx = ctx.sub({

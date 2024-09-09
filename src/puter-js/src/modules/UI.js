@@ -203,6 +203,7 @@ class UI extends EventListener {
         const eventNames = [
             'localeChanged',
             'themeChanged',
+            'connection',
         ];
         super(eventNames);
         this.#eventNames = eventNames;
@@ -459,6 +460,15 @@ class UI extends EventListener {
                 }
                 this.emit(name, data);
                 this.#lastBroadcastValue.set(name, data);
+            }
+            else if ( e.data.msg === 'connection' ) {
+                const conn = AppConnection.from(e.data, {
+                    appInstanceID: this.appInstanceID,
+                    messageTarget: window.parent,
+                });
+                this.emit('connection', {
+                    conn
+                });
             }
         });
 
@@ -945,6 +955,20 @@ class UI extends EventListener {
             },
         });
         
+        return AppConnection.from(app_info, {
+            appInstanceID: this.appInstanceID,
+            messageTarget: this.messageTarget,
+        });
+    }
+
+    connectToInstance = async function connectToInstance (app_name) {
+        const app_info = await this.#ipc_stub({
+            method: 'connectToInstance',
+            parameters: {
+                app_name,
+            }
+        });
+
         return AppConnection.from(app_info, {
             appInstanceID: this.appInstanceID,
             messageTarget: this.messageTarget,

@@ -11,6 +11,9 @@ export class ExecService extends Service {
         svc_ipc.register_ipc_handler('launchApp', {
             handler: this.launchApp.bind(this),
         });
+        svc_ipc.register_ipc_handler('connectToInstance', {
+            handler: this.connectToInstance.bind(this),
+        });
     }
     
     // This method is exposed to apps via IPCService.
@@ -68,6 +71,36 @@ export class ExecService extends Service {
         return {
             appInstanceID: child_instance_id,
             usesSDK: true,
+        };
+    }
+
+    async connectToInstance ({ app_name, args }, { ipc_context, msg_id } = {}) {
+        const caller_process = ipc_context?.caller?.process;
+        if ( ! caller_process ) {
+            throw new Error('Caller process not found');
+        }
+
+        console.log(
+            caller_process.name,
+            app_name,
+        );
+        // TODO: permissions integration; for now it's hardcoded
+        if ( caller_process.name !== 'phoenix' ) {
+            throw new Error('Connection not allowed.');
+        }
+        if ( app_name !== 'test-emu' ) {
+            throw new Error('Connection not allowed.');
+        }
+
+        const svc_process = this.services.get('process');
+        const options = svc_process.select_by_name(app_name);
+        const process = options[0];
+
+        await process.handle_connection(caller_process, args);
+
+        return {
+            appInstanceID: process.uuid,
+            response,
         };
     }
 }
