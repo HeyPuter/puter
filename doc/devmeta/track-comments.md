@@ -57,3 +57,6 @@ Comments beginning with `// track:`. See
   It may be applicable to write an iterator in the
   future, or something will come up that require
   these to be handled with a modular approach instead.
+- `track: checkpoint`
+  A location where some statement about the state of the
+  software must hold true.

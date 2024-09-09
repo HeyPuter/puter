@@ -55,6 +55,11 @@ const launch_services = async function (options) {
     const services_m_ = {};
     globalThis.services = {
         get: (name) => services_m_[name],
+        emit: (id, args) => {
+            for (const [_, instance] of services_l_) {
+                instance.__on(id, args ?? []);
+            }
+        }
     };
     const register = (name, instance) => {
         services_l_.push([name, instance]);

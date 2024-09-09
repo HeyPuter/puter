@@ -22,6 +22,10 @@ import { InitProcess, Service } from "../definitions.js";
 const NULL_UUID = '00000000-0000-0000-0000-000000000000';
 
 export class ProcessService extends Service {
+    static INITRC = [
+        'test-emu'
+    ];
+
     async _init () {
         this.processes = [];
         this.processes_map = new Map();
@@ -31,6 +35,19 @@ export class ProcessService extends Service {
             uuid: NULL_UUID,
         });
         this.register_(root);
+    }
+
+    ['__on_gui:ready'] () {
+        const svc_exec = this.services.get('exec');
+        for ( let spec of ProcessService.INITRC ) {
+            if ( typeof spec === 'string' ) {
+                spec = { name: spec };
+            }
+
+            svc_exec.launchApp({
+                app_name: spec.name,
+            });
+        }
     }
 
     get_init () {

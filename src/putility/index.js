@@ -17,10 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require('./src/AdvancedBase');
+const { Service } = require('./src/concepts/Service');
 
 module.exports = {
     AdvancedBase,
     libs: {
         promise: require('./src/libs/promise'),
+    },
+    concepts: {
+        Service,
     },
 };

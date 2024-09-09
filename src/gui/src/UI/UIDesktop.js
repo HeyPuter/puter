@@ -1022,6 +1022,12 @@ async function UIDesktop(options){
     // adjust window container to take into account the toolbar height
     $('.window-container').css('top', window.toolbar_height);
 
+    // track: checkpoint
+    //-----------------------------
+    // GUI is ready to launch apps!
+    //-----------------------------
+
+    globalThis.services.emit('gui:ready');
 
     //--------------------------------------------------------------------------------------
     // Determine if an app was launched from URL
