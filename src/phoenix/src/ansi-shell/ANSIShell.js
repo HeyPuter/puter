@@ -219,6 +219,7 @@ export class ANSIShell extends EventTarget {
         }
 
         const executionCtx = this.ctx.sub({
+            shell: this,
             vars: this.variables,
             env: this.env,
             locals: {

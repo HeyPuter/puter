@@ -223,6 +223,20 @@ const wisp_types = [
             }
         }
     },
+    {
+        // TODO: extension types should not be hardcoded here
+        id: 0xf0,
+        label: 'RESIZE',
+        describe: ({ attributes }) => {
+            return `${attributes.cols}x${attributes.rows}`;
+        },
+        getAttributes ({ payload }) {
+            return {
+                rows: lib.get_int(2, payload),
+                cols: lib.get_int(2, payload.slice(2)),
+            }
+        }
+    },
 ];
 
 class WispPacket {

@@ -60,6 +60,17 @@ export class PuterAppCommandProvider {
                 };
                 const child = await puter.ui.launchApp(id, args);
 
+                const resize_listener = evt => {
+                    child.postMessage({
+                        $: 'ioctl.set',
+                        windowSize: {
+                            rows: evt.detail.rows,
+                            cols: evt.detail.cols,
+                        }
+                    });
+                };
+                ctx.shell.addEventListener('signal.window-resize', resize_listener);
+
                 // Wait for app to close.
                 const app_close_promise = new Promise((resolve, reject) => {
                     child.on('close', (data) => {
@@ -118,7 +129,9 @@ export class PuterAppCommandProvider {
                 }
 
                 // TODO: propagate sigint to the app
-                return Promise.race([ app_close_promise, sigint_promise ]);
+                const exit = await Promise.race([ app_close_promise, sigint_promise ]);
+                ctx.shell.removeEventListener('signal.window-resize', resize_listener);
+                return exit;
             }
         };
     }
