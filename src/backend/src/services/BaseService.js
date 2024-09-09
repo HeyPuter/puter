@@ -16,11 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("../../../putility");
+const { concepts } = require("@heyputer/putility");
 
 const NOOP = async () => {};
 
-class BaseService extends AdvancedBase {
+class BaseService extends concepts.Service {
     constructor (service_resources, ...a) {
         const { services, config, my_config, name, args } = service_resources;
         super(service_resources, ...a);

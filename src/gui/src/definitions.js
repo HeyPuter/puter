@@ -17,9 +17,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { AdvancedBase } from "@heyputer/putility";
+import { concepts, AdvancedBase } from "@heyputer/putility";
 
-export class Service {
+export class Service extends concepts.Service {
+    // TODO: Service todo items
+    static TODO = [
+        'consolidate with BaseService from backend'
+    ];
     construct (o) {
         this.$puter = {};
         for ( const k in o ) this.$puter[k] = o[k];
@@ -28,6 +32,7 @@ export class Service {
     }
     init (...a) {
         if ( ! this._init ) return;
+        this.services = a[0].services;
         return this._init(...a)
     }
 };
