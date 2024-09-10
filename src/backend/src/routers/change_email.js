@@ -64,8 +64,8 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
 
     // If other users have the same unconfirmed email, revoke it
     await db.write(
-        'UPDATE `user` SET `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `unconfirmed_change_email` = ?',
-        [rows[0].unconfirmed_change_email]
+        'UPDATE `user` SET `unconfirmed_change_email` = NULL, `email_confirmed`=1, `change_email_confirm_token` = NULL WHERE `id` = ?',
+        [user_id]
     );
 
     const new_email = rows[0].unconfirmed_change_email;
