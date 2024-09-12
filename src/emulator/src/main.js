@@ -46,10 +46,10 @@ window.onload = async function()
         },
         
         initrd: {
-            url: './image/build/boot/initramfs-lts',
+            url: './image/build/boot/initramfs-virt',
         },
         bzimage: {
-            url: './image/build/boot/vmlinuz-lts',
+            url: './image/build/boot/vmlinuz-virt',
             async: false
         },
         cmdline: 'rw root=/dev/sda init=/sbin/init rootfstype=ext4',
