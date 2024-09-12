@@ -1,6 +1,6 @@
 <h3 align="center"><img width="80" alt="Puter.com, The Personal Cloud Computer: All your files, apps, and games in one place accessible from anywhere at any time." src="https://assets.puter.site/puter-logo.png"></h3>
 
-<h3 align="center">인터넷 OS! 무료이고 오픈소스이며 자체 호스팅이 가능합니다.</h3>
+<h3 align="center">Puter: 인터넷 OS! 무료이고 오픈소스이며 자체 호스팅이 가능합니다.</h3>
 
 <p align="center">
     <img alt="GitHub repo size" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="GitHub Release" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=latest%20version"> <img alt="GitHub License" src="https://img.shields.io/github/license/HeyPuter/puter">
@@ -30,11 +30,11 @@
 
 ## Puter
 
-Puter는 기능이 풍부하고, 매우 빠르며, 높은 확장성을 갖춘 고급 오픈소스 인터넷 운영 체제입니다. Puter는 다음과 같이 사용될 수 있습니다:
+Puter는 오픈소스 인터넷 운영 체제로, 매우 빠르고 확장성이 뛰어나며 새로운 인터페이스와 다양한 기능을 갖추고 있습니다. Puter는 다음과 같이 사용될 수 있습니다:
 
 - 모든 파일, 앱, 게임을 한 곳에 안전하게 보관하고 언제 어디서나 접근할 수 있는 프라이버시 중심의 개인 클라우드로 사용할 수 있습니다.
 - 웹사이트, 웹 앱, 게임을 구축하고 배포하는 플랫폼으로 활용할 수 있습니다.
-- 새로운 인터페이스와 강력한 기능을 갖춘 Dropbox, Google Drive, OneDrive 등의 대안으로 사용할 수 있습니다.
+- Dropbox, Google Drive, OneDrive 등의 대안으로 사용할 수 있으며 보다 발전된 기능과 인터페이스를 제공합니다.
 - 서버와 워크스테이션을 위한 원격 데스크톱 환경으로 활용할 수 있습니다.
 - 웹 개발, 클라우드 컴퓨팅, 분산 시스템 등에 대해 배울 수 있는 친근한 오픈소스 프로젝트이자 커뮤니티입니다!
 
