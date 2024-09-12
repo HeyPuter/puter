@@ -18,6 +18,7 @@
  */
 
 import { concepts, AdvancedBase } from "@heyputer/putility";
+import TeePromise from "./util/TeePromise.js";
 
 export class Service extends concepts.Service {
     // TODO: Service todo items
@@ -153,13 +154,36 @@ export class PortalProcess extends Process {
         }, '*');
     }
 
-    handle_connection (connection, args) {
+    async handle_connection (connection, args) {
         const target = this.references.iframe.contentWindow;
+        const connection_response = new TeePromise();
+        window.addEventListener('message', (evt) => {
+            if ( evt.source !== target ) return;
+            // Using '$' instead of 'msg' to avoid handling by IPC.js
+            // (following type-tagged message convention)
+            if ( evt.data.$ !== 'connection-resp' ) return;
+            if ( evt.data.connection !== connection.uuid ) return;
+            if ( evt.data.accept ) {
+                connection_response.resolve(evt.data.value);
+            } else {
+                connection_response.reject(evt.data.value
+                    ?? new Error('Connection rejected'));
+            }
+        });
         target.postMessage({
             msg: 'connection',
             appInstanceID: connection.uuid,
             args,
         });
+        const outcome = await Promise.race([
+            connection_response,
+            new Promise((resolve, reject) => {
+                setTimeout(() => {
+                    reject(new Error('Connection timeout'));
+                }, 5000);
+            })
+        ]);
+        return outcome;
     }
 };
 export class PseudoProcess extends Process {

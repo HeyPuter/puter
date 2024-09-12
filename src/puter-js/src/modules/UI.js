@@ -25,6 +25,11 @@ class AppConnection extends EventListener {
             values.appInstanceID,
             values.usesSDK
         );
+
+        // When a connection is established the app is able to
+        // provide some additional information about itself
+        connection.response = values.response;
+
         return connection;
     }
 
@@ -466,12 +471,29 @@ class UI extends EventListener {
                 this.#lastBroadcastValue.set(name, data);
             }
             else if ( e.data.msg === 'connection' ) {
+                e.data.usesSDK = true; // we can safely assume this
                 const conn = AppConnection.from(e.data, {
                     appInstanceID: this.appInstanceID,
                     messageTarget: window.parent,
                 });
+                const accept = value => {
+                    this.messageTarget?.postMessage({
+                        $: 'connection-resp',
+                        connection: e.data.appInstanceID,
+                        accept: true,
+                        value,
+                    });
+                };
+                const reject = value => {
+                    this.messageTarget?.postMessage({
+                        $: 'connection-resp',
+                        connection: e.data.appInstanceID,
+                        accept: false,
+                        value,
+                    });
+                };
                 this.emit('connection', {
-                    conn
+                    conn, accept, reject,
                 });
             }
         });
