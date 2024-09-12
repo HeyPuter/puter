@@ -108,6 +108,10 @@ export class ExecService extends Service {
         const options = svc_process.select_by_name(app_name);
         const process = options[0];
 
+        if ( ! process ) {
+            throw new Error(`No process found: ${app_name}`);
+        }
+
         const svc_ipc = this.services.get('ipc');
         const connection = svc_ipc.add_connection({
             source: caller_process.uuid,
@@ -116,9 +120,10 @@ export class ExecService extends Service {
 
         const response = await process.handle_connection(
             connection.backward, args);
-
+        
         return {
             appInstanceID: connection.forward.uuid,
+            usesSDK: true,
             response,
         };
     }

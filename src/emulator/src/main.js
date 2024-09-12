@@ -9,6 +9,16 @@ const {
     DataBuilder,
 } = require("../../puter-wisp/src/exports");
 
+const status = {
+    ready: false,
+};
+
+const state = {
+    ready_listeners: [],
+};
+
+let ptyMgr;
+
 class WispClient {
     constructor ({
         packetStream,
@@ -23,8 +33,74 @@ class WispClient {
     }
 }
 
+const setup_pty = (ptt, pty) => {
+    console.log('PTY created', pty);
+
+    // resize
+    ptt.on('ioctl.set', evt => {
+        console.log('event?', evt);
+        pty.resize(evt.windowSize);
+    });
+    ptt.TIOCGWINSZ();
+
+    // data from PTY
+    pty.on_payload = data => {
+        ptt.out.write(data);
+    }
+
+    // data to PTY
+    (async () => {
+        // for (;;) {
+        //     const buff = await ptt.in.read();
+        //     if ( buff === undefined ) continue;
+        //     console.log('this is what ptt in gave', buff);
+        //     pty.send(buff);
+        // }
+        const stream = ptt.readableStream;
+        for await ( const chunk of stream ) {
+            if ( chunk === undefined ) {
+                console.error('huh, missing chunk', chunk);
+                continue;
+            }
+            console.log('sending to pty', chunk);
+            pty.send(chunk);
+        }
+    })()
+}
+
+
 puter.ui.on('connection', event => {
+    const { conn, accept, reject } = event;
+    if ( ! status.ready ) {
+        console.log('status not ready, adding listener');
+        state.ready_listeners.push(() => {
+            console.log('a listener was called');
+            conn.postMessage({
+                $: 'status',
+                ...status,
+            });
+        });
+    }
+    accept({
+        version: '1.0.0',
+        status,
+    });
     console.log('emulator got connection event', event);
+
+    const pty_on_first_message = message => {
+        conn.off('message', pty_on_first_message);
+        console.log('[!!] message from connection', message);
+        const pty = ptyMgr.getPTY({
+            command: '/bin/bash'
+        });
+        console.log('setting up ptt with...', conn);
+        const ptt = new XDocumentPTT(conn, {
+            disableReader: true,
+        });
+        ptt.termios.echo = false;
+        setup_pty(ptt, pty);
+    }
+    conn.on('message', pty_on_first_message);
 });
 
 window.onload = async function()
@@ -83,12 +159,14 @@ window.onload = async function()
     const virtioStream = NewVirtioFrameStream(byteStream);
     const wispStream = NewWispPacketStream(virtioStream);
 
+    /*
     const shell = puter.ui.parentApp();
     const ptt = new XDocumentPTT(shell, {
         disableReader: true,
     })
 
     ptt.termios.echo = false;
+    */
     
     class PTYManager {
         static STATE_INIT = {
@@ -110,6 +188,13 @@ window.onload = async function()
                 }
             },
             on: function () {
+                console.log('ready.on called')
+                status.ready = true;
+                for ( const listener of state.ready_listeners ) {
+                    console.log('calling listener');
+                    listener();
+                }
+                return;
                 const pty = this.getPTY();
                 console.log('PTY created', pty);
 
@@ -176,14 +261,14 @@ window.onload = async function()
             }
         }
 
-        getPTY () {
+        getPTY ({ command }) {
             const streamId = ++this.streamId;
             const data = new DataBuilder({ leb: true })
                 .uint8(0x01)
                 .uint32(streamId)
                 .uint8(0x03)
                 .uint16(10)
-                .utf8('/bin/bash')
+                .utf8(command)
                 // .utf8('/usr/bin/htop')
                 .build();
             const packet = new WispPacket(
@@ -235,7 +320,7 @@ window.onload = async function()
         }
     }
     
-    const ptyMgr = new PTYManager({
+    ptyMgr = new PTYManager({
         client: new WispClient({
             packetStream: wispStream,
             sendFn: packet => {
@@ -249,4 +334,5 @@ window.onload = async function()
         })
     });
     ptyMgr.init();
+
 }
