@@ -224,6 +224,18 @@ const wisp_types = [
         }
     },
     {
+        id: 4,
+        label: 'CLOSE',
+        describe: ({ attributes }) => {
+            return `reason: ${attributes.code}`;
+        },
+        getAttributes ({ payload }) {
+            return {
+                code: payload[0],
+            }
+        }
+    },
+    {
         // TODO: extension types should not be hardcoded here
         id: 0xf0,
         label: 'RESIZE',
