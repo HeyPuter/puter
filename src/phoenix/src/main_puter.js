@@ -53,7 +53,6 @@ window.main_shell = async () => {
         }
     });
     terminal.on('close', () => {
-        console.log('Terminal closed; exiting Phoenix...');
         puter.exit();
     });
 

@@ -183,7 +183,7 @@ const launch_app = async (options)=>{
 
         // add parent_app_instance_id to URL
         if (options.parent_instance_id) {
-            iframe_url.searchParams.append('puter.parent_instance_id', options.parent_instance_id);
+            iframe_url.searchParams.append('puter.parent_instance_id', options.parent_pseudo_id);
         }
 
         if(file_signature){
