@@ -1439,6 +1439,22 @@ window.addEventListener('message', async (event) => {
         const { appInstanceID, targetAppInstanceID, targetAppOrigin, contents } = event.data;
         // TODO: Determine if we should allow the message
         // TODO: Track message traffic between apps
+        const svc_ipc = globalThis.services.get('ipc');
+        // const svc_exec = globalThis.services()
+
+        const conn = svc_ipc.get_connection(targetAppInstanceID);
+        if ( conn ) {
+            conn.send(contents);
+            // conn.send({
+            //     msg: 'messageToApp',
+            //     appInstanceID,
+            //     targetAppInstanceID,
+            //     contents,
+            // }, targetAppOrigin);
+            return;
+        }
+
+        console.log(`🔒 App ${appInstanceID} is sending to ${targetAppInstanceID} insecurely`);
 
         // pass on the message
         const target_iframe = window.iframe_for_app_instance(targetAppInstanceID);

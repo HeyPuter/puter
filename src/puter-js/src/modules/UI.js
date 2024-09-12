@@ -47,6 +47,7 @@ class AppConnection extends EventListener {
                     // Message is from a different AppConnection; ignore it.
                     return;
                 }
+                // TODO: does this check really make sense?
                 if (event.data.targetAppInstanceID !== this.appInstanceID) {
                     console.error(`AppConnection received message intended for wrong app! appInstanceID=${this.appInstanceID}, target=${event.data.targetAppInstanceID}`);
                     return;
@@ -89,7 +90,10 @@ class AppConnection extends EventListener {
             msg: 'messageToApp',
             appInstanceID: this.appInstanceID,
             targetAppInstanceID: this.targetAppInstanceID,
-            targetAppOrigin: '*', // TODO: Specify this somehow
+            // Note: there was a TODO comment here about specifying the origin,
+            // but this should not happen here; the origin should be specified
+            // on the other side where the expected origin for the app is known.
+            targetAppOrigin: '*',
             contents: message,
         }, this.#puterOrigin);
     }

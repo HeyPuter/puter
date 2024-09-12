@@ -35,6 +35,9 @@ export class Service extends concepts.Service {
         this.services = a[0].services;
         return this._init(...a)
     }
+    get context () {
+        return { services: this.services };
+    }
 };
 
 export const PROCESS_INITIALIZING = { i18n_key: 'initializing' };
@@ -139,16 +142,22 @@ export class PortalProcess extends Process {
         }
     }
     
-    send (channel, object, context) {
+    send (channel, data, context) {
         const target = this.references.iframe.contentWindow;
-        // NEXT: ...
+        target.postMessage({
+            msg: 'messageToApp',
+            appInstanceID: channel.returnAddress,
+            targetAppInstanceID: this.uuid,
+            contents: data,
+        // }, new URL(this.references.iframe.src).origin);
+        }, '*');
     }
 
-    handle_connection (other_process, args) {
+    handle_connection (connection, args) {
         const target = this.references.iframe.contentWindow;
         target.postMessage({
             msg: 'connection',
-            appInstanceID: other_process.uuid,
+            appInstanceID: connection.uuid,
             args,
         });
     }
