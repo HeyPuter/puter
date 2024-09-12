@@ -91,8 +91,13 @@ puter.ui.on('connection', event => {
         conn.off('message', pty_on_first_message);
         console.log('[!!] message from connection', message);
         const pty = ptyMgr.getPTY({
-            command: '/bin/bash'
+            command: message.command,
         });
+        pty.on_close = () => {
+            conn.postMessage({
+                $: 'pty.close',
+            });
+        }
         console.log('setting up ptt with...', conn);
         const ptt = new XDocumentPTT(conn, {
             disableReader: true,
@@ -185,6 +190,10 @@ window.onload = async function()
                     console.log('stream id?', packet.streamId);
                     const pty = this.stream_listeners_[packet.streamId];
                     pty.on_payload(packet.payload);
+                },
+                [WispPacket.CLOSE.id]: function ({ packet }) {
+                    const pty = this.stream_listeners_[packet.streamId];
+                    pty.on_close();
                 }
             },
             on: function () {

@@ -5,6 +5,7 @@ export class EmuCommandProvider {
     static AVAILABLE = {
         'bash': '/bin/bash',
         'htop': '/usr/bin/htop',
+        'emu-sort': '/usr/bin/sort',
     };
 
     static EMU_APP_NAME = 'test-emu';
@@ -93,6 +94,9 @@ export class EmuCommandProvider {
                     }
                 }
             }
+            if (message.$ === 'pty.close') {
+                app_close_promise.resolve();
+            }
         });
 
         // Repeatedly copy data from stdin to the child, while it's running.
@@ -121,7 +125,6 @@ export class EmuCommandProvider {
             args: [],
         });
 
-        const never_resolve = new TeePromise();
-        await never_resolve;
+        await app_close_promise;
     }
 }
