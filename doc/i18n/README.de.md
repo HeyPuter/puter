@@ -3,7 +3,7 @@
 <h3 align="center">Das Internet-Betriebssystem! Kostenlos, Open-Source und selbst hostbar.</h3>
 
 <p align="center">
-    <img alt="GitHub Repo-Größe" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="GitHub Release" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=neueste%20Version"> <img alt="GitHub Lizenz" src="https://img.shields.io/github/license/HeyPuter/puter">
+    <img alt="GitHub Repo-Größe" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="GitHub Veröffentlichung" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=neueste%20Version"> <img alt="GitHub Lizenz" src="https://img.shields.io/github/license/HeyPuter/puter">
 </p>
 <p align="center">
     <a href="https://puter.com/"><strong>« LIVE DEMO »</strong></a>
@@ -24,7 +24,7 @@
     <a href="https://hackerone.com/puter_h1b">Bug Bounty</a>
 </p>
 
-<h3 align="center"><img width="800" style="border-radius:5px;" alt="Screenshot" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>
+<h3 align="center"><img width="800" style="border-radius:5px;" alt="Bildschirmfoto" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>
 
 <br/>
 
