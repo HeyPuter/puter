@@ -8,7 +8,7 @@ export class EmuCommandProvider {
         'emu-sort': '/usr/bin/sort',
     };
 
-    static EMU_APP_NAME = 'test-emu';
+    static EMU_APP_NAME = 'puter-linux';
 
     constructor () {
         this.available = this.constructor.AVAILABLE;

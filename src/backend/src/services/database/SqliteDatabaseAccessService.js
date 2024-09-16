@@ -44,21 +44,6 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
         this.db = new Database(this.config.path);
 
-        // Database upgrade logic
-        const HIGHEST_VERSION = 24;
-        const TARGET_VERSION = (() => {
-            const args = Context.get('args');
-            if ( args['database-target-version'] ) {
-                return parseInt(args['database-target-version']);
-            }
-            return HIGHEST_VERSION;
-        })();
-
-        const [{ user_version }] = do_setup
-            ? [{ user_version: -1 }]
-            : await this._read('PRAGMA user_version');
-        this.log.info('database version: ' + user_version);
-
         const upgrade_files = [];
 
         const available_migrations = [
@@ -138,7 +123,27 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [23, [
                 '0026_user-groups.dbmig.js',
             ]],
+            [24, [
+                '0027_emulator-app.dbmig.js',
+            ]],
         ];
+
+        // Database upgrade logic
+        const HIGHEST_VERSION =
+            available_migrations[available_migrations.length - 1][0] + 1;
+        const TARGET_VERSION = (() => {
+            const args = Context.get('args');
+            if ( args['database-target-version'] ) {
+                return parseInt(args['database-target-version']);
+            }
+            return HIGHEST_VERSION;
+        })();
+
+        const [{ user_version }] = do_setup
+            ? [{ user_version: -1 }]
+            : await this._read('PRAGMA user_version');
+        this.log.info('database version: ' + user_version);
+
 
         for ( const [v_lt_or_eq, files] of available_migrations ) {
             if ( v_lt_or_eq + 1 >= TARGET_VERSION && TARGET_VERSION !== HIGHEST_VERSION ) {
