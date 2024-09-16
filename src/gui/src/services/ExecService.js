@@ -100,7 +100,7 @@ export class ExecService extends Service {
         if ( caller_process.name !== 'phoenix' ) {
             throw new Error('Connection not allowed.');
         }
-        if ( app_name !== 'test-emu' ) {
+        if ( app_name !== 'puter-linux' ) {
             throw new Error('Connection not allowed.');
         }
 
