@@ -110,6 +110,23 @@ puter.ui.on('connection', event => {
 
 window.onload = async function()
 {
+    let emu_config; try {
+        emu_config = await puter.fs.read('config.json');
+    } catch (e) {}
+
+    if ( ! emu_config ) {
+        await puter.fs.write('config.json', JSON.stringify({}));
+        emu_config = {};
+    }
+
+    if ( emu_config instanceof Blob ) {
+        emu_config = await emu_config.text();
+    }
+
+    if ( typeof emu_config === 'string' ) {
+        emu_config = JSON.parse(emu_config);
+    }
+
     const resp = await fetch(
         './image/build/rootfs.bin'
     );
@@ -152,10 +169,14 @@ window.onload = async function()
         // bzimage_initrd_from_filesystem: true,
         autostart: true,
 
-        network_relay_url: "wisp://127.0.0.1:3000",
+        network_relay_url: emu_config.network_relay ?? "wisp://127.0.0.1:3000",
         virtio_console: true,
     });
 
+    emulator.add_listener('download-error', function(e) {
+        status.missing_files || (status.missing_files = []);
+        status.missing_files.push(e.file_name);
+    });
     
     const decoder = new TextDecoder();
     const byteStream = NewCallbackByteStream();
