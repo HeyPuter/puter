@@ -36,6 +36,19 @@ export class EmuCommandProvider {
         if ( conn.response.status.ready ) {
             p_ready.resolve();
         }
+        console.log('status from emu', conn.response);
+        if ( conn.response.status.missing_files ) {
+            const pfx = '\x1B[31;1m┃\x1B[0m ';
+            ctx.externs.out.write('\n');
+            ctx.externs.out.write('\x1B[31;1m┃ Emulator is missing files:\x1B[0m\n');
+            for (const file of conn.response.status.missing_files) {
+                ctx.externs.out.write(pfx+`-  ${file}\n`);
+            }
+            ctx.externs.out.write(pfx+'\n');
+            ctx.externs.out.write(pfx+'\x1B[33;1mDid you run `./tools/build_v86.sh`?\x1B[0m\n');
+            ctx.externs.out.write('\n');
+            return;
+        }
         console.log('awaiting emulator ready');
         ctx.externs.out.write('Waiting for emulator...\n');
         await p_ready;
