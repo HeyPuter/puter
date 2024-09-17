@@ -4,3 +4,6 @@
 [submodule "submodules/twisp"]
 	path = submodules/twisp
 	url = git@github.com:MercuryWorkshop/twisp.git
+[submodule "submodules/epoxy-tls"]
+	path = submodules/epoxy-tls
+	url = git@github.com:MercuryWorkshop/epoxy-tls.git
