@@ -1,4 +1,5 @@
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const DefinePlugin = require('webpack').DefinePlugin;
 
 module.exports = {
     entry: [
@@ -7,6 +8,9 @@ module.exports = {
     plugins: [
         new HtmlWebpackPlugin({
             template: 'assets/template.html'
+        }),
+        new DefinePlugin({
+            MODE: JSON.stringify(process.env.MODE ?? 'dev')
         }),
     ]
 };

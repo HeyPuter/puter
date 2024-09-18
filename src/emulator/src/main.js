@@ -1,5 +1,9 @@
 "use strict";
 
+console.log(`emulator running in mode: ${MODE}`)
+
+const PATH_V86 = MODE === 'dev' ? '/vendor/v86' : './vendor/v86';
+
 const { XDocumentPTT } = require("../../phoenix/src/pty/XDocumentPTT");
 const {
     NewWispPacketStream,
@@ -132,15 +136,15 @@ window.onload = async function()
     );
     const arrayBuffer = await resp.arrayBuffer();
     var emulator = window.emulator = new V86({
-        wasm_path: "/vendor/v86/v86.wasm",
+        wasm_path: PATH_V86 + "/v86.wasm",
         memory_size: 512 * 1024 * 1024,
         vga_memory_size: 2 * 1024 * 1024,
         screen_container: document.getElementById("screen_container"),
         bios: {
-            url: "/vendor/v86/bios/seabios.bin",
+            url: PATH_V86 + "/bios/seabios.bin",
         },
         vga_bios: {
-            url: "/vendor/v86/bios/vgabios.bin",
+            url: PATH_V86 + "/bios/vgabios.bin",
         },
         
         initrd: {
