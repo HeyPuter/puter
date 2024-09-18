@@ -67,8 +67,11 @@ export class ProcessService extends Service {
     }
 
     select_by_name (name) {
+        // TODO: figure out why 'this.processes' doesn't work here
+        const processes = Array.from(svc_process.processes_map.values())
+
         const list = [];
-        for ( const process of this.processes ) {
+        for ( const process of processes ) {
             if ( process.name === name ) {
                 list.push(process);
             }
