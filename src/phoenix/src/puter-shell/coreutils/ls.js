@@ -235,7 +235,7 @@ export default {
                         ...(filesystem.capabilities['readdir.www'] ? ['www'] : []),
                         'size', time_properties[time],
                     ],
-                    maxLineWidth: ctx.env.COLS,
+                    maxLineWidth: ctx.env.COLS ?? 80,
                     config: {
                         // json: {
                         //     maxWidth: 20,
