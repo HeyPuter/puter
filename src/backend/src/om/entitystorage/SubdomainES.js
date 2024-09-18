@@ -39,7 +39,9 @@ class SubdomainES extends BaseES {
             }
         },
         async upsert (entity, extra) {
-            await this._check_max_subdomains();
+            if ( ! extra.old_entity ) {
+                await this._check_max_subdomains();
+            }
 
             return await this.upstream.upsert(entity, extra);
         },
