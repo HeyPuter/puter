@@ -482,7 +482,7 @@ class UI extends EventListener {
                         connection: e.data.appInstanceID,
                         accept: true,
                         value,
-                    });
+                    }, '*');
                 };
                 const reject = value => {
                     this.messageTarget?.postMessage({
@@ -490,7 +490,7 @@ class UI extends EventListener {
                         connection: e.data.appInstanceID,
                         accept: false,
                         value,
-                    });
+                    }, '*');
                 };
                 this.emit('connection', {
                     conn, accept, reject,
