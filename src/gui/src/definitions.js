@@ -174,7 +174,7 @@ export class PortalProcess extends Process {
             msg: 'connection',
             appInstanceID: connection.uuid,
             args,
-        });
+        }, '*');
         const outcome = await Promise.race([
             connection_response,
             new Promise((resolve, reject) => {
