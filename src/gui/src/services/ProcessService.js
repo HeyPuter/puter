@@ -23,7 +23,7 @@ const NULL_UUID = '00000000-0000-0000-0000-000000000000';
 
 export class ProcessService extends Service {
     static INITRC = [
-        'puter-linux'
+        // 'puter-linux'
     ];
 
     async _init () {
