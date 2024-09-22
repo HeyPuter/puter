@@ -41,5 +41,9 @@ sudo losetup -d "$loop"
 rm "$OUT_ROOTFS_TAR"
 rm -rf "$OUT_ROOTFS_MNT"
 
+cd "$IMAGES"
+brotli -q 6 rootfs.bin
+cd -
+
 echo "done! created"
 sudo chown -R $USER:$USER $IMAGES/boot

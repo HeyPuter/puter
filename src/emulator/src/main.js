@@ -13,6 +13,8 @@ const {
     DataBuilder,
 } = require("../../puter-wisp/src/exports");
 
+const brotliCJS = require('brotli-dec-wasm');
+
 const status = {
     ready: false,
 };
@@ -132,9 +134,17 @@ window.onload = async function()
     }
 
     const resp = await fetch(
-        './image/build/rootfs.bin'
+        './image/build/rootfs.bin.br'
     );
     const arrayBuffer = await resp.arrayBuffer();
+
+    const brotli = await brotliCJS.default;
+
+    const utf8Array = new Uint8Array(arrayBuffer);
+    console.log('whats in here??', brotli);
+    const decompressed = brotli.decompress(utf8Array);
+    const decompressedArrayBuffer = decompressed.buffer;
+
     var emulator = window.emulator = new V86({
         wasm_path: PATH_V86 + "/v86.wasm",
         memory_size: 512 * 1024 * 1024,
@@ -164,7 +174,7 @@ window.onload = async function()
         //     url: "./image/build/rootfs.bin",
         // },
         hda: {
-            buffer: arrayBuffer,
+            buffer: decompressedArrayBuffer,
             // url: './image/build/rootfs.bin',
             async: true,
             // size: 1073741824,

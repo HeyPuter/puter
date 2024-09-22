@@ -12,5 +12,8 @@
   "description": "",
   "devDependencies": {
     "html-webpack-plugin": "^5.6.0"
+  },
+  "dependencies": {
+    "brotli-dec-wasm": "^2.3.0"
   }
 }
