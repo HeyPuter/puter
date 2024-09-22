@@ -36,6 +36,16 @@ body{
     align-items: center; 
     flex: 1;
 }
+
+h1 .app-count{
+    font-size: 20px;
+    color: #6d767d;
+    font-weight: 400;
+    margin-left: 10px;
+    background-color: #EEE;
+    padding: 2px 10px;
+    border-radius: 3px;
+}
 /* ------------------------------------
    Button
    ------------------------------------*/
@@ -449,6 +459,14 @@ label {
 .sidebar-nav>li.active {
     color: #fff;
     background-color: #3273dc;
+}
+
+.sidebar-nav > li .app-count{
+    font-size: 14px;
+    color: #f6f6f6;
+    font-weight: 400;
+    margin-left: 10px;
+    float: right;
 }
 
 .sidebar hr {

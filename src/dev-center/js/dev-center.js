@@ -136,6 +136,7 @@ $(document).ready(function () {
                 apps.forEach(app => {
                     $('#app-list-table > tbody').append(generate_app_card(app));
                 });
+                count_apps();
                 sort_apps();
             } else {
                 $('#no-apps-notice').show();
@@ -168,6 +169,7 @@ function refresh_app_list(show_loading = false) {
                 apps.forEach(app => {
                     $('#app-list-table > tbody').append(generate_app_card(app));
                 });
+                count_apps();
                 sort_apps();
             } else {
                 $('#no-apps-notice').show();
@@ -358,7 +360,8 @@ $(document).on('click', '.delete-app', async function (e) {
         let init_ts = Date.now();
         $('.deleting-app-modal')?.get(0)?.showModal();
         puter.apps.delete(app_name).then(async (app) => {
-                setTimeout(() => {
+            setTimeout(
+                () => {
                     $('.deleting-app-modal')?.get(0)?.close();
                     $(`.app-card[data-uid="${app_uid}"]`).fadeOut(200, function name(params) {
                         $(this).remove();
@@ -369,10 +372,11 @@ $(document).on('click', '.delete-app', async function (e) {
                             $('section:not(.sidebar)').hide();
                             $('#app-list').show();
                         }
+                        count_apps();
                     });
                 },
-                    // make sure the modal was shown for at least 2 seconds
-                    (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
+                // make sure the modal was shown for at least 2 seconds
+                (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
 
                 // get app directory
                 puter.fs.stat({
@@ -397,8 +401,8 @@ $(document).on('click', '.delete-app', async function (e) {
                         },
                     ]);
                 },
-                    // make sure the modal was shown for at least 2 seconds
-                    (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
+                // make sure the modal was shown for at least 2 seconds
+                (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
             })
     }
 })
@@ -1065,12 +1069,22 @@ $(document).on('click', '.back-to-main-btn', function (e) {
                 apps.forEach(app => {
                     $('#app-list-table > tbody').append(generate_app_card(app));
                 });
-                sort_apps()
+                count_apps();
+                sort_apps();
             } else
                 $('#no-apps-notice').show();
         })
     }, 1000);
 })
+
+function count_apps() {
+    let count = 0;
+    $('.app-card').each(function () {
+        count++;
+    })
+    $('.app-count').html(count);
+    return count;
+}
 
 // https://stackoverflow.com/a/43467144/1764493
 function is_valid_url(string) {
@@ -1348,7 +1362,7 @@ function sort_apps() {
     sorted_apps.forEach(app => {
         $('#app-list-table > tbody').append(generate_app_card(app));
     });
-
+    count_apps();
     // show apps that match search_query and hide apps that don't
     if (search_query) {
         // show apps that match search_query and hide apps that don't
@@ -1895,7 +1909,7 @@ $('.refresh-app-list').on('click', function (e) {
             apps.forEach(app => {
                 $('#app-list-table > tbody').append(generate_app_card(app));
             });
-
+            count_apps();
             // preserve search query
             if (search_query) {
                 // show apps that match search_query and hide apps that don't
@@ -2024,6 +2038,7 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
                     $('section:not(.sidebar)').hide();
                     $('#app-list').show();
                 }
+                count_apps();
             });
 
             try{
@@ -2041,6 +2056,7 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
                     `/${authUsername}/AppData/${dev_center_uid}/${app_uid}`,
                     { recursive: true }
                 )
+                count_apps();
             } catch(err) {
                 console.log(err);
             }
