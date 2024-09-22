@@ -463,10 +463,14 @@ label {
 
 .sidebar-nav > li .app-count{
     font-size: 14px;
-    color: #f6f6f6;
+    color: #6d767d;
     font-weight: 400;
     margin-left: 10px;
     float: right;
+}
+
+.tab-btn.active .app-count{
+    color: #f6f6f6;
 }
 
 .sidebar hr {
