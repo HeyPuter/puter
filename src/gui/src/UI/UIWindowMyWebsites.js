@@ -89,7 +89,7 @@ async function UIWindowMyWebsites(options){
                                 h+= `${html_encode(sites[i].root_dir.path)}`;
                             h += `</p>`;
                             h += `<p style="margin-bottom:0; margin-top: 20px; font-size: 13px;">`;
-                                h += `<span class="mywebsites-dis-dir" data-dir-uuid="${html_encode(sites[i].root_dir.id)}" data-site-uuid="${html_encode(sites[i].uid)}">`;
+                                h += `<span class="mywebsites-dis-dir" data-dir-uuid="${html_encode(sites[i].root_dir.id)}" data-site-subdomain="${html_encode(sites[i].subdomain)}" data-site-uuid="${html_encode(sites[i].uid)}">`;
                                 h += `<img style="width: 16px; margin-bottom: -2px; margin-right: 4px;" src="${html_encode(window.icons['plug.svg'])}">${i18n('disassociate_dir')}</span>`;
                             h += `</p>`;
                         }
@@ -183,7 +183,7 @@ $(document).on('click', '.mywebsites-dis-dir', function(e){
         // dir
         $(e.target).attr('data-dir-uuid'),
         // hostname
-        $(e.target).attr('data-site-uuid'), 
+        $(e.target).attr('data-site-subdomain'), 
         // success
         function (){ 
             $(`.mywebsites-no-dir-notice[data-site-uuid="${$(e.target).attr('data-site-uuid')}"]`).show();
