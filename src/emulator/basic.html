@@ -313,7 +313,8 @@ class WispClient {
 window.onload = async function()
 {
     const resp = await fetch(
-        './image/build/x86images/rootfs.bin'
+        //'./image/build/x86images/rootfs.bin'
+        'https://puter-rootfs.b-cdn.net/rootfs.bin.br'
     );
     const arrayBuffer = await resp.arrayBuffer();
     var emulator = window.emulator = new V86({
