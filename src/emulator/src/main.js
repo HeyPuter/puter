@@ -134,7 +134,8 @@ window.onload = async function()
     }
 
     const resp = await fetch(
-        './image/build/rootfs.bin.br'
+        // './image/build/rootfs.bin.br',
+        'https://puter-rootfs.b-cdn.net/rootfs.bin.br',
     );
     const arrayBuffer = await resp.arrayBuffer();
 
