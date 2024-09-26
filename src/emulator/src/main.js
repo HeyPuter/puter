@@ -2,6 +2,9 @@
 
 console.log(`emulator running in mode: ${MODE}`)
 
+// Set this to true when testing progress messages
+const GRACE_PERIOD_ENABLED = false;
+
 const PATH_V86 = MODE === 'dev' ? '/vendor/v86' : './vendor/v86';
 
 const { XDocumentPTT } = require("../../phoenix/src/pty/XDocumentPTT");
@@ -197,13 +200,15 @@ window.onload = async function()
         emu_config = JSON.parse(emu_config);
     }
 
-    status.ts_phase_end = Date.now() + 10 * 1000;
-    status.phase = 'grace-period';
-    const gradePeriodProgress = setInterval(() => {
-        status.phase_progress = UPDATE_ONLY;
-    }, 200);
-    await new Promise(resolve => setTimeout(resolve, 10 * 1000));
-    clearInterval(gradePeriodProgress);
+    if ( GRACE_PERIOD_ENABLED ) {
+        status.ts_phase_end = Date.now() + 10 * 1000;
+        status.phase = 'grace-period';
+        const gradePeriodProgress = setInterval(() => {
+            status.phase_progress = UPDATE_ONLY;
+        }, 200);
+        await new Promise(resolve => setTimeout(resolve, 10 * 1000));
+        clearInterval(gradePeriodProgress);
+    }
 
     status.ts_phase_end = undefined;
     status.phase_progress = 0;
