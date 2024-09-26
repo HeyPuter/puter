@@ -27,14 +27,54 @@ export class EmuCommandProvider {
 
         const conn = await puter.ui.connectToInstance(this.constructor.EMU_APP_NAME);
         const p_ready = new TeePromise();
-        conn.on('message', message => {
-            if ( message.$ === 'status' ) {
-                p_ready.resolve();
+        let prev_phase = 'init';
+        let progress_shown = false;
+        const on_message = message => {
+            if ( message.$ !== 'status' ) {
+                console.log('[!!] message from the emulator', message);
+                return;
             }
-            console.log('[!!] message from the emulator', message);
-        });
+            if ( message.phase !== prev_phase && message.phase !== 'ready' ) {
+                if ( progress_shown ) {
+                    ctx.externs.out.write('\n');
+                }
+            }
+            if ( message.phase === 'ready' ) {
+                if ( progress_shown ) {
+                    // show complete progress so it doesn't look weird
+                    ctx.externs.out.write('\r[' + '='.repeat(ctx.env.COLS-2) + ']\n');
+                }
+                p_ready.resolve();
+                return;
+            }
+            if ( message.phase !== prev_phase ) {
+                progress_shown = false;
+                ctx.externs.out.write(`phase: ${message.phase}\n`);
+                prev_phase = message.phase;
+            }
+            if ( message.phase_progress ) {
+                progress_shown = true;
+                let w = ctx.env.COLS;
+                w -= 2;
+                ctx.externs.out.write('\r[');
+                const done = Math.floor(message.phase_progress * w);
+                for ( let i=0 ; i < done ; i++ ) {
+                    ctx.externs.out.write('=');
+                }
+                for ( let i=done ; i < w ; i++ ) {
+                    ctx.externs.out.write(' ');
+                }
+                ctx.externs.out.write(']');
+            }
+            // ctx.externs.out.write(JSON.stringify(message)+'\n');
+        };
+        conn.on('message', on_message);
         if ( conn.response.status.ready ) {
             p_ready.resolve();
+        } else {
+            conn.response.status.$ = 'status';
+            ctx.externs.out.write('\x1B[36;1mWaiting for emulator to be ready...\x1B[0m\n');
+            on_message(conn.response.status);
         }
         console.log('status from emu', conn.response);
         if ( conn.response.status.missing_files ) {
@@ -50,7 +90,6 @@ export class EmuCommandProvider {
             return;
         }
         console.log('awaiting emulator ready');
-        ctx.externs.out.write('Waiting for emulator...\n');
         await p_ready;
         console.log('emulator ready');
         return conn;

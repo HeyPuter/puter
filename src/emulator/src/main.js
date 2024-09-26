@@ -15,12 +15,50 @@ const {
 
 const brotliCJS = require('brotli-dec-wasm');
 
-const status = {
-    ready: false,
-};
-
 const state = {
     ready_listeners: [],
+};
+
+const UPDATE_ONLY = Symbol('update-only');
+
+const status = {
+    ready: false,
+    // phase: 'setup',
+    set phase (v) {
+        const prev_phase = this._phase;
+        this._phase = v;
+        const time_since = Date.now() - this.ts_lastphase;
+        this.ts_lastphase = Date.now();
+        if ( this._phase_progress !== 0 ) {
+            this._phase_progress = undefined;
+        }
+        console.log(`[status] ${prev_phase} -> ${v} (${time_since}ms)`);
+        for ( const listener of state.ready_listeners ) {
+            console.log('calling listener');
+            listener();
+        }
+    },
+    get phase () {
+        return this._phase;
+    },
+    set phase_progress (v) {
+        if ( v !== UPDATE_ONLY ) {
+            this._phase_progress = v;
+            console.log(`[status] progress: ${v}`);
+        }
+        for ( const listener of state.ready_listeners ) {
+            listener();
+        }
+    },
+    get phase_progress () {
+        if ( this.ts_phase_end ) {
+            const total = this.ts_phase_end - this.ts_lastphase;
+            const progress = Date.now() - this.ts_lastphase;
+            return Math.min(1, progress / total);
+        }
+        return this._phase_progress;
+    },
+    ts_start: Date.now(),
 };
 
 let ptyMgr;
@@ -140,8 +178,8 @@ window.onload = async function()
     modules.bench = (await WebAssembly.instantiateStreaming(
         fetch('./static/bench.wasm'))).instance.exports;
 
-    const res = await bench_20ms({ modules });
-    console.log('result', res);
+    const bench_factor = await bench_20ms({ modules });
+    console.log('result', bench_factor);
     let emu_config; try {
         emu_config = await puter.fs.read('config.json');
     } catch (e) {}
@@ -159,11 +197,41 @@ window.onload = async function()
         emu_config = JSON.parse(emu_config);
     }
 
+    status.ts_phase_end = Date.now() + 10 * 1000;
+    status.phase = 'grace-period';
+    const gradePeriodProgress = setInterval(() => {
+        status.phase_progress = UPDATE_ONLY;
+    }, 200);
+    await new Promise(resolve => setTimeout(resolve, 10 * 1000));
+    clearInterval(gradePeriodProgress);
+
+    status.ts_phase_end = undefined;
+    status.phase_progress = 0;
+    status.phase = 'rootfs-download';
     const resp = await fetch(
         // './image/build/rootfs.bin.br',
         'https://puter-rootfs.b-cdn.net/rootfs.bin.br',
     );
-    const arrayBuffer = await resp.arrayBuffer();
+    const contentLength = resp.headers.get('content-length');
+    const total = parseInt(contentLength, 10);
+    const reader = resp.body.getReader();
+    let downloaded = 0;
+    const uint8arrays = [];
+    for (;;) {
+        const { done, value } = await reader.read();
+        if ( done ) break;
+        uint8arrays.push(value);
+        downloaded += value.byteLength;
+        status.phase_progress = downloaded / total;
+    }
+    // const arrayBuffer = await resp.arrayBuffer();
+    let sizeSoFar = 0;
+    const arrayBuffer = uint8arrays.reduce((acc, value) => {
+        acc.set(value, sizeSoFar);
+        sizeSoFar += value.byteLength;
+        return acc;
+    }, new Uint8Array(downloaded));
+    status.phase = 'rootfs-decompress';
 
     const brotli = await brotliCJS.default;
 
@@ -171,6 +239,15 @@ window.onload = async function()
     console.log('whats in here??', brotli);
     const decompressed = brotli.decompress(utf8Array);
     const decompressedArrayBuffer = decompressed.buffer;
+
+    status.ts_emu_start = Date.now();
+    status.ts_phase_end = status.ts_emu_start + bench_factor * 0.48;
+    status.phase = 'boot';
+
+    const boot_progress_tick = setInterval(() => {
+        status.phase_progress = UPDATE_ONLY;
+    }, 200);
+        
 
     var emulator = window.emulator = new V86({
         wasm_path: PATH_V86 + "/v86.wasm",
@@ -260,11 +337,12 @@ window.onload = async function()
             },
             on: function () {
                 console.log('ready.on called')
+                clearInterval(boot_progress_tick);
+                status.ts_end = Date.now();
+                console.log(`Emulator boot time: ${status.ts_emu_start - status.ts_start}s`);
+                console.log(`Emulator total time: ${status.ts_end - status.ts_start}s`);
                 status.ready = true;
-                for ( const listener of state.ready_listeners ) {
-                    console.log('calling listener');
-                    listener();
-                }
+                status.phase = 'ready';
                 return;
                 const pty = this.getPTY();
                 console.log('PTY created', pty);
