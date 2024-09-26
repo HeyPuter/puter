@@ -200,7 +200,9 @@ export class PreparedCommand {
             }
         };
 
-        in_ = new SignalReader({ delegate: in_, sig });
+        if ( ! command.no_signal_reader ) {
+            in_ = new SignalReader({ delegate: in_, sig });
+        }
 
         if ( command.input?.syncLines ) {
             in_ = new SyncLinesReader({ delegate: in_ });

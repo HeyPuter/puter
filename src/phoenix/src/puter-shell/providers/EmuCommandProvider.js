@@ -112,6 +112,7 @@ export class EmuCommandProvider {
             name: id,
             path: 'Emulator',
             execute: this.execute.bind(this, { id, emu, ctx }),
+            no_signal_reader: true,
         }
     }
 
@@ -127,6 +128,15 @@ export class EmuCommandProvider {
             });
         };
         ctx.shell.addEventListener('signal.window-resize', resize_listener);
+
+        // Note: this won't be triggered because the signal reader is disabled,
+        // but if we ever need to enable it here this might be useful.
+        // ctx.externs.sig.on(signal => {
+        //     if ( signal === signals.SIGINT ) emu.postMessage({
+        //         $: 'stdin',
+        //         data: '\x03', // ETX
+        //     });
+        // })
 
         // TODO: handle CLOSE -> emu needs to close connection first
         const app_close_promise = new TeePromise();
