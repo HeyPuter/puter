@@ -221,15 +221,39 @@ window.onload = async function()
     const total = parseInt(contentLength, 10);
     const reader = resp.body.getReader();
     let downloaded = 0;
+
+    const brotli = await brotliCJS.default;
+    const decompStream = new brotli.DecompressStream();
+
     const uint8arrays = [];
+    const CAP = 2 * 1024 * 1024;
     for (;;) {
         const { done, value } = await reader.read();
         if ( done ) break;
-        uint8arrays.push(value);
-        downloaded += value.byteLength;
-        status.phase_progress = downloaded / total;
+
+        let resultCode;
+        let inputOffset = 0;
+
+        do {
+            const input = value.slice(inputOffset);
+            const result = decompStream.decompress(input, CAP);
+            uint8arrays.push(result.buf);
+            downloaded += result.buf.byteLength;
+            resultCode = result.code;
+            inputOffset += result.input_offset;
+        } while ( resultCode === brotli.BrotliStreamResultCode.NeedsMoreOutput );
+        const failed =
+            resultCode !== brotli.BrotliStreamResultCode.NeedsMoreInput &&
+            resultCode !== brotli.BrotliStreamResultCode.ResultSuccess;
+        if ( failed ) {
+            throw new Error('decompression failed', resultCode);
+        }
+        // uint8arrays.push(value);
+        // downloaded += value.byteLength;
+        // status.phase_progress = downloaded / total;
     }
     // const arrayBuffer = await resp.arrayBuffer();
+    
     let sizeSoFar = 0;
     const arrayBuffer = uint8arrays.reduce((acc, value) => {
         acc.set(value, sizeSoFar);
@@ -238,12 +262,14 @@ window.onload = async function()
     }, new Uint8Array(downloaded));
     status.phase = 'rootfs-decompress';
 
-    const brotli = await brotliCJS.default;
-
+    /*
     const utf8Array = new Uint8Array(arrayBuffer);
     console.log('whats in here??', brotli);
     const decompressed = brotli.decompress(utf8Array);
     const decompressedArrayBuffer = decompressed.buffer;
+    */
+    const decompressedArrayBuffer = arrayBuffer.buffer;
+    console.log('what??', decompressedArrayBuffer);
 
     status.ts_emu_start = Date.now();
     status.ts_phase_end = status.ts_emu_start + bench_factor * 0.48;
