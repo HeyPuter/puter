@@ -1,6 +1,16 @@
 import { TeePromise } from "@heyputer/putility/src/libs/promise";
 import { Exit } from "../coreutils/coreutil_lib/exit";
 
+const ASCII_TUX = `
+        .--.       Puter Linux
+       |o_o |      (Alpine Linux edge i686)
+       |:_/ |
+      //   \\ \\
+     (|     | )    You are now using Linux in your browser.
+    /'\_    _/\`\\    Welcome to the future!
+    \\___)=(___/
+`;
+
 export class EmuCommandProvider {
     static AVAILABLE = {
         'bash': '/bin/bash',
@@ -29,6 +39,7 @@ export class EmuCommandProvider {
         const p_ready = new TeePromise();
         let prev_phase = 'init';
         let progress_shown = false;
+        let tux_enabled = false;
         const on_message = message => {
             if ( message.$ !== 'status' ) {
                 console.log('[!!] message from the emulator', message);
@@ -72,6 +83,7 @@ export class EmuCommandProvider {
         if ( conn.response.status.ready ) {
             p_ready.resolve();
         } else {
+            tux_enabled = true;
             conn.response.status.$ = 'status';
             ctx.externs.out.write('\x1B[36;1mWaiting for emulator to be ready...\x1B[0m\n');
             on_message(conn.response.status);
@@ -91,6 +103,9 @@ export class EmuCommandProvider {
         }
         console.log('awaiting emulator ready');
         await p_ready;
+        if ( tux_enabled ) {
+            ctx.externs.out.write(ASCII_TUX);
+        }
         console.log('emulator ready');
         return conn;
     }
@@ -106,7 +121,7 @@ export class EmuCommandProvider {
             return new Exit(1);
         }
 
-        ctx.externs.out.write(`Launching ${id} in emulator ${emu.appInstanceID}\n`);
+        // ctx.externs.out.write(`Launching ${id} in emulator ${emu.appInstanceID}\n`);
 
         return {
             name: id,
