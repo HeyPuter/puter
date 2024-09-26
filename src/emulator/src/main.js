@@ -114,8 +114,34 @@ puter.ui.on('connection', event => {
     conn.on('message', pty_on_first_message);
 });
 
+const bench = async ({ modules }) => {
+    const { benchmark } = modules.bench;
+    const ts_start = performance.now();
+    benchmark();
+    const ts_end = performance.now();
+    // console.log('benchmark took', ts_end - ts_start);
+    return ts_end - ts_start;
+}
+
+const bench_20ms = async (ctx) => {
+    let ts = 0, count = 0;
+    for (;;) {
+        ts += await bench(ctx);
+        count++;
+        if ( ts > 20 ) {
+            return count;
+        }
+    }
+}
+
 window.onload = async function()
 {
+    const modules = {};
+    modules.bench = (await WebAssembly.instantiateStreaming(
+        fetch('./static/bench.wasm'))).instance.exports;
+
+    const res = await bench_20ms({ modules });
+    console.log('result', res);
     let emu_config; try {
         emu_config = await puter.fs.read('config.json');
     } catch (e) {}
