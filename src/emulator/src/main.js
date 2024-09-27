@@ -221,6 +221,7 @@ window.onload = async function()
     const total = parseInt(contentLength, 10);
     const reader = resp.body.getReader();
     let downloaded = 0;
+    let downloadedForProgress = 0;
 
     const brotli = await brotliCJS.default;
     const decompStream = new brotli.DecompressStream();
@@ -248,9 +249,10 @@ window.onload = async function()
         if ( failed ) {
             throw new Error('decompression failed', resultCode);
         }
+        downloadedForProgress += value.byteLength;
         // uint8arrays.push(value);
         // downloaded += value.byteLength;
-        // status.phase_progress = downloaded / total;
+        status.phase_progress = downloadedForProgress / total;
     }
     // const arrayBuffer = await resp.arrayBuffer();
     
