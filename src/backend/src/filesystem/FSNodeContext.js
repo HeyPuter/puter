@@ -777,6 +777,16 @@ module.exports = class FSNodeContext {
             fsentry[k] = res[k];
         }
 
+        let actor; try {
+            actor = Context.get('actor');
+        } catch (e) {}
+        if ( ! actor?.type?.user || actor.type.user.id !== res.user_id ) {
+            if ( ! fsentry.owner ) await this.fetchOwner();
+            fsentry.owner = {
+                username: res.owner?.username,
+            };
+        }
+
         const info = this.services.get('information');
 
         if ( ! this.uid && ! this.entry.uuid ) {
