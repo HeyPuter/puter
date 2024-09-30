@@ -23,6 +23,7 @@ import { CreateDriversProvider } from './platform/puter/drivers.js';
 import { XDocumentPTT } from './pty/XDocumentPTT.js';
 import { CreateEnvProvider } from './platform/puter/env.js';
 import { CreateSystemProvider } from './platform/puter/system.js';
+import { parseArgs } from '@pkgjs/parseargs';
 
 window.main_shell = async () => {
     const config = Object.fromEntries(
@@ -71,9 +72,27 @@ window.main_shell = async () => {
     //     await puterSDK.setAuthToken(config['puter.auth.token']);
     // }
 
+    // TODO: move this into Puter's SDK instead
+    if ( ! puter.args?.command_line?.args ) {
+        puter.args.command_line = {};
+        puter.args.command_line.args = [];
+    }
+
+    // Argument parsing happens here
+    // puter.args < -- command_line.args
+    const { values } = parseArgs({
+        options: {
+            c: {
+                type: 'string'
+            }
+        },
+        args: puter.args.command_line.args
+    });
+
     await launchPuterShell(new Context({
         ptt,
         config, puterSDK,
+        init_arguments: values,
         externs: new Context({ puterSDK }),
         platform: new Context({
             name: 'puter',

@@ -193,6 +193,11 @@ export const launchPuterShell = async (ctx) => {
 
     ctx.externs.out.write('\n');
 
+    if ( ctx.init_arguments.c ) {
+        await ansiShell.runPipeline(ctx.init_arguments.c);
+        return;
+    }
+
     for ( ;; ) {
         await ansiShell.doPromptIteration();
     }
