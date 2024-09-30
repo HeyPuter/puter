@@ -1080,12 +1080,19 @@ async function UIDesktop(options){
     else if(window.app_launched_from_url){
         let qparams = new URLSearchParams(window.location.search);      
         if(!qparams.has('c')){
+            let posargs = undefined;
+            if ( window.app_query_params && window.app_query_params.posargs ) {
+                posargs = JSON.parse(window.app_query_params.posargs);
+            }
             launch_app({
                 app: window.app_launched_from_url.name,
                 app_obj: window.app_launched_from_url,
                 readURL: qparams.get('readURL'),
                 maximized: qparams.get('maximized'),
                 params: window.app_query_params ?? [],
+                ...(posargs ? { args: {
+                    command_line: { args: posargs }
+                } } : {}),
                 is_fullpage: window.is_fullpage_mode,
                 window_options: {
                     stay_on_top: false,
