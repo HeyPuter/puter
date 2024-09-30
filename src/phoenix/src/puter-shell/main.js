@@ -170,8 +170,10 @@ export const launchPuterShell = async (ctx) => {
 
     ctx.externs.out.write(
         `${fire('Phoenix Shell')} [v${SHELL_VERSIONS[0].v}]\n` +
-        `⛷  try typing \x1B[34;1mhelp\x1B[0m or ` +
-        `\x1B[34;1mchangelog\x1B[0m to get started.\n` +
+        (! ctx.init_arguments.c ?
+            `⛷  try typing \x1B[34;1mhelp\x1B[0m or ` +
+            `\x1B[34;1mchangelog\x1B[0m to get started.\n`
+            : `'-c' was passed; running: \x1B[36;1m${ctx.init_arguments.c}\x1B[0m\n`) +
         // '\n' +
         // `🔗  ${mklink('https://puter.com', 'puter.com')} ` +
         ''
