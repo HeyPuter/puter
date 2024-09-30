@@ -40,6 +40,7 @@ export class EmuCommandProvider {
         let prev_phase = 'init';
         let progress_shown = false;
         let tux_enabled = false;
+        const leftpadd = 10;
         const on_message = message => {
             if ( message.$ !== 'status' ) {
                 console.log('[!!] message from the emulator', message);
@@ -53,21 +54,22 @@ export class EmuCommandProvider {
             if ( message.phase === 'ready' ) {
                 if ( progress_shown ) {
                     // show complete progress so it doesn't look weird
-                    ctx.externs.out.write('\r[' + '='.repeat(ctx.env.COLS-2) + ']\n');
+                    ctx.externs.out.write(`\r\x1B[${leftpadd}C[` +
+                        '='.repeat(ctx.env.COLS-2-leftpadd) + ']\n');
                 }
                 p_ready.resolve();
                 return;
             }
             if ( message.phase !== prev_phase ) {
                 progress_shown = false;
-                ctx.externs.out.write(`phase: ${message.phase}\n`);
+                ctx.externs.out.write(`\r\x1B[${leftpadd}Cphase: ${message.phase}\n`);
                 prev_phase = message.phase;
             }
             if ( message.phase_progress ) {
                 progress_shown = true;
                 let w = ctx.env.COLS;
-                w -= 2;
-                ctx.externs.out.write('\r[');
+                w -= 2 + leftpadd;
+                ctx.externs.out.write(`\r\x1B[${leftpadd}C[`);
                 const done = Math.floor(message.phase_progress * w);
                 for ( let i=0 ; i < done ; i++ ) {
                     ctx.externs.out.write('=');
@@ -83,9 +85,12 @@ export class EmuCommandProvider {
         if ( conn.response.status.ready ) {
             p_ready.resolve();
         } else {
-            tux_enabled = true;
             conn.response.status.$ = 'status';
-            ctx.externs.out.write('\x1B[36;1mWaiting for emulator to be ready...\x1B[0m\n');
+            ctx.externs.out.write('          Puter Linux is starting...\n');
+            ctx.externs.out.write('          (Alpine Linux edge i686)\n');
+            ctx.externs.out.write('\x1B[2A');
+            ctx.externs.out.write(conn.response.logo + '\n');
+            ctx.externs.out.write('\x1B[2A');
             on_message(conn.response.status);
         }
         console.log('status from emu', conn.response);

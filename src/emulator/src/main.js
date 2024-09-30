@@ -115,6 +115,11 @@ const setup_pty = (ptt, pty) => {
     })()
 }
 
+let TUX_SIXEL; (async () => {
+    const resp = await fetch('./static/tux.sixel');
+    const text = await resp.text();
+    TUX_SIXEL = text;
+})();
 
 puter.ui.on('connection', event => {
     const { conn, accept, reject } = event;
@@ -131,6 +136,7 @@ puter.ui.on('connection', event => {
     accept({
         version: '1.0.0',
         status,
+        logo: TUX_SIXEL,
     });
     console.log('emulator got connection event', event);
 

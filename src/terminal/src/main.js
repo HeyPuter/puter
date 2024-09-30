@@ -18,6 +18,7 @@
  */
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { ImageAddon } from '@xterm/addon-image';
 import { PTY } from './pty/PTY';
 import { XDocumentANSIShell } from './pty/XDocumentANSIShell';
 
@@ -98,6 +99,8 @@ window.main_term = async () => {
     const term = new Terminal({
         linkHandler,
     });
+    const imageAddon = new ImageAddon();
+    term.loadAddon(imageAddon);
     term.open(document.getElementById('terminal'));
 
     const fitAddon = new FitAddon();

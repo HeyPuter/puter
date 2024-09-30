@@ -19,7 +19,8 @@
     "rollup-plugin-copy": "^3.4.0"
   },
   "dependencies": {
-    "@xterm/xterm": "^5.5.0",
-    "@xterm/addon-fit": "^0.10.0"
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-image": "^0.8.0",
+    "@xterm/xterm": "^5.5.0"
   }
 }

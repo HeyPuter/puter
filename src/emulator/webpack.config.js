@@ -15,7 +15,8 @@ module.exports = {
         }),
         new CopyPlugin({
             patterns: [
-                { from: 'benchmark', to: 'static' }
+                { from: 'benchmark', to: 'static' },
+                { from: 'tux.sixel', to: 'static' },
             ]
         })
     ]
