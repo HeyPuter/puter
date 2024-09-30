@@ -972,11 +972,16 @@ class UI extends EventListener {
 
     // Returns a Promise<AppConnection>
     launchApp = async function launchApp(app_name, args, callback) {
+        let pseudonym = undefined;
+        if ( app_name.includes('#(as)') ) {
+            [app_name, pseudonym] = app_name.split('#(as)');
+        }
         const app_info = await this.#ipc_stub({
             method: 'launchApp',
             callback,
             parameters: {
                 app_name,
+                pseudonym,
                 args,
             },
         });

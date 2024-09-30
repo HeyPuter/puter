@@ -139,6 +139,7 @@ const launch_app = async (options)=>{
             is_dir: true,
             app: 'explorer',
             ...window_options,
+            ...(options.pseudonym ? {pseudonym: options.pseudonym} : {}),
             is_maximized: options.maximized,
         });
     }

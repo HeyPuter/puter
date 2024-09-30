@@ -194,6 +194,7 @@ async function UIWindow(options) {
                 id="window-${win_id}" 
                 data-allowed_file_types = "${html_encode(options.allowed_file_types)}"
                 data-app="${html_encode(options.app)}" 
+                data-app_pseudonym="${html_encode(options.pseudonym)}"
                 data-app_uuid="${html_encode(options.app_uuid ?? '')}" 
                 data-disable_parent_window = "${html_encode(options.disable_parent_window)}"
                 data-name="${html_encode(options.title)}" 
@@ -3357,8 +3358,9 @@ $.fn.focusWindow = function(event) {
         $(window.active_item_container).find('.item-blurred').removeClass('item-blurred');
         //change window URL
         const update_window_url = $(this).attr('data-update_window_url');
+        const url_app_name = $(this).attr('data-app_pseudonym') || $(this).attr('data-app');
         if(update_window_url === 'true' || update_window_url === null){
-            window.history.replaceState({window_id: $(this).attr('data-id')}, '', '/app/'+$(this).attr('data-app')+$(this).attr('data-user_set_url_params'));
+            window.history.replaceState({window_id: $(this).attr('data-id')}, '', '/app/'+url_app_name+$(this).attr('data-user_set_url_params'));
             document.title = $(this).attr('data-name');
         }
         $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).addClass('taskbar-item-active');

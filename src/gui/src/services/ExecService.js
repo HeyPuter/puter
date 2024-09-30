@@ -17,7 +17,7 @@ export class ExecService extends Service {
     }
     
     // This method is exposed to apps via IPCService.
-    async launchApp ({ app_name, args }, { ipc_context, msg_id } = {}) {
+    async launchApp ({ app_name, args, pseudonym }, { ipc_context, msg_id } = {}) {
         const app = ipc_context?.caller?.app;
         const process = ipc_context?.caller?.process;
 
@@ -33,6 +33,7 @@ export class ExecService extends Service {
         // The "body" of this method is in a separate file
         const child_process = await launch_app({
             name: app_name,
+            pseudonym,
             args: args ?? {},
             parent_instance_id: app?.appInstanceID,
             uuid: child_instance_id,
