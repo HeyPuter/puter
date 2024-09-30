@@ -84,7 +84,6 @@ window.main_term = async () => {
     });
 
     const pos_args = puter.args?.command_line?.args;
-    console.log('???', pos_args)
 
     const phoenix = pos_args
         ? await puter.ui.launchApp(pos_args.shift(), {
