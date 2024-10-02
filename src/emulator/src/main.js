@@ -220,8 +220,8 @@ window.onload = async function()
     status.phase_progress = 0;
     status.phase = 'rootfs-download';
     const resp = await fetch(
-        // './image/build/rootfs.bin.br',
-        'https://puter-rootfs.b-cdn.net/rootfs.bin.br',
+        './image/build/rootfs.bin.br',
+        // 'https://puter-rootfs.b-cdn.net/rootfs.bin.br',
     );
     const contentLength = resp.headers.get('content-length');
     const total = parseInt(contentLength, 10);
@@ -326,7 +326,7 @@ window.onload = async function()
         // bzimage_initrd_from_filesystem: true,
         autostart: true,
 
-        network_relay_url: emu_config.network_relay ?? "wisp://127.0.0.1:3000",
+        network_relay_url: emu_config.network_relay ?? "wisp://127.0.0.1:4000",
         virtio_console: true,
     });
 

@@ -25,7 +25,7 @@ docker rm "$CONTAINER_NAME" || true
 docker create --platform linux/386 -t -i --name "$CONTAINER_NAME" "$IMAGE_NAME" bash
 
 docker export "$CONTAINER_NAME" > "$OUT_ROOTFS_TAR"
-dd if=/dev/zero "of=$OUT_ROOTFS_BIN" bs=512M count=2
+dd if=/dev/zero "of=$OUT_ROOTFS_BIN" bs=512M count=3
 
 loop=$(sudo losetup -f)
 sudo losetup -P "$loop" "$OUT_ROOTFS_BIN"

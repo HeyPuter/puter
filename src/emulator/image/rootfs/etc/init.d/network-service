@@ -8,6 +8,7 @@ start() {
   ifupdown ifup eth0
   ip link set lo up
   echo "nameserver 192.168.86.1" > /etc/resolv.conf
+  echo "puter.local" > /etc/hostname
   eend $?
 }
 

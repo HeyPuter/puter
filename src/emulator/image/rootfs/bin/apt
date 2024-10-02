@@ -1,0 +1,91 @@
+#!/bin/bash
+
+echo -e "\x1B[36;1m⚠️  This is not APT.\x1B[0m"
+echo -e "This is a simple wrapper for 'apk', Alpine's package manager."
+echo -e "https://wiki.alpinelinux.org/wiki/Alpine_Linux_package_management"
+echo ""
+
+if [ $# -eq 0 ]; then
+    echo "Usage: apt [options] [command] [command-options]"
+    exit 1
+fi
+
+valid_commands=("update" "install" "remove" "upgrade" "dist-upgrade" "full-upgrade" "search" "list" "autoremove" "clean" "show")
+
+global_options=()
+command_options=()
+command=""
+
+# Collect global options until a valid command is found
+while (("$#")); do
+    arg="$1"
+    shift
+    if [[ " ${valid_commands[*]} " == *" $arg "* ]]; then
+        command="$arg"
+        break
+    else
+        global_options+=("$arg")
+    fi
+done
+
+if [ -z "$command" ]; then
+    echo "Error: No valid command found"
+    exit 1
+fi
+
+# Collect command options and arguments
+while (("$#")); do
+    command_options+=("$1")
+    shift
+done
+
+case "$command" in
+    update)
+        apk update "${global_options[@]}" "${command_options[@]}"
+        ;;
+    install)
+        args=()
+        for arg in "${global_options[@]}" "${command_options[@]}"; do
+            if [ "$arg" != "-y" ] && [ "$arg" != "--yes" ]; then
+                args+=("$arg")
+            fi
+        done
+        apk add "${args[@]}"
+        ;;
+    remove)
+        args=()
+        for arg in "${global_options[@]}" "${command_options[@]}"; do
+            if [ "$arg" != "--purge" ]; then
+                args+=("$arg")
+            fi
+        done
+        apk del "${args[@]}"
+        ;;
+    upgrade | dist-upgrade | full-upgrade)
+        apk upgrade "${global_options[@]}" "${command_options[@]}"
+        ;;
+    search)
+        apk search "${global_options[@]}" "${command_options[@]}"
+        ;;
+    list)
+        if [[ " ${command_options[*]} " == *" --installed "* ]]; then
+            apk info -v "${global_options[@]}"
+        else
+            echo "Unsupported option for list command"
+            exit 1
+        fi
+        ;;
+    autoremove)
+        echo "apk does not have an autoremove command"
+        ;;
+    clean)
+        apk cache clean "${global_options[@]}" "${command_options[@]}"
+        ;;
+    show)
+        apk info "${global_options[@]}" "${command_options[@]}"
+        ;;
+    *)
+        echo "Unsupported apt command: $command"
+        exit 1
+        ;;
+esac

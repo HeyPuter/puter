@@ -1,0 +1,4 @@
+#!/bin/bash
+cowsay "Welcome to Alpine Linux in Puter."
+echo "Some packages are already pre-installed for convenience:"
+echo "  python git nodejs npm php perl go, and others."
