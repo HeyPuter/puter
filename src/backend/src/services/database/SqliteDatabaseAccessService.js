@@ -126,6 +126,9 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [24, [
                 '0027_emulator-app.dbmig.js',
             ]],
+            [25, [
+                '0028_clean-email.sql',
+            ]],
         ];
 
         // Database upgrade logic
