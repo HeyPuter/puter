@@ -56,7 +56,7 @@ class OpenAICompletionService extends BaseService {
                 }
 
                 return await this.complete(messages, {
-                    model: model ?? 'gpt-4o',
+                    model: model,
                     moderation: true,
                     stream,
                 });
