@@ -3,6 +3,7 @@
 <h3 align="center">The Internet OS! Free, Open-Source, and Self-Hostable.</h3>
 
 <p align="center">
+    <img alt="test" src="https://github.com/heyPuter/puter/actions/workflows/test.yml/badge.svg">
     <img alt="GitHub repo size" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="GitHub Release" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=latest%20version"> <img alt="GitHub License" src="https://img.shields.io/github/license/HeyPuter/puter">
 </p>
 <p align="center">
