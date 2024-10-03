@@ -157,6 +157,21 @@ for ( const name in k.services.instances_ ) {
         }
     };
 
+    testapi.assert.equal = (a, b, name) => {
+        name = name || `${a} === ${b}`;
+        if ( a === b ) {
+            passed++;
+            repeat_after(() => console.log(`\x1B[32;1m  ✔ ${name}\x1B[0m`));
+        } else {
+            failed++;
+            repeat_after(() => {
+                console.log(`\x1B[31;1m  ✘ ${name}\x1B[0m`);
+                console.log(`\x1B[31;1m    Expected: ${b}\x1B[0m`);
+                console.log(`\x1B[31;1m    Got: ${a}\x1B[0m`);
+            });
+        }
+    };
+
     ins._test(testapi);
 
     total_passed += passed;

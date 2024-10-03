@@ -243,6 +243,9 @@ const install = async ({ services, app, useapi }) => {
     const { EdgeRateLimitService } = require('./services/abuse-prevention/EdgeRateLimitService');
     services.registerService('edge-rate-limit', EdgeRateLimitService);
 
+    const { CleanEmailService } = require('./services/CleanEmailService');
+    services.registerService('clean-email', CleanEmailService);
+
     const { Emailservice } = require('./services/EmailService');
     services.registerService('email', Emailservice);
 
