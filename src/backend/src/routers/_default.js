@@ -226,30 +226,50 @@ router.all('*', async function(req, res, next) {
                     h += '<p style="text-align:center; color:red;">invalid token.</p>';
                 // mark user as confirmed
                 else{
-                    // If other users have the same unconfirmed email, revoke it
-                    await db.write(
-                        'UPDATE `user` SET `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `unconfirmed_change_email` = ?',
-                        [user.email],
-                    );
+                    // This IIFE is here to return early on conditions, and
+                    // avoid further nested branching. This is a temporary
+                    // solution; next time this code should be refactored.
+                    await (async () => {
+                        // If other users have the same CONFIRMED email, display an error
+                        const maybe_rows = await db.read(
+                            `SELECT EXISTS(
+                                SELECT 1 FROM user WHERE email=?
+                                AND email_confirmed=1
+                                AND password IS NOT NULL
+                            ) AS email_exists`
+                        );
+                        if ( maybe_rows[0]?.email_exists ) {
+                            // TODO: maybe display the username of that account
+                            h += '<p style="text-align:center; color:red;">' +
+                                'This email was confirmed on a different account.</p>';
+                            return;
+                        }
 
-                    // update user
-                    await db.write(
-                        "UPDATE `user` SET `email_confirmed` = 1, `requires_email_confirmation` = 0 WHERE id = ?",
-                        [user.id]
-                    );
-                    invalidate_cached_user(user);
+                        // If other users have the same unconfirmed email, revoke it
+                        await db.write(
+                            'UPDATE `user` SET `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `unconfirmed_change_email` = ?',
+                            [user.email],
+                        );
 
-                    // send realtime success msg to client
-                    let socketio = require('../socketio.js').getio();
-                    if(socketio){
-                        socketio.to(user.id).emit('user.email_confirmed', {})
-                    }
+                        // update user
+                        await db.write(
+                            "UPDATE `user` SET `email_confirmed` = 1, `requires_email_confirmation` = 0 WHERE id = ?",
+                            [user.id]
+                        );
+                        invalidate_cached_user(user);
 
-                    // return results
-                    h += `<p style="text-align:center; color:green;">Your email has been successfully confirmed.</p>`;
+                        // send realtime success msg to client
+                        let socketio = require('../socketio.js').getio();
+                        if(socketio){
+                            socketio.to(user.id).emit('user.email_confirmed', {})
+                        }
 
-                    const svc_referralCode = Context.get('services').get('referral-code');
-                    svc_referralCode.on_verified(user);
+                        // return results
+                        h += `<p style="text-align:center; color:green;">Your email has been successfully confirmed.</p>`;
+
+                        const svc_referralCode = Context.get('services').get('referral-code');
+                        svc_referralCode.on_verified(user);
+                    })();
                 }
             }
 

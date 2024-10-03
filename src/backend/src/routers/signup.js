@@ -146,8 +146,9 @@ module.exports = eggspress(['/signup'], {
     // duplicate username check
     if(await username_exists(req.body.username))
         return res.status(400).send('This username already exists in our database. Please use another one.');
+    // Email check is here :: Add condition for email_confirmed=1
     // duplicate email check (pseudo-users don't count)
-    let rows2 = await db.read(`SELECT EXISTS(SELECT 1 FROM user WHERE email=? AND password IS NOT NULL) AS email_exists`, [req.body.email]);
+    let rows2 = await db.read(`SELECT EXISTS(SELECT 1 FROM user WHERE email=? AND email_confirmed=1 AND password IS NOT NULL) AS email_exists`, [req.body.email]);
     if(rows2[0].email_exists)
         return res.status(400).send('This email already exists in our database. Please use another one.');
     // get pseudo user, if exists
@@ -286,6 +287,7 @@ module.exports = eggspress(['/signup'], {
     //-------------------------------------------------------------
     // email confirmation
     //-------------------------------------------------------------
+    // Email confirmation from signup is sent here
     if((!req.body.is_temp && email_confirmation_required) || user.requires_email_confirmation){
         if(req.body.send_confirmation_code || user.requires_email_confirmation)
             send_email_verification_code(email_confirm_code, user.email);
