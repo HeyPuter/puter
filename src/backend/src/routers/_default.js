@@ -230,13 +230,16 @@ router.all('*', async function(req, res, next) {
                     // avoid further nested branching. This is a temporary
                     // solution; next time this code should be refactored.
                     await (async () => {
+                        const svc_cleanEmail = req.services.get('clean-email');
+                        const clean_email = svc_cleanEmail.clean(user.email);
                         // If other users have the same CONFIRMED email, display an error
                         const maybe_rows = await db.read(
                             `SELECT EXISTS(
-                                SELECT 1 FROM user WHERE email=?
+                                SELECT 1 FROM user WHERE (email=? OR clean_email=?)
                                 AND email_confirmed=1
                                 AND password IS NOT NULL
-                            ) AS email_exists`
+                            ) AS email_exists`,
+                            [user.email, clean_email]
                         );
                         if ( maybe_rows[0]?.email_exists ) {
                             // TODO: maybe display the username of that account

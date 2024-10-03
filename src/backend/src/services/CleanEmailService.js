@@ -60,7 +60,7 @@ class CleanEmailService extends BaseService {
         this.domain_nondistinct = this.constructor.DOMAIN_NONDISTINCT;
     }
 
-    clean_email (email) {
+    clean (email) {
         const eml = (() => {
             const [local, domain] = email.split('@');
             return { local, domain };
@@ -117,7 +117,7 @@ class CleanEmailService extends BaseService {
         ];
 
         for ( const { email, expected } of cases ) {
-            const cleaned = this.clean_email(email);
+            const cleaned = this.clean(email);
             assert.equal(cleaned, expected, `clean_email(${email}) === ${expected}`);
         }
     }

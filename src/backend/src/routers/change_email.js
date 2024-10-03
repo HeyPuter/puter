@@ -53,10 +53,13 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
         throw APIError.create('token_invalid');
     }
 
+    const svc_cleanEmail = req.services.get('clean-email');
+    const clean_email = svc_cleanEmail.clean(rows[0].unconfirmed_change_email);
+
     // Scenario: email was confirmed on another account already
     const rows2 = await db.read(
-        'SELECT `id` FROM `user` WHERE `email` = ?',
-        [rows[0].unconfirmed_change_email]
+        'SELECT `id` FROM `user` WHERE `email` = ? OR `clean_email` = ?',
+        [rows[0].unconfirmed_change_email, clean_email]
     );
     if ( rows2.length > 0 ) {
         throw APIError.create('email_already_in_use');
@@ -71,8 +74,8 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
     const new_email = rows[0].unconfirmed_change_email;
 
     await db.write(
-        'UPDATE `user` SET `email` = ?, `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL, `pass_recovery_token` = NULL WHERE `id` = ?',
-        [new_email, user_id]
+        'UPDATE `user` SET `email` = ?, `clean_email` = ?, `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL, `pass_recovery_token` = NULL WHERE `id` = ?',
+        [new_email, clean_email, user_id]
     );
 
     invalidate_cached_user_by_id(user_id);

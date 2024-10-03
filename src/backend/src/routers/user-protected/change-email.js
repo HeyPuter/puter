@@ -45,12 +45,15 @@ module.exports = {
             throw APIError.create('field_invalid', null, {
                 key: 'new_email', expected: 'a valid email address' });
         }
+
+        const svc_cleanEmail = req.services.get('clean-email');
+        const clean_email = svc_cleanEmail.clean(new_email);
         
         // check if email is already in use
         const db = req.services.get('database').get(DB_WRITE, 'auth');
         const rows = await db.read(
-            'SELECT COUNT(*) AS `count` FROM `user` WHERE `email` = ?',
-            [new_email]
+            'SELECT COUNT(*) AS `count` FROM `user` WHERE (`email` = ? OR `clean_email` = ?) AND `email_confirmed` = 1',
+            [new_email, clean_email]
         );
         if ( rows[0].count > 0 ) {
             throw APIError.create('email_already_in_use', null, { email: new_email });

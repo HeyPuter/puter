@@ -8,9 +8,7 @@
   an email already exists on an account with a confirmed email.
   Then, upon confirming the update, Ensure that in the meanwhile no
   new account came up with that email set.
-  
-NEXT: figure out where email change is handled on backend
-(prior to confirmation) and see what checks are performed.
+- ensure `clean_email` is updated whenever the email is updated
 
 ### Email duplicate check on confirmation
 
@@ -67,3 +65,10 @@ When does `pseudo_user` have an email?
   was already confirmed since the time the link was sent, we need to display
   an error message to the user.
 
+### Find places where (on backend) email change process is triggered
+
+Right now there are two handlers:
+- `/user-protected/change-email` (UserProtectedEndpointsService)
+  - Invokes the process (sends confirmation email)
+- `/change_email/confirm` (PuterAPIService)
+  - Endpoint that the email link points to
