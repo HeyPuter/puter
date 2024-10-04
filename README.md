@@ -53,6 +53,9 @@ npm start
 
 This will launch Puter at http://puter.localhost:4100 (or the next available port).
 
+If this does not work, see [First Run Issues](./doc/first-run-issues.md) for
+troubleshooting steps.
+
 <br/>
 
 ### 🐳 Docker
