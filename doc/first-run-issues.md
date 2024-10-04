@@ -16,7 +16,8 @@ Scenario: You see the following output:
 ```
 
 1. Ensure you have run `npm install`.
-2. [Install build essentials for your distro](#installing-build-essentials)
+2. [Install build essentials for your distro](#installing-build-essentials),
+   then run `npm install` again.
 
 ## Installing Build Essentials
 
