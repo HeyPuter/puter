@@ -1984,7 +1984,9 @@ let streamToUint8Array = async function(blob) {
 }
 
 window.zipItems = async function(el_items, targetDirPath, download = true) {
-    const zip = new JSZip();
+    const zip_operation_id = window.operation_id++;
+    window.operation_cancelled[zip_operation_id] = false;
+    let terminateOp = () => {}
 
     // if single item, convert to array
     el_items = Array.isArray(el_items) ? el_items : [el_items];
@@ -1992,44 +1994,70 @@ window.zipItems = async function(el_items, targetDirPath, download = true) {
     // create progress window
     let start_ts = Date.now();
     let progwin, progwin_timeout;
-    // only show progress window if it takes longer than 500ms to download
+    // only show progress window if it takes longer than 500ms
     progwin_timeout = setTimeout(async () => {
-        progwin = await UIWindowProgress();
+        progwin = await UIWindowProgress({
+            title: i18n('zip'),
+            icon: window.icons[`app-icon-uploader.svg`],
+            operation_id: zip_operation_id,
+            show_progress: true,
+            on_cancel: () => {
+                window.operation_cancelled[zip_operation_id] = true;
+                terminateOp();
+            },
+        });
+        progwin?.set_status(i18n('zip', 'Selection(s)'));
     }, 500);
 
-    for (const el_item of el_items) {
+    let toBeZipped = {};
+    
+    let perItemAdditionProgress = window.zippingProgressConfig.SEQUENCING / el_items.length;
+    let currentProgress = 0;
+    for (let idx = 0; idx < el_items.length; idx++) {
+        const el_item = el_items[idx];
+        if(window.operation_cancelled[zip_operation_id]) return;
         let targetPath = $(el_item).attr('data-path');
+
         // if directory, zip the directory
         if($(el_item).attr('data-is_dir') === '1'){
-            progwin?.set_status(i18n('reading_file', targetPath));
+            progwin?.set_status(i18n('reading', path.basename(targetPath)));
             // Recursively read the directory
             let children = await readDirectoryRecursive(targetPath);
 
             // Add files to the zip
-            for (const child of children) {
+            for (let cIdx = 0; cIdx < children.length; cIdx++) {
+                const child = children[cIdx];
                 let relativePath;
                 if(el_items.length === 1)
                     relativePath = child.relativePath;
                 else
                     relativePath = path.basename(targetPath) + '/' + child.relativePath;
-
-                // update progress window
-                progwin?.set_status(i18n('zipping_file', relativePath));
                 
                 // read file content
+                progwin?.set_status(i18n('sequencing', child.relativePath));
                 let content = await puter.fs.read(child.path);
                 try{
-                    zip.file(relativePath, content, {binary: true});
+                    toBeZipped = {
+                        ...toBeZipped,
+                        [relativePath]: [await streamToUint8Array(content), {level: 9}]
+                    }
                 }catch(e){
                     console.error(e);
                 }
+                currentProgress += perItemAdditionProgress / children.length;
+                progwin?.set_progress(currentProgress.toPrecision(2));
             }
-
         }
-        // if item is a file, zip the file
+        // if item is a file, add the file to be zipped
         else{
-            let content = await puter.fs.read(targetPath);
-            zip.file(path.basename(targetPath), content, {binary: true});
+            progwin?.set_status(i18n('reading', path.basename($(el_items[0]).attr('data-path'))));
+            let content = await puter.fs.read(targetPath)
+            toBeZipped = {
+                ...toBeZipped,
+                [path.basename(targetPath)]: [await streamToUint8Array(content), {level: 9}]
+            }
+            currentProgress += perItemAdditionProgress;
+            progwin?.set_progress(currentProgress.toPrecision(2));
         }
     }
 
@@ -2040,15 +2068,28 @@ window.zipItems = async function(el_items, targetDirPath, download = true) {
     else
         zipName = 'Archive';
 
-    // Generate the zip file
-    zip.generateAsync({ type: "blob" })
-        .then(async function (content) {
+    progwin?.set_status(i18n('zipping', zipName + ".zip"));
+    progwin?.set_progress(currentProgress.toPrecision(2));
+    terminateOp = fflate.zip(toBeZipped, { level: 9 }, async (err, zippedContents)=>{
+        currentProgress += window.zippingProgressConfig.ZIPPING;
+        if(err) {
+            // close progress window
+            clearTimeout(progwin_timeout);
+            setTimeout(() => {
+                progwin?.close();
+            }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
+            // handle errors
+            // TODO: Display in progress dialog
+            console.error("Error in zipping files: ", err);
+        } else {
+            let zippedBlob = new Blob([new Uint8Array(zippedContents, zippedContents.byteOffset, zippedContents.length)]);
+            
             // Trigger the download
             if(download){
-                const url = URL.createObjectURL(content);
+                const url = URL.createObjectURL(zippedBlob);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = zipName;
+                a.download = zipName+".zip";
                 document.body.appendChild(a);
                 a.click();
 
@@ -2057,26 +2098,21 @@ window.zipItems = async function(el_items, targetDirPath, download = true) {
                 URL.revokeObjectURL(url);
             }
             // save
-            else
-                await puter.fs.write(targetDirPath + '/' + zipName + ".zip", content, {overwrite: false, dedupeName: true})
+            else {
+                progwin?.set_status(i18n('writing', zipName + ".zip"));
+                currentProgress += window.zippingProgressConfig.WRITING;
+                progwin?.set_progress(currentProgress.toPrecision(2));
+                await puter.fs.write(targetDirPath + '/' + zipName + ".zip", zippedBlob, { overwrite: false, dedupeName: true })
+                progwin?.set_progress(window.zippingProgressConfig.TOTAL);
+            }
 
             // close progress window
             clearTimeout(progwin_timeout);
             setTimeout(() => {
                 progwin?.close();
-            }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
-        })
-        .catch(function (err) {
-            // close progress window
-            clearTimeout(progwin_timeout);
-            setTimeout(() => {
-                progwin?.close();
-            }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
-
-            // handle errors
-            // TODO: Display in progress dialog
-            console.error("Error in zipping files: ", err);
-        });
+            }, Math.max(0, window.zip_progress_hide_delay - (Date.now() - start_ts)));
+        }
+    });
 }
 
 async function readDirectoryRecursive(path, baseDir = '') {
