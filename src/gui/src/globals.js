@@ -109,6 +109,7 @@ window.taskbar_height = window.default_taskbar_height;
 window.upload_progress_hide_delay = 500;
 window.active_uploads = {};
 window.copy_progress_hide_delay = 1000;
+window.zip_progress_hide_delay = 2000;
 window.busy_indicator_hide_delay = 600;
 window.global_element_id = 0;
 window.operation_id = 0;
@@ -125,6 +126,17 @@ window.desktop_loading_fade_delay = (window.first_visit_ever && window.first_vis
 window.watchItems = [];
 window.appdata_signatures = {};
 window.appCallbackFunctions = [];
+
+// Defines how much weight each operation has in the zipping progress
+window.zippingProgressConfig = {
+    TOTAL: 100
+}
+//Assuming uInt8Array conversion a file takes betwneen 45% to 60% of the total progress
+window.zippingProgressConfig.SEQUENCING = Math.floor(Math.random() * (60 - 45 + 1)) + 45,
+//Assuming zipping up uInt8Arrays takes betwneen 23% to 20% of the total progress
+window.zippingProgressConfig.ZIPPING = Math.floor(Math.random() * (23 - 20 + 1)) + 20,
+//Assuming writing a zip file takes betwneen 14% to 10% of the total progress
+window.zippingProgressConfig.WRITING = Math.floor(Math.random() * (14 - 10 + 1)) + 14,
 
 // 'Launch' apps
 window.launch_apps = [];
