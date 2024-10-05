@@ -1959,6 +1959,29 @@ window.checkUserSiteRelationship = async function(origin) {
     }
 }
 
+// Converts a Blob to a Uint8Array [local helper module]
+let streamToUint8Array = async function(blob) {
+    const totalLength = blob.size;
+    const reader = blob.stream().getReader();
+    let chunks = [];
+    let receivedLength = 0;
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        chunks.push(value);
+        receivedLength += value.length;
+    }
+    let uint8Array = new Uint8Array(receivedLength);
+    let position = 0;
+
+    for (let chunk of chunks) {
+        uint8Array.set(chunk, position);
+        position += chunk.length;
+    }
+    return uint8Array;
+}
 
 window.zipItems = async function(el_items, targetDirPath, download = true) {
     const zip = new JSZip();
