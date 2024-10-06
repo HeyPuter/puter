@@ -31,7 +31,6 @@ const lib_paths =[
     `/lib/timeago.min.js`,
     `/lib/iro.min.js`,
     `/lib/isMobile.min.js`,
-    `/lib/jszip-3.10.1.min.js`,
     `/lib/fflate-0.8.2.min.js`,
 ]
 
