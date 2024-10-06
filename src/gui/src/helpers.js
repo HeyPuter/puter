@@ -2184,7 +2184,8 @@ window.unzipItem = async function(itemPath) {
     }, 500);
 
     let filePath = itemPath;
-    
+
+    let file = await blobToUint8Array(await puter.fs.read(filePath));    
 }
 
 window.rename_file = async(options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, is_undo = false)=>{
