@@ -2205,6 +2205,7 @@ window.unzipItem = async function(itemPath) {
                 } else {
                     fileName = fileItem;
                 }
+                fileName != "" && await puter.fs.write(rootdir.path + '/' + fileItem, fileData);
             });
         }
     });
