@@ -133,9 +133,9 @@ window.zippingProgressConfig = {
 }
 //Assuming uInt8Array conversion a file takes betwneen 45% to 60% of the total progress
 window.zippingProgressConfig.SEQUENCING = Math.floor(Math.random() * (60 - 45 + 1)) + 45,
-//Assuming zipping up uInt8Arrays takes betwneen 23% to 20% of the total progress
+//Assuming zipping up uInt8Arrays takes betwneen 20% to 23% of the total progress
 window.zippingProgressConfig.ZIPPING = Math.floor(Math.random() * (23 - 20 + 1)) + 20,
-//Assuming writing a zip file takes betwneen 14% to 10% of the total progress
+//Assuming writing a zip file takes betwneen 10% to 14% of the total progress
 window.zippingProgressConfig.WRITING = Math.floor(Math.random() * (14 - 10 + 1)) + 14,
 
 // 'Launch' apps
