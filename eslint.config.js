@@ -72,6 +72,7 @@ export default [
                 "iro": true,            // iro.js color picker
                 "$": true,              // jQuery
                 "jQuery": true,         // jQuery
+                "fflate": true,         // fflate
                 "_": true,              // lodash
                 "QRCode": true,         // qrcode
                 "io": true,             // socket.io
