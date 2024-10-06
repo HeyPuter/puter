@@ -1960,7 +1960,7 @@ window.checkUserSiteRelationship = async function(origin) {
 }
 
 // Converts a Blob to a Uint8Array [local helper module]
-async function streamToUint8Array(blob) {
+async function blobToUint8Array(blob) {
     const totalLength = blob.size;
     const reader = blob.stream().getReader();
     let chunks = [];
@@ -2039,7 +2039,7 @@ window.zipItems = async function(el_items, targetDirPath, download = true) {
                 try{
                     toBeZipped = {
                         ...toBeZipped,
-                        [relativePath]: [await streamToUint8Array(content), {level: 9}]
+                        [relativePath]: [await blobToUint8Array(content), {level: 9}]
                     }
                 }catch(e){
                     console.error(e);
@@ -2054,7 +2054,7 @@ window.zipItems = async function(el_items, targetDirPath, download = true) {
             let content = await puter.fs.read(targetPath)
             toBeZipped = {
                 ...toBeZipped,
-                [path.basename(targetPath)]: [await streamToUint8Array(content), {level: 9}]
+                [path.basename(targetPath)]: [await blobToUint8Array(content), {level: 9}]
             }
             currentProgress += perItemAdditionProgress;
             progwin?.set_progress(currentProgress.toPrecision(2));
