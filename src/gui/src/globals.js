@@ -110,6 +110,7 @@ window.upload_progress_hide_delay = 500;
 window.active_uploads = {};
 window.copy_progress_hide_delay = 1000;
 window.zip_progress_hide_delay = 2000;
+window.unzip_progress_hide_delay = 2000;
 window.busy_indicator_hide_delay = 600;
 window.global_element_id = 0;
 window.operation_id = 0;
