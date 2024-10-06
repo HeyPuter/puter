@@ -2187,7 +2187,14 @@ window.unzipItem = async function(itemPath) {
 
     let file = await blobToUint8Array(await puter.fs.read(filePath));
     terminateOp = fflate.unzip(file, async (err, unzipped) => {
-        
+        if(err) {
+            UIAlert(e.message);
+            // close progress window
+            clearTimeout(progwin_timeout);
+            setTimeout(() => {
+                progwin?.close();
+            }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
+        }
     });
 }
 
