@@ -2148,12 +2148,25 @@ window.sleep = function(ms){
 }
 
 window.unzipItem = async function(itemPath) {
+    const unzip_operation_id = window.operation_id++;
+    window.operation_cancelled[unzip_operation_id] = false;
+    let terminateOp = () => {};
     // create progress window
     let start_ts = Date.now();
     let progwin, progwin_timeout;
     // only show progress window if it takes longer than 500ms to download
     progwin_timeout = setTimeout(async () => {
-        progwin = await UIWindowProgress();
+        progwin = await UIWindowProgress({
+            title: i18n('unzip'),
+            icon: window.icons[`app-icon-uploader.svg`],
+            operation_id: unzip_operation_id,
+            show_progress: true,
+            on_cancel: () => {
+                window.operation_cancelled[unzip_operation_id] = true;
+                terminateOp();
+            },
+        });
+        progwin?.set_status(i18n('unzip', 'Selection'));
     }, 500);
 
     const zip = new JSZip();
