@@ -1201,11 +1201,11 @@ function UIItem(options){
                     html: i18n('unzip'),
                     onClick: async function(){
                         const zip = new JSZip();
-                        let filPath = $(el_item).attr('data-path');
+                        let filePath = $(el_item).attr('data-path');
                         let file = puter.fs.read($(el_item).attr('data-path'));
 
                         zip.loadAsync(file).then(async function (zip) {
-                            const rootdir = await puter.fs.mkdir(path.dirname(filPath) + '/' + path.basename(filPath, '.zip'), {dedupeName: true});
+                            const rootdir = await puter.fs.mkdir(path.dirname(filePath) + '/' + path.basename(filePath, '.zip'), {dedupeName: true});
                             Object.keys(zip.files).forEach(async function (filename) {
                                 if(filename.endsWith('/'))
                                     await puter.fs.mkdir(rootdir.path +'/' + filename, {createMissingParents: true});
