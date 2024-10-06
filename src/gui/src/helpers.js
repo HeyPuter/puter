@@ -2027,22 +2027,32 @@ window.zipItems = async function(el_items, targetDirPath, download = true) {
             // Add files to the zip
             for (let cIdx = 0; cIdx < children.length; cIdx++) {
                 const child = children[cIdx];
-                let relativePath;
-                if(el_items.length === 1)
-                    relativePath = child.relativePath;
-                else
-                    relativePath = path.basename(targetPath) + '/' + child.relativePath;
                 
-                // read file content
-                progwin?.set_status(i18n('sequencing', child.relativePath));
-                let content = await puter.fs.read(child.path);
-                try{
+                if (!child.relativePath) {
+                    // Add empty directiories to the zip
                     toBeZipped = {
                         ...toBeZipped,
-                        [relativePath]: [await blobToUint8Array(content), {level: 9}]
+                        [path.basename(child.path)+"/"]: [await blobToUint8Array(new Blob()), { level: 9 }]
                     }
-                }catch(e){
-                    console.error(e);
+                } else {
+                    // Add files from directory to the zip
+                    let relativePath;
+                    if (el_items.length === 1)
+                        relativePath = child.relativePath;
+                    else
+                        relativePath = path.basename(targetPath) + '/' + child.relativePath;
+
+                    // read file content
+                    progwin?.set_status(i18n('sequencing', child.relativePath));
+                    let content = await puter.fs.read(child.path);
+                    try {
+                        toBeZipped = {
+                            ...toBeZipped,
+                            [relativePath]: [await blobToUint8Array(content), { level: 9 }]
+                        }
+                    } catch (e) {
+                        console.error(e);
+                    }
                 }
                 currentProgress += perItemAdditionProgress / children.length;
                 progwin?.set_progress(currentProgress.toPrecision(2));
@@ -2121,16 +2131,20 @@ async function readDirectoryRecursive(path, baseDir = '') {
     // Read the directory
     const entries = await puter.fs.readdir(path);
 
-    // Process each entry
-    for (const entry of entries) {
-        const fullPath = `${path}/${entry.name}`;
-        if (entry.is_dir) {
-            // If entry is a directory, recursively read it
-            const subDirFiles = await readDirectoryRecursive(fullPath, `${baseDir}${entry.name}/`);
-            allFiles = allFiles.concat(subDirFiles);
-        } else {
-            // If entry is a file, add it to the list
-            allFiles.push({ path: fullPath, relativePath: `${baseDir}${entry.name}` });
+    if (entries.length === 0) {
+        allFiles.push({ path });
+    } else {
+        // Process each entry
+        for (const entry of entries) {
+            const fullPath = `${path}/${entry.name}`;
+            if (entry.is_dir) {
+                // If entry is a directory, recursively read it
+                const subDirFiles = await readDirectoryRecursive(fullPath, `${baseDir}${entry.name}/`);
+                allFiles = allFiles.concat(subDirFiles);
+            } else {
+                // If entry is a file, add it to the list
+                allFiles.push({ path: fullPath, relativePath: `${baseDir}${entry.name}` });
+            }
         }
     }
 
