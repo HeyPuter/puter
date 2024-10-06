@@ -1200,24 +1200,8 @@ function UIItem(options){
                 menu_items.push({
                     html: i18n('unzip'),
                     onClick: async function(){
-                        const zip = new JSZip();
                         let filePath = $(el_item).attr('data-path');
-                        let file = puter.fs.read($(el_item).attr('data-path'));
-
-                        zip.loadAsync(file).then(async function (zip) {
-                            const rootdir = await puter.fs.mkdir(path.dirname(filePath) + '/' + path.basename(filePath, '.zip'), {dedupeName: true});
-                            Object.keys(zip.files).forEach(async function (filename) {
-                                if(filename.endsWith('/'))
-                                    await puter.fs.mkdir(rootdir.path +'/' + filename, {createMissingParents: true});
-                                zip.files[filename].async('blob').then(async function (fileData) {
-                                    await puter.fs.write(rootdir.path +'/' + filename, fileData);
-                                }).catch(function (e) {
-                                    // UIAlert(e.message);
-                                })
-                            })
-                        }).catch(function (e) {
-                            // UIAlert(e.message);
-                        })
+                        window.unzipItem(filePath)
                     }
                 })
             }
