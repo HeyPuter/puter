@@ -1960,7 +1960,7 @@ window.checkUserSiteRelationship = async function(origin) {
 }
 
 // Converts a Blob to a Uint8Array [local helper module]
-let streamToUint8Array = async function(blob) {
+async function streamToUint8Array(blob) {
     const totalLength = blob.size;
     const reader = blob.stream().getReader();
     let chunks = [];
