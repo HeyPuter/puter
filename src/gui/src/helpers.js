@@ -2183,35 +2183,8 @@ window.unzipItem = async function(itemPath) {
         progwin?.set_status(i18n('unzip', 'Selection'));
     }, 500);
 
-    const zip = new JSZip();
-    let filPath = itemPath;
-    let file = puter.fs.read(filPath);
-
-    zip.loadAsync(file).then(async function (zip) {
-        const rootdir = await puter.fs.mkdir(path.dirname(filPath) + '/' + path.basename(filPath, '.zip'), {dedupeName: true});
-        Object.keys(zip.files).forEach(async function (filename) {
-            if(filename.endsWith('/'))
-                await puter.fs.mkdir(rootdir.path +'/' + filename, {createMissingParents: true});
-            zip.files[filename].async('blob').then(async function (fileData) {
-                await puter.fs.write(rootdir.path +'/' + filename, fileData);
-            }).catch(function (e) {
-                // UIAlert(e.message);
-            })
-        })
-        // close progress window
-        clearTimeout(progwin_timeout);
-        setTimeout(() => {
-            progwin?.close();
-        }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
-
-    }).catch(function (e) {
-        // UIAlert(e.message);
-        // close progress window
-        clearTimeout(progwin_timeout);
-        setTimeout(() => {
-            progwin?.close();
-        }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
-    })
+    let filePath = itemPath;
+    
 }
 
 window.rename_file = async(options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, is_undo = false)=>{
