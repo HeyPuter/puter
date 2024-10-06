@@ -2194,6 +2194,18 @@ window.unzipItem = async function(itemPath) {
             setTimeout(() => {
                 progwin?.close();
             }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
+        } else {
+            const rootdir = await puter.fs.mkdir(path.dirname(filePath) + '/' + path.basename(filePath, '.zip'), { dedupeName: true });
+            Object.keys(unzipped).forEach(async (fileItem) => {
+                let dirLevel, fileName;
+                let fileData = new Blob([new Uint8Array(unzipped[fileItem], unzipped[fileItem].byteOffset, unzipped[fileItem].length)]);
+                if (fileItem.includes("/")) {
+                    [dirLevel, fileName] = [fileItem.slice(0, fileItem.lastIndexOf("/")), fileItem.slice(fileItem.lastIndexOf("/") + 1)]
+                    await puter.fs.mkdir(rootdir.path + '/' + dirLevel, { createMissingParents: true });
+                } else {
+                    fileName = fileItem;
+                }
+            });
         }
     });
 }
