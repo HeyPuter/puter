@@ -304,6 +304,7 @@ const en = {
         undo: 'Undo',
         unlimited: 'Unlimited',
         unzip: "Unzip",
+        unzipping: "Unzipping %strong%",
         upload: 'Upload',
         upload_here: 'Upload here',
         usage: 'Usage',
