@@ -18,7 +18,7 @@
  */
 const APIError = require("../../api/APIError");
 const { chkperm } = require("../../helpers");
-const { TYPE_DIRECTORY } = require("../FSNodeContext");
+const { TYPE_DIRECTORY, TYPE_SYMLINK } = require("../FSNodeContext");
 const { LLListUsers } = require("../ll_operations/ll_listusers");
 const { LLReadDir } = require("../ll_operations/ll_readdir");
 const { LLReadShares } = require("../ll_operations/ll_readshares");
@@ -26,10 +26,21 @@ const { HLFilesystemOperation } = require("./definitions");
 
 class HLReadDir extends HLFilesystemOperation {
     async _run () {
-        const { subject, user, no_thumbs, no_assocs, actor } = this.values;
+        const { subject: subject_let, user, no_thumbs, no_assocs, actor } = this.values;
+        let subject = subject_let;
 
         if ( ! await subject.exists() ) {
             throw APIError.create('subject_does_not_exist');
+        }
+
+        if ( await subject.get('type') === TYPE_SYMLINK ) {
+            const { context } = this;
+            const svc_acl = context.get('services').get('acl');
+            if ( ! await svc_acl.check(actor, subject, 'read') ) {
+                throw await svc_acl.get_safe_acl_error(actor, subject, 'read');
+            }
+            const target = await subject.getTarget();
+            subject = target;
         }
 
         if ( await subject.get('type') !== TYPE_DIRECTORY ) {

@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require("../../api/APIError");
+const { TYPE_SYMLINK } = require("../FSNodeContext");
 const { RootNodeSelector } = require("../node/selectors");
 const { NodeUIDSelector, NodeChildSelector } = require("../node/selectors");
 const { LLFilesystemOperation } = require("./definitions");
@@ -24,7 +25,8 @@ const { LLFilesystemOperation } = require("./definitions");
 class LLReadDir extends LLFilesystemOperation {
     async _run () {
         const { context } = this;
-        const { subject, user, actor, no_acl } = this.values;
+        const { subject: subject_let, user, actor, no_acl } = this.values;
+        let subject = subject_let;
 
         if ( ! await subject.exists() ) {
             throw APIError.create('subject_does_not_exist');
@@ -35,6 +37,18 @@ class LLReadDir extends LLFilesystemOperation {
             if ( ! await svc_acl.check(actor, subject, 'list') ) {
                 throw await svc_acl.get_safe_acl_error(actor, subject, 'list');
             }
+        }
+
+        // TODO: DRY ACL check here
+        const subject_type = await subject.get('type');
+        if ( subject_type === TYPE_SYMLINK ) {
+            const target = await subject.getTarget();
+            if ( ! no_acl ) {
+                if ( ! await svc_acl.check(actor, target, 'list') ) {
+                    throw await svc_acl.get_safe_acl_error(actor, target, 'list');
+                }
+            }
+            subject = target;
         }
 
         const subject_uuid = await subject.get('uid');
