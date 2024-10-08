@@ -20,19 +20,15 @@ cd -
 
 echo -e "\x1B[36;1m<<< Building Twisp >>>\x1B[0m"
 
-cd submodules/twisp
+pwd
+cd submodules/epoxy-tls/server
 
-RUSTFLAGS="-C target-feature=+crt-static" cargo build \
-    --release \
-    --target i686-unknown-linux-gnu \
-    `# TODO: what are default features?` \
-    --no-default-features
+RUSTFLAGS="-C target-feature=+crt-static" cargo +nightly b -F twisp -r --target i686-unknown-linux-gnu; 
 
 echo -e "\x1B[36;1m<<< Preparing to Build Imag >>>\x1B[0m"
 
 cd -
-
-cp submodules/twisp/target/i686-unknown-linux-gnu/release/twisp \
+cp submodules/epoxy-tls/target/i686-unknown-linux-gnu/release/epoxy-server \
     src/emulator/image/assets/
 
 echo -e "\x1B[36;1m<<< Building Image >>>\x1B[0m"
