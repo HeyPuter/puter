@@ -24,7 +24,7 @@ const UserParam = require("../../api/filesystem/UserParam");
 const config = require("../../config");
 const { chkperm, validate_fsentry_name } = require("../../helpers");
 const { TeePromise } = require("../../util/promise");
-const { pausing_tee, logging_stream, offset_write_stream } = require("../../util/streamutil");
+const { pausing_tee, logging_stream, offset_write_stream, stream_to_the_void } = require("../../util/streamutil");
 const { TYPE_DIRECTORY } = require("../FSNodeContext");
 const { LLRead } = require("../ll_operations/ll_read");
 const { RootNodeSelector, NodePathSelector } = require("../node/selectors");
@@ -299,7 +299,7 @@ class HLWrite extends HLFilesystemOperation {
         this.checkpoint('before thumbnail');
 
         let thumbnail_promise = new TeePromise();
-        let thumbnail; (async () => {
+        (async () => {
             const reason = await (async () => {
                 const { mime } = this.modules;
                 const thumbnails = context.get('services').get('thumbnails');
@@ -324,7 +324,13 @@ class HLWrite extends HLFilesystemOperation {
                     return { ...values.file, stream: thumbnail_stream };
                 })();
 
-                thumbnail = await thumbnails.thumbify(thumb_file);
+                let thumbnail;
+                try {
+                    thumbnail = await thumbnails.thumbify(thumb_file);
+                } catch (e) {
+                    stream_to_the_void(thumb_file.stream);
+                    return 'thumbnail error: ' + e.message;
+                }
                 thumbnail_promise.resolve(thumbnail);
             })();
             if ( reason ) {

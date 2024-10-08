@@ -219,6 +219,7 @@ const install = async ({ services, app, useapi }) => {
     services.registerService('counting', ConfigurableCountingService);
     services.registerService('thumbnails', StrategizedService, {
         strategy_key: 'engine',
+        default_strategy: 'purejs',
         strategies: {
             napi: [NAPIThumbnailService],
             purejs: [PureJSThumbnailService],
