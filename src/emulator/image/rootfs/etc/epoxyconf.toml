@@ -1,0 +1,12 @@
+[server]
+bind = "/dev/hvc0"
+socket = "file"
+transport = "lengthdelimitedle"
+file_raw_mode = true # maybe?
+
+[stream]
+allow_twisp = true
+
+[wisp]
+wisp_v2 = true
+buffer_size = 4294967295

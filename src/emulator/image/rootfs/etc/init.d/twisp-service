@@ -1,11 +1,13 @@
 #!/sbin/openrc-run
 
-description="twisp daemon"
-command="/bin/twisp"
-command_args="--pty /dev/hvc0"
-pidfile="/var/run/twisp.pid"
+description="Epoxy Daemon"
+command="/bin/epoxy-server"
+command_args="/etc/epoxyconf.toml"
 command_background="yes"
+pidfile="/var/run/twisp.pid"
 start_stop_daemon_args="--background --make-pidfile"
+output_log="/dev/ttyS0"
+error_log="/dev/ttyS0"
 
 depend() {
     need localmount

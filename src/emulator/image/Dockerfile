@@ -22,8 +22,8 @@ COPY rootfs/ /
 COPY basic-boot /etc/init.d/
 RUN chmod +x /etc/init.d/basic-boot
 
-COPY assets/twisp /bin/twisp
-RUN chmod u+x /bin/twisp
+COPY assets/epoxy-server /bin/epoxy-server
+RUN chmod u+x /bin/epoxy-server
 RUN rc-update add twisp-service default
 
 RUN rc-update add debug-service default
