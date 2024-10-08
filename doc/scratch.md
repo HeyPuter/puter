@@ -70,7 +70,6 @@ await (async () => {
       },
     ];
 
-    const blob = new Blob(["12345678"], { type: 'text/plain' });
     const formData = new FormData();
     for ( const op of ops ) {
       formData.append('operation', JSON.stringify(op));
