@@ -1995,7 +1995,13 @@ $(document).on('input change keyup keypress keydown paste cut', '.search', funct
         $('.search-clear').show();
         // show apps that match search_query and hide apps that don't
         apps.forEach((app) => {
-            if (app.title.toLowerCase().includes(search_query.toLowerCase())) {
+            if (
+                app.title.toLowerCase().includes(search_query.toLowerCase())
+                || app.name.toLowerCase().includes(search_query.toLowerCase())
+                || app.description.toLowerCase().includes(search_query.toLowerCase())
+                || app.uid.toLowerCase().includes(search_query.toLowerCase())
+            )
+            {
                 $(`.app-card[data-name="${app.name}"]`).show();
             } else {
                 $(`.app-card[data-name="${app.name}"]`).hide();
