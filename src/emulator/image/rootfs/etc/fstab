@@ -1,0 +1,3 @@
+/dev/cdrom      /media/cdrom    iso9660 noauto,ro 0 0
+/dev/usbdisk    /media/usb      vfat    noauto,ro 0 0
+puterfs         /puter          9p      defaults  0 0

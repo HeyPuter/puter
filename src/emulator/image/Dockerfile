@@ -73,6 +73,7 @@ RUN echo '%wheel ALL=(ALL) ALL' > /etc/sudoers.d/wheel
 
 # CLI Configuration
 # -- install powerlevel10k
+RUN mkdir /puter
 RUN mkdir /repos
 # RUN git clone --depth=1 https://github.com/romkatv/powerlevel10k.git /repos/powerlevel10k
 # RUN echo "source /repos/powerlevel10k/powerlevel10k.zsh-theme" >> /root/.zshrc
