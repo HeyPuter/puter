@@ -156,7 +156,7 @@ window.addEventListener('message', async (event) => {
     //--------------------------------------------------------
     else if(event.data.msg === 'ALERT' && event.data.message !== undefined){
         const alert_resp = await UIAlert({
-            message: html_encode(event.data.message),
+            message: event.data.message,
             buttons: event.data.buttons,
             type: event.data.options?.type,
             window_options: {

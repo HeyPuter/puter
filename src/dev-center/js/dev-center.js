@@ -157,6 +157,9 @@ function refresh_app_list(show_loading = false) {
         $('#loading').show();
     // get apps
     setTimeout(function () {
+        // uncheck the select all checkbox
+        $('.select-all-apps').prop('checked', false);
+
         puter.apps.list().then((apps_res) => {
             $('#loading').hide();
             apps = apps_res;
@@ -342,8 +345,22 @@ $(document).on('click', '.delete-app', async function (e) {
     let app_title = $(this).attr('data-app-title');
     let app_name = $(this).attr('data-app-name');
 
+    // get app
+    const app_data = await puter.apps.get(app_name);
+
+    if(app_data.metadata?.locked){
+        puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
+            {
+                label: 'Ok',
+            },
+        ], {
+            type: 'warning',
+        });
+        return;
+    }
+
     // confirm delete
-    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete "${html_encode(app_title)}"?`,
+    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(app_title)}</strong>?`,
         [
             {
                 label: 'Yes, delete permanently',
@@ -360,8 +377,7 @@ $(document).on('click', '.delete-app', async function (e) {
         let init_ts = Date.now();
         $('.deleting-app-modal')?.get(0)?.showModal();
         puter.apps.delete(app_name).then(async (app) => {
-            setTimeout(
-                () => {
+                setTimeout(() => {
                     $('.deleting-app-modal')?.get(0)?.close();
                     $(`.app-card[data-uid="${app_uid}"]`).fadeOut(200, function name(params) {
                         $(this).remove();
@@ -375,8 +391,8 @@ $(document).on('click', '.delete-app', async function (e) {
                         count_apps();
                     });
                 },
-                // make sure the modal was shown for at least 2 seconds
-                (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
+                    // make sure the modal was shown for at least 2 seconds
+                    (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
 
                 // get app directory
                 puter.fs.stat({
@@ -401,8 +417,8 @@ $(document).on('click', '.delete-app', async function (e) {
                         },
                     ]);
                 },
-                // make sure the modal was shown for at least 2 seconds
-                (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
+                    // make sure the modal was shown for at least 2 seconds
+                    (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
             })
     }
 })
@@ -543,6 +559,13 @@ function generate_edit_app_section(app) {
                 <div style="margin-top:30px;">
                     <input type="checkbox" id="edit-app-hide-titlebar" name="edit-app-hide-titlebar" value="true" ${app.metadata?.hide_titlebar ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
                     <label for="edit-app-hide-titlebar" style="display: inline;">Hide window titlebar</label>
+                </div>
+
+                <h3 style="border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Misc</h3>
+                <div style="margin-top:30px;">
+                    <input type="checkbox" id="edit-app-locked" name="edit-app-locked" value="true" ${app.metadata?.locked ? 'checked' : ''}>
+                    <label for="edit-app-locked" style="display: inline;">Locked</label>
+                    <p>When locked, the app cannot be deleted. This is useful to prevent accidental deletion of important apps.</p>
                 </div>
 
                 <hr style="margin-top: 40px;">
@@ -938,6 +961,7 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
             },
             window_resizable: $('#edit-app-window-resizable').is(":checked"),
             hide_titlebar: $('#edit-app-hide-titlebar').is(":checked"),
+            locked: $(`#edit-app-locked`).is(":checked") ?? false,
         },
         filetypeAssociations: filetype_associations,
     }).then(async (app) => {
@@ -994,8 +1018,22 @@ $(document).on('click', '.delete-app-settings', async function (e) {
     let app_name = $(this).attr('data-app-name');
     let app_title = $(this).attr('data-app-title');
 
+    // check if app is locked
+    const app_data = await puter.apps.get(app_name);
+
+    if(app_data.metadata?.locked){
+        puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
+            {
+                label: 'Ok',
+            },
+        ], {
+            type: 'warning',
+        });
+        return;
+    }
+
     // confirm delete
-    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete "${html_encode(app_title)}"?`,
+    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(app_title)}</strong>?`,
         [
             {
                 label: 'Yes, delete permanently',
@@ -1058,6 +1096,9 @@ $(document).on('click', '.back-to-main-btn', function (e) {
     $('#loading').show();
     setTimeout(function () {
         puter.apps.list().then((apps_res) => {
+            // uncheck the select all checkbox
+            $('.select-all-apps').prop('checked', false);
+
             $('#loading').hide();
             apps = apps_res;
             if (apps.length > 0) {
@@ -1186,7 +1227,7 @@ function generate_app_card(app) {
     // App info
     h += `<td style="height: 60px; width: 450px; display: flex; flex-direction: row; overflow:hidden;">`;
     // Icon
-    h += `<div class="got-to-edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}" style="background-position: center; background-repeat: no-repeat; background-size: 92%; background-image:url(${app.icon === null ? './img/app.svg' : app.icon}); width: 60px; height: 60px; float:left; margin-bottom: -14px; color: #414b56; cursor: pointer; background-color: white; border-radius: 3px; flex-shrink:0;"></div>`;
+    h += `<div class="got-to-edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-locked="${html_encode(app.metadata?.locked)}" data-app-uid="${html_encode(app.uid)}" style="background-position: center; background-repeat: no-repeat; background-size: 92%; background-image:url(${app.icon === null ? './img/app.svg' : app.icon}); width: 60px; height: 60px; float:left; margin-bottom: -14px; color: #414b56; cursor: pointer; background-color: white; border-radius: 3px; flex-shrink:0;"></div>`;
     // Info
     h += `<div style="float:left; padding-left: 10px;">`;
     // Title
@@ -1362,7 +1403,9 @@ function sort_apps() {
     sorted_apps.forEach(app => {
         $('#app-list-table > tbody').append(generate_app_card(app));
     });
+
     count_apps();
+
     // show apps that match search_query and hide apps that don't
     if (search_query) {
         // show apps that match search_query and hide apps that don't
@@ -1788,7 +1831,7 @@ $(document).on('click', '.add-app-to-desktop', function (e) {
             overwrite: false,
             appUID: app_uid,
         }).then(async (uploaded) => {
-            puter.ui.alert(`"${app_title}" shortcut has been added to your desktop.`, [
+            puter.ui.alert(`<strong>${app_title}</strong> shortcut has been added to your desktop.`, [
                 {
                     label: 'Ok',
                     type: 'primary',
@@ -1909,7 +1952,9 @@ $('.refresh-app-list').on('click', function (e) {
             apps.forEach(app => {
                 $('#app-list-table > tbody').append(generate_app_card(app));
             });
+
             count_apps();
+
             // preserve search query
             if (search_query) {
                 // show apps that match search_query and hide apps that don't
@@ -2011,7 +2056,7 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
 
     if (resp === 'delete') {
         // disable delete button
-        $('.delete-apps-btn').addClass('disabled');
+        // $('.delete-apps-btn').addClass('disabled');
 
         // show 'deleting' modal
         $('.deleting-app-modal')?.get(0)?.showModal();
@@ -2024,6 +2069,43 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
             // get app uid
             const app_uid = $(app).attr('data-app-uid');
             const app_name = $(app).attr('data-app-name');
+
+            // get app
+            const app_data = await puter.apps.get(app_name);
+
+            if(app_data.metadata?.locked){
+                if(apps.length === 1){
+                    puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
+                        {
+                            label: 'Ok',
+                        },
+                    ], {
+                        type: 'warning',
+                    });
+
+                    break;
+                }
+
+                let resp = await puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
+                    {
+                        label: 'Skip and Continue',
+                        value: 'Continue',
+                        type: 'primary'
+                    },
+                    {
+                        label: 'Cancel',
+                    },
+                ], {
+                    type: 'warning',
+                });
+
+                if(resp === 'Cancel')
+                    break;
+                else if(resp === 'Continue')
+                    continue;
+                else
+                    continue;
+            }
 
             // delete app 
             await puter.apps.delete(app_name)
@@ -2065,13 +2147,13 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
         // close 'deleting' modal
         setTimeout(() => {
             $('.deleting-app-modal')?.get(0)?.close();
-            // uncheck all checkboxes
-            $('.app-checkbox').prop('checked', false);
-            // disable delete button
-            $('.delete-apps-btn').addClass('disabled');
-            // reset the 'select all' checkbox
-            $('.select-all-apps').prop('indeterminate', false);
-            $('.select-all-apps').prop('checked', false);
+            if($('.app-checkbox:checked').length === 0){
+                // disable delete button
+                $('.delete-apps-btn').addClass('disabled');
+                // reset the 'select all' checkbox
+                $('.select-all-apps').prop('indeterminate', false);
+                $('.select-all-apps').prop('checked', false);
+            }
         }, (start_ts - Date.now()) > 500 ? 0 : 500);
     }
 })
