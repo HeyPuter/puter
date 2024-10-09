@@ -5,6 +5,7 @@ description="Run Essential Boot Scripts"
 start() {
   ebegin "Running Essential Boot Scripts"
   mount / -o remount,rw
+  mount /puter
   eend $?
 }
 
