@@ -1,6 +1,6 @@
 [submodule "submodules/v86"]
 	path = submodules/v86
-	url = git@github.com:copy/v86.git
+	url = git@github.com:HeyPuter/v86.git
 [submodule "submodules/twisp"]
 	path = submodules/twisp
 	url = git@github.com:MercuryWorkshop/twisp.git
