@@ -287,10 +287,11 @@ window.onload = async function()
         status.phase_progress = UPDATE_ONLY;
     }, 200);
         
-
+    console.log("starting v86")
     var emulator = window.emulator = new V86({
         wasm_path: PATH_V86 + "/v86.wasm",
         memory_size: 512 * 1024 * 1024,
+        filesystem: { fs: puter.fs },
         vga_memory_size: 2 * 1024 * 1024,
         screen_container: document.getElementById("screen_container"),
         bios: {
