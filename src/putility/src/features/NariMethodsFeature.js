@@ -52,7 +52,14 @@ module.exports = {
             instance._.nariMethods[method_name] = bound_fn;
 
             instance[method_name] = async (...args) => {
-                const endArgsIndex = spec.positional.length;
+                const endArgsIndex = (() => {
+                    if ( spec.firstarg_options ) {
+                        if ( typeof args[0] === 'object' ) {
+                            return 0;
+                        }
+                    }
+                    return spec.positional.length;
+                })();
                 const posArgs = args.slice(0, endArgsIndex);
                 const endArgs = args.slice(endArgsIndex);
 
@@ -71,11 +78,15 @@ module.exports = {
                 if ( typeof endArgs[0] === 'function' ) {
                     callbacks.success = endArgs[0];
                     endArgs.shift();
+                } else if ( options.success ) {
+                    callbacks.success = options.success;
                 }
 
                 if ( typeof endArgs[0] === 'function' ) {
                     callbacks.error = endArgs[0];
                     endArgs.shift();
+                } else if ( options.error ) {
+                    callbacks.error = options.error;
                 }
 
                 if ( spec.separate_options ) {
