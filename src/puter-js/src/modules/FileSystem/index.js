@@ -15,6 +15,7 @@ import sign from "./operations/sign.js";
 import deleteFSEntry from "./operations/deleteFSEntry.js";
 import { ProxyFilesystem, PuterAPIFilesystem, TFilesystem } from './definitions.js';
 import { AdvancedBase } from '../../../../putility/index.js';
+import { CachedFilesystem } from './CacheFS.js';
 
 export class PuterJSFileSystemModule extends AdvancedBase {
 
@@ -34,12 +35,14 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     static NARI_METHODS = {
         stat: {
             positional: ['path'],
-            fn (parameters) {
+            firstarg_options: true,
+            async fn (parameters) {
                 return this.filesystem.stat(parameters);
             }
         },
         readdir: {
             positional: ['path'],
+            firstarg_options: true,
             fn (parameters) {
                 return this.filesystem.readdir(parameters);
             }
@@ -75,6 +78,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
         // Construct the decorator chain for the client-side filesystem.
         let fs = new PuterAPIFilesystem({ api_info }).as(TFilesystem);
+        fs = new CachedFilesystem({ delegate: fs }).as(TFilesystem);
         fs = new ProxyFilesystem({ delegate: fs }).as(TFilesystem);
         this.filesystem = fs;
     }
