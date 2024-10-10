@@ -1,8 +1,6 @@
 import io from '../../lib/socket.io/socket.io.esm.min.js';
 
 // Operations
-import readdir from "./operations/readdir.js";
-import stat from "./operations/stat.js";
 import space from "./operations/space.js";
 import mkdir from "./operations/mkdir.js";
 import copy from "./operations/copy.js";
@@ -15,11 +13,11 @@ import sign from "./operations/sign.js";
 // Why is this called deleteFSEntry instead of just delete? because delete is 
 // a reserved keyword in javascript
 import deleteFSEntry from "./operations/deleteFSEntry.js";
+import { ProxyFilesystem, PuterAPIFilesystem, TFilesystem } from './definitions.js';
+import { AdvancedBase } from '../../../../putility/index.js';
 
-class FileSystem{
+export class PuterJSFileSystemModule extends AdvancedBase {
 
-    readdir = readdir;
-    stat = stat;
     space = space;
     mkdir = mkdir;
     copy = copy;
@@ -33,6 +31,21 @@ class FileSystem{
     write = write;
     sign = sign;
 
+    static NARI_METHODS = {
+        stat: {
+            positional: ['path'],
+            fn (parameters) {
+                return this.filesystem.stat(parameters);
+            }
+        },
+        readdir: {
+            positional: ['path'],
+            fn (parameters) {
+                return this.filesystem.readdir(parameters);
+            }
+        },
+    }
+
     /**
      * Creates a new instance with the given authentication token, API origin, and app ID,
      * and connects to the socket.
@@ -43,12 +56,29 @@ class FileSystem{
      * @param {string} appID - ID of the app to use.
      */
     constructor (authToken, APIOrigin, appID) {
+        super();
         this.authToken = authToken;
         this.APIOrigin = APIOrigin;
         this.appID = appID;
         // Connect socket.
         this.initializeSocket();
+
+        // We need to use `Object.defineProperty` instead of passing
+        // `authToken` and `APIOrigin` because they will change.
+        const api_info = {};
+        Object.defineProperty(api_info, 'authToken', {
+            get: () => this.authToken,
+        });
+        Object.defineProperty(api_info, 'APIOrigin', {
+            get: () => this.APIOrigin,
+        });
+
+        // Construct the decorator chain for the client-side filesystem.
+        let fs = new PuterAPIFilesystem({ api_info }).as(TFilesystem);
+        fs = new ProxyFilesystem({ delegate: fs }).as(TFilesystem);
+        this.filesystem = fs;
     }
+
 
     /**
      * Initializes the socket connection to the server using the current API origin.
@@ -136,5 +166,3 @@ class FileSystem{
         this.initializeSocket();
     }
 }
-
-export default FileSystem;

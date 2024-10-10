@@ -1,5 +1,5 @@
 import OS from './modules/OS.js';
-import FileSystem from './modules/FileSystem/index.js';
+import { PuterJSFileSystemModule } from './modules/FileSystem/index.js';
 import Hosting from './modules/Hosting.js';
 import Email from './modules/Email.js';
 import Apps from './modules/Apps.js';
@@ -203,7 +203,7 @@ window.puter = (function() {
                              new OS(this.authToken, this.APIOrigin, this.appID, this.env));
             // FileSystem
             this.registerModule('fs',
-                             new FileSystem(this.authToken, this.APIOrigin, this.appID, this.env));
+                             new PuterJSFileSystemModule(this.authToken, this.APIOrigin, this.appID, this.env));
             // UI
             this.registerModule('ui',
                              new UI(this.appInstanceID, this.parentInstanceID, this.appID, this.env, this.util));
