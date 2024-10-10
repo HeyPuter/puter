@@ -299,7 +299,9 @@ class HLWrite extends HLFilesystemOperation {
         this.checkpoint('before thumbnail');
 
         let thumbnail_promise = new TeePromise();
-        (async () => {
+        if ( await destination.isAppDataDirectory() ) {
+            thumbnail_promise.resolve(undefined);
+        } else (async () => {
             const reason = await (async () => {
                 const { mime } = this.modules;
                 const thumbnails = context.get('services').get('thumbnails');
