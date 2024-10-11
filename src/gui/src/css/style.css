@@ -840,6 +840,7 @@ span.header-sort-icon img {
 .window-menubar-item {
     padding: calc(1.4 * var(--scale)) 0;
     font-size: calc(5 * var(--scale));
+    overflow: hidden !important;
 }
 
 .window-menubar-item span {
