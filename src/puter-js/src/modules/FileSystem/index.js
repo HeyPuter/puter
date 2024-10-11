@@ -77,10 +77,18 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         });
 
         // Construct the decorator chain for the client-side filesystem.
-        let fs = new PuterAPIFilesystem({ api_info }).as(TFilesystem);
-        fs = new CachedFilesystem({ delegate: fs }).as(TFilesystem);
-        fs = new ProxyFilesystem({ delegate: fs }).as(TFilesystem);
-        this.filesystem = fs;
+        this.fs_nocache_ = new PuterAPIFilesystem({ api_info }).as(TFilesystem);
+        this.fs_cache_ = new CachedFilesystem({ delegate: this.fs_nocache_ }).as(TFilesystem);
+        // this.filesystem = this.fs_nocache;
+        this.fs_proxy_ = new ProxyFilesystem({ delegate: this.fs_nocache_ });
+        this.filesystem = this.fs_proxy_.as(TFilesystem);
+    }
+
+    cache_on () {
+        this.fs_proxy_.delegate = this.fs_cache_;
+    }
+    cache_off () {
+        this.fs_proxy_.delegate = this.fs_nocache_;
     }
 
 
