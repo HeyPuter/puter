@@ -87,9 +87,9 @@ RUN echo "export LC_ALL=en_US.UTF-8" >> /root/.bashrc
 RUN echo "export LC_ALL=en_US.UTF-8" >> /root/.zshrc
 
 # RUN echo "source /repos/powerlevel10k/powerlevel10k.zsh-theme" >> /home/puter-user/.zshrc
-RUN echo "export PS1='(\$?) [\u@puter:\$(basename \$(tty)) \$(prompt-path)] \\033[36;1m❯\\033[0m '" >> /root/.bashrc
+RUN echo "export PS1='(\$?) [\u@puter:\$(basename \$(tty)) \w] \\033[36;1m❯\\033[0m '" >> /root/.bashrc
 RUN echo "setopt PROMPT_SUBST" >> /root/.zshrc
-RUN echo "export PROMPT='(%?) [%n@puter:\$(basename \$(tty)) \$(prompt-path)] ❯ '" >> /root/.zshrc
+RUN echo "export PROMPT='(%?) [%n@puter:\$(basename \$(tty)) %~] ❯ '" >> /root/.zshrc
 
 RUN echo "/etc/puter-motd" >> /root/.bashrc
 RUN echo "/etc/puter-motd" >> /root/.zshrc
