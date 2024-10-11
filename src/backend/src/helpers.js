@@ -276,6 +276,9 @@ async function refresh_associations_cache(){
     for ( const association of associations ) {
         let ext = association.type;
         if ( ext.startsWith('.') ) ext = ext.slice(1);
+        // Default file association entries were added with empty types;
+        // this prevents those from showing up.
+        if ( ext === '' ) continue;
         if ( ! lists.hasOwnProperty(ext) ) lists[ext] = [];
         lists[ext].push(association.app_id);
     }
