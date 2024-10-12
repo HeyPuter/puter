@@ -1,5 +1,6 @@
 module.exports = {
-    install_in_instance: (instance, { parameters }) => {
+    // old implementation
+    install_in_instance_: (instance, { parameters }) => {
         const impls = instance._get_merged_static_object('IMPLEMENTS');
         
         instance._.impls = {};
@@ -17,4 +18,28 @@ module.exports = {
         instance.as = trait_name => instance._.impls[trait_name];
         instance.list_traits = () => Object.keys(instance._.impls);
     },
+
+    // new implementation
+    install_in_instance: (instance, { parameters }) => {
+        const chain = instance._get_inheritance_chain();
+        instance._.impls = {};
+        
+        instance.as = trait_name => instance._.impls[trait_name];
+        instance.list_traits = () => Object.keys(instance._.impls);
+
+        for ( const cls of chain ) {
+            const cls_traits = cls.IMPLEMENTS;
+            if ( ! cls_traits ) continue;
+            for ( const trait_name in cls_traits ) {
+                const impl = instance._.impls[trait_name] ??
+                    (instance._.impls[trait_name] = {});
+                const cls_impl = cls_traits[trait_name];
+
+                for ( const method_name in cls_impl ) {
+                    const fn = cls_impl[method_name];
+                    impl[method_name] = fn.bind(instance);
+                }
+            }
+        }
+    }
 };

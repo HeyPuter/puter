@@ -354,8 +354,10 @@ window.onload = async function()
         },
         // bzimage_initrd_from_filesystem: true,
         autostart: true,
-
-        network_relay_url: "wisp://127.0.0.1:3000",
+        net_device: {
+            relay_url: "wisp://127.0.0.1:3000",
+            type: "virtio"
+        },
         virtio_console: true,
     });
 

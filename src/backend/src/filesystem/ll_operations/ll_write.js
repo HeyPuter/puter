@@ -231,9 +231,10 @@ class LLCWrite extends LLWriteBase {
             file, tmp, fsentry_tmp,
             message,
 
-            actor,
+            actor: actor_let,
             app_id,
         } = this.values;
+        let actor = actor_let;
 
         const svc = Context.get('services');
         const sizeService = svc.get('sizeService');
@@ -260,6 +261,7 @@ class LLCWrite extends LLWriteBase {
         }
 
         const svc_acl = this.context.get('services').get('acl');
+        actor = actor ?? Actor.adapt(user) ?? Context.get('actor');
         if ( ! await svc_acl.check(actor, parent, 'write') ) {
             throw await svc_acl.get_safe_acl_error(actor, parent, 'write');
         }

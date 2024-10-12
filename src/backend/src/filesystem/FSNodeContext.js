@@ -164,6 +164,18 @@ module.exports = class FSNodeContext {
         if ( this.found === false ) return undefined;
         return ! this.entry.parent_uid;
     }
+
+    async isAppDataDirectory () {
+        if ( this.isRoot ) return false;
+        if ( this.found === undefined ) {
+            await this.fetchEntry();
+        }
+        if ( this.isRoot ) return false;
+
+        const components = await this.getPathComponents();
+        if ( components.length < 2 ) return false;
+        return components[1] === 'AppData';
+    }
     
     async isPublic () {
         if ( this.isRoot ) return false;
@@ -175,7 +187,19 @@ module.exports = class FSNodeContext {
     
     async getPathComponents () {
         if ( this.isRoot ) return [];
-        
+
+        // We can get path components for non-existing nodes if they
+        // have a path selector
+        if ( ! await this.exists() ) {
+            if ( this.selector instanceof NodePathSelector ) {
+                let path = this.selector.value;
+                if ( path.startsWith('/') ) path = path.slice(1);
+                return path.split('/');
+            }
+
+            // TODO: add support for NodeChildSelector as well
+        }
+
         let path = await this.get('path');
         if ( path.startsWith('/') ) path = path.slice(1);
         return path.split('/');

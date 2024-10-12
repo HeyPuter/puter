@@ -98,6 +98,116 @@ class Lock {
     }
 }
 
+class RWLock {
+    static TYPE_READ = Symbol('read');
+    static TYPE_WRITE = Symbol('write');
+
+    constructor () {
+        this.queue = [];
+
+        this.readers_ = 0;
+        this.writer_ = false;
+
+        this.on_empty_ = () => {};
+
+        this.mode = this.constructor.TYPE_READ;
+    }
+    get effective_mode () {
+        if ( this.readers_ > 0 ) return this.constructor.TYPE_READ;
+        if ( this.writer_ ) return this.constructor.TYPE_WRITE;
+        return undefined;
+    }
+    push_ (item) {
+        if ( this.readers_ === 0 && ! this.writer_ ) {
+            this.mode = item.type;
+        }
+        this.queue.push(item);
+        this.check_queue_();
+    }
+    check_queue_ () {
+        // console.log('check_queue_', {
+        //     readers_: this.readers_,
+        //     writer_: this.writer_,
+        //     queue: this.queue.map(item => item.type),
+        // });
+        if ( this.queue.length === 0 ) {
+            if ( this.readers_ === 0 && ! this.writer_ ) {
+                this.on_empty_();
+            }
+            return;
+        }
+
+        const peek = () => this.queue[0];
+
+        if ( this.readers_ === 0 && ! this.writer_ ) {
+            this.mode = peek().type;
+        }
+
+        if ( this.mode === this.constructor.TYPE_READ ) {
+            while ( peek()?.type === this.constructor.TYPE_READ ) {
+                const item = this.queue.shift();
+                this.readers_++;
+                (async () => {
+                    await item.p_unlock;
+                    this.readers_--;
+                    this.check_queue_();
+                })();
+                item.p_operation.resolve();
+            }
+            return;
+        }
+
+        if ( this.writer_ ) return;
+
+        const item = this.queue.shift();
+        this.writer_ = true;
+        (async () => {
+            await item.p_unlock;
+            this.writer_ = false;
+            this.check_queue_();
+        })();
+        item.p_operation.resolve();
+    }
+    async rlock () {
+        const p_read = new TeePromise();
+        const p_unlock = new TeePromise();
+        const handle = {
+            unlock: () => {
+                p_unlock.resolve();
+            }
+        };
+
+        this.push_({
+            type: this.constructor.TYPE_READ,
+            p_operation: p_read,
+            p_unlock,
+        });
+        await p_read;
+
+        return handle;
+    }
+
+    async wlock () {
+        const p_write = new TeePromise();
+        const p_unlock = new TeePromise();
+        const handle = {
+            unlock: () => {
+                p_unlock.resolve();
+            }
+        };
+
+        this.push_({
+            type: this.constructor.TYPE_WRITE,
+            p_operation: p_write,
+            p_unlock,
+        });
+        await p_write;
+
+        return handle;
+    }
+
+}
+
 /**
  * @callback behindScheduleCallback
  * @param {number} drift - The number of milliseconds that the callback was
@@ -166,6 +276,7 @@ const raceCase = async (promise_map) => {
 module.exports = {
     TeePromise,
     Lock,
+    RWLock,
     asyncSafeSetInterval,
     raceCase,
 };

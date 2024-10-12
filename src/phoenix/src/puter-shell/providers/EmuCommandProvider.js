@@ -165,7 +165,7 @@ export class EmuCommandProvider {
         const decoder = new TextDecoder();
         emu.on('message', message => {
             if (message.$ === 'stdout') {
-                ctx.externs.out.write(decoder.decode(message.data));
+                ctx.externs.out.write(decoder.decode(message.data, {stream: true}));
             }
             if (message.$ === 'chtermios') {
                 if ( message.termios.echo !== undefined ) {
