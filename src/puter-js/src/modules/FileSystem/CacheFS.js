@@ -4,7 +4,7 @@ import { ProxyFilesystem, TFilesystem } from "./definitions";
 import { uuidv4 } from "../../lib/utils";
 
 export const ROOT_UUID = '00000000-0000-0000-0000-000000000000';
-const TTL = 10 * 1000;
+const TTL = 5 * 1000;
 
 export class CacheFS extends putility.AdvancedBase {
     static PROPERTIES = {

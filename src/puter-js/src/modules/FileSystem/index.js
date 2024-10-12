@@ -82,7 +82,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         // this.filesystem = this.fs_nocache;
         this.fs_proxy_ = new ProxyFilesystem({ delegate: this.fs_nocache_ });
         this.filesystem = this.fs_proxy_.as(TFilesystem);
-        this.fs_proxy_.delegate = this.fs_cache_;
+        // this.fs_proxy_.delegate = this.fs_cache_;
     }
 
     cache_on () {
