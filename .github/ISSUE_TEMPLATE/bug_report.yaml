@@ -44,9 +44,9 @@ body:
       description: Select on which deployment(s) you encountered the bug
       options:
         - label: Production (puter.com)
-        - Development (`npm run start`)
-        - Docker (via `docker run`)
-        - Docker (via `docker-compose`)
+        - label: Development (`npm run start`)
+        - label: Docker (via `docker run`)
+        - label: Docker (via `docker-compose`)
       validations:
         required: true
   - type: input
