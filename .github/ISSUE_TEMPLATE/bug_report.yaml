@@ -47,8 +47,8 @@ body:
         - label: Development (`npm run start`)
         - label: Docker (via `docker run`)
         - label: Docker (via `docker-compose`)
-      validations:
-        required: true
+    validations:
+      required: true
   - type: input
     id: version
     attributes:
