@@ -39,7 +39,11 @@ const readdir = async function (...args) {
         // set up event handlers for load and error events
         utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
 
-        xhr.send(JSON.stringify({path: getAbsolutePathForApp(options.path)}));
+        xhr.send(JSON.stringify({
+            path: getAbsolutePathForApp(options.path),
+            no_thumbs: options.no_thumbs,
+            no_assocs: options.no_assocs,
+        }));
     })
 }
 
