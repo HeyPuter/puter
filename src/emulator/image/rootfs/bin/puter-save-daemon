@@ -1,0 +1,3 @@
+#!/bin/bash
+
+inotifyd /bin/puter-save /etc:cdDw

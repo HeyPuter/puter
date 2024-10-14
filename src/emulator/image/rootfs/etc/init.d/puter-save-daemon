@@ -1,0 +1,15 @@
+#!/sbin/openrc-run
+
+description="Puter Save Daemon"
+command="/bin/puter-save-daemon"
+command_args=""
+command_background="yes"
+pidfile="/var/run/puter-save-daemon.pid"
+start_stop_daemon_args="--background --make-pidfile"
+output_log="/dev/ttyS0"
+error_log="/dev/ttyS0"
+
+depend() {
+    need localmount
+    after bootmisc
+}
