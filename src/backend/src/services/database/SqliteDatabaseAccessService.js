@@ -129,6 +129,9 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [25, [
                 '0028_clean-email.sql',
             ]],
+            [26, [
+                '0029_emulator_priv.sql',
+            ]],
         ];
 
         // Database upgrade logic
