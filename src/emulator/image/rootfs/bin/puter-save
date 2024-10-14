@@ -1,0 +1,4 @@
+#!/bin/bash
+
+PUTERUSERNAME=$( cat /proc/cmdline | sed -n 's/.*puterusername=\(.*\)/\1/p' )
+lbu package - > /puter/$PUTERUSERNAME/emulatorstate.apkovl.tar.gz

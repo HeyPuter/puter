@@ -308,7 +308,7 @@ window.onload = async function()
             url: './image/build/boot/vmlinuz-virt',
             async: false
         },
-        cmdline: 'rw root=/dev/sda init=/sbin/init rootfstype=ext4',
+        cmdline: 'rw root=/dev/sda init=/sbin/init rootfstype=ext4 puterusername=' + (await puter.getUser()).username,
         // cmdline: 'rw root=/dev/sda init=/bin/bash rootfstype=ext4',
         // cmdline: "rw init=/sbin/init root=/dev/sda rootfstype=ext4",
         // cmdline: "rw init=/sbin/init root=/dev/sda rootfstype=ext4 random.trust_cpu=on 8250.nr_uarts=10 spectre_v2=off pti=off mitigations=off",

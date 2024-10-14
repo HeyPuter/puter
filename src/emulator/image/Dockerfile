@@ -6,7 +6,7 @@ RUN  apk add --update \
         gcc make gcompat musl-dev libx11-dev xinit \
         bind-tools \
         util-linux \
-        htop vim nano \
+        htop vim nano jq \
     && \
     setup-xorg-base xhost xterm xcalc xdotool xkill || true && \
     setup-devd udev || true && \
@@ -16,6 +16,18 @@ RUN  apk add --update \
     chsh -s /bin/bash
 
 RUN apk add neofetch
+# programming language tools
+RUN apk add --no-cache \
+    nodejs npm \
+    php \
+    perl \
+    go
+
+# Fun packages
+RUN apk add cowsay --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing/
+
+# Shell
+RUN apk add zsh sudo git libgit2
 
 COPY rootfs/ /
     
@@ -24,19 +36,16 @@ RUN chmod +x /etc/init.d/basic-boot
 
 COPY assets/epoxy-server /bin/epoxy-server
 RUN chmod u+x /bin/epoxy-server
+
+RUN chmod +x /etc/init.d/puter-save-daemon
+
 RUN rc-update add twisp-service default
+RUN rc-update add puter-save-daemon default
 
 RUN rc-update add debug-service default
 
 RUN chmod +x /etc/init.d/network-service
 RUN rc-update add network-service default
-
-# programming language tools
-RUN apk add --no-cache \
-    nodejs npm \
-    php \
-    perl \
-    go
 
 # RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 # ENV PATH="/root/.cargo/bin:${PATH}"
@@ -56,12 +65,6 @@ RUN \
     rc-update add mount-ro shutdown && \
     rc-update add killprocs shutdown && \
     rc-update add savecache shutdown
-
-# Fun packages
-RUN apk add cowsay --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing/
-
-# Shell
-RUN apk add zsh sudo git libgit2
 
 RUN mkdir /root/Downloads
 
@@ -96,5 +99,10 @@ RUN echo "/etc/puter-motd" >> /root/.zshrc
 
 RUN cp /root/.zshrc /home/puter-user/.zshrc
 RUN cp /root/.bashrc /home/puter-user/.bashrc
+
+RUN chmod +x /bin/puter-save
+RUN chmod +x /bin/puter-save-daemon
+RUN chmod +x /bin/puter-restore
+RUN chmod +x /etc/apk/commit_hooks.d/puter.sh
 
 RUN bash
