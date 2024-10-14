@@ -95,8 +95,6 @@ module.exports = {
                     Object.assign(parameters, options);
                 }
 
-                console.log('parameters being passed', parameters);
-
                 let retval;
                 try {
                     retval = await bound_fn(parameters);
