@@ -13,9 +13,10 @@ import sign from "./operations/sign.js";
 // Why is this called deleteFSEntry instead of just delete? because delete is 
 // a reserved keyword in javascript
 import deleteFSEntry from "./operations/deleteFSEntry.js";
-import { ProxyFilesystem, PuterAPIFilesystem, TFilesystem } from './definitions.js';
+import { ProxyFilesystem, TFilesystem } from './definitions.js';
 import { AdvancedBase } from '../../../../putility/index.js';
 import { CachedFilesystem } from './CacheFS.js';
+import { PuterAPIFilesystem } from './APIFS.js';
 
 export class PuterJSFileSystemModule extends AdvancedBase {
 
