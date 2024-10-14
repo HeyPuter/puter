@@ -385,7 +385,7 @@ router.all('*', async function(req, res, next) {
     else if(subdomain === 'viewer' || subdomain === 'editor' ||  subdomain === 'about' || subdomain === 'docs' ||
             subdomain === 'player' || subdomain === 'pdf' || subdomain === 'code' || subdomain === 'markus' ||
             subdomain === 'draw' || subdomain === 'camera' || subdomain === 'recorder' ||
-            subdomain === 'dev-center' || subdomain === 'terminal'){
+            subdomain === 'dev-center' || subdomain === 'terminal' || subdomain === 'developer'){
 
         let root = PathBuilder
             .add(__dirname)
