@@ -1,4 +1,14 @@
 #!/bin/bash
 
+if [ -f /var/puter-save ]; then
+    PID=$(</var/puter-save)
+    if [ -d /proc/$PID/ ]; then
+        echo save already in progress 
+        exit
+    fi
+fi
+
+echo -n $$ > /var/puter-save
 PUTERUSERNAME=$( cat /proc/cmdline | sed -n 's/.*puterusername=\(.*\)/\1/p' )
 lbu package - > /puter/$PUTERUSERNAME/emulatorstate.apkovl.tar.gz
+rm /var/puter-save
