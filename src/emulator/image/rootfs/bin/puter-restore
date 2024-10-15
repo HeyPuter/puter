@@ -1,7 +1,8 @@
 #!/bin/bash
 PUTERUSERNAME=$( cat /proc/cmdline | sed -n 's/.*puterusername=\(.*\)/\1/p' )
 
-echo > /tmp/restore-in-progress
+touch /tmp/restore-in-progress
 tar -C / -zxvf /puter/$PUTERUSERNAME/emulatorstate.apkovl.tar.gz # no worries if this errors, its just the first boot
 apk add --no-cache $(cat /etc/apk/world) 
 rm /tmp/restore-in-progress
+touch /tmp/puter-restore-done
