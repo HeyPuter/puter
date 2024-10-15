@@ -167,6 +167,12 @@ class ACLService extends BaseService {
         return APIError.create('forbidden');
     }
 
+    // If any logic depends on knowledge of the highest ACL mode, it should use
+    // this method in case a higher mode is added (ex: might add 'config' mode)
+    get_highest_mode () {
+        return 'write';
+    }
+
     // TODO: DRY: Also in FilesystemService
     _higher_modes (mode) {
         // If you want to X, you can do so with any of [...Y]

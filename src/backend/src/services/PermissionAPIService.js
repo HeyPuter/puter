@@ -36,6 +36,12 @@ class PermissionAPIService extends BaseService {
         app.use(require('../routers/auth/grant-user-group'));
         app.use(require('../routers/auth/revoke-user-group'));
         app.use(require('../routers/auth/list-permissions'))
+
+        Endpoint(
+            require('../routers/auth/check-app-acl.endpoint.js'),
+        ).but({
+            route: '/auth/check-app-acl',
+        }).attach(app);
         
         // track: scoping iife
         const r_group = (() => {
