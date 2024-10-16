@@ -11,5 +11,5 @@ module.exports = [
     "timeago.min.js",
     "iro.min.js",
     "isMobile.min.js",
-    "jszip-3.10.1.min.js"
+    "fflate-0.8.2.min.js"
 ];
