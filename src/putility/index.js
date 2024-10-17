@@ -18,9 +18,13 @@
  */
 const { AdvancedBase } = require('./src/AdvancedBase');
 const { Service } = require('./src/concepts/Service');
+const { ServiceManager } = require('./src/system/ServiceManager');
 
 module.exports = {
     AdvancedBase,
+    system: {
+        ServiceManager,
+    },
     libs: {
         promise: require('./src/libs/promise'),
         context: require('./src/libs/context'),
