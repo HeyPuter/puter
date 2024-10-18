@@ -27,6 +27,7 @@ class AdvancedBase extends FeatureBase {
         require('./features/PropertiesFeature'),
         require('./features/TraitsFeature'),
         require('./features/NariMethodsFeature'),
+        require('./features/TopicsFeature'),
     ]
 }
 

@@ -26,6 +26,7 @@ module.exports = {
         
         instance.as = trait_name => instance._.impls[trait_name];
         instance.list_traits = () => Object.keys(instance._.impls);
+        instance.mixin = (name, impl) => instance._.impls[name] = impl;
 
         for ( const cls of chain ) {
             const cls_traits = cls.IMPLEMENTS;

@@ -17,9 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// DEPRECATED: use putility.libs.listener instead
+const { FeatureBase } = require("../bases/FeatureBase");
+const { TDetachable } = require("../traits/traits");
 
-class MultiDetachable {
+// NOTE: copied from src/backend/src/util/listenerutil.js,
+//       which is now deprecated.
+
+class MultiDetachable extends FeatureBase {
+    static FEATURES = [
+        require('../features/TraitsFeature'),
+    ];
+
     constructor() {
         this.delegates = [];
         this.detached_ = false;
@@ -34,16 +42,25 @@ class MultiDetachable {
         this.delegates.push(delegate);
     }
     
-    detach () {
-        this.detached_ = true;
-        for ( const delegate of this.delegates ) {
-            delegate.detach();
+    static IMPLEMENTS = {
+        [TDetachable]: {
+            detach () {
+                this.detached_ = true;
+                for ( const delegate of this.delegates ) {
+                    delegate.detach();
+                }
+            }
         }
     }
 }
 
-class AlsoDetachable {
+class AlsoDetachable extends FeatureBase {
+    static FEATURES = [
+        require('../features/TraitsFeature'),
+    ];
+
     constructor () {
+        super();
         this.also = () => {};
     }
 
@@ -51,10 +68,14 @@ class AlsoDetachable {
         this.also = also;
         return this;
     }
-    
-    detach () {
-        this.detach_();
-        this.also();
+
+    static IMPLEMENTS = {
+        [TDetachable]: {
+            detach () {
+                this.detach_();
+                this.also();
+            }
+        }
     }
 }
 
@@ -62,15 +83,16 @@ class AlsoDetachable {
 class RemoveFromArrayDetachable extends AlsoDetachable {
     constructor (array, element) {
         super();
-        this.array = array;
+        this.array = new WeakRef(array);
         this.element = element;
     }
     
     detach_ () {
-        for ( let i=0; i < 10; i++ ) console.log('THIS DOES GET CALLED');
-        const index = this.array.indexOf(this.element);
+        const array = this.array.deref();
+        if ( ! array ) return;
+        const index = array.indexOf(this.element);
         if ( index !== -1 ) {
-            this.array.splice(index, 1);
+            array.splice(index, 1);
         }
     }
 }
