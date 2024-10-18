@@ -3596,6 +3596,7 @@ fieldset[name=number-code] {
     border-right: 1px solid #e0e0e0;
     padding: 20px;
     position: relative;
+    margin-top: 1px;
 }
 
 .settings-sidebar-item {
