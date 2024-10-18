@@ -66,7 +66,7 @@ class ServiceManager extends AdvancedBase {
 
     async maybe_init_ (name) {
         const entry = this.services_m_[name];
-        const depends = entry.instance.get_depends();
+        const depends = entry.instance.as(TService).get_depends();
         const waiting_for = [];
         for ( const depend of depends ) {
             const depend_entry = this.services_m_[depend];

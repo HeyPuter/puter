@@ -16,6 +16,10 @@ module.exports = {
 
         instance.mixin(TTopics, {
             pub: (k, v) => {
+                if ( k.includes('!') ) {
+                    throw new Error(
+                        '"!" in event name reserved for future use');
+                }
                 const topic = instance._.topics[k];
                 if ( ! topic ) {
                     console.warn('missing topic: ' + topic);

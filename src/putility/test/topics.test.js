@@ -1,3 +1,4 @@
+const { expect } = require('chai');
 const { AdvancedBase } = require("../src/AdvancedBase");
 const { TTopics, TDetachable } = require("../src/traits/traits");
 
@@ -14,7 +15,7 @@ describe('topics', () => {
             static IMPLEMENTS = {
                 [TPunchable]: {
                     punch () {
-                        this.as(TTopics).pub('punched!', {
+                        this.as(TTopics).pub('punched', {
                             information: 'about the punch',
                             in_whatever: 'format you desire',
                         });
