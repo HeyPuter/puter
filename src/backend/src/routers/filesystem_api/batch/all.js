@@ -127,9 +127,12 @@ module.exports = eggspress('/batch', {
         if ( op_spec.op === 'write' ) return true;
         return false;
     }
+    if ( ! req.actor ) {
+        throw new Error('Actor is missing here');
+    }
     const batch_exe = new BatchExecutor(x, {
         log, errors,
-        user: req.user,
+        actor: req.actor,
     });
     // --- state
     const pending_operations = [];

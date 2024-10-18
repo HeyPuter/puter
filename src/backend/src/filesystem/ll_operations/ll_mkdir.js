@@ -55,7 +55,7 @@ class LLMkdir extends LLFilesystemOperation {
     async _locked_run () {
         const { _path, uuidv4 } = this.modules;
         const { context } = this;
-        const { parent, name, user, immutable, actor } = this.values;
+        const { parent, name, immutable, actor } = this.values;
 
         const ts = Math.round(Date.now() / 1000);
         const uid = uuidv4();
@@ -95,7 +95,7 @@ class LLMkdir extends LLFilesystemOperation {
             uuid: uid,
             parent_uid: await parent.get('uid'),
             path: _path.join(await parent.get('path'), name),
-            user_id: user.id,
+            user_id: actor.type.user.id,
             name,
             created: ts,
             accessed: ts,

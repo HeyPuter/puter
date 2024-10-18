@@ -33,11 +33,11 @@ const ERR_UNKNOWN_PATHREF = 'Unknown path reference in path: ';
  * that was returned by the `mkdir` operation.
  */
 module.exports = class PathResolver {
-    constructor ({ user }) {
+    constructor ({ actor }) {
         this.references = {};
         this.selectors = {};
         this.meta = {};
-        this.user = user;
+        this.actor = actor;
 
         this.listeners = {};
 
@@ -88,11 +88,13 @@ module.exports = class PathResolver {
     }
 
     async awaitSelector (inputPath) {
+        // TODO: I feel like there's a better way to get username
+        const username = this.actor.type.user.username;
         if ( inputPath.startsWith('~/') ) {
-            return `/${this.user.username}/${inputPath.substring(2)}`;
+            return `/${username}/${inputPath.substring(2)}`;
         }
         if ( inputPath === '~' ) {
-            return `/${this.user.username}`;
+            return `/${username}`;
         }
         const refName = this.getReferenceUsed(inputPath);
         if ( refName === null ) return inputPath;

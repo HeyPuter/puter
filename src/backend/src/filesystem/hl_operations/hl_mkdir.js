@@ -76,7 +76,7 @@ class MkTree extends HLFilesystemOperation {
         const { context, values } = this;
         const { _path } = this.modules;
         const fs = context.get('services').get('filesystem');
-        const user = context.get('user');
+        const actor = context.get('actor');
 
         const trunk = tree[0];
         const branches = tree.slice(1);
@@ -124,7 +124,7 @@ class MkTree extends HLFilesystemOperation {
 
         if ( parent_did_exist && ! parent_exists ) {
             const node = await fs.node(current);
-            const has_perm = await chkperm(await node.get('entry'), user.id, 'write');
+            const has_perm = await chkperm(await node.get('entry'), actor.type.user.id, 'write');
             if ( ! has_perm ) throw APIError.create('permission_denied');
         }
 
@@ -147,7 +147,7 @@ class MkTree extends HLFilesystemOperation {
             const node = await fs.mkdir_2({
                 parent: await fs.node(currentParent),
                 name: current.name,
-                user,
+                actor,
             })
 
             current = node.selector;
@@ -179,7 +179,7 @@ class QuickMkdir extends HLFilesystemOperation {
         let { parent, path } = values;
         const { _path } = this.modules;
         const fs = context.get('services').get('filesystem');
-        const user = context.get('user');
+        const actor = context.get('actor');
 
         parent = parent || await fs.node(new RootNodeSelector());
 
@@ -206,7 +206,7 @@ class QuickMkdir extends HLFilesystemOperation {
             const node = await fs.mkdir_2({
                 parent: await fs.node(currentParent),
                 name: current.name,
-                user,
+                actor,
             })
 
             current = node.selector;
@@ -285,10 +285,12 @@ class HLMkdir extends HLFilesystemOperation {
         // specified under `path`.
         parent_node = await this._create_parents({
             parent_node: top_parent,
-            user: values.user,
+            actor: values.actor,
         });
 
-        const has_perm = await chkperm(await parent_node.get('entry'), values.user.id, 'write');
+        const user_id = values.actor.type.user.id;
+
+        const has_perm = await chkperm(await parent_node.get('entry'), user_id, 'write');
         if ( ! has_perm ) throw APIError.create('permission_denied');
 
         const existing = await fs.node(
@@ -301,12 +303,12 @@ class HLMkdir extends HLFilesystemOperation {
             const { overwrite, dedupe_name, create_missing_parents } = values;
             if ( overwrite ) {
                 // TODO: tag rm operation somehow
-                const has_perm = await chkperm(await existing.get('entry'), values.user.id, 'write');
+                const has_perm = await chkperm(await existing.get('entry'), user_id, 'write');
                 if ( ! has_perm ) throw APIError.create('permission_denied');
                 const hl_remove = new HLRemove();
                 await hl_remove.run({
                     target: existing,
-                    user: values.user,
+                    actor: values.actor,
                     recursive: true,
                 });
             }
@@ -345,13 +347,13 @@ class HLMkdir extends HLFilesystemOperation {
             if ( ! shortcut_to.entry.is_dir ) {
                 throw APIError.create('shortcut_target_is_a_directory');
             }
-            const has_perm = await chkperm(shortcut_to.entry, values.user.id, 'read');
+            const has_perm = await chkperm(shortcut_to.entry, user_id, 'read');
             if ( ! has_perm ) throw APIError.create('forbidden');
 
             this.created = await fs.mkshortcut({
                 parent: parent_node,
                 name: target_basename,
-                user: values.user,
+                actor: values.actor,
                 target: shortcut_to,
             });
 
@@ -362,7 +364,7 @@ class HLMkdir extends HLFilesystemOperation {
         this.created = await fs.mkdir_2({
             parent: parent_node,
             name: target_basename,
-            user: values.user,
+            actor: values.actor,
         });
 
         const all_nodes = [
@@ -382,7 +384,7 @@ class HLMkdir extends HLFilesystemOperation {
         return response;
     }
 
-    async _create_parents ({ parent_node, user }) {
+    async _create_parents ({ parent_node }) {
         const { context, values } = this;
         const { _path } = this.modules;
         const fs = context.get('services').get('filesystem');

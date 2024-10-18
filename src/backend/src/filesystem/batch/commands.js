@@ -102,7 +102,7 @@ class MkdirCommand extends BatchCommand {
                 parameters.create_missing_parents ??
                 false,
             shortcut_to: parameters.shortcut_to,
-            user: executor.user,
+            actor: executor.actor,
         });
         if ( parameters.as ) {
             executor.pathResolver.putSelector(
@@ -133,6 +133,9 @@ class WriteCommand extends BatchCommand {
         }
 
         const hl_write = new HLWrite();
+        if ( ! executor.actor ) {
+            throw new Error('Actor is missing here');
+        }
         const response = await hl_write.run({
             destination_or_parent: destinationOrParent,
             specified_name: parameters.name,
@@ -145,7 +148,7 @@ class WriteCommand extends BatchCommand {
                 parameters.create_missing_ancestors ??
                 parameters.create_missing_parents ??
                 false,
-            user: executor.user,
+            actor: executor.actor,
 
             file: uploaded_file,
             offset: parameters.offset,
@@ -208,7 +211,7 @@ class ShortcutCommand extends BatchCommand {
         const response = await hl_mkShortcut.run({
             parent: destinationOrParent,
             name: parameters.name,
-            user: executor.user,
+            actor: executor.actor,
             target: shortcut_to,
 
             // TODO: handle these with event service instead
@@ -241,7 +244,7 @@ class SymlinkCommand extends BatchCommand {
         const response = await hl_mkLink.run({
             parent: destinationOrParent,
             name: parameters.name,
-            user: executor.user,
+            actor: executor.actor,
             target: parameters.target,
 
             // TODO: handle these with event service instead
@@ -266,7 +269,7 @@ class DeleteCommand extends BatchCommand {
         const hl_remove = new HLRemove();
         const response = await hl_remove.run({
             target,
-            user: executor.user,
+            actor: executor.actor,
             recursive: parameters.recursive ?? false,
             descendants_only: parameters.descendants_only ?? false,
         });

@@ -128,12 +128,10 @@ class LLWriteBase extends LLFilesystemOperation {
 class LLOWrite extends LLWriteBase {
     async _run () {
         const {
-            node, user, immutable,
+            node, actor, immutable,
             file, tmp, fsentry_tmp,
             message,
         } = this.values;
-
-        let { actor } = this.values;
 
         const svc = Context.get('services');
         const sizeService = svc.get('sizeService');
@@ -151,8 +149,6 @@ class LLOWrite extends LLWriteBase {
             // TODO: different class of errors for low-level operations
             throw APIError.create('subject_does_not_exist');
         }
-
-        actor = actor ?? Actor.adapt(user);
 
         const svc_acl = this.context.get('services').get('acl');
         if ( ! await svc_acl.check(actor, node, 'write') ) {
@@ -190,7 +186,7 @@ class LLOWrite extends LLWriteBase {
         });
 
         const filesize = file.size;
-        sizeService.change_usage(user.id, filesize);
+        sizeService.change_usage(actor.type.user.id, filesize);
 
         const entryOp = await systemFSEntryService.update(uid, raw_fsentry_delta);
 
@@ -202,7 +198,7 @@ class LLOWrite extends LLWriteBase {
         })();
 
         state_upload.post_insert({
-            db, user, node, uid, message, ts,
+            db, user: actor.type.user, node, uid, message, ts,
         });
 
         const svc_fileCache = this.context.get('services').get('file-cache');
@@ -227,7 +223,7 @@ class LLCWrite extends LLWriteBase {
     async _run () {
         const { _path, uuidv4, config } = this.modules;
         const {
-            parent, name, user, immutable,
+            parent, name, immutable,
             file, tmp, fsentry_tmp,
             message,
 
@@ -261,7 +257,7 @@ class LLCWrite extends LLWriteBase {
         }
 
         const svc_acl = this.context.get('services').get('acl');
-        actor = actor ?? Actor.adapt(user) ?? Context.get('actor');
+        actor = actor ?? Context.get('actor');
         if ( ! await svc_acl.check(actor, parent, 'write') ) {
             throw await svc_acl.get_safe_acl_error(actor, parent, 'write');
         }
@@ -288,7 +284,7 @@ class LLCWrite extends LLWriteBase {
         const raw_fsentry = {
             uuid: uid,
             is_dir: 0,
-            user_id: user.id,
+            user_id: actor.type.user.id,
             created: ts,
             accessed: ts,
             modified: ts,
@@ -317,7 +313,7 @@ class LLCWrite extends LLWriteBase {
         });
 
         const filesize = file.size;
-        sizeService.change_usage(user.id, filesize);
+        sizeService.change_usage(actor.type.user.id, filesize);
 
         this.checkpoint('after change_usage');
 
@@ -338,7 +334,7 @@ class LLCWrite extends LLWriteBase {
                 db.write(
                     "INSERT INTO `fsentry_versions` (`user_id`, `fsentry_id`, `fsentry_uuid`, `version_id`, `message`, `ts_epoch`) VALUES (?, ?, ?, ?, ?, ?)",
                     [
-                        user.id,
+                        actor.type.user.id,
                         new_item.id,
                         new_item.uuid,
                         store_version_id,

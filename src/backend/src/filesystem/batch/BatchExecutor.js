@@ -26,11 +26,11 @@ const config = require('../../config');
 const { TeePromise } = require('../../util/promise');
 
 class BatchExecutor extends AdvancedBase {
-    constructor (x, { user, log, errors }) {
+    constructor (x, { actor, log, errors }) {
         super();
         this.x = x;
-        this.user = user;
-        this.pathResolver = new PathResolver({ user });
+        this.actor = actor
+        this.pathResolver = new PathResolver({ actor });
         this.expectations = x.get('services').get('expectations');
         this.log = log;
         this.errors = errors;
@@ -100,7 +100,7 @@ class BatchExecutor extends AdvancedBase {
                 const command_ins = await command_cls.run({
                     getFile: () => file,
                     pathResolver: this.pathResolver,
-                    user: this.user
+                    actor: this.actor,
                 }, op);
                 workUnit.checkpoint('operation invoked');
 

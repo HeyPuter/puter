@@ -59,7 +59,10 @@ class WriteCommonFeature {
             if ( ! this.values.file ) return;
 
             const sizeService = this.context.get('services').get('sizeService');
-            const { file, user } = this.values;
+            const { file, user: user_let } = this.values;
+            let user = user_let;
+
+            if ( ! user ) user = this.values.actor.type.user;
 
             const usage = await sizeService.get_usage(user.id);
             let capacity = config.is_storage_limited ? user.free_storage == undefined
@@ -281,13 +284,14 @@ class HLWrite extends HLFilesystemOperation {
             if ( await shortcut_to.get('type') === TYPE_DIRECTORY ) {
                 throw APIError.create('shortcut_target_is_a_directory');
             }
-            const has_perm = await chkperm(shortcut_to.entry, values.user.id, 'read');
+            // TODO: legacy check - likely not needed
+            const has_perm = await chkperm(shortcut_to.entry, values.actor.type.user.id, 'read');
             if ( ! has_perm ) throw APIError.create('permission_denied');
 
             this.created = await fs.mkshortcut({
                 parent,
                 name: target_name,
-                user: values.user,
+                actor: values.actor,
                 target: shortcut_to,
             });
 
@@ -381,7 +385,7 @@ class HLWrite extends HLFilesystemOperation {
         if ( is_overwrite ) {
             this.written = await fs.owrite({
                 node: destination,
-                user: values.user,
+                actor: values.actor,
                 file: values.file,
                 tmp: {
                     socket_id: values.socket_id,
@@ -397,7 +401,7 @@ class HLWrite extends HLFilesystemOperation {
             this.written = await fs.cwrite({
                 parent,
                 name: target_name,
-                user: values.user,
+                actor: values.actor,
                 file: values.file,
                 tmp: {
                     socket_id: values.socket_id,

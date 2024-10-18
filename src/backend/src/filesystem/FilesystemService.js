@@ -213,17 +213,16 @@ class FilesystemService extends BaseService {
         return this.systemfs_;
     }
 
-    async owrite ({
-        node, user, immutable,
-        file, tmp, fsentry_tmp,
-        message,
-    }) {
+    // NOTE: these are the parameters being passed
+    // (assuming this comment is up-to-date)
+    // {
+    // node, actor, immutable,
+    // file, tmp, fsentry_tmp,
+    // message,
+    // }
+    async owrite (parameters) {
         const ll_owrite = new LLOWrite();
-        return await ll_owrite.run({
-            node, user, immutable,
-            file, tmp, fsentry_tmp,
-            message,
-        });
+        return await ll_owrite.run(parameters);
     }
 
     // REMINDER: There was an idea that FilesystemService implements
@@ -235,9 +234,9 @@ class FilesystemService extends BaseService {
         return await ll_cwrite.run(parameters);
     }
 
-    async mkdir_2 ({parent, name, user, immutable}) {
+    async mkdir_2 ({parent, name, actor, immutable}) {
         const ll_mkdir = new LLMkdir();
-        return await ll_mkdir.run({ parent, name, user, immutable });
+        return await ll_mkdir.run({ parent, name, actor, immutable });
     }
 
     async mkshortcut ({ parent, name, user, target }) {
