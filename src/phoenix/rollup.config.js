@@ -29,7 +29,8 @@ export default {
     input: "src/main_puter.js",
     output: {
         file: "dist/bundle.js",
-        format: "iife"
+        format: "iife",
+        strict: false,
     },
     plugins: [
         nodeResolve({
