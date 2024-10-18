@@ -33,6 +33,11 @@ class Service extends AdvancedBase {
     static IMPLEMENTS = {
         [TService]: {
             init (...a) {
+                if ( this._.init_hooks ) {
+                    for ( const hook of this._.init_hooks ) {
+                        hook.call(this);
+                    }
+                }
                 if ( ! this._init ) return;
                 return this._init(...a);
             },
@@ -41,6 +46,9 @@ class Service extends AdvancedBase {
                 for ( const k in o ) this.$parameters[k] = o[k];
                 if ( ! this._construct ) return;
                 return this._construct(o);
+            },
+            get_depends () {
+                return this.get_depends?.() ?? [];
             }
         }
     }
