@@ -76,7 +76,7 @@ module.exports = eggspress('/auth/get-user-app-token', {
             thumbnail: app.icon,
             parent: await svc_fs.node(appdata_dir_sel),
             name: app_uid,
-            user: actor.type.user,
+            actor: actor,
         });
     }
 
