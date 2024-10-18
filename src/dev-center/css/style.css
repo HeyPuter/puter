@@ -830,6 +830,15 @@ ol li:before {
     background-color: #f2f2f2;
     color: black;
 }
+.reset-deploy{
+    color: #8a8a8a;
+    font-size: 15px;
+    margin-top: 0;
+}
+.reset-deploy:hover{
+    color: black;
+    cursor: pointer;
+}
 .deploy-btn{
     margin-bottom: 20px; 
     margin-top:10px;

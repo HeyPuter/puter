@@ -629,7 +629,7 @@ async function edit_app_section(cur_app_name) {
                         dropped_items = items[0].path;
                         $('.drop-area').removeClass('drop-area-hover');
                         $('.drop-area').addClass('drop-area-ready-to-deploy');
-                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">index.html</p><p>Ready to deploy 🚀</p>`;
+                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">index.html</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
                         $('.drop-area').html(drop_area_content);
 
                         // enable deploy button
@@ -663,7 +663,7 @@ async function edit_app_section(cur_app_name) {
                         dropped_items = items;
                         $('.drop-area').removeClass('drop-area-hover');
                         $('.drop-area').addClass('drop-area-ready-to-deploy');
-                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${items.length} items</p><p>Ready to deploy 🚀</p>`;
+                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${items.length} items</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
                         $('.drop-area').html(drop_area_content);
 
                         // enable deploy button
@@ -704,7 +704,7 @@ async function edit_app_section(cur_app_name) {
 
                             $('.drop-area').removeClass('drop-area-hover');
                             $('.drop-area').addClass('drop-area-ready-to-deploy');
-                            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p>`;
+                            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
                             $('.drop-area').html(drop_area_content);
 
                             // enable deploy button
@@ -778,7 +778,7 @@ async function edit_app_section(cur_app_name) {
             rootItems = html_encode(rootItems);
             $('.drop-area').removeClass('drop-area-hover');
             $('.drop-area').addClass('drop-area-ready-to-deploy');
-            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p>`;
+            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
             $('.drop-area').html(drop_area_content);
 
             // enable deploy button
@@ -1797,7 +1797,7 @@ $(document).on('click', '.insta-deploy-existing-app-deploy-btn', function (e) {
 
     $('.drop-area').removeClass('drop-area-hover');
     $('.drop-area').addClass('drop-area-ready-to-deploy');
-    let drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">Ready to deploy 🚀</p>`;
+    let drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
     $('.drop-area').html(drop_area_content);
 
     // deploy
@@ -2238,3 +2238,7 @@ function enable_window_settings(){
     $('#edit-app-window-resizable').prop('disabled', false);
     $('#edit-app-hide-titlebar').prop('disabled', false);
 }
+
+$(document).on('click', '.reset-deploy', function (e) {
+    reset_drop_area();
+})
