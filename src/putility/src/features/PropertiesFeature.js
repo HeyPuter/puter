@@ -18,14 +18,15 @@
  */
 module.exports = {
     name: 'Properties',
+    depends: ['Listeners'],
     install_in_instance: (instance) => {
         const properties = instance._get_merged_static_object('PROPERTIES');
 
         instance.onchange = (name, callback) => {
-            instance.__properties[name].listeners.push(callback);
+            instance._.properties[name].listeners.push(callback);
         };
 
-        instance.__properties = {};
+        instance._.properties = {};
 
         for ( const k in properties ) {
             const state = {
@@ -33,7 +34,7 @@ module.exports = {
                 listeners: [],
                 value: undefined,
             };
-            instance.__properties[k] = state;
+            instance._.properties[k] = state;
 
             if ( typeof properties[k] === 'object' ) {
                 // This will be supported in the future.
@@ -54,7 +55,7 @@ module.exports = {
                     return state.value;
                 },
                 set: (value) => {
-                    for ( const listener of instance.__properties[k].listeners ) {
+                    for ( const listener of instance._.properties[k].listeners ) {
                         listener(value, {
                             old_value: instance[k],
                         });

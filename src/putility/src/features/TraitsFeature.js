@@ -30,7 +30,11 @@ module.exports = {
         for ( const cls of chain ) {
             const cls_traits = cls.IMPLEMENTS;
             if ( ! cls_traits ) continue;
-            for ( const trait_name in cls_traits ) {
+            const trait_keys = [
+                ...Object.getOwnPropertySymbols(cls_traits),
+                ...Object.keys(cls_traits),
+            ];
+            for ( const trait_name of trait_keys ) {
                 const impl = instance._.impls[trait_name] ??
                     (instance._.impls[trait_name] = {});
                 const cls_impl = cls_traits[trait_name];

@@ -1,4 +1,5 @@
 const { AdvancedBase } = require("../AdvancedBase");
+const { TService } = require("../concepts/Service");
 
 const mkstatus = name => {
     const c = class {
@@ -99,7 +100,9 @@ class ServiceManager extends AdvancedBase {
     async init_service_ (name) {
         const entry = this.services_m_[name];
         entry.status = new this.constructor.StatusInitializing();
-        await entry.instance.init();
+
+        const service_impl = entry.instance.as(TService);
+        await service_impl.init();
         entry.status = new this.constructor.StatusRunning({
             start_ts: new Date(),
         });
