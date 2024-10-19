@@ -91,7 +91,7 @@ class AppES extends BaseES {
                     ( await old_entity.get('name') !== await entity.get('name') );
                 if ( throw_it && extra.options && extra.options.dedupe_name ) {
                     const base = await entity.get('name');
-                    let number = 0;
+                    let number = 1;
                     while ( await app_name_exists(`${base}-${number}`) ) {
                         number++;
                     }
