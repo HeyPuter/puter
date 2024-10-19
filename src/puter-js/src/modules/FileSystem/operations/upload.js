@@ -206,7 +206,7 @@ const upload = async function(items, dirPath, options = {}){
         // Generate the requests to create all the 
         // folders in this upload
         //-------------------------------------------------
-        dirs.sort();
+        dirs.sort((a, b) => b.path.length - a.path.length);
         let mkdir_requests = [];
     
         for(let i=0; i < dirs.length; i++){
