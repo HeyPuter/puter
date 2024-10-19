@@ -130,6 +130,7 @@ const upload = async function(items, dirPath, options = {}){
 
         // Will hold directories and files to be uploaded
         let dirs = [];
+        let uniqueDirs = {}
         let files = [];
 
         // Separate files from directories
