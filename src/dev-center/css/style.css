@@ -1049,3 +1049,36 @@ dialog{
 .search-clear:hover {
     opacity: 1;
 }
+.approval-badge{
+    float:right;
+    padding: 4px;
+    font-size: 12px;
+    border-radius: 5px;
+    margin-top: 0; 
+    display: block;
+    width: 170px;
+    clear: both;
+    margin-bottom: 3px;
+}
+
+.approval-badge-lsiting{
+    color: green;
+    background: #c6f6c6;
+    border:1px solid green;
+}
+
+.approval-badge-incentive{
+    color: #0074ce;
+    background: #d8efff;
+    border:1px solid #0074ce;
+}
+
+.approval-badge-opening{
+    color: #bb00ff;
+    background: #ffeaff;
+    border:1px solid #bb00ff;
+}
+
+td .approval-badge:last-child{
+    margin-bottom: 0;
+}
