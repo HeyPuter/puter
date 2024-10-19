@@ -20,15 +20,12 @@ export class FilesystemService extends putility.concepts.Service {
                 authentication token or API origin is changed.
             `,
             async do () {
-                console.log('do() was called');
                 this.initializeSocket();
             }
         }
     ]
 
     _init () {
-        console.log('does this init get called');
-
         const env = this._.context.env;
 
         if ( env === 'app' ) {
@@ -67,7 +64,6 @@ export class FilesystemService extends putility.concepts.Service {
     }
 
     initializeSocket () {
-        console.log('THIS IS RUNNING');
         if (this.socket) {
             this.socket.disconnect();
         }

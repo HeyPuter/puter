@@ -95,8 +95,6 @@ class ServiceManager extends AdvancedBase {
                 // yet initialized
                 const waiting_for = this.get_waiting_for_(depends);
 
-                console.log('CHECK --- ', waiting_for, new Error());
-
                 // If there's nothing to wait for, remove the listener
                 // on service initializations and resolve
                 if ( waiting_for.length === 0 ) {
