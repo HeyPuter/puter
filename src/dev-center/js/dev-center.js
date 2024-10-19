@@ -271,15 +271,15 @@ async function create_app(title, source_path = null, items = null) {
             // ----------------------------------------------------
             // Create a router for the app with a fresh hostname
             // ----------------------------------------------------
-            const route = await puter.hosting.create(name, app_dir.path);
+            let subdomain = name + '-' + Math.random().toString(36).substring(2)
+            await puter.hosting.create(subdomain, app_dir.path);
 
             // ----------------------------------------------------
             // Update the app with the new hostname
             // ----------------------------------------------------
             puter.apps.update(app.name, {
                 title: title,
-                name: name,
-                indexURL: source_path ? protocol + `://${name}.` + static_hosting_domain : 'https://dev-center.puter.com/coming-soon.html',
+                indexURL: source_path ? protocol + `://${subdomain}.` + static_hosting_domain : 'https://dev-center.puter.com/coming-soon.html',
                 icon: icon,
                 description: ' ',
                 maximizeOnStart: false,
@@ -305,7 +305,6 @@ async function create_app(title, source_path = null, items = null) {
                         } else if (items) {
                             deploy(app, items);
                         }
-
                     }, (Date.now() - start_ts) > 2000 ? 1 : 2000 - (Date.now() - start_ts));
                 })
             }).catch(async (err) => {
@@ -974,6 +973,7 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         $('.edit-app-save-btn').prop('disabled', false);
         // Update open-app-btn
         $(`.open-app-btn[data-app-uid="${uid}"]`).attr('data-app-name', app.name);
+        $(`.open-app[data-uid="${uid}"]`).attr('data-app-name', app.name);
         // Update title
         $(`.app-title[data-uid="${uid}"]`).html(html_encode(app.title));
         // Update app link
