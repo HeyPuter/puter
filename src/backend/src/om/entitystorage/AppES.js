@@ -181,6 +181,26 @@ class AppES extends BaseES {
                 return expected_uid === await entity.get('uid')
                     ? origin : null ;
             })());
+
+            const is_owner = await (async () => {
+                let owner = await entity.get('owner');
+                
+                // TODO: why does this happen?
+                if ( typeof owner === 'number' ) {
+                    owner = { id: owner };
+                }
+
+                if ( ! owner ) return false;
+                const actor = Context.get('actor');
+                return actor.type.user.id === owner.id;
+            })();
+
+            if ( ! is_owner ) {
+                for  ( let i=0;i<20;i++ ) console.log('TYHIS IS HAPPEN');
+                entity.del('approved_for_listing');
+                entity.del('approved_for_opening_items');
+                entity.del('approved_for_incentive_program');
+            }
         },
         async maybe_insert_subdomain_ (entity) {
             // Create and update is a situation where we might create a subdomain

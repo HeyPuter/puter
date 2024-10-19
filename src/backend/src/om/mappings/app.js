@@ -128,15 +128,15 @@ module.exports = {
         },
         approved_for_listing: {
             type: 'flag',
-            protected: true,
+            read_only: true,
         },
         approved_for_opening_items: {
             type: 'flag',
-            protected: true,
+            read_only: true,
         },
         approved_for_incentive_program: {
             type: 'flag',
-            protected: true,
+            read_only: true,
         },
 
         // SYSTEM
