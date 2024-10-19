@@ -64,6 +64,11 @@ window.gui = async function(options){
         // await window.loadScript(`${options.asset_dir}/initgui.js`, {isModule: true});
     }
 
+    if (window.gui_env === 'dev2') {
+        await window.loadScript('/puter.js/v2');
+        await window.loadCSS('/dist/bundle.min.css');
+    }
+
     // PROD: load the minified bundles if we are in production mode
     // note: the order of the bundles is important
     // note: Build script will prepend `window.gui_env="prod"` to the top of the file

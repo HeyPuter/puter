@@ -52,6 +52,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * });
  */
 async function build(options){
+    const PUTER_ENV = process.env.PUTER_ENV || 'prod';
     // -----------------------------------------------
     // Delete ./dist/ directory if it exists and create a new one
     // -----------------------------------------------
@@ -132,7 +133,7 @@ async function build(options){
     const webpack_opts = {
         ...(await BaseConfig({
             ...options,
-            env: 'prod',
+            env: PUTER_ENV,
         })),
         mode: 'production',
         optimization: {
@@ -158,7 +159,7 @@ async function build(options){
     // Prepend `window.gui_env="prod";` to `./dist/gui.js`
     fs.writeFileSync(
         path.join(__dirname, 'dist', 'gui.js'),
-        `window.gui_env="prod"; \n\n` + fs.readFileSync(path.join(__dirname, 'src', 'index.js'))
+        `window.gui_env="${PUTER_ENV}"; \n\n` + fs.readFileSync(path.join(__dirname, 'src', 'index.js'))
     );
 
     const copy_these = [
