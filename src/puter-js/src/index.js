@@ -13,7 +13,7 @@ import path from './lib/path.js';
 import Util from './modules/Util.js';
 import Drivers from './modules/Drivers.js';
 import putility from '@heyputer/putility';
-import { FSHostService } from './services/FSHost.js';
+import { FSRelayService } from './services/FSRelay.js';
 import { FilesystemService } from './services/Filesystem.js';
 import { APIAccessService } from './services/APIAccess.js';
 import { XDIncomingService } from './services/XDIncoming.js';
@@ -69,8 +69,10 @@ window.puter = (function() {
             // "modules" in puter.js are external interfaces for the developer
             this.modules_ = [];
             // "services" in puter.js are used by modules and may interact with each other
-            const context = new putility.libs.context.Context();
+            const context = new putility.libs.context.Context()
+                .follow(this, ['env', 'util']);
             this.services = new putility.system.ServiceManager({ context });
+            this.context = context;
             context.services = this.services;
 
             // Holds the query parameters found in the current URL
@@ -148,12 +150,12 @@ window.puter = (function() {
                 this.APIOrigin = 'https://api.' + URLParams.get('puter.domain');
             }
 
+            this.services.register('no-puter-yet', NoPuterYetService);
+            this.services.register('filesystem', FilesystemService);
+            this.services.register('api-access', APIAccessService);
+            this.services.register('xd-incoming', XDIncomingService);
             if ( this.env !== 'app' ) {
-                this.services.register('no-puter-yet', NoPuterYetService);
-                this.services.register('filesystem', FilesystemService);
-                this.services.register('api-access', APIAccessService);
-                this.services.register('xd-incoming', XDIncomingService);
-                // this.services.register('fs-host', FSHostService);
+                this.services.register('fs-relay', FSRelayService);
             }
 
             // When api-access is initialized, bind `.authToken` and
@@ -162,15 +164,18 @@ window.puter = (function() {
                 await this.services.wait_for_init(['api-access']);
                 const svc_apiAccess = this.services.get('api-access');
 
-                svc_apiAccess.authToken = this.authToken;
-                svc_apiAccess.APIOrigin = this.APIOrigin;
-                ['authToken', 'APIOrigin'].forEach(key => {
-                    Object.defineProperty(this, key, {
+                svc_apiAccess.auth_token = this.authToken;
+                svc_apiAccess.api_origin = this.APIOrigin;
+                [
+                    ['authToken','auth_token'],
+                    ['APIOrigin','api_origin'],
+                ].forEach(([k1,k2]) => {
+                    Object.defineProperty(this, k1, {
                         get () {
-                            return svc_apiAccess[key];
+                            return svc_apiAccess[k2];
                         },
                         set (v) {
-                            svc_apiAccess[key] = v;
+                            svc_apiAccess[k2] = v;
                             return true;
                         }
                     });
@@ -243,7 +248,7 @@ window.puter = (function() {
                              new OS(this.authToken, this.APIOrigin, this.appID, this.env));
             // FileSystem
             this.registerModule('fs',
-                             new PuterJSFileSystemModule(this.authToken, this.APIOrigin, this.appID, this.env));
+                             new PuterJSFileSystemModule(this.authToken, this.APIOrigin, this.appID, this.context));
             // UI
             this.registerModule('ui',
                              new UI(this.appInstanceID, this.parentInstanceID, this.appID, this.env, this.util));

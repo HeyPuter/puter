@@ -11,7 +11,7 @@ export class APIAccessService extends putility.concepts.Service {
 
     static PROPERTIES = {
         auth_token: {
-            post_set () {
+            post_set (v) {
                 this.as(TTopics).pub('update');
             }
         },
@@ -21,4 +21,24 @@ export class APIAccessService extends putility.concepts.Service {
             }
         },
     };
+
+    // TODO: inconsistent! Update all dependents.
+    get_api_info () {
+        const self = this;
+        const o = {};
+        [
+            ['authToken','auth_token'],
+            ['APIOrigin','api_origin'],
+        ].forEach(([k1,k2]) => {
+            Object.defineProperty(o, k1, {
+                get () {
+                    return self[k2];
+                },
+                set (v) {
+                    return self;
+                }
+            });
+        });
+        return o;
+    }
 }

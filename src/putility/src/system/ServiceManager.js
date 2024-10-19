@@ -77,6 +77,10 @@ class ServiceManager extends AdvancedBase {
         }
         return info.instance;
     }
+    async aget (name) {
+        await this.wait_for_init([name]);
+        return this.get(name);
+    }
 
     /**
      * Wait for the specified list of services to be initialized.

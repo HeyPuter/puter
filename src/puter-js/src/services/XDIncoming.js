@@ -18,10 +18,27 @@ export class XDIncomingService extends putility.concepts.Service {
                 fn(event, tp);
                 if ( await tp ) return;
             }
+
+            const data = event.data;
+
+            const tag = data.$;
+            if ( ! tag ) return;
+            if ( ! this.tagged_listeners_[tag] ) return;
+
+            for ( const fn of this.tagged_listeners_[tag] ) {
+                fn({ data, source: event.source });
+            }
         });
     }
 
     register_filter_listener (fn) {
         this.filter_listeners_.push(fn);
+    }
+
+    register_tagged_listener (tag, fn) {
+        if ( ! this.tagged_listeners_[tag] ) {
+            this.tagged_listeners_[tag] = [];
+        }
+        this.tagged_listeners_[tag].push(fn);
     }
 }

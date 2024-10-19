@@ -1,7 +1,7 @@
-import * as utils from '../../lib/utils.js';
+import * as utils from '../utils.js';
 import putility from "@heyputer/putility";
 import { TeePromise } from "@heyputer/putility/src/libs/promise";
-import getAbsolutePathForApp from './utils/getAbsolutePathForApp.js';
+import getAbsolutePathForApp from '../../modules/FileSystem/utils/getAbsolutePathForApp.js';
 import { TFilesystem } from './definitions.js';
 
 export class PuterAPIFilesystem extends putility.AdvancedBase {

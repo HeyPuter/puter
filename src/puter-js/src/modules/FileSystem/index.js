@@ -13,10 +13,10 @@ import sign from "./operations/sign.js";
 // Why is this called deleteFSEntry instead of just delete? because delete is 
 // a reserved keyword in javascript
 import deleteFSEntry from "./operations/deleteFSEntry.js";
-import { ProxyFilesystem, TFilesystem } from './definitions.js';
+import { ProxyFilesystem, TFilesystem } from '../../lib/filesystem/definitions.js';
 import { AdvancedBase } from '../../../../putility/index.js';
-import { CachedFilesystem } from './CacheFS.js';
-import { PuterAPIFilesystem } from './APIFS.js';
+import { CachedFilesystem } from '../../lib/filesystem/CacheFS.js';
+import { PuterAPIFilesystem } from '../../lib/filesystem/APIFS.js';
 
 export class PuterJSFileSystemModule extends AdvancedBase {
 
@@ -38,14 +38,16 @@ export class PuterJSFileSystemModule extends AdvancedBase {
             positional: ['path'],
             firstarg_options: true,
             async fn (parameters) {
-                return this.filesystem.stat(parameters);
+                const svc_fs = await this.context.services.aget('filesystem');
+                return svc_fs.filesystem.stat(parameters);
             }
         },
         readdir: {
             positional: ['path'],
             firstarg_options: true,
-            fn (parameters) {
-                return this.filesystem.readdir(parameters);
+            async fn (parameters) {
+                const svc_fs = await this.context.services.aget('filesystem');
+                return svc_fs.filesystem.readdir(parameters);
             }
         },
     }
@@ -59,11 +61,12 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor (authToken, APIOrigin, appID) {
+    constructor (authToken, APIOrigin, appID, context) {
         super();
         this.authToken = authToken;
         this.APIOrigin = APIOrigin;
         this.appID = appID;
+        this.context = context;
         // Connect socket.
         this.initializeSocket();
 
@@ -76,21 +79,6 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         Object.defineProperty(api_info, 'APIOrigin', {
             get: () => this.APIOrigin,
         });
-
-        // Construct the decorator chain for the client-side filesystem.
-        this.fs_nocache_ = new PuterAPIFilesystem({ api_info }).as(TFilesystem);
-        this.fs_cache_ = new CachedFilesystem({ delegate: this.fs_nocache_ }).as(TFilesystem);
-        // this.filesystem = this.fs_nocache;
-        this.fs_proxy_ = new ProxyFilesystem({ delegate: this.fs_nocache_ });
-        this.filesystem = this.fs_proxy_.as(TFilesystem);
-        // this.fs_proxy_.delegate = this.fs_cache_;
-    }
-
-    cache_on () {
-        this.fs_proxy_.delegate = this.fs_cache_;
-    }
-    cache_off () {
-        this.fs_proxy_.delegate = this.fs_nocache_;
     }
 
 
