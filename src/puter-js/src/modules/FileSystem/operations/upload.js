@@ -148,6 +148,17 @@ const upload = async function(items, dirPath, options = {}){
                 let fileItem = entries[i].finalPath ? entries[i].finalPath : entries[i].fullPath;
                 let [dirLevel, fileName] = [fileItem?.slice(0, fileItem?.lastIndexOf("/")), fileItem?.slice(fileItem?.lastIndexOf("/") + 1)]
                 
+                // If file name is blank then we need to create only an empty directory.
+                // On the other hand if the file name is not blank(could be undefined), we need to create the file.
+                fileName != "" && files.push(entries[i])
+                if (options.createFileParent && fileItem.includes('/')) {
+                    let filePath = path.join(dirPath, dirLevel)
+                    // Prevent duplicate parent directory creation
+                    if(!uniqueDirs[filePath]){
+                        uniqueDirs[filePath] = true;
+                        dirs.push({path: filePath});
+                    }
+                }
             }
             // stats about the upload to come
             if(entries[i].size !== undefined){
