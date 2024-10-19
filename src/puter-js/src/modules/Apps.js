@@ -52,8 +52,16 @@ class Apps{
             let indexURL = args[1];
             let title = args[2] ?? args[0];
 
-            options = { object: { name: args[0], index_url: indexURL, title: title}};
-        }else if (typeof args[0] === 'object' && args[0] !== null) {
+            options = { 
+                object: { 
+                    name: args[0], 
+                    index_url: indexURL, 
+                    title: title
+                }
+            };
+        }
+        // * allows for: puter.apps.new({name: 'example-app', indexURL: 'https://example.com'}) *
+        else if (typeof args[0] === 'object' && args[0] !== null) {
             let options_raw = args[0];
             options = { 
                 object: { 
@@ -66,6 +74,9 @@ class Apps{
                     background: options_raw.background,
                     filetype_associations: options_raw.filetypeAssociations,
                     metadata: options_raw.metadata,
+                },
+                options: {
+                    dedupe_name: options_raw.dedupeName ?? false,
                 }
             };
         }

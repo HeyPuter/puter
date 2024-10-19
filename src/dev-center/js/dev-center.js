@@ -234,7 +234,7 @@ $(document).on('click', '.create-an-app-btn', async function (e) {
 
 async function create_app(title, source_path = null, items = null) {
     // name
-    let name = slugify(title + '-' + Math.random().toString(36).substring(2), {
+    let name = slugify(title, {
         lower: true,
         strict: true,
     });
@@ -257,6 +257,7 @@ async function create_app(title, source_path = null, items = null) {
             description: ' ',
             maximizeOnStart: false,
             background: false,
+            dedupeName: true,
         })
         .then(async (app) => {
             let app_dir;
