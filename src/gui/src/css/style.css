@@ -4165,11 +4165,12 @@ fieldset[name=number-code] {
 }
 
 .welcome-window-footer a{
-    color: #8a94a4;
+    color: #727c8d;
     text-decoration: none;
     font-size: 12px;
+    -webkit-font-smoothing: antialiased;
 }
 
 .welcome-window-footer a:hover{
-    color: #5f626d;
+    color: #1d1e23;
 }
