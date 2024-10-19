@@ -152,12 +152,16 @@ const upload = async function(items, dirPath, options = {}){
                 // On the other hand if the file name is not blank(could be undefined), we need to create the file.
                 fileName != "" && files.push(entries[i])
                 if (options.createFileParent && fileItem.includes('/')) {
-                    let filePath = path.join(dirPath, dirLevel)
-                    // Prevent duplicate parent directory creation
-                    if(!uniqueDirs[filePath]){
-                        uniqueDirs[filePath] = true;
-                        dirs.push({path: filePath});
-                    }
+                    let incrementalDir;
+                    dirLevel.split('/').forEach((directory) => {
+                        incrementalDir = incrementalDir ? incrementalDir + '/' + directory : directory;
+                        let filePath = path.join(dirPath, incrementalDir)
+                        // Prevent duplicate parent directory creation
+                        if(!uniqueDirs[filePath]){
+                            uniqueDirs[filePath] = true;
+                            dirs.push({path: filePath});
+                        }
+                    })
                 }
             }
             // stats about the upload to come
