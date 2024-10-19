@@ -1,4 +1,5 @@
 const { AdvancedBase } = require("../AdvancedBase");
+const ServiceFeature = require("../features/ServiceFeature");
 
 const NOOP = async () => {};
 
@@ -11,6 +12,10 @@ const TService = Symbol('TService');
  * becoming the common base for both and a useful utility in general.
  */
 class Service extends AdvancedBase {
+    static FEATURES = [
+        ServiceFeature,
+    ];
+
     async __on (id, args) {
         const handler = this.__get_event_handler(id);
 
@@ -48,7 +53,10 @@ class Service extends AdvancedBase {
                 return this._construct(o);
             },
             get_depends () {
-                return this.get_depends?.() ?? [];
+                return [
+                    ...(this.constructor.DEPENDS ?? []),
+                    ...(this.get_depends?.() ?? []),
+                ];
             }
         }
     }

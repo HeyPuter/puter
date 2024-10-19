@@ -36,19 +36,17 @@ module.exports = {
             };
             instance._.properties[k] = state;
 
+            let spec = null;
             if ( typeof properties[k] === 'object' ) {
-                // This will be supported in the future.
-                throw new Error(`Property ${k} in ${instance.constructor.name} ` +
-                    `is not a supported property specification.`);
+                spec = properties[k];
+            } else if ( typeof properties[k] === 'function' ) {
+                spec = {};
+                spec.value = properties[k]();
             }
 
-            let value = (() => {
-                if ( typeof properties[k] === 'function' ) {
-                    return properties[k]();
-                }
-
-                return properties[k];
-            })();
+            if ( spec === null ) {
+                throw new Error('this will never happen');
+            }
 
             Object.defineProperty(instance, k, {
                 get: () => {
@@ -60,11 +58,17 @@ module.exports = {
                             old_value: instance[k],
                         });
                     }
+                    const old_value = instance[k];
                     state.value = value;
+                    if ( spec.post_set ) {
+                        spec.post_set.call(instance, value, {
+                            old_value,
+                        });
+                    }
                 },
             });
 
-            state.value = value;
+            state.value = spec.value;
         }
     }
 }
