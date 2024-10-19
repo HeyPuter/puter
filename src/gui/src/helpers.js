@@ -2223,15 +2223,24 @@ window.unzipItem = async function(itemPath) {
                 rootdir.path + '/',
                 // options
                 {
-                    createFileParent: true
+                    createFileParent: true,
+                    progress: async function(operation_id, op_progress){
+                        progwin.set_progress(op_progress);
+                        // update title if window is not visible
+                        if(document.visibilityState !== "visible"){
+                            update_title_based_on_uploads();
+                        }
+                    },
+                    success: async function(items){
+                        progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
+                        // close progress window
+                        clearTimeout(progwin_timeout);
+                        setTimeout(() => {
+                            progwin?.close();
+                        }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
+                    }
                 }
             );
-            progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
-            // close progress window
-            clearTimeout(progwin_timeout);
-            setTimeout(() => {
-                progwin?.close();
-            }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
         }
     });
 }
