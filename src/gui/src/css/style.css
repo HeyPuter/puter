@@ -2776,6 +2776,16 @@ fieldset[name=number-code] {
     opacity: 1;
 }
 
+.welcome-window-close-button{
+    opacity: 0.7;
+    font-weight: 300;
+    top: 5px;
+    right: 5px;
+}
+.welcome-window-close-button:hover{
+    opacity: 1;
+}
+
 .otp-qr-code {
     width: 100%;
     display: flex;
@@ -4148,4 +4158,18 @@ fieldset[name=number-code] {
 }
 .settings-sidebar.active {
     display: block;
+}
+
+.welcome-window-footer{
+    position: absolute; bottom: 20px;
+}
+
+.welcome-window-footer a{
+    color: #8a94a4;
+    text-decoration: none;
+    font-size: 12px;
+}
+
+.welcome-window-footer a:hover{
+    color: #5f626d;
 }

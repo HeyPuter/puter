@@ -38,6 +38,7 @@ import UIWindowSettings from "./Settings/UIWindowSettings.js"
 import UIWindowTaskManager from "./UIWindowTaskManager.js"
 import truncate_filename from '../helpers/truncate_filename.js';
 import UINotification from "./UINotification.js"
+import UIWindowWelcome from "./UIWindowWelcome.js"
 import launch_app from "../helpers/launch_app.js"
 import item_icon from "../helpers/item_icon.js"
 
@@ -898,6 +899,19 @@ async function UIDesktop(options){
     //-------------------------------------------
     if(!window.is_embedded && !window.is_fullpage_mode){
         refresh_item_container(el_desktop, {fadeInItems: true})
+
+        // Show welcome window if user hasn't already seen it and hasn't directly navigated to an app 
+        if(!window.url_paths[0]?.toLocaleLowerCase() === 'app' || !window.url_paths[1]){
+            if(!isMobile.phone && !isMobile.tablet){
+                setTimeout(() => {
+                    puter.kv.get('has_seen_welcome_window').then(async (val) => {
+                        if(val === null){
+                            await UIWindowWelcome();
+                        }
+                    })                
+                }, 1000);
+            }
+        }
     }
 
     // -------------------------------------------

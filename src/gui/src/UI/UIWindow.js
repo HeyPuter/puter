@@ -417,6 +417,10 @@ async function UIWindow(options) {
             taskbar_zindex = parseInt(taskbar_zindex);
             backdrop_zindex = taskbar_zindex > zindex ? taskbar_zindex : zindex;
         }
+
+        // dominant backdrop will cover over toolbar as well
+        if(options.backdrop_covers_toolbar)
+            backdrop_zindex = 999999;
         
         h = `<div class="window-backdrop" style="z-index:${backdrop_zindex};">` + h + `</div>`;
     }

@@ -294,8 +294,9 @@ window.initgui = async function(options){
         // remove 'r' from URL
         window.history.pushState(null, document.title, '/');
         // show referral notice, this will be used later if Desktop is loaded
-        if(window.first_visit_ever)
+        if(window.first_visit_ever){
             window.show_referral_notice = true;
+        }
     }
 
     //--------------------------------------------------------------------------------------
@@ -832,7 +833,6 @@ window.initgui = async function(options){
                 referrer = '/';
             referrer += '?ref=' + html_encode(window.url_query_params.get('ref'));
         }
-
 
         let headers = {};
         if(window.custom_headers)
