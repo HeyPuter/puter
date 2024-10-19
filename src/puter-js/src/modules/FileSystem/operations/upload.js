@@ -142,8 +142,13 @@ const upload = async function(items, dirPath, options = {}){
             if(entries[i].isDirectory)
                 dirs.push({path: path.join(dirPath, entries[i].finalPath ? entries[i].finalPath : entries[i].fullPath)});
             // also files
-            else
-                files.push(entries[i])
+            else{
+                // Dragged and dropped files do not have a finalPath property and hence the fileItem will go undefined.
+                // In such cases, we need default to creating the files as uploaded by the user.
+                let fileItem = entries[i].finalPath ? entries[i].finalPath : entries[i].fullPath;
+                let [dirLevel, fileName] = [fileItem?.slice(0, fileItem?.lastIndexOf("/")), fileItem?.slice(fileItem?.lastIndexOf("/") + 1)]
+                
+            }
             // stats about the upload to come
             if(entries[i].size !== undefined){
                 total_size += (entries[i].size);
