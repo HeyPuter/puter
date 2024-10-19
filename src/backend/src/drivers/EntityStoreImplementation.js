@@ -91,26 +91,26 @@ class EntityStoreImplementation extends Driver {
         this.service = service;
     }
     static METHODS = {
-        create: async function ({ object }) {
+        create: async function ({ object, options }) {
             const svc_es = this.services.get(this.service);
             if ( object.hasOwnProperty(svc_es.om.primary_identifier) ) {
                 throw APIError.create('field_not_allowed_for_create', null, { key: svc_es.om.primary_identifier });
             }
             const entity = await Entity.create({ om: svc_es.om }, object);
-            return await svc_es.create(entity);
+            return await svc_es.create(entity, options);
         },
-        update: async function ({ object, id }) {
+        update: async function ({ object, id, options }) {
             const svc_es = this.services.get(this.service);
             // if ( ! object.hasOwnProperty(svc_es.om.primary_identifier) ) {
             //     throw APIError.create('field_required_for_update', null, { key: svc_es.om.primary_identifier });
             // }
             const entity = await Entity.create({ om: svc_es.om }, object);
-            return await svc_es.update(entity, id);
+            return await svc_es.update(entity, id, options);
         },
-        upsert: async function ({ object, id }) {
+        upsert: async function ({ object, id, options }) {
             const svc_es = this.services.get(this.service);
             const entity = await Entity.create({ om: svc_es.om }, object);
-            return await svc_es.upsert(entity, id);
+            return await svc_es.upsert(entity, id, options);
         },
         read: async function ({ uid, id }) {
             if ( ! uid && ! id ) {

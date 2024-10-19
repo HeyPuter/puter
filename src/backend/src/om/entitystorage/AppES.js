@@ -89,12 +89,21 @@ class AppES extends BaseES {
                 const { old_entity } = extra;
                 const throw_it = ( ! old_entity ) ||
                     ( await old_entity.get('name') !== await entity.get('name') );
-                if ( throw_it ) {
+                if ( throw_it && extra.options && extra.options.dedupe_name ) {
+                    const base = await entity.get('name');
+                    let number = 0;
+                    while ( await app_name_exists(`${base}-${number}`) ) {
+                        number++;
+                    }
+                    await entity.set('name', `${base}-${number}`)
+                }
+                else if ( throw_it ) {
                     throw APIError.create('app_name_already_in_use', null, {
                         name: await entity.get('name')
                     });
+                } else {
+                    entity.del('name');
                 }
-                entity.del('name');
             }
 
             const subdomain_id = await this.maybe_insert_subdomain_(entity);

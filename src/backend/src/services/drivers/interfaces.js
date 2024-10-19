@@ -25,6 +25,7 @@ const ENTITY_STORAGE_INTERFACE = {
                     subtype: 'object',
                     required: true,
                 },
+                options: { type: 'json' },
             }
         },
         read: {
@@ -48,6 +49,7 @@ const ENTITY_STORAGE_INTERFACE = {
                     subtype: 'object',
                     required: true,
                 },
+                options: { type: 'json' },
             }
         },
         upsert: {
@@ -58,6 +60,7 @@ const ENTITY_STORAGE_INTERFACE = {
                     subtype: 'object',
                     required: true,
                 },
+                options: { type: 'json' },
             }
         },
         delete: {

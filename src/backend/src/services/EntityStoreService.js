@@ -41,8 +41,8 @@ class EntityStoreService extends BaseService {
     }
 
     // TODO: can replace these with MethodProxyFeature
-    async create (entity) {
-        return await this.upstream.upsert(entity, { old_entity: null });
+    async create (entity, options) {
+        return await this.upstream.upsert(entity, { old_entity: null, options });
     }
     async read (uid) {
         return await this.upstream.read(uid);
@@ -56,7 +56,7 @@ class EntityStoreService extends BaseService {
         if ( ! predicate) predicate = new Null();
         return await this.upstream.select({ predicate, ...rest });
     }
-    async update (entity, id) {
+    async update (entity, id, options) {
         let old_entity = await this.read(
             await entity.get(this.om.primary_identifier));
 
@@ -84,9 +84,9 @@ class EntityStoreService extends BaseService {
         const id_prop = this.om.properties[this.om.primary_identifier];
         await entity.set(id_prop.name, await old_entity.get(id_prop.name));
 
-        return await this.upstream.upsert(entity, { old_entity });
+        return await this.upstream.upsert(entity, { old_entity, options });
     }
-    async upsert (entity, id) {
+    async upsert (entity, id, options) {
         let old_entity = await this.read(
             await entity.get(this.om.primary_identifier));
 
@@ -110,7 +110,7 @@ class EntityStoreService extends BaseService {
             await entity.set(id_prop.name, await old_entity.get(id_prop.name));
         }
 
-        return await this.upstream.upsert(entity, { old_entity });
+        return await this.upstream.upsert(entity, { old_entity, options });
     }
     async delete (uid) {
         const old_entity = await this.read(uid);
