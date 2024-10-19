@@ -80,7 +80,7 @@ module.exports = eggspress('/mkdir', {
             req.body.create_missing_ancestors ??
             req.body.create_missing_parents
         ),
-        user: req.user,
+        actor: req.actor,
         shortcut_to: req.values.shortcut_to,
     });
 
