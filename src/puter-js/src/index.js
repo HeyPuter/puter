@@ -12,6 +12,12 @@ import * as utils from './lib/utils.js';
 import path from './lib/path.js';
 import Util from './modules/Util.js';
 import Drivers from './modules/Drivers.js';
+import putility from '@heyputer/putility';
+import { FSHostService } from './services/FSHost.js';
+import { FilesystemService } from './services/Filesystem.js';
+import { APIAccessService } from './services/APIAccess.js';
+import { XDIncomingService } from './services/XDIncoming.js';
+import { NoPuterYetService } from './services/NoPuterYet.js';
 
 window.puter = (function() {
     'use strict';
@@ -60,7 +66,12 @@ window.puter = (function() {
         constructor(options) {
             options = options ?? {};
             
+            // "modules" in puter.js are external interfaces for the developer
             this.modules_ = [];
+            // "services" in puter.js are used by modules and may interact with each other
+            const context = new putility.libs.context.Context();
+            this.services = new putility.system.ServiceManager({ context });
+            context.services = this.services;
 
             // Holds the query parameters found in the current URL
             let URLParams = new URLSearchParams(window.location.search);
@@ -136,6 +147,35 @@ window.puter = (function() {
             }else if(URLParams.has('puter.domain') && this.env === 'app'){
                 this.APIOrigin = 'https://api.' + URLParams.get('puter.domain');
             }
+
+            if ( this.env !== 'app' ) {
+                this.services.register('no-puter-yet', NoPuterYetService);
+                this.services.register('filesystem', FilesystemService);
+                this.services.register('api-access', APIAccessService);
+                this.services.register('xd-incoming', XDIncomingService);
+                // this.services.register('fs-host', FSHostService);
+            }
+
+            // When api-access is initialized, bind `.authToken` and
+            // `.APIOrigin` as a 1-1 mapping with the `puter` global
+            (async () => {
+                await this.services.wait_for_init(['api-access']);
+                const svc_apiAccess = this.services.get('api-access');
+
+                svc_apiAccess.authToken = this.authToken;
+                svc_apiAccess.APIOrigin = this.APIOrigin;
+                ['authToken', 'APIOrigin'].forEach(key => {
+                    Object.defineProperty(this, key, {
+                        get () {
+                            return svc_apiAccess[key];
+                        },
+                        set (v) {
+                            svc_apiAccess[key] = v;
+                            return true;
+                        }
+                    });
+                });
+            })();
 
             // The SDK is running in the Puter GUI (i.e. 'gui')
             if(this.env === 'gui'){

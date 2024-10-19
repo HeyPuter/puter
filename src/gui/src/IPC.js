@@ -44,12 +44,12 @@ window.ipc_handlers = {};
  * 
  * Precautions are taken to ensure proper usage of appInstanceIDs and other sensitive information.
  */
-window.addEventListener('message', async (event) => {
+const ipc_listener = async (event, handled) => {
     const app_env = event.data?.env ?? 'app';
     
     // Only process messages from apps
     if(app_env !== 'app')
-        return;
+        return handled.resolve(false);
 
     // --------------------------------------------------------
     // A response to a GUI message received from the app.
@@ -61,7 +61,7 @@ window.addEventListener('message', async (event) => {
         delete window.appCallbackFunctions[event.data.original_msg_id];
 
         // Done
-        return;
+        return handled.resolve(false);
     }
 
     // --------------------------------------------------------
@@ -70,17 +70,19 @@ window.addEventListener('message', async (event) => {
 
     // `data` and `msg` are required
     if(!event.data || !event.data.msg){
-        return;
+        return handled.resolve(false);
     }
 
     // `appInstanceID` is required
     if(!event.data.appInstanceID){
         console.error(`appInstanceID is needed`);
-        return;
+        return handled.resolve(false);
     }else if(!window.app_instance_ids.has(event.data.appInstanceID)){
         console.error(`appInstanceID is invalid`);
-        return;
+        return handled.resolve(false);
     }
+
+    handled.resolve(true);
 
     const $el_parent_window = $(window.window_for_app_instance(event.data.appInstanceID));
     const parent_window_id = $el_parent_window.attr('data-id');
@@ -1522,4 +1524,11 @@ window.addEventListener('message', async (event) => {
             status_code,
         });
     }
+};
+
+if ( ! window.when_puter_happens ) window.when_puter_happens = [];
+window.when_puter_happens.push(async () => {
+    await puter.services.wait_for_init(['xd-incoming']);
+    const svc_xdIncoming = puter.services.get('xd-incoming');
+    svc_xdIncoming.register_filter_listener(ipc_listener);
 });
