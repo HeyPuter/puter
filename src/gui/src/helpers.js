@@ -2203,39 +2203,35 @@ window.unzipItem = async function(itemPath) {
             }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
         } else {
             const rootdir = await puter.fs.mkdir(path.dirname(filePath) + '/' + path.basename(filePath, '.zip'), { dedupeName: true });
-            let queuedFileWrites = []
             let perItemProgress = window.zippingProgressConfig.WRITING / Object.keys(unzipped).length;
+            let queuedFileWrites = []
             Object.keys(unzipped).forEach(fileItem => {
-                let fileWriteProcess = new Promise(async (resolve, reject) => {
-                    try {
-                        let dirLevel, fileName;
-                        let fileData = new Blob([new Uint8Array(unzipped[fileItem], unzipped[fileItem].byteOffset, unzipped[fileItem].length)]);
-                        if (fileItem.includes("/")) {
-                            [dirLevel, fileName] = [fileItem.slice(0, fileItem.lastIndexOf("/")), fileItem.slice(fileItem.lastIndexOf("/") + 1)]
-                            await puter.fs.mkdir(rootdir.path + '/' + dirLevel, { createMissingParents: true });
-                        } else {
-                            fileName = fileItem;
-                        }
-                        progwin?.set_status(i18n('writing', fileItem));
-                        fileName != "" && await puter.fs.write(rootdir.path + '/' + fileItem, fileData);
-                        currentProgress += perItemProgress;
-                        progwin?.set_progress(currentProgress.toPrecision(2));
-                        resolve();
-                    } catch (e) {
-                        UIAlert(e.message);
-                        reject();
-                    }
-                })
-                queuedFileWrites.push(fileWriteProcess);
+                try {
+                    let fileData = new Blob([new Uint8Array(unzipped[fileItem], unzipped[fileItem].byteOffset, unzipped[fileItem].length)]);
+                    progwin?.set_status(i18n('writing', fileItem));
+                    queuedFileWrites.push(new File([fileData], fileItem))
+                    currentProgress += perItemProgress;
+                    progwin?.set_progress(currentProgress.toPrecision(2));
+                } catch (e) {
+                    UIAlert(e.message);
+                }
             });
-            Promise.all(queuedFileWrites).then(() => {
-                progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
-                // close progress window
-                clearTimeout(progwin_timeout);
-                setTimeout(() => {
-                    progwin?.close();
-                }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
-            });
+            queuedFileWrites.length && puter.fs.upload(
+                // what to upload
+                queuedFileWrites, 
+                // where to upload
+                rootdir.path + '/',
+                // options
+                {
+                    createFileParent: true
+                }
+            );
+            progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
+            // close progress window
+            clearTimeout(progwin_timeout);
+            setTimeout(() => {
+                progwin?.close();
+            }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
         }
     });
 }
