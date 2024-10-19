@@ -18,8 +18,20 @@
  */
 
 class Context {
-    constructor (values) {
-        for ( const k in values ) this[k] = values[k];
+    constructor (values = {}) {
+        const descs = Object.getOwnPropertyDescriptors(values);
+        for ( const k in descs ) {
+            Object.defineProperty(this, k, descs[k]);
+        }
+    }
+    follow (source, keys) {
+        const values = {};
+        for ( const k of keys ) {
+            Object.defineProperty(values, k, {
+                get: () => source[k]
+            });
+        }
+        return this.sub(values);
     }
     sub (newValues) {
         if ( newValues === undefined ) newValues = {};
@@ -36,9 +48,10 @@ class Context {
             }
         }
 
-        for ( const k in newValues ) {
+        const descs = Object.getOwnPropertyDescriptors(newValues);
+        for ( const k in descs ){
             if ( alreadyApplied[k] ) continue;
-            sub[k] = newValues[k];
+            Object.defineProperty(sub, k, descs[k]);
         }
 
         return sub;
