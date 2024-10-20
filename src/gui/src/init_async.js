@@ -26,6 +26,7 @@ import './UI/Components/Glyph.js';
 import './UI/Components/Spinner.js';
 import './UI/Components/ActionCard.js';
 import './UI/Components/NotifCard.js';
+import './UI/Components/TestView.js';
 
 logger.info('end -> async initialization');
 globalThis.init_promise.resolve();

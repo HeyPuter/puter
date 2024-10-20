@@ -48,7 +48,7 @@ class Kernel extends AdvancedBase {
         const kv = new kvjs();
         global.kv = kv;
         global.cl = console.log;
-        
+
         const { RuntimeEnvironment } = require('./boot/RuntimeEnvironment');
         const { BootLogger } = require('./boot/BootLogger');
 
