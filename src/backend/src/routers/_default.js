@@ -392,7 +392,10 @@ router.all('*', async function(req, res, next) {
             .add(config.defaultjs_asset_path, { allow_traversal: true })
             .add('apps').add(subdomain)
             .build();
-        if ( subdomain === 'docs' ) root += '/dist';
+        const has_dist = ['docs', 'developer'];
+        if ( has_dist.includes(subdomain) ) {
+            root += '/dist';
+        }
         root = _path.normalize(root);
 
         path = _path.normalize(path);
