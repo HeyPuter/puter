@@ -1752,6 +1752,7 @@ async function get_taskbar_items(user) {
     // add default apps.
     if(!user.taskbar_items){
         taskbar_items_from_db = [
+            {name: 'app-center', type: 'app'},
             {name: 'editor', type: 'app'},
             {name: 'dev-center', type: 'app'},
             {name: 'draw', type: 'app'},
