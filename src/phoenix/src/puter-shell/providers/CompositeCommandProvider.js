@@ -35,7 +35,7 @@ export class CompositeCommandProvider {
         for (const provider of this.providers) {
             const commands = await provider.lookupAll(...a);
             if ( commands ) {
-                results.push(...commands);
+                results.unshift(...commands);
             }
         }
 
