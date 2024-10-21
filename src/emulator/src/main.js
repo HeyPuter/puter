@@ -326,8 +326,10 @@ window.onload = async function()
         },
         // bzimage_initrd_from_filesystem: true,
         autostart: true,
-
-        network_relay_url: emu_config.network_relay ?? "wisp://127.0.0.1:4000",
+        net_device: {
+            relay_url: emu_config.network_relay ?? "wisp://127.0.0.1:4000",
+            type: "virtio"
+        },
         virtio_console: true,
     });
 
