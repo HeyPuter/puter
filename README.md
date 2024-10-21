@@ -7,10 +7,10 @@
     <img alt="GitHub repo size" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="GitHub Release" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=latest%20version"> <img alt="GitHub License" src="https://img.shields.io/github/license/HeyPuter/puter">
 </p>
 <p align="center">
-    <a href="https://puter.com/"><strong>« LIVE DEMO »</strong></a>
+    <a href="https://puter.com/?ref=github.com"><strong>« LIVE DEMO »</strong></a>
     <br />
     <br />
-    <a href="https://puter.com/?utm_source=github.com">Puter.com</a>
+    <a href="https://puter.com/?ref=github.com">Puter.com</a>
     ·
     <a href="https://docs.puter.com" target="_blank">SDK</a>
     ·
