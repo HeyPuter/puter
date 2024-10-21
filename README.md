@@ -10,7 +10,7 @@
     <a href="https://puter.com/"><strong>« LIVE DEMO »</strong></a>
     <br />
     <br />
-    <a href="https://puter.com">Puter.com</a>
+    <a href="https://puter.com/?utm_source=github.com">Puter.com</a>
     ·
     <a href="https://docs.puter.com" target="_blank">SDK</a>
     ·
