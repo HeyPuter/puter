@@ -1,9 +1,10 @@
 import * as utils from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
+import stat from "./stat.js"
+import path from "../../../lib/path.js"
 
 const move = function (...args) {
     let options;
-
     // If first argument is an object, it's the options
     if (typeof args[0] === 'object' && args[0] !== null) {
         options = args[0];
@@ -35,6 +36,19 @@ const move = function (...args) {
         // convert source and destination to absolute path
         options.source = getAbsolutePathForApp(options.source);
         options.destination = getAbsolutePathForApp(options.destination);
+
+        if (!options.new_name) {
+            // Handler to check if dest is supposed to be a file or a folder
+            try {
+                const destStats = await stat.bind(this)(options.destination); // this is meant to error if it doesn't exist
+                if (!destStats.is_dir) {
+                    throw "is not directory" // just a wuick way to just to the catch
+                }
+            } catch (e) {
+                options.new_name = path.basename(options.destination);
+                options.destination = path.dirname(options.destination);
+            }
+        }
 
         // create xhr object
         const xhr = utils.initXhr('/move', this.APIOrigin, this.authToken);

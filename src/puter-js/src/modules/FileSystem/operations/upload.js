@@ -104,7 +104,7 @@ const upload = async function(items, dirPath, options = {}){
         // blob
         else if(items instanceof Blob){
             // create a File object from the blob
-            let file = new File([items], options.name, { type: "text/plain" });
+            let file = new File([items], options.name, { type: "application/octet-stream" });
             entries = [file];
             // add FullPath property to each entry
             for(let i=0; i<entries.length; i++){
