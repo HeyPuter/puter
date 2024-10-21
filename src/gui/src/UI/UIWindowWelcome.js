@@ -67,6 +67,7 @@ async function UIWindowWelcome(options){
         dominant: true,
         show_in_taskbar: false,
         draggable_body: true,
+        fadeIn: 1000,
         onAppend: function(this_window){
         },
         window_class: 'window-welcome',

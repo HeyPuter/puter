@@ -589,25 +589,55 @@ async function UIWindow(options) {
     // window is actually appended and usable.
     // NOTE: there is another is_visible condition below
     if ( options.is_visible ) {
-        $(el_window).show(0, function(e){
-            // if SaveFileDialog, bring focus to the el_savefiledialog_filename and select all
-            if(options.is_saveFileDialog){
-                let item_name = el_savefiledialog_filename.value;
-                const extname = path.extname('/' + item_name);
-                if(extname !== '')
-                el_savefiledialog_filename.setSelectionRange(0, item_name.length - extname.length)
-                else
-                    $(el_savefiledialog_filename).select();
-        
-                $(el_savefiledialog_filename).get(0).focus({preventScroll:true});
-            }
-            //set custom window css
-            $(el_window).css(options.window_css);
-            // onAppend()
-            if(options.onAppend && typeof options.onAppend === 'function'){
-                options.onAppend(el_window);
-            }
-        });
+
+        if(options.fadeIn){
+            $(el_window).css('opacity', 0);
+
+            $(el_window).animate({ opacity: 1 }, options.fadeIn, function() {
+                // Move the onAppend callback here to ensure it's called after fade-in
+                if (options.is_visible) {
+                    $(el_window).show(0, function(e) {
+                        // if SaveFileDialog, bring focus to the el_savefiledialog_filename and select all
+                        if (options.is_saveFileDialog) {
+                            let item_name = el_savefiledialog_filename.value;
+                            const extname = path.extname('/' + item_name);
+                            if (extname !== '')
+                                el_savefiledialog_filename.setSelectionRange(0, item_name.length - extname.length);
+                            else
+                                $(el_savefiledialog_filename).select();
+                    
+                            $(el_savefiledialog_filename).get(0).focus({preventScroll:true});
+                        }
+                        //set custom window css
+                        $(el_window).css(options.window_css);
+                        // onAppend()
+                        if (options.onAppend && typeof options.onAppend === 'function') {
+                            options.onAppend(el_window);
+                        }
+                    });
+                }
+            });
+        }else{
+            $(el_window).show(0, function(e){
+                // if SaveFileDialog, bring focus to the el_savefiledialog_filename and select all
+                if(options.is_saveFileDialog){
+                    let item_name = el_savefiledialog_filename.value;
+                    const extname = path.extname('/' + item_name);
+                    if(extname !== '')
+                    el_savefiledialog_filename.setSelectionRange(0, item_name.length - extname.length)
+                    else
+                        $(el_savefiledialog_filename).select();
+            
+                    $(el_savefiledialog_filename).get(0).focus({preventScroll:true});
+                }
+                //set custom window css
+                $(el_window).css(options.window_css);
+                // onAppend()
+                if(options.onAppend && typeof options.onAppend === 'function'){
+                    options.onAppend(el_window);
+                }
+            });
+        }
     }
 
     if(options.is_saveFileDialog){
