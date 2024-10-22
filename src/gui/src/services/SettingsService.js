@@ -30,13 +30,13 @@ export class SettingsService extends Service {
     #tabs = [];
     async _init () {
         ;[
-            AboutTab,
             UsageTab,
             AccountTab,
             SecurityTab,
             PersonalizationTab,
             LanguageTag,
             ClockTab,
+            AboutTab,
         ].forEach(tab => {
             this.register_tab(tab);
         });

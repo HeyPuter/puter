@@ -3599,6 +3599,7 @@ fieldset[name=number-code] {
     flex-direction: row;
     -webkit-font-smoothing: antialiased;
     flex-grow: 1;
+    position: relative;
 }
 
 .settings-sidebar {
@@ -3639,6 +3640,8 @@ fieldset[name=number-code] {
 
 .settings-content {
     display: none;
+    max-width: 800px;
+    margin: auto;
 }
 
 .settings-content[data-settings="about"] {
@@ -4134,13 +4137,13 @@ fieldset[name=number-code] {
 }
 
 .sidebar-toggle{
-	position: fixed;
+	position: absolute;
     z-index: 9999999999;
-    top: 32px;
     left: 2px;
 	border: 0;
 	padding-top: 5px;
 	padding-bottom: 5px;
+    top: 3px;
 }
 .sidebar-toggle .sidebar-toggle-button {
 	height: 20px;

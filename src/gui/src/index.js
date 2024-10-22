@@ -80,7 +80,6 @@ window.gui = async function(options){
 
     // 🚀 Launch the GUI 🚀
     window.initgui(options);
-
 }
 
 /**

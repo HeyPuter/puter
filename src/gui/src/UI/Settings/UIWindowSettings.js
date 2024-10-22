@@ -34,7 +34,7 @@ async function UIWindowSettings(options){
         h += `<div class="settings-container">`;
         h += `<div class="settings">`;
             // sidebar toggle
-            h += `<button class="sidebar-toggle hidden-lg hidden-xl"><div class="sidebar-toggle-button"><span></span><span></span><span></span></div></button>`;
+            h += `<button class="sidebar-toggle hidden-lg hidden-xl hidden-md"><div class="sidebar-toggle-button"><span></span><span></span><span></span></div></button>`;
             // sidebar
             h += `<div class="settings-sidebar disable-user-select disable-context-menu">`;
                 // sidebar items
@@ -93,7 +93,8 @@ async function UIWindowSettings(options){
                 width: 'initial',
                 height: '100%',
                 overflow: 'auto'
-            }
+            },
+            ...options?.window_options??{}
         });
         const $el_window = $(el_window);
         tabs.forEach((tab, i) => {

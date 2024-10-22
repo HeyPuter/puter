@@ -1064,7 +1064,17 @@ async function UIDesktop(options){
                 window.app_query_params[key] = value;
         }
     }
-
+    //--------------------------------------------------------------------------------------
+    // /settings will open settings in fullpage mode
+    //--------------------------------------------------------------------------------------
+    else if(window.url_paths[0]?.toLocaleLowerCase() === 'settings'){
+        // open settings
+        UIWindowSettings({
+            window_options:{
+                is_fullpage: true,
+            }
+        });
+    }
     // ---------------------------------------------
     // Run apps from insta-login URL
     // ---------------------------------------------
