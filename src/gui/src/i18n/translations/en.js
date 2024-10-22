@@ -322,7 +322,7 @@ const en = {
         zipping: "Zipping %strong%",
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'Open your authenticator app',      
+        setup2fa_1_step_heading: 'Open your authenticator app',
         setup2fa_1_instructions: `
             You can use any authenticator app that supports the Time-based One-Time Password (TOTP) protocol.
             There are many to choose from, but if you're unsure
@@ -349,6 +349,12 @@ const en = {
         login2fa_use_recovery_code: 'Use a recovery code',
         login2fa_recovery_back: 'Back',
         login2fa_recovery_placeholder: 'XXXXXXXX',
+
+        // Subscriptions
+        'offering.free': 'Use Puter',
+        'offering.pay-puter': 'Pay Puter',
+        'offering.pay-puter-more': 'Pay Puter More',
+        'offering.pay-puter-even-more': 'Pay Puter Even More',
     }
 };
 

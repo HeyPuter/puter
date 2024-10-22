@@ -51,6 +51,12 @@ module.exports = class APIError {
             status: 400,
             message: () => 'Invalid token'
         },
+        'unrecognized_offering': {
+            status: 400,
+            message: ({ name }) => {
+                return `offering ${quot(name)} was not recognized.`;
+            },
+        },
         // Things
         'disallowed_thing': {
             status: 400,
@@ -65,7 +71,7 @@ module.exports = class APIError {
                         : ''
                 ) + '.'
         },
-        
+
         // Unorganized
         'item_with_same_name_exists': {
             status: 409,
@@ -590,11 +596,11 @@ module.exports = class APIError {
             status: this.status,
         };
     }
-    
+
     querystringize (extra) {
         return new URLSearchParams(this.querystringize_(extra));
     }
-    
+
     querystringize_ (extra) {
         const fields = {};
         for ( const k in this.fields ) {

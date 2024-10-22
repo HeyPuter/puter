@@ -71,6 +71,21 @@ export default def(class StepView extends Component {
         // now that we're ready, show the wrapper
         $(this.dom_).find('#wrapper').show();
     }
+    
+    add_child (child) {
+        const children = this.get('children');
+        let pos = children.length;
+        child.setAttribute('slot', 'inside');
+        $(child).hide();
+        child.attach(this);
+        
+        return pos;
+    }
+    
+    display (child) {
+        const pos = this.add_child(child);
+        this.goto(pos);
+    }
 
     back () {
         if ( this.get('position') === 0 ) return;
@@ -83,5 +98,9 @@ export default def(class StepView extends Component {
             return;
         }
         this.set('position', this.get('position') + 1);
+    }
+    
+    goto (pos) {
+        this.set('position', pos);
     }
 });

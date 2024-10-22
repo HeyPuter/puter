@@ -183,7 +183,10 @@ export const Component = def(class Component extends HTMLElement {
             this.dom_.appendChild(style);
         }
         if ( this.create_template ) {
-            this.create_template({ template });
+            this.create_template({
+                template,
+                content: template.content,
+            });
         }
         const el = template.content.cloneNode(true);
         return el;
@@ -202,7 +205,8 @@ export const Component = def(class Component extends HTMLElement {
                 }
                 this.values_[name].sub(callback);
                 callback(this.values_[name].get(), {});
-            }
+            },
+            dom: this.dom_,
         };
     }
 });
