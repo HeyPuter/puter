@@ -30,7 +30,10 @@ export default def(class StepView extends Component {
     }
 
     static CSS = `
-        #wrapper { display: none }
+        #wrapper {
+            display: none;
+            height: 100%;
+        }
         * { -webkit-font-smoothing: antialiased;}
     `;
 

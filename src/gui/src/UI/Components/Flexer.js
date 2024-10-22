@@ -34,6 +34,7 @@ export default def(class Flexer extends Component {
 
     static CSS = `
         :host > div {
+            height: 100%;
             display: flex;
             flex-direction: column;
             justify-content: center;
