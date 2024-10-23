@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// About
+// Usage
 export default {
     id: 'usage',
     title_i18n_key: 'usage',
