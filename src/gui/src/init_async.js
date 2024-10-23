@@ -29,6 +29,10 @@ import './UI/Components/ActionCard.js';
 import './UI/Components/NotifCard.js';
 import './UI/Components/TestView.js';
 import './UI/Components/JustID.js';
+import './UI/UIElement.js';
+
+import putility from '@heyputer/putility';
+def(putility, '@heyputer/putility');
 
 logger.info('end -> async initialization');
 globalThis.init_promise.resolve();
