@@ -40,7 +40,12 @@ export default def(class UIElement extends AdvancedBase {
         
         const attrs = {};
         for ( const a_or_c of a ) {
-            if ( Array.isArray(a_or_c) ) {
+            if ( typeof a_or_c === 'string' ) {
+                el.innerText += a_or_c;
+            }
+            else if ( a_or_c instanceof HTMLElement ) {
+                el.appendChild(a_or_c);
+            } if ( Array.isArray(a_or_c) ) {
                 for ( const child of a_or_c ) {
                     el.appendChild(child);
                 }
