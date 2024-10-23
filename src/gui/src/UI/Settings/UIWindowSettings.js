@@ -18,7 +18,10 @@
  */
 
 import Placeholder from '../../util/Placeholder.js';
+import UIElement from '../UIElement.js';
 import UIWindow from '../UIWindow.js'
+
+def(Symbol('TSettingsTab'), 'ui.traits.TSettingsTab');
 
 async function UIWindowSettings(options){
     return new Promise(async (resolve) => {
@@ -54,7 +57,7 @@ async function UIWindowSettings(options){
 
             tabs.forEach((tab, i) => {
                 h += `<div class="settings-content ${i === 0 ? 'active' : ''}" data-settings="${tab.id}">`;
-                if ( tab.factory ) {
+                if ( tab.factory || tab.dom ) {
                     tab_placeholders[i] = Placeholder();
                     h += tab_placeholders[i].html;
                 } else {
@@ -107,6 +110,9 @@ async function UIWindowSettings(options){
             if ( tab.factory ) {
                 const component = tab.factory();
                 component.attach(tab_placeholders[i]);
+            }
+            if ( tab.dom ) {
+                tab_placeholders[i].replaceWith(tab.dom);
             }
         });
 

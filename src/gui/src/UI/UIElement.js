@@ -7,10 +7,22 @@ export default def(class UIElement extends AdvancedBase {
     static TAG_NAME = 'div';
     
     // === START :: Helpful convenience library ===
-    static el = (parent, descriptor, stuff = {}) => {
+    static el = (...a) => {
+        let parent, descriptor; {
+            let next = a[0];
+            if ( next instanceof HTMLElement ) {
+                parent = next;
+                a.shift(); next = a[0];
+            }
+            if ( typeof next === 'string' ) {
+                descriptor = next;
+                a.shift(); next = a[0];
+            }
+        }
+
         descriptor = descriptor ?? 'div';
 
-        const parts = descriptor.split(/(?=[.#])/);
+        let parts = descriptor.split(/(?=[.#])/);
         if ( descriptor.match(/^[.#]/) ) {
             parts.unshift('div');
         }
@@ -18,17 +30,29 @@ export default def(class UIElement extends AdvancedBase {
 
         const el = document.createElement(parts.shift());
         parent && parent.appendChild(el);
-        if ( className ) {
-            for ( const part of parts ) {
-                if ( part.startWith('.') ) {
-                    el.classList.add(part.slice(1));
-                } else if ( part.startWith('#') ) {
-                    el.id = part;
-                }
+        for ( const part of parts ) {
+            if ( part.startsWith('.') ) {
+                el.classList.add(part.slice(1));
+            } else if ( part.startWith('#') ) {
+                el.id = part;
             }
         }
-        if ( stuff.text ) {
-            el.innerText = stuff.text;
+        
+        const attrs = {};
+        for ( const a_or_c of a ) {
+            if ( Array.isArray(a_or_c) ) {
+                for ( const child of a_or_c ) {
+                    el.appendChild(child);
+                }
+            } else {
+                Object.assign(attrs, a_or_c);
+            }
+        }
+        if ( attrs.text ) {
+            el.innerText = attrs.text;
+        }
+        if ( attrs.style ) {
+            el.setAttribute('style', attrs.style);
         }
         return el;
     };

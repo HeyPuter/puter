@@ -24,6 +24,8 @@ import AccountTab from '../UI/Settings/UITabAccount.js';
 import SecurityTab from '../UI/Settings/UITabSecurity.js';
 import PersonalizationTab from '../UI/Settings/UITabPersonalization.js';
 import LanguageTag from '../UI/Settings/UITabLanguage.js';
+import UIElement from "../UI/UIElement.js";
+const TSettingsTab = use('ui.traits.TSettingsTab');
 
 export class SettingsService extends Service {
     #tabs = [];
@@ -43,6 +45,13 @@ export class SettingsService extends Service {
         return this.#tabs;
     }
     register_tab (tab) {
+        if ( tab instanceof UIElement ) {
+            const ui_element = tab;
+            tab = {
+                ...ui_element.as(TSettingsTab).get_metadata(),
+                dom: ui_element.root,
+            };
+        }
         this.#tabs.push(tab);
     }
 }
