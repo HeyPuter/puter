@@ -60,6 +60,7 @@ const WHOAMI_GET = eggspress('/whoami', {
         ...(req.new_token ? { token: req.token } : {})
     };
 
+    // TODO: redundant? GetUserService already puts these values on 'user'
     // Get whoami values from other services
     const svc_whoami = req.services.get('whoami');
     const provider_details = await svc_whoami.get_details({
