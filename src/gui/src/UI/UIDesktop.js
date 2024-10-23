@@ -1071,7 +1071,7 @@ async function UIDesktop(options){
         // open settings
         UIWindowSettings({
             window_options:{
-                is_fullpage: true,
+                // is_fullpage: true,
             }
         });
     }

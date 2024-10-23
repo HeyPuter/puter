@@ -24,7 +24,6 @@ import AccountTab from '../UI/Settings/UITabAccount.js';
 import SecurityTab from '../UI/Settings/UITabSecurity.js';
 import PersonalizationTab from '../UI/Settings/UITabPersonalization.js';
 import LanguageTag from '../UI/Settings/UITabLanguage.js';
-import ClockTab from '../UI/Settings/UITabClock.js';
 
 export class SettingsService extends Service {
     #tabs = [];
@@ -35,7 +34,6 @@ export class SettingsService extends Service {
             SecurityTab,
             PersonalizationTab,
             LanguageTag,
-            ClockTab,
             AboutTab,
         ].forEach(tab => {
             this.register_tab(tab);

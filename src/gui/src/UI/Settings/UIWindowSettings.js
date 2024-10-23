@@ -37,6 +37,11 @@ async function UIWindowSettings(options){
             h += `<button class="sidebar-toggle hidden-lg hidden-xl hidden-md"><div class="sidebar-toggle-button"><span></span><span></span><span></span></div></button>`;
             // sidebar
             h += `<div class="settings-sidebar disable-user-select disable-context-menu">`;
+                // if data-is_fullpage="1" show title saying "Settings"
+                if (options.window_options?.is_fullpage) {
+                    h += `<div class="settings-sidebar-title">${i18n('settings')}</div>`;
+                }
+
                 // sidebar items
                 h += `<div class="settings-sidebar-burger disable-context-menu disable-user-select" style="background-image: url(${window.icons['menu']});"></div>`;
                 tabs.forEach((tab, i) => {

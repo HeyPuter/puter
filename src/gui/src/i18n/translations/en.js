@@ -44,6 +44,7 @@ const en = {
         change_password: "Change Password",
         change_ui_colors: "Change UI Colors",
         change_username: "Change Username",
+        clock_visibility: 'Clock Visibility',
         close: 'Close',
         close_all_windows: "Close All Windows",
         close_all_windows_confirm: "Are you sure you want to close all windows?",

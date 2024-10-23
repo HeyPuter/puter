@@ -3611,6 +3611,15 @@ fieldset[name=number-code] {
     margin-top: 1px;
 }
 
+.settings-sidebar-title{
+    margin-bottom: 20px; 
+    font-weight: bold; 
+    -webkit-font-smoothing: antialiased; 
+    margin-top: 15px; 
+    color: #8c8c8c; 
+    font-size: 19px;
+}
+
 .settings-sidebar-item {
     cursor: pointer;
     border-radius: 4px;

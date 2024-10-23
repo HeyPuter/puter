@@ -173,6 +173,10 @@ $( window ).on( "resize", function() {
     const new_desktop_width = window.innerWidth;
 
     $('.window').each((_, el) => {
+        // if data-is_fullpage="1" then the window is in fullpage mode
+        // and should not be resized
+        if($(el).attr('data-is_fullpage') === "1") return;
+
         const pos = $(el).position();
         const id = $(el).attr('id');
 

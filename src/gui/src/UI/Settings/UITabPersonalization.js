@@ -40,8 +40,16 @@ export default {
                     <button class="button change-ui-colors" style="float:right;">${i18n('change_ui_colors')}</button>
                 </div>
             </div>
+            <div class="settings-card">
+                <strong style="flex-grow:1;">${i18n('clock_visibility')}</strong>
+                <select class="change-clock-visible" style="margin-left: 10px; max-width: 300px;">
+                    <option value="auto">${i18n('clock_visible_auto')}</option>
+                    <option value="hide">${i18n('clock_visible_hide')}</option>
+                    <option value="show">${i18n('clock_visible_show')}</option>
+                </select>
+            </div>
             <div class="settings-card" style="display: block; height: auto;">
-                <strong>${i18n('menubar_style')}</strong>
+                <strong style="margin: 15px 0 30px; display: block;">${i18n('menubar_style')}</strong>
                 <div style="flex-grow:1; margin-top: 10px;">
                     <div>
                         <label style="display:inline;" for="menubar_style_system">
@@ -50,7 +58,6 @@ export default {
                         <p style="margin-left: 17px; margin-top: 5px; margin-bottom: 20px;">Set the menubar based on the host system settings</p>
                         </label>
                     </div>
-
                     <div>
                         <label style="display:inline;" for="menubar_style_desktop">
                         <input type="radio" name="menubar_style" class="menubar_style" value="desktop" id="menubar_style_desktop">
