@@ -18,7 +18,7 @@
  */
 
 import path from "../lib/path.js"
-import { PROCESS_RUNNING, PortalProcess, PseudoProcess } from "../definitions.js";
+import { PROCESS_IPC_ATTACHED, PROCESS_RUNNING, PortalProcess, PseudoProcess } from "../definitions.js";
 import UIWindow from "../UI/UIWindow.js";
 
 /**
@@ -361,12 +361,33 @@ const launch_app = async (options)=>{
 
     const el = await el_win;
     process.references.el_win = el;
+
+    if ( ! options.launched_by_exec_service ) {
+        process.onchange('ipc_status', value => {
+            if ( value !== PROCESS_IPC_ATTACHED ) return;
+
+            $(process.references.iframe).attr('data-appUsesSDK', 'true');
+
+            send_child_launched_msg({ uses_sdk: true });
+
+            // Send any saved broadcasts to the new app
+            globalThis.services.get('broadcast').sendSavedBroadcastsTo(child_instance_id);
+
+            // If `window-active` is set (meanign the window is focused), focus the window one more time
+            // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)
+            if($(process.references.el_win).hasClass('window-active')){
+                $(process.references.el_win).focusWindow();
+            }
+        });
+    }
+
     process.chstatus(PROCESS_RUNNING);
 
     $(el).on('remove', () => {
         const svc_process = globalThis.services.get('process');
         svc_process.unregister(process.uuid);
     });
+
 
     return process;
 }

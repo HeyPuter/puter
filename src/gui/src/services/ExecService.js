@@ -32,6 +32,7 @@ export class ExecService extends Service {
 
         // The "body" of this method is in a separate file
         const child_process = await launch_app({
+            launched_by_exec_service: true,
             name: app_name,
             pseudonym,
             args: args ?? {},
