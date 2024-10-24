@@ -22,6 +22,7 @@ const { get_user, get_app } = require("../../helpers");
 const { Context } = require("../../util/context");
 const APIError = require("../../api/APIError");
 const { DB_WRITE } = require("../database/consts");
+const { UUIDFPE } = require("../../util/uuidfpe");
 
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 
@@ -30,6 +31,7 @@ const LegacyTokenError = class extends Error {};
 class AuthService extends BaseService {
     static MODULES = {
         jwt: require('jsonwebtoken'),
+        crypto: require('crypto'),
         uuidv5: require('uuid').v5,
         uuidv4: require('uuid').v4,
     }
@@ -37,6 +39,11 @@ class AuthService extends BaseService {
     async _init () {
         this.db = await this.services.get('database').get(DB_WRITE, 'auth');
         this.svc_session = await this.services.get('session');
+        
+        const uuid_fpe_key = this.config.uuid_fpe_key
+            ? UUIDFPE.uuidToBuffer(this.config.uuid_fpe_key)
+            : this.modules.crypto.randomBytes(16);
+        this.uuid_fpe = new UUIDFPE(uuid_fpe_key);
 
         this.sessions = {};
 
@@ -78,6 +85,12 @@ class AuthService extends BaseService {
         }
 
         if ( decoded.type === 'app-under-user' ) {
+            const session_uuid = this.uuid_fpe.decrypt(decoded.session);
+            const session = await this.get_session_(session_uuid);
+
+            if ( ! session ) {
+                throw APIError.create('token_auth_failed');
+            }
             const user = await get_user({ uuid: decoded.user_uid });
             if ( ! user ) {
                 throw APIError.create('token_auth_failed');
@@ -164,6 +177,7 @@ class AuthService extends BaseService {
                 version: '0.0.0',
                 user_uid: actor_type.user.uuid,
                 app_uid,
+                session: this.uuid_fpe.encrypt(actor_type.session),
             },
             this.global_config.jwt_secret,
         );

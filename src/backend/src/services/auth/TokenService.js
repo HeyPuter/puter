@@ -81,6 +81,10 @@ const compression = {
             short: 'u',
             ...uuid_compression(),
         },
+        session: {
+            short: 's',
+            ...uuid_compression(),
+        },
         version: 'v',
         type: {
             short: 't',
