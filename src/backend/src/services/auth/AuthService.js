@@ -85,12 +85,16 @@ class AuthService extends BaseService {
         }
 
         if ( decoded.type === 'app-under-user' ) {
-            const session_uuid = this.uuid_fpe.decrypt(decoded.session);
-            const session = await this.get_session_(session_uuid);
+            let session;
+            if ( decoded.session ) {
+                const session_uuid = this.uuid_fpe.decrypt(decoded.session);
+                session = await this.get_session_(session_uuid);
 
-            if ( ! session ) {
-                throw APIError.create('token_auth_failed');
+                if ( ! session ) {
+                    throw APIError.create('token_auth_failed');
+                }
             }
+
             const user = await get_user({ uuid: decoded.user_uid });
             if ( ! user ) {
                 throw APIError.create('token_auth_failed');
@@ -104,6 +108,7 @@ class AuthService extends BaseService {
             const actor_type = new AppUnderUserActorType({
                 user,
                 app,
+                session,
             });
 
             return new Actor({
