@@ -145,6 +145,14 @@ module.exports = eggspress(['/signup'], {
 
     const svc_cleanEmail = req.services.get('clean-email');
     const clean_email = svc_cleanEmail.clean(req.body.email);
+    
+    if ( config.blocked_email_domains ) {
+        for ( const suffix of config.blocked_email_domains ) {
+            if ( clean_email.endsWith(suffix) ) {
+                return res.status(400).send('Please enter a valid email address.');
+            }
+        }
+    }
 
     // duplicate username check
     if(await username_exists(req.body.username))
