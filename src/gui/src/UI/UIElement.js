@@ -56,9 +56,10 @@ export default def(class UIElement extends AdvancedBase {
         if ( attrs.text ) {
             el.innerText = attrs.text;
         }
-        if ( attrs.style ) {
-            el.setAttribute('style', attrs.style);
-        }
+        ;['style', 'src'].forEach(attrprop => {
+            if ( ! attrs.hasOwnProperty(attrprop) ) return;
+            el.setAttribute(attrprop, attrs[attrprop]);
+        })
         return el;
     };
     // === END :: Helpful convenient library ===
