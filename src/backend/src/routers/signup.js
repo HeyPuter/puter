@@ -149,7 +149,7 @@ module.exports = eggspress(['/signup'], {
     if ( config.blocked_email_domains ) {
         for ( const suffix of config.blocked_email_domains ) {
             if ( clean_email.endsWith(suffix) ) {
-                return res.status(400).send('Please enter a valid email address.');
+                return res.status(400).send('This email domain is not allowed.');
             }
         }
     }
