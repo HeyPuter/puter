@@ -24,6 +24,7 @@ const config = require('../config');
 const eggspress = require('../api/eggspress');
 const { Context } = require('../util/context');
 const { DB_WRITE } = require('../services/database/consts');
+const { can } = require('../util/langutil');
 
 // -----------------------------------------------------------------------//
 // POST /signup
@@ -146,7 +147,7 @@ module.exports = eggspress(['/signup'], {
     const svc_cleanEmail = req.services.get('clean-email');
     const clean_email = svc_cleanEmail.clean(req.body.email);
     
-    if ( config.blocked_email_domains ) {
+    if ( can(config.blocked_email_domains, 'iterate') ) {
         for ( const suffix of config.blocked_email_domains ) {
             if ( clean_email.endsWith(suffix) ) {
                 return res.status(400).send('This email domain is not allowed.');

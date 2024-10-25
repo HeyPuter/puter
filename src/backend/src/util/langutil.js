@@ -28,7 +28,22 @@ const whatis = thing => {
 
 const nou = v => v === null || v === undefined;
 
+const can = (v, ...checking) => {
+    if ( nou(v) ) return false;
+    const capabilities = {};
+    if ( v[Symbol.iterator] ) {
+        capabilities['iterate'] = true;
+    }
+    for ( const to_check of checking ) {
+        if ( ! capabilities[to_check] ) {
+            return false;
+        }
+    }
+    return true;
+}
+
 module.exports = {
     whatis,
     nou,
+    can,
 };
