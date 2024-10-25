@@ -3811,8 +3811,8 @@ fieldset[name=number-code] {
 
 #storage-bar {
     float: left;
-    height: 15px;
-    background-color: #dbe3ef;
+    height: 20px;
+    background: linear-gradient(#dbe3ef, #c2ccdc, #dbe3ef);
     border-top-left-radius: 3px;
     border-bottom-left-radius: 3px;
     width: 0;
