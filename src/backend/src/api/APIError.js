@@ -492,6 +492,10 @@ module.exports = class APIError {
             status: 400,
             message: 'Puter apps must have a valid URL.'
         },
+        'anti-csrf-incorrect': {
+            status: 400,
+            message: 'Incorrect or missing anti-CSRF token.',
+        },
 
         // Chat
         // TODO: specifying these errors here might be a violation

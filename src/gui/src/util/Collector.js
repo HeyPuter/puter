@@ -11,7 +11,8 @@ const CollectorHandle = (key, collector) => ({
 
 // TODO: link this with kv.js for expiration handling
 export default def(class Collector {
-    constructor ({ origin, authToken }) {
+    constructor ({ antiCSRF, origin, authToken }) {
+        this.antiCSRF = antiCSRF;
         this.origin = origin;
         this.authToken = authToken;
         this.stored = {};
@@ -29,6 +30,9 @@ export default def(class Collector {
         return await this.fetch({ method: 'get', route });
     }
     async post (route, body) {
+        if ( this.antiCSRF ) {
+            body.anti_csrf = await this.antiCSRF.token();
+        }
         return await this.fetch({ method: 'post', route, body });
     }
 
