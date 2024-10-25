@@ -53,8 +53,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: Puter version (if accessible)
-      description: Type the version of Puter you were using when you encountered the bug
+      label: Puter version
+      description: Type the version of Puter you were using when you encountered the bug. This is not required. If you can't access the version, then continue without adding the version number.
       placeholder: Click the profile button on the top-right, then "Settings". The version number will be printed at the bottom
     validations:
       required: false
