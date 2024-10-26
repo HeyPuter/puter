@@ -368,10 +368,8 @@ const launch_app = async (options)=>{
 
             $(process.references.iframe).attr('data-appUsesSDK', 'true');
 
-            send_child_launched_msg({ uses_sdk: true });
-
             // Send any saved broadcasts to the new app
-            globalThis.services.get('broadcast').sendSavedBroadcastsTo(child_instance_id);
+            globalThis.services.get('broadcast').sendSavedBroadcastsTo(uuid);
 
             // If `window-active` is set (meanign the window is focused), focus the window one more time
             // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)
