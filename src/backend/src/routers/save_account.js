@@ -24,6 +24,7 @@ const auth = require('../middleware/auth.js');
 const config = require('../config');
 const { Context } = require('../util/context');
 const { DB_WRITE } = require('../services/database/consts');
+const { can } = require('../util/langutil.js');
 
 // -----------------------------------------------------------------------//
 // POST /save_account
@@ -69,6 +70,17 @@ router.post('/save_account', auth, express.json(), async (req, res, next)=>{
         return res.status(400).send('password must be a string.')
     else if(req.body.password.length < config.min_pass_length)
         return res.status(400).send(`Password must be at least ${config.min_pass_length} characters long.`)
+
+    const svc_cleanEmail = req.services.get('clean-email')
+    const clean_email = svc_cleanEmail.clean(req.body.email);
+
+    if ( can(config.blocked_email_domains, 'iterate') ) {
+        for ( const suffix of config.blocked_email_domains ) {
+            if ( clean_email.endsWith(suffix) ) {
+                return res.status(400).send('This email domain is not allowed.');
+            }
+        }
+    }
 
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');
     if ( ! svc_edgeRateLimit.check('save-account') ) {
