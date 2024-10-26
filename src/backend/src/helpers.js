@@ -1760,7 +1760,6 @@ async function get_taskbar_items(user) {
             {name: 'camera', type: 'app'},
             {name: 'recorder', type: 'app'},
             {name: 'terminal', type: 'app'},
-            {name: 'about', type: 'app'},
         ];
         await db.write(
             `UPDATE user SET taskbar_items = ? WHERE id = ?`,
