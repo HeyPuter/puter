@@ -49,12 +49,20 @@ module.exports = {
         const svc_cleanEmail = req.services.get('clean-email');
         const clean_email = svc_cleanEmail.clean(new_email);
         
+        if ( ! svc_cleanEmail.validate(clean_email) ) {
+            throw APIError.create('email_not_allowed', undefined, {
+                email: clean_email,
+            });
+        }
+        
         // check if email is already in use
         const db = req.services.get('database').get(DB_WRITE, 'auth');
         const rows = await db.read(
             'SELECT COUNT(*) AS `count` FROM `user` WHERE (`email` = ? OR `clean_email` = ?) AND `email_confirmed` = 1',
             [new_email, clean_email]
         );
+
+        // TODO: DRY: signup.js, save_account.js
         if ( rows[0].count > 0 ) {
             throw APIError.create('email_already_in_use', null, { email: new_email });
         }
@@ -82,6 +90,18 @@ module.exports = {
         await db.write(
             'UPDATE `user` SET `unconfirmed_change_email` = ?, `change_email_confirm_token` = ? WHERE `id` = ?',
             [new_email, token, user.id]
+        );
+
+        // Update email change audit table
+        await db.write(
+            'INSERT INTO `user_update_audit` ' +
+            '(`user_id`, `user_id_keep`, `old_email`, `new_email`, `reason`) ' +
+            'VALUES (?, ?, ?, ?, ?)',
+            [
+                req.user.id, req.user.id,
+                old_email, new_email,
+                'change_username'
+            ]
         );
 
         res.send({ success: true });

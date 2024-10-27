@@ -306,6 +306,10 @@ module.exports = class APIError {
             status: 409,
             message: ({ email }) => `Email ${quot(email)} is already in use.`,
         },
+        'email_not_allowed': {
+            status: 400,
+            message: ({ email }) => `The email ${quot(email)} is not allowed.`,
+        },
         'username_already_in_use': {
             status: 409,
 

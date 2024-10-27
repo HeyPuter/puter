@@ -73,13 +73,9 @@ router.post('/save_account', auth, express.json(), async (req, res, next)=>{
 
     const svc_cleanEmail = req.services.get('clean-email')
     const clean_email = svc_cleanEmail.clean(req.body.email);
-
-    if ( can(config.blocked_email_domains, 'iterate') ) {
-        for ( const suffix of config.blocked_email_domains ) {
-            if ( clean_email.endsWith(suffix) ) {
-                return res.status(400).send('This email domain is not allowed.');
-            }
-        }
+    
+    if ( ! svc_cleanEmail.validate(clean_email) ) {
+        return res.status(400).send('This email domain is not allowed.');
     }
 
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');

@@ -1,3 +1,4 @@
+const { can } = require("../util/langutil");
 const BaseService = require("./BaseService");
 
 class CleanEmailService extends BaseService {
@@ -98,6 +99,21 @@ class CleanEmailService extends BaseService {
         }
 
         return eml.local + '@' + eml.domain;
+    }
+    
+    validate (email) {
+        email = this.clean(email);
+        const config = this.global_config;
+
+        if ( can(config.blocked_email_domains, 'iterate') ) {
+            for ( const suffix of config.blocked_email_domains ) {
+                if ( email.endsWith(suffix) ) {
+                    return false;
+                }
+            }
+        }
+        
+        return true;
     }
 
     _test ({ assert }) {
