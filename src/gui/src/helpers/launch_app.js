@@ -301,6 +301,12 @@ const launch_app = async (options)=>{
         if(app_info.metadata?.hide_titlebar !== undefined && typeof app_info.metadata.hide_titlebar === 'boolean')
             hide_titlebar = app_info.metadata.hide_titlebar;
 
+        // credentialless
+        let credentialless = true;
+        if(app_info.metadata?.credentialless !== undefined && typeof app_info.metadata.credentialless === 'boolean')
+            credentialless = app_info.metadata.credentialless;
+
+        console.log('credentialless', credentialless);
         // open window
         el_win = UIWindow({
             element_uuid: uuid,
@@ -316,6 +322,7 @@ const launch_app = async (options)=>{
             height: window_height,
             width: window_width,
             app: options.name,
+            iframe_credentialless: credentialless,
             is_visible: ! app_info.background,
             is_maximized: options.maximized,
             is_fullpage: options.is_fullpage,

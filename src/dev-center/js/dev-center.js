@@ -258,6 +258,11 @@ async function create_app(title, source_path = null, items = null) {
             maximizeOnStart: false,
             background: false,
             dedupeName: true,
+            metadata: {
+                window_resizable: true,
+                credentialless: true,
+            },
+    
         })
         .then(async (app) => {
             let app_dir;
@@ -566,6 +571,13 @@ function generate_edit_app_section(app) {
                     <input type="checkbox" id="edit-app-locked" name="edit-app-locked" value="true" ${app.metadata?.locked ? 'checked' : ''}>
                     <label for="edit-app-locked" style="display: inline;">Locked</label>
                     <p>When locked, the app cannot be deleted. This is useful to prevent accidental deletion of important apps.</p>
+                </div>
+
+                <h3 style="border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Advanced</h3>
+                <div style="margin-top:30px;">
+                    <input type="checkbox" id="edit-app-credentialless" name="edit-app-credentialless" value="true" ${(app.metadata?.credentialless === true || app.metadata === undefined || app.metadata.credentialless === undefined) ? 'checked' : ''}>
+                    <label for="edit-app-credentialless" style="display: inline;">Credentialless</label>
+                    <p><code>credentialless</code> attribute for the <code>iframe</code> tag.</p>
                 </div>
 
                 <hr style="margin-top: 40px;">
@@ -962,6 +974,7 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
             window_resizable: $('#edit-app-window-resizable').is(":checked"),
             hide_titlebar: $('#edit-app-hide-titlebar').is(":checked"),
             locked: $(`#edit-app-locked`).is(":checked") ?? false,
+            credentialless: $(`#edit-app-credentialless`).is(":checked") ?? true,
         },
         filetypeAssociations: filetype_associations,
     }).then(async (app) => {
