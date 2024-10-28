@@ -24,11 +24,13 @@ const { Context } = require('./util/context');
 
 
 class CoreModule extends AdvancedBase {
+    dirname () { return __dirname; }
     async install (context) {
         const services = context.get('services');
         const app = context.get('app');
         const useapi = context.get('useapi');
-        await install({ services, app, useapi });
+        const modapi = context.get('modapi');
+        await install({ services, app, useapi, modapi });
     }
 
     // Some services were created before the BaseService
@@ -44,7 +46,10 @@ class CoreModule extends AdvancedBase {
 
 module.exports = CoreModule;
 
-const install = async ({ services, app, useapi }) => {
+/**
+ * @footgun - real install method is defined above
+ */
+const install = async ({ services, app, useapi, modapi }) => {
     const config = require('./config');
 
     useapi.withuse(() => {
@@ -63,6 +68,8 @@ const install = async ({ services, app, useapi }) => {
         const LibTypeTagged = require('./libraries/LibTypeTagged');
         services.registerService('lib-type-tagged', LibTypeTagged);
     });
+
+    modapi.libdir('lib.core', './util');
     
     // === SERVICES ===
 

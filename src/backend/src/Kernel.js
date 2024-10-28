@@ -135,9 +135,14 @@ class Kernel extends AdvancedBase {
         const { services } = this;
 
         // Internal modules
-        for ( const module of this.modules ) {
-            services.registerModule(module.constructor.name, module);
-            await module.install(Context.get());
+        for ( const module_ of this.modules ) {
+            services.registerModule(module_.constructor.name, module_);
+            const mod_context = this._create_mod_context(Context.get(), {
+                name: module_.constructor.name,
+                ['module']: module_,
+                external: false,
+            });
+            await module_.install(mod_context);
         }
 
         // External modules
@@ -209,6 +214,8 @@ class Kernel extends AdvancedBase {
         const path_ = require('path');
         const fs = require('fs');
 
+        const mod_install_root_context = Context.get();
+
         const mod_paths = this.environment.mod_paths;
         for ( const mods_dirpath of mod_paths ) {
             const mod_dirnames = fs.readdirSync(mods_dirpath);
@@ -226,13 +233,59 @@ class Kernel extends AdvancedBase {
                     continue;
                 }
 
+                const mod_context = this._create_mod_context(mod_install_root_context, {
+                    name: mod_class.name ?? mod_dirname,
+                    ['module']: mod,
+                    external: true,
+                    mod_path,
+                });
+
                 if ( mod.install ) {
                     this.useapi.awithuse(async () => {
-                        await mod.install(Context.get());
+                        await mod.install(mod_context);
                     });
                 }
             }
         }
+    }
+
+    _create_mod_context (parent, options) {
+        const path_ = require('path');
+        const fs = require('fs');
+
+        const modapi = {};
+
+        let mod_path = options.mod_path;
+        if ( ! mod_path && options.module.dirname ) {
+            mod_path = options.module.dirname();
+        }
+
+        if ( mod_path ) {
+            modapi.libdir = (prefix, directory) => {
+                const fullpath = path_.join(mod_path, directory);
+                const fsitems = fs.readdirSync(fullpath);
+                for ( const item of fsitems ) {
+                    if ( ! item.endsWith('.js') ) {
+                        continue;
+                    }
+                    const stat = fs.statSync(path_.join(fullpath, item));
+                    if ( ! stat.isFile() ) {
+                        continue;
+                    }
+
+                    const name = item.slice(0, -3);
+                    const path = path_.join(fullpath, item);
+                    let lib = require(path);
+
+                    // TODO: This context can be made dynamic by adding a
+                    // getter-like behavior to useapi.
+                    this.useapi.def(`${prefix}.${name}`, lib);
+                }
+            }
+        }
+        const mod_context = parent.sub({ modapi }, `mod:${options.name}`);
+        return mod_context;
+
     }
 }
 
