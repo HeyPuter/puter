@@ -1285,17 +1285,15 @@ function generate_app_card(app) {
     h += `</td>`;
 
     h += `<td style="vertical-align:middle; min-width:200px;">`;
-        h += `<div style="overflow: hidden; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center;">`;
+        h += `<div style="overflow: hidden; height: 100%; display: flex; justify-content: center; align-items: center;">`;
             // "Approved for listing"
-            if(app.approved_for_listing){
-                h += `<span class="approval-badge approval-badge-lsiting">✔ Approved for Listing</span>`;
-            }        
+            h += `<span class="approval-badge approval-badge-lsiting ${app.approved_for_listing ? 'active' : ''}" title="${app.approved_for_listing ? 'Approved for listing in the App Center' : 'Not approved for listing in the App Center'}"></span>`;
+
             // "Approved for opening items"
-            if (app.approved_for_opening_items)
-                h += `<span class="approval-badge approval-badge-opening">✔ Approved for Opening Items</span>`;
+            h += `<span class="approval-badge approval-badge-opening ${app.approved_for_opening_items ? 'active' : ''}" title="${app.approved_for_opening_items ? 'Approved for opening items' : 'Not approved for opening items'}"></span>`;
+
             // "Approved for incentive program"
-            if (app.approved_for_incentive_program)
-                h += `<span class="approval-badge approval-badge-incentive">✔ Incentive Program</span>`;
+            h += `<span class="approval-badge approval-badge-incentive ${app.approved_for_incentive_program ? 'active' : ''}" title="${app.approved_for_incentive_program ? 'Approved for the incentive program' : 'Not approved for the incentive program'}"></span>`;
         h += `</div>`;
     h += `</td>`;
     h += `</tr>`;
