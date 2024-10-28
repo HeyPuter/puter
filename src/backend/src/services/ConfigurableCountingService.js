@@ -156,7 +156,7 @@ class ConfigurableCountingService extends BaseService {
                 Object.keys(required_data).map(() => '?').join(', ')
             }, 1, ${custom_col_values.map(() => '?').join(', ')}) ` +
             this.db.case({
-                mysql: 'ON DUIPLICATE KEY UPDATE ' + duplicate_update_part,
+                mysql: 'ON DUPLICATE KEY UPDATE ' + duplicate_update_part,
                 sqlite: `ON CONFLICT(${
                     identifying_keys.map(v => `\`${v}\``).join(', ')
                 }) DO UPDATE SET ${duplicate_update_part}`,
