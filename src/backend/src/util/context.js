@@ -75,6 +75,22 @@ class Context {
     get values () {
         return this.values_;
     }
+
+    /**
+     * @untested
+     */
+    get_proxy_object () {
+        return new Proxy(this.values_, {
+            get: (target, prop) => {
+                return this.get(prop);
+            },
+            set: (target, prop, value) => {
+                this.set(prop, value);
+                return true;
+            },
+        });
+    }
+
     constructor (imm_values, opt_parent, opt_name) {
         const values = { ...imm_values };
         imm_values = null;
