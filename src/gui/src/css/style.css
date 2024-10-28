@@ -1324,8 +1324,9 @@ span.header-sort-icon img {
     background-color: #f3f5f9;
     padding: 0 15px;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     justify-content: center;
+    align-items: center;
 }
 
 .savefiledialog-filename {
@@ -1337,6 +1338,16 @@ span.header-sort-icon img {
     flex-grow: 1;
 }
 
+.window-filedialog-upload-here{
+    -webkit-font-smoothing: antialiased;
+    opacity: 0.7;
+    font-size: 14px;
+}
+
+.window-filedialog-upload-here:hover{
+    cursor: pointer;
+    opacity: 1;
+}
 .savefiledialog-save-btn, .openfiledialog-open-btn {
     margin-left: 10px;
 }

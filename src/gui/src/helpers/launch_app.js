@@ -306,7 +306,6 @@ const launch_app = async (options)=>{
         if(app_info.metadata?.credentialless !== undefined && typeof app_info.metadata.credentialless === 'boolean')
             credentialless = app_info.metadata.credentialless;
 
-        console.log('credentialless', credentialless);
         // open window
         el_win = UIWindow({
             element_uuid: uuid,
