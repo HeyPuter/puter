@@ -90,6 +90,12 @@ class EntityStoreImplementation extends Driver {
         super();
         this.service = service;
     }
+    get_usage_extra () {
+        return {
+            ['driver.interface']: 'puter-es',
+            ['driver.implementation']: 'puter-es:' + this.service,
+        };
+    }
     static METHODS = {
         create: async function ({ object, options }) {
             const svc_es = this.services.get(this.service);

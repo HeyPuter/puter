@@ -132,6 +132,20 @@ class ConfigurableCountingService extends BaseService {
             pricing_category: JSON.stringify(pricing_category),
         };
 
+        const duplicate_update_part =
+            `count = count + 1${
+                custom_col_names.length > 0 ? ', ' : ''
+            } ${
+                custom_col_names.map((name) => `${name} = ${name} + ?`).join(', ')
+            }`;
+
+        const identifying_keys = [
+            `year`, `month`,
+            `service_type`, `service_name`,
+            `actor_key`,
+            `pricing_category_hash`
+        ]
+
         const sql =
             `INSERT INTO monthly_usage_counts (${
                 Object.keys(required_data).join(', ')
@@ -141,11 +155,13 @@ class ConfigurableCountingService extends BaseService {
             `VALUES (${
                 Object.keys(required_data).map(() => '?').join(', ')
             }, 1, ${custom_col_values.map(() => '?').join(', ')}) ` +
-            `ON DUPLICATE KEY UPDATE count = count + 1${
-                custom_col_names.length > 0 ? ', ' : ''
-            } ${
-                custom_col_names.map((name) => `${name} = ${name} + ?`).join(', ')
-            }`;
+            this.db.case({
+                mysql: 'ON DUIPLICATE KEY UPDATE ' + duplicate_update_part,
+                sqlite: `ON CONFLICT(${
+                    identifying_keys.map(v => `\`${v}\``).join(', ')
+                }) DO UPDATE SET ${duplicate_update_part}`,
+            })
+            ;
 
         const value_array = [
             ...Object.values(required_data),

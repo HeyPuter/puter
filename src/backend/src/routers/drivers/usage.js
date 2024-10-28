@@ -62,29 +62,35 @@ module.exports = eggspress('/drivers/usage', {
         const app = await get_app({ id: row.app_id });
 
         const identifying_fields = {
-            service: row.extra,
+            service: JSON.parse(row.extra),
             year: row.year,
             month: row.month,
         };
+
+        // EntityStorage identifiers weren't tracked properly. We don't realy need
+        // to track or show them, so this isn't a huge deal, but we need to make
+        // sure they don't populate garbage data into the usage report.
+        if ( ! identifying_fields.service['driver.implementation'] ) {
+            continue;
+        }
+
+        const svc_driverUsage = req.services.get('driver-usage-policy');
+        const policy = await svc_driverUsage.get_effective_policy({
+            actor,
+            service_name: identifying_fields.service['driver.implementation'],
+            trait_name: identifying_fields.service['driver.interface'],
+        });
+
+        // console.log(`POLICY FOR ${identifying_fields.service['driver.implementation']} ${identifying_fields.service['driver.interface']}`, policy);
+
         const user_usage_key = hash_serializable_object(identifying_fields);
 
         if ( ! usages.user[user_usage_key] ) {
             usages.user[user_usage_key] = {
                 ...identifying_fields,
+                policy,
             };
-
-            const method_key = row.extra['driver.implementation'] +
-                ':' + row.extra['driver.method'];
-            const sla_key = `driver:impl:${method_key}`;
-
-            const svc_sla = x.get('services').get('sla');
-            const sla = await svc_sla.get(
-                user_is_verified ? 'user_verified' : 'user_unverified',
-                sla_key
-            );
-
-            usages.user[user_usage_key].monthly_limit =
-                sla?.monthly_limit || null;
+            usages.user[user_usage_key].monthly_limit = policy?.['monthy-limit'] ?? null;
         }
 
         usages.user[user_usage_key].monthly_usage =
@@ -109,7 +115,8 @@ module.exports = eggspress('/drivers/usage', {
 
         const app_usage_key = hash_serializable_object(id_plus_app);
 
-        if ( ! app_usages[app_usage_key] ) {
+        // DISABLED FOR NOW: need to rework this for the new policy system
+        if ( false ) if ( ! app_usages[app_usage_key] ) {
             app_usages[app_usage_key] = {
                 ...identifying_fields,
             };

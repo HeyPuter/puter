@@ -25,6 +25,9 @@ const { CodeUtil } = require("../codex/CodeUtil");
 
 /**
  * Base class for all driver implementations.
+ * 
+ * @deprecated - we use traits on services now. This class is kept for compatibility
+ * with EntityStoreImplementation and DBKVStore which still use this.
  */
 class Driver extends AdvancedBase {
     constructor (...a) {
@@ -169,6 +172,7 @@ class Driver extends AdvancedBase {
                 'driver.interface': this.constructor.INTERFACE,
                 'driver.implementation': this.constructor.ID,
                 'driver.method': method,
+                ...(this.get_usage_extra ? this.get_usage_extra() : {}),
             };
             await svc_monthlyUsage.increment(actor, method_key, extra);
         }

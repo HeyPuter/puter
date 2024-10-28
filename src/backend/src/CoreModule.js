@@ -331,6 +331,9 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { KernelInfoService } = require('./services/KernelInfoService');
     services.registerService('kernel-info', KernelInfoService);
+
+    const { DriverUsagePolicyService } = require('./services/drivers/DriverUsagePolicyService');
+    services.registerService('driver-usage-policy', DriverUsagePolicyService);
 }
 
 const install_legacy = async ({ services }) => {
