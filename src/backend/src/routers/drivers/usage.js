@@ -61,8 +61,15 @@ module.exports = eggspress('/drivers/usage', {
     for ( const row of rows ) {
         const app = await get_app({ id: row.app_id });
 
+        let extra_parsed;
+        try {
+            extra_parsed = JSON.parse(row.extra);
+        } catch ( e ) {
+            continue;
+        }
+
         const identifying_fields = {
-            service: JSON.parse(row.extra),
+            service: extra_parsed,
             year: row.year,
             month: row.month,
         };
