@@ -60,11 +60,18 @@ module.exports = eggspress('/drivers/usage', {
 
     for ( const row of rows ) {
         const app = await get_app({ id: row.app_id });
-
+        
         let extra_parsed;
         try {
-            extra_parsed = JSON.parse(row.extra);
+            extra_parsed = db.case({
+                mysql: () => row.extra,
+                otherwise: () => JSON.parse(row.extra),
+            })();
         } catch ( e ) {
+            console.log(
+                '\x1B[31;1m error parsing monthly usage extra',
+                row.extra, e,
+            );
             continue;
         }
 
