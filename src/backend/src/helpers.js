@@ -1382,7 +1382,7 @@ function is_valid_url ( url ) {
 function hyphenize_confirm_code(email_confirm_code){
     email_confirm_code = email_confirm_code.toString();
     email_confirm_code =
-        [0] +
+        email_confirm_code[0] +
         email_confirm_code[1] +
         email_confirm_code[2] +
         '-' +
