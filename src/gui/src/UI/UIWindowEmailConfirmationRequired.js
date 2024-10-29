@@ -273,4 +273,6 @@ function UIWindowEmailConfirmationRequired(options){
     })
 }
 
+def(UIWindowEmailConfirmationRequired, 'ui.UIConfirmEmail');
+
 export default UIWindowEmailConfirmationRequired

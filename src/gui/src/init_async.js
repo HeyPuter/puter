@@ -30,6 +30,8 @@ import './UI/Components/NotifCard.js';
 import './UI/Components/TestView.js';
 import './UI/Components/JustID.js';
 import './UI/UIElement.js';
+import './UI/UIWindowSaveAccount.js';
+import './UI/UIWindowEmailConfirmationRequired.js';
 
 import putility from '@heyputer/putility';
 def(putility, '@heyputer/putility');

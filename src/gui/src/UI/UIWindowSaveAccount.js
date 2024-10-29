@@ -183,4 +183,6 @@ async function UIWindowSaveAccount(options){
     })
 }
 
+def(UIWindowSaveAccount, 'ui.UISaveAccount');
+
 export default UIWindowSaveAccount
