@@ -18,6 +18,7 @@
  */
 import { Exit } from '../coreutils/coreutil_lib/exit.js';
 import { signals } from '../../ansi-shell/signals.js';
+import { TeePromise } from '../../promise.js';
 
 const BUILT_IN_APPS = [
     'explorer',
@@ -72,6 +73,10 @@ export class PuterAppCommandProvider {
                 ctx.shell.addEventListener('signal.window-resize', resize_listener);
 
                 // Wait for app to close.
+                // console.log('waiting for app to close (phoenix)', window, {
+                //     child_appid: child.targetAppInstanceID,
+                //     phoen_appid: puter.appInstanceID,
+                // });
                 const app_close_promise = new Promise((resolve, reject) => {
                     child.on('close', (data) => {
                         if ((data.statusCode ?? 0) != 0) {

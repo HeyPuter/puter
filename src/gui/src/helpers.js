@@ -2522,6 +2522,8 @@ window.report_app_launched = (instance_id, { uses_sdk = true }) => {
 };
 
 // Run any callbacks to say that the app has closed
+// ref(./services/ExecService.js): this is called from ExecService.js on
+//   close if the app does not use puter.js
 window.report_app_closed = (instance_id, status_code) => {
     const el_window = window.window_for_app_instance(instance_id);
 

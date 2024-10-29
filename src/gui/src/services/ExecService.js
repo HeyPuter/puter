@@ -79,6 +79,12 @@ export class ExecService extends Service {
                 // We also have to report an extra close event because the real one was sent already
                 window.report_app_closed(child_process.uuid);
             }
+
+            process.references.iframe.contentWindow.postMessage({
+                msg: 'appClosed',
+                appInstanceID: connection.forward.uuid,
+                statusCode: 0,
+            });
         });
 
         return {
