@@ -29,7 +29,7 @@ export default def(class Collector {
     async get (route) {
         return await this.fetch({ method: 'get', route });
     }
-    async post (route, body) {
+    async post (route, body = {}) {
         if ( this.antiCSRF ) {
             body.anti_csrf = await this.antiCSRF.token();
         }
