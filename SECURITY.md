@@ -37,4 +37,3 @@ Please submit a report to us before engaging in conduct that may be inconsistent
 * Please provide detailed reports with reproducible steps and a clearly defined impact.
 * Include the version number of the vulnerable package in your report
 * Social engineering (e.g. phishing, vishing, smishing) is prohibited.
-
