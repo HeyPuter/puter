@@ -90,7 +90,6 @@
  * https://github.com/kamens/jQuery-menu-aim
 */
 (function ($) {
-
     $.fn.menuAim = function (opts) {
         // Initialize menu-aim for all elements in jQuery collection
         this.each(function () {
@@ -365,6 +364,10 @@ function UIContextMenu(options){
     $('.window-active .window-app-iframe').css('pointer-events', 'none');
 
     const menu_id = window.global_element_id++;
+
+    // Dispatch 'ctxmenu-will-open' event 
+    window.dispatchEvent(new CustomEvent('ctxmenu-will-open', { detail: { options: options} }));
+
     let h = '';
     h += `<div 
                 id="context-menu-${menu_id}" 
@@ -424,10 +427,12 @@ function UIContextMenu(options){
     h += `</div>`
     $('body').append(h)
 
+
     const contextMenu = document.getElementById(`context-menu-${menu_id}`);
     const menu_width = $(contextMenu).width();
     const menu_height = $(contextMenu).outerHeight();
     let start_x, start_y;
+
     //--------------------------------
     // Auto position
     //--------------------------------
@@ -505,7 +510,7 @@ function UIContextMenu(options){
     };
 
     // An item is clicked
-    $(`#context-menu-${menu_id} > li:not(.context-menu-item-disabled)`).on('click', function (e) {
+    $(document).on('click', `#context-menu-${menu_id} > li:not(.context-menu-item-disabled)`, function (e) {
         
         // onClick
         if(options.items[$(this).attr("data-action")].onClick && typeof options.items[$(this).attr("data-action")].onClick === 'function'){

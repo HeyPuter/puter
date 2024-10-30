@@ -1411,6 +1411,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             //--------------------------------------------------
             {
                 html: i18n('contact_us'),
+                id: 'contact_us',
                 onClick: async function(){
                     UIWindowFeedback();
                 }
