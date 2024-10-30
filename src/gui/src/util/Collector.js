@@ -29,11 +29,11 @@ export default def(class Collector {
     async get (route) {
         return await this.fetch({ method: 'get', route });
     }
-    async post (route, body = {}) {
+    async post (route, body = {}, options = {}) {
         if ( this.antiCSRF ) {
             body.anti_csrf = await this.antiCSRF.token();
         }
-        return await this.fetch({ method: 'post', route, body });
+        return await this.fetch({ ...options, method: 'post', route, body });
     }
 
     discard (key) {
@@ -62,6 +62,8 @@ export default def(class Collector {
             this.origin +maybe_slash+ options.route,
             fetchOptions,
         );
+        
+        if ( options.no_response ) return;
         const asJSON = await resp.json();
 
         if ( options.key ) this.stored[options.key] = asJSON;
