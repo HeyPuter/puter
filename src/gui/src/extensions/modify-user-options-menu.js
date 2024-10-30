@@ -19,7 +19,13 @@ $(window).on('ctxmenu-will-open', (event) => {
         const items = event.detail.options.items;
         const insertBeforeIndex = items.findIndex(item => item.id === 'contact_us');
         
-        // Insert all new items before 'contact_us'
+        // 'contact_us' not found, append new items at the end
+        if (insertBeforeIndex === -1) {
+            event.detail.options.items = [...items, ...newMenuItems];
+            return;
+        }
+
+        // 'contact_us' found, insert new items before it
         const firstHalf = items.slice(0, insertBeforeIndex);
         const secondHalf = items.slice(insertBeforeIndex);
         event.detail.options.items = [...firstHalf, ...newMenuItems, ...secondHalf];
