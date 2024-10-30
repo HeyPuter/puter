@@ -60,21 +60,4 @@ module.exports = async ({ dir, options }) => {
         banner: prefix_text,
         raw: true,
     });
-
-    // -----------------------------------------------
-    // Webpack understands this code better than I do
-    // -----------------------------------------------
-    // Object.keys(compilation.assets).forEach((assetName) => {
-    //     if (assetName.endsWith('.js')) {
-    //         const asset = compilation.assets[assetName];
-    //         const originalSource = asset.source();
-    //         const newSource = `${prefix_text}\n${originalSource}`;
-    //         compilation.assets[assetName] = {
-    //             source: () => newSource,
-    //             size: () => newSource.length,
-    //         };
-    //     }
-    // });
-
-    console.log('END');
 };

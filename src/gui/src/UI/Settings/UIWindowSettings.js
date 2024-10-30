@@ -18,7 +18,6 @@
  */
 
 import Placeholder from '../../util/Placeholder.js';
-import UIElement from '../UIElement.js';
 import UIWindow from '../UIWindow.js'
 
 def(Symbol('TSettingsTab'), 'ui.traits.TSettingsTab');
@@ -70,8 +69,6 @@ async function UIWindowSettings(options){
         h += `</div>`;
         h += `</div>`;
 
-        h += ``;
-
         const el_window = await UIWindow({
             title: 'Settings',
             app: 'settings',
@@ -95,6 +92,8 @@ async function UIWindowSettings(options){
             show_in_taskbar: false,
             draggable_body: false,
             onAppend: function(this_window){
+                // send event settings-window-opened
+                window.dispatchEvent(new CustomEvent('settings-window-opened', { detail: { window: this_window } }));
             },
             window_class: 'window-settings',
             body_css: {
@@ -130,7 +129,7 @@ async function UIWindowSettings(options){
 
             // Run on_show handlers
             const tab = tabs.find((tab) => tab.id === settings);
-            if (tab.on_show) {
+            if (tab?.on_show) {
                 tab.on_show($content);
             }
         })
