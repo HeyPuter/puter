@@ -16,14 +16,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-module.exports = class BillingModule extends use.Module {
-    install (context) {
-        const services = context.get('services');
+extension.on('install', ({ services }) => {
+    const services = context.get('services');
 
-        const { CustomPuterService } = require('./CustomPuterService.js');
-        services.registerService('__custom-puter', CustomPuterService);
-        
-        const { ShareTestService } = require('./ShareTestService.js');
-        services.registerService('__share-test', ShareTestService);
-    }
-}
+    const { CustomPuterService } = require('./CustomPuterService.js');
+    services.registerService('__custom-puter', CustomPuterService);
+    
+    const { ShareTestService } = require('./ShareTestService.js');
+    services.registerService('__share-test', ShareTestService);
+});

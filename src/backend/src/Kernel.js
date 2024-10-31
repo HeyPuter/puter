@@ -21,7 +21,9 @@ const { Context } = require('./util/context');
 const BaseService = require("./services/BaseService");
 const useapi = require('useapi');
 const yargs = require('yargs/yargs')
-const { hideBin } = require('yargs/helpers')
+const { hideBin } = require('yargs/helpers');
+const { Extension } = require("./Extension");
+const { ExtensionModule } = require("./ExtensionModule");
 
 
 class Kernel extends AdvancedBase {
@@ -226,25 +228,39 @@ class Kernel extends AdvancedBase {
                 if ( ! stat.isDirectory() ) {
                     continue;
                 }
+                
+                const mod = new ExtensionModule();
+                mod.extension = new Extension();
 
-                const mod_class = this.useapi.withuse(() => require(mod_path));
-                const mod = new mod_class();
-                if ( ! mod ) {
-                    continue;
-                }
+                // This is where the module gets the 'use' and 'def' globals
+                await this.useapi.awithuse(async () => {
+                    // This is where the module gets the 'extension' global
+                    await useapi.aglobalwith({
+                        extension: mod.extension,
+                    }, async () => {
+                        const maybe_promise = require(mod_path);
+                        if ( maybe_promise && maybe_promise instanceof Promise ) {
+                            await maybe_promise;
+                        }
+                    });
+                });
 
                 const mod_context = this._create_mod_context(mod_install_root_context, {
-                    name: mod_class.name ?? mod_dirname,
+                    name: mod_dirname,
                     ['module']: mod,
                     external: true,
                     mod_path,
                 });
-
-                if ( mod.install ) {
-                    this.useapi.awithuse(async () => {
+                
+                // TODO: DRY `awithuse` and `aglobalwith` with above
+                await this.useapi.awithuse(async () => {
+                    await useapi.aglobalwith({
+                        extension: mod.extension,
+                    }, async () => {
+                        // This is where the 'install' event gets triggered
                         await mod.install(mod_context);
                     });
-                }
+                });
             }
         }
     }

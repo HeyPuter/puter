@@ -114,5 +114,6 @@ const useapi = function useapi () {
 
 // We export some things on the function itself
 useapi.globalwith = globalwith;
+useapi.aglobalwith = aglobalwith;
 
 module.exports = useapi;
