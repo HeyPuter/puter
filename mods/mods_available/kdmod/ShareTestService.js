@@ -24,18 +24,18 @@ const {
     generate_system_fsentries,
     invalidate_cached_user,
     deleteUser,
-} = require('../../../packages/backend/src/helpers');
-const { HLWrite } = require('../../../packages/backend/src/filesystem/hl_operations/hl_write');
-const { LLRead } = require('../../../packages/backend/src/filesystem/ll_operations/ll_read');
+} = require('../../../src/backend/src/helpers.js');
+const { HLWrite } = require('../../../src/backend/src/filesystem/hl_operations/hl_write.js');
+const { LLRead } = require('../../../src/backend/src/filesystem/ll_operations/ll_read.js');
 const { Actor, UserActorType }
-    = require('../../../packages/backend/src/services/auth/Actor');
-const { DB_WRITE } = require('../../../packages/backend/src/services/database/consts');
+    = require('../../../src/backend/src/services/auth/Actor.js');
+const { DB_WRITE } = require('../../../src/backend/src/services/database/consts.js');
 const {
     RootNodeSelector,
     NodeChildSelector,
     NodePathSelector,
-} = require('../../../packages/backend/src/filesystem/node/selectors');
-const { Context } = require('../../../packages/backend/src/util/context');
+} = require('../../../src/backend/src/filesystem/node/selectors.js');
+const { Context } = require('../../../src/backend/src/util/context.js');
 
     
 class ShareTestService extends use.Service {

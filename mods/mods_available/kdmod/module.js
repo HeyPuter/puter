@@ -17,8 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 extension.on('install', ({ services }) => {
-    const services = context.get('services');
-
     const { CustomPuterService } = require('./CustomPuterService.js');
     services.registerService('__custom-puter', CustomPuterService);
     
