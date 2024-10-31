@@ -7,3 +7,6 @@
 [submodule "submodules/epoxy-tls"]
 	path = submodules/epoxy-tls
 	url = git@github.com:MercuryWorkshop/epoxy-tls.git
+[submodule "submodules/wiki"]
+	path = submodules/wiki
+	url = https://github.com/HeyPuter/puter.wiki.git
