@@ -345,6 +345,7 @@ class RuntimeEnvironment extends AdvancedBase {
         if ( ! config.mod_directories ) {
             config.mod_directories = [
                 '{source}/../mods/mods_enabled',
+                '{source}/../extensions',
             ];
         }
 
