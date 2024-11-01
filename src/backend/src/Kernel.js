@@ -215,19 +215,47 @@ class Kernel extends AdvancedBase {
     async install_extern_mods_ () {
         const path_ = require('path');
         const fs = require('fs');
-
+        
+        // In runtime directory, we'll create a `mod_packages` directory.`
+        if ( fs.existsSync('mod_packages') ) {
+            fs.rmSync('mod_packages', { recursive: true, force: true });
+        }
+        fs.mkdirSync('mod_packages');
+        
         const mod_install_root_context = Context.get();
 
         const mod_paths = this.environment.mod_paths;
         for ( const mods_dirpath of mod_paths ) {
             const mod_dirnames = fs.readdirSync(mods_dirpath);
             for ( const mod_dirname of mod_dirnames ) {
-                const mod_path = path_.join(mods_dirpath, mod_dirname);
+                let mod_path = path_.join(mods_dirpath, mod_dirname);
 
-                const stat = fs.statSync(mod_path);
-                if ( ! stat.isDirectory() ) {
+                let stat = fs.lstatSync(mod_path);
+                while ( stat.isSymbolicLink() ) {
+                    mod_path = fs.readlinkSync(mod_path);
+                    stat = fs.lstatSync(mod_path);
+                }
+
+                if ( ! stat.isDirectory() && !(mod_dirname.endsWith('.js')) ) {
                     continue;
                 }
+                
+                const mod_name = path_.parse(mod_path).name;
+                const mod_package_dir = `mod_packages/${mod_name}`;
+                fs.mkdirSync(mod_package_dir);
+
+                if ( ! stat.isDirectory() ) {
+                    this.create_mod_package_json(mod_package_dir, {
+                        name: mod_name,
+                    });
+                    fs.copyFileSync(mod_path, path_.join(mod_package_dir, 'main.js'));
+                } else {
+                    fs.cpSync(mod_path, mod_package_dir, {
+                        recursive: true,
+                    });
+                }
+                
+                const mod_require_dir = path_.join(process.cwd(), mod_package_dir);
                 
                 const mod = new ExtensionModule();
                 mod.extension = new Extension();
@@ -238,7 +266,7 @@ class Kernel extends AdvancedBase {
                     await useapi.aglobalwith({
                         extension: mod.extension,
                     }, async () => {
-                        const maybe_promise = require(mod_path);
+                        const maybe_promise = require(mod_require_dir);
                         if ( maybe_promise && maybe_promise instanceof Promise ) {
                             await maybe_promise;
                         }
@@ -302,6 +330,19 @@ class Kernel extends AdvancedBase {
         const mod_context = parent.sub({ modapi }, `mod:${options.name}`);
         return mod_context;
 
+    }
+    
+    create_mod_package_json (mod_path, { name }) {
+        const fs = require('fs');
+        const path_ = require('path');
+
+        const data = JSON.stringify({
+            name,
+            version: '1.0.0',
+            main: 'main.js',
+        });
+        
+        fs.writeFileSync(path_.join(mod_path, 'package.json'), data);
     }
 }
 
