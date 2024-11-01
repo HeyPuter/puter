@@ -1,6 +1,7 @@
 const { AdvancedBase } = require("@heyputer/putility");
 const BaseService = require("./services/BaseService");
 const { Endpoint } = require("./util/expressutil");
+const configurable_auth = require("./middleware/configurable_auth");
 
 class ExtensionServiceState extends AdvancedBase {
     constructor (...a) {
@@ -19,7 +20,7 @@ class ExtensionServiceState extends AdvancedBase {
         // TODO: option for auth middleware is harcoded here, but eventually
         // all exposed middlewares should be registered under the simpele names
         // used in this options object (probably; still not 100% decided on that)
-        if ( options.auth ) {
+        if ( ! options.noauth ) {
             const auth_conf = typeof options.auth === 'object' ?
                 options.auth : {};
             mw.push(configurable_auth(auth_conf));
