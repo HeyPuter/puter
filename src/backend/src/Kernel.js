@@ -24,7 +24,7 @@ const yargs = require('yargs/yargs')
 const { hideBin } = require('yargs/helpers');
 const { Extension } = require("./Extension");
 const { ExtensionModule } = require("./ExtensionModule");
-
+const { spawn } = require("node:child_process");
 
 class Kernel extends AdvancedBase {
     constructor ({ entry_path } = {}) {
@@ -257,6 +257,8 @@ class Kernel extends AdvancedBase {
                 
                 const mod_require_dir = path_.join(process.cwd(), mod_package_dir);
                 
+                await this.run_npm_install(mod_require_dir);
+                
                 const mod = new ExtensionModule();
                 mod.extension = new Extension();
 
@@ -343,6 +345,21 @@ class Kernel extends AdvancedBase {
         });
         
         fs.writeFileSync(path_.join(mod_path, 'package.json'), data);
+    }
+    
+    async run_npm_install (path) {
+        const proc = spawn('npm', ['install'], { cwd: path, stdio: 'inherit' });
+        return new Promise((rslv, rjct) => {
+            proc.on('close', code => {
+                if ( code !== 0 ) {
+                    throw new Error(`exit code: ${code}`);
+                }
+                rslv();
+            });
+            proc.on('error', err => {
+                rjct(err);
+            })
+        })
     }
 }
 
