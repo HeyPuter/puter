@@ -1,6 +1,7 @@
 const { AdvancedBase } = require("@heyputer/putility");
 const EmitterFeature = require("@heyputer/putility/src/features/EmitterFeature");
 const { Context } = require("./util/context");
+const { ExtensionService, ExtensionServiceState } = require("./ExtensionService");
 
 class Extension extends AdvancedBase {
     static FEATURES = [
@@ -12,6 +13,51 @@ class Extension extends AdvancedBase {
             ]
         }),
     ];
+
+    constructor (...a) {
+        super(...a);
+        this.service = null;
+    }
+
+    get (path, handler, options) {
+        // this extension will have a default service
+        this.ensure_service_();
+
+        // handler and options may be flipped
+        if ( typeof handler === 'object' ) {
+            [handler, options] = [options, handler];
+        }
+        if ( ! options ) options = {};
+
+        this.service.register_route_handler_(path, handler, {
+            ...options,
+            methods: ['GET'],
+        });
+    }
+
+    post (path, handler, options) {
+        // this extension will have a default service
+        this.ensure_service_();
+
+        // handler and options may be flipped
+        if ( typeof handler === 'object' ) {
+            [handler, options] = [options, handler];
+        }
+        if ( ! options ) options = {};
+
+        this.service.register_route_handler_(path, handler, {
+            ...options,
+            methods: ['POST'],
+        });
+    }
+
+    ensure_service_ () {
+        if ( this.service ) {
+            return;
+        }
+
+        this.service = new ExtensionServiceState();
+    }
 }
 
 module.exports = {
