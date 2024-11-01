@@ -79,7 +79,7 @@ let default_fn = () => {
     };
     const library = {
         use,
-        def: (name, value) => {
+        def: (name, value, options = {}) => {
             const parts = name.split('.');
             let obj = use;
             for ( const part of parts.slice(0, -1) ) {
@@ -89,7 +89,17 @@ let default_fn = () => {
                 obj = obj[part];
             }
 
-            obj[parts[parts.length - 1]] = value;
+            const lastpart = parts[parts.length - 1];
+            
+            if ( options.assign ) {
+                if ( ! obj[lastpart] ) {
+                    obj[lastpart] = {};
+                }
+                Object.assign(obj[lastpart], value);
+                return;
+            }
+            
+            obj[lastpart] = value;
         },
         withuse: fn => {
             return globalwith({

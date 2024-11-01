@@ -57,7 +57,13 @@ const install = async ({ services, app, useapi, modapi }) => {
         def('Module', AdvancedBase);
         def('Library', Library);
 
+        def('core.util.helpers', require('./helpers'));
         def('puter.middlewares.auth', require('./middleware/auth2'));
+        def('puter.middlewares.anticsrf', require('./middleware/anticsrf'));
+        
+        def('core.APIError', require('./api/APIError'));
+        
+        def('core', require('./services/auth/Actor'), { assign: true });
     });
     
     // === LIBRARIES ===
@@ -69,7 +75,7 @@ const install = async ({ services, app, useapi, modapi }) => {
         services.registerService('lib-type-tagged', LibTypeTagged);
     });
 
-    modapi.libdir('lib.core', './util');
+    modapi.libdir('core.util', './util');
     
     // === SERVICES ===
 
