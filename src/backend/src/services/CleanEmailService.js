@@ -101,7 +101,7 @@ class CleanEmailService extends BaseService {
         return eml.local + '@' + eml.domain;
     }
     
-    validate (email) {
+    async validate (email) {
         email = this.clean(email);
         const config = this.global_config;
 
@@ -112,6 +112,12 @@ class CleanEmailService extends BaseService {
                 }
             }
         }
+
+        const svc_event = this.services.get('event');
+        const event = { allow: true, email };
+        await svc_event.emit('email.validate', event);
+
+        if ( ! event.allow ) return false;
         
         return true;
     }

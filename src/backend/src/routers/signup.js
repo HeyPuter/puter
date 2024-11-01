@@ -147,7 +147,7 @@ module.exports = eggspress(['/signup'], {
     const svc_cleanEmail = req.services.get('clean-email');
     const clean_email = svc_cleanEmail.clean(req.body.email);
     
-    if ( ! svc_cleanEmail.validate(clean_email) ) {
+    if ( ! await svc_cleanEmail.validate(clean_email) ) {
         return res.status(400).send('This email domain is not allowed');
     }
 

@@ -49,7 +49,7 @@ module.exports = {
         const svc_cleanEmail = req.services.get('clean-email');
         const clean_email = svc_cleanEmail.clean(new_email);
         
-        if ( ! svc_cleanEmail.validate(clean_email) ) {
+        if ( ! await svc_cleanEmail.validate(clean_email) ) {
             throw APIError.create('email_not_allowed', undefined, {
                 email: clean_email,
             });

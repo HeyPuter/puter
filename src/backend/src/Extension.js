@@ -1,7 +1,7 @@
 const { AdvancedBase } = require("@heyputer/putility");
 const EmitterFeature = require("@heyputer/putility/src/features/EmitterFeature");
 const { Context } = require("./util/context");
-const { ExtensionService, ExtensionServiceState } = require("./ExtensionService");
+const { ExtensionServiceState } = require("./ExtensionService");
 
 class Extension extends AdvancedBase {
     static FEATURES = [
@@ -56,7 +56,9 @@ class Extension extends AdvancedBase {
             return;
         }
 
-        this.service = new ExtensionServiceState();
+        this.service = new ExtensionServiceState({
+            extension: this,
+        });
     }
 }
 

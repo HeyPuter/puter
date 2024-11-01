@@ -15,6 +15,7 @@ module.exports = ({ decorators }) => ({
         // install the internal state
         const state = instance._.emitterFeature = {};
         state.listeners_ = {};
+        state.global_listeners_ = [];
         state.callbackDecorators = decorators || [];
         
         instance.emit = async (key, data, meta) => {
@@ -22,6 +23,17 @@ module.exports = ({ decorators }) => ({
             const parts = key.split('.');
             
             const promises = [];
+            
+            for ( let i = 0 ; i < state.global_listeners_.length ; i++ ) {
+                let callback = state.global_listeners_[i];
+                for ( const decorator of state.callbackDecorators ) {
+                    callback = decorator(callback);
+                }
+
+                promises.push(callback(key, data,
+                    { ...meta, key }));
+            }
+
             for ( let i = 0; i < parts.length; i++ ) {
                 const part = i === parts.length - 1
                     ? parts.join('.')
@@ -42,7 +54,7 @@ module.exports = ({ decorators }) => ({
                     }));
                 }
             }
-            
+
             return await Promise.all(promises);
         }
         
@@ -63,6 +75,10 @@ module.exports = ({ decorators }) => ({
 
             return det;
         }
+
+        instance.on_all = (callback) => {
+            state.global_listeners_.push(callback);
+        };
     }
 });
 

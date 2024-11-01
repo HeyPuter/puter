@@ -7,6 +7,8 @@ class ExtensionServiceState extends AdvancedBase {
     constructor (...a) {
         super(...a);
 
+        this.extension = a[0].extension;
+
         this.endpoints_ = [];
     }
     register_route_handler_ (path, handler, options = {}) {
@@ -44,11 +46,23 @@ class ExtensionServiceState extends AdvancedBase {
  */
 class ExtensionService extends BaseService {
     _construct () {
-        this.extension = null;
         this.endpoints_ = [];
     }
     async _init (args) {
         this.state = args.state;
+
+        // Propagate all events not from extensions to `core.`
+        const svc_event = this.services.get('event');
+        svc_event.on_all((key, data, meta = {}) => {
+            meta.from_outside_of_extension = true;
+            this.state.extension.emit(`core.${key}`, data, meta);
+        });
+
+        this.state.extension.on_all((key, data, meta) => {
+            if ( meta.from_outside_of_extension ) return;
+
+            svc_event.emit(key, data, meta);
+        });
     }
 
     ['__on_install.routes'] (_, { app }) {
