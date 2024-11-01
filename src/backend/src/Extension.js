@@ -17,6 +17,7 @@ class Extension extends AdvancedBase {
     constructor (...a) {
         super(...a);
         this.service = null;
+        this.ensure_service_();
     }
 
     get (path, handler, options) {
