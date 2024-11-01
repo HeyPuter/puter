@@ -25,6 +25,7 @@ const { hideBin } = require('yargs/helpers');
 const { Extension } = require("./Extension");
 const { ExtensionModule } = require("./ExtensionModule");
 const { spawn } = require("node:child_process");
+const { quot } = require("./util/strutil");
 
 class Kernel extends AdvancedBase {
     constructor ({ entry_path } = {}) {
@@ -226,6 +227,15 @@ class Kernel extends AdvancedBase {
 
         const mod_paths = this.environment.mod_paths;
         for ( const mods_dirpath of mod_paths ) {
+            if ( ! fs.existsSync(mods_dirpath) ) {
+                this.services.logger.error(
+                    `mod directory not found: ${quot(mods_dirpath)}; skipping...`
+                );
+                // intentional delay so error is seen
+                this.services.logger.info('boot will continue in 4 seconds');
+                await new Promise(rslv => setTimeout(rslv, 4000));
+                continue;
+            }
             const mod_dirnames = fs.readdirSync(mods_dirpath);
             for ( const mod_dirname of mod_dirnames ) {
                 let mod_path = path_.join(mods_dirpath, mod_dirname);

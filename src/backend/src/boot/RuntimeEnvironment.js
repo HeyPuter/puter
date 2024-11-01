@@ -341,6 +341,13 @@ class RuntimeEnvironment extends AdvancedBase {
         const mod_paths = [];
         environment.mod_paths = mod_paths;
 
+        // Trying this as a default for now...
+        if ( ! config.mod_directories ) {
+            config.mod_directories = [
+                '{source}/../mods/mods_enabled',
+            ];
+        }
+
         // If configured, add a user-specified mod path
         if ( config.mod_directories ) {
             for ( const dir of config.mod_directories ) {
