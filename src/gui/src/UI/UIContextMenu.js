@@ -501,7 +501,7 @@ function UIContextMenu(options){
             }
             // divider
             else if(options.items[i].is_divider || options.items[i] === '-')
-                h += `<li class="context-menu-divider"><hr></li>`;
+                h += `<li class="context-menu-item context-menu-divider"><hr></li>`;
         }
     h += `</div>`
     $('body').append(h)

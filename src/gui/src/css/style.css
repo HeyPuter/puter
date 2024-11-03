@@ -1561,13 +1561,17 @@ span.header-sort-icon img {
 }
 
 .context-menu .context-menu-divider>hr {
-    margin-top: 5px;
-    margin-bottom: 5px;
+    margin-top: 0;
+    margin-bottom: 0;
     border-bottom: none;
     border-top: 1px solid #00000033;
 }
+.context-menu .context-menu-divider{
+    padding-top: 5px;
+    padding-bottom: 5px;
+}
 
-.context-menu .context-menu-item {
+.context-menu .context-menu-item:not(.context-menu-divider) {
     padding: 5px;
     list-style-type: none;
     user-select: none;
@@ -1623,7 +1627,7 @@ span.header-sort-icon img {
     background-color: #dfdfdf;
 }
 
-.context-menu .context-menu-item-active {
+.context-menu .context-menu-item-active:not(.context-menu-divider) {
     background-color: var(--select-color);
     color: white;
 }
@@ -1632,7 +1636,6 @@ span.header-sort-icon img {
     background-color: rgb(199, 205, 212);
     color: initial;
     border-radius: 4px;
-
 }
 
 .context-menu .context-menu-item-disabled, .context-menu .context-menu-item-disabled:hover {
