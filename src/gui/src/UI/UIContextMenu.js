@@ -360,6 +360,85 @@
     };
 })(jQuery);
 
+/**
+ * Creates and manages a context menu UI component with support for nested submenus.
+ * The menu supports keyboard navigation, touch events, and intelligent submenu positioning.
+ * 
+ * @param {Object} options - Configuration options for the context menu
+ * @param {Array<Object|string>} options.items - Array of menu items or dividers ('-')
+ * @param {string} options.items[].html - HTML content for the menu item
+ * @param {string} [options.items[].html_active] - HTML content when item is active/hovered
+ * @param {string} [options.items[].icon] - Icon for the menu item
+ * @param {string} [options.items[].icon_active] - Icon when item is active/hovered
+ * @param {boolean} [options.items[].disabled] - Whether the item is disabled
+ * @param {boolean} [options.items[].checked] - Whether to show a checkmark
+ * @param {Function} [options.items[].onClick] - Click handler with event parameter
+ * @param {Function} [options.items[].action] - Alternative click handler without event parameter
+ * @param {Array<Object>} [options.items[].items] - Nested submenu items
+ * @param {string} [options.id] - Unique identifier for the menu
+ * @param {Object} [options.position] - Custom positioning for the menu
+ * @param {number} options.position.top - Top position in pixels
+ * @param {number} options.position.left - Left position in pixels
+ * @param {boolean|number} [options.delay] - Animation delay for menu appearance
+ *                                          true/1/undefined = 50ms fade
+ *                                          false = no animation
+ *                                          number = custom fade duration
+ * @param {Object} [options.css] - Additional CSS properties to apply to menu
+ * @param {HTMLElement} [options.parent_element] - Parent element for the menu
+ * @param {string} [options.parent_id] - ID of parent menu for nested menus
+ * @param {boolean} [options.is_submenu] - Whether this is a nested submenu, default: false
+ * @param {Function} [options.onClose] - Callback function when menu closes
+ * 
+ * @example
+ * // Basic usage with simple items
+ * UIContextMenu({
+ *   items: [
+ *     { html: 'Copy', icon: '📋', onClick: () => console.log('Copy clicked') },
+ *     '-', // divider
+ *     { html: 'Paste', icon: '📌', disabled: true }
+ *   ]
+ * });
+ * 
+ * @example
+ * // Usage with nested submenus and custom positioning
+ * UIContextMenu({
+ *   position: { top: 100, left: 200 },
+ *   items: [
+ *     { 
+ *       html: 'File',
+ *       items: [
+ *         { html: 'New', icon: '📄' },
+ *         { html: 'Open', icon: '📂' }
+ *       ]
+ *     },
+ *     { 
+ *       html: 'Edit',
+ *       items: [
+ *         { html: 'Cut', icon: '✂️' },
+ *         { html: 'Copy', icon: '📋' }
+ *       ]
+ *     }
+ *   ]
+ * });
+ * 
+ * @example
+ * // Usage with menu controller
+ * const menu = UIContextMenu({
+ *   items: [{ html: 'Close', onClick: () => menu.cancel() }]
+ * });
+ * menu.onClose = () => console.log('Menu closed');
+ * 
+ * @fires ctxmenu-will-open - Dispatched on window before menu opens
+ * @listens mousemove - Tracks mouse position for submenu positioning
+ * @listens click - Handles menu item selection
+ * @listens contextmenu - Prevents default context menu
+ * @listens mouseenter - Handles submenu activation
+ * @listens mouseleave - Handles menu item deactivation
+ * 
+ * @requires jQuery
+ * @requires jQuery-menu-aim
+ */
+
 function UIContextMenu(options){
     $('.window-active .window-app-iframe').css('pointer-events', 'none');
 
@@ -654,10 +733,8 @@ function UIContextMenu(options){
         if(options.parent_element){
             $(options.parent_element).parent().removeClass('children-have-open-contextmenu');
 
-            // if the parent element is not a window, make it scrollable again
-            if (!$(options.parent_element).hasClass('window-body')) {
-                $(options.parent_element).css('overflow', 'scroll');
-            }
+            // make parent scrollable again
+            $(options.parent_element).css('overflow', 'scroll');
             
             $(options.parent_element).removeClass('has-open-contextmenu');
             if($(options.parent_element).hasClass('taskbar-item')){
@@ -665,6 +742,7 @@ function UIContextMenu(options){
             }
         }
     })
+
     $(contextMenu).on("contextmenu", function (e) {
         e.preventDefault();
         e.stopPropagation();
