@@ -1262,11 +1262,6 @@ span.header-sort-icon img {
     background-color: #fefeff;
 }
 
-.window-sidebar-item.grabbing, .window-sidebar-item.ui-sortable-helper{
-    background-color: none !important;
-    height: 23px !important;
-    /* width: 100% !important; */
-}
 .window-sidebar-item-placeholder{
     height: 27px !important;
 }
