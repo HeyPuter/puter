@@ -1266,7 +1266,7 @@ span.header-sort-icon img {
     height: 27px !important;
 }
 .window-sidebar-item {
-    cursor: pointer;
+    cursor: pointer !important;
     user-select: none;
 }
 .window-sidebar-item:not(.window-sidebar-title):hover {
