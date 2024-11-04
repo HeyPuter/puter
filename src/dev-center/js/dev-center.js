@@ -2257,3 +2257,8 @@ function enable_window_settings(){
 $(document).on('click', '.reset-deploy', function (e) {
     reset_drop_area();
 })
+
+$(document).on('click', '.sidebar-toggle', function (e) {
+    $('.sidebar').toggleClass('open');
+    $('body').toggleClass('sidebar-open');
+})

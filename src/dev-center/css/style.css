@@ -430,16 +430,45 @@ label {
     left: 0;
     z-index: 1000;
     display: block;
-    padding: 20px;
+    padding: 30px 16px;
     overflow-x: hidden;
     overflow-y: auto;
     background-color: white;
     border-right: 1px solid #e1e1e1;
-    width: 250px;
     color: rgb(51, 51, 51);
     font-weight: 400;
+    width: 25px;
 }
-
+.sidebar .sidebar-content{
+    display: none;
+}
+.sidebar.open{
+    width: 250px;
+}
+.sidebar.open .sidebar-content{
+    display: block;
+}
+.sidebar-toggle{
+    display: block;
+    width: 10px;
+    height: 10px;
+    position: absolute;
+    right: 0;
+    top: 0;
+    padding: 10px;
+    background-size: 15px;
+    background-repeat: no-repeat;
+    background-position: center;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg%20enable-background%3D%22new%200%200%2024%2024%22%20viewBox%3D%220%200%2024%2024%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22m3%2023-3-3%208-8-8-8%203-3%2011%2011zm10%200-3-3%208-8-8-8%203-3%2011%2011z%22%2F%3E%3C%2Fsvg%3E");
+    opacity: 0.3;
+}
+.open .sidebar-toggle{
+    background-image: url("data:image/svg+xml,%3Csvg%20enable-background%3D%22new%200%200%2024%2024%22%20viewBox%3D%220%200%2024%2024%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22m21%201%203%203-8%208%208%208-3%203-11-11zm-10%200%203%203-8%208%208%208-3%203-11-11z%22%2F%3E%3C%2Fsvg%3E");
+}
+.sidebar-toggle:hover{
+    opacity: 1;
+}
 .sidebar-nav {
     padding-left: 0;
     list-style: none;
@@ -481,15 +510,20 @@ label {
 }
 
 .main {
-    width: calc(100% - 265px);
-    left: 250px;
+    width: calc(100% - 50px);
+    left: 40px;
     top: 0px;
     position: absolute;
     box-sizing: border-box;
-    padding: 20px;
+    padding: 12px 20px;
     padding-right: 0;
     display: flex;
     flex-direction: column;
+}
+
+.sidebar-open .main {
+    width: calc(100% - 250px);
+    left: 240px;
 }
 
 .main>section {
