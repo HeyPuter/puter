@@ -20,6 +20,21 @@ class Extension extends AdvancedBase {
         this.ensure_service_();
     }
 
+    example () {
+        console.log('Example method called by an extension.');
+    }
+
+    get db () {
+        const db = this.service.values.get('db');
+        if ( ! db ) {
+            throw new Error(
+                'extension tried to access database before it was ' +
+                'initialized'
+            );
+        }
+        return db;
+    }
+
     get (path, handler, options) {
         // this extension will have a default service
         this.ensure_service_();

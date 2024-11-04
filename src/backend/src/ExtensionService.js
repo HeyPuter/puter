@@ -2,6 +2,8 @@ const { AdvancedBase } = require("@heyputer/putility");
 const BaseService = require("./services/BaseService");
 const { Endpoint } = require("./util/expressutil");
 const configurable_auth = require("./middleware/configurable_auth");
+const { Context } = require("./util/context");
+const { DB_READ, DB_WRITE } = require("./services/database/consts");
 
 class ExtensionServiceState extends AdvancedBase {
     constructor (...a) {
@@ -10,6 +12,9 @@ class ExtensionServiceState extends AdvancedBase {
         this.extension = a[0].extension;
 
         this.endpoints_ = [];
+        
+        // Values shared between the `extension` global and its service
+        this.values = new Context();
     }
     register_route_handler_ (path, handler, options = {}) {
         // handler and options may be flipped
@@ -50,6 +55,10 @@ class ExtensionService extends BaseService {
     }
     async _init (args) {
         this.state = args.state;
+
+        // Create database access object for extension
+        const db = this.services.get('database').get(DB_WRITE, 'extension');
+        this.state.values.set('db', db);
 
         // Propagate all events not from extensions to `core.`
         const svc_event = this.services.get('event');

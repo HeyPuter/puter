@@ -64,6 +64,7 @@ const install = async ({ services, app, useapi, modapi }) => {
         def('core.APIError', require('./api/APIError'));
         
         def('core', require('./services/auth/Actor'), { assign: true });
+        def('core.config', config);
     });
     
     // === LIBRARIES ===
