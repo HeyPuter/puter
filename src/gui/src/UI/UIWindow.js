@@ -2397,7 +2397,6 @@ async function UIWindow(options) {
     // Sidebar sortable
     //--------------------------------------------------
     if(options.is_dir && !isMobile.phone){
-        loadSavedSidebarOrder(el_window);
         const $sidebar = $(el_window).find('.window-sidebar');
 
         $sidebar.sortable({
@@ -3676,37 +3675,6 @@ async function saveSidebarOrder(order) {
     } catch(err) {
         console.error('Error saving sidebar order:', err);
     }
-}
-
-// Function to load and apply saved sidebar order
-async function loadSavedSidebarOrder(el_window) {
-    setTimeout(async () => {
-    try {
-        // Load saved sidebar order
-        let savedOrder = window.sidebar_items
-
-        // If not found in window object, try to get from KV
-        if(!savedOrder){
-            savedOrder = await puter.kv.get("sidebar_items");
-        }
-
-        // If found, apply the order
-        if (savedOrder && savedOrder !== 'null' && savedOrder !== 'undefined') {
-            const order = JSON.parse(savedOrder);
-            const $sidebar = $(el_window).find('.window-sidebar');
-            
-            // Reorder items according to saved order
-            order.forEach(item => {
-                const $item = $sidebar.find(`.window-sidebar-item[data-path="${item.path}"]`);
-                if ($item.length) {
-                    $item.appendTo($sidebar);
-                }
-            });
-        }
-    } catch(err) {
-        console.error('Error loading sidebar order:', err);
-    }
-}, 1000);
 }
 
 export default UIWindow;
