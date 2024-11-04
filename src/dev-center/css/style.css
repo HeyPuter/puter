@@ -510,8 +510,8 @@ label {
 }
 
 .main {
-    width: calc(100% - 50px);
-    left: 40px;
+    width: calc(100% - 35px);
+    left: 25px;
     top: 0px;
     position: absolute;
     box-sizing: border-box;
