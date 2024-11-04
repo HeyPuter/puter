@@ -1286,13 +1286,13 @@ span.header-sort-icon img {
 }
 
 .window-sidebar-item-icon {
-    width: 12px;
-    height: 12px;
-    filter: drop-shadow(0px 0px .2px rgb(51, 51, 51));
-    margin-right: 6px;
+    width: 14px;
+    height: 14px;
+    filter: drop-shadow(0px 0px 0.2px rgb(51, 51, 51));
+    margin-right: 5px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    margin-bottom: -1px;
+    margin-bottom: -2px;
 }
 
 .window[data-app="explorer"] .window-body {
