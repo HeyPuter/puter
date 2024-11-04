@@ -3874,16 +3874,19 @@ fieldset[name=number-code] {
 
 .usage-progbar-wrapper {
     width: 100%;
-    height: 15px;
+    height: 20px;
     border: 1px solid #8a9096;
     border-radius: 3px;
     background-color: #fff;
     position: relative;
+    display: flex;
+    align-items: center;
 }
 
 .usage-progbar {
-    height: 15px;
-    background-color: #dbe3ef;
+    float: left;
+    height: 20px;
+    background: linear-gradient(#dbe3ef, #c2ccdc, #dbe3ef);
     border-top-left-radius: 3px;
     border-bottom-left-radius: 3px;
     width: 0;
