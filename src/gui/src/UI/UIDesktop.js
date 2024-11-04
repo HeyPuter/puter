@@ -563,6 +563,11 @@ async function UIDesktop(options){
         }
     })
 
+    // load window sidebar items from KV
+    puter.kv.get("sidebar_items").then(async (val) => {
+        window.sidebar_items = val;
+    })            
+
     // Get menubar style
     puter.kv.get('menubar_style').then(async (val) => {
         let value = val;

@@ -1242,7 +1242,7 @@ span.header-sort-icon img {
     cursor: pointer;
 }
 
-.window-sidebar-item {
+.window-sidebar-item, .window-sidebar-item.grabbing {
     margin-bottom: 6px;
     margin-top: 2px;
     padding: 4px;
@@ -1260,6 +1260,34 @@ span.header-sort-icon img {
 
 .window-sidebar-item-active, .window-sidebar-item-drag-active, .window-sidebar-item-active:hover {
     background-color: #fefeff;
+}
+
+.window-sidebar-item.grabbing, .window-sidebar-item.ui-sortable-helper{
+    background-color: none !important;
+    height: 23px !important;
+    /* width: 100% !important; */
+}
+.window-sidebar-item-placeholder{
+    height: 27px !important;
+}
+.window-sidebar-item {
+    cursor: pointer;
+    user-select: none;
+}
+.window-sidebar-item:not(.window-sidebar-title):hover {
+    cursor: grab;
+}
+.window-sidebar-item.grabbing {
+    cursor: grabbing !important;
+}
+.window-sidebar-item-dragging {
+    background-color: #f5f5f5 !important;
+    opacity: 0.8;
+    cursor: grabbing;
+}
+.ui-sortable-helper {
+    background: white !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
 }
 
 .window-sidebar-item-icon {

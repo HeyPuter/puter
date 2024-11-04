@@ -265,12 +265,35 @@ async function UIWindow(options) {
                 >`;
                 // favorites
                 h += `<h2 class="window-sidebar-title disable-user-select">${i18n('favorites')}</h2>`;
-                h += `<div draggable="false" title="${i18n('home')}" class="window-sidebar-item disable-user-select ${options.path === window.home_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.home_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-home.svg'])}">${i18n('home')}</div>`;
-                h += `<div draggable="false" title="${i18n('documents')}" class="window-sidebar-item disable-user-select ${options.path === window.docs_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.docs_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-documents.svg'])}">${i18n('documents')}</div>`;
-                h += `<div draggable="false" title="${i18n('public')}" class="window-sidebar-item disable-user-select ${options.path === window.public_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.public_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-public.svg'])}">${i18n('public')}</div>`;
-                h += `<div draggable="false" title="${i18n('pictures')}" class="window-sidebar-item disable-user-select ${options.path === window.pictures_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.pictures_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-pictures.svg'])}">${i18n('pictures')}</div>`;
-                h += `<div draggable="false" title="${i18n('desktop')}" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-desktop.svg'])}">${i18n('desktop')}</div>`;
-                h += `<div draggable="false" title="${i18n('videos')}" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-videos.svg'])}">${i18n('videos')}</div>`;
+                // default items if sidebar_items is not set
+                if(!window.sidebar_items){
+                    h += `<div draggable="false" title="${i18n('home')}" class="window-sidebar-item disable-user-select ${options.path === window.home_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.home_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-home.svg'])}">${i18n('home')}</div>`;
+                    h += `<div draggable="false" title="${i18n('documents')}" class="window-sidebar-item disable-user-select ${options.path === window.docs_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.docs_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-documents.svg'])}">${i18n('documents')}</div>`;
+                    h += `<div draggable="false" title="${i18n('public')}" class="window-sidebar-item disable-user-select ${options.path === window.public_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.public_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-public.svg'])}">${i18n('public')}</div>`;
+                    h += `<div draggable="false" title="${i18n('pictures')}" class="window-sidebar-item disable-user-select ${options.path === window.pictures_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.pictures_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-pictures.svg'])}">${i18n('pictures')}</div>`;
+                    h += `<div draggable="false" title="${i18n('desktop')}" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-desktop.svg'])}">${i18n('desktop')}</div>`;
+                    h += `<div draggable="false" title="${i18n('videos')}" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-videos.svg'])}">${i18n('videos')}</div>`;
+                }else{
+                    let items = JSON.parse(window.sidebar_items);
+                    for(let item of items){
+                        let icon;
+                        if(item.path === window.home_path)
+                            icon = window.icons['sidebar-folder-home.svg'];
+                        else if(item.path === window.docs_path)
+                            icon = window.icons['sidebar-folder-documents.svg'];
+                        else if(item.path === window.public_path)
+                            icon = window.icons['sidebar-folder-public.svg'];
+                        else if(item.path === window.pictures_path)
+                            icon = window.icons['sidebar-folder-pictures.svg'];
+                        else if(item.path === window.desktop_path)
+                            icon = window.icons['sidebar-folder-desktop.svg'];
+                        else if(item.path === window.videos_path)
+                            icon = window.icons['sidebar-folder-videos.svg'];
+                        else
+                            icon = window.icons['sidebar-folder.svg'];
+                        h += `<div title="${html_encode(item.label)}" class="window-sidebar-item disable-user-select ${options.path === item.path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(item.path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(icon)}">${html_encode(item.name)}</div>`;
+                    }
+                }
             h += `</div>`;
         }
 
@@ -434,6 +457,7 @@ async function UIWindow(options) {
     // Append
     $(el_body).append(h);
     
+
     // disable_parent_window
     if(options.disable_parent_window && options.parent_uuid !== null){
         const $el_parent_window = $(`.window[data-element_uuid="${options.parent_uuid}"]`);
@@ -2369,6 +2393,70 @@ async function UIWindow(options) {
         });
     })
 
+    //--------------------------------------------------
+    // Sidebar sortable
+    //--------------------------------------------------
+    if(options.is_dir && !isMobile.phone){
+        loadSavedSidebarOrder(el_window);
+        const $sidebar = $(el_window).find('.window-sidebar');
+
+        $sidebar.sortable({
+            items: '.window-sidebar-item:not(.window-sidebar-title)',  // More specific selector
+            connectWith: '.window-sidebar',
+            cursor: 'move',
+            axis: 'y',
+            distance: 5,
+            containment: 'parent',
+            placeholder: 'window-sidebar-item-placeholder',
+            tolerance: 'pointer',
+            helper: 'clone',
+            opacity: 0.8,
+    
+            start: function(event, ui) {
+                // Add dragging class
+                ui.item.addClass('window-sidebar-item-dragging');
+                
+                // Create placeholder styling
+                ui.placeholder.css({
+                    'height': ui.item.height(),
+                    'visibility': 'visible',
+                });
+            },
+    
+            sort: function(event, ui) {
+                // Ensure the helper follows the cursor properly
+                ui.helper.css('pointer-events', 'none');
+            },
+    
+            stop: function(event, ui) {
+                // Remove dragging class
+                ui.item.removeClass('window-sidebar-item-dragging');
+    
+                // Get the new order
+                const newOrder = $sidebar.find('.window-sidebar-item').map(function() {
+                    return {
+                        path: $(this).attr('data-path'),
+                        name: $(this).text().trim()
+                    };
+                }).get();
+    
+                // Save the new order
+                saveSidebarOrder(newOrder);
+            }
+        }).disableSelection();  // Prevent text selection while dragging
+    
+        // Make the sortable operation more responsive
+        $sidebar.on('mousedown', '.window-sidebar-item', function(e) {
+            if (!$(this).hasClass('window-sidebar-title')) {
+                $(this).addClass('grabbing');
+            }
+        });
+    
+        $sidebar.on('mouseup mouseleave', '.window-sidebar-item', function() {
+            $(this).removeClass('grabbing');
+        });
+    }
+
     //set styles
     $(el_window_body).css(options.body_css);
 
@@ -3574,5 +3662,51 @@ document.addEventListener('scroll', function (event) {
         }, 1);
     }
 }, true);
+
+// Function to save sidebar order to user preferences
+async function saveSidebarOrder(order) {
+    try {
+        await puter.kv.set({
+            key: "sidebar_items",
+            value: JSON.stringify(order)
+        });
+
+        // Save to window object for quick access
+        window.sidebar_items = JSON.stringify(order);
+    } catch(err) {
+        console.error('Error saving sidebar order:', err);
+    }
+}
+
+// Function to load and apply saved sidebar order
+async function loadSavedSidebarOrder(el_window) {
+    setTimeout(async () => {
+    try {
+        // Load saved sidebar order
+        let savedOrder = window.sidebar_items
+
+        // If not found in window object, try to get from KV
+        if(!savedOrder){
+            savedOrder = await puter.kv.get("sidebar_items");
+        }
+
+        // If found, apply the order
+        if (savedOrder && savedOrder !== 'null' && savedOrder !== 'undefined') {
+            const order = JSON.parse(savedOrder);
+            const $sidebar = $(el_window).find('.window-sidebar');
+            
+            // Reorder items according to saved order
+            order.forEach(item => {
+                const $item = $sidebar.find(`.window-sidebar-item[data-path="${item.path}"]`);
+                if ($item.length) {
+                    $item.appendTo($sidebar);
+                }
+            });
+        }
+    } catch(err) {
+        console.error('Error loading sidebar order:', err);
+    }
+}, 1000);
+}
 
 export default UIWindow;
