@@ -229,7 +229,7 @@ class AI{
 
         // convert to the correct model name if necessary
         if( options.model === 'claude-3-5-sonnet' || options.model === 'claude'){
-            options.model = 'claude-3-5-sonnet-20240620';
+            options.model = 'claude-3-5-sonnet-latest';
         }
         if ( options.model === 'mistral' ) {
             options.model = 'mistral-large-latest';
@@ -241,7 +241,12 @@ class AI{
         // map model to the appropriate driver
         if (!options.model || options.model === 'gpt-4o' || options.model === 'gpt-4o-mini') {
             driver = 'openai-completion';
-        }else if(options.model === 'claude-3-haiku-20240307' || options.model === 'claude-3-5-sonnet-20240620'){
+        }else if(
+            options.model === 'claude-3-haiku-20240307' ||
+            options.model === 'claude-3-5-sonnet-20240620' ||
+            options.model === 'claude-3-5-sonnet-20241022' ||
+            options.model === 'claude-3-5-sonnet-latest'
+        ){
             driver = 'claude';
         }else if(options.model === 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo' || options.model === 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo' || options.model === 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo' || options.model === `google/gemma-2-27b-it`){
             driver = 'together-ai';
