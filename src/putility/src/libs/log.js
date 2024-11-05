@@ -1,5 +1,5 @@
-const { AdvancedBase } = require("../..");
-const { TLogger } = require("../traits/traits");
+const { AdvancedBase } = require("../AdvancedBase");
+const { TLogger, AS } = require("../traits/traits");
 
 class ArrayLogger extends AdvancedBase {
     static PROPERTIES = {
@@ -16,9 +16,71 @@ class ArrayLogger extends AdvancedBase {
     }
 }
 
+class CategorizedToggleLogger extends AdvancedBase {
+    static PROPERTIES = {
+        categories: {
+            description: 'categories that are enabled',
+            factory: () => ({})
+        },
+        delegate: {
+            construct: true,
+            value: null,
+            adapt: v => AS(v, TLogger),
+        }
+    }
+    static IMPLEMENTS = {
+        [TLogger]: {
+            log (level, message, fields, values) {
+                const category = fields.category;
+                if ( ! this.categories[category] ) return;
+                return this.delegate.log(level, message, fields, values);
+            }
+        }
+    }
+    on (category) {
+        this.categories[category] = true;
+    }
+    off (category) {
+        delete this.categories[category];
+    }
+}
+
+class ToggleLogger extends AdvancedBase {
+    static PROPERTIES = {
+        enabled: {
+            construct: true,
+            value: true
+        },
+        delegate: {
+            construct: true,
+            value: null,
+            adapt: v => AS(v, TLogger),
+        }
+    }
+    static IMPLEMENTS = {
+        [TLogger]: {
+            log (level, message, fields, values) {
+                if ( ! this.enabled) return;
+                return this.delegate.log(level, message, fields, values);
+            }
+        }
+    }
+}
+
 class ConsoleLogger extends AdvancedBase {
     static MODULES = {
-        util: require('util'),
+        // This would be cool, if it worked in a browser.
+        // util: require('util'),
+
+        util: {
+            inspect: v => {
+                if (typeof v === 'string') return v;
+                try {
+                    return JSON.stringify(v);
+                } catch (e) {}
+                return '' + v;
+            }
+        }
     }
     static PROPERTIES = {
         console: {
@@ -67,7 +129,7 @@ class ConsoleLogger extends AdvancedBase {
                         .join(' ');
                 }
 
-                this.console[l.err ? 'error' : 'log'](str);
+                (this.console ?? console)[l.err ? 'error' : 'log'](str);
             }
         }
     }
@@ -81,7 +143,8 @@ class FieldsLogger extends AdvancedBase {
         },
         delegate: {
             construct: true,
-            value: null
+            value: null,
+            adapt: v => AS(v, TLogger),
         }
     }
 
@@ -104,9 +167,10 @@ class LoggerFacade extends AdvancedBase {
             value: () => {
                 return new ConsoleLogger();
             },
-            adapt: v => {
-                return v.as(TLogger);
-            },
+            adapt: v => AS(v, TLogger),
+            construct: true,
+        },
+        cat: {
             construct: true,
         },
     }
@@ -132,10 +196,19 @@ class LoggerFacade extends AdvancedBase {
     info (message, ...values) {
         this.impl.log('info', message, {}, values);
     }
+
+    on (category) {
+        this.cat.on(category);
+    }
+    off (category) {
+        this.cat.off(category);
+    }
 }
 
 module.exports = {
     ArrayLogger,
+    CategorizedToggleLogger,
+    ToggleLogger,
     ConsoleLogger,
     FieldsLogger,
     LoggerFacade,

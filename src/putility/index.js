@@ -30,6 +30,7 @@ module.exports = {
         promise: require('./src/libs/promise'),
         context: require('./src/libs/context'),
         listener: require('./src/libs/listener'),
+        log: require('./src/libs/log'),
     },
     concepts: {
         Service,
