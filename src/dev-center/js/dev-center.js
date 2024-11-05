@@ -575,7 +575,7 @@ function generate_edit_app_section(app) {
 
                 <h3 style="border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Advanced</h3>
                 <div style="margin-top:30px;">
-                    <input type="checkbox" id="edit-app-credentialless" name="edit-app-credentialless" value="true" ${(app.metadata?.credentialless === true || app.metadata === undefined || app.metadata.credentialless === undefined) ? 'checked' : ''}>
+                    <input type="checkbox" id="edit-app-credentialless" name="edit-app-credentialless" value="true" ${(app.metadata?.credentialless === true || app.metadata === undefined || app.metadata?.credentialless === undefined) ? 'checked' : ''}>
                     <label for="edit-app-credentialless" style="display: inline;">Credentialless</label>
                     <p><code>credentialless</code> attribute for the <code>iframe</code> tag.</p>
                 </div>
