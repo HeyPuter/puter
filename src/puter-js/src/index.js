@@ -150,6 +150,24 @@ window.puter = (function() {
                 this.APIOrigin = 'https://api.' + URLParams.get('puter.domain');
             }
 
+            // === START :: Logger ===
+
+            // logger will log to console
+            let logger = new putility.libs.log.ConsoleLogger();
+
+            // logs can be toggled based on categories
+            logger = new putility.libs.log.CategorizedToggleLogger(
+                { delegate: logger });
+            const cat_logger = logger;
+
+            // create facade for easy logging
+            this.log = new putility.libs.log.LoggerFacade({
+                impl: logger,
+                cat: cat_logger,
+            });
+
+            // === START :: Services === //
+
             this.services.register('no-puter-yet', NoPuterYetService);
             this.services.register('filesystem', FilesystemService);
             this.services.register('api-access', APIAccessService);
@@ -181,6 +199,8 @@ window.puter = (function() {
                     });
                 });
             })();
+
+            // === Start :: Modules === //
 
             // The SDK is running in the Puter GUI (i.e. 'gui')
             if(this.env === 'gui'){
