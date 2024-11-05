@@ -109,6 +109,15 @@ class Auth{
     signOut = () =>{
         puter.resetAuthToken();
     }
+
+    async whoami () {
+        const resp = await fetch(this.APIOrigin + '/whoami', {
+            headers: {
+                Authorization: `Bearer ${this.authToken}`
+            }
+        });
+        return await resp.json();
+    }
 }
 
 export default Auth

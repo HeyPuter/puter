@@ -24,7 +24,7 @@ const fs = require('../middleware/fs.js');
 const _path = require('path');
 const eggspress = require('../api/eggspress');
 const { Context } = require('../util/context');
-const { UserActorType } = require('../services/auth/Actor');
+const { UserActorType, AppUnderUserActorType } = require('../services/auth/Actor');
 
 // -----------------------------------------------------------------------//
 // GET /whoami
@@ -80,6 +80,15 @@ const WHOAMI_GET = eggspress('/whoami', {
         delete details.desktop_bg_fit;
         delete details.taskbar_items;
         delete details.token;
+    }
+
+    if ( actor.type instanceof AppUnderUserActorType ) {
+        details.app_name = actor.type.app.name;
+
+        // IDEA: maybe we do this in the future
+        // details.app = {
+        //     name: actor.type.app.name,
+        // };
     }
 
     res.send(details);
