@@ -28,6 +28,7 @@ class ClaudeService extends BaseService {
         ['puter-chat-completion']: {
             async list () {
                 return [
+                    'claude-3-5-sonnet-20241022',
                     'claude-3-5-sonnet-20240620',
                     'claude-3-haiku-20240307',
                 ];
@@ -74,7 +75,7 @@ class ClaudeService extends BaseService {
                     }, stream);
                     (async () => {
                         const completion = await this.anthropic.messages.stream({
-                            model: model ?? 'claude-3-5-sonnet-20240620',
+                            model: model ?? 'claude-3-5-sonnet-20241022',
                             max_tokens: 1000,
                             temperature: 0,
                             system: PUTER_PROMPT + JSON.stringify(system_prompts),
@@ -97,7 +98,7 @@ class ClaudeService extends BaseService {
                 }
 
                 const msg = await this.anthropic.messages.create({
-                    model: 'claude-3-5-sonnet-20240620',
+                    model: 'claude-3-5-sonnet-20241022',
                     max_tokens: 1000,
                     temperature: 0,
                     system: PUTER_PROMPT + JSON.stringify(system_prompts),
