@@ -93,6 +93,12 @@ export default def(class UIElement extends AdvancedBase {
         this.make(this);
     }
     
+    reinitialize () {
+        this.root = document.createElement(this.tagName);
+        this.make(this);
+        return this.root;
+    }
+    
     async open_as_window (options = {}) {
         const placeholder = Placeholder();
         console.log('window options?', this.windowOptions);

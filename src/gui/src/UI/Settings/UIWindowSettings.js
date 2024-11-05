@@ -110,6 +110,9 @@ async function UIWindowSettings(options){
                 const component = tab.factory();
                 component.attach(tab_placeholders[i]);
             }
+            if ( tab.reinitialize ) {
+                tab.reinitialize();
+            }
             if ( tab.dom ) {
                 tab_placeholders[i].replaceWith(tab.dom);
             }

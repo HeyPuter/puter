@@ -49,7 +49,12 @@ export class SettingsService extends Service {
             const ui_element = tab;
             tab = {
                 ...ui_element.as(TSettingsTab).get_metadata(),
-                dom: ui_element.root,
+                reinitialize () {
+                    ui_element.reinitialize();
+                },
+                get dom () {
+                    return ui_element.root;
+                },
             };
         }
         this.#tabs.push(tab);
