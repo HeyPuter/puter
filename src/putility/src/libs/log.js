@@ -135,6 +135,30 @@ class ConsoleLogger extends AdvancedBase {
     }
 }
 
+class PrefixLogger extends AdvancedBase {
+    static PROPERTIES = {
+        prefix: {
+            construct: true,
+            value: ''
+        },
+        delegate: {
+            construct: true,
+            value: null,
+            adapt: v => AS(v, TLogger),
+        }
+    }
+    static IMPLEMENTS = {
+        [TLogger]: {
+            log (level, message, fields, values) {
+                return this.delegate.log(
+                    level, this.prefix + message,
+                    fields, values
+                );
+            }
+        }
+    }
+}
+
 class FieldsLogger extends AdvancedBase {
     static PROPERTIES = {
         fields: {
@@ -210,6 +234,7 @@ module.exports = {
     CategorizedToggleLogger,
     ToggleLogger,
     ConsoleLogger,
+    PrefixLogger,
     FieldsLogger,
     LoggerFacade,
 };

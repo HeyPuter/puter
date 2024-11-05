@@ -159,7 +159,7 @@ window.puter = (function() {
             logger = new putility.libs.log.CategorizedToggleLogger(
                 { delegate: logger });
             const cat_logger = logger;
-
+            
             // create facade for easy logging
             this.log = new putility.libs.log.LoggerFacade({
                 impl: logger,
@@ -248,6 +248,20 @@ window.puter = (function() {
                     console.error('Error accessing localStorage:', error);
                 }
             }
+
+            // Add prefix logger (needed to happen after modules are initialized)
+            (async () => {
+                const whoami = await this.auth.whoami();
+                logger = new putility.libs.log.PrefixLogger({
+                    delegate: logger,
+                    prefix: '[' +
+                        (whoami?.app_name ?? this.appInstanceID ?? 'HOST') +
+                        '] ',
+                });
+
+                this.log.impl = logger;
+            })();
+
         }
         
         registerModule (name, instance) {
