@@ -98,6 +98,12 @@ export default {
             });
         });
 
+        $el_window.on('change', 'select.change-clock-visible', function(e){
+            window.change_clock_visible(this.value);
+        });
+
+        window.change_clock_visible();
+
         puter.kv.get('menubar_style').then(async (val) => {
             if(val === 'system' || !val){
                 $el_window.find('#menubar_style_system').prop('checked', true);
