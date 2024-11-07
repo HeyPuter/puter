@@ -60,6 +60,38 @@ window.puter = (function() {
         // debug flag
         debugMode = false;
 
+        /**
+         * Puter.js Modules
+         * 
+         * These are the modules you see on docs.puter.com; for example:
+         * - puter.fs
+         * - puter.kv
+         * - puter.ui
+         * 
+         * initSubmodules is called from the constructor of this class.
+         */
+        initSubmodules = function(){
+            // Util
+            this.util = new Util();
+
+            this.registerModule('auth', Auth);
+            this.registerModule('os', OS);
+            this.registerModule('fs', PuterJSFileSystemModule);
+            this.registerModule('ui', UI, {
+                appInstanceID: this.appInstanceID,
+                parentInstanceID: this.parentInstanceID,
+            });
+            this.registerModule('hosting', Hosting);
+            this.registerModule('email', Email);
+            this.registerModule('apps', Apps);
+            this.registerModule('ai', AI);
+            this.registerModule('kv', KV);
+            this.registerModule('drivers', Drivers);
+
+            // Path
+            this.path = path;
+        }
+
         // --------------------------------------------
         // Constructor
         // --------------------------------------------
@@ -70,7 +102,8 @@ window.puter = (function() {
             this.modules_ = [];
             // "services" in puter.js are used by modules and may interact with each other
             const context = new putility.libs.context.Context()
-                .follow(this, ['env', 'util']);
+                .follow(this, ['env', 'util', 'authToken', 'APIOrigin', 'appID']);
+
             this.services = new putility.system.ServiceManager({ context });
             this.context = context;
             context.services = this.services;
@@ -264,48 +297,10 @@ window.puter = (function() {
 
         }
         
-        registerModule (name, instance) {
+        registerModule (name, cls, parameters = {}) {
+            const instance = new cls(this.context, parameters);
             this.modules_.push(name);
             this[name] = instance;
-        }
-
-        // Initialize submodules
-        initSubmodules = function(){
-            // Util
-            this.util = new Util();
-
-            // Auth
-            this.registerModule('auth',
-                             new Auth(this.authToken, this.APIOrigin, this.appID, this.env));
-            // OS
-            this.registerModule('os',
-                             new OS(this.authToken, this.APIOrigin, this.appID, this.env));
-            // FileSystem
-            this.registerModule('fs',
-                             new PuterJSFileSystemModule(this.authToken, this.APIOrigin, this.appID, this.context));
-            // UI
-            this.registerModule('ui',
-                             new UI(this.appInstanceID, this.parentInstanceID, this.appID, this.env, this.util));
-            // Hosting
-            this.registerModule('hosting',
-                             new Hosting(this.authToken, this.APIOrigin, this.appID, this.env));
-            // Email
-            this.registerModule('email',
-                             new Email(this.authToken, this.APIOrigin, this.appID));
-            // Apps
-            this.registerModule('apps',
-                             new Apps(this.authToken, this.APIOrigin, this.appID, this.env));
-            // AI
-            this.registerModule('ai',
-                             new AI(this.authToken, this.APIOrigin, this.appID, this.env));
-            // Key-Value Store
-            this.registerModule('kv',
-                             new KV(this.authToken, this.APIOrigin, this.appID, this.env));
-            // Drivers
-            this.registerModule('drivers',
-                             new Drivers(this.authToken, this.APIOrigin, this.appID, this.env));
-            // Path
-            this.path = path;
         }
 
         updateSubmodules() {

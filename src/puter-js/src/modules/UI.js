@@ -44,6 +44,15 @@ class AppConnection extends EventListener {
         this.#isOpen = true;
         this.#usesSDK = usesSDK;
 
+        this.log = globalThis.puter.log.fields({
+            category: 'ipc',
+        });
+        this.log.fields({
+            constructor_appInstanceID: appInstanceID,
+            puter_appInstanceID: puter.appInstanceID,
+            targetAppInstanceID,
+        }).info(`AppConnection created to ${targetAppInstanceID}`, this);
+
         // TODO: Set this.#puterOrigin to the puter origin
 
         window.addEventListener('message', event => {
@@ -208,7 +217,7 @@ class UI extends EventListener {
         return ret;
     }
 
-    constructor (appInstanceID, parentInstanceID, appID, env, util) {
+    constructor (context, { appInstanceID, parentInstanceID }) {
         const eventNames = [
             'localeChanged',
             'themeChanged',
@@ -218,9 +227,9 @@ class UI extends EventListener {
         this.#eventNames = eventNames;
         this.appInstanceID = appInstanceID;
         this.parentInstanceID = parentInstanceID;
-        this.appID = appID;
-        this.env = env;
-        this.util = util;
+        this.appID = context.appID;
+        this.env = context.env;
+        this.util = context.util;
 
         if(this.env === 'app'){
             this.messageTarget = window.parent;

@@ -92,14 +92,15 @@ class Drivers {
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor (authToken, APIOrigin, appID) {
-        this.authToken = authToken;
-        this.APIOrigin = APIOrigin;
-        this.appID = appID;
+    constructor (context) {
+        this.authToken = context.authToken;
+        this.APIOrigin = context.APIOrigin;
+        this.appID = context.appID;
         
         // Driver-specific
         this.drivers_ = {};
 
+        // TODO: replace with `context` from constructor and test site login
         this.context = {};
         Object.defineProperty(this.context, 'authToken', {
             get: () => this.authToken,

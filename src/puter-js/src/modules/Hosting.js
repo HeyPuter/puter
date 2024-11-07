@@ -10,10 +10,10 @@ class Hosting{
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor (authToken, APIOrigin, appID) {
-        this.authToken = authToken;
-        this.APIOrigin = APIOrigin;
-        this.appID = appID;
+    constructor (context) {
+        this.authToken = context.authToken;
+        this.APIOrigin = context.APIOrigin;
+        this.appID = context.appID;
     }
 
     /**

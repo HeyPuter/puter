@@ -63,11 +63,11 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor (authToken, APIOrigin, appID, context) {
+    constructor (context) {
         super();
-        this.authToken = authToken;
-        this.APIOrigin = APIOrigin;
-        this.appID = appID;
+        this.authToken = context.authToken;
+        this.APIOrigin = context.APIOrigin;
+        this.appID = context.appID;
         this.context = context;
         // Connect socket.
         this.initializeSocket();
