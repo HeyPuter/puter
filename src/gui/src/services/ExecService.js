@@ -14,6 +14,10 @@ export class ExecService extends Service {
         svc_ipc.register_ipc_handler('connectToInstance', {
             handler: this.connectToInstance.bind(this),
         });
+
+        this.log = puter.log.fields({
+            category: 'ipc'
+        });
     }
     
     // This method is exposed to apps via IPCService.
@@ -29,6 +33,8 @@ export class ExecService extends Service {
             source: process.uuid,
             target: child_instance_id,
         }) : undefined;
+
+        this.log.info('launchApp connection', connection);
 
         // The "body" of this method is in a separate file
         const child_process = await launch_app({
