@@ -73,13 +73,14 @@ class ConsoleLogger extends AdvancedBase {
         // util: require('util'),
 
         util: {
-            inspect: v => {
-                if (typeof v === 'string') return v;
-                try {
-                    return JSON.stringify(v);
-                } catch (e) {}
-                return '' + v;
-            }
+            inspect: v => v,
+            // inspect: v => {
+            //     if (typeof v === 'string') return v;
+            //     try {
+            //         return JSON.stringify(v);
+            //     } catch (e) {}
+            //     return '' + v;
+            // }
         }
     }
     static PROPERTIES = {
@@ -113,23 +114,15 @@ class ConsoleLogger extends AdvancedBase {
                 str += `${l.ansii}[${level.toUpperCase()}]\x1b[0m `;
                 str += message;
 
-                // values
-                if (values.length) {
-                    str += ' ';
-                    str += values
-                        .map(v => util.inspect(v))
-                        .join(' ');
-                }
-
                 // fields
                 if (Object.keys(fields).length) {
                     str += ' ';
                     str += Object.entries(fields)
                         .map(([k, v]) => `\n  ${k}=${util.inspect(v)}`)
-                        .join(' ');
+                        .join(' ') + '\n';
                 }
 
-                (this.console ?? console)[l.err ? 'error' : 'log'](str);
+                (this.console ?? console)[l.err ? 'error' : 'log'](str, ...values);
             }
         }
     }

@@ -104,6 +104,8 @@ window.puter = (function() {
             const context = new putility.libs.context.Context()
                 .follow(this, ['env', 'util', 'authToken', 'APIOrigin', 'appID']);
 
+            context.puter = this;
+
             this.services = new putility.system.ServiceManager({ context });
             this.context = context;
             context.services = this.services;

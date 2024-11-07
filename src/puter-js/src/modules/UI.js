@@ -18,13 +18,11 @@ class AppConnection extends EventListener {
     // (Closing and close events will still function.)
     #usesSDK;
     
-    static from (values, { appInstanceID, messageTarget }) {
-        const connection = new AppConnection(
-            messageTarget,
-            appInstanceID,
-            values.appInstanceID,
-            values.usesSDK
-        );
+    static from (values, context) {
+        const connection = new AppConnection(context, {
+            target: values.appInstanceID,
+            usesSDK: values.usesSDK,
+        });
 
         // When a connection is established the app is able to
         // provide some additional information about itself
@@ -33,25 +31,25 @@ class AppConnection extends EventListener {
         return connection;
     }
 
-    constructor(messageTarget, appInstanceID, targetAppInstanceID, usesSDK) {
+    constructor(context, { target, usesSDK }) {
         super([
             'message', // The target sent us something with postMessage()
             'close',   // The target app was closed
         ]);
-        this.messageTarget = messageTarget;
-        this.appInstanceID = appInstanceID;
-        this.targetAppInstanceID = targetAppInstanceID;
+        this.messageTarget = context.messageTarget;
+        this.appInstanceID = context.appInstanceID;
+        this.targetAppInstanceID = target;
         this.#isOpen = true;
         this.#usesSDK = usesSDK;
 
-        this.log = globalThis.puter.log.fields({
+        this.log = context.puter.log.fields({
             category: 'ipc',
         });
         this.log.fields({
-            constructor_appInstanceID: appInstanceID,
-            puter_appInstanceID: puter.appInstanceID,
-            targetAppInstanceID,
-        }).info(`AppConnection created to ${targetAppInstanceID}`, this);
+            cons_source: context.appInstanceID,
+            source: context.puter.appInstanceID,
+            target,
+        }).info(`AppConnection created to ${target}`, this);
 
         // TODO: Set this.#puterOrigin to the puter origin
 
@@ -225,6 +223,7 @@ class UI extends EventListener {
         ];
         super(eventNames);
         this.#eventNames = eventNames;
+        this.context = context;
         this.appInstanceID = appInstanceID;
         this.parentInstanceID = parentInstanceID;
         this.appID = context.appID;
@@ -238,8 +237,17 @@ class UI extends EventListener {
             return;
         }
 
+        // Context to pass to AppConnection instances
+        this.context = this.context.sub({
+            appInstanceID: this.appInstanceID,
+            messageTarget: this.messageTarget,
+        });
+
         if (this.parentInstanceID) {
-            this.#parentAppConnection = new AppConnection(this.messageTarget, this.appInstanceID, this.parentInstanceID, true);
+            this.#parentAppConnection = new AppConnection(this.context, {
+                target: this.parentInstanceID,
+                usesSDK: true
+            });
         }
 
         // Tell the host environment that this app is using the Puter SDK and is ready to receive messages,
@@ -481,10 +489,7 @@ class UI extends EventListener {
             }
             else if ( e.data.msg === 'connection' ) {
                 e.data.usesSDK = true; // we can safely assume this
-                const conn = AppConnection.from(e.data, {
-                    appInstanceID: this.appInstanceID,
-                    messageTarget: window.parent,
-                });
+                const conn = AppConnection.from(e.data, this.context);
                 const accept = value => {
                     this.messageTarget?.postMessage({
                         $: 'connection-resp',
@@ -995,10 +1000,7 @@ class UI extends EventListener {
             },
         });
         
-        return AppConnection.from(app_info, {
-            appInstanceID: this.appInstanceID,
-            messageTarget: this.messageTarget,
-        });
+        return AppConnection.from(app_info, this.context);
     }
 
     connectToInstance = async function connectToInstance (app_name) {
@@ -1009,10 +1011,7 @@ class UI extends EventListener {
             }
         });
 
-        return AppConnection.from(app_info, {
-            appInstanceID: this.appInstanceID,
-            messageTarget: this.messageTarget,
-        });
+        return AppConnection.from(app_info, this.context);
     }
 
     parentApp() {
