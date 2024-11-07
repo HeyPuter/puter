@@ -93,6 +93,12 @@ docker compose up
 
 <br/>
 
+### 🚀 Self-Hosting
+
+For detailed guides on self-hosting Puter, including configuration options and best practices, see our [Self-Hosting Documentation](https://github.com/HeyPuter/puter/blob/main/doc/self-hosters/instructions.md).
+
+<br/>
+
 ### ☁️ Puter.com
 
 Puter is available as a hosted service at [**puter.com**](https://puter.com).
