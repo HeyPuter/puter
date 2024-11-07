@@ -48,6 +48,11 @@ class PuterAIModule extends AdvancedBase {
             const { GroqAIService } = require('./GroqAIService');
             services.registerService('groq', GroqAIService);
         }
+
+        if ( !! config?.services?.['xai'] ) {
+            const { XAIService } = require('./XAIService');
+            services.registerService('xai', XAIService);
+        }
     }
 }
 

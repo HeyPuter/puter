@@ -267,6 +267,8 @@ class AI{
             "whisper-large-v3"
         ].includes(options.model)) {
             driver = 'groq';
+        }else if(options.model === 'grok-beta') {
+            driver = 'xai';
         }
 
         // stream flag from settings
