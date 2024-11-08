@@ -91,7 +91,7 @@ docker compose up
 
 ### ☁️ Puter.com
 
-Puter est disponible en tant que service hébergé sur **[puter.com](https://puter.com)**.
+Puter est disponible en tant que service hébergé sur [**puter.com**](https://puter.com).
 
 <br/>
 
