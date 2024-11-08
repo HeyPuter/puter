@@ -21,6 +21,7 @@ const useapi = require("useapi");
 const { BaseService } = require("../exports");
 const CoreModule = require("../src/CoreModule");
 const { Context } = require("../src/util/context");
+const { Kernel } = require("../src/Kernel");
 
 class TestLogger {
     constructor () {
@@ -95,8 +96,19 @@ class TestKernel extends AdvancedBase {
     async _install_modules () {
         const { services } = this;
 
+        const mod_install_root_context = Context.get();
+
+
         for ( const module of this.modules ) {
-            await module.install(Context.get());
+            const mod_context = this._create_mod_context(
+                mod_install_root_context,
+                {
+                    name: module.constructor.name,
+                    ['module']: module,
+                    external: false,
+                },
+            );
+            await module.install(mod_context);
         }
 
         // Real kernel initializes services here, but in this test kernel
@@ -112,6 +124,9 @@ class TestKernel extends AdvancedBase {
         // tmp_provide_services(services);
     }
 }
+
+TestKernel.prototype._create_mod_context =
+    Kernel.prototype._create_mod_context;
 
 const k = new TestKernel();
 k.add_module(new CoreModule());
