@@ -240,11 +240,11 @@ async function refresh_apps_cache(options, override){
         let app;
 
         if(options.name)
-            app = await db.read('SELECT * FROM apps WHERE name = ?', [options.name]);
+            app = await db.pread('SELECT * FROM apps WHERE name = ?', [options.name]);
         else if(options.uid)
-            app = await db.read('SELECT * FROM apps WHERE uid = ?', [options.uid]);
+            app = await db.pread('SELECT * FROM apps WHERE uid = ?', [options.uid]);
         else if(options.id)
-            app = await db.read('SELECT * FROM apps WHERE id = ?', [options.id]);
+            app = await db.pread('SELECT * FROM apps WHERE id = ?', [options.id]);
         else {
             log.error('invalid options to refresh_apps_cache');
             throw new Error('Invalid options provided');
