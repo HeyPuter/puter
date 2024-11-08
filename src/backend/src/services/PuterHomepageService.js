@@ -30,6 +30,7 @@ class PuterHomepageService extends BaseService {
 
     _construct () {
         this.service_scripts = [];
+        this.gui_params = {};
     }
 
     async _init () {
@@ -48,6 +49,10 @@ class PuterHomepageService extends BaseService {
 
     register_script (url) {
         this.service_scripts.push(url);
+    }
+    
+    set_gui_param (key, val) {
+        this.gui_params[key] = val;
     }
 
     async send ({ req, res }, meta, launch_options) {
@@ -148,6 +153,7 @@ class PuterHomepageService extends BaseService {
         gui_params = {
             ...meta,
             ...gui_params,
+            ...this.gui_params,
             launch_options,
             app_origin,
             api_origin,

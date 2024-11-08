@@ -49,6 +49,7 @@ window.puter_gui_enabled = true;
 window.gui = async function(options){
     options = options ?? {};
     // app_origin is deprecated, use gui_origin instead
+    window.gui_params = options;
     window.gui_origin = options.gui_origin ?? options.app_origin ?? `https://puter.com`;
     window.app_domain = options.app_domain ?? new URL(window.gui_origin).hostname;
     window.hosting_domain = options.hosting_domain ?? 'puter.site';
