@@ -155,7 +155,6 @@ if(jQuery){
 window.playStartUpChime = ()=>{
     let audio = new Audio('/src/audio/puter_chime.mp3');
     audio.play();
-    document.removeEventListener("click", window.playStartUpChime);
 }
 
 document.addEventListener("click", window.playStartUpChime);
