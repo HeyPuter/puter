@@ -18,6 +18,7 @@ import { FilesystemService } from './services/Filesystem.js';
 import { APIAccessService } from './services/APIAccess.js';
 import { XDIncomingService } from './services/XDIncoming.js';
 import { NoPuterYetService } from './services/NoPuterYet.js';
+import { Debug } from './modules/Debug.js';
 
 window.puter = (function() {
     'use strict';
@@ -87,6 +88,7 @@ window.puter = (function() {
             this.registerModule('ai', AI);
             this.registerModule('kv', KV);
             this.registerModule('drivers', Drivers);
+            this.registerModule('debug', Debug);
 
             // Path
             this.path = path;

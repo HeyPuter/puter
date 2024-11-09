@@ -48,6 +48,7 @@ import item_icon from './helpers/item_icon.js';
 import { AntiCSRFService } from './services/AntiCSRFService.js';
 import { IPCService } from './services/IPCService.js';
 import { ExecService } from './services/ExecService.js';
+import { DebugService } from './services/DebugService.js';
 
 const launch_services = async function (options) {
     // === Services Data Structures ===
@@ -84,6 +85,7 @@ const launch_services = async function (options) {
     // === Builtin Services ===
     register('ipc', new IPCService());
     register('exec', new ExecService());
+    register('debug', new DebugService());
     register('broadcast', new BroadcastService());
     register('theme', new ThemeService());
     register('process', new ProcessService());

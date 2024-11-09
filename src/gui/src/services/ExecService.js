@@ -5,6 +5,14 @@ export class ExecService extends Service {
     static description = `
         Manages instances of apps on the Puter desktop.
     `
+
+    _construct () {
+        this.param_providers = [];
+    }
+
+    register_param_provider (param_provider) {
+        this.param_providers.push(param_provider);
+    }
     
     async _init ({ services }) {
         const svc_ipc = services.get('ipc');
@@ -36,6 +44,11 @@ export class ExecService extends Service {
 
         this.log.info('launchApp connection', connection);
 
+        const params = {};
+        for ( const provider of this.param_providers ) {
+            Object.assign(params, provider());
+        }
+
         // The "body" of this method is in a separate file
         const child_process = await launch_app({
             launched_by_exec_service: true,
@@ -44,6 +57,7 @@ export class ExecService extends Service {
             args: args ?? {},
             parent_instance_id: app?.appInstanceID,
             uuid: child_instance_id,
+            params,
             ...(connection ? {
                 parent_pseudo_id: connection.backward.uuid,
             } : {}),
