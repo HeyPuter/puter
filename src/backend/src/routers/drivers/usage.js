@@ -87,6 +87,9 @@ module.exports = eggspress('/drivers/usage', {
         if ( ! identifying_fields.service['driver.implementation'] ) {
             continue;
         }
+        if ( identifying_fields.service['driver.interface'] === 'puter-es' ) {
+            continue;
+        }
 
         const svc_driverUsage = req.services.get('driver-usage-policy');
         const policy = await svc_driverUsage.get_effective_policy({
@@ -94,7 +97,7 @@ module.exports = eggspress('/drivers/usage', {
             service_name: identifying_fields.service['driver.implementation'],
             trait_name: identifying_fields.service['driver.interface'],
         });
-
+        
         // console.log(`POLICY FOR ${identifying_fields.service['driver.implementation']} ${identifying_fields.service['driver.interface']}`, policy);
 
         const user_usage_key = hash_serializable_object(identifying_fields);
@@ -104,7 +107,13 @@ module.exports = eggspress('/drivers/usage', {
                 ...identifying_fields,
                 policy,
             };
-            usages.user[user_usage_key].monthly_limit = policy?.['monthy-limit'] ?? null;
+            usages.user[user_usage_key].monthly_limit =
+                policy?.['monthly-limit'] ??
+                policy?.['monthy-limit'] ??
+                null;
+            if ( ! policy ) {
+                usages.user[user_usage_key].monthly_limit = 0;
+            }
         }
 
         usages.user[user_usage_key].monthly_usage =
