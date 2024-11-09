@@ -203,6 +203,31 @@ const PERMISSION_SCANNERS = [
         }
     },
     {
+        name: 'user-virtual-group-user',
+        async scan (a) {
+            const svc_virtualGroup = await a.iget('services').get('virtual-group');
+            const { reading, actor, permission_options } = a.values();
+            const groups = svc_virtualGroup.get_virtual_groups({ actor });
+            
+            for ( const group of groups ) {
+                for ( const perm_entry of group.permissions ) {
+                    const { permission, data } = perm_entry;
+                    if ( ! permission_options.includes(permission) ) {
+                        continue;
+                    }
+                    reading.push({
+                        $: 'option',
+                        permission,
+                        data,
+                        holder_username: actor.type.user.username,
+                        source: 'virtual-group',
+                        vgroup_id: group.id,
+                    });
+                }
+            }
+        }
+    },
+    {
         name: 'user-app',
         async scan (a) {
             const { reading, actor, permission_options } = a.values();

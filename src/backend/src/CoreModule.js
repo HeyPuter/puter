@@ -308,6 +308,9 @@ const install = async ({ services, app, useapi, modapi }) => {
     
     const { GroupService } = require('./services/auth/GroupService');
     services.registerService('group', GroupService);
+
+    const { VirtualGroupService } = require('./services/auth/VirtualGroupService');
+    services.registerService('virtual-group', VirtualGroupService);
     
     const { PermissionAPIService } = require('./services/PermissionAPIService');
     services.registerService('__permission-api', PermissionAPIService);
