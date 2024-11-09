@@ -5,6 +5,21 @@ import UIWindow from "./UIWindow.js";
 export default def(class UIElement extends AdvancedBase {
     static ID = 'ui.UIElement';
     static TAG_NAME = 'div';
+
+    /**
+     * Default behavior of UIWindow with no options creates a
+     * transparent rectangle at the bottom of the window. These
+     * default options will be used to prevent that behavior.
+     */
+    static DEFAULT_WINDOW_OPTIONS = {
+        height: 'auto',
+        body_css: {
+            width: 'initial',
+            'background-color': 'rgb(245 247 249)',
+            'backdrop-filter': 'blur(3px)',
+            padding: '20px',
+        },
+    };
     
     // === START :: Helpful convenience library ===
     static el = (...a) => {
@@ -73,9 +88,11 @@ export default def(class UIElement extends AdvancedBase {
         super();
 
         this.windowOptions = {
+            ...(this.constructor.DEFAULT_WINDOW_OPTIONS ?? {}),
             ...(this.constructor.WINDOW_OPTIONS ?? {}),
             ...(windowOptions ?? {}),
         };
+
         this.tagName = tagName ?? this.constructor.TAG_NAME;
         this.css = css ?? this.constructor.CSS;
         this.values = {
