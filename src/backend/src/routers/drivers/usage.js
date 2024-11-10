@@ -90,6 +90,9 @@ module.exports = eggspress('/drivers/usage', {
         if ( identifying_fields.service['driver.interface'] === 'puter-es' ) {
             continue;
         }
+        if ( identifying_fields.service['driver.interface'] === 'puter-kvstore' ) {
+            continue;
+        }
 
         const svc_driverUsage = req.services.get('driver-usage-policy');
         const policy = await svc_driverUsage.get_effective_policy({
