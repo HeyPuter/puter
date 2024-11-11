@@ -76,7 +76,7 @@ class UIGroupsManager extends UIElement {
 }
 
 $(window).on('ctxmenu-will-open', event => {
-    if ( ! event.detail.options?.id === 'user-options-menu' ) return;
+    if ( event.detail.options?.id !== 'user-options-menu' ) return;
 
     const newMenuItems = [
         {
