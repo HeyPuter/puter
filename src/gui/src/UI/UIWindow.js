@@ -2068,6 +2068,19 @@ async function UIWindow(options) {
             // -
             menu_items.push('-')
         }
+        //-------------------------------------------
+        // Reload App
+        //-------------------------------------------
+        if(el_window_app_iframe !== null){
+            menu_items.push({
+                html: 'Reload App',
+                onClick: function(){
+                    $(el_window_app_iframe).attr('src', $(el_window_app_iframe).attr('src'));
+                }
+            });
+            // -
+            menu_items.push('-')
+        }
         // -------------------------------------------
         // Close
         // -------------------------------------------
