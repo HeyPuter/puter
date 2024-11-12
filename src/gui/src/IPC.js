@@ -231,7 +231,7 @@ const ipc_listener = async (event, handled) => {
         // create html
         h += `<div style="padding: 10px 10px 2px;">`;
             h += `<div style="display:flex;">`;
-                h += `<input type="text" style="margin-bottom:10px;" class="social-url" readonly value="${html_encode(event.data.url)}"/>`;
+                h += `<input type="text" style="margin-bottom:10px; font-size: 13px;" class="social-url" readonly value="${html_encode(event.data.url)}"/>`;
                 h += `<button class="button copy-link" style="white-space:nowrap; text-align:center; white-space: nowrap; text-align: center; padding-left: 10px; padding-right: 10px; height: 33px; box-shadow: none; margin-left: 4px;">${(copy_icon)}</button>`;
             h += `</div>`;
 
@@ -247,7 +247,8 @@ const ipc_listener = async (event, handled) => {
         let po = await UIPopover({
             content: h,
             // snapToElement: this,
-            // parent_element: this,
+            parent_element: $el_parent_window,
+            parent_id: parent_window_id,
             // width: 300,
             height: 100,
             left: event.data.options.left,
@@ -256,6 +257,8 @@ const ipc_listener = async (event, handled) => {
         });
 
         $(po).find('.copy-link').on('click', function(e){
+            e.preventDefault();
+            e.stopPropagation();
             const url = $(po).find('.social-url').val();
             navigator.clipboard.writeText(url);
             // set checkmark
@@ -264,6 +267,8 @@ const ipc_listener = async (event, handled) => {
             setTimeout(function(){
                 $(po).find('.copy-link').html(copy_icon)
             }, 1000);
+
+            return false;
         })
     }
 
@@ -393,6 +398,13 @@ const ipc_listener = async (event, handled) => {
         });
     }
     //--------------------------------------------------------
+    // mouseClicked
+    //--------------------------------------------------------
+    else if(event.data.msg === 'mouseClicked'){
+        // close all popovers whose parent_id is parent_window_id
+        $('.popover[data-parent_id="'+parent_window_id+'"]').remove();
+    }
+    //--------------------------------------------------------
     // showDirectoryPicker
     //--------------------------------------------------------
     else if(event.data.msg === 'showDirectoryPicker'){
@@ -488,7 +500,6 @@ const ipc_listener = async (event, handled) => {
         // update mouse position
         update_mouse_position(x + window_position.left, y + window_position.top);
     }
-
     //--------------------------------------------------------
     // contextMenu
     //--------------------------------------------------------

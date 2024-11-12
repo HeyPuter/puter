@@ -1225,6 +1225,10 @@ window.initgui = async function(options){
 
         // if mouse is clicked on a window, activate it
         if(window.mouseover_window !== undefined){
+            // if popover clicked on, don't activate window. This is because if an app 
+            // is using the popover API to show a popover, the popover will be closed if the window is activated
+            if($(e.target).hasClass('popover') || $(e.target).parents('.popover').length > 0)
+                return;
             $(window.mouseover_window).focusWindow(e);
         }
     })

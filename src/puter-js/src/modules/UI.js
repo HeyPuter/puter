@@ -530,6 +530,21 @@ class UI extends EventListener {
                 y: this.mouseY,
             }, '*');
         });
+
+        // click
+        document.addEventListener('click', async (event)=>{
+            // Get the mouse position from the event object
+            this.mouseX = event.clientX;
+            this.mouseY = event.clientY;
+
+            // send the mouse position to the host environment
+            this.messageTarget?.postMessage({
+                msg: "mouseClicked",
+                appInstanceID: this.appInstanceID,
+                x: this.mouseX,
+                y: this.mouseY,
+            }, '*');
+        })
     }
 
     onWindowClose = function(callback) {
