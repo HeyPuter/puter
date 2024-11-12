@@ -31,13 +31,13 @@ export default {
             <div class="settings-card">
                 <strong>${i18n('background')}</strong>
                 <div style="flex-grow:1;">
-                    <button class="button change-background" style="float:right;">${i18n('change_desktop_background')}</button>
+                    <button class="button change-background" style="float:right;">${i18n('change')}</button>
                 </div>
             </div>
             <div class="settings-card">
                 <strong>${i18n('ui_colors')}</strong>
                 <div style="flex-grow:1;">
-                    <button class="button change-ui-colors" style="float:right;">${i18n('change_ui_colors')}</button>
+                    <button class="button change-ui-colors" style="float:right;">${i18n('change')}</button>
                 </div>
             </div>
             <div class="settings-card">
@@ -74,9 +74,7 @@ export default {
                         </label>
                     </div>
                 </div>
-            </div>
-
-            `;
+            </div>`;
     },
     init: ($el_window) => {
         $el_window.find('.change-ui-colors').on('click', function (e) {

@@ -3899,8 +3899,8 @@ fieldset[name=number-code] {
     display: inline-block;
     width: 40px;
     font-size: 13px;
+    line-height: 20px;
 }
-
 
 .version {
     font-size: 9px;
@@ -3969,7 +3969,18 @@ fieldset[name=number-code] {
     align-items: center;
     height: 45px;
 }
-
+.settings-card:hover {
+    border-color: #a6a6a6;
+}
+.settings-card-success:hover {
+    border-color: green;
+}
+.settings-card-warning:hover {
+    border-color: #c08400;
+}
+.settings-card-danger:hover {
+    border-color: #af0000;
+}
 .thin-card {
     padding: 0 15px;
 }

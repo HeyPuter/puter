@@ -21,10 +21,8 @@ import Button from "../Components/Button.js";
 import Flexer from "../Components/Flexer.js";
 import JustHTML from "../Components/JustHTML.js";
 import PasswordEntry from "../Components/PasswordEntry.js";
-import UIAlert from "../UIAlert.js";
 import UIComponentWindow from "../UIComponentWindow.js";
 import UIWindow2FASetup from "../UIWindow2FASetup.js";
-import UIWindowQR from "../UIWindowQR.js";
 
 export default {
     id: 'security',
@@ -160,7 +158,6 @@ export default {
                 is_resizable: false,
                 body_css: {
                     width: 'initial',
-                    height: '100%',
                     'background-color': 'rgb(245 247 249)',
                     'backdrop-filter': 'blur(3px)',
                     padding: '20px',
