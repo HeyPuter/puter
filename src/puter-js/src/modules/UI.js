@@ -608,6 +608,12 @@ class UI extends EventListener {
         })
     }
 
+    socialShare = function(url, message, options, callback) {
+        return new Promise((resolve) => {
+            this.#postMessageWithCallback('socialShare', resolve, { url, message, options });
+        })
+    }
+
     prompt = function(message, placeholder, options, callback) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('PROMPT', resolve, { message, placeholder, options });

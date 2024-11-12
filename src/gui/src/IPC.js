@@ -30,6 +30,9 @@ import path from "./lib/path.js";
 import UIContextMenu from './UI/UIContextMenu.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
 import item_icon from './helpers/item_icon.js';
+import UIPopover from './UI/UIPopover.js';
+import socialLink from './helpers/socialLink.js';
+
 import { PROCESS_IPC_ATTACHED } from './definitions.js';
 
 window.ipc_handlers = {};
@@ -46,7 +49,7 @@ window.ipc_handlers = {};
  */
 const ipc_listener = async (event, handled) => {
     const app_env = event.data?.env ?? 'app';
-    
+
     // Only process messages from apps
     if(app_env !== 'app')
         return handled.resolve(false);
@@ -192,6 +195,78 @@ const ipc_listener = async (event, handled) => {
             response: prompt_resp,
         }, '*');
     }
+    //--------------------------------------------------------
+    // socialShare
+    //--------------------------------------------------------
+    else if(event.data.msg === 'socialShare' && event.data.url !== undefined){
+        const window_position = $el_parent_window.position();
+
+        // left position provided
+        if(event.data.options.left !== undefined){
+            event.data.options.left = Math.abs(event.data.options.left);
+            event.data.options.left += window_position.left;
+        }
+        // left position not provided
+        else{
+            // use top left of the window
+            event.data.options.left = window_position.left;
+        }
+        if(event.data.options.top !== undefined){
+            event.data.options.top = Math.abs(event.data.options.top);
+            event.data.options.top += window_position.top + 30;
+        }else{
+            // use top left of the window
+            event.data.options.top = window_position.top + 30;
+        }
+
+        // top and left must be numbers
+        event.data.options.top = parseFloat(event.data.options.top);
+        event.data.options.left = parseFloat(event.data.options.left);
+
+        const social_links = socialLink({url: event.data.url, title: event.data.message, description: event.data.message});
+
+        let h = ``;
+        let copy_icon = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/> </svg>`;
+        
+        // create html
+        h += `<div style="padding: 10px 10px 2px;">`;
+            h += `<div style="display:flex;">`;
+                h += `<input type="text" style="margin-bottom:10px;" class="social-url" readonly value="${html_encode(event.data.url)}"/>`;
+                h += `<button class="button copy-link" style="white-space:nowrap; text-align:center; white-space: nowrap; text-align: center; padding-left: 10px; padding-right: 10px; height: 33px; box-shadow: none; margin-left: 4px;">${(copy_icon)}</button>`;
+            h += `</div>`;
+
+            h += `<p style="margin: 0; text-align: center; margin-bottom: 0px; color: #484a57; font-weight: 500; font-size: 14px;">${i18n('share_to')}</p>`
+            h += `<a class="copy-link-social-btn" target="_blank" href="${social_links.twitter}" style=""><svg viewBox="0 0 24 24" aria-hidden="true" style="opacity: 0.7;"><g><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></g></svg></a>`
+            h += `<a class="copy-link-social-btn" target="_blank" href="${social_links.whatsapp}" style=""><img src="${window.icons['logo-whatsapp.svg']}"></a>`
+            h += `<a class="copy-link-social-btn" target="_blank" href="${social_links.facebook}" style=""><img src="${window.icons['logo-facebook.svg']}"></a>`
+            h += `<a class="copy-link-social-btn" target="_blank" href="${social_links.linkedin}" style=""><img src="${window.icons['logo-linkedin.svg']}"></a>`
+            h += `<a class="copy-link-social-btn" target="_blank" href="${social_links.reddit}" style=""><img src="${window.icons['logo-reddit.svg']}"></a>`
+            h += `<a class="copy-link-social-btn" target="_blank" href="${social_links['telegram.me']}" style=""><img src="${window.icons['logo-telegram.svg']}"></a>`
+        h += '</div>';
+
+        let po = await UIPopover({
+            content: h,
+            // snapToElement: this,
+            // parent_element: this,
+            // width: 300,
+            height: 100,
+            left: event.data.options.left,
+            top: event.data.options.top,
+            position: 'bottom',
+        });
+
+        $(po).find('.copy-link').on('click', function(e){
+            const url = $(po).find('.social-url').val();
+            navigator.clipboard.writeText(url);
+            // set checkmark
+            $(po).find('.copy-link').html(`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-check2" viewBox="0 0 16 16"> <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0"/> </svg>`);
+            // reset checkmark
+            setTimeout(function(){
+                $(po).find('.copy-link').html(copy_icon)
+            }, 1000);
+        })
+    }
+
     //--------------------------------------------------------
     // env
     //--------------------------------------------------------
