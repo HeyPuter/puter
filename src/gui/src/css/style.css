@@ -3969,17 +3969,8 @@ fieldset[name=number-code] {
     align-items: center;
     height: 45px;
 }
-.settings-card:hover {
-    border-color: #a6a6a6;
-}
-.settings-card-success:hover {
-    border-color: green;
-}
-.settings-card-warning:hover {
-    border-color: #c08400;
-}
-.settings-card-danger:hover {
-    border-color: #af0000;
+.settings-card .button{
+    box-shadow: none;
 }
 .thin-card {
     padding: 0 15px;
