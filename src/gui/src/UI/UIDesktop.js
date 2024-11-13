@@ -1034,7 +1034,7 @@ async function UIDesktop(options){
             ht += `<div class="toolbar-btn qr-btn" title="QR code" style="background-image:url(${window.icons['qr.svg']})"></div>`;
         
         // search button
-        ht += `<div class="toolbar-btn search-btn" title="Search" style="background-image:url(${window.icons['search.svg']})"></div>`;
+        ht += `<div class="toolbar-btn search-btn" title="Search" style="background-image:url('${window.icons['search.svg']}')"></div>`;
 
         // user options menu
         ht += `<div class="toolbar-btn user-options-menu-btn" style="background-image:url(${window.icons['profile.svg']})">`;

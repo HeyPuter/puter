@@ -27,7 +27,7 @@ async function UIWindowSearch(options){
     let h = '';
 
         h += `<div class="search-input-wrapper">`;
-            h += `<input type="text" class="search-input" placeholder="Search" style="background-image:url(${window.icons['magnifier-outline.svg']});">`;
+            h += `<input type="text" class="search-input" placeholder="Search" style="background-image:url('${window.icons['magnifier-outline.svg']}');">`;
         h += `</div>`;
         h += `<div class="search-results" style="overflow-y: auto; max-height: 300px;">`;
 
