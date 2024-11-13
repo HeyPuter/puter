@@ -118,7 +118,6 @@ export default def(class UIElement extends AdvancedBase {
     
     async open_as_window (options = {}) {
         const placeholder = Placeholder();
-        console.log('window options?', this.windowOptions);
         let win;
         this.close = () => $(win).close();
         win = await UIWindow({
