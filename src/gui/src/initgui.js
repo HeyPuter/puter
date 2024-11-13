@@ -1420,6 +1420,12 @@ $(document).on('click', '.generic-close-window-button', function(e){
     $(this).closest('.window').close();
 });
 
+$(document).on('click', function(e){
+    if(!$(e.target).hasClass('window-search') && $(e.target).closest('.window-search').length === 0 && !$(e.target).is('.toolbar-btn.search-btn')){
+        $('.window-search').close();
+    }
+})
+
 // Re-calculate desktop height and width on window resize and re-position the login and signup windows
 $(window).on("resize", function () {
     // If host env is popup, don't continue because the popup window has its own resize requirements.

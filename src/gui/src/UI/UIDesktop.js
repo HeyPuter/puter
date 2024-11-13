@@ -41,6 +41,7 @@ import UINotification from "./UINotification.js"
 import UIWindowWelcome from "./UIWindowWelcome.js"
 import launch_app from "../helpers/launch_app.js"
 import item_icon from "../helpers/item_icon.js"
+import UIWindowSearch from "./UIWindowSearch.js"
 
 async function UIDesktop(options){
     let h = '';
@@ -1032,6 +1033,9 @@ async function UIDesktop(options){
         if(!window.is_embedded)
             ht += `<div class="toolbar-btn qr-btn" title="QR code" style="background-image:url(${window.icons['qr.svg']})"></div>`;
         
+        // search button
+        ht += `<div class="toolbar-btn search-btn" title="Search" style="background-image:url(${window.icons['search.svg']})"></div>`;
+
         // user options menu
         ht += `<div class="toolbar-btn user-options-menu-btn" style="background-image:url(${window.icons['profile.svg']})">`;
             h += `<span class="user-options-menu-username">${window.user.username}</span>`;
@@ -1497,6 +1501,10 @@ $(document).on('click', '.close-launch-popover', function(){
         $(".launch-popover").closest('.popover').remove();
     });
 });
+
+$(document).on('click', '.search-btn', function(){
+    UIWindowSearch();
+})
 
 $(document).on('click', '.toolbar-puter-logo', function(){
     UIWindowSettings();

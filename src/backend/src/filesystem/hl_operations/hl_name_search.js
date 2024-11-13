@@ -20,7 +20,7 @@ class HLNameSearch extends HLFilesystemOperation {
 
         const results = await db.read(
             `SELECT uuid FROM fsentries WHERE name LIKE ? AND ` +
-            `user_id = ?`,
+            `user_id = ? LIMIT 50`,
             [term, actor.type.user.id]
         );
         

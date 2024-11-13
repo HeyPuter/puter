@@ -3449,7 +3449,10 @@ $.fn.focusWindow = function(event) {
     if(this.hasClass('window')){
         const $app_iframe = $(this).find('.window-app-iframe');
         const win_id = $(this).attr('data-id');
+
+        // remove active class from all windows, except for this window
         $('.window').not(this).removeClass('window-active');
+        // add active class to this window
         $(this).addClass('window-active');
         // disable pointer events on all windows' iframes, except for this window's iframe
         $('.window-app-iframe').not($app_iframe).css('pointer-events', 'none');
@@ -3509,7 +3512,7 @@ $.fn.focusWindow = function(event) {
             window.history.replaceState({window_id: $(this).attr('data-id')}, '', '/app/'+url_app_name+$(this).attr('data-user_set_url_params'));
             document.title = $(this).attr('data-name');
         }
-        $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).addClass('taskbar-item-active');
+        $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).addClass('taskbar-item-active');        
     }else{
         $('.window').find('.item-selected').addClass('item-blurred');
         $('.desktop').find('.item-blurred').removeClass('item-blurred');

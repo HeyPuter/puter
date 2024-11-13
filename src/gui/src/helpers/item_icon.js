@@ -51,6 +51,10 @@ const item_icon = async (fsentry)=>{
     // thumbnail
     // --------------------------------------------------
     if(fsentry.thumbnail){
+        // if thumbnail but a directory under AppData, then it's a thumbnail for an app and must be treated as an icon
+        if(fsentry.path.startsWith(window.appdata_path + '/'))
+            return {image: fsentry.thumbnail, type: 'icon'};
+        // otherwise, it's a thumbnail for a file
         return {image: fsentry.thumbnail, type: 'thumb'};
     }
     // --------------------------------------------------
