@@ -42,7 +42,8 @@ class ShareService extends BaseService {
         // about whether or not a user has access to this feature
         const svc_featureFlag = this.services.get('feature-flag');
         svc_featureFlag.register('share', {
-            $: 'permission-flag'
+            $: 'config-flag',
+            value: true
         });
     }
     
