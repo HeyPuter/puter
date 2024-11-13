@@ -827,6 +827,10 @@ module.exports = class FSNodeContext {
             .with('fs.fsentry:uuid')
             .obtain('fs.fsentry:path')
             .exec(this.uid ?? this.entry.uuid);
+        
+        if ( fsentry.path && fsentry.path.startsWith('/-void/') ) {
+            fsentry.broken = true;
+        }
 
         fsentry.dirname = _path.dirname(fsentry.path);
         fsentry.dirpath = fsentry.dirname;
@@ -856,8 +860,13 @@ module.exports = class FSNodeContext {
         // Use client-friendly IDs for shortcut_to
         fsentry.shortcut_to = (res.shortcut_to
             ? await id2uuid(res.shortcut_to) : undefined);
-        fsentry.shortcut_to_path = (res.shortcut_to
-            ? await id2path(res.shortcut_to) : undefined);
+        try {
+            fsentry.shortcut_to_path = (res.shortcut_to
+                ? await id2path(res.shortcut_to) : undefined);
+        } catch (e) {
+            fsentry.shortcut_invalid = true;
+            fsentry.shortcut_uid = res.shortcut_to;
+        }
 
         // Add file_request_url
         if(res.file_request_token && res.file_request_token !== ''){

@@ -250,7 +250,11 @@ class DatabaseFSEntryService extends AdvancedBase {
         info.given('fs.fsentry:uuid').provide('fs.fsentry:path')
             .addStrategy('mysql', async uuid => {
                 // TODO: move id2path here
-                return await id2path(uuid);
+                try {
+                    return await id2path(uuid);
+                } catch (e) {
+                    return '/-void/' + uuid;
+                }
             });
 
         (async () => {
