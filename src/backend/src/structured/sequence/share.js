@@ -506,7 +506,7 @@ module.exports = new Sequence([
         
             const files = []; {
                 for ( const item of shares_work.list() ) {
-                    if ( item.type !== 'file' ) continue;
+                    if ( item.thing.$ !== 'fs-share' ) continue;
                     files.push(
                         await item.node.getSafeEntry(),
                     );
@@ -515,7 +515,7 @@ module.exports = new Sequence([
 
             const apps = []; {
                 for ( const item of shares_work.list() ) {
-                    if ( item.type !== 'app' ) continue;
+                    if ( item.thing.$ !== 'app' ) continue;
                     // TODO: is there a general way to create a
                     //       client-safe app right now without
                     //       going through entity storage?
