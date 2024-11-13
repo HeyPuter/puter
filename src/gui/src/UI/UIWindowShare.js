@@ -170,7 +170,7 @@ async function UIWindowShare(items, recipient){
                             recipients.forEach(perm => {
                                 //check if this user has been printed here before, important for multiple items
                                 if(!printed_users.includes(perm.user.username)){
-                                    perm_list += `<div data-permission="${perm.permission}" class="item-perm-recipient-card item-prop-perm-entry" data-perm-uid="${perm.user.uid}" style="margin-bottom:5px; margin-top:5px;">`
+                                    perm_list += `<div data-permission="${perm.permission}" class="item-perm-recipient-card item-prop-perm-entry" data-recipient-username="${perm.user.username}" data-perm-uid="${perm.user.uid}" data-perm-email="${perm.user.email}" style="margin-bottom:5px; margin-top:5px;">`
                                         perm_list += `${perm.user.email ?? perm.user.username}`;
                                         perm_list += `<div style="float:right;"><span class="remove-permission-link remove-permission-icon" data-recipient-username="${perm.user.username}" data-permission="${perm.permission}">✕</span></div>`;
                                     perm_list += `</div>`;
@@ -205,6 +205,22 @@ async function UIWindowShare(items, recipient){
                 recipient_email = recipient_id;
             else
                 recipient_username = recipient_id;
+
+            // see if the recipient is already in the list
+            let recipient_already_in_list = false;
+            $(el_window).find('.item-perm-recipient-card').each(function(){
+                if((recipient_username && $(this).data('recipient-username') === recipient_username) ||(recipient_email && $(this).data('recipient-email') === recipient_email)){
+                    recipient_already_in_list = true;
+                    return false;
+                }
+            })
+
+            if(recipient_already_in_list){
+                $(el_window).find('.error').html('This user already has access');
+                $(el_window).find('.error').fadeIn();
+                return;
+            }
+
             // can't share with self
             if(recipient_username === window.user.username){
                 $(el_window).find('.error').html('You can\'t share with yourself');
@@ -244,33 +260,42 @@ async function UIWindowShare(items, recipient){
                     ]
                 }),
                 success: function(response) {
-                    // show success message
-                    $(el_window).find('.access-recipient-print').html(recipient_id);
-                    let perm_id = `fs:${items[0].uid}:${access_level}`;
-
-                    // append recipient to list
-                    let perm_list = '';
-                    perm_list += `<div data-permission="${perm_id}" class="item-perm-recipient-card item-prop-perm-entry" style="margin-bottom:5px; margin-top:5px;">`
-                        perm_list += `${recipient_username}`;
-                        perm_list += `<div style="float:right;"><span class="remove-permission-link remove-permission-icon" data-recipient-username="${recipient_username}" data-permission="${perm_id}">✕</span></div>`;
-                    perm_list += `</div>`;
-
-                    // reset input
-                    $(el_window).find('.error').hide();
-                    $(el_window).find('.access-recipient').val('');
-
-                    // disable 'Give Access' button
-                    $(el_window).find('.give-access-btn').prop('disabled', true);
-                    
-                    // append recipient to list
-                    $(el_window).find('.share-recipients').append(`${perm_list}`);
-
-                    // add to contacts
-                    if(!contacts.includes(recipient_username)){
-                        contacts.push(recipient_username);
-                        puter.kv.set('contacts', JSON.stringify(contacts));
+                    if (response.status === "mixed") {
+                        response.recipients.forEach(recipient => {
+                            if (recipient.code === "user_does_not_exist") {
+                                $(el_window).find('.error').html(recipient.message);
+                                $(el_window).find('.error').fadeIn();
+                                cancelled_due_to_error = true;
+                            }
+                        });
+                    } else {
+                        // show success message
+                        $(el_window).find('.access-recipient-print').html(recipient_id);
+                        let perm_id = `fs:${items[0].uid}:${access_level}`;
+                
+                        // append recipient to list
+                        let perm_list = '';
+                        perm_list += `<div data-permission="${perm_id}" class="item-perm-recipient-card item-prop-perm-entry" style="margin-bottom:5px; margin-top:5px;">`
+                            perm_list += `${recipient_username}`;
+                            perm_list += `<div style="float:right;"><span class="remove-permission-link remove-permission-icon" data-recipient-username="${recipient_username}" data-permission="${perm_id}">✕</span></div>`;
+                        perm_list += `</div>`;
+                
+                        // reset input
+                        $(el_window).find('.error').hide();
+                        $(el_window).find('.access-recipient').val('');
+                
+                        // disable 'Give Access' button
+                        $(el_window).find('.give-access-btn').prop('disabled', true);
+                        
+                        // append recipient to list
+                        $(el_window).find('.share-recipients').append(`${perm_list}`);
+                
+                        // add to contacts
+                        if(!contacts.includes(recipient_username)){
+                            contacts.push(recipient_username);
+                            puter.kv.set('contacts', JSON.stringify(contacts));
+                        }
                     }
-
                 },
                 error: function(err) {
                     // at this point 'username_not_found' and 'shared_with_self' are the only 
@@ -282,7 +307,7 @@ async function UIWindowShare(items, recipient){
                     }
                     // re-enable share button
                     $(el_window).find('.give-access-btn').prop('disabled', false);
-
+                
                 }
             });
 
