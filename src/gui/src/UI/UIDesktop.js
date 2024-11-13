@@ -569,11 +569,11 @@ async function UIDesktop(options){
         window.sidebar_items = val;
     })
     // also update every 2 seconds
-    setInterval(async () => {
-        puter.kv.get("sidebar_items").then(async (val) => {
-            window.sidebar_items = val;
-        })
-    }, 2000);           
+    // setInterval(async () => {
+    //     puter.kv.get("sidebar_items").then(async (val) => {
+    //         window.sidebar_items = val;
+    //     })
+    // }, 2000);
 
     // Get menubar style
     puter.kv.get('menubar_style').then(async (val) => {
