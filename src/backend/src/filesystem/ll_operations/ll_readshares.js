@@ -16,8 +16,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { get_user } = require("../../helpers");
+const { PermissionUtil } = require("../../services/auth/PermissionService");
+const { DB_WRITE } = require("../../services/database/consts");
 const { Context } = require("../../util/context");
 const { TYPE_DIRECTORY } = require("../FSNodeContext");
+const { NodeUIDSelector } = require("../node/selectors");
 const { LLFilesystemOperation } = require("./definitions");
 const { LLReadDir } = require("./ll_readdir");
 
@@ -32,57 +36,56 @@ class LLReadShares extends LLFilesystemOperation {
     `;
     
     async _run () {
+        const { subject, user, actor, depth = 0 } = this.values;
+
+        const svc = this.context.get('services');
+
+        const svc_fs = svc.get('filesystem');
+        const svc_acl = svc.get('acl');
+        const db = svc.get('database').get(DB_WRITE, 'll_readshares');
+
+        const issuer_username = await subject.getUserPart();
+        const issuer_user = await get_user({ username: issuer_username });
+        const rows = await db.read(
+            'SELECT DISTINCT permission FROM `user_to_user_permissions` ' +
+            'WHERE `holder_user_id` = ? AND `issuer_user_id` = ? ' +
+            'AND `permission` LIKE ?',
+            [user.id, issuer_user.id, 'fs:%']
+        );
+
+        const fsentry_uuids = [];
+        for ( const row of rows ) {
+            const parts = PermissionUtil.split(row.permission);
+            fsentry_uuids.push(parts[1]);
+        }
+
         const results = [];
-        const stats = await this.recursive_part(results, this.values);
-        // console.log('LL_READ_SHARES_STATS !!!!!', stats);
-        
-        return results;
-    }
-    
-    async recursive_part (results, { subject, user, actor, depth = 0 }) {
-        actor = actor || Context.get('actor');
+
         const ll_readdir = new LLReadDir();
-        const children = await ll_readdir.run({
-            subject, user,
+        let interm_results = await ll_readdir.run({
+            subject,
+            actor,
+            user,
             no_thumbs: true,
             no_assocs: true,
             no_acl: true,
         });
-        
-        const svc = Context.get('services');
-        const svc_acl = svc.get('acl');
-        
-        const promises = [];
-        
-        for ( const child of children ) {
-            // If we have at least see permission: terminal node
-            const acl_result = await svc_acl.check(actor, child, 'see');
-            console.log(
-                '\x1B[31;1mWHAT DIS?\x1B[0m',
-                actor,
-                child.entry?.path,
-                child.selectors_[0].describe(),
-                acl_result,
-            )
-            if ( acl_result ) {
-                results.push(child);
-                continue;
-            }
-            
-            if ( await child.get('type') !== TYPE_DIRECTORY ) {
-                continue;
-            }
-            
-            const p = this.recursive_part(results, {
-                subject: child,
-                user,
-                depth: depth + 1,
-            });
-            promises.push(p);
+
+        // Clone interm_results in case ll_readdir ever implements caching
+        interm_results = interm_results.slice();
+
+        for ( const fsentry_uuid of fsentry_uuids ) {
+            const node = await svc_fs.node(new NodeUIDSelector(fsentry_uuid));
+            if ( ! node ) continue;
+            interm_results.push(node);
         }
-        
-        const stats = await Promise.all(promises);
-        return Math.max(depth, ...stats);
+
+        for ( const node of interm_results ) {
+            if ( ! await svc_acl.check(actor, node, 'see') ) continue;
+            results.push(node);
+        }
+
+        return results;
     }
 }
 

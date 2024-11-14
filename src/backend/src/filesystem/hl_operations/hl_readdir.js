@@ -64,7 +64,8 @@ class HLReadDir extends HLFilesystemOperation {
             const ll_listusers = new LLListUsers();
             children = await ll_listusers.run(this.values);
         } else if (
-            await subject.getUserPart() !== user.username
+            await subject.getUserPart() !== user.username &&
+            await subject.isUserDirectory()
         ) {
             this.log.noticeme('THIS HAPPEN');
             const ll_readshares = new LLReadShares();
