@@ -299,7 +299,7 @@ async function UIWindowShare(items, recipient){
                 
                         // append recipient to list
                         let perm_list = '';
-                        perm_list += `<div data-permission="${perm_id}" class="item-perm-recipient-card item-prop-perm-entry" style="margin-bottom:5px; margin-top:5px;">`
+                        perm_list += `<div data-permission="${perm_id}" class="item-perm-recipient-card item-prop-perm-entry" style="margin-bottom:5px; margin-top:5px;" data-recipient-username="${recipient_username}" data-perm-email="${recipient_email}">`
                             // viewer/editor
                             perm_list += `<div style="float:left;">`;
                             if(access_level === 'read')
