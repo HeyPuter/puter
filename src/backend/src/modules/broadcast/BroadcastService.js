@@ -20,6 +20,7 @@ const { AdvancedBase } = require("@heyputer/putility");
 const BaseService = require("../../services/BaseService");
 const { CLink } = require("./connection/CLink");
 const { SLink } = require("./connection/SLink");
+const { Context } = require("../../util/context");
 
 class BroadcastService extends BaseService {
     static MODULES = {
@@ -96,7 +97,10 @@ class BroadcastService extends BaseService {
                 }
                 
                 meta.from_outside = true;
-                svc_event.emit(key, data, meta);
+                const context = Context.get(undefined, { allow_fallback: true });
+                context.arun(async () => {
+                    await svc_event.emit(key, data, meta);
+                });
             });
         });
         
