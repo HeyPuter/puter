@@ -9,7 +9,10 @@ export class DebugService extends Service {
         const svc_exec = this.services.get('exec');
         svc_exec.register_param_provider(() => {
             return {
-                enabled_logs: this.enabled_logs.join(';'),
+                ...(this.enabled_logs.length > 0
+                    ? { enabled_logs: this.enabled_logs.join(';') }
+                    : {}
+                ),
             };
         });
     }
