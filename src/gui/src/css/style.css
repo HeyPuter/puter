@@ -1978,6 +1978,7 @@ label {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     color: #2f3f53;
+    font-size: 14px;
 }
 
 .unsupported-device-notice {
@@ -2112,10 +2113,26 @@ label {
 
 .permission-owner-badge {
     background-color: #9dacbd;
-    border-radius: 2px;
+}
+
+.permission-editor-badge{
+    background-color: #007cff;
+}
+
+.permission-viewer-badge{
+    background-color: #41c95d;
+}
+
+.permission-owner-badge, .permission-editor-badge, .permission-viewer-badge {
+    display: inline-block;
+    width: 45px;
+    text-align: center;
     padding: 2px 4px;
+    border-radius: 2px;
     color: white;
-    font-size: 13px;
+    font-size: 12px;
+    margin-right: 10px;
+    margin-top: -2px;
 }
 
 .remove-permission-link:hover, .disassociate-website-link:hover {
@@ -2130,6 +2147,7 @@ label {
     border-radius: 3px;
     border: 1px solid #e0e0e0;
     color: #65707b;
+    font-size: 13px;
 }
 
 .remove-permission-icon {
