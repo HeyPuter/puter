@@ -70,6 +70,8 @@ class NotificationService extends BaseService {
         app.use('/notif', router);
         
         router.use(auth2);
+
+        const svc_event = this.services.get('event');
         
         [['ack','acknowledged'],['read','read']].forEach(([ep_name, col_name]) => {
             Endpoint({
@@ -92,6 +94,13 @@ class NotificationService extends BaseService {
                         'LIMIT 1',
                         [ack_ts, req.body.uid, req.user.id],
                     );
+
+                    svc_event.emit('outer.gui.notif.ack', {
+                        user_id_list: [req.user.id],
+                        response: {
+                            uid: req.body.uid,
+                        },
+                    });
                     
                     res.json({});
                 }
