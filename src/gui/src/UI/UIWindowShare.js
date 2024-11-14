@@ -79,9 +79,15 @@ async function UIWindowShare(items, recipient){
                     h += `<label style="font-size: 16px; font-weight: 600;">${i18n('share_with')}</label>`;
                     h += `<div style="display: flex;">`;
                         // Username/email
-                        h += `<input placeholder="username" class="access-recipient" value="${html_encode(recipient ?? '')}" style="border-right: none; margin-bottom: 10px; border-top-right-radius: 0; border-bottom-right-radius: 0;" type="text" autocomplete="recipient_email_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
+                        h += `<input placeholder="username" class="access-recipient" value="${html_encode(recipient ?? '')}" style="margin-bottom: 0; margin-right: 5px;" type="text" autocomplete="recipient_email_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
+                        // type
+                        h += `<select class="access-type" style="width: 170px; margin-bottom: 0; margin-right: 5px;">`;
+                            h += `<option value="Viewer">Viewer</option>`;
+                            h += `<option value="Editor">Editor</option>`;
+                        h += `</select>`;
+
                         // Share
-                        h += `<button class="give-access-btn button button-primary button-normal" style="border-top-left-radius: 0; border-bottom-left-radius: 0;" ${!recipient ? 'disabled' : ''}>${i18n('share')}</button>`
+                        h += `<button class="give-access-btn button button-primary button-normal" style="" ${!recipient ? 'disabled' : ''}>${i18n('share')}</button>`
                     h += `</div>`;                
                 h += `</div>`;
             h += `</form>`;
@@ -244,6 +250,9 @@ async function UIWindowShare(items, recipient){
             let cancelled_due_to_error = false;
             let share_result;
             let access_level = 'write';
+
+            if($(el_window).find('.access-type').val() === 'Viewer')
+                access_level = 'read';
 
             $.ajax({
                 url: puter.APIOrigin + "/share",

@@ -1316,7 +1316,7 @@ const ipc_listener = async (event, handled) => {
                             // now add new items
                             UIItem({
                                 appendTo: $(`.item-container[data-path="${html_encode(path.dirname(target_path))}" i]`),
-                                immutable: res.immutable,
+                                immutable: res.immutable || res.writable === false,
                                 associated_app_name: res.associated_app?.name,
                                 path: target_path,
                                 icon: await item_icon(res),

@@ -351,7 +351,7 @@ async function UIDesktop(options){
         // create new item on matching containers
         UIItem({
             appendTo: $(`.item-container[data-path='${html_encode(dest_path)}' i]`),
-            immutable: fsentry.immutable,
+            immutable: fsentry.immutable || fsentry.writable === false,
             uid: fsentry.uid,
             path: fsentry.path,
             icon: await item_icon(fsentry),
@@ -526,7 +526,7 @@ async function UIDesktop(options){
             UIItem({
                 appendTo: $(`.item-container[data-path='${html_encode(item.dirpath)}' i]`),
                 uid: item.uid,
-                immutable: item.immutable,
+                immutable: item.immutable || item.writable === false,
                 associated_app_name: item.associated_app?.name,
                 path: item.path,
                 icon: await item_icon(item),

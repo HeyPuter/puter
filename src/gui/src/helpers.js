@@ -1485,7 +1485,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
                 // create new item on matching containers
                 const options = {
                     appendTo: $(`.item-container[data-path="${html_encode(dest_path)}" i]`),
-                    immutable: fsentry.immutable,
+                    immutable: fsentry.immutable || (fsentry.writable === false),
                     associated_app_name: fsentry.associated_app?.name,
                     uid: fsentry.uid,
                     path: fsentry.path,

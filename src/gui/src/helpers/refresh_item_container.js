@@ -175,7 +175,7 @@ const refresh_item_container = function(el_item_container, options){
                     UIItem({
                         appendTo: el_item_container,
                         uid: fsentry.uid,
-                        immutable: fsentry.immutable,
+                        immutable: fsentry.immutable || fsentry.writable === false,
                         associated_app_name: fsentry.associated_app?.name,
                         path: item_path,
                         icon: await item_icon(fsentry),
