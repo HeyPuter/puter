@@ -1097,7 +1097,7 @@ async function UIWindow(options) {
                         // don't show current user's folder!
                         if(shared_user.name === window.user.username)
                             continue;
-                            ht += `<div  class="window-sidebar-item disable-user-select ${options.path === shared_user.path ? 'window-sidebar-item-active' : ''}" 
+                            ht += `<div  class="window-sidebar-item not-sortable disable-user-select ${options.path === shared_user.path ? 'window-sidebar-item-active' : ''}" 
                                     data-path="${shared_user.path}"
                                     data-sharing-username="${html_encode(shared_user.name)}"
                                     title="${html_encode(shared_user.name)}"
@@ -2413,7 +2413,7 @@ async function UIWindow(options) {
         const $sidebar = $(el_window).find('.window-sidebar');
 
         $sidebar.sortable({
-            items: '.window-sidebar-item:not(.window-sidebar-title)',  // More specific selector
+            items: '.window-sidebar-item:not(.window-sidebar-title, .not-sortable)',  // More specific selector
             connectWith: '.window-sidebar',
             cursor: 'move',
             axis: 'y',
