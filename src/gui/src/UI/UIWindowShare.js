@@ -27,7 +27,6 @@ async function UIWindowShare(items, recipient){
             //------------------------------------------------
             // Icons
             //------------------------------------------------
-            
             h += `<div style="display:flex; justify-content: center; margin-bottom: 10px; disable-user-select">`;
                 // 1 item shared
                 if(items.length === 1)
@@ -61,7 +60,7 @@ async function UIWindowShare(items, recipient){
             h += `</div>`;
 
             // ------------------------------------------------
-            // Name
+            // Item Name
             // ------------------------------------------------
             h += `<h2 style="font-size: 17px; margin-top:0; text-align:center; margin-bottom: 40px; font-weight: 400; color: #303d49;">`;
                 h += `Share <strong>${html_encode(items[0].name)}</strong>`;
@@ -69,7 +68,9 @@ async function UIWindowShare(items, recipient){
                     h += ` and ${items.length - 1} other item${items.length > 2 ? 's' : ''}`;
             h += `</h2>`;
 
-            // form
+            // ------------------------------------------------
+            // Recipient
+            // ------------------------------------------------
             h += `<form class="window-give-item-access-form">`;
                 // Error msg
                 h += `<div class="error"></div>`;
@@ -85,7 +86,9 @@ async function UIWindowShare(items, recipient){
                 h += `</div>`;
             h += `</form>`;
 
-            //recipients
+            // ------------------------------------------------
+            // Already Shared With
+            // ------------------------------------------------
             h += `<p style="font-size: 14px; margin-bottom: 0px; color: #303d49; text-shadow: 1px 1px white;">People with access</p>`;
             h += `<div class="share-recipients">`;
             h += `</div>`;
@@ -124,6 +127,7 @@ async function UIWindowShare(items, recipient){
 
         let contacts = [];
 
+        // get contacts
         puter.kv.get('contacts').then((kv_contacts) => {
             if(kv_contacts){
                 try{
@@ -139,7 +143,8 @@ async function UIWindowShare(items, recipient){
 
         // /stat
         let perms = [];
-    let printed_users = [];
+        let printed_users = [];
+
         for(let i=0; i<items.length; i++){
             puter.fs.stat({ 
                 path: items[i].path,
@@ -198,7 +203,7 @@ async function UIWindowShare(items, recipient){
             let recipient_id = $(el_window).find('.access-recipient').val();
 
             // todo do some basic validation client-side
-            if(recipient_id === '' || recipient_id === null || recipient_id === undefined)
+            if(!recipient_id)
                 return;
 
             if(is_email(recipient_id))
@@ -216,7 +221,7 @@ async function UIWindowShare(items, recipient){
             })
 
             if(recipient_already_in_list){
-                $(el_window).find('.error').html('This user already has access');
+                $(el_window).find('.error').html('This user already has access to this item');
                 $(el_window).find('.error').fadeIn();
                 return;
             }

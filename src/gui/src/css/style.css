@@ -2149,6 +2149,29 @@ label {
     max-height: 200px;
     overflow: hidden;
 }
+.ui-menu{
+    margin-top: 5px;
+    border-radius: 5px;
+}
+.ui-menu .ui-menu-item{
+    padding: 5px 10px;
+    border-radius: 5px;
+}
+.ui-menu .ui-menu-item .ui-menu-item-wrapper {
+    background: none;
+    border: none;
+    padding: 5px 10px;
+    font-size: 14px;
+}
+.ui-menu .ui-menu-item:hover .ui-menu-item-wrapper,
+.ui-menu .ui-menu-item:focus .ui-menu-item-wrapper,
+.ui-menu .ui-menu-item:active .ui-menu-item-wrapper,
+.ui-menu .ui-menu-item .ui-menu-item-wrapper.ui-state-active {
+    background-color: #4092da;
+    color: #fff;
+    border-radius: 5px;
+    border: 1px solid #4092da;
+}
 
 .feedback-sent-success {
     display: none;
