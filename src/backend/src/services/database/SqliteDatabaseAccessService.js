@@ -132,6 +132,9 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [26, [
                 '0029_emulator_priv.sql',
             ]],
+            [27, [
+                '0030_comments.sql',
+            ]],
         ];
 
         // Database upgrade logic
