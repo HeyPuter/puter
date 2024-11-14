@@ -1,5 +1,6 @@
 const APIError = require("../api/APIError");
 const FSNodeParam = require("../api/filesystem/FSNodeParam");
+const { get_user } = require("../helpers");
 const configurable_auth = require("../middleware/configurable_auth");
 const { Endpoint } = require("../util/expressutil");
 const BaseService = require("./BaseService");
@@ -98,6 +99,9 @@ class CommentService extends BaseService {
                         uid: comment.uid,
                         text: comment.text,
                         created: comment.created_at,
+                        user: {
+                            username: comment.user?.username,
+                        },
                     });
                 }
 
@@ -148,6 +152,12 @@ class CommentService extends BaseService {
             'WHERE `fsentry_id` = ?',
             [await node.get('mysql-id')],
         );
+
+        for ( const comment of comments ) {
+            const user_id = comment.user_id;
+            const user = await get_user({ id: user_id });
+            comment.user = user;
+        }
 
         return comments;
     }
