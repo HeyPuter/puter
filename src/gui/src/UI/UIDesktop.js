@@ -46,6 +46,13 @@ import UIWindowSearch from "./UIWindowSearch.js"
 async function UIDesktop(options){
     let h = '';
 
+    // Set up the desktop channel for communication between different tabs in the same browser
+    window.channel = new BroadcastChannel('puter-desktop-channel');
+    channel.onmessage = function(e){
+    }
+
+    // channel.postMessage({'hello': 'world'});
+
     // connect socket.
     window.socket = io(window.gui_origin + '/', {
         auth: {
@@ -122,6 +129,7 @@ async function UIDesktop(options){
             text: notification.text,
             icon: icon,
             value: notification,
+            uid,
             close: async () => {
                 await fetch(`${window.api_origin}/notif/mark-ack`, {
                     method: 'POST',
@@ -160,6 +168,7 @@ async function UIDesktop(options){
                 icon,
                 title: notification.title,
                 text: notification.text ?? notification.title,
+                uid: notif_info.uid,
                 close: async () => {
                     await fetch(`${window.api_origin}/notif/mark-ack`, {
                         method: 'POST',
@@ -174,6 +183,10 @@ async function UIDesktop(options){
                 },
             });
         }
+    });
+
+    window.socket.on('notif.ack', ({ uid }) => {
+        $(`.notification[data-uid="${uid}"]`).remove();
     });
 
     window.socket.on('app.opened', async (app) => {

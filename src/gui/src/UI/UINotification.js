@@ -22,7 +22,7 @@ function UINotification(options){
     options.text = options.text ?? '';
 
     let h = '';
-    h += `<div id="ui-notification__${window.global_element_id}" data-el-id="${window.global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
+    h += `<div id="ui-notification__${window.global_element_id}" data-uid="${html_encode(options.uid)}" data-el-id="${window.global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
         h += `<img class="notification-close disable-user-select" src="${html_encode(window.icons['close.svg'])}">`;
         h += `<div class="notification-icon">`;
             h += `<img src="${html_encode(options.icon ?? window.icons['bell.svg'])}">`;

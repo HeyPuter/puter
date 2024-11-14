@@ -1173,7 +1173,7 @@ span.header-sort-icon img {
     min-width: 170px;
     height: calc(100% - 28px);
     float: left;
-    border-right: 1px solid #CCC;
+    border-right: 0.5px solid #CCC;
     padding: 15px 10px;
     box-sizing: border-box;
     background-color: hsla(var(--window-sidebar-hue),
@@ -1182,6 +1182,7 @@ span.header-sort-icon img {
             calc(0.5 + 0.5*var(--window-sidebar-alpha)));
     overflow-y: scroll;
     margin-top: 1px;
+    box-shadow: inset -4px 0 8px -8px rgba(0, 0, 0, 0.3);
 }
 
 .window-sidebar .ui-resizable-e {
