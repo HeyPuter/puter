@@ -33,12 +33,13 @@ class LLReadShares extends LLFilesystemOperation {
     
     async _run () {
         const results = [];
-        await this.recursive_part(results, this.values);
+        const stats = await this.recursive_part(results, this.values);
+        // console.log('LL_READ_SHARES_STATS !!!!!', stats);
         
         return results;
     }
     
-    async recursive_part (results, { subject, user, actor }) {
+    async recursive_part (results, { subject, user, actor, depth = 0 }) {
         actor = actor || Context.get('actor');
         const ll_readdir = new LLReadDir();
         const children = await ll_readdir.run({
@@ -73,11 +74,15 @@ class LLReadShares extends LLFilesystemOperation {
             }
             
             const p = this.recursive_part(results, {
-                subject: child, user });
+                subject: child,
+                user,
+                depth: depth + 1,
+            });
             promises.push(p);
         }
         
-        await Promise.all(promises);
+        const stats = await Promise.all(promises);
+        return Math.max(depth, ...stats);
     }
 }
 
