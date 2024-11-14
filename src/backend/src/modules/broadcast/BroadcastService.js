@@ -56,7 +56,11 @@ class BroadcastService extends BaseService {
         if ( meta.from_outside ) return;
         
         for ( const peer of this.peers_ ) {
-            peer.send({ key, data, meta });
+            try {
+                peer.send({ key, data, meta });
+            } catch (e) {
+                //
+            }
         }
     }
     

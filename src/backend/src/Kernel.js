@@ -82,7 +82,7 @@ class Kernel extends AdvancedBase {
         // const app = express();
         const config = require('./config');
 
-        globalThis.ll = () => {};
+        globalThis.ll = o => o;
         globalThis.xtra_log = () => {};
         if ( config.env === 'dev' ) {
             globalThis.ll = o => {
