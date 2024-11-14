@@ -257,7 +257,7 @@ class ShareService extends BaseService {
             methods: ['POST'],
             mw: [
                 configurable_auth(),
-                featureflag({ feature: 'share' }),
+                // featureflag({ feature: 'share' }),
             ],
             handler: async (req, res) => {
                 const actor = Actor.adapt(req.user);
