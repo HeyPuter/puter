@@ -1103,7 +1103,7 @@ async function UIWindow(options) {
                                     title="${html_encode(shared_user.name)}"
                                     data-is_shared="1">
                                         <img class="window-sidebar-item-icon" src="${html_encode(window.icons['shared-outline.svg'])}">${shared_user.name}
-                                    </div>`;  
+                                    </div>`;
                     }
                 }
                 $(el_window).find('.window-sidebar').append(ht);
