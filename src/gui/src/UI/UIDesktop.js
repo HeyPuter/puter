@@ -188,6 +188,7 @@ async function UIDesktop(options){
 
     window.socket.on('notif.ack', ({ uid }) => {
         $(`.notification[data-uid="${uid}"]`).remove();
+        update_tab_notif_count_badge();
     });
 
     window.socket.on('app.opened', async (app) => {

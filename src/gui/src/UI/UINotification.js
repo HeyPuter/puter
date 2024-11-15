@@ -36,6 +36,8 @@ function UINotification(options){
     $('.notification-container').prepend(h);
 
 
+    update_tab_notif_count_badge();
+
     const el_notification = document.getElementById(`ui-notification__${window.global_element_id}`);
 
     // now wrap it in a div
@@ -106,6 +108,8 @@ function UINotification(options){
             }else{
                 $('.notification-container').addClass('has-multiple');
             }
+
+            update_tab_notif_count_badge();
         }, 500);
     }
     // Show Notification
@@ -131,10 +135,34 @@ $(document).on('click', '.notifications-close-all', function(e){
     }, 300);
     // remove the 'has-multiple' class
     $('.notification-container').removeClass('has-multiple');
+
+    // update tab notification count badge
+    update_tab_notif_count_badge();
+
     // prevent default
     e.stopPropagation();
     e.preventDefault();
     return false;
 })
+
+window.update_tab_notif_count_badge = function(){
+    // count open notifications
+    let count = $('.notification').length;
+
+    // see if title is in the format "(n) Title"
+    let title = document.title;
+    let titleMatch = title.match(/^\((\d+)\) (.*)/);
+    if(titleMatch){
+        // remove the count
+        title = titleMatch[2];
+    }
+
+    // if there are notifications, add the count to the title
+    if(count > 0){
+        document.title = `(${count}) ${title}`;
+    }else{
+        document.title = title;
+    }
+}
 
 export default UINotification;
