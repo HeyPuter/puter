@@ -143,6 +143,13 @@ const launch_app = async (options)=>{
             }  
         }
 
+        // if path starts with ~, replace it with home_path
+        if(options.path && options.path.startsWith('~/'))
+            options.path = window.home_path + options.path.slice(1);
+        // if path is ~, replace it with home_path
+        else if(options.path === '~')
+            options.path = window.home_path;
+
         // open window
         el_win = UIWindow({
             element_uuid: uuid,
