@@ -129,6 +129,20 @@ const launch_app = async (options)=>{
         else
             title = path.dirname(options.path);
 
+        // if options.args.path is provided, use it as the path
+        if(options.args?.path){
+            // if args.path is provided, enforce the directory
+            let fsentry = await puter.fs.stat(options.args.path);
+            if(!fsentry.is_dir){
+                let parent = path.dirname(options.args.path);
+                if(parent === options.args.path)
+                    parent = window.home_path;
+                options.path = parent;
+            }else{
+                options.path = options.args.path;
+            }  
+        }
+
         // open window
         el_win = UIWindow({
             element_uuid: uuid,

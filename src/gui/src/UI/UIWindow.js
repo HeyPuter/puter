@@ -2879,6 +2879,10 @@ window.navbar_path_droppable = (el_window)=>{
  *
  */
 window.navbar_path = (abs_path)=>{
+    // remove trailing slash
+    if(abs_path.endsWith('/') && abs_path !== '/')
+        abs_path = abs_path.slice(0, -1);
+
     const dirs = (abs_path === '/' ? [''] : abs_path.split('/'));
     const dirpaths = (abs_path === '/' ? ['/'] : [])
     const path_seperator_html = `<img class="path-seperator" draggable="false" src="${html_encode(window.icons['triangle-right.svg'])}">`;
