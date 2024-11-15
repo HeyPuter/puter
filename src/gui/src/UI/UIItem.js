@@ -786,18 +786,18 @@ function UIItem(options){
                 menu_items.push({
                     html: 'Share With…',
                     onClick: async function(){
-                        // if(window.user.is_temp && 
-                        //     !await UIWindowSaveAccount({
-                        //         message: 'Please create an account to proceed.',
-                        //         send_confirmation_code: true,
-                        //         window_options: {
-                        //             backdrop: true,
-                        //             close_on_backdrop_click: false,
-                        //         }
-                        //     },))
-                        //     return;
-                        // else if(!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired())
-                        //     return;
+                        if(window.user.is_temp && 
+                            !await UIWindowSaveAccount({
+                                send_confirmation_code: true,
+                                message: 'Please create an account to proceed.',
+                                window_options: {
+                                    backdrop: true,
+                                    close_on_backdrop_click: false,
+                                }                                
+                            }))
+                            return;
+                        else if(!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired())
+                            return;
 
                         let items = [];
                         $selected_items.each(function() {
@@ -1090,18 +1090,19 @@ function UIItem(options){
                 menu_items.push({
                     html: 'Share With…',
                     onClick: async function(){
-                        // if(window.user.is_temp && 
-                        //     !await UIWindowSaveAccount({
-                        //         message: 'Please create an account to proceed.',
-                        //         send_confirmation_code: true,
-                        //         window_options: {
-                        //             backdrop: true,
-                        //             close_on_backdrop_click: false,
-                        //         }
-                        //     }))
-                        //     return;
-                        // else if(!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired())
-                        //     return;
+                        if(window.user.is_temp && 
+                            !await UIWindowSaveAccount({
+                                send_confirmation_code: true,
+                                message: 'Please create an account to proceed.',
+                                window_options: {
+                                    backdrop: true,
+                                    close_on_backdrop_click: false,
+                                }                                
+                            }))
+                            return;
+                        else if(!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired())
+                            return;
+
                         UIWindowShare([{uid: $(el_item).attr('data-uid'), path: $(el_item).attr('data-path'), name: $(el_item).attr('data-name'), icon: $(el_item_icon).find('img').attr('src')}]);
                     }
                 });
