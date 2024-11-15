@@ -261,6 +261,9 @@ class ShareService extends BaseService {
             ],
             handler: async (req, res) => {
                 const actor = Actor.adapt(req.user);
+                if ( ! (actor.type instanceof UserActorType) ) {
+                    throw APIError.create('forbidden');
+                }
                 return await share_sequence.call(this, {
                     actor, req, res,
                 });
