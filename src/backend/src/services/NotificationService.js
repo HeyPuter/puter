@@ -35,6 +35,10 @@ class NotificationService extends BaseService {
         express: require('express'),
     }
 
+    _construct () {
+        this.merged_on_user_connected_ = {};
+    }
+
     async _init () {
         const svc_database = this.services.get('database');
         this.db = svc_database.get(DB_WRITE, 'notification');
@@ -109,6 +113,13 @@ class NotificationService extends BaseService {
     }
     
     async on_user_connected ({ user }) {
+        if ( this.merged_on_user_connected_[user.uuid] ) {
+            clearTimeout(this.merged_on_user_connected_[user.uuid]);
+        }
+        this.merged_on_user_connected_[user.uuid] =
+            setTimeout(() => this.do_on_user_connected({ user }), 2000);
+    }
+    async do_on_user_connected ({ user }) {
         // query the users unread notifications
         const notifications = await this.db.read(
             'SELECT * FROM `notification` ' +
@@ -116,7 +127,7 @@ class NotificationService extends BaseService {
             'ORDER BY created_at ASC',
             [user.id]
         );
-        
+
         // set all the notifications to "shown"
         const shown_ts = Math.floor(Date.now() / 1000);
         await this.db.write(
@@ -140,7 +151,7 @@ class NotificationService extends BaseService {
                 notification: notif.value,
             })
         }
-        
+
         // send the unread notifications to gui
         const svc_event = this.services.get('event');
         svc_event.emit('outer.gui.notif.unreads', {

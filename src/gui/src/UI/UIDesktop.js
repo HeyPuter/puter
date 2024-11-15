@@ -66,6 +66,7 @@ async function UIDesktop(options){
       
     window.socket.on('connect', function(){
         // console.log('GUI Socket: Connected', window.socket.id);
+        window.socket.emit('puter_is_actually_open');
     });
 
     window.socket.on('reconnect', function(){
