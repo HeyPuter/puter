@@ -23,6 +23,7 @@ const {
 
 const { get_user, get_app } = require("../../helpers");
 const { AssignableMethodsFeature } = require("../../traits/AssignableMethodsFeature");
+const { remove_paths_through_user } = require("../../unstructured/permission-scan-lib");
 const { Context } = require("../../util/context");
 const { get_a_letter, cylog } = require("../../util/debugutil");
 const BaseService = require("../BaseService");
@@ -180,6 +181,7 @@ class PermissionUtil {
                 });
             }
             if ( finding.$ === 'path' ) {
+                if ( finding.has_terminal === false ) continue;
                 const new_extras = ( finding.data ) ? [
                     finding.data,
                     ...extras,
@@ -223,8 +225,14 @@ class PermissionService extends BaseService {
         return options.length > 0;
     }
 
-    async scan (actor, permission_options) {
+    async scan (actor, permission_options, _reserved, state) {
         const reading = [];
+
+        if ( ! state ) {
+            state = {
+                anti_cycle_actors: [actor],
+            };
+        }
         
         if ( ! Array.isArray(permission_options) ) {
             permission_options = [permission_options];
@@ -240,6 +248,7 @@ class PermissionService extends BaseService {
                 actor,
                 permission_options,
                 reading,
+                state,
             });
         const end_ts = Date.now();
         

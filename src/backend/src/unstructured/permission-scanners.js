@@ -5,6 +5,7 @@ const {
 } = require("../data/hardcoded-permissions");
 const { get_user } = require("../helpers");
 const { Actor, UserActorType, AppUnderUserActorType } = require("../services/auth/Actor");
+const { reading_has_terminal } = require("./permission-scan-lib");
 
 /*
     OPTIMAL FOLD LEVEL: 3
@@ -46,7 +47,7 @@ const PERMISSION_SCANNERS = [
     {
         name: 'user-user',
         async scan (a) {
-            const { reading, actor, permission_options } = a.values();
+            const { reading, actor, permission_options, state } = a.values();
             if ( !(actor.type instanceof UserActorType)  ) {
                 return;
             }
@@ -85,11 +86,26 @@ const PERMISSION_SCANNERS = [
                     }),
                 });
 
+                let should_continue = false;
+                for ( const seen_actor of state.anti_cycle_actors ) {
+                    if ( seen_actor.type.user.id === issuer_actor.type.user.id ) {
+                        should_continue = true;
+                        break;
+                    }
+                }
+
+                if ( should_continue ) continue;
+
                 // const issuer_perm = await this.check(issuer_actor, row.permission);
-                const issuer_reading = await a.icall('scan', issuer_actor, row.permission);
+                const issuer_reading = await a.icall(
+                    'scan', issuer_actor, row.permission, undefined, state);
+
+                const has_terminal = reading_has_terminal({ reading: issuer_reading });
+
                 reading.push({
                     $: 'path',
                     via: 'user',
+                    has_terminal,
                     permission: row.permission,
                     data: row.extra,
                     holder_username: actor.type.user.username,
@@ -134,9 +150,13 @@ const PERMISSION_SCANNERS = [
                         if ( ! issuer_group.hasOwnProperty(permission) ) continue;
                         const issuer_reading =
                             await a.icall('scan', issuer_actor, permission)
+
+                        const has_terminal = reading_has_terminal({ reading: issuer_reading });
+
                         reading.push({
                             $: 'path',
                             via: 'hc-user-group',
+                            has_terminal,
                             permission,
                             data: issuer_group[permission],
                             holder_username: actor.type.user.username,
@@ -188,9 +208,12 @@ const PERMISSION_SCANNERS = [
 
                 const issuer_reading = await a.icall('scan', issuer_actor, row.permission);
 
+                const has_terminal = reading_has_terminal({ reading: issuer_reading });
+
                 reading.push({
                     $: 'path',
                     via: 'user-group',
+                    has_terminal,
                     // issuer: issuer_actor,
                     permission: row.permission,
                     data: row.extra,
@@ -240,6 +263,8 @@ const PERMISSION_SCANNERS = [
             
             const issuer_actor = actor.get_related_actor(UserActorType);
             const issuer_reading = await a.icall('scan', issuer_actor, permission_options);
+
+            const has_terminal = reading_has_terminal({ reading: issuer_reading });
             
             for ( const permission of permission_options ) {
                 {
@@ -249,6 +274,7 @@ const PERMISSION_SCANNERS = [
                         reading.push({
                             $: 'path',
                             permission,
+                            has_terminal,
                             source: 'user-app-implied',
                             by: 'user-app-hc-1',
                             data: implied,
@@ -267,6 +293,7 @@ const PERMISSION_SCANNERS = [
                         reading.push({
                             $: 'path',
                             permission,
+                            has_terminal,
                             source: 'user-app-implied',
                             by: 'user-app-hc-2',
                             data: implicit_permissions[permission],
@@ -301,10 +328,12 @@ const PERMISSION_SCANNERS = [
                 })();
                 const issuer_actor = actor.get_related_actor(UserActorType);
                 const issuer_reading = await a.icall('scan', issuer_actor, row.permission);
+                const has_terminal = reading_has_terminal({ reading: issuer_reading });
                 reading.push({
                     $: 'path',
                     via: 'user-app',
                     permission: row.permission,
+                    has_terminal,
                     data: row.extra,
                     issuer_username: actor.type.user.username,
                     reading: issuer_reading,
