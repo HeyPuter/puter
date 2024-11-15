@@ -42,8 +42,14 @@ class ShareService extends BaseService {
         // about whether or not a user has access to this feature
         const svc_featureFlag = this.services.get('feature-flag');
         svc_featureFlag.register('share', {
-            $: 'config-flag',
-            value: true
+            $: 'function-flag',
+            fn: async ({ actor }) => {
+                const user = actor.type.user;
+                if ( ! user ) {
+                    throw new Error('expected user');
+                }
+                return !! user.email_confirmed;
+            }
         });
     }
     
@@ -264,6 +270,13 @@ class ShareService extends BaseService {
                 if ( ! (actor.type instanceof UserActorType) ) {
                     throw APIError.create('forbidden');
                 }
+
+                if ( ! actor.type.user.email_confirmed ) {
+                    throw APIError.create('email_must_be_confirmed', null, {
+                        action: 'share something',
+                    });
+                }
+
                 return await share_sequence.call(this, {
                     actor, req, res,
                 });
