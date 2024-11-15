@@ -42,9 +42,20 @@ class FeatureFlagService extends BaseService {
         if ( ! this.known_flags.has(permission) ) {
             this.known_flags.set(permission, true);
         }
-        
+
+        if ( this.known_flags[permission].$ === 'config-flag' ) {
+            return this.known_flags[permission].value;
+        }
 
         const actor = options.actor ?? Context.get('actor');
+
+        if ( this.known_flags[permission].$ === 'function-flag' ) {
+            return await this.known_flags[permission].fn({
+                ...options,
+                actor
+            });
+        }
+        
 
         const svc_permission = this.services.get('permission');
         const reading = await svc_permission.scan(actor, `feature:${permission}`);
@@ -58,6 +69,10 @@ class FeatureFlagService extends BaseService {
         for ( const [key, value] of this.known_flags.entries() ) {
             if ( value.$ === 'config-flag' ) {
                 summary[key] = value.value;
+                continue;
+            }
+            if ( value.$ === 'function-flag' ) {
+                summary[key] = await value.fn({ actor });
                 continue;
             }
             const svc_permission = this.services.get('permission');
