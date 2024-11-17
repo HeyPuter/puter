@@ -266,6 +266,11 @@ class ShareService extends BaseService {
                 // featureflag({ feature: 'share' }),
             ],
             handler: async (req, res) => {
+                const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+                if ( ! svc_edgeRateLimit.check('verify-pass-recovery-token') ) {
+                    return res.status(429).send('Too many requests.');
+                }
+
                 const actor = Actor.adapt(req.user);
                 if ( ! (actor.type instanceof UserActorType) ) {
                     throw APIError.create('forbidden');
