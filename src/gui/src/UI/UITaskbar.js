@@ -94,6 +94,7 @@ async function UITaskbar(options){
                 apps_str += `<input style="background-image:url('${window.icons['magnifier-outline.svg']}');" class="launch-search">`;
                 apps_str += `<img class="launch-search-clear" src="${window.icons['close.svg']}">`;
             apps_str += `</div>`;
+
             // -------------------------------------------
             // Recent apps
             // -------------------------------------------
@@ -307,13 +308,14 @@ window.make_taskbar_sortable = function(){
 window.recalibrate_taskbar_item_positions = function(){
     // if this is mobile rearrange taskbar item positions based on absolute position
     // taskbar items must be centered unless there is overflow. If there is overflow, the taskbar items must be left aligned
-    if(isMobile.phone){
+    if(isMobile.phone || window.desktop_width < 800){
         let taskbar_items = $('.taskbar-item');
         let taskbar_width = taskbar_items.length * 60;
 
         if(taskbar_width > window.desktop_width){
             // set taskbar items to absolute position
             $('.taskbar-item').css('position', 'absolute');
+            $('.taskbar').css('display', 'block');
             // set left position for each taskbar item
             let left = 0;
             for (let index = 0; index < taskbar_items.length; index++) {
