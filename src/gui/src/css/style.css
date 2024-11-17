@@ -2412,6 +2412,44 @@ label {
     }
 }
 
+.device-phone .taskbar {
+    justify-content: center;
+    overflow: visible !important;
+    overflow-x: scroll !important;
+}
+
+.device-phone .taskbar .taskbar-item, .device-phone .taskbar .taskbar-item-sortable-placeholder {
+    width: 40px !important;
+    height: 40px !important;
+    margin-right: 5px;
+    overflow: visible !important;
+    padding: 5px 5px 10px 5px;
+    position: absolute;
+}
+
+.device-phone .taskbar-icon {
+    height: 40px;
+    width: 40px;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.device-phone .taskbar ::-webkit-scrollbar {
+    width: 0 !important;
+    display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.device-phone .taskbar {
+    -ms-overflow-style: none;
+    /* IE and Edge */
+    scrollbar-width: none;
+    /* Firefox */
+}
+
+/*****************************************************
+ * Tooltip
+ *****************************************************/
+
 .ui-tooltip, .arrow:after {
     background-color: rgba(231, 238, 245, .92);
     box-shadow: none;
