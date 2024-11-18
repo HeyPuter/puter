@@ -369,6 +369,9 @@ $(document).on('click', '.remove-permission-link', async function(){
     let recipient_username = $(this).attr('data-recipient-username');
     let permission = $(this).attr('data-permission');
 
+    // remove from list. do this first so the user doesn't have to wait for the server
+    $('.item-perm-recipient-card[data-recipient-username="'+recipient_username+'"][data-permission="'+permission+'"]').remove();
+
     fetch(puter.APIOrigin + "/auth/revoke-user-user", {
         "headers": {
             "Content-Type": "application/json",
@@ -380,7 +383,6 @@ $(document).on('click', '.remove-permission-link', async function(){
         }),
         "method": "POST"
     }).then((response) => {
-        $('.item-perm-recipient-card[data-permission="'+permission+'"]').remove();
     }).catch((err) => {
         console.error(err);
     })
