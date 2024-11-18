@@ -96,7 +96,7 @@ async function UIWindowShare(items, recipient){
             // Already Shared With
             // ------------------------------------------------
             h += `<p style="font-size: 14px; margin-bottom: 0px; color: #303d49; text-shadow: 1px 1px white;">People with access</p>`;
-            h += `<div class="share-recipients">`;
+            h += `<div class="share-recipients hide-scrollbar">`;
             h += `</div>`;
         h += `</div>`;
 

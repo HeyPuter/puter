@@ -2174,6 +2174,7 @@ label {
 .share-recipients {
     max-height: 200px;
     overflow: hidden;
+    overflow-y: scroll;
 }
 
 .ui-menu {
