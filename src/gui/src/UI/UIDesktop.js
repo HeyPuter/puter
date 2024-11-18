@@ -123,12 +123,23 @@ async function UIDesktop(options){
             $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.item-container').empty();
     })
     
-    window.socket.on('notif.message', ({ uid, notification }) => {
-        const icon = window.icons[notification.icon];
+    window.socket.on('notif.message', async ({ uid, notification }) => {
+        let icon = window.icons[notification.icon];
+        let round_icon = false;
+        
+        if(notification.template === "file-shared-with-you" && notification.fields?.username){
+            let profile_pic = await get_profile_picture(notification.fields.username);
+            if(profile_pic){
+                icon = profile_pic;
+                round_icon = true;
+            }
+        }
+        
         UINotification({
             title: notification.title,
             text: notification.text,
             icon: icon,
+            round_icon: round_icon,
             value: notification,
             uid,
             close: async () => {
@@ -1756,5 +1767,5 @@ window.reset_window_size_and_position = (el_window)=>{
         left: 'calc(50% - 340px)',
     });
 }
-
+  
 export default UIDesktop;

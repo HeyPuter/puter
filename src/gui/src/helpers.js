@@ -2652,3 +2652,32 @@ window.update_profile = function(username, key_vals){
         console.log(e);
     });
 }
+
+window.blob2str = (blob) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsText(blob);
+    });
+}
+
+window.get_profile_picture = async function(username){
+    let icon;
+    // try getting profile pic
+    try{
+        let stat = await puter.fs.stat('/' + username + '/Public/.profile');
+        if(stat.size > 0 && stat.is_dir === false && stat.size < 1000000){
+            let profile_json = await puter.fs.read('/' + username + '/Public/.profile');
+            profile_json = await blob2str(profile_json);
+            const profile = JSON.parse(profile_json);
+
+            if(profile.picture && profile.picture.startsWith('data:image')){
+                icon = profile.picture;
+            }
+        }
+    }catch(e){
+    }
+
+    return icon;
+}
