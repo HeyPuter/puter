@@ -21,15 +21,21 @@ const { generate_random_code } = require('../util/identifier');
 const { Context } = require('../util/context');
 const { get_user } = require('../helpers');
 const { DB_WRITE } = require('./database/consts');
+const BaseService = require('./BaseService');
 
-class ReferralCodeService {
-    constructor ({ services }) {
-        this.log = services.get('log-service').create('referral-service');
-        this.errors = services.get('error-service').create(this.log);
-
+class ReferralCodeService extends BaseService {
+    _construct () {
         this.REFERRAL_INCREASE_LEFT = 1 * 1024 * 1024 * 1024; // 1 GB
         this.REFERRAL_INCREASE_RIGHT = 1 * 1024 * 1024 * 1024; // 1 GB
         this.STORAGE_INCREASE_STRING = '1 GB';
+    }
+
+    async _init () {
+        const svc_event = this.services.get('event');
+        svc_event.on('user.email-confirmed', async (_, { user_uid }) => {
+            const user = await get_user({ uuid: user_uid });
+            await this.on_verified(user);
+        });
     }
 
     async gen_referral_code (user) {
