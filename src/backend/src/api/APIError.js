@@ -596,7 +596,6 @@ module.exports = class APIError {
         });
     }
     serialize () {
-        console.log('MESSAGE FROM ERROR: ' + `|${this.message}|`);
         return {
             ...this.fields,
             $: 'heyputer:api/APIError',

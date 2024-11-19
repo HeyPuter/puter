@@ -65,7 +65,6 @@ module.exports = eggspress('/open_item', {
 
     const signature = await sign_file(subject.entry, action);
     const suggested_apps = await suggest_app_for_fsentry(subject.entry);
-    console.log('suggested apps?', suggested_apps);
     const apps_only_one = suggested_apps.slice(0,1);
     const _app = apps_only_one[0];
     if ( ! _app ) {

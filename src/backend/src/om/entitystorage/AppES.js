@@ -205,7 +205,6 @@ class AppES extends BaseES {
             })();
 
             if ( ! is_owner ) {
-                for  ( let i=0;i<20;i++ ) console.log('TYHIS IS HAPPEN');
                 entity.del('approved_for_listing');
                 entity.del('approved_for_opening_items');
                 entity.del('approved_for_incentive_program');

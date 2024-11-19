@@ -172,7 +172,6 @@ class FileCacheService extends AdvancedBase {
             }
 
             await this._precache_make_room(size);
-            console.log(`precache input key: ${key}`);
             this.precache.set(key, data);
             tracker.phase = FileTracker.PHASE_PRECACHE;
         })()

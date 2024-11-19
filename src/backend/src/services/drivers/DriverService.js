@@ -105,7 +105,7 @@ class DriverService extends BaseService {
         try {
             return await this._call(o);
         } catch ( e ) {
-            console.error(e);
+            this.log.error('Driver error response: ' + e.toString());
             return this._driver_response_from_error(e);
         }
     }
@@ -194,7 +194,6 @@ class DriverService extends BaseService {
             }
             return { success: true, ...meta, result };
         } catch ( e ) {
-            console.error(e);
             let for_user = (e instanceof APIError) || (e instanceof DriverError);
             if ( ! for_user ) this.errors.report(`driver:${iface}:${method}`, {
                 source: e,
@@ -205,6 +204,7 @@ class DriverService extends BaseService {
                     args,
                 }
             });
+            this.log.error('Driver error response: ' + e.toString());
             return this._driver_response_from_error(e, meta);
         }
     }
@@ -294,8 +294,12 @@ class DriverService extends BaseService {
         
         effective_policy = effective_policy.policy;
         
-        console.log('EFFECTIVE',
-            JSON.stringify(effective_policy, undefined, '  '));
+        this.log.info('Invoking Driver Call', {
+            service_name,
+            iface,
+            method,
+            policy: effective_policy
+        });
             
         const method_key = `V1:${service_name}:${iface}:${method}`;
             
@@ -400,12 +404,6 @@ class DriverService extends BaseService {
     
     async _driver_response_from_error (e, meta) {
         let serializable = (e instanceof APIError) || (e instanceof DriverError);
-        if ( serializable ) {
-            console.log('Serialized error test', JSON.stringify(
-                e.serialize(), null, 2
-            ))
-            console.log('Serialized error message: ', e.serialize().message)
-        }
         return {
             success: false,
             ...meta,

@@ -31,7 +31,6 @@ class DBKVStore extends Driver {
     }
     static METHODS = {
         get: async function ({ app_uid, key }) {
-            console.log('THIS WAS CALLED', { key });
             const actor = this.context.get('actor');
 
             // If the actor is an app then it gets its own KV store.
@@ -67,7 +66,6 @@ class DBKVStore extends Driver {
             return kv[0]?.value ?? null;
         },
         set: async function ({ app_uid, key, value }) {
-            console.log('THIS WAS CALLED (SET)', { key, value })
             const actor = this.context.get('actor');
 
             // Validate the key

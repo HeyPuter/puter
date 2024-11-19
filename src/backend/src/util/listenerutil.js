@@ -67,7 +67,6 @@ class RemoveFromArrayDetachable extends AlsoDetachable {
     }
     
     detach_ () {
-        for ( let i=0; i < 10; i++ ) console.log('THIS DOES GET CALLED');
         const index = this.array.indexOf(this.element);
         if ( index !== -1 ) {
             this.array.splice(index, 1);

@@ -1121,7 +1121,9 @@ async function jwt_auth(req){
             token: token,
         };
     }catch(e){
-        console.log('ERROR', e);
+        if ( ! (e instanceof APIError) ) {
+            console.log('ERROR', e);
+        }
         throw(e.message);
     }
 }

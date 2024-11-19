@@ -126,12 +126,10 @@ const PERMISSION_SCANNERS = [
             const svc_group = await a.iget('services').get('group');
             const groups = await svc_group.list_groups_with_member(
                 { user_id: actor.type.user.id });
-            console.log('uh, groups?', actor.type.user.id, groups);
             const group_uids = {};
             for ( const group of groups ) {
                 group_uids[group.values.uid] = group;
             }
-            console.log('group uids', group_uids);
             
             for ( const issuer_username in hardcoded_user_group_permissions ) {
                 const issuer_actor = new Actor({
@@ -141,12 +139,10 @@ const PERMISSION_SCANNERS = [
                 });
                 const issuer_groups =
                     hardcoded_user_group_permissions[issuer_username];
-                console.log('issuer groups', issuer_groups);
                 for ( const group_uid in issuer_groups ) {
                     if ( ! group_uids[group_uid] ) continue;
                     const issuer_group = issuer_groups[group_uid];
                     for ( const permission of permission_options ) {
-                        console.log('permission?', permission);
                         if ( ! issuer_group.hasOwnProperty(permission) ) continue;
                         const issuer_reading =
                             await a.icall('scan', issuer_actor, permission)

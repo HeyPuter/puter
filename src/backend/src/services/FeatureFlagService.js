@@ -17,7 +17,6 @@ class FeatureFlagService extends BaseService {
     async _init () {
         const svc_detailProvider = this.services.get('whoami');
         svc_detailProvider.register_provider(async (context, out) => {
-            console.log(`\x1B[36;1mCALLED\x1B[0m`);
             if ( ! context.actor ) return;
             out.feature_flags = await this.get_summary(context.actor);
         });
