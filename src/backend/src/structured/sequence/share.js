@@ -591,6 +591,7 @@ module.exports = new Sequence([
             
             await svc_email.send_email({ email }, 'share_by_email', {
                 link: email_link,
+                sender_name: actor.type.user.username,
             });
         }
     },

@@ -143,7 +143,13 @@ If this was not you, please contact support@puter.com immediately.
     },
     'share_by_email': {
         subject: 'share by email',
-        html: `testing: {{link}}`
+        html: `
+        <p>Hi there,</p>
+        <p>You've received a share from {{sender_name}} on Puter:</p>
+        <p>{{link}}</p>
+        <p>Sincerely,</p>
+        <p>Puter</p>
+        `
     },
 }
 
