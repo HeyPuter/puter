@@ -29,6 +29,10 @@ const UsernameNotifSelector = username => async (self) => {
     return [user.id];
 };
 
+const UserIDNotifSelector = user_id => async (self) => {
+    return [user_id];
+};
+
 class NotificationService extends BaseService {
     static MODULES = {
         uuidv4: require('uuid').v4,
@@ -214,4 +218,5 @@ class NotificationService extends BaseService {
 module.exports = {
     NotificationService,
     UsernameNotifSelector,
+    UserIDNotifSelector,
 };

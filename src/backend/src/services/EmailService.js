@@ -132,21 +132,22 @@ If this was not you, please contact support@puter.com immediately.
         `
     },
     // TODO: revise email contents
-    'share_existing_user': {
+    'share_by_username': {
         subject: 'Puter share from {{susername}}',
-        html: `
+        html: /*html*/`
         <p>Hi there {{rusername}},</p>
-        <p>{{link}}</p>
+        <p>You've received a share from {{susername}} on Puter.</p>
+        <p>Go to puter.com to check it out.</p>
         <p>Sincerely,</p>
         <p>Puter</p>
         `
     },
     'share_by_email': {
         subject: 'share by email',
-        html: `
+        html: /*html*/`
         <p>Hi there,</p>
         <p>You've received a share from {{sender_name}} on Puter:</p>
-        <p>{{link}}</p>
+        <p><a href="{{link}}">{{link}}</a></p>
         <p>Sincerely,</p>
         <p>Puter</p>
         `

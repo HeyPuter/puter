@@ -22,6 +22,7 @@ const { Context } = require('../util/context');
 const { get_user } = require('../helpers');
 const { DB_WRITE } = require('./database/consts');
 const BaseService = require('./BaseService');
+const { UsernameNotifSelector, UserIDNotifSelector } = require('./NotificationService');
 
 class ReferralCodeService extends BaseService {
     _construct () {
@@ -117,7 +118,20 @@ class ReferralCodeService extends BaseService {
         const svc_email = Context.get('services').get('email');
         await svc_email.send_email (referred_by, 'new-referral', {
             storage_increase: this.STORAGE_INCREASE_STRING
-        })
+        });
+
+        const svc_notification = Context.get('services').get('notification');
+        svc_notification.notify(UserIDNotifSelector(referred_by.id), {
+            source: 'referral',
+            icon: 'c-check.svg',
+            text: `You have referred user ${user.username} and ` +
+                `have received ${this.STORAGE_INCREASE_STRING} of storage.`,
+            template: 'referral',
+            fields: {
+                storage_increase: this.STORAGE_INCREASE_STRING,
+                referred_username: user.username
+            }
+        });
     }
 }
 

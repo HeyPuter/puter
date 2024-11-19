@@ -485,6 +485,7 @@ module.exports = new Sequence([
         
         const svc_permission = a.iget('services').get('permission');
         const svc_notification = a.iget('services').get('notification');
+        const svc_email = a.iget('services').get('email');
         
         const actor = a.get('actor');
 
@@ -540,6 +541,18 @@ module.exports = new Sequence([
                     `${files.length} ` +
                     (files.length === 1 ? 'file' : 'files') + ' ' +
                     'with you.',
+            });
+
+
+            // Working on notifications
+            // Email should have a link to a shared file, right?
+            //   .. how do I make those URLs? (gui feature)
+            await svc_email.send_email({
+                email: recipient_item.user.email,
+            }, 'share_by_username', {
+                // link: // TODO: create a link to the shared file
+                susername: actor.type.user.username,
+                rusername: username,
             });
             
             result.recipients[recipient_item.i] =
