@@ -347,6 +347,9 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { CommentService } = require('./services/CommentService');
     services.registerService('comment', CommentService);
+
+    const { ReferralCodeService } = require('./services/ReferralCodeService');
+    services.registerService('referral-code', ReferralCodeService);
 }
 
 const install_legacy = async ({ services }) => {
@@ -355,7 +358,6 @@ const install_legacy = async ({ services }) => {
     const PerformanceMonitor = require('./monitor/PerformanceMonitor');
     const { OperationTraceService } = require('./services/OperationTraceService');
     const { WSPushService } = require('./services/WSPushService');
-    const { ReferralCodeService } = require('./services/ReferralCodeService');
     const { ClientOperationService } = require('./services/ClientOperationService');
     const { EngPortalService } = require('./services/EngPortalService');
     const { AppInformationService } = require('./services/AppInformationService');
@@ -366,7 +368,6 @@ const install_legacy = async ({ services }) => {
     // services.registerService('filesystem', FilesystemService);
     services.registerService('operationTrace', OperationTraceService);
     services.registerService('__event-push-ws', WSPushService);
-    services.registerService('referral-code', ReferralCodeService);
     services.registerService('file-cache', FileCacheService);
     services.registerService('client-operation', ClientOperationService);
     services.registerService('app-information', AppInformationService);
