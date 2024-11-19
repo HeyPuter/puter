@@ -321,7 +321,7 @@ class DriverService extends BaseService {
                     name: 'enforce monthly usage limit',
                     on_call: async args => {
                         // Typo-Tolerance
-                        if ( effective_policy['monthy-limit'] ) {
+                        if ( effective_policy?.['monthy-limit'] ) {
                             effective_policy['monthly-limit'] = effective_policy['monthy-limit'];
                         }
 
