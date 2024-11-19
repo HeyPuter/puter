@@ -63,7 +63,8 @@ class MonthlyUsageService extends BaseService {
 
     }
 
-    async check_2 (actor, key) {
+    async check_2 (actor, key, ver) {
+        // TODO: get 'ver' working here for future updates
         key = `${actor.uid}:${key}`;
         if ( actor.type instanceof UserActorType ) {
             return await this._user_check_2(actor, key);

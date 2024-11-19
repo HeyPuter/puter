@@ -320,10 +320,15 @@ class DriverService extends BaseService {
                 {
                     name: 'enforce monthly usage limit',
                     on_call: async args => {
+                        // Typo-Tolerance
+                        if ( effective_policy['monthy-limit'] ) {
+                            effective_policy['monthly-limit'] = effective_policy['monthy-limit'];
+                        }
+
                         if ( ! effective_policy?.['monthly-limit'] ) return args;
                         const svc_monthlyUsage = services.get('monthly-usage');
                         const count = await svc_monthlyUsage.check_2(
-                            actor, method_key
+                            actor, method_key, 0
                         );
                         if ( count >= effective_policy['monthly-limit'] ) {
                             throw APIError.create('monthly_limit_exceeded', null, {
