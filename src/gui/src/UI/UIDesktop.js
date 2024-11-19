@@ -51,8 +51,48 @@ async function UIDesktop(options){
     channel.onmessage = function(e){
     }
 
-    // channel.postMessage({'hello': 'world'});
 
+    // Give Camera and Recorder write permissions to Desktop
+    puter.kv.get('has_set_default_app_user_permissions').then(async (user_permissions) => {
+        if(!user_permissions){
+            // Camera
+            try{
+                await fetch( window.api_origin + "/auth/grant-user-app", {
+                    "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer " + window.auth_token,
+                    },
+                    "body": JSON.stringify({
+                        app_uid: 'app-5584fbf7-ed69-41fc-99cd-85da21b1ef51',
+                        permission: `fs:${html_encode(window.desktop_path)}:write`
+                    }),
+                    "method": "POST",
+                });
+            }catch(err){
+                console.error(err);
+            }
+
+            // Recorder
+            try{
+                await fetch( window.api_origin + "/auth/grant-user-app", {
+                    "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer " + window.auth_token,
+                    },
+                    "body": JSON.stringify({
+                        app_uid: 'app-7bdca1a4-6373-4c98-ad97-03ff2d608ca1',
+                        permission: `fs:${html_encode(window.desktop_path)}:write`
+                    }),
+                    "method": "POST",
+                });
+            }catch(err){
+                console.error(err);
+            }
+
+            // Set flag to true
+            puter.kv.set('has_set_default_app_user_permissions', true);
+        }
+    })
     // connect socket.
     window.socket = io(window.gui_origin + '/', {
         auth: {
