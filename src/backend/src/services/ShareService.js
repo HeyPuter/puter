@@ -51,6 +51,50 @@ class ShareService extends BaseService {
                 return !! user.email_confirmed;
             }
         });
+
+        const svc_event = this.services.get('event');
+        svc_event.on('user.email-confirmed', async (_, { user_uid, email }) => {
+            const user = await get_user({ uuid: user_uid });
+            const relevant_shares = await this.db.read(
+                'SELECT * FROM share WHERE recipient_email = ?',
+                [email],
+            );
+
+            for ( const share of relevant_shares ) {
+                share.data = this.db.case({
+                    mysql: () => share.data,
+                    otherwise: () =>
+                        JSON.parse(share.data ?? '{}'),
+                })();
+
+                const issuer_user = await get_user({
+                    id: share.issuer_user_id,
+                });
+
+                if ( ! issuer_user ) {
+                    continue;
+                }
+
+                const issuer_actor = await Actor.create(UserActorType, {
+                    user: issuer_user,
+                });
+
+                const svc_permission = this.services.get('permission');
+
+                for ( const permission of share.data.permissions ) {
+                    await svc_permission.grant_user_user_permission(
+                        issuer_actor,
+                        user.username,
+                        permission,
+                    );
+                }
+
+                await this.db.write(
+                    'DELETE FROM share WHERE uid = ?',
+                    [share.uid],
+                );
+            }
+        });
     }
     
     ['__on_install.routes'] (_, { app }) {
@@ -170,6 +214,11 @@ class ShareService extends BaseService {
                         permission,
                     );
                 }
+
+                await this.db.write(
+                    'DELETE FROM share WHERE uid = ?',
+                    [share.uid],
+                );
                 
                 res.json({
                     $: 'api:status-report',

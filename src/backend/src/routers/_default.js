@@ -272,6 +272,12 @@ router.all('*', async function(req, res, next) {
 
                         const svc_referralCode = Context.get('services').get('referral-code');
                         svc_referralCode.on_verified(user);
+
+                        const svc_event = req.services.get('event');
+                        svc_event.emit('user.email-confirmed', {
+                            user_uid: user.uuid,
+                            email: user.email,
+                        });
                     })();
                 }
             }

@@ -72,6 +72,12 @@ router.post('/confirm-email', auth, express.json(), async (req, res, next)=>{
         );
         const svc_getUser = req.services.get('get-user');
         await svc_getUser.get_user({ id: req.user.id, force: true });
+
+        const svc_event = req.services.get('event');
+        svc_event.emit('user.email-confirmed', {
+            user_uid: req.user.uuid,
+            email: req.user.email,
+        });
     }
 
     // Build response object
