@@ -96,7 +96,7 @@ const bn = {
     delete_account: "অ্যাকাউন্ট মুছে ফেলুন",
     delete_permanently: "চিরকালের জন্য মুছুন",
     deleting_file: "ফাইল মুছে ফেলা হচ্ছে %%",
-    deploy_as_app: "অ্যাপ্লিকেশন হিসেবে ডিপ্লয়",
+    deploy_as_app: "অ্যাপ্লিকেশন হিসেবে ডিপ্লয় করা হয়েছে",
     descending: "অবতলভাবে",
     desktop: "ডেস্কটপ",
     desktop_background_fit: "ফিট",
