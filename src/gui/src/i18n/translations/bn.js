@@ -153,7 +153,7 @@ const bn = {
     keep_in_taskbar: "টাস্কবারে রাখুন",
     language: "ভাষা",
     license: "লাইসেন্স",
-    lightness: "হালকালোত্ব",
+    lightness: "হালকার মতো",
     link_copied: "লিংক কপি করা হয়েছে",
     loading: "লোড হচ্ছে",
     log_in: "লগ ইন করুন",
