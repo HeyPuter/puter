@@ -102,6 +102,83 @@ class ACLService extends BaseService {
         }).attach(r_acl);
     }
 
+    async set_user_user (issuer, holder, resource, mode, options = {}) {
+        const svc_perm = this.services.get('permission');
+        const svc_fs = this.services.get('filesystem');
+
+        if ( typeof holder === 'string' ) {
+            const holder_user = await get_user({ username: holder });
+            if ( ! holder_user ) {
+                throw APIError.create('user_does_not_exist', null, { username: holder });
+            }
+
+            holder = new Actor({
+                type: new UserActorType({ user: holder_user }),
+            });
+        }
+
+        let uid, _;
+
+        if ( typeof resource === 'string' && mode === undefined ) {
+            const perm_parts = PermissionUtil.split(resource);
+            ([_, uid, mode] = perm_parts);
+            resource = await svc_fs.node(new NodePathSelector(uid));
+            if ( ! resource ) {
+                throw APIError.create('subject_does_not_exist');
+            }
+        }
+
+        if ( ! (issuer.type instanceof UserActorType) ) {
+            throw new Error('issuer must be a UserActorType');
+        }
+        if ( ! (holder.type instanceof UserActorType) ) {
+            throw new Error('holder must be a UserActorType');
+        }
+
+        const stat = await this.stat_user_user(issuer, holder, resource);
+
+        // this.log.info('stat object', {
+        //     stat,
+        //     path: await resource.get('path')
+        // });
+
+        const perms_on_this = stat[await resource.get('path')] ?? [];
+
+        const mode_parts = perms_on_this.map(perm => PermissionUtil.split(perm)[2]);
+
+        // If mode already present, do nothing
+        if ( mode_parts.includes(mode) ) {
+            return false;
+        }
+
+        // If higher mode already present, do nothing
+        if ( options.only_if_higher ) {
+            const higher_modes = this._higher_modes(mode);
+            if ( mode_parts.some(m => higher_modes.includes(m)) ) {
+                return false;
+            }
+        }
+
+        uid = uid ?? await resource.get('uid');
+
+        // If mode not present, add it
+        await svc_perm.grant_user_user_permission(
+            issuer, holder.type.user.username,
+            PermissionUtil.join('fs', uid, mode),
+        );
+
+        // Remove other modes
+        for ( const perm of perms_on_this ) {
+            const perm_parts = PermissionUtil.split(perm);
+            if ( perm_parts[2] === mode ) continue;
+
+            await svc_perm.revoke_user_user_permission(
+                issuer, holder.type.user.username,
+                perm,
+            );
+        }
+    }
+
     async stat_user_user (issuer, holder, resource) {
         const svc_perm = this.services.get('permission');
 
