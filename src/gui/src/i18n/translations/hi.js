@@ -20,7 +20,7 @@
 
 const hi = {
     name: "हिंदी",
-    english_name: "hindi",
+    english_name: "Hindi",
     code: "hi",
     dictionary: {
         about: "के बारे में",

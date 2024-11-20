@@ -364,7 +364,6 @@ const ig = {
         "Owner": undefined, // In English: "Owner"
         "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
         "This user already has access to this item": undefined, // In English: "This user already has access to this item"
-
     }
 };
 
