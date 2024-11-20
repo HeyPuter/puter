@@ -302,7 +302,7 @@ const bn = {
     ui_colors: "ইউআই রঙ",
     ui_manage_sessions: "সেশন ম্যানেজার",
     ui_revoke: "প্রত্যাহার করুন",
-    undo: "আনডো",
+    undo: "আনডু করুন",
     unlimited: "অসীম",
     unzip: "আনজিপ",
     upload: "আপলোড",
