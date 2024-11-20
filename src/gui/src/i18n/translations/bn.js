@@ -54,7 +54,7 @@ const bn = {
     confirm_2fa_recovery: "২ ফ্যাক্টর অথেনটিকেশন এর রিকোভারি কী গুলো নিশ্চিত করুন",
     confirm_account_for_free_referral_storage_c2a: "একটি অ্যাকাউন্ট তৈরি করুন এবং আপনার ইমেল ঠিকানা নিশ্চিত করুন যাতে ফ্রি ১ জিবি স্টোরেজ পান। আপনার বন্ধুও ১ জিবি ফ্রি স্টোরেজ পাবেন।",
     confirm_code_generic_incorrect: "ভুল কোড।",
-    confirm_code_generic_too_many_requests: "অনেক অনুরোধ। দয়া করে কয়েক মিনিট অপেক্ষা করুন।",
+    confirm_code_generic_too_many_requests: "কোড জেনারেশনের রিকোয়েস্ট অনেকবার এসেছে। দয়া করে কয়েক মিনিট অপেক্ষা করুন।",
     confirm_code_generic_submit: "কোড জমা দিন",
     confirm_code_generic_try_again: "আবার চেষ্টা করুন",
     confirm_code_generic_title: "অনুমোদন কোড প্রবেশ করুন",
