@@ -358,7 +358,7 @@ const bn = {
     "password_recovery_unknown_error": "একটি অজানা ত্রুটি ঘটেছে. অনুগ্রহ করে পরবর্তীতে আবার চেষ্টা করুন।", // In English: "An unknown error occurred. Please try again later."
     "password_required": "পাসওয়ার্ড প্রযোজ্য।", // In English: "Password is required."
     "password_strength_error": "পাসওয়ার্ড অন্ততপক্ষে 8 অক্ষরবিশিষ্ট দীর্ঘ হতে হবে এবং কমপক্ষে একটি বড় হাতের অক্ষর, একটি ছোট হাতের অক্ষর, একটি সংখ্যা এবং একটি বিশেষ অক্ষর থাকতে হবে৷", // In English: "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character."
-    "reading": undefined, // In English: "Reading %strong%"
+    "reading": "%strong% পড়ছে", // In English: "Reading %strong%"
     "writing": undefined, // In English: "Writing %strong%"
     "unzipping": undefined, // In English: "Unzipping %strong%"
     "sequencing": undefined, // In English: "Sequencing %strong%"
