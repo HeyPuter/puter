@@ -206,7 +206,7 @@ const bn = {
     paste: "পেস্ট",
     paste_into_folder: "ফোল্ডারে পেস্ট করুন",
     path: "পথ",
-    personalization: "ব্যক্তিগতীকরণ",
+    personalization: "ব্যক্তিগতকরণ",
     pick_name_for_website: "আপনার ওয়েবসাইটের জন্য নাম নির্বাচন করুন:",
     picture: "ছবি",
     pictures: "চিত্র",
