@@ -41,7 +41,7 @@ const bn = {
     change_email: "ইমেইল পরিবর্তন করুন",
     change_language: "ভাষা পরিবর্তন করুন",
     change_password: "পাসওয়ার্ড পরিবর্তন করুন",
-    change_ui_colors: "ইউআই রঙ পরিবর্তন করুন",
+    change_ui_colors: "ইউআই এর রঙ পরিবর্তন করুন",
     change_username: "ইউজারনেম পরিবর্তন করুন",
     close: "বন্ধ করুন",
     close_all_windows: "সমস্ত উইন্ডো বন্ধ করুন",
