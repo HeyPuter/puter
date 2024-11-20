@@ -140,7 +140,7 @@ const bn = {
     general: "সাধারণ",
     get_a_copy_of_on_puter: `পিউটার ডটকমে '%%' এর একটি অনুলিপি পান!`,
     get_copy_link: "কপি লিংক নিন",
-    hide_all_windows: "সমস্ত উইন্ডো লুকান",
+    hide_all_windows: "সমস্ত উইন্ডো ঢেকে ফেলুন",
     home: "হোম",
     html_document: "এইচটিএমএল ডকুমেন্ট",
     hue: "হিউ",
