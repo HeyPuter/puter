@@ -90,7 +90,7 @@ const bn = {
     clock_visible_auto: "অটো - ডিফল্ট, অটো মোডে শুধুমাত্র দৃশ্যমান।",
     close_all: "সবকিছু বন্ধ করুন",
     created: "তৈরি করা হয়েছে",
-    date_modified: "তারিখ পরিবর্তন",
+    date_modified: "তারিখ পরিবর্তন করা হয়েছে",
     default: "ডিফল্ট",
     delete: "মুছে ফেলুন",
     delete_account: "অ্যাকাউন্ট মুছে ফেলুন",
