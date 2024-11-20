@@ -638,6 +638,34 @@ class PermissionService extends BaseService {
         
         return retval;
     }
+
+    /**
+     * List the permissions that the specified actor (the "issuer")
+     * has granted to the specified user (the "holder") which have
+     * some specified prefix in the permission key (ex: "fs:FILE-UUID")
+     * 
+     * Note that if the prefix contains a literal '%' character
+     * the behavior may not be as expected.
+     * 
+     * This is a "flat" (non-cascading) view.
+     *
+     * @param {*} issuer 
+     * @param {*} holder 
+     * @param {*} prefix 
+     * @returns 
+     */
+    async query_issuer_holder_permissions_by_prefix (issuer, holder, prefix) {
+        const user_perms = await this.db.read(
+            'SELECT permission ' +
+            'FROM `user_to_user_permissions` ' +
+            'WHERE issuer_user_id = ? ' +
+            'AND holder_user_id = ? ' +
+            'AND permission LIKE ?',
+            [issuer.type.user.id, holder.type.user.id, prefix + '%'],
+        );
+        
+        return user_perms.map(row => row.permission);
+    }
     
     async get_higher_permissions (permission) {
         const higher_perms = new Set()
