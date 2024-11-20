@@ -188,7 +188,7 @@ const bn = {
     open: "খোলা",
     open_in_new_tab: "নতুন ট্যাবে খুলুন",
     open_in_new_window: "নতুন উইন্ডোতে খুলুন",
-    open_with: "দিয়ে খোলুন",
+    open_with: "দিয়ে খুলুন",
     original_name: "মৌলিক নাম",
     original_path: "মূল পথ",
     oss_code_and_content: "ওপেন সোর্স সফটওয়্যার এবং কন্টেন্ট",
