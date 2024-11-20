@@ -104,7 +104,7 @@ const bn = {
     dir_published_as_website: `%strong% প্রকাশিত হয়েছে:`,
     disable_2fa: "2FA বন্ধ করুন",
     disable_2fa_confirm: "আপনি কি নিশ্চিত যে আপনি 2FA বন্ধ করতে চান?",
-    disable_2fa_instructions: "2FA অক্ষম করতে আপনার পাসওয়ার্ড লিখুন।",
+    disable_2fa_instructions: "2FA বন্ধ করতে আপনার পাসওয়ার্ড লিখুন।",
     disassociate_dir: "ডিরেক্টরি আনসোসিএট করুন",
     documents: "ডকুমেন্টস",
     dont_allow: "অনুমতি দিন না",
