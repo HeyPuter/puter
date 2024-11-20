@@ -87,7 +87,7 @@ const bn = {
     clock: "ঘড়ি",
     clock_visible_hide: "লুকান - সর্বদা লুকিয়ে রাখা",
     clock_visible_show: "দেখান - সর্বদা দৃশ্যমান",
-    clock_visible_auto: "অটো - ডিফল্ট, মুখ্যম্বর মোডে শুধুমাত্র দৃশ্যমান।",
+    clock_visible_auto: "অটো - ডিফল্ট, অটো মোডে শুধুমাত্র দৃশ্যমান।",
     close_all: "সমস্ত বন্ধ করুন",
     created: "তৈরি করা হয়েছে",
     date_modified: "তারিখ পরিবর্তন",
