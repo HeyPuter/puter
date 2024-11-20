@@ -347,9 +347,6 @@ const br = {
     "login2fa_recovery_back": "Voltar",
     "login2fa_recovery_placeholder": "XXXXXXXX",
 
-    // ***********************************
-    // Missing translations
-    // ***********************************
     "change": "Alterar", // In English: "Change"
     "clock_visibility": "Visibilidade do relógio", // In English: "Clock Visibility"
     "reading": "Lendo %strong%", // In English: "Reading %strong%"
