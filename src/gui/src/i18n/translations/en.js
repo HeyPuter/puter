@@ -352,11 +352,14 @@ const en = {
         login2fa_recovery_back: 'Back',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-        // Subscriptions
-        'offering.free': 'Use Puter',
-        'offering.pay-puter': 'Pay Puter',
-        'offering.pay-puter-more': 'Pay Puter More',
-        'offering.pay-puter-even-more': 'Pay Puter Even More',
+        // Sharing
+        'Editor': 'Editor',
+        'Viewer': 'Viewer',
+        'People with access': 'People with access',
+        'Share With…' : 'Share With…',
+        'Owner': 'Owner',
+        "You can't share with yourself.": `You can't share with yourself.`,
+        'This user already has access to this item': 'This user already has access to this item',
     }
 };
 

@@ -330,6 +330,28 @@ const ua = {
         login2fa_use_recovery_code: 'Використовуйте код відновлення',
         login2fa_recovery_back: 'Назад',
         login2fa_recovery_placeholder: 'XXXXXXXX',
+
+		// ***********************************
+		// Missing translations
+		// ***********************************
+        "change": undefined, // In English: "Change"
+        "clock_visibility": undefined, // In English: "Clock Visibility"
+        "deleting_file": undefined, // In English: "Deleting %%"
+        "print": undefined, // In English: "Print"
+        "reading": undefined, // In English: "Reading %strong%"
+        "writing": undefined, // In English: "Writing %strong%"
+        "share": undefined, // In English: "Share"
+        "something_went_wrong": undefined, // In English: "Something went wrong."
+        "unzipping": undefined, // In English: "Unzipping %strong%"
+        "sequencing": undefined, // In English: "Sequencing %strong%"
+        "zipping": undefined, // In English: "Zipping %strong%"
+        "Editor": undefined, // In English: "Editor"
+        "Viewer": undefined, // In English: "Viewer"
+        "People with access": undefined, // In English: "People with access"
+        "Share With…": undefined, // In English: "Share With…"
+        "Owner": undefined, // In English: "Owner"
+        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
+        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
     }
 }
 

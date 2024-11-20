@@ -55,8 +55,6 @@ import vi from "./vi.js";
 import emoji from './emoji.js';
 import id from './id.js';
 
-
-
 export default {
     ar,
     bn,

@@ -82,8 +82,8 @@ async function UIWindowShare(items, recipient){
                         h += `<input placeholder="username" class="access-recipient" value="${html_encode(recipient ?? '')}" style="margin-bottom: 0; margin-right: 5px;" type="text" autocomplete="recipient_email_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                         // type
                         h += `<select class="access-type" style="width: 170px; margin-bottom: 0; margin-right: 5px;">`;
-                            h += `<option value="Viewer">Viewer</option>`;
-                            h += `<option value="Editor">Editor</option>`;
+                            h += `<option value="Viewer">${i18n('Viewer')}</option>`;
+                            h += `<option value="Editor">${i18n('Editor')}</option>`;
                         h += `</select>`;
 
                         // Share
@@ -95,13 +95,13 @@ async function UIWindowShare(items, recipient){
             // ------------------------------------------------
             // Already Shared With
             // ------------------------------------------------
-            h += `<p style="font-size: 14px; margin-bottom: 0px; color: #303d49; text-shadow: 1px 1px white;">People with access</p>`;
+            h += `<p style="font-size: 14px; margin-bottom: 0px; color: #303d49; text-shadow: 1px 1px white;">${i18n('People with access')}</p>`;
             h += `<div class="share-recipients hide-scrollbar">`;
             h += `</div>`;
         h += `</div>`;
 
         const el_window = await UIWindow({
-            title: 'Share With…',
+            title: i18n('Share With…'),
             icon: null,
             uid: null,
             is_dir: false,
@@ -164,7 +164,7 @@ async function UIWindowShare(items, recipient){
                 //check if this user has been printed here before, important for multiple items
                 if(!printed_users.includes(fsentry.owner.username)){
                     perm_list += `<div class="item-perm-recipient-card item-prop-perm-entry item-permission-owner" style="margin-bottom:5px; margin-top:5px; background-color: #f2f2f2;">`
-                        perm_list += `<div style="float:left;"><span class="permission-owner-badge">owner</span></div>`;
+                        perm_list += `<div style="float:left;"><span class="permission-owner-badge">${i18n('Owner')}</span></div>`;
                         if(fsentry.owner.username === window.user.username)
                             perm_list += `You (${fsentry.owner.email ?? fsentry.owner.username})`;
                         else
@@ -185,9 +185,9 @@ async function UIWindowShare(items, recipient){
                                         // viewer/editor
                                         perm_list += `<div style="float:left;">`;
                                         if(perm.access === 'read')
-                                            perm_list += `<span class="permission-viewer-badge">viewer</span>`;
+                                            perm_list += `<span class="permission-viewer-badge">${i18n('Viewer')}</span>`;
                                         else if(perm.access === 'write')
-                                            perm_list += `<span class="permission-editor-badge">editor</span>`;
+                                            perm_list += `<span class="permission-editor-badge">${i18n('Editor')}</span>`;
                                         perm_list += `</div>`;
                                         // username
                                         perm_list += `${perm.user.email ?? perm.user.username}`;
@@ -237,19 +237,19 @@ async function UIWindowShare(items, recipient){
             })
 
             if(recipient_already_in_list){
-                $(el_window).find('.error').html('This user already has access to this item');
+                $(el_window).find('.error').html(i18n('This user already has access to this item'));
                 $(el_window).find('.error').fadeIn();
                 return;
             }
 
             // can't share with self
             if(recipient_username === window.user.username){
-                $(el_window).find('.error').html('You can\'t share with yourself');
+                $(el_window).find('.error').html(i18n("You can't share with yourself."));
                 $(el_window).find('.error').fadeIn();
                 return;
             }
             else if(recipient_email && recipient_email === window.user.email){
-                $(el_window).find('.error').html('You can\'t share with yourself');
+                $(el_window).find('.error').html(i18n("You can't share with yourself."));
                 $(el_window).find('.error').fadeIn();
                 return;
             }
@@ -303,9 +303,9 @@ async function UIWindowShare(items, recipient){
                             // viewer/editor
                             perm_list += `<div style="float:left;">`;
                             if(access_level === 'read')
-                                perm_list += `<span class="permission-viewer-badge">viewer</span>`;
+                                perm_list += `<span class="permission-viewer-badge">${i18n('Viewer')}</span>`;
                             else if(access_level === 'write')
-                                perm_list += `<span class="permission-editor-badge">editor</span>`;
+                                perm_list += `<span class="permission-editor-badge">i18n('Viewer')</span>`;
                             perm_list += `</div>`;
                             // recipient username
                             perm_list += `${recipient_username}`;

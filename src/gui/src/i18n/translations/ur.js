@@ -358,6 +358,42 @@ const ur = {
     login2fa_use_recovery_code: "ریکوری کوڈ استعمال کریں۔",
     login2fa_recovery_back: "پیچھے",
     login2fa_recovery_placeholder: "XXXXXXXX",
+
+		// ***********************************
+		// Missing translations
+		// ***********************************
+    "allow": undefined, // In English: "Allow"
+    "associated_websites": undefined, // In English: "Associated Websites"
+    "change": undefined, // In English: "Change"
+    "clock_visibility": undefined, // In English: "Clock Visibility"
+    "confirm": undefined, // In English: "Confirm"
+    "confirm_your_email_address": undefined, // In English: "Confirm Your Email Address"
+    "close_all": undefined, // In English: "Close All"
+    "created": undefined, // In English: "Created"
+    "dont_allow": undefined, // In English: "Don't Allow"
+    "error_message_is_missing": undefined, // In English: "Error message is missing."
+    "folder": undefined, // In English: "Folder"
+    "modified": undefined, // In English: "Modified"
+    "original_name": undefined, // In English: "Original Name"
+    "original_path": undefined, // In English: "Original Path"
+    "path": undefined, // In English: "Path"
+    "reading": undefined, // In English: "Reading %strong%"
+    "writing": undefined, // In English: "Writing %strong%"
+    "save": undefined, // In English: "Save"
+    "sessions": undefined, // In English: "Sessions"
+    "share": undefined, // In English: "Share"
+    "share_with": undefined, // In English: "Share with:"
+    "shortcut_to": undefined, // In English: "Shortcut to"
+    "unzipping": undefined, // In English: "Unzipping %strong%"
+    "sequencing": undefined, // In English: "Sequencing %strong%"
+    "zipping": undefined, // In English: "Zipping %strong%"
+    "Editor": undefined, // In English: "Editor"
+    "Viewer": undefined, // In English: "Viewer"
+    "People with access": undefined, // In English: "People with access"
+    "Share With…": undefined, // In English: "Share With…"
+    "Owner": undefined, // In English: "Owner"
+    "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
+    "This user already has access to this item": undefined, // In English: "This user already has access to this item"
   },
 };
 

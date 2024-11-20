@@ -181,6 +181,11 @@ const emoji = {
         yes_release_it: '✅🆓',
         you_have_been_referred_to_puter_by_a_friend: "👤🔁🆓",
         zip: "📂🔒",
+
+		// ***********************************
+		// Missing translations
+		// ***********************************
+
     }
 };
  

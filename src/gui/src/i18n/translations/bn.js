@@ -348,6 +348,29 @@ const bn = {
     login2fa_use_recovery_code: "একটি পুনরুদ্ধার কোড ব্যবহার করুন",
     login2fa_recovery_back: "পিছনে",
     login2fa_recovery_placeholder: "XXXXXXXX",
+
+		// ***********************************
+		// Missing translations
+		// ***********************************
+    "change": undefined, // In English: "Change"
+    "clock_visibility": undefined, // In English: "Clock Visibility"
+    "password_recovery_token_invalid": undefined, // In English: "This password recovery token is no longer valid."
+    "password_recovery_unknown_error": undefined, // In English: "An unknown error occurred. Please try again later."
+    "password_required": undefined, // In English: "Password is required."
+    "password_strength_error": undefined, // In English: "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character."
+    "reading": undefined, // In English: "Reading %strong%"
+    "writing": undefined, // In English: "Writing %strong%"
+    "unzipping": undefined, // In English: "Unzipping %strong%"
+    "sequencing": undefined, // In English: "Sequencing %strong%"
+    "zipping": undefined, // In English: "Zipping %strong%"
+    "Editor": undefined, // In English: "Editor"
+    "Viewer": undefined, // In English: "Viewer"
+    "People with access": undefined, // In English: "People with access"
+    "Share With…": undefined, // In English: "Share With…"
+    "Owner": undefined, // In English: "Owner"
+    "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
+    "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+
   },
 };
 
