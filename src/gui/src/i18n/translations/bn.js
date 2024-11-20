@@ -102,7 +102,7 @@ const bn = {
     desktop_background_fit: "ফিট",
     developers: "ডেভেলপারগণ",
     dir_published_as_website: `%strong% প্রকাশিত হয়েছে:`,
-    disable_2fa: "2FA অক্ষম করুন",
+    disable_2fa: "2FA বন্ধ করুন",
     disable_2fa_confirm: "আপনি কি নিশ্চিত যে আপনি 2FA অক্ষম করতে চান?",
     disable_2fa_instructions: "2FA অক্ষম করতে আপনার পাসওয়ার্ড লিখুন।",
     disassociate_dir: "ডিরেক্টরি আনসোসিএট করুন",
