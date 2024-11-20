@@ -23,7 +23,7 @@ const fr = {
     english_name: "French",
     code: "fr",
     dictionary: {
-        about: "A propos",
+        about: "À propos",
         account: "Compte",
         account_password: "Vérifier le mot de passe du compte",
         access_granted_to: "Accès accordé à",
@@ -42,8 +42,8 @@ const fr = {
         change_email: "Changer l'e-mail",
         change_language: "Changer de langue",
         change_password: "Changer le mot de passe",
-        change_ui_colors: "Changer les couleurs d'interface",
-        change_username: "Change le nom d'utilisateur",
+        change_ui_colors: "Changer les couleurs de l'interface",
+        change_username: "Changer le nom d'utilisateur",
         close: 'Fermer',
         close_all_windows: "Fermer toutes les fenêtres",
         close_all_windows_confirm: "Êtes-vous sûr de vouloir fermer toutes les fenêtres ?",
@@ -349,22 +349,22 @@ const fr = {
 		// ***********************************
 		// Missing translations
 		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "confirm": undefined, // In English: "Confirm"
-        "public": undefined, // In English: "Public"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        "change": 'changer',
+        "clock_visibility": "visibilité de l'horloge",
+        "confirm": 'confirmer',
+        "public": 'public',
+        "reading": 'lecture',
+        "writing": 'écriture',
+        "unzipping": 'décomprésser',
+        "sequencing": 'séquençage',
+        "zipping": 'compresser',
+        "Editor": 'Éditeur',
+        "Viewer": 'Lecteur',
+        "People with access": 'Utilisateurs avec accès',
+        "Share With…": 'Partager avec...',
+        "Owner": 'Propriétaire',
+        "You can't share with yourself.": 'Vous ne pouvez pas partager avec vous-même',
+        "This user already has access to this item": 'Cet utilisateur à déja accès à cet élément',
     }
 };
 
