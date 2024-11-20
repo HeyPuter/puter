@@ -342,7 +342,7 @@ const bn = {
 
     // === 2FA Login ===
     login2fa_otp_title: "2FA কোড লিখুন",
-    login2fa_otp_instructions: "আপনার প্রামাণিকতা অ্যাপ থেকে 6-টি অংকের কোড লিখুন।",
+    login2fa_otp_instructions: "আপনার প্রামাণিকতা অ্যাপ থেকে ৬-টি অংকের কোড লিখুন।",
     login2fa_recovery_title: "একটি পুনরুদ্ধার কোড লিখুন",
     login2fa_recovery_instructions: "আপনার অ্যাকাউন্টে অ্যাক্সেস পাওয়ার জন্য আপনার পুনরুদ্ধার কোডগুলির মধ্য থেকে একটি লিখুন।",
     login2fa_use_recovery_code: "একটি পুনরুদ্ধার কোড ব্যবহার করুন",
