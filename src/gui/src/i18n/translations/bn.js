@@ -349,24 +349,24 @@ const bn = {
     login2fa_recovery_back: "পিছনে",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
-    "change": "পরিবর্তন", // In English: "Change"
-    "clock_visibility": "ঘড়ির দৃশ্যমানতা", // In English: "Clock Visibility"
-    "password_recovery_token_invalid": "এই পাসওয়ার্ড রিকোভারি টোকেনটি আর ব্যবহারযোগ্য নয়।", // In English: "This password recovery token is no longer valid."
-    "password_recovery_unknown_error": "একটি অজানা ত্রুটি ঘটেছে. অনুগ্রহ করে পরবর্তীতে আবার চেষ্টা করুন।", // In English: "An unknown error occurred. Please try again later."
-    "password_required": "পাসওয়ার্ড প্রযোজ্য।", // In English: "Password is required."
-    "password_strength_error": "পাসওয়ার্ড অন্ততপক্ষে 8 অক্ষরবিশিষ্ট দীর্ঘ হতে হবে এবং কমপক্ষে একটি বড় হাতের অক্ষর, একটি ছোট হাতের অক্ষর, একটি সংখ্যা এবং একটি বিশেষ অক্ষর থাকতে হবে৷", // In English: "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character."
-    "reading": "%strong% পড়ছে", // In English: "Reading %strong%"
-    "writing": "%strong% লিখছে", // In English: "Writing %strong%"
-    "unzipping": "%strong% আনজিপিং হচ্ছে", // In English: "Unzipping %strong%"
-    "sequencing": "%strong% ক্রমানুসারে করা হচ্ছে", // In English: "Sequencing %strong%"
-    "zipping": "%strong% জিপ করা হচ্ছে", // In English: "Zipping %strong%"
-    "Editor": "সম্পাদক", // In English: "Editor"
-    "Viewer": "দর্শক", // In English: "Viewer"
-    "People with access": "মানুষ যাদের প্রবেশাধিকার আছে", // In English: "People with access"
-    "Share With…": "শেয়ার করুন...", // In English: "Share With…"
-    "Owner": "মালিক", // In English: "Owner"
-    "You can't share with yourself.": "আপনি নিজের সাথে শেয়ার করতে পারবেন না।", // In English: "You can't share with yourself."
-    "This user already has access to this item": "এই ব্যবহারকারীর ইতিমধ্যেই এই আইটেমে প্রবেশাধিকার আছে।", // In English: "This user already has access to this item"
+    "change": "পরিবর্তন করুন", 
+    "clock_visibility": "ঘড়ির দৃশ্যমানতা", 
+    "password_recovery_token_invalid": "এই পাসওয়ার্ড পুনরুদ্ধার টোকেনটি আর সঠিক নয়।", 
+    "password_recovery_unknown_error": "একটি অজানা ত্রুটি ঘটেছে। অনুগ্রহ করে পরে আবার চেষ্টা করুন।", 
+    "password_required": "পাসওয়ার্ড প্রয়োজন।", 
+    "password_strength_error": "পাসওয়ার্ড কমপক্ষে ৮ সংখার হতে হবে এবং এতে অন্তত একটি বড় হাতের অক্ষর, একটি ছোট হাতের অক্ষর, একটি সংখ্যা, এবং একটি বিশেষ অক্ষর থাকতে হবে।", 
+    "reading": "পড়া হচ্ছে", 
+    "writing": "লেখা হচ্ছে", 
+    "unzipping": "আনজিপ করা হচ্ছে", 
+    "sequencing": "ক্রমানুসারে সাজানো হচ্ছে", 
+    "zipping": "জিপ করা হচ্ছে", 
+    "Editor": "সম্পাদক", 
+    "Viewer": "দর্শক", 
+    "People with access": "যাদের অ্যাক্সেস আছে", 
+    "Share With…": "শেয়ার করুন…", 
+    "Owner": "মালিক", 
+    "You can't share with yourself.": "নিজের সাথে শেয়ার করতে পারবেন না।", 
+    "This user already has access to this item": "এই ব্যবহারকারীর ইতিমধ্যে এটাতে অ্যাক্সেস রয়েছে।" 
   },
 };
 
