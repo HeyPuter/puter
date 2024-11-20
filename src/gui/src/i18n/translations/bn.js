@@ -349,28 +349,31 @@ const bn = {
     login2fa_recovery_back: "পিছনে",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-    "change": undefined, // In English: "Change"
-    "clock_visibility": undefined, // In English: "Clock Visibility"
-    "password_recovery_token_invalid": undefined, // In English: "This password recovery token is no longer valid."
-    "password_recovery_unknown_error": undefined, // In English: "An unknown error occurred. Please try again later."
-    "password_required": undefined, // In English: "Password is required."
-    "password_strength_error": undefined, // In English: "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character."
-    "reading": undefined, // In English: "Reading %strong%"
-    "writing": undefined, // In English: "Writing %strong%"
-    "unzipping": undefined, // In English: "Unzipping %strong%"
-    "sequencing": undefined, // In English: "Sequencing %strong%"
-    "zipping": undefined, // In English: "Zipping %strong%"
-    "Editor": undefined, // In English: "Editor"
-    "Viewer": undefined, // In English: "Viewer"
-    "People with access": undefined, // In English: "People with access"
-    "Share With…": undefined, // In English: "Share With…"
-    "Owner": undefined, // In English: "Owner"
-    "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-    "This user already has access to this item": undefined, // In English: "This user already has access to this item"
 
+
+		// ***********************************
+		// Translations Bangla
+		// ***********************************
+
+    
+    change: "পরিবর্তন",
+    clock_visibility: "ঘড়ির দৃশ্যমানতা",
+    password_recovery_token_invalid: "এই পাসওয়ার্ড পুনরুদ্ধার টোকেন আর বৈধ নয়।",
+    password_recovery_unknown_error: "একটি অজানা ত্রুটি ঘটেছে। দয়া করে পরে আবার চেষ্টা করুন।",
+    password_required: "পাসওয়ার্ড প্রয়োজন।",
+    password_strength_error: "পাসওয়ার্ড কমপক্ষে ৮ অক্ষর দীর্ঘ হতে হবে এবং এতে কমপক্ষে একটি বড় হাতের অক্ষর, একটি ছোট হাতের অক্ষর, একটি সংখ্যা, এবং একটি বিশেষ অক্ষর থাকতে হবে।",
+    reading: "পড়া হচ্ছে",
+    writing: "লেখা হচ্ছে",
+    unzipping: "আনজিপ করা হচ্ছে",
+    sequencing: "অনুক্রম তৈরি করা হচ্ছে", 
+    zipping: "জিপ করা হচ্ছে", 
+    editor: "সম্পাদক",
+    Viewer: "দর্শক",
+    people_with_access: "যাদের অ্যাক্সেস আছে",
+    share_with:"শেয়ার করুন",
+    owner: "মালিক",
+    you_can_not_share_with_yourself: "আপনি নিজের সাথে শেয়ার করতে পারবেন না।",
+    this_user_already_has_access_to_this_item: "এই ব্যবহারকারীর ইতিমধ্যেই এই আইটেমে অ্যাক্সেস রয়েছে।"
   },
 };
 
