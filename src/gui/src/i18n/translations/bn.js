@@ -277,7 +277,7 @@ const bn = {
     sign_up: "নিবন্ধন করুন",
     signing_in: "সাইন ইন হচ্ছে...",
     size: "আকার",
-    skip: "পার যান",
+    skip: "এটি বাদ দিন",
     something_went_wrong: "কিছু সমস্যা হয়েছে।",
     sort_by: "অনুযায়ী সাজান",
     start: "শুরু",
