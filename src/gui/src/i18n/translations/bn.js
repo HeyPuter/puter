@@ -363,7 +363,7 @@ const bn = {
     "unzipping": "%strong% আনজিপিং হচ্ছে", // In English: "Unzipping %strong%"
     "sequencing": "%strong% ক্রমানুসারে করা হচ্ছে", // In English: "Sequencing %strong%"
     "zipping": "%strong% জিপ করা হচ্ছে", // In English: "Zipping %strong%"
-    "Editor": undefined, // In English: "Editor"
+    "Editor": "সম্পাদক", // In English: "Editor"
     "Viewer": undefined, // In English: "Viewer"
     "People with access": undefined, // In English: "People with access"
     "Share With…": undefined, // In English: "Share With…"
