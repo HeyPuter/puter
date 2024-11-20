@@ -28,6 +28,7 @@ const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 const { TYPE_DIRECTORY } = require("../../filesystem/FSNodeContext");
 const { UsernameNotifSelector } = require("../../services/NotificationService");
 const { quot } = require("../../util/strutil");
+const { whatis } = require("../../util/langutil");
 
 /*
     This code is optimized for editors supporting folding.
@@ -43,6 +44,67 @@ const { quot } = require("../../util/strutil");
 
 
 module.exports = new Sequence([
+    function validate_metadata (a) {
+        const req = a.get('req');
+        const metadata = req.body.metadata;
+
+        if ( ! metadata ) return;
+        
+        if ( typeof metadata !== 'object' ) {
+            throw APIError.create('field_invalid', null, {
+                key: 'metadata',
+                expected: 'object',
+                got: whatis(metadata),
+            });
+        }
+
+        const MAX_KEYS = 20;
+        const MAX_STRING = 255;
+        const MAX_MESSAGE_STRING = 10*1024;
+
+        if ( Object.keys(metadata).length > MAX_KEYS ) {
+            throw APIError.create('field_invalid', null, {
+                key: 'metadata',
+                expected: `at most ${MAX_KEYS} keys`,
+                got: `${Object.keys(metadata).length} keys`,
+            });
+        }
+
+        for ( const key in metadata ) {
+            const value = metadata[key];
+            if ( typeof value !== 'string' && typeof value !== 'number' ) {
+                throw APIError.create('field_invalid', null, {
+                    key: `metadata.${key}`,
+                    expected: 'string or number',
+                    got: whatis(value),
+                });
+            }
+            if ( key === 'message' ) {
+                if ( typeof value !== 'string' ) {
+                    throw APIError.create('field_invalid', null, {
+                        key: `metadata.${key}`,
+                        expected: 'string',
+                        got: whatis(value),
+                    });
+                }
+                if ( value.length > MAX_MESSAGE_STRING ) {
+                    throw APIError.create('field_invalid', null, {
+                        key: `metadata.${key}`,
+                        expected: `at most ${MAX_MESSAGE_STRING} characters`,
+                        got: `${value.length} characters`,
+                    });
+                }
+                continue;
+            }
+            if ( typeof value === 'string' && value.length > MAX_STRING ) {
+                throw APIError.create('field_invalid', null, {
+                    key: `metadata.${key}`,
+                    expected: `at most ${MAX_STRING} characters`,
+                    got: `${value.length} characters`,
+                });
+            }
+        }
+    },
     function validate_mode (a) {
         const req = a.get('req');
         const mode = req.body.mode;
