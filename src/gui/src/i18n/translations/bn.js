@@ -107,7 +107,7 @@ const bn = {
     disable_2fa_instructions: "2FA বন্ধ করতে আপনার পাসওয়ার্ড লিখুন।",
     disassociate_dir: "ডিরেক্টরি আনসোসিএট করুন",
     documents: "ডকুমেন্টস",
-    dont_allow: "অনুমতি দিন না",
+    dont_allow: "অনুমতি দিবেন না",
     download: "ডাউনলোড",
     download_file: "ফাইল ডাউনলোড করুন",
     downloading: "ডাউনলোড হচ্ছে",
