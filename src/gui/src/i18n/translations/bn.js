@@ -187,7 +187,7 @@ const bn = {
     ok: "ঠিক আছে",
     open: "খোলা",
     open_in_new_tab: "নতুন ট্যাবে খুলুন",
-    open_in_new_window: "নতুন উইন্ডোয়ে খুলুন",
+    open_in_new_window: "নতুন উইন্ডোতে খুলুন",
     open_with: "দিয়ে খোলুন",
     original_name: "মৌলিক নাম",
     original_path: "মূল পথ",
