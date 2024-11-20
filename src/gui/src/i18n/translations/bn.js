@@ -360,7 +360,7 @@ const bn = {
     "password_strength_error": "পাসওয়ার্ড অন্ততপক্ষে 8 অক্ষরবিশিষ্ট দীর্ঘ হতে হবে এবং কমপক্ষে একটি বড় হাতের অক্ষর, একটি ছোট হাতের অক্ষর, একটি সংখ্যা এবং একটি বিশেষ অক্ষর থাকতে হবে৷", // In English: "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character."
     "reading": "%strong% পড়ছে", // In English: "Reading %strong%"
     "writing": "%strong% লিখছে", // In English: "Writing %strong%"
-    "unzipping": undefined, // In English: "Unzipping %strong%"
+    "unzipping": "%strong% আনজিপিং হচ্ছে", // In English: "Unzipping %strong%"
     "sequencing": undefined, // In English: "Sequencing %strong%"
     "zipping": undefined, // In English: "Zipping %strong%"
     "Editor": undefined, // In English: "Editor"
