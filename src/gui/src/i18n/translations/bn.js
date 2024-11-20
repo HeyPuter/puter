@@ -353,7 +353,7 @@ const bn = {
     // Missing translations
     // ***********************************
     "change": "পরিবর্তন", // In English: "Change"
-    "clock_visibility": "ঘড়ি দেখা", // In English: "Clock Visibility"
+    "clock_visibility": "ঘড়ির দৃশ্যমানতা", // In English: "Clock Visibility"
     "password_recovery_token_invalid": undefined, // In English: "This password recovery token is no longer valid."
     "password_recovery_unknown_error": undefined, // In English: "An unknown error occurred. Please try again later."
     "password_required": undefined, // In English: "Password is required."
