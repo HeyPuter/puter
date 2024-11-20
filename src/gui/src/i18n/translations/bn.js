@@ -364,7 +364,7 @@ const bn = {
     "sequencing": "%strong% ক্রমানুসারে করা হচ্ছে", // In English: "Sequencing %strong%"
     "zipping": "%strong% জিপ করা হচ্ছে", // In English: "Zipping %strong%"
     "Editor": "সম্পাদক", // In English: "Editor"
-    "Viewer": undefined, // In English: "Viewer"
+    "Viewer": "দর্শক", // In English: "Viewer"
     "People with access": undefined, // In English: "People with access"
     "Share With…": undefined, // In English: "Share With…"
     "Owner": undefined, // In English: "Owner"
