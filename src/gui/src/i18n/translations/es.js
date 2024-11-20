@@ -353,24 +353,21 @@ const es = {
         login2fa_recovery_back: 'Atras',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        "change": 'cambiar', // In English: "Change"
-        "clock_visibility": 'visibilidad_reloj', // In English: "Clock Visibility"
-        "reading": 'lectura', // In English: "Reading %strong%"
-        "writing": 'escribiendo', // In English: "Writing %strong%"
-        "unzipping": 'descomprimiendo', // In English: "Unzipping %strong%"
-        "sequencing": 'secuenciación', // In English: "Sequencing %strong%"
-        "zipping": 'comprimir', // In English: "Zipping %strong%"
-        "Editor": 'Editor', // In English: "Editor"
-        "Viewer": 'Espectador', // In English: "Viewer"
-        "People with access": 'personas con acceso', // In English: "People with access"
-        "Share With…": 'Compartir con…', // In English: "Share With…"
-        "Owner": 'Dueño', // In English: "Owner"
-        "You can't share with yourself.": 'No puedes compartir contigo mismo.', // In English: "You can't share with yourself."
-        "This user already has access to this item": 'Este usuario ya tiene acceso a este elemento.', // In English: "This user already has access to this item"
-
+        "change": "cambiar", // In English: "Change"
+        "clock_visibility": "visibilidadReloj", // In English: "Clock Visibility"
+        "reading": "lectura %strong%", // In English: "Reading %strong%"
+        "writing": "escribiendo %strong%", // In English: "Writing %strong%"
+        "unzipping": "descomprimiendo %strong%", // In English: "Unzipping %strong%"
+        "sequencing": "secuenciación %strong%", // In English: "Sequencing %strong%"
+        "zipping": "comprimiendo %strong%", // In English: "Zipping %strong%"
+        "Editor": "Editor", // In English: "Editor"
+        "Viewer": "Espectador", // In English: "Viewer"
+        "People with access": "Personas con acceso", // In English: "People with access"
+        "Share With…": "Compartir con…", // In English: "Share With…"
+        "Owner": "Propietario", // In English: "Owner"
+        "You can't share with yourself.": "No puedes compartir contigo mismo.", // In English: "You can't share with yourself."
+        "This user already has access to this item": "Este usuario ya tiene acceso a este elemento." // In English: "This user already has access to this item"
+    
     }
 };
 
