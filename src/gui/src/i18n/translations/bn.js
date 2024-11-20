@@ -361,7 +361,7 @@ const bn = {
     "reading": "%strong% পড়ছে", // In English: "Reading %strong%"
     "writing": "%strong% লিখছে", // In English: "Writing %strong%"
     "unzipping": "%strong% আনজিপিং হচ্ছে", // In English: "Unzipping %strong%"
-    "sequencing": undefined, // In English: "Sequencing %strong%"
+    "sequencing": "%strong% ক্রমানুসারে করা হচ্ছে", // In English: "Sequencing %strong%"
     "zipping": undefined, // In English: "Zipping %strong%"
     "Editor": undefined, // In English: "Editor"
     "Viewer": undefined, // In English: "Viewer"
