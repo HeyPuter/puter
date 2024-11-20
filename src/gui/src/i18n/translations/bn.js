@@ -349,9 +349,6 @@ const bn = {
     login2fa_recovery_back: "পিছনে",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
-    // ***********************************
-    // Missing translations
-    // ***********************************
     "change": "পরিবর্তন", // In English: "Change"
     "clock_visibility": "ঘড়ির দৃশ্যমানতা", // In English: "Clock Visibility"
     "password_recovery_token_invalid": "এই পাসওয়ার্ড রিকোভারি টোকেনটি আর ব্যবহারযোগ্য নয়।", // In English: "This password recovery token is no longer valid."
@@ -370,7 +367,6 @@ const bn = {
     "Owner": "মালিক", // In English: "Owner"
     "You can't share with yourself.": "আপনি নিজের সাথে শেয়ার করতে পারবেন না।", // In English: "You can't share with yourself."
     "This user already has access to this item": "এই ব্যবহারকারীর ইতিমধ্যেই এই আইটেমে প্রবেশাধিকার আছে।", // In English: "This user already has access to this item"
-
   },
 };
 
