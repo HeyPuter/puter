@@ -240,7 +240,7 @@ const bn = {
     rename: "পুনঃনামকরণ",
     repeat: "পুনরাবৃত্তি",
     replace: "প্রতিস্থাপন",
-    replace_all: "সমস্ত প্রতিস্থাপন",
+    replace_all: "সমস্তকিছু প্রতিস্থাপন করে ফেলুন",
     resend_confirmation_code: "পুনরায় নিশ্চিতকরণ কোড প্রেরণ করুন",
     reset_colors: "রঙ পুনঃনির্ধারণ করুন",
     restart_puter_confirm: "আপনি কি নিশ্চিত যে Puter পুনরায় চালু করতে চান?",
