@@ -138,6 +138,10 @@ If this was not you, please contact support@puter.com immediately.
         <p>Hi there {{rusername}},</p>
         <p>You've received a share from {{susername}} on Puter.</p>
         <p>Go to puter.com to check it out.</p>
+        {{#if message}}
+            <p>The following message was included:</p>
+            <blockquote>{{message}}</blockquote>
+        {{/if}}
         <p>Sincerely,</p>
         <p>Puter</p>
         `
@@ -148,6 +152,10 @@ If this was not you, please contact support@puter.com immediately.
         <p>Hi there,</p>
         <p>You've received a share from {{sender_name}} on Puter:</p>
         <p><a href="{{link}}">{{link}}</a></p>
+        {{#if message}}
+            <p>The following message was included:</p>
+            <blockquote>{{message}}</blockquote>
+        {{/if}}
         <p>Sincerely,</p>
         <p>Puter</p>
         `

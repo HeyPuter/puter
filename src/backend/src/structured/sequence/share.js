@@ -538,6 +538,8 @@ module.exports = new Sequence([
                         }));
                 }
             }
+
+            const metadata = a.get('req').body.metadata || {};
             
             svc_notification.notify(UsernameNotifSelector(username), {
                 source: 'sharing',
@@ -545,6 +547,7 @@ module.exports = new Sequence([
                 title: 'Files were shared with you!',
                 template: 'file-shared-with-you',
                 fields: {
+                    metadata,
                     username: actor.type.user.username,
                     files,
                 },
@@ -564,6 +567,7 @@ module.exports = new Sequence([
                 // link: // TODO: create a link to the shared file
                 susername: actor.type.user.username,
                 rusername: username,
+                message: metadata.message,
             });
             
             result.recipients[recipient_item.i] =
@@ -583,10 +587,12 @@ module.exports = new Sequence([
             const email = recipient_item.value;
             
             // data that gets stored in the `data` column of the share
+            const metadata = a.get('req').body.metadata || {};
             const data = {
                 $: 'internal:share',
                 $v: 'v0.0.0',
                 permissions: [],
+                metadata,
             };
             
             for ( const share_item of shares_work.list() ) {
@@ -616,6 +622,7 @@ module.exports = new Sequence([
             await svc_email.send_email({ email }, 'share_by_email', {
                 link: email_link,
                 sender_name: actor.type.user.username,
+                message: metadata.message,
             });
         }
     },
