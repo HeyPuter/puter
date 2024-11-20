@@ -484,6 +484,7 @@ module.exports = new Sequence([
         } = a.values();
         
         const svc_permission = a.iget('services').get('permission');
+        const svc_acl = a.iget('services').get('acl');
         const svc_notification = a.iget('services').get('notification');
         const svc_email = a.iget('services').get('email');
         
@@ -497,11 +498,21 @@ module.exports = new Sequence([
             for ( const share_item of shares_work.list() ) {
                 const permissions = share_item.share_intent.permissions;
                 for ( const perm of permissions ) {
-                    await svc_permission.grant_user_user_permission(
-                        actor,
-                        username,
-                        perm,
-                    );
+                    if ( perm.startsWith('fs:') ) {
+                        await svc_acl.set_user_user(
+                            actor,
+                            username,
+                            perm,
+                            undefined,
+                            { only_if_higher: true },
+                        );
+                    } else {
+                        await svc_permission.grant_user_user_permission(
+                            actor,
+                            username,
+                            perm,
+                        );
+                    }
                 }
             }
         

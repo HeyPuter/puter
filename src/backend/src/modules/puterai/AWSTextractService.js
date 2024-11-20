@@ -9,6 +9,11 @@ class AWSTextractService extends BaseService {
     }
 
     static IMPLEMENTS = {
+        ['driver-capabilities']: {
+            supports_test_mode (iface, method_name) {
+                return iface === 'puter-ocr' && method_name === 'recognize';
+            }
+        },
         ['puter-ocr']: {
             async recognize ({ source, test_mode }) {
                 if ( test_mode ) {

@@ -79,13 +79,13 @@ class ShareService extends BaseService {
                     user: issuer_user,
                 });
 
-                const svc_permission = this.services.get('permission');
+                // const svc_permission = this.services.get('permission');
+                const svc_acl = this.services.get('acl');
 
                 for ( const permission of share.data.permissions ) {
-                    await svc_permission.grant_user_user_permission(
-                        issuer_actor,
-                        user.username,
-                        permission,
+                    await svc_acl.set_user_user(
+                        issuer_actor, user.username, permission, undefined,
+                        { only_if_higher: true },
                     );
                 }
 
@@ -96,7 +96,7 @@ class ShareService extends BaseService {
             }
         });
     }
-    
+
     ['__on_install.routes'] (_, { app }) {
         this.install_sharelink_endpoints({ app });
         this.install_share_endpoint({ app });

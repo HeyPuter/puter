@@ -17,13 +17,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require("../../api/APIError");
+const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 const { NodePathSelector } = require("../../filesystem/node/selectors");
+const { get_user } = require("../../helpers");
+const configurable_auth = require("../../middleware/configurable_auth");
 const { Context } = require("../../util/context");
+const { Endpoint } = require("../../util/expressutil");
 const BaseService = require("../BaseService");
 const { AppUnderUserActorType, UserActorType, Actor, SystemActorType, AccessTokenActorType } = require("./Actor");
 const { PermissionUtil } = require("./PermissionService");
 
 class ACLService extends BaseService {
+    static MODULES = {
+        express: require('express'),
+    };
+
     async _init () {
         const svc_featureFlag = this.services.get('feature-flag');
         svc_featureFlag.register('public-folders', {
@@ -42,6 +50,202 @@ class ACLService extends BaseService {
             });
             return result;
         });
+    }
+
+    async ['__on_install.routes'] (_, { app }) {
+        const r_acl = (() => {
+            const require = this.require;
+            const express = require('express');
+            return express.Router();
+        })();
+
+        app.use('/acl', r_acl);
+
+        Endpoint({
+            route: '/stat-user-user',
+            methods: ['POST'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                // Only user actor is allowed
+                if ( ! (req.actor.type instanceof UserActorType) ) {
+                    return res.status(403).json({
+                        error: 'forbidden',
+                    });
+                }
+
+                const holder_user = await get_user({
+                    username: req.body.user,
+                });
+
+                if ( ! holder_user ) {
+                    throw APIError.create('user_does_not_exist', null, {
+                        username: req.body.user,
+                    });
+                }
+
+                const issuer = req.actor;
+                const holder = new Actor({
+                    type: new UserActorType({
+                        user: holder_user,
+                    }),
+                });
+
+                const node = await (new FSNodeParam('path')).consolidate({
+                    req,
+                    getParam: () => req.body.resource,
+                });
+
+                const permissions = await this.stat_user_user(issuer, holder, node);
+
+                res.json({ permissions });
+            }
+        }).attach(r_acl);
+
+        Endpoint({
+            route: '/set-user-user',
+            methods: ['POST'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                // Only user actor is allowed
+                if ( ! (req.actor.type instanceof UserActorType) ) {
+                    return res.status(403).json({
+                        error: 'forbidden',
+                    });
+                }
+
+                const holder_user = await get_user({
+                    username: req.body.user,
+                });
+
+                if ( ! holder_user ) {
+                    throw APIError.create('user_does_not_exist', null, {
+                        username: req.body.user,
+                    });
+                }
+
+                const issuer = req.actor;
+                const holder = new Actor({
+                    type: new UserActorType({
+                        user: holder_user,
+                    }),
+                });
+
+                const node = await (new FSNodeParam('path')).consolidate({
+                    req,
+                    getParam: () => req.body.resource,
+                });
+
+                await this.set_user_user(issuer, holder, node, req.body.mode, req.body.options ?? {});
+
+                res.json({});
+            }
+        }).attach(r_acl);
+    }
+
+    async set_user_user (issuer, holder, resource, mode, options = {}) {
+        const svc_perm = this.services.get('permission');
+        const svc_fs = this.services.get('filesystem');
+
+        if ( typeof holder === 'string' ) {
+            const holder_user = await get_user({ username: holder });
+            if ( ! holder_user ) {
+                throw APIError.create('user_does_not_exist', null, { username: holder });
+            }
+
+            holder = new Actor({
+                type: new UserActorType({ user: holder_user }),
+            });
+        }
+
+        let uid, _;
+
+        if ( typeof resource === 'string' && mode === undefined ) {
+            const perm_parts = PermissionUtil.split(resource);
+            ([_, uid, mode] = perm_parts);
+            resource = await svc_fs.node(new NodePathSelector(uid));
+            if ( ! resource ) {
+                throw APIError.create('subject_does_not_exist');
+            }
+        }
+
+        if ( ! (issuer.type instanceof UserActorType) ) {
+            throw new Error('issuer must be a UserActorType');
+        }
+        if ( ! (holder.type instanceof UserActorType) ) {
+            throw new Error('holder must be a UserActorType');
+        }
+
+        const stat = await this.stat_user_user(issuer, holder, resource);
+
+        // this.log.info('stat object', {
+        //     stat,
+        //     path: await resource.get('path')
+        // });
+
+        const perms_on_this = stat[await resource.get('path')] ?? [];
+
+        const mode_parts = perms_on_this.map(perm => PermissionUtil.split(perm)[2]);
+
+        // If mode already present, do nothing
+        if ( mode_parts.includes(mode) ) {
+            return false;
+        }
+
+        // If higher mode already present, do nothing
+        if ( options.only_if_higher ) {
+            const higher_modes = this._higher_modes(mode);
+            if ( mode_parts.some(m => higher_modes.includes(m)) ) {
+                return false;
+            }
+        }
+
+        uid = uid ?? await resource.get('uid');
+
+        // If mode not present, add it
+        await svc_perm.grant_user_user_permission(
+            issuer, holder.type.user.username,
+            PermissionUtil.join('fs', uid, mode),
+        );
+
+        // Remove other modes
+        for ( const perm of perms_on_this ) {
+            const perm_parts = PermissionUtil.split(perm);
+            if ( perm_parts[2] === mode ) continue;
+
+            await svc_perm.revoke_user_user_permission(
+                issuer, holder.type.user.username,
+                perm,
+            );
+        }
+    }
+
+    async stat_user_user (issuer, holder, resource) {
+        const svc_perm = this.services.get('permission');
+
+        if ( ! (issuer.type instanceof UserActorType) ) {
+            throw new Error('issuer must be a UserActorType');
+        }
+        if ( ! (holder.type instanceof UserActorType) ) {
+            throw new Error('holder must be a UserActorType');
+        }
+
+        const permissions = {};
+
+        let perm_fsNode = resource;
+        while ( ! await perm_fsNode.get('is-root') ) {
+            const prefix = PermissionUtil.join('fs', await perm_fsNode.get('uid'));
+
+            const these_permissions = await
+                svc_perm.query_issuer_holder_permissions_by_prefix(issuer, holder, prefix);
+            
+            if ( these_permissions.length > 0 ) {
+                permissions[await perm_fsNode.get('path')] = these_permissions;
+            }
+
+            perm_fsNode = await perm_fsNode.getParent();
+        }
+
+        return permissions;
     }
 
     async _check_fsNode (actor, fsNode, mode) {

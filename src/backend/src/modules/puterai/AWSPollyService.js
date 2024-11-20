@@ -12,6 +12,11 @@ class AWSPollyService extends BaseService {
     }
 
     static IMPLEMENTS = {
+        ['driver-capabilities']: {
+            supports_test_mode (iface, method_name) {
+                return iface === 'puter-tts' && method_name === 'synthesize';
+            }
+        },
         ['puter-tts']: {
             async list_voices () {
                 const polly_voices = await this.describe_voices();
