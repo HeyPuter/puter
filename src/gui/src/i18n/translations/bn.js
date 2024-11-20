@@ -51,7 +51,7 @@ const bn = {
     color: "রঙ",
     confirm: "নিশ্চিতকরণ",
     confirm_2fa_setup: "২ ফ্যাক্টর অথেনটিকেশন নিশ্চিত করুন",
-    confirm_2fa_recovery: "আমি আমার পুনরুদ্ধার কোডগুলি একটি নিরাপদ স্থানে সংরক্ষণ করেছি",
+    confirm_2fa_recovery: "২ ফ্যাক্টর অথেনটিকেশন এর রিকোভারি কী গুলো নিশ্চিত করুন",
     confirm_account_for_free_referral_storage_c2a: "একটি অ্যাকাউন্ট তৈরি করুন এবং আপনার ইমেল ঠিকানা নিশ্চিত করুন যাতে ফ্রি 1 জিবি স্টোরেজ পান। আপনার বন্ধুও 1 জিবি ফ্রি স্টোরেজ পাবেন।",
     confirm_code_generic_incorrect: "ভুল কোড।",
     confirm_code_generic_too_many_requests: "অনেক অনুরোধ। দয়া করে কয়েক মিনিট অপেক্ষা করুন।",
