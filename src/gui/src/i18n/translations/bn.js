@@ -233,7 +233,7 @@ const bn = {
     recommended: "অনুমোদিত",
     recover_password: "পাসওয়ার্ড পুনরুদ্ধার করুন",
     refer_friends_c2a: "Puter তে অ্যাকাউন্ট তৈরি এবং নিশ্চিতকরণ করে একটি বন্ধুকে রেফার করার জন্য প্রতি রেফারে ১ জিবি পান। আপনার বন্ধুও ১ জিবি পাবে!",
-    refer_friends_social_media_c2a: `Puter.com এ 1 GB বিনামূল্যের সংরক্ষণ পান!`,
+    refer_friends_social_media_c2a: `Puter.com এ ১ জিবি বিনামূল্যের সংরক্ষণ পান!`,
     refresh: "রিফ্রেশ",
     release_address_confirmation: `আপনি কি নিশ্চিত যে আপনি এই ঠিকানা রিলিজ করতে চান?`,
     remove_from_taskbar: "টাস্কবার থেকে সরান",
