@@ -350,20 +350,20 @@ const br = {
     // ***********************************
     // Missing translations
     // ***********************************
-    "change": undefined, // In English: "Change"
-    "clock_visibility": undefined, // In English: "Clock Visibility"
-    "reading": undefined, // In English: "Reading %strong%"
-    "writing": undefined, // In English: "Writing %strong%"
-    "unzipping": undefined, // In English: "Unzipping %strong%"
-    "sequencing": undefined, // In English: "Sequencing %strong%"
-    "zipping": undefined, // In English: "Zipping %strong%"
-    "Editor": undefined, // In English: "Editor"
-    "Viewer": undefined, // In English: "Viewer"
-    "People with access": undefined, // In English: "People with access"
-    "Share With…": undefined, // In English: "Share With…"
-    "Owner": undefined, // In English: "Owner"
-    "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-    "This user already has access to this item": undefined, // In English: "This user already has access to this item"     
+    "change": "Alterar", // In English: "Change"
+    "clock_visibility": "Visibilidade do relógio", // In English: "Clock Visibility"
+    "reading": "Lendo %strong%", // In English: "Reading %strong%"
+    "writing": "Escrevendo %strong%", // In English: "Writing %strong%"
+    "unzipping": "Descompactando %strong%", // In English: "Unzipping %strong%"
+    "sequencing": "Sequenciando %strong%", // In English: "Sequencing %strong%"
+    "zipping": "Compactando %strong%", // In English: "Zipping %strong%"
+    "Editor": "Editor", // In English: "Editor"
+    "Viewer": "Visualizador", // In English: "Viewer"
+    "People with access": "Pessoas com acesso", // In English: "People with access"
+    "Share With…": "Compartilhar com...", // In English: "Share With…"
+    "Owner": "Proprietário", // In English: "Owner"
+    "You can't share with yourself.": "Vocẽ não pode compartilhar com você mesmo", // In English: "You can't share with yourself."
+    "This user already has access to this item": "Esse usuário já tem acesso a esse item", // In English: "This user already has access to this item"     
   }
 };
 
