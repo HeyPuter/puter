@@ -47,7 +47,7 @@ const bn = {
     close_all_windows: "সমস্ত উইন্ডো বন্ধ করুন",
     close_all_windows_confirm: "আপনি কি সমস্ত উইন্ডো বন্ধ করতে চান?",
     close_all_windows_and_log_out: "উইন্ডো বন্ধ এবং লগ আউট করুন",
-    change_always_open_with:  "আপনি কি এই ধরনের ফাইলটি সবসময় এই সাথে খোলার জন্য চান",
+    change_always_open_with: "আপনি কি এই ধরনের ফাইলটি সবসময় এই সাথে খোলার জন্য চান",
     color: "রঙ",
     confirm: "অনুমোদন",
     confirm_2fa_setup: "আমি আমার অথেন্টিকেশন অ্যাপ্লিকেশনে কোডটি যোগ করেছি",
@@ -63,7 +63,7 @@ const bn = {
     confirm_code_2fa_title: "2FA কোড প্রবেশ করুন",
     confirm_delete_multiple_items: "আপনি কি নিশ্চিত যে আপনি এই আইটেমগুলি স্থায়ীভাবে মুছতে চান?",
     confirm_delete_single_item: "আপনি কি এই আইটেমটি স্থায়ীভাবে মুছতে চান?",
-    confirm_open_apps_log_out:  "আপনার খোলা অ্যাপ আছে। আপনি কি নিশ্চিত যে আপনি লগ আউট করতে চান?",
+    confirm_open_apps_log_out: "আপনার খোলা অ্যাপ আছে। আপনি কি নিশ্চিত যে আপনি লগ আউট করতে চান?",
     confirm_new_password: "নতুন পাসওয়ার্ড নিশ্চিত করুন",
     confirm_delete_user: "আপনি কি নিশ্চিত যে আপনি আপনার অ্যাকাউন্টটি মুছতে চান? সমস্ত আপনার ফাইল এবং ডেটা স্থায়ীভাবে মুছে ফেলা হবে। এই ক্রিয়াটি ফিরে পাওয়া যাবে না।",
     confirm_delete_user_title: "অ্যাকাউন্ট মুছে ফেলুন?",
@@ -200,7 +200,7 @@ const bn = {
     password_reset: "পাসওয়ার্ড রিসেট করুন",
     password_reset_confirmation: "পাসওয়ার্ড সেট করতে নীচের ফর্মটি পূরণ করুন।",
     password_reset_request_expired: "আপনার পাসওয়ার্ড রিসেট রিকোয়েস্টের মেয়াদ শেষ হয়ে গেছে। দয়া করে পুনরায় চেষ্টা করুন।",
-    password_reset_sent:  "পাসওয়ার্ড রিসেট রিকোয়েস্ট সফলভাবে প্রেরিত হয়েছে। আপনার ইনবক্স পরীক্ষা করুন এবং নির্দেশানুযায়ী প্রক্রিয়াটি সম্পন্ন করতে।",
+    password_reset_sent: "পাসওয়ার্ড রিসেট রিকোয়েস্ট সফলভাবে প্রেরিত হয়েছে। আপনার ইনবক্স পরীক্ষা করুন এবং নির্দেশানুযায়ী প্রক্রিয়াটি সম্পন্ন করতে।",
     password_update_success: "পাসওয়ার্ড সফলভাবে আপডেট হয়েছে!",
     passwords_do_not_match: "পাসওয়ার্ড মিলে না",
     paste: "পেস্ট",
@@ -232,7 +232,7 @@ const bn = {
     recent: "সাম্প্রতিক",
     recommended: "অনুমোদিত",
     recover_password: "পাসওয়ার্ড পুনরুদ্ধার করুন",
-    refer_friends_c2a:  "Puter তে অ্যাকাউন্ট তৈরি এবং নিশ্চিতকরণ করে একটি বন্ধুর প্রতি 1 জিবি পান। আপনার বন্ধুও 1 জিবি পাবে!",
+    refer_friends_c2a: "Puter তে অ্যাকাউন্ট তৈরি এবং নিশ্চিতকরণ করে একটি বন্ধুর প্রতি 1 জিবি পান। আপনার বন্ধুও 1 জিবি পাবে!",
     refer_friends_social_media_c2a: `Puter.com এ 1 GB বিনামূল্যের সংরক্ষণ পান!`,
     refresh: "রিফ্রেশ",
     release_address_confirmation: `আপনি কি নিশ্চিত যে আপনি এই ঠিকানা রিলিজ করতে চান?`,
@@ -349,10 +349,10 @@ const bn = {
     login2fa_recovery_back: "পিছনে",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-    "change": undefined, // In English: "Change"
+    // ***********************************
+    // Missing translations
+    // ***********************************
+    "change": "পরিবর্তন", // In English: "Change"
     "clock_visibility": undefined, // In English: "Clock Visibility"
     "password_recovery_token_invalid": undefined, // In English: "This password recovery token is no longer valid."
     "password_recovery_unknown_error": undefined, // In English: "An unknown error occurred. Please try again later."
