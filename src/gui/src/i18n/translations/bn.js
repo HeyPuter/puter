@@ -61,7 +61,7 @@ const bn = {
     confirm_code_2fa_instruction: "আপনার অথেন্টিকেশন অ্যাপ্লিকেশন থেকে ৬-ডিজিট কোডটি প্রবেশ করুন।",
     confirm_code_2fa_submit_btn: "জমা দিন",
     confirm_code_2fa_title: "2FA কোড প্রবেশ করুন",
-    confirm_delete_multiple_items: "আপনি কি নিশ্চিত যে আপনি এই আইটেমগুলি স্থায়ীভাবে মুছতে চান?",
+    confirm_delete_multiple_items: "আপনি কি নিশ্চিত যে আপনি এই আইটেমগুলি স্থায়ীভাবে ডিলিট করে ফেলতে চান?",
     confirm_delete_single_item: "আপনি কি এই আইটেমটি স্থায়ীভাবে মুছতে চান?",
     confirm_open_apps_log_out: "আপনার খোলা অ্যাপ আছে। আপনি কি নিশ্চিত যে আপনি লগ আউট করতে চান?",
     confirm_new_password: "নতুন পাসওয়ার্ড নিশ্চিত করুন",
