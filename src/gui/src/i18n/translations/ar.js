@@ -369,9 +369,6 @@ const ar = {
     login2fa_recovery_back: "الرجوع",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
-    // ***********************************
-    // Missing translations
-    // ***********************************
     change: "تغيير", // In English: "Change"
     clock_visibility: "ظهور الساعة", // In English: "Clock Visibility"
     reading: "قراءة %strong%", // In English: "Reading %strong%"
