@@ -58,7 +58,7 @@ const bn = {
     confirm_code_generic_submit: "কোড জমা দিন",
     confirm_code_generic_try_again: "আবার চেষ্টা করুন",
     confirm_code_generic_title: "অনুমোদন কোড প্রবেশ করুন",
-    confirm_code_2fa_instruction: "আপনার অথেন্টিকেশন অ্যাপ্লিকেশন থেকে 6-ডিজিট কোডটি প্রবেশ করুন।",
+    confirm_code_2fa_instruction: "আপনার অথেন্টিকেশন অ্যাপ্লিকেশন থেকে ৬-ডিজিট কোডটি প্রবেশ করুন।",
     confirm_code_2fa_submit_btn: "জমা দিন",
     confirm_code_2fa_title: "2FA কোড প্রবেশ করুন",
     confirm_delete_multiple_items: "আপনি কি নিশ্চিত যে আপনি এই আইটেমগুলি স্থায়ীভাবে মুছতে চান?",
