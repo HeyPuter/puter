@@ -37,6 +37,7 @@ class DriverService extends BaseService {
     _construct () {
         this.drivers = {};
         this.interface_to_implementation = {};
+        this.interface_to_test_service = {};
     }
     
     async ['__on_registry.collections'] () {
@@ -77,6 +78,10 @@ class DriverService extends BaseService {
     register_driver (interface_name, implementation) {
         this.interface_to_implementation[interface_name] = implementation;
     }
+
+    register_test_service (interface_name, service_name) {
+        this.interface_to_test_service[interface_name] = service_name;
+    }
     
     get_interface (interface_name) {
         const o = {};
@@ -113,7 +118,8 @@ class DriverService extends BaseService {
     async _call ({ driver, iface, method, args }) {
         console.log('??', driver, iface, method, args);
         const processed_args = await this._process_args(iface, method, args);
-        if ( Context.get('test_mode') ) {
+        const test_mode = Context.get('test_mode');
+        if ( test_mode ) {
             processed_args.test_mode = true;
         }
 
@@ -141,18 +147,31 @@ class DriverService extends BaseService {
         
         driver = driver ?? iface_to_driver[iface] ?? iface;
 
+        let skip_usage = false;
+        if ( test_mode && this.interface_to_test_service[iface] ) {
+            driver = this.interface_to_test_service[iface];
+        }
+
         const driver_service_exists = (() => {
+            console.log('CHECKING FOR THIS', driver, iface);
             return this.services.has(driver) &&
                 this.services.get(driver).list_traits()
                     .includes(iface);
         })();
         if ( driver_service_exists ) {
             const service = this.services.get(driver);
+
+            const caps = service.as('driver-capabilities');
+            if ( test_mode && caps && caps.supports_test_mode(iface, method) ) {
+                skip_usage = true;
+            }
+
             return await this.call_new_({
                 actor,
                 service,
                 service_name: driver,
                 iface, method, args: processed_args,
+                skip_usage,
             });
         }
 
@@ -240,6 +259,7 @@ class DriverService extends BaseService {
         service,
         service_name,
         iface, method, args,
+        skip_usage,
     }) {
         const svc_permission = this.services.get('permission');
         const reading = await svc_permission.scan(
@@ -324,6 +344,8 @@ class DriverService extends BaseService {
                 {
                     name: 'enforce monthly usage limit',
                     on_call: async args => {
+                        if ( skip_usage ) return args;
+
                         // Typo-Tolerance
                         if ( effective_policy?.['monthy-limit'] ) {
                             effective_policy['monthly-limit'] = effective_policy['monthy-limit'];
@@ -343,6 +365,8 @@ class DriverService extends BaseService {
                         return args;
                     },
                     on_return: async result => {
+                        if ( skip_usage ) return result;
+
                         console.log('monthly usage is returning');
                         const svc_monthlyUsage = services.get('monthly-usage');
                         const extra = {
