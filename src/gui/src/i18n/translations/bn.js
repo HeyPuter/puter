@@ -369,7 +369,7 @@ const bn = {
     "Share With…": "শেয়ার করুন...", // In English: "Share With…"
     "Owner": "মালিক", // In English: "Owner"
     "You can't share with yourself.": "আপনি নিজের সাথে শেয়ার করতে পারবেন না।", // In English: "You can't share with yourself."
-    "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+    "This user already has access to this item": "এই ব্যবহারকারীর ইতিমধ্যেই এই আইটেমে প্রবেশাধিকার আছে।", // In English: "This user already has access to this item"
 
   },
 };
