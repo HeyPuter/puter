@@ -243,6 +243,18 @@ async function UIDesktop(options){
                         }),
                     });
                 },
+                click: async (notif) => {
+                    if(notification.template === "file-shared-with-you"){
+                        let item_path = '/' + notification.fields?.username;
+                        UIWindow({
+                            path: '/' + notification.fields?.username,
+                            title: path.basename(item_path),
+                            icon: await item_icon({is_dir: true, path: item_path}),
+                            is_dir: true,
+                            app: 'explorer',
+                        });
+                    }
+                },
             });
         }
     });
@@ -1305,6 +1317,19 @@ async function UIDesktop(options){
                     }
                 }
                 notification.icon = icon;
+
+                notification.click = async (notif) => {
+                    if(notification.template === "file-shared-with-you"){
+                        let item_path = '/' + notification.fields?.username;
+                        UIWindow({
+                            path: '/' + notification.fields?.username,
+                            title: path.basename(item_path),
+                            icon: await item_icon({is_dir: true, path: item_path}),
+                            is_dir: true,
+                            app: 'explorer',
+                        });
+                    }
+                }
 
                 UINotification(notification);
             })
