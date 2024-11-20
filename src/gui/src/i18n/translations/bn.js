@@ -349,9 +349,6 @@ const bn = {
     login2fa_recovery_back: "পিছনে",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
     "change": "পরিবর্তন",
     "clock_visibility": 
     "ঘড়ির দৃশ্যমানতা",
