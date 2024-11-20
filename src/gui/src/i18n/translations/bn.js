@@ -47,7 +47,7 @@ const bn = {
     close_all_windows: "সমস্ত উইন্ডো বন্ধ করুন",
     close_all_windows_confirm: "আপনি কি সমস্ত উইন্ডো বন্ধ করতে চান?",
     close_all_windows_and_log_out: "সমস্ত উইন্ডো বন্ধ এবং লগ আউট করুন",
-    change_always_open_with: "আপনি কি এই ধরনের ফাইলটি সবসময় এই সাথে খোলার জন্য চান",
+    change_always_open_with: "আপনি কি এই ধরনের ফাইলটি সবসময় একটি নির্দিষ্ট এপ্লিকেশনের মাধ্যমে ওপেন করতে চান?",
     color: "রঙ",
     confirm: "অনুমোদন",
     confirm_2fa_setup: "আমি আমার অথেন্টিকেশন অ্যাপ্লিকেশনে কোডটি যোগ করেছি",
