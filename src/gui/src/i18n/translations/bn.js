@@ -366,7 +366,7 @@ const bn = {
     "Editor": "সম্পাদক", // In English: "Editor"
     "Viewer": "দর্শক", // In English: "Viewer"
     "People with access": "মানুষ যাদের প্রবেশাধিকার আছে", // In English: "People with access"
-    "Share With…": undefined, // In English: "Share With…"
+    "Share With…": "শেয়ার করুন...", // In English: "Share With…"
     "Owner": undefined, // In English: "Owner"
     "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
     "This user already has access to this item": undefined, // In English: "This user already has access to this item"
