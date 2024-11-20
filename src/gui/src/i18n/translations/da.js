@@ -346,23 +346,21 @@ const da = {
         login2fa_recovery_back: 'Tilbage',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+	
+        "change": 'ændring', // In English: "Change"
+        "clock_visibility": 'ur_synlighed', // In English: "Clock Visibility"
+        "reading": 'læsning %strong%', // In English: "Reading %strong%"
+        "writing": 'skrivning %strong%', // In English: "Writing %strong%"
+        "unzipping": 'udpakning %strong%', // In English: "Unzipping %strong%"
+        "sequencing": 'sekventering %strong%', // In English: "Sequencing %strong%"
+        "zipping": 'komprimering %strong%', // In English: "Zipping %strong%"
+        "Editor": 'Redaktør', // In English: "Editor"
+        "Viewer": 'Seer', // In English: "Viewer"
+        "People with access": 'Mennesker med adgang', // In English: "People with access"
+        "Share With…": 'Del med...', // In English: "Share With…"
+        "Owner": 'Ejer', // In English: "Owner"
+        "You can't share with yourself.": 'Du kan ikke dele med dig selv.', // In English: "You can't share with yourself."
+        "This user already has access to this item": 'Denne bruger har allerede adgang til dette element', // In English: "This user already has access to this item"
 
     }
     
