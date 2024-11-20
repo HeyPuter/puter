@@ -295,7 +295,7 @@ const bn = {
     transparency: "স্বচ্ছতা",
     trash: "আবর্জনা",
     two_factor: "দুটি ফ্যাক্টর প্রমাণীকরণ",
-    two_factor_disabled: "2FA অক্ষম",
+    two_factor_disabled: "2FA বন্ধ করা হয়েছে",
     two_factor_enabled: "2FA সক্ষম",
     type: "ধরণ",
     type_confirm_to_delete_account: "অ্যাকাউন্ট মোছার জন্য 'অনুমোদন' টাইপ করুন।",
