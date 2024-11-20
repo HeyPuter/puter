@@ -100,6 +100,46 @@ class ACLService extends BaseService {
                 res.json({ permissions });
             }
         }).attach(r_acl);
+
+        Endpoint({
+            route: '/set-user-user',
+            methods: ['POST'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                // Only user actor is allowed
+                if ( ! (req.actor.type instanceof UserActorType) ) {
+                    return res.status(403).json({
+                        error: 'forbidden',
+                    });
+                }
+
+                const holder_user = await get_user({
+                    username: req.body.user,
+                });
+
+                if ( ! holder_user ) {
+                    throw APIError.create('user_does_not_exist', null, {
+                        username: req.body.user,
+                    });
+                }
+
+                const issuer = req.actor;
+                const holder = new Actor({
+                    type: new UserActorType({
+                        user: holder_user,
+                    }),
+                });
+
+                const node = await (new FSNodeParam('path')).consolidate({
+                    req,
+                    getParam: () => req.body.resource,
+                });
+
+                await this.set_user_user(issuer, holder, node, req.body.mode, req.body.options ?? {});
+
+                res.json({});
+            }
+        }).attach(r_acl);
     }
 
     async set_user_user (issuer, holder, resource, mode, options = {}) {
