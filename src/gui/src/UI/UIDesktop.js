@@ -166,9 +166,9 @@ async function UIDesktop(options){
     window.socket.on('notif.message', async ({ uid, notification }) => {
         let icon = window.icons[notification.icon];
         let round_icon = false;
-        
+
         if(notification.template === "file-shared-with-you" && notification.fields?.username){
-            let profile_pic = await get_profile_picture(notification.fields.username);
+            let profile_pic = await get_profile_picture(notification.fields?.username);
             if(profile_pic){
                 icon = profile_pic;
                 round_icon = true;
@@ -208,16 +208,26 @@ async function UIDesktop(options){
     });
 
     window.__already_got_unreads = false;
-    window.socket.on('notif.unreads', ({ unreads }) => {
+    window.socket.on('notif.unreads', async ({ unreads }) => {
         if ( window.__already_got_unreads ) return;
         window.__already_got_unreads = true;
 
         for ( const notif_info of unreads ) {
             const notification = notif_info.notification;
-            const icon = window.icons[notification.icon];
-            
+            let icon = window.icons[notification.icon];
+            let round_icon = false;
+
+            if(notification.template === "file-shared-with-you" && notification.fields?.username){
+                let profile_pic = await get_profile_picture(notification.fields?.username);
+                if(profile_pic){
+                    icon = profile_pic;
+                    round_icon = true;
+                }
+            }
+    
             UINotification({
                 icon,
+                round_icon,
                 title: notification.title,
                 text: notification.text ?? notification.title,
                 uid: notif_info.uid,
@@ -1282,7 +1292,20 @@ async function UIDesktop(options){
     .then(response => response.json())
     .then(data => {
         if(data && data.result && data.result.length > 0){
-            data.data?.forEach(notification => {
+            data.data?.forEach(async notification => {
+                let icon = window.icons['puter-logo.svg'];
+                let round_icon = false;
+
+                if(notification.template === "file-shared-with-you" && notification.fields?.username){
+                    let profile_pic = await get_profile_picture(notification.fields?.username);
+                    if(profile_pic){
+                        icon = profile_pic;
+                        round_icon = true;
+                        notification.round_icon = round_icon;
+                    }
+                }
+                notification.icon = icon;
+
                 UINotification(notification);
             })
         }
