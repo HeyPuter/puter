@@ -46,7 +46,7 @@ const bn = {
     close: "বন্ধ করুন",
     close_all_windows: "সমস্ত উইন্ডো বন্ধ করুন",
     close_all_windows_confirm: "আপনি কি সমস্ত উইন্ডো বন্ধ করতে চান?",
-    close_all_windows_and_log_out: "উইন্ডো বন্ধ এবং লগ আউট করুন",
+    close_all_windows_and_log_out: "সমস্ত উইন্ডো বন্ধ এবং লগ আউট করুন",
     change_always_open_with: "আপনি কি এই ধরনের ফাইলটি সবসময় এই সাথে খোলার জন্য চান",
     color: "রঙ",
     confirm: "অনুমোদন",
