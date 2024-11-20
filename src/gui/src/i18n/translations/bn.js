@@ -38,7 +38,7 @@ const bn = {
     cancel: "বাতিল করুন",
     center: "কেন্দ্র",
     change_desktop_background: "ডেস্কটপ এর ব্যকগ্রাউন্ড পরিবর্তন করুন…",
-    change_email: "ইমেল পরিবর্তন করুন",
+    change_email: "ইমেইল পরিবর্তন করুন",
     change_language: "ভাষা পরিবর্তন করুন",
     change_password: "পাসওয়ার্ড পরিবর্তন করুন",
     change_ui_colors: "ইউআই রঙ পরিবর্তন করুন",
