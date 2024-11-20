@@ -365,7 +365,7 @@ const bn = {
     "zipping": "%strong% জিপ করা হচ্ছে", // In English: "Zipping %strong%"
     "Editor": "সম্পাদক", // In English: "Editor"
     "Viewer": "দর্শক", // In English: "Viewer"
-    "People with access": undefined, // In English: "People with access"
+    "People with access": "মানুষ যাদের প্রবেশাধিকার আছে", // In English: "People with access"
     "Share With…": undefined, // In English: "Share With…"
     "Owner": undefined, // In English: "Owner"
     "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
