@@ -1477,7 +1477,11 @@ window.privacy_aware_path = function(fspath){
     if(fspath.startsWith('~/'))
         return fspath;
     // e.g. /my_username/test.txt -> ~/test.txt
-    else if(fspath.startsWith(window.home_path))
+    else if(fspath.startsWith(
+        window.home_path.endsWith('/')
+            ? window.home_path
+            : window.home_path + '/'
+    ))
         return fspath.replace(window.home_path, '~');
     // e.g. /other_username/test.txt -> /other_username/test.txt
     else if(fspath.startsWith('/') && !fspath.startsWith(window.home_path))
@@ -1488,4 +1492,4 @@ window.privacy_aware_path = function(fspath){
     // e.g. /username/path/to/item -> /username/path/to/item
     else
         return fspath;
-}
+};
