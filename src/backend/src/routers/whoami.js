@@ -18,6 +18,15 @@
  */
 "use strict"
 const express = require('express');
+
+// Timeago is so inconvenient to instantiate that I'm using an IIFE
+// to reduce the impact on the scope.
+const timeago = (() => {
+    const TimeAgo = require('javascript-time-ago');
+    TimeAgo.addDefaultLocale(require('javascript-time-ago/locale/en'));
+    return new TimeAgo('en-US');
+})();
+
 const { get_taskbar_items, is_shared_with_anyone, suggest_app_for_fsentry, get_app, get_descendants, id2uuid } = require('../helpers');
 const auth = require('../middleware/auth.js');
 const fs = require('../middleware/fs.js');
@@ -57,6 +66,8 @@ const WHOAMI_GET = eggspress('/whoami', {
         taskbar_items: await get_taskbar_items(req.user),
         referral_code: req.user.referral_code,
         otp: !! req.user.otp_enabled,
+        human_readable_age: timeago.format(
+            new Date(req.user.timestamp)),
         ...(req.new_token ? { token: req.token } : {})
     };
 
@@ -80,6 +91,7 @@ const WHOAMI_GET = eggspress('/whoami', {
         delete details.desktop_bg_fit;
         delete details.taskbar_items;
         delete details.token;
+        delete details.human_readable_age;
     }
 
     if ( actor.type instanceof AppUnderUserActorType ) {
