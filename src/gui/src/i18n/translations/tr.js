@@ -352,22 +352,22 @@ const tr = {
 		// ***********************************
 		// Missing translations
 		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "confirm": undefined, // In English: "Confirm"
-        "plural_suffix": undefined, // In English: "s"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        "change": "Değiştir", // In English: "Change"
+        "clock_visibility": "Saat Görünürlüğü", // In English: "Clock Visibility"
+        "confirm": "Onayla", // In English: "Confirm"
+        "plural_suffix": "lar", // I used "lar", but if the preceding syllable contains a vowel like e, i, ü, ö, it should actually be "ler". In English: "s"
+        "reading": "%strong% okunuyor", // In English: "Reading %strong%"
+        "writing": "%strong% yazılıyor", // In English: "Writing %strong%"
+        "unzipping": "%strong% sıkıştırma açılıyor", // In English: "Unzipping %strong%"
+        "sequencing": "%strong% sıralanıyor", // In English: "Sequencing %strong%"
+        "zipping": "%strong% sıkıştırılıyor", // In English: "Zipping %strong%"
+        "Editor": "Editör", // In English: "Editor"
+        "Viewer": "Görüntüleyici", // In English: "Viewer"
+        "People with access": "Erişimi olan kişiler", // In English: "People with access"
+        "Share With…": "Paylaş...", // In English: "Share With…"
+        "Owner": "Sahip", // In English: "Owner"
+        "You can't share with yourself.": "Kendinizle paylaşamazsınız.", // In English: "You can't share with yourself."
+        "This user already has access to this item": "Bu kullanıcının zaten bu öğeye erişimi var. ", // In English: "This user already has access to this item"
     }
 };
 
