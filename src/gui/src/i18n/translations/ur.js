@@ -359,9 +359,6 @@ const ur = {
     login2fa_recovery_back: "پیچھے",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
     "allow": "اجازت دینا", // In English: "Allow"
     "associated_websites": "متعلقہ ویب سائٹس", // In English: "Associated Websites"
     "change": "تبدیل کرنا", // In English: "Change"
