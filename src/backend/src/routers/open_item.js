@@ -84,11 +84,14 @@ module.exports = eggspress('/open_item', {
     // Note: We always grant write permission here. If the user only
     //       has read permission this is still safe; user permissions
     //       are always checked during an app access.
-    const permission = `fs:${subject.uid}:write`;
-    const svc_permission = Context.get('services').get('permission');
-    await svc_permission.grant_user_app_permission(
-        actor, app.uid, permission, {}, { reason: 'open_item' }
-    );
+    const PERMS = action === 'write' ? ['read', 'write'] : ['read'];
+    for ( const perm of PERMS ) {
+        const permission = `fs:${subject.uid}:${perm}`;
+        const svc_permission = Context.get('services').get('permission');
+        await svc_permission.grant_user_app_permission(
+            actor, app.uid, permission, {}, { reason: 'open_item' }
+        );
+    }
 
     // Generate user-app token
     const svc_auth = Context.get('services').get('auth');
