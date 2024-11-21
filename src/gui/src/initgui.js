@@ -49,6 +49,7 @@ import { AntiCSRFService } from './services/AntiCSRFService.js';
 import { IPCService } from './services/IPCService.js';
 import { ExecService } from './services/ExecService.js';
 import { DebugService } from './services/DebugService.js';
+import { privacy_aware_path } from './util/desktop.js';
 
 const launch_services = async function (options) {
     // === Services Data Structures ===
@@ -1461,35 +1462,5 @@ $(document).on('contextmenu', '.disable-context-menu', function(e){
     }
 })
 
-/**
- * Converts a file system path to a privacy-aware path.
- * - Paths starting with `~/` are returned unchanged.
- * - Paths starting with the user's home path are replaced with `~`.
- * - Absolute paths not starting with the user's home path are returned unchanged.
- * - Relative paths are prefixed with `~/`.
- * - Other paths are returned unchanged.
- *
- * @param {string} fspath - The file system path to be converted.
- * @returns {string} The privacy-aware path.
- */
-window.privacy_aware_path = function(fspath){
-    // e.g. /my_username/test.txt -> ~/test.txt
-    if(fspath.startsWith('~/'))
-        return fspath;
-    // e.g. /my_username/test.txt -> ~/test.txt
-    else if(fspath.startsWith(
-        window.home_path.endsWith('/')
-            ? window.home_path
-            : window.home_path + '/'
-    ))
-        return fspath.replace(window.home_path, '~');
-    // e.g. /other_username/test.txt -> /other_username/test.txt
-    else if(fspath.startsWith('/') && !fspath.startsWith(window.home_path))
-        return fspath;
-    // e.g. test.txt -> ~/test.txt
-    else if(!fspath.startsWith('/'))
-        return '~/' + fspath;
-    // e.g. /username/path/to/item -> /username/path/to/item
-    else
-        return fspath;
-};
+// util/desktop.js
+window.privacy_aware_path = privacy_aware_path({ window });
