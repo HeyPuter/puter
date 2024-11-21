@@ -344,27 +344,24 @@ const th = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "confirm": undefined, // In English: "Confirm"
-        "path": undefined, // In English: "Path"
-        "plural_suffix": undefined, // In English: "s"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "save": undefined, // In English: "Save"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        "change": 'เปลี่ยนแปลง', // In English: "Change"
+        "clock_visibility": 'การมองเห็นนาฬิกา', // In English: "Clock Visibility"
+        "confirm": 'ยืนยัน', // In English: "Confirm"
+        "path": 'ที่อยู่', // In English: "Path"
+        "plural_suffix": 's', // In English: "s"
+        "reading": 'กำลังอ่าน %strong%', // In English: "Reading %strong%"
+        "writing": 'กำลังเขียน %strong%', // In English: "Writing %strong%"
+        "save": 'บันทึก', // In English: "Save"
+        "unzipping": 'กำลังแยก %strong%', // In English: "Unzipping %strong%"
+        "sequencing": 'กำลังจัดลำดับ %strong%', // In English: "Sequencing %strong%"
+        "zipping": 'กำลังบีบอัด %strong%', // In English: "Zipping %strong%"
+        "Editor": 'ตัวแก้ไข', // In English: "Editor"
+        "Viewer": 'ผู้ชม', // In English: "Viewer"
+        "People with access": 'บุคคลที่สามารถเข้าถึงได้', // In English: "People with access"
+        "Share With…": 'แบ่งปันร่วมกับ...', // In English: "Share With…"
+        "Owner": 'เจ้าของ', // In English: "Owner"
+        "You can't share with yourself.": 'คุณไม่สามารถแบ่งปันกับตัวเองได้', // In English: "You can't share with yourself."
+        "This user already has access to this item": 'ผู้ใช้นี้สามารถเข้าถึงรายการนี้ได้แล้ว', // In English: "This user already has access to this item"
 
     }
 };
