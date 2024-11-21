@@ -104,6 +104,34 @@ class HTTPThumbnailService extends BaseService {
         }
     }
 
+    async ['__on_install.routes'] (_, { app }) {
+        const r_thumbs = (() => {
+            const require = this.require;
+            const express = require('express');
+            return express.Router();
+        })();
+
+        app.use('/thumbs', r_thumbs);
+
+        r_thumbs.get('/status', (req, res) => {
+            const status_as_string = (status) => {
+                switch ( status ) {
+                    case this.constructor.STATUS_IDLE:
+                        return 'idle';
+                    case this.constructor.STATUS_RUNNING:
+                        return 'running';
+                    default:
+                        return 'unknown';
+                }
+            }
+            res.json({
+                status: status_as_string(this.status),
+                queue: this.queue.length,
+                recycle_counts: this.queue.map(job => job.recycle_count),
+            });
+        });
+    }
+
     async _init () {
         const services = this.services;
         const svc_serverHealth = services.get('server-health');
@@ -298,6 +326,17 @@ class HTTPThumbnailService extends BaseService {
         }
 
         this.constructor.SUPPORTED_MIMETYPES = Object.keys(mime_set);
+    }
+
+    _test ({ assert }) {
+        // Thumbnail operation eventually recycles
+        {
+            const thop = new ThumbnailOperation(null);
+            for ( let i = 0 ; i < ThumbnailOperation.MAX_RECYCLE_COUNT ; i++ ) {
+                assert.equal(thop.recycle(), true, `recycle ${i}`);
+            }
+            assert.equal(thop.recycle(), false, 'recycle max');
+        }
     }
 }
 

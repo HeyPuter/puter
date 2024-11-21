@@ -22,6 +22,7 @@ const { BaseService } = require("../exports");
 const CoreModule = require("../src/CoreModule");
 const { Context } = require("../src/util/context");
 const { Kernel } = require("../src/Kernel");
+const { HTTPThumbnailService } = require("../src/services/thumbnails/HTTPThumbnailService");
 
 class TestLogger {
     constructor () {
@@ -100,6 +101,7 @@ class TestKernel extends AdvancedBase {
 
 
         for ( const module of this.modules ) {
+            console.log('module?"???', module)
             const mod_context = this._create_mod_context(
                 mod_install_root_context,
                 {
@@ -130,6 +132,12 @@ TestKernel.prototype._create_mod_context =
 
 const k = new TestKernel();
 k.add_module(new CoreModule());
+k.add_module({
+    install: async (context) => {
+        const services = context.get('services');
+        services.registerService('thumbs-http', HTTPThumbnailService);
+    }
+});
 k.boot();
 
 const do_after_tests_ = [];
@@ -145,62 +153,80 @@ const repeat_after = (fn) => {
 let total_passed = 0;
 let total_failed = 0;
 
-for ( const name in k.services.instances_ ) {
-    console.log('name', name)
-    const ins = k.services.instances_[name];
-    ins.construct();
-    if ( ! ins._test || typeof ins._test !== 'function' ) {
-        continue;
-    }
-    let passed = 0;
-    let failed = 0;
+const main = async () => {
+    console.log('awaiting services readty');
+    await k.services.ready;
+    console.log('services have become ready');
 
-    repeat_after(() => {
-        console.log(`\x1B[33;1m=== [ Service :: ${name} ] ===\x1B[0m`);
-    });
+    const service_names = process.argv.length > 2
+        ? process.argv.slice(2)
+        : Object.keys(k.services.instances_);
 
-    const testapi = {
-        assert: (condition, name) => {
-            name = name || condition.toString();
-            if ( condition() ) {
+    for ( const name of service_names) {
+        if ( ! k.services.instances_[name] ) {
+            console.log(`\x1B[31;1mService not found: ${name}\x1B[0m`);
+            process.exit(1);
+        }
+
+        const ins = k.services.instances_[name];
+        ins.construct();
+        if ( ! ins._test || typeof ins._test !== 'function' ) {
+            continue;
+        }
+        let passed = 0;
+        let failed = 0;
+
+        repeat_after(() => {
+            console.log(`\x1B[33;1m=== [ Service :: ${name} ] ===\x1B[0m`);
+        });
+
+        const testapi = {
+            assert: (condition, name) => {
+                name = name || condition.toString();
+                if ( condition() ) {
+                    passed++;
+                    repeat_after(() => console.log(`\x1B[32;1m  ✔ ${name}\x1B[0m`));
+                } else {
+                    failed++;
+                    repeat_after(() => console.log(`\x1B[31;1m  ✘ ${name}\x1B[0m`));
+                }
+            }
+        };
+
+        testapi.assert.equal = (a, b, name) => {
+            name = name || `${a} === ${b}`;
+            if ( a === b ) {
                 passed++;
                 repeat_after(() => console.log(`\x1B[32;1m  ✔ ${name}\x1B[0m`));
             } else {
                 failed++;
-                repeat_after(() => console.log(`\x1B[31;1m  ✘ ${name}\x1B[0m`));
+                repeat_after(() => {
+                    console.log(`\x1B[31;1m  ✘ ${name}\x1B[0m`);
+                    console.log(`\x1B[31;1m    Expected: ${b}\x1B[0m`);
+                    console.log(`\x1B[31;1m    Got: ${a}\x1B[0m`);
+                });
             }
-        }
-    };
+        };
 
-    testapi.assert.equal = (a, b, name) => {
-        name = name || `${a} === ${b}`;
-        if ( a === b ) {
-            passed++;
-            repeat_after(() => console.log(`\x1B[32;1m  ✔ ${name}\x1B[0m`));
-        } else {
-            failed++;
-            repeat_after(() => {
-                console.log(`\x1B[31;1m  ✘ ${name}\x1B[0m`);
-                console.log(`\x1B[31;1m    Expected: ${b}\x1B[0m`);
-                console.log(`\x1B[31;1m    Got: ${a}\x1B[0m`);
-            });
-        }
-    };
+        ins._test(testapi);
 
-    ins._test(testapi);
+        total_passed += passed;
+        total_failed += failed;
+    }
 
-    total_passed += passed;
-    total_failed += failed;
+    console.log(`\x1B[36;1m<===\x1B[0m ` +
+        'ASSERTION OUTPUTS ARE REPEATED BELOW' +
+        ` \x1B[36;1m===>\x1B[0m`);
+
+    for ( const fn of do_after_tests_ ) {
+        fn();
+    }
+
+    console.log(`\x1B[36;1m=== [ Summary ] ===\x1B[0m`);
+    console.log(`Passed: ${total_passed}`);
+    console.log(`Failed: ${total_failed}`);
+
+    process.exit(total_failed ? 1 : 0);
 }
 
-console.log(`\x1B[36;1m<===\x1B[0m ` +
-    'ASSERTION OUTPUTS ARE REPEATED BELOW' +
-    ` \x1B[36;1m===>\x1B[0m`);
-
-for ( const fn of do_after_tests_ ) {
-    fn();
-}
-
-console.log(`\x1B[36;1m=== [ Summary ] ===\x1B[0m`);
-console.log(`Passed: ${total_passed}`);
-console.log(`Failed: ${total_failed}`);
+main();
