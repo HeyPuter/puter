@@ -350,21 +350,21 @@ const vi = {
 		// ***********************************
 		// Missing translations
 		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "plural_suffix": undefined, // In English: "s"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        "change": 'Thay đổi', // In English: "Change"
+        "clock_visibility": 'ẩn/hiện đồng hồ', // In English: "Clock Visibility"
+        "plural_suffix": 'các', // In English: "s"
+        "reading": 'Đang đọc %strong%', // In English: "Reading %strong%"
+        "writing": 'Đang ghi dữ liệu %strong%', // In English: "Writing %strong%"
+        "unzipping": 'Đang giải nén %strong%', // In English: "Unzipping %strong%"
+        "sequencing": 'Đang đánh thứ tự %strong%', // In English: "Sequencing %strong%"
+        "zipping": 'Đang nén %strong%', // In English: "Zipping %strong%"
+        "Editor": 'Người chỉnh sửa', // In English: "Editor"
+        "Viewer": 'Người xem', // In English: "Viewer"
+        "People with access": 'Người dùng có quyền truy cập', // In English: "People with access"
+        "Share With…": 'Chia sẻ với...', // In English: "Share With…"
+        "Owner": 'Người sở hữu', // In English: "Owner"
+        "You can't share with yourself.": 'Bạn không thể tự chia sẻ với chính mình', // In English: "You can't share with yourself."
+        "This user already has access to this item": 'Người dùng này đã có sẵn quyền truy cập cho mục này', // In English: "This user already has access to this item"
     }
 };
 
