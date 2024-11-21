@@ -347,9 +347,6 @@ const vi = {
         login2fa_recovery_back: 'Quay lại',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
         "change": 'Thay đổi', // In English: "Change"
         "clock_visibility": 'ẩn/hiện đồng hồ', // In English: "Clock Visibility"
         "plural_suffix": 'các', // In English: "s"
