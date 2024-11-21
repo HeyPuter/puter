@@ -349,20 +349,20 @@ const zhtw = {
 		// ***********************************
 		// Missing translations
 		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        "change": '更改', // In English: "Change"
+        "clock_visibility": '時鐘可視性', // In English: "Clock Visibility"
+        "reading": '正在讀取 %strong%', // In English: "Reading %strong%"
+        "writing": '正在寫入 %strong%', // In English: "Writing %strong%"
+        "unzipping": '正在解壓 %strong%', // In English: "Unzipping %strong%"
+        "sequencing": '正在排序 %strong%', // In English: "Sequencing %strong%"
+        "zipping": '正在壓縮 %strong%', // In English: "Zipping %strong%"
+        "Editor": '編輯器', // In English: "Editor"
+        "Viewer": '檢視者', // In English: "Viewer"
+        "People with access": '有權限的人', // In English: "People with access"
+        "Share With…": '分享給……', // In English: "Share With…"
+        "Owner": '所有者', // In English: "Owner"
+        "You can't share with yourself.": '您不能與自己分享。', // In English: "You can't share with yourself."
+        "This user already has access to this item": '該用戶已有訪問此項的權限', // In English: "This user already has access to this item"
     }
 };
 
