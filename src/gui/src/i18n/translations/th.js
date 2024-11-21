@@ -344,9 +344,6 @@ const th = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
         "change": 'เปลี่ยนแปลง', // In English: "Change"
         "clock_visibility": 'การมองเห็นนาฬิกา', // In English: "Clock Visibility"
         "confirm": 'ยืนยัน', // In English: "Confirm"
