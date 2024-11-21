@@ -37,12 +37,14 @@ const ua = {
         browse: "Переглянути",
         cancel: 'Відміна',
         center: 'Відцентрувати',
+        change: 'Змінити',
         change_desktop_background: 'Змінити фон робочого столу…',
         change_email: "Змінити Email",
         change_language: "Змінити Мову",
         change_password: "Змінити Пароль",
         change_ui_colors: "Змінити Тему Оформлення",
         change_username: "Змінити Ім\'я Користувача",
+        clock_visibility: 'Видимість годинника',
         close: 'Закрити',
         close_all_windows: "Закрити всі Вікна",
         close_all_windows_confirm: "Ви впевнені, що хочете закрити всі вікна?",
@@ -52,7 +54,7 @@ const ua = {
         confirm: "Підтвердити",
         confirm_2fa_setup: "Я додав код у свій додаток для аутентифікації",
         confirm_2fa_recovery: "Я зберіг свої коди для відновлення в безпечному місці",
-        confirm_account_for_free_referral_storage_c2a: 'Створіть обліковий запис і підтвердіть свою електронну адресу, щоб отримати 1 Гб безкоштовного дискового простору. Ваш друг також отримає 1 Гб безкоштовного дискового простору.', 
+        confirm_account_for_free_referral_storage_c2a: 'Створіть обліковий запис і підтвердіть свою електронну адресу, щоб отримати 1 Гб безкоштовного дискового простору. Ваш друг також отримає 1 Гб безкоштовного дискового простору.',
         confirm_code_generic_incorrect: "Код невірний",
         confirm_code_generic_too_many_requests: "Забагато запитів. Будь ласка, зачекайте кілька хвилин",
         confirm_code_generic_submit: "Прийняти код",
@@ -70,13 +72,13 @@ const ua = {
         confirm_session_revoke: "Ви впевнені, що хочете відкликати цей сеанс?",
         confirm_your_email_address: "Підтвердити електронну адресу",
         contact_us: "Зв'яжіться з нами",
-        contact_us_verification_required:"Вам необхідно мати підтверджену електронну адресу для використання цієї функції",
+        contact_us_verification_required: "Вам необхідно мати підтверджену електронну адресу для використання цієї функції",
         contain: 'Зміст',
         continue: "Продовжити",
         copy: 'Копіювати',
         copy_link: "Копіювати Посилання",
         copying: "Копіюється",
-        copying_file:"Копіюється %%",
+        copying_file: "Копіюється %%",
         cover: 'Обкладинка',
         create_account: "Створити Обліковий Запис",
         create_free_account: "Створити Безкоштовний Обліковий Запис",
@@ -95,6 +97,7 @@ const ua = {
         delete: 'Видалити',
         delete_account: "Видалити Обліковий Запис",
         delete_permanently: "Видалити Назавжди",
+        deleting_file: "Видалення %%",
         deploy_as_app: 'Розгорнути як додаток',
         descending: 'За спаданням',
         desktop: "Робочий стіл",
@@ -121,13 +124,13 @@ const ua = {
         enable_2fa: "Увімкнути двофакторну аутентифікацію",
         end_hard: "Закрити жорстко",
         end_process_force_confirm: "Ви впевнені, що хочете примусово завершити цей процес?",
-        end_soft: "Закрити м'яко", 
+        end_soft: "Закрити м'яко",
         enlarged_qr_code: "Збільшити QR код",
         enter_password_to_confirm_delete_user: "Введіть пароль для підтвердження видалення облікового запису",
         error_message_is_missing: "Повідомлення про помилку відсутнє",
         error_unknown_cause: "Сталася невідома помилка",
         error_uploading_files: "Збій завантаження файлів",
-        favorites: "Вибране", 
+        favorites: "Вибране",
         feedback: "Зворотній зв'язок",
         feedback_c2a: "Будь ласка, скористайтеся формою нижче, щоб надіслати нам свої відгуки, коментарі та повідомлення про помилки.",
         feedback_sent_confirmation: "Дякуємо, що зв'язалися з нами. Якщо у вас є електронна пошта, пов'язана з вашим обліковим записом, ми відповімо вам якомога швидше.",
@@ -153,7 +156,7 @@ const ua = {
         keep_in_taskbar: 'Зберегти на Панелі Задач',
         language: "Мова",
         license: "Ліцензія",
-        lightness: 'Легкість', 
+        lightness: 'Легкість',
         link_copied: "Посилання скопійоване",
         loading: 'Завантажується',
         log_in: "Ввійти",
@@ -211,6 +214,7 @@ const ua = {
         powered_by_puter_js: "Створено на {{link=docs}}Puter.js{{/link}}",
         preparing: "Підготовка...",
         preparing_for_upload: "Підготовка до завантаження...",
+        print: 'Друкувати',
         privacy: "Конфіденційність",
         proceed_to_login: 'Перейти до Входу',
         proceed_with_account_deletion: "Продовжити Видалення Облікового Запису",
@@ -224,6 +228,7 @@ const ua = {
         publish: "Опублікувати",
         publish_as_website: 'Опублікувати як сайт',
         puter_description: "Puter — це персональна хмара, яка забезпечує конфіденційність, дозволяючи зберігати всі ваші файли, додатки та ігри в одному безпечному місці, доступному з будь-якого місця в будь-який час.",
+        reading: "Читання %strong%",
         reading_file: "Читання файлу",
         recent: "Недавній",
         recommended: "Рекомендований",
@@ -232,7 +237,7 @@ const ua = {
         refer_friends_social_media_c2a: "Отримайте 1 ГБ безкоштовного сховища на Puter.com!",
         refresh: 'Оновити',
         release_address_confirmation: "Ви впевнені, що хочете звільнити цю адресу?",
-        remove_from_taskbar:'Видалити з Панелі Завдань',
+        remove_from_taskbar: 'Видалити з Панелі Завдань',
         rename: 'Перейменувати',
         repeat: 'Повторити',
         replace: 'Замінити',
@@ -263,6 +268,7 @@ const ua = {
         session_saved: "Дякуємо вам за створення облікового запису. Цей сеанс збережено.",
         settings: "Налаштування",
         set_new_password: "Встановити Новий Пароль",
+        share: "Поділитися",
         share_to: "Поділитися з",
         share_with: "Поділитися з",
         shortcut_to: "Ярлик для",
@@ -290,7 +296,7 @@ const ua = {
         trash: 'Кошик',
         two_factor: "Двофакторна аутентифікація",
         two_factor_disabled: "Двофакторна аутентифікація вимкнена",
-        two_factor_enabled:"Двофакторна аутентифікація увімкнена",
+        two_factor_enabled: "Двофакторна аутентифікація увімкнена",
         type: 'Тип',
         type_confirm_to_delete_account: "Введіть 'Підтвердити', щоб видалити обліковий запис.",
         ui_colors: "Кольори UI",
@@ -299,6 +305,7 @@ const ua = {
         undo: 'Скасувати',
         unlimited: 'Необмежено',
         unzip: "Розпакувати",
+        unzipping: "Розпакування %strong%",
         upload: 'Завантажити',
         upload_here: 'Завантажити тут',
         usage: 'Використання',
@@ -308,11 +315,14 @@ const ua = {
         versions: "Версії",
         videos: "Відео",
         visibility: 'Видимість',
+        writing: 'Написання %strong%',
         yes: 'Так',
         yes_release_it: 'Так, звільнити.',
         you_have_been_referred_to_puter_by_a_friend: "Вас запросив друг у Puter!",
         zip: "Архівувати",
+        zipping: "Архівування %strong%",
         zipping_file: "Архівування %strong%",
+        sequencing: "Порядок %strong%",
         setup2fa_1_step_heading: 'Відкрийте ваш додаток для аутентифікації',
         setup2fa_1_instructions: `Ви можете використовувати будь-який додаток, який підтримує Одноразовий Пароль на основі часу. Їх багато, але якщо ви не впевнені у виборі <a target="_blank" href="https://authy.com/download">Authy</a> є чудовим варіантом для Android і iOS.`,
         setup2fa_2_step_heading: 'Скануйте QR код',
@@ -323,6 +333,7 @@ const ua = {
         setup2fa_5_confirmation_1: 'Я зберіг свої коди в надійному місці',
         setup2fa_5_confirmation_2: 'Я готовий використовувати 2FA',
         setup2fa_5_button: 'Увімкнути 2FA',
+        something_went_wrong: "Щось пішло не так.",
         login2fa_otp_title: 'Введіть код 2FA',
         login2fa_otp_instructions: 'Введіть шестизначний код з вашого додатку для аутентифікації',
         login2fa_recovery_title: 'Введіть код відновлення',
@@ -330,28 +341,13 @@ const ua = {
         login2fa_use_recovery_code: 'Використовуйте код відновлення',
         login2fa_recovery_back: 'Назад',
         login2fa_recovery_placeholder: 'XXXXXXXX',
-
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "deleting_file": undefined, // In English: "Deleting %%"
-        "print": undefined, // In English: "Print"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "share": undefined, // In English: "Share"
-        "something_went_wrong": undefined, // In English: "Something went wrong."
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        Editor: "Редактор",
+        Viewer: "Переглядач",
+        "People with access": "Люди з доступом",
+        "Share With…": "Поділитися з...",
+        Owner: "Власник",
+        "You can't share with yourself.": "Ви не можете поділитися з собою.",
+        "This user already has access to this item": "Цей користувач уже має доступ до цього елементу",
     }
 }
 
