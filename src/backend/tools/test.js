@@ -208,7 +208,7 @@ const main = async () => {
             }
         };
 
-        ins._test(testapi);
+        await ins._test(testapi);
 
         total_passed += passed;
         total_failed += failed;

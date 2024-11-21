@@ -173,6 +173,10 @@ class HTTPThumbnailService extends BaseService {
     }
 
     checkShouldExec_ () {
+        if ( this.test_mode ) {
+            this.test_checked_exec = true;
+            return;
+        }
         if ( this.status !== this.constructor.STATUS_IDLE ) return;
         if ( this.queue.length === 0 ) return;
         this.exec_();
@@ -237,41 +241,8 @@ class HTTPThumbnailService extends BaseService {
     async exec_0 (queue) {
         const { axios } = this.modules;
 
-        let expected = 0;
-
-        const form = new FormData();
-        for ( const job of queue ) {
-            expected++;
-            // const blob = new Blob([job.file.buffer], { type: job.file.mimetype });
-            // form.append('file', blob, job.file.filename);
-            const file_data = job.file.buffer ? (() => {
-                job.file.size = job.file.buffer.length;
-                return buffer_to_stream(job.file.buffer);
-            })() : job.file.stream;
-            // const file_data = job.file.buffer ?? job.file.stream;
-            console.log('INFORMATION ABOUT THIS FILE', {
-                file_has_a_buffer: !!job.file.buffer,
-                file_has_a_stream: !!job.file.stream,
-                file: job.file,
-            });
-            form.append('file', file_data, {
-                filename: job.file.name ?? job.file.originalname,
-                contentType: job.file.type ?? job.file.mimetype,
-                knownLength: job.file.size,
-            });
-        }
-
         this.log.info('starting thumbnail request');
-        const resp = await axios.request(
-            {
-                method: 'post',
-                url: `${this.host_}/thumbify`,
-                data: form,
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                }
-            }
-        );
+        const resp = await this.request_({ queue });
         this.log.info('done thumbnail request');
 
         if ( resp.status !== 200 ) {
@@ -301,6 +272,64 @@ class HTTPThumbnailService extends BaseService {
         }
     }
 
+    async request_ ({ queue }) {
+        if ( this.test_mode ) {
+            const results = [];
+            for ( const job of queue ) {
+                console.log('file?', job.file);
+                if ( job.file?.behavior === 'fail' ) {
+                    throw new Error('test fail');
+                }
+                results.push({
+                    encoded: 'data:image/png;base64,' +
+                        'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAIAQMAAAD+wSzIAAAABlBMVEX' +
+                        '///+/v7+jQ3Y5AAAADklEQVQI12P4AIX8EAgALgAD/aNpbtEAAAAASU' +
+                        'VORK5CYII',
+                });
+            }
+            return {
+                status: 200,
+                data: results,
+            };
+        } 
+
+        const form = new FormData();
+        let expected = 0;
+        for ( const job of queue ) {
+            expected++;
+            // const blob = new Blob([job.file.buffer], { type: job.file.mimetype });
+            // form.append('file', blob, job.file.filename);
+            const file_data = job.file.buffer ? (() => {
+                job.file.size = job.file.buffer.length;
+                return buffer_to_stream(job.file.buffer);
+            })() : job.file.stream;
+            // const file_data = job.file.buffer ?? job.file.stream;
+            console.log('INFORMATION ABOUT THIS FILE', {
+                file_has_a_buffer: !!job.file.buffer,
+                file_has_a_stream: !!job.file.stream,
+                file: job.file,
+            });
+            form.append('file', file_data, {
+                filename: job.file.name ?? job.file.originalname,
+                contentType: job.file.type ?? job.file.mimetype,
+                knownLength: job.file.size,
+            });
+        }
+
+        const resp = await axios.request(
+            {
+                method: 'post',
+                url: `${this.host_}/thumbify`,
+                data: form,
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                }
+            }
+        );
+
+        return resp;
+    }
+
     async query_supported_mime_types_() {
         const resp = await axios.request(
             {
@@ -328,7 +357,13 @@ class HTTPThumbnailService extends BaseService {
         this.constructor.SUPPORTED_MIMETYPES = Object.keys(mime_set);
     }
 
-    _test ({ assert }) {
+    async _test ({ assert }) {
+        this.errors.report = () => {};
+        this.log = {
+            info: () => {},
+            error: () => {},
+            noticeme: () => {},
+        };
         // Thumbnail operation eventually recycles
         {
             const thop = new ThumbnailOperation(null);
@@ -337,6 +372,32 @@ class HTTPThumbnailService extends BaseService {
             }
             assert.equal(thop.recycle(), false, 'recycle max');
         }
+
+        this.test_mode = true;
+
+        // Hunch: 
+
+        // Request and await the thumbnailing of a few files
+        for ( let i=0 ; i < 3 ; i++ ) {
+            const job = new ThumbnailOperation({ behavior: 'ok' });
+            this.queue.push(job);
+
+        }
+        this.test_checked_exec = false;
+        await this.exec_();
+        assert.equal(this.queue.length, 0, 'queue emptied');
+        assert.equal(this.test_checked_exec, true, 'checked exec');
+
+
+        // test with failed job
+        const job = new ThumbnailOperation({ behavior: 'fail' });
+        this.queue.push(job);
+        this.test_checked_exec = false;
+        await this.exec_();
+        assert.equal(this.queue.length, 0, 'queue emptied');
+        assert.equal(this.test_checked_exec, true, 'checked exec');
+
+        this.test_mode = false;
     }
 }
 
