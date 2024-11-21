@@ -346,9 +346,6 @@ const zhtw = {
         login2fa_recovery_back: '返回',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
         "change": '更改', // In English: "Change"
         "clock_visibility": '時鐘可視性', // In English: "Clock Visibility"
         "reading": '正在讀取 %strong%', // In English: "Reading %strong%"
