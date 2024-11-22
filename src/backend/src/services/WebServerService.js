@@ -127,14 +127,16 @@ class WebServerService extends BaseService {
 
         const url = config.origin;
 
-        // Open the browser to the URL
-        try{
-            const openModule = await import('open');
-            openModule.default(url);
-        }catch(e){
-            console.log('Error opening browser', e);
+        // Open the browser to the URL of Puter
+        // (if we are in development mode only)
+        if(config.env === 'dev') {
+            try{
+                const openModule = await import('open');
+                openModule.default(url);
+            }catch(e){
+                console.log('Error opening browser', e);
+            }
         }
-
         this.startup_widget = () => {
 
             const link = `\x1B[34;1m${osclink(url)}\x1B[0m`;
