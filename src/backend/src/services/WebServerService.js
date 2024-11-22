@@ -129,7 +129,7 @@ class WebServerService extends BaseService {
 
         // Open the browser to the URL of Puter
         // (if we are in development mode only)
-        if(config.env === 'dev') {
+        if(config.env === 'dev' && ! config.no_browser_launch) {
             try{
                 const openModule = await import('open');
                 openModule.default(url);
@@ -495,6 +495,9 @@ class WebServerService extends BaseService {
             }
             const txt = lines.join('\n');
             console.log('\n\x1B[34;1m' + txt + '\x1B[0m\n');
+        }
+        if ( config.os.archbtw ) {
+            console.log('\x1B[34;1mPuter is running on Arch btw\x1B[0m');
         }
     }
 }

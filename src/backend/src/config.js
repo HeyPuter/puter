@@ -110,6 +110,35 @@ config.contact_email = 'hey@' + config.domain;
 //       details to follow in a future announcement.
 config.legacy_token_migrate = true;
 
+// === OS Information ===
+const os = require('os');
+const fs = require('fs');
+config.os = {};
+config.os.platform = os.platform();
+
+if ( config.os.platform === 'linux' ) {
+    try {
+        const osRelease = fs.readFileSync('/etc/os-release').toString();
+        // CONTRIBUTORS: If this is the behavior you expect, please add your
+        //               Linux distro here.
+        if ( osRelease.includes('ID=arch') ) {
+            config.os.distro = 'arch';
+            config.os.archbtw = true;
+        }
+    } catch (_) {
+        // We don't care if we can't read this file;
+        // we'll just assume it's not a Linux distro.
+    }
+}
+
+// config.os.refined specifies if Puter is running within a host environment
+// where a higher level of user configuration and control is expected.
+config.os.refined = config.os.archbtw;
+
+if ( config.os.refined ) {
+    config.no_browser_launch = true;
+}
+
 module.exports = config;
 
 // NEW_CONFIG_LOADING
