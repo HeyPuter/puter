@@ -28,7 +28,6 @@ const fs = require('fs');
 const auth = require('../middleware/auth');
 const { osclink } = require('../util/strutil');
 const { surrounding_box, es_import_promise } = require('../fun/dev-console-ui-utils');
-const auth2 = require('../middleware/auth2.js');
 
 class WebServerService extends BaseService {
     static MODULES = {
@@ -69,7 +68,6 @@ class WebServerService extends BaseService {
         // https://expressjs.com/en/guide/error-handling.html
         this.app.use(require('../api/api_error_handler'));
 
-        const path = require('path')
         const { jwt_auth } = require('../helpers');
 
         config.http_port = process.env.PORT ?? config.http_port;
@@ -129,7 +127,16 @@ class WebServerService extends BaseService {
 
         const url = config.origin;
 
+        // Open the browser to the URL
+        try{
+            const openModule = await import('open');
+            openModule.default(url);
+        }catch(e){
+            console.log('Error opening browser', e);
+        }
+
         this.startup_widget = () => {
+
             const link = `\x1B[34;1m${osclink(url)}\x1B[0m`;
             const lines = [
                 `Puter is now live at: ${link}`,
