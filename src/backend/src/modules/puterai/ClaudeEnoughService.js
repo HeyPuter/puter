@@ -23,6 +23,10 @@ class ClaudeEnoughService extends XAIService {
     get_system_prompt () {
         return CLAUDE_ENOUGH_PROMPT;
     }
+    adapt_model (model) {
+        return 'grok-beta';
+    }
+    
 }
 
 module.exports = {
