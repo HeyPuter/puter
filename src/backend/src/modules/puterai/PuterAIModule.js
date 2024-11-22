@@ -29,11 +29,10 @@ class PuterAIModule extends AdvancedBase {
             services.registerService('openai-image-generation', OpenAIImageGenerationService);
         }
         
-        // Nope; uncomment this if you really want to use Claude.
-        // if ( !! config?.services?.claude ) {
-        //     const { ClaudeService } = require('./ClaudeService');
-        //     services.registerService('claude', ClaudeService);
-        // }
+        if ( !! config?.services?.claude ) {
+            const { ClaudeService } = require('./ClaudeService');
+            services.registerService('claude', ClaudeService);
+        }
 
         if ( !! config?.services?.['together-ai'] ) {
             const { TogetherAIService } = require('./TogetherAIService');
@@ -54,8 +53,8 @@ class PuterAIModule extends AdvancedBase {
             const { XAIService } = require('./XAIService');
             services.registerService('xai', XAIService);
 
-            const { ClaudeEnoughService } = require('./ClaudeEnoughService');
-            services.registerService('claude', ClaudeEnoughService);
+            // const { ClaudeEnoughService } = require('./ClaudeEnoughService');
+            // services.registerService('claude', ClaudeEnoughService);
         }
 
         const { FakeChatService } = require('./FakeChatService');
