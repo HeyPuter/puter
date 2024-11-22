@@ -17,10 +17,14 @@ class XAIService extends BaseService {
     static MODULES = {
         Anthropic: require('@anthropic-ai/sdk'),
     }
+
+    get_system_prompt () {
+        return PUTER_PROMPT;
+    }
     
     async _init () {
         this.anthropic = new Anthropic({
-            apiKey: this.config.apiKey,
+            apiKey: this.global_config.services.xai.apiKey,
             baseURL: 'https://api.x.ai'
         });
     }
@@ -77,7 +81,8 @@ class XAIService extends BaseService {
                             model: model ?? 'grok-beta',
                             max_tokens: 1000,
                             temperature: 0,
-                            system: PUTER_PROMPT + JSON.stringify(system_prompts),
+                            system: this.get_system_prompt() +
+                                JSON.stringify(system_prompts),
                             messages: adapted_messages,
                         });
                         for await ( const event of completion ) {
@@ -100,7 +105,8 @@ class XAIService extends BaseService {
                     model: model ?? 'grok-beta',
                     max_tokens: 1000,
                     temperature: 0,
-                    system: PUTER_PROMPT + JSON.stringify(system_prompts),
+                    system: this.get_system_prompt() +
+                        JSON.stringify(system_prompts),
                     messages: adapted_messages,
                 });
                 return {
