@@ -1284,10 +1284,48 @@ class UI extends EventListener {
 
     showWorking() {
         if (this.#overlayActive) return;
-
+    
+        // Create and add stylesheet for spinner if it doesn't exist
+        if (!document.getElementById('puter-spinner-styles')) {
+            const styleSheet = document.createElement('style');
+            styleSheet.id = 'puter-spinner-styles';
+            styleSheet.textContent = `
+                .puter-loading-spinner {
+                    width: 50px;
+                    height: 50px;
+                    border: 5px solid #f3f3f3;
+                    border-top: 5px solid #3498db;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    margin-bottom: 10px;
+                }
+    
+                .puter-loading-text {
+                    color: white;
+                    font-family: Arial, sans-serif;
+                    font-size: 16px;
+                    margin-top: 10px;
+                    text-align: center;
+                }
+    
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+    
+                .puter-loading-container {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                }
+            `;
+            document.head.appendChild(styleSheet);
+        }
+    
         const overlay = document.createElement('div');
         overlay.classList.add('puter-loading-overlay');
-
+    
         const styles = {
             position: 'fixed',
             top: '0',
@@ -1301,11 +1339,22 @@ class UI extends EventListener {
             alignItems: 'center',
             pointerEvents: 'all'
         };
-
+    
         Object.assign(overlay.style, styles);
-        overlay.innerHTML = '<div class="puter-loading-spinner">Working...</div>';
+        
+        // Create container for spinner and text
+        const container = document.createElement('div');
+        container.classList.add('puter-loading-container');
+        
+        // Add spinner and text
+        container.innerHTML = `
+            <div class="puter-loading-spinner"></div>
+            <div class="puter-loading-text">Working...</div>
+        `;
+        
+        overlay.appendChild(container);
         document.body.appendChild(overlay);
-
+    
         this.#overlayActive = true;
         this.#overlayTimer = setTimeout(() => {
             this.#overlayTimer = null;
