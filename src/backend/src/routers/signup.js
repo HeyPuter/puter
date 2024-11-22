@@ -66,6 +66,10 @@ module.exports = eggspress(['/signup'], {
         body: req.body,
     });
 
+    if( config.registration_closed == true ) {
+        return res.status(403).send('Registration is closed.');
+    }
+        
     // check bot trap, if `p102xyzname` is anything but an empty string it means
     // that a bot has filled the form
     // doesn't apply to temp users
@@ -228,7 +232,7 @@ module.exports = eggspress(['/signup'], {
             'UPDATE `user` SET `last_activity_ts` = now() WHERE id=? LIMIT 1',
             [insert_res.insertId]
         );
-        
+
         // TODO: cache group id
         const svc_group = req.services.get('group');
         await svc_group.add_users({
@@ -348,5 +352,5 @@ module.exports = eggspress(['/signup'], {
             taskbar_items: await get_taskbar_items(user),
             referral_code,
         }
-    })
+    })    
 });
