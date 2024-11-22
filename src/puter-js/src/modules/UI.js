@@ -162,6 +162,9 @@ class UI extends EventListener {
     // The most recent value that we received for a given broadcast, by name.
     #lastBroadcastValue = new Map(); // name -> data
 
+    #overlayActive = false;
+    #overlayTimer = null;
+
     // Replaces boilerplate for most methods: posts a message to the GUI with a unique ID, and sets a callback for it.
     #postMessageWithCallback = function(name, resolve, args = {}) {
         const msg_id = this.#messageID++;
@@ -1277,6 +1280,56 @@ class UI extends EventListener {
         if (this.#eventNames.includes(eventName) && this.#lastBroadcastValue.has(eventName)) {
             callback(this.#lastBroadcastValue.get(eventName));
         }
+    }
+
+    showWorking() {
+        if (this.#overlayActive) return;
+
+        const overlay = document.createElement('div');
+        overlay.classList.add('puter-loading-overlay');
+
+        const styles = {
+            position: 'fixed',
+            top: '0',
+            left: '0',
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            zIndex: '2147483647',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            pointerEvents: 'all'
+        };
+
+        Object.assign(overlay.style, styles);
+        overlay.innerHTML = '<div class="puter-loading-spinner">Working...</div>';
+        document.body.appendChild(overlay);
+
+        this.#overlayActive = true;
+        this.#overlayTimer = setTimeout(() => {
+            this.#overlayTimer = null;
+        }, 1000);
+    }
+
+    hideWorking() {
+        if (!this.#overlayActive) return;
+    
+        if (this.#overlayTimer) {
+            clearTimeout(this.#overlayTimer);
+            this.#overlayTimer = null;
+        }
+    
+        const overlay = document.querySelector('.puter-loading-overlay');
+        if (overlay) {
+            overlay.parentNode?.removeChild(overlay);
+        }
+    
+        this.#overlayActive = false;
+    }
+
+    isWorkingActive() {
+        return this.#overlayActive;
     }
 }
 
