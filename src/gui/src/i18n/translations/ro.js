@@ -344,23 +344,20 @@ const ro = {
         login2fa_recovery_back: "Înapoi",
         login2fa_recovery_placeholder: "XXXXXXXX",
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        change: "Schimbǎ",
+        clock_visibility: "Vizibilitatea Ceasului",
+        reading: "Citire %strong%",
+        writing: "Scriere %strong%",
+        unzipping: "Dezarhivare %strong%",
+        sequencing: "Segvențiere %strong%",
+        zipping: "Arhivare %strong%",
+        Editor: "Editor",
+        Viewer: "Privitor",
+        "People with access": "Persoane cu acces",
+        "Share With…": "Partajare cu…", // In Romanian "partajare" is not that used, we use the verb "a împărți" but all apps seem to translate "share" to "partajare"
+        Owner: "Proprietar",
+        "You can't share with yourself.": "Nu poți partaja cu tine însuți.", // In English: "You can't share with yourself."
+        "This user already has access to this item": "Acest utilizator are deja acces la acest element",
 
     }
 }
