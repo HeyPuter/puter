@@ -99,45 +99,6 @@ For detailed guides on self-hosting Puter, including configuration options and b
 
 <br/>
 
-### 🌎 Installation on public server
-Subdomain is puter. Replace "domain.com" with your domain name.
-
-#### -Create DNS entries for puter.domain.com and api.puter.domain.com, both pointing to the same IP.
-
-#### -Create apache domain configs for puter.domain.com and api.puter.domain.com and add reverse proxy entries for both subdomains
-```$ a2enmod proxy```
-```$ a2enmod proxy_http```
-
-
-##### /etc/apache/sites-enabled/--configfile---
-```
-ProxyPass / http://localhost:4100/
-ProxyPassReverse / http://localhost:4100/
-```
-#### -Edit ./src/backend/src/config.js
-Add after ```let config = {};```
-```
-config.api_base_url = 'https://api.puter.domain.com';
-config.origin='https://puter.domain.com';
-config.http_port=443;´
-config.pub_port=443;
-config.protocol='https';
-```
-
-#### -Edit ./node_modules/@heyputer/backend/src/services/WebServerService.js and  ./src/backend/src/services/WebServerService.js
-Search for
-```if (allowedDomains.some(allowedDomain => hostName ===```
-and change the line to
-```if (allowedDomains.some(allowedDomain => hostName === "puter.domain.com" || hostName.endsWith('.' + allowedDomain))) {```
-
-#### -Edit ./volatile/config/config.json
-Change ```"domain": "puter.localhost"``` to ```"domain": "puter.domain.com"```
-
-#### -Run sed to replace the domain in all remaining files
-``` grep -rl "puter.localhost:4100" . | xargs sed -i 's/puter.localhost:4001/puter.domain.com/g' ```
-<br>
-<br>
-
 ### ☁️ Puter.com
 
 Puter is available as a hosted service at [**puter.com**](https://puter.com).
