@@ -21,6 +21,10 @@ class XAIService extends BaseService {
     get_system_prompt () {
         return PUTER_PROMPT;
     }
+
+    adapt_model (model) {
+        return model;
+    }
     
     async _init () {
         this.anthropic = new Anthropic({
@@ -28,7 +32,7 @@ class XAIService extends BaseService {
             baseURL: 'https://api.x.ai'
         });
     }
-    
+
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
             async list () {
@@ -37,6 +41,7 @@ class XAIService extends BaseService {
                 ];
             },
             async complete ({ messages, stream, model }) {
+                model = this.adapt_model(model);
                 const adapted_messages = [];
                 
                 const system_prompts = [];
