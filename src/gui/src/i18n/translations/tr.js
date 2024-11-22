@@ -349,9 +349,6 @@ const tr = {
         login2fa_recovery_back: "Geri",
         login2fa_recovery_placeholder: "XXXXXXXX",
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
         "change": "Değiştir", // In English: "Change"
         "clock_visibility": "Saat Görünürlüğü", // In English: "Clock Visibility"
         "confirm": "Onayla", // In English: "Confirm"
