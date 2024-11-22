@@ -17,6 +17,12 @@ class OpenAIImageGenerationService extends BaseService {
     }
 
     static IMPLEMENTS = {
+        ['driver-capabilities']: {
+            supports_test_mode (iface, method_name) {
+                return iface === 'puter-image-generation' &&
+                    method_name === 'generate';
+            }
+        },
         ['puter-image-generation']: {
             async generate ({ prompt, test_mode }) {
                 if ( test_mode ) {
