@@ -345,9 +345,6 @@ const ta = {
         login2fa_recovery_back: 'மீண்டும்',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-        // ***********************************
-        // Missing translations
-        // ***********************************
         "change": "மாற்றம்", // In English: "Change"
         "clock_visibility": "கடிகாரத் தெரிவுநிலை", // In English: "Clock Visibility"
         "confirm": "உறுதி", // In English: "Confirm"
