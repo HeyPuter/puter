@@ -41,23 +41,23 @@ const ta = {
         change_email: "மின்னஞ்சலை மாற்றவும்",
         change_language: "மொழியை மாற்றவும்",
         change_password: "கடவுச்சொல்லை மாற்றவும்",
-        change_ui_colors: "யுஐ நிறங்களை மாற்றவும்", 
+        change_ui_colors: "யுஐ நிறங்களை மாற்றவும்",
         change_username: "பயனர் பெயரை மாற்றவும்",
-        close: 'மூடு', 
-        close_all_windows: "அனைத்து விண்டோஸ் மூடு", 
+        close: 'மூடு',
+        close_all_windows: "அனைத்து விண்டோஸ் மூடு",
         close_all_windows_confirm: "எல்லா சாளரங்களையும் நிச்சயமாக மூட விரும்புகிறீர்களா?",
         close_all_windows_and_log_out: 'விண்டோஸை மூடிவிட்டு வெளியேறவும்',
-        change_always_open_with: "இந்த வகையான கோப்பை எப்போதும் திறக்க விரும்புகிறீர்களா?", 
+        change_always_open_with: "இந்த வகையான கோப்பை எப்போதும் திறக்க விரும்புகிறீர்களா?",
         color: 'நிறம்',
-        confirm_2fa_setup: 'எனது அங்கீகரிப்பு பயன்பாட்டில் குறியீட்டைச் சேர்த்துள்ளேன்', 
+        confirm_2fa_setup: 'எனது அங்கீகரிப்பு பயன்பாட்டில் குறியீட்டைச் சேர்த்துள்ளேன்',
         confirm_2fa_recovery: 'எனது மீட்புக் குறியீடுகளை பாதுகாப்பான இடத்தில் சேமித்துள்ளேன்',
         confirm_account_for_free_referral_storage_c2a: '1 ஜிபி இலவச சேமிப்பிடத்தைப் பெற, கணக்கை உருவாக்கி உங்கள் மின்னஞ்சல் முகவரியை உறுதிப்படுத்தவும். உங்கள் நண்பருக்கு 1 ஜிபி இலவச சேமிப்பகமும் கிடைக்கும்.',
         confirm_code_generic_incorrect: "தவறான குறியீடு.",
         confirm_code_generic_too_many_requests: "பல கோரிக்கைகள். தயவுசெய்து சில நிமிடங்கள் காத்திருக்கவும்.",
         confirm_code_generic_submit: "குறியீட்டை சமர்ப்பிக்கவும்",
-        confirm_code_generic_try_again: "மீண்டும் முயற்சி செய்யவும்", 
-        confirm_code_generic_title: "உறுதிப்படுத்தல் குறியீட்டை உள்ளிடவும்", 
-        confirm_code_2fa_instruction: "உங்கள் அங்கீகரிப்பு பயன்பாட்டிலிருந்து 6 இலக்கக் குறியீட்டை உள்ளிடவும்.", 
+        confirm_code_generic_try_again: "மீண்டும் முயற்சி செய்யவும்",
+        confirm_code_generic_title: "உறுதிப்படுத்தல் குறியீட்டை உள்ளிடவும்",
+        confirm_code_2fa_instruction: "உங்கள் அங்கீகரிப்பு பயன்பாட்டிலிருந்து 6 இலக்கக் குறியீட்டை உள்ளிடவும்.",
         confirm_code_2fa_submit_btn: "சமர்ப்பிக்கவும்",
         confirm_code_2fa_title: "2FA குறியீட்டை உள்ளிடவும்",
         confirm_delete_multiple_items: 'இந்த உருப்படிகளை நிரந்தரமாக நீக்க விரும்புகிறீர்களா?',
@@ -77,7 +77,7 @@ const ta = {
         copying: "நகலெடுக்கிறது",
         copying_file: "நகலெடுக்கிறது %%",
         cover: 'கவர்',
-        create_account: "உங்கள் கணக்கை துவங்குங்கள்", 
+        create_account: "உங்கள் கணக்கை துவங்குங்கள்",
         create_free_account: "இலவச கணக்கை உருவாக்கவும்",
         create_shortcut: "குறுக்குவழியை உருவாக்க",
         credits: "கடன்கள்",
@@ -95,7 +95,7 @@ const ta = {
         delete_account: "கணக்கை நீக்குக",
         delete_permanently: "நிரந்தரமாக நீக்குக",
         deleting_file: "நீக்குகிறது %%",
-        deploy_as_app: 'பயன்பாடாக வரிசைப்படுத்து', 
+        deploy_as_app: 'பயன்பாடாக வரிசைப்படுத்து',
         descending: 'இறங்குதல்',
         desktop: 'டெஸ்க்டாப்',
         desktop_background_fit: "பொருத்தம்",
@@ -104,11 +104,11 @@ const ta = {
         disable_2fa: '2FA ஐ முடக்கு',
         disable_2fa_confirm: "2FA ஐ நிச்சயமாக முடக்க விரும்புகிறீர்களா?",
         disable_2fa_instructions: "2FA ஐ முடக்க உங்கள் கடவுச்சொல்லை உள்ளிடவும்.",
-        disassociate_dir: "டிஸ்ஸோசியேட் டைரக்டரி", 
+        disassociate_dir: "டிஸ்ஸோசியேட் டைரக்டரி",
         documents: 'ஆவணங்கள்',
         dont_allow: 'அனுமதிக்காதே',
         download: 'பதிவிறக்கவும்',
-        download_file: 'பதிவிறக்க கோப்பு', 
+        download_file: 'பதிவிறக்க கோப்பு',
         downloading: "பதிவிறக்குகிறது",
         email: "மின்னஞ்சல்",
         email_change_confirmation_sent: "உங்கள் புதிய மின்னஞ்சல் முகவரிக்கு உறுதிப்படுத்தல் மின்னஞ்சல் அனுப்பப்பட்டுள்ளது. செயல்முறையை முடிக்க உங்கள் இன்பாக்ஸைச் சரிபார்த்து, வழிமுறைகளைப் பின்பற்றவும்.",
@@ -130,7 +130,7 @@ const ta = {
         favorites: "பிடித்தவை",
         feedback: "பின்னூட்டம்",
         feedback_c2a: "உங்கள் கருத்து, கருத்துகள் மற்றும் பிழை அறிக்கைகளை எங்களுக்கு அனுப்ப கீழே உள்ள படிவத்தைப் பயன்படுத்தவும்.",
-        feedback_sent_confirmation: "எங்களை தொடர்பு கொண்டதற்கு நன்றி. உங்கள் கணக்குடன் தொடர்புடைய மின்னஞ்சலை நீங்கள் வைத்திருந்தால், கூடிய விரைவில் எங்களிடமிருந்து பதிலளிப்பீர்கள்.", 
+        feedback_sent_confirmation: "எங்களை தொடர்பு கொண்டதற்கு நன்றி. உங்கள் கணக்குடன் தொடர்புடைய மின்னஞ்சலை நீங்கள் வைத்திருந்தால், கூடிய விரைவில் எங்களிடமிருந்து பதிலளிப்பீர்கள்.",
         fit: "பொருத்தம்",
         folder: 'கோப்புறை',
         force_quit: 'கட்டாயம் வெளியேறு',
@@ -156,14 +156,14 @@ const ta = {
         link_copied: "இணைப்பு நகலெடுக்கப்பட்டது",
         loading: 'ஏற்றுகிறது',
         log_in: "உள்நுழைய",
-        log_into_another_account_anyway: 'எப்படியும் மற்றொரு கணக்கில் உள்நுழைக', 
+        log_into_another_account_anyway: 'எப்படியும் மற்றொரு கணக்கில் உள்நுழைக',
         log_out: 'வெளியேறு',
         looks_good: "நன்றாக இருக்கிறது!",
         manage_sessions: "அமர்வுகளை நிர்வகிக்கவும்",
-        menubar_style: "மெனுபார் உடை", 
+        menubar_style: "மெனுபார் உடை",
         menubar_style_desktop: "டெஸ்க்டாப்",
         menubar_style_system: "அமைப்பு",
-        menubar_style_window: "ஜன்னல்", 
+        menubar_style_window: "ஜன்னல்",
         modified: 'மாற்றியமைக்கப்பட்டது',
         move: 'நகர்வு',
         moving_file: "நகரும் %%",
@@ -232,15 +232,15 @@ const ta = {
         refer_friends_social_media_c2a: `Puter.com இல் 1 GB இலவச சேமிப்பிடத்தைப் பெறுங்கள்!`,
         refresh: 'புதுப்பிப்பு',
         release_address_confirmation: `இந்த முகவரியை நிச்சயமாக வெளியிட விரும்புகிறீர்களா?`,
-        remove_from_taskbar:'பணிப்பட்டியில் இருந்து அகற்று',
+        remove_from_taskbar: 'பணிப்பட்டியில் இருந்து அகற்று',
         rename: 'மறுபெயரிடவும்',
         repeat: 'மீண்டும் செய்யவும்',
         replace: 'மாற்றவும்',
         replace_all: 'அனைத்தையும் மாற்றவும்',
         resend_confirmation_code: "உறுதிப்படுத்தல் குறியீட்டை மீண்டும் அனுப்பவும்",
         reset_colors: "வண்ணங்களை மீட்டமைக்கவும்",
-        restart_puter_confirm: "நிச்சயமாக புட்டர்-ஐ மீண்டும் தொடங்க விரும்புகிறீர்களா?", 
-        restore: "மீட்டமை",  
+        restart_puter_confirm: "நிச்சயமாக புட்டர்-ஐ மீண்டும் தொடங்க விரும்புகிறீர்களா?",
+        restore: "மீட்டமை",
         save: 'சேமிக்கவும்',
         saturation: 'செறிவூட்டல்',
         save_account: 'கணக்கைச் சேமிக்கவும்',
@@ -317,7 +317,7 @@ const ta = {
         zipping_file: "ஜிப்பிங் %strong%",
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'உங்கள் அங்கீகரிப்பு பயன்பாட்டைத் திறக்கவும்',      
+        setup2fa_1_step_heading: 'உங்கள் அங்கீகரிப்பு பயன்பாட்டைத் திறக்கவும்',
         setup2fa_1_instructions: `
             Time-based One-Time Password (TOTP) நெறிமுறையை ஆதரிக்கும் எந்த அங்கீகார பயன்பாட்டையும் நீங்கள் பயன்படுத்தலாம்.
  தேர்வு செய்ய பல உள்ளன, ஆனால் நீங்கள் உறுதியாக தெரியவில்லை என்றால்
@@ -345,25 +345,21 @@ const ta = {
         login2fa_recovery_back: 'மீண்டும்',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "confirm": undefined, // In English: "Confirm"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
-
+        "change": "மாற்றம்", // In English: "Change"
+        "clock_visibility": "கடிகாரத் தெரிவுநிலை", // In English: "Clock Visibility"
+        "confirm": "உறுதி", // In English: "Confirm"
+        "reading": "வாசித்தல் %strong%", // In English: "Reading %strong%"
+        "writing": "எழுதுதல் %strong%", // In English: "Writing %strong%"
+        "unzipping": "அவிழ்ப்பது %strong%", // In English: "Unzipping %strong%"
+        "sequencing": "வரிசைப்படுத்துதல் %strong%", // In English: "Sequencing %strong%"
+        "zipping": 'சுருக்குதல் %strong%', // In English: "Zipping %strong%"
+        "Editor": 'பதிப்பாசிரியர்', // In English: "Editor"
+        "Viewer": 'பார்வையாளர்', // In English: "Viewer"
+        "People with access": 'அணுகல் உள்ளவர்கள்', // In English: "People with access"
+        "Share With…": 'உடன் பகிர்ந்து கொள்..', // In English: "Share With…"
+        "Owner": 'உரிமையாளர்', // In English: "Owner"
+        "You can't share with yourself.": 'உங்களுடன் பகிர்ந்து கொள்ள முடியாது', // In English: "You can't share with yourself."
+        "This user already has access to this item": 'இந்தப் பயனருக்கு ஏற்கனவே இந்த உருப்படிக்கான அணுகல் உள்ளது', // In English: "This user already has access to this item"
     }
 };
 
