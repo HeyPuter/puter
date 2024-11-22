@@ -38,6 +38,7 @@ class DriverService extends BaseService {
         this.drivers = {};
         this.interface_to_implementation = {};
         this.interface_to_test_service = {};
+        this.service_aliases = {};
     }
     
     async ['__on_registry.collections'] () {
@@ -81,6 +82,10 @@ class DriverService extends BaseService {
 
     register_test_service (interface_name, service_name) {
         this.interface_to_test_service[interface_name] = service_name;
+    }
+
+    register_service_alias (service_name, alias) {
+        this.service_aliases[alias] = service_name;
     }
     
     get_interface (interface_name) {
@@ -152,6 +157,12 @@ class DriverService extends BaseService {
             driver = this.interface_to_test_service[iface];
         }
 
+        const client_driver_call = {
+            intended_service: driver,
+            test_mode,
+        };
+        driver = this.service_aliases[driver] ?? driver;
+
         const driver_service_exists = (() => {
             console.log('CHECKING FOR THIS', driver, iface);
             return this.services.has(driver) &&
@@ -165,13 +176,17 @@ class DriverService extends BaseService {
             if ( test_mode && caps && caps.supports_test_mode(iface, method) ) {
                 skip_usage = true;
             }
-
-            return await this.call_new_({
-                actor,
-                service,
-                service_name: driver,
-                iface, method, args: processed_args,
-                skip_usage,
+            
+            return await Context.sub({
+                client_driver_call,
+            }).arun(async () => {
+                return await this.call_new_({
+                    actor,
+                    service,
+                    service_name: driver,
+                    iface, method, args: processed_args,
+                    skip_usage,
+                });
             });
         }
 
@@ -261,6 +276,10 @@ class DriverService extends BaseService {
         iface, method, args,
         skip_usage,
     }) {
+        if ( ! service ) {
+            service = this.services.get(service_name);
+        }
+
         const svc_permission = this.services.get('permission');
         const reading = await svc_permission.scan(
             actor,

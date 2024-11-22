@@ -31,14 +31,29 @@ class XAIService extends BaseService {
             apiKey: this.global_config.services.xai.apiKey,
             baseURL: 'https://api.x.ai'
         });
+
+        const svc_aiChat = this.services.get('ai-chat');
+        svc_aiChat.register_provider({
+            service_name: this.service_name,
+            alias: true,
+        });
     }
 
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
+            async models () {
+                return await this.models_();
+            },
             async list () {
-                return [
-                    'grok-beta',
-                ];
+                const models = await this.models_();
+                const model_names = [];
+                for ( const model of models ) {
+                    model_names.push(model.id);
+                    if ( model.aliases ) {
+                        model_names.push(...model.aliases);
+                    }
+                }
+                return model_names;
             },
             async complete ({ messages, stream, model }) {
                 model = this.adapt_model(model);
@@ -120,6 +135,21 @@ class XAIService extends BaseService {
                 };
             }
         }
+    }
+
+    async models_ () {
+        return [
+            {
+                id: 'grok-beta',
+                name: 'Grok Beta',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 500,
+                    output: 1500,
+                },
+            }
+        ];
     }
 }
 

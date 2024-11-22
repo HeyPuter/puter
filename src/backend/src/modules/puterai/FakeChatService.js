@@ -7,7 +7,19 @@ class FakeChatService extends BaseService {
                 return ['fake'];
             },
             async complete ({ messages, stream, model }) {
+                const { LoremIpsum } = require('lorem-ipsum');
+                const li = new LoremIpsum({
+                    sentencesPerParagraph: {
+                        max: 8,
+                        min: 4
+                    },
+                    wordsPerSentence: {
+                        max: 20,
+                        min: 12
+                    },
+                });
                 return {
+                    "index": 0,
                     message: {
                         "id": "00000000-0000-0000-0000-000000000000",
                         "type": "message",
@@ -16,7 +28,9 @@ class FakeChatService extends BaseService {
                         "content": [
                             {
                                 "type": "text",
-                                "text": "I am a fake AI, I don't know how to respond to anything."
+                                "text": li.generateParagraphs(
+                                    Math.floor(Math.random() * 3) + 1
+                                )
                             }
                         ],
                         "stop_reason": "end_turn",
@@ -25,7 +39,9 @@ class FakeChatService extends BaseService {
                             "input_tokens": 0,
                             "output_tokens": 1
                         }
-                    }
+                    },
+                    "logprobs": null,
+                    "finish_reason": "stop"
                 }
             }
         }

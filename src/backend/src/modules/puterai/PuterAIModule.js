@@ -57,6 +57,9 @@ class PuterAIModule extends AdvancedBase {
             // services.registerService('claude', ClaudeEnoughService);
         }
 
+        const { AIChatService } = require('./AIChatService');
+        services.registerService('ai-chat', AIChatService);
+
         const { FakeChatService } = require('./FakeChatService');
         services.registerService('fake-chat', FakeChatService);
 

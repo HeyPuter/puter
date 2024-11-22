@@ -22,12 +22,6 @@ class OpenAICompletionService extends BaseService {
     }
 
     static IMPLEMENTS = {
-        ['driver-capabilities']: {
-            supports_test_mode (iface, method_name) {
-                return iface === 'puter-chat-completion' &&
-                    method_name === 'complete';
-            }
-        },
         ['puter-chat-completion']: {
             async list () {
                 return [

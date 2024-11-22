@@ -63,6 +63,9 @@ class Context {
     static arun (cb) {
         return this.get().arun(cb);
     }
+    static sub (values, opt_name) {
+        return this.get().sub(values, opt_name);
+    }
     get (k) {
         return this.values_[k];
     }

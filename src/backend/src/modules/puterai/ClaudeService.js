@@ -22,17 +22,29 @@ class ClaudeService extends BaseService {
         this.anthropic = new Anthropic({
             apiKey: this.config.apiKey
         });
+
+        const svc_aiChat = this.services.get('ai-chat');
+        svc_aiChat.register_provider({
+            service_name: this.service_name,
+            alias: true,
+        });
     }
     
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
+            async models () {
+                return await this.models_();
+            },
             async list () {
-                return [
-                    'claude-3-5-sonnet-latest',
-                    'claude-3-5-sonnet-20241022',
-                    'claude-3-5-sonnet-20240620',
-                    'claude-3-haiku-20240307',
-                ];
+                const models = await this.models_();
+                const model_names = [];
+                for ( const model of models ) {
+                    model_names.push(model.id);
+                    if ( model.aliases ) {
+                        model_names.push(...model.aliases);
+                    }
+                }
+                return model_names;
             },
             async complete ({ messages, stream, model }) {
                 const adapted_messages = [];
@@ -111,6 +123,45 @@ class ClaudeService extends BaseService {
                 };
             }
         }
+    }
+
+    async models_ () {
+        return [
+            {
+                id: 'claude-3-5-sonnet-20241022',
+                aliases: ['claude-3-5-sonnet-latest'],
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 300,
+                    output: 1500,
+                },
+                qualitative_speed: 'fast',
+                max_output: 8192,
+                training_cutoff: '2024-04',
+            },
+            {
+                id: 'claude-3-5-sonnet-20240620',
+                succeeded_by: 'claude-3-5-sonnet-20241022',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 300,
+                    output: 1500,
+                },
+            },
+            {
+                id: 'claude-3-haiku-20240307',
+                // aliases: ['claude-3-haiku-latest'],
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 25,
+                    output: 125,
+                },
+                qualitative_speed: 'fastest',
+            },
+        ];
     }
 }
 
