@@ -3,6 +3,7 @@ const BaseService = require("../../services/BaseService");
 const { whatis } = require("../../util/langutil");
 const { PassThrough } = require("stream");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
+const APIError = require("../../api/APIError");
 
 const PUTER_PROMPT = `
     You are running on an open-source platform called Puter,
@@ -12,6 +13,8 @@ const PUTER_PROMPT = `
     The following JSON contains system messages from the
     user of the driver interface (typically an app on Puter):
 `.replace('\n', ' ').trim();
+
+const MAX_CLAUDE_INPUT_TOKENS = 10000;
 
 class ClaudeService extends BaseService {
     static MODULES = {
@@ -77,6 +80,21 @@ class ClaudeService extends BaseService {
                     if ( message.role === 'user' ) {
                         previous_was_user = true;
                     }
+                }
+
+                const token_count = (() => {
+                    const text = JSON.stringify(adapted_messages) +
+                        JSON.stringify(system_prompts);
+                    
+                    // This is the most accurate token counter available for Claude.
+                    return text.length / 4;
+                })();
+
+                if ( token_count > MAX_CLAUDE_INPUT_TOKENS ) {
+                    throw APIError.create('max_tokens_exceeded', null, {
+                        input_tokens: token_count,
+                        max_tokens: MAX_CLAUDE_INPUT_TOKENS,
+                    });
                 }
                 
                 if ( stream ) {
