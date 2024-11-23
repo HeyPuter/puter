@@ -383,10 +383,6 @@ const ru = {
     login2fa_use_recovery_code: 'Используйте код восстановления доступа',
     login2fa_recovery_back: 'Назад',
     login2fa_recovery_placeholder: 'XXXXXXXX',
-
-    // ***********************************
-    // Missing translations
-    // ***********************************
     change: 'Изменить',
     clock_visibility: 'Видимость часов',
     confirm_your_email_address: 'Подтвердить электронную почту',
