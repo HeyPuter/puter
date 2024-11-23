@@ -1170,3 +1170,27 @@ dialog{
     font-size: 13px;
     margin-top: 5px;
 }
+
+.app-categories {
+    margin-top: 4px;
+    display: flex;
+    gap: 8px;
+}
+
+.app-category {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    display: inline-block;
+    background-color: #e3f2fd;
+    color: #1976d2;
+}
+
+.category-select {
+    width: 300px;
+    padding: 8px;
+    margin-bottom: 16px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}

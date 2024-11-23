@@ -30,6 +30,24 @@ let currently_editing_app;
 let dropped_items;
 let search_query;
 
+const APP_CATEGORIES = [
+    { id: 'games', label: 'Games' },
+    { id: 'developer-tools', label: 'Developer Tools' },
+    { id: 'photo-video', label: 'Photo & Video' },
+    { id: 'productivity', label: 'Productivity' },
+    { id: 'utilities', label: 'Utilities' },
+    { id: 'education', label: 'Education' },
+    { id: 'business', label: 'Business' },
+    { id: 'social', label: 'Social' },
+    { id: 'graphics-design', label: 'Graphics & Design' },
+    { id: 'music-audio', label: 'Music & Audio' },
+    { id: 'news', label: 'News' },
+    { id: 'entertainment', label: 'Entertainment' },
+    { id: 'finance', label: 'Finance' },
+    { id: 'health-fitness', label: 'Health & Fitness' },
+    { id: 'lifestyle', label: 'Lifestyle' },
+];
+
 const deploying_spinner = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><style>.spinner_P7sC{transform-origin:center;animation:spinner_svv2 .75s infinite linear}@keyframes spinner_svv2{100%{transform:rotate(360deg)}}</style><path d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z" class="spinner_P7sC"/></svg>`;
 const loading_spinner = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><style>.spinner_P7sC{transform-origin:center;animation:spinner_svv2 .75s infinite linear}@keyframes spinner_svv2{100%{transform:rotate(360deg)}}</style><path d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z" class="spinner_P7sC"/></svg>`;
 const drop_area_placeholder = `<p>Drop your app folder and files here to deploy.</p><p style="font-size: 16px; margin-top: 0px;">HTML, JS, CSS, ...</p>`;
@@ -526,6 +544,14 @@ function generate_edit_app_section(app) {
                 <label for="edit-app-description">Description</label>
                 <textarea id="edit-app-description">${html_encode(app.description)}</textarea>
                 
+                <label for="edit-app-category">Category</label>
+                <select id="edit-app-category" class="category-select">
+                    <option value="">Select a category</option>
+                    ${APP_CATEGORIES.map(category => 
+                        `<option value="${html_encode(category.id)}" ${app.metadata?.category === category.id ? 'selected' : ''}>${html_encode(category.label)}</option>`
+                    ).join('')}
+                </select>
+
                 <label for="edit-app-filetype-associations">File Associations</label>
                 <p style="margin-top: 10px; font-size:13px;">A comma-separated list of file type specifiers. For example if you include <code>.txt</code>, your apps could be opened when a user clicks on a TXT file.</p>
                 <textarea id="edit-app-filetype-associations" placeholder=".txt, .jpg, application/json">${app.filetype_associations}</textarea>
@@ -881,6 +907,7 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
     const width = $('#edit-app-window-width').val();
     const top = $('#edit-app-window-top').val();
     const left = $('#edit-app-window-left').val();
+    const category = $('#edit-app-category').val();
 
     let filetype_associations = $('#edit-app-filetype-associations').val();
 
@@ -978,6 +1005,7 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         metadata: {
             fullpage_on_landing: $('#edit-app-fullpage-on-landing').is(":checked"),
             social_image: socialImageUrl,
+            category: category || null,
             window_size: {
                 width: width ?? 800,
                 height: height ?? 600,
@@ -1263,6 +1291,16 @@ function generate_app_card(app) {
     h += `<div style="float:left; padding-left: 10px;">`;
     // Title
     h += `<h3 class="got-to-edit-app app-card-title" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? '<svg style="width: 20px; height: 20px; margin-bottom: -5px; margin-left: 5px; opacity: 0.5;" width="59px" height="59px" stroke-width="1.9" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M16 12H17.4C17.7314 12 18 12.2686 18 12.6V19.4C18 19.7314 17.7314 20 17.4 20H6.6C6.26863 20 6 19.7314 6 19.4V12.6C6 12.2686 6.26863 12 6.6 12H8M16 12V8C16 6.66667 15.2 4 12 4C8.8 4 8 6.66667 8 8V12M16 12H8" stroke="#000000" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"></path></svg>' : ''}</h3>`;
+    // // Category
+    // if (app.metadata?.category) {
+    //     const category = APP_CATEGORIES.find(c => c.id === app.metadata.category);
+    //     if (category) {
+    //         h += `<div class="app-categories">`;
+    //         h += `<span class="app-category">${category.label}</span>`;
+    //         h += `</div>`;
+    //     }
+    // }
+
     // link
     h += `<a class="app-card-link" href="${html_encode(applink(app))}" target="_blank">${html_encode(applink(app))}</a>`;
 
