@@ -334,23 +334,20 @@ const hu = {
         login2fa_recovery_back: "Vissza",
         login2fa_recovery_placeholder: "XXXXXXXX",
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        "change": "váltás", // In English: "Change"
+        "clock_visibility": "Óra Megjelenítése", // In English: "Clock Visibility"
+        "reading": "Olvasás %strong%", // In English: "Reading %strong%"
+        "writing": "Írás %strong%", // In English: "Writing %strong%"
+        "unzipping": "Kibontás %strong%", // In English: "Unzipping %strong%"
+        "sequencing": "Sorba rendezés %strong%", // In English: "Sequencing %strong%"
+        "zipping": "Tömörítés %strong%", // In English: "Zipping %strong%"
+        "Editor": "Szerkesztő", // In English: "Editor"
+        "Viewer": "Megtekintő", // In English: "Viewer"
+        "People with access": "Hozzáféréssel rendelkező emberek", // In English: "People with access"
+        "Share With…": "Oszd Meg…", // In English: "Share With…"
+        "Owner": "Tulajdonos", // In English: "Owner"
+        "You can't share with yourself.": "Nem oszthatod meg magaddal.", // In English: "You can't share with yourself."
+        "This user already has access to this item": "Ez a felhasználó már hozzáfér ehhez az elemhez", // In English: "This user already has access to this item"
     }
 };
 
