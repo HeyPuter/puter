@@ -29,6 +29,33 @@ const { PathBuilder } = require('../util/pathutil.js');
 
 let auth_user;
 
+// Helper function to safely handle metadata parsing
+const parseMetadata = (metadata) => {
+    try {
+      // If metadata is null or undefined, return empty object
+      if (!metadata) {
+        return {};
+      }
+      
+      // If metadata is already an object, return it
+      if (typeof metadata === 'object' && !Array.isArray(metadata)) {
+        return metadata;
+      }
+      
+      // If metadata is a string, try to parse it
+      if (typeof metadata === 'string') {
+        return JSON.parse(metadata);
+      }
+      
+      // If we get here, metadata is of an unexpected type
+      console.warn('Unexpected metadata type:', typeof metadata);
+      return {};
+    } catch (error) {
+      console.error('Error parsing metadata:', error);
+      return {};
+    }
+};
+
 // -----------------------------------------------------------------------//
 // All other requests
 // -----------------------------------------------------------------------//
@@ -322,7 +349,7 @@ router.all('*', async function(req, res, next) {
 
                 if(app){
                     // parse app metadata if available
-                    app.metadata  = app.metadata ? JSON.parse(app.metadata) : {};
+                    app.metadata  = parseMetadata(app.metadata);
                     // set app attributes to be passed to the homepage service
                     app_title = app.title;
                     app_description = app.description;
