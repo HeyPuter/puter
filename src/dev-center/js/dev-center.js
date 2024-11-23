@@ -79,6 +79,9 @@ if (URLParams.has('puter.port') && URLParams.get('puter.port')) {
 }
 
 $(document).ready(function () {
+    // initialize assets directory
+    initializeAssetsDirectory();
+
     $('#loading').show();
 
     setTimeout(async function () {
@@ -519,6 +522,7 @@ function generate_edit_app_section(app) {
                 </div>
                 <span id="edit-app-icon-delete" style="${app.icon ? 'display:block;' : ''}">Remove icon</span>
 
+                ${generateSocialImageSection(app)}
                 <label for="edit-app-description">Description</label>
                 <textarea id="edit-app-description">${html_encode(app.description)}</textarea>
                 
@@ -953,6 +957,13 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
     // disable submit button
     $('.edit-app-save-btn').prop('disabled', true);
 
+    let socialImageUrl = null;
+    if ($('#edit-app-social-image').attr('data-base64')) {
+        socialImageUrl = await handleSocialImageUpload(name, $('#edit-app-social-image').attr('data-base64'));
+    } else if ($('#edit-app-social-image').attr('data-url')) {
+        socialImageUrl = $('#edit-app-social-image').attr('data-url');
+    }
+    
     puter.apps.update(currently_editing_app.name, {
         title: title,
         name: name,
@@ -963,6 +974,7 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         background: $('#edit-app-background').is(":checked"),
         metadata: {
             fullpage_on_landing: $('#edit-app-fullpage-on-landing').is(":checked"),
+            social_image: socialImageUrl,
             window_size: {
                 width: width ?? 800,
                 height: height ?? 600,
@@ -975,6 +987,7 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
             hide_titlebar: $('#edit-app-hide-titlebar').is(":checked"),
             locked: $(`#edit-app-locked`).is(":checked") ?? false,
             credentialless: $(`#edit-app-credentialless`).is(":checked") ?? true,
+
         },
         filetypeAssociations: filetype_associations,
     }).then(async (app) => {
@@ -2262,3 +2275,98 @@ $(document).on('click', '.sidebar-toggle', function (e) {
     $('.sidebar').toggleClass('open');
     $('body').toggleClass('sidebar-open');
 })
+
+async function initializeAssetsDirectory() {
+    try {
+        // Check if assets_url exists
+        const existingURL = await puter.kv.get('assets_url');
+        if (!existingURL) {
+            // Create assets directory
+            const assetsDir = await puter.fs.mkdir(
+                `/${authUsername}/AppData/${dev_center_uid}/assets`,
+                { overwrite: false }
+            );
+            
+            // Publish the directory
+            const hostname = `assets-${Math.random().toString(36).substring(2)}`;
+            const route = await puter.hosting.create(hostname, assetsDir.path);
+            
+            // Store the URL
+            await puter.kv.set('assets_url', `https://${hostname}.puter.site`);
+        }
+    } catch (err) {
+        console.error('Error initializing assets directory:', err);
+    }
+}
+
+function generateSocialImageSection(app) {
+    return `
+        <label for="edit-app-social-image">Social Graph Image (1200×630 strongly recommended)</label>
+        <div id="edit-app-social-image" class="social-image-preview" ${app.metadata?.social_image ? `style="background-image:url(${html_encode(app.metadata.social_image)})" data-url="${html_encode(app.metadata.social_image)}"` : ''}>
+            <div id="change-social-image">Change Social Image</div>
+        </div>
+        <span id="edit-app-social-image-delete" style="${app.metadata?.social_image ? 'display:block;' : ''}">Remove social image</span>
+        <p class="social-image-help">This image will be displayed when your app is shared on social media.</p>
+    `;
+}
+
+
+$(document).on('click', '#edit-app-social-image', async function(e) {
+    const res = await puter.ui.showOpenFilePicker({
+        accept: "image/*",
+    });
+
+    const socialImage = await puter.fs.read(res.path);
+    // Convert blob to base64 for preview
+    const reader = new FileReader();
+    reader.readAsDataURL(socialImage);
+
+    reader.onloadend = function() {
+        let image = reader.result;
+        // Get file extension
+        let fileExtension = res.name.split('.').pop();
+        // Get MIME type
+        let mimeType = getMimeType(fileExtension);
+        // Replace MIME type in the data URL
+        image = image.replace('data:application/octet-stream;base64', `data:image/${mimeType};base64`);
+
+        $('#edit-app-social-image').css('background-image', `url(${image})`);
+        $('#edit-app-social-image').attr('data-base64', image);
+        $('#edit-app-social-image-delete').show();
+    }
+});
+
+$(document).on('click', '#edit-app-social-image-delete', async function(e) {
+    $('#edit-app-social-image').css('background-image', '');
+    $('#edit-app-social-image').removeAttr('data-url');
+    $('#edit-app-social-image').removeAttr('data-base64');
+    $('#edit-app-social-image-delete').hide();
+});
+
+async function handleSocialImageUpload(app_name, socialImageData) {
+    if (!socialImageData) return null;
+
+    try {
+        const assets_url = await puter.kv.get('assets_url');
+        if (!assets_url) throw new Error('Assets URL not found');
+
+        // Convert base64 to blob
+        const base64Response = await fetch(socialImageData);
+        const blob = await base64Response.blob();
+
+        // Get assets directory path
+        const assetsDir = `/${authUsername}/AppData/${dev_center_uid}/assets`;
+        
+        // Upload new image
+        await puter.fs.upload(
+            new File([blob], `${app_name}.png`, { type: 'image/png' }),
+            assetsDir,
+            { overwrite: true }
+        );
+
+        return `${assets_url}/${app_name}.png`;
+    } catch (err) {
+        console.error('Error uploading social image:', err);
+        throw err;
+    }
+}

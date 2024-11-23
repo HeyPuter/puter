@@ -18,6 +18,7 @@
  */
 const { PathBuilder } = require("../util/pathutil");
 const BaseService = require("./BaseService");
+const {is_valid_url} = require('../helpers');
 
 /**
  * PuterHomepageService serves the initial HTML page that loads the Puter GUI
@@ -147,6 +148,7 @@ class PuterHomepageService extends BaseService {
             short_description,
             company,
             canonical_url,
+            social_media_image,
             icon,
         } = meta;
 
@@ -168,7 +170,18 @@ class PuterHomepageService extends BaseService {
 
         const bundled = env != 'dev' || use_bundled_gui;
 
-        const icon_url = icon || `${asset_dir}/images/screenshot.png`;
+        // if social media image is not a valid absolute URL, set it to null
+        if (social_media_image && !is_valid_url(social_media_image)) {
+            social_media_image = null;
+        }
+
+        // social media image must end with a valid image extension
+        if (social_media_image && !/\.(png|jpg|jpeg|gif|webp)$/.test(social_media_image.toLowerCase())) {
+            social_media_image = null;
+        }
+
+        // set social media image to default if it is not valid
+        const social_media_image_url = social_media_image || `${asset_dir}/images/screenshot.png`;
 
         const writeScriptTag = path =>
             `<script type="${
@@ -191,7 +204,7 @@ class PuterHomepageService extends BaseService {
         <meta property="og:type" content="website">
         <meta property="og:title" content="${e(title)}">
         <meta property="og:description" content="${e((short_description).replace(/\n/g, " "))}">
-        <meta property="og:image" content="${e(icon_url)}">
+        <meta property="og:image" content="${e(social_media_image_url)}">
 
         <!-- Twitter meta tags -->
         <meta name="twitter:card" content="summary_large_image">
@@ -199,7 +212,7 @@ class PuterHomepageService extends BaseService {
         <meta property="twitter:url" content="${e(canonical_url)}">
         <meta name="twitter:title" content="${e(title)}">
         <meta name="twitter:description" content="${e((short_description).replace(/\n/g, " "))}">
-        <meta name="twitter:image" content="${e(icon_url)}">
+        <meta name="twitter:image" content="${e(social_media_image_url)}">
 
         <!-- favicons -->
         <link rel="apple-touch-icon" sizes="57x57" href="${asset_dir}/favicons/apple-icon-57x57.png">

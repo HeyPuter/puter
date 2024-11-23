@@ -1121,6 +1121,52 @@ dialog{
     opacity: 1;
 }
 
-/* td .approval-badge:last-child{
-    margin-bottom: 0;
-} */
+/* 
+    App Social Image
+*/
+
+#edit-app-social-image {
+    width: 300px;
+    height: 157px; /* Maintains 1200x630 aspect ratio at smaller scale */
+    border: 2px dashed #ccc;
+    border-radius: 5px;
+    cursor: pointer;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    position: relative;
+    margin-bottom: 5px;
+}
+
+#change-social-image {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #666;
+    text-align: center;
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+#edit-app-social-image:hover #change-social-image {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 10px;
+    border-radius: 5px;
+}
+
+#edit-app-social-image-delete {
+    display: none;
+    color: #ff4444;
+    cursor: pointer;
+    font-size: 13px;
+    margin-top: 5px;
+}
+
+.social-image-help {
+    color: #666;
+    font-size: 13px;
+    margin-top: 5px;
+}

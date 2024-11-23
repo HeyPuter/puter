@@ -298,7 +298,7 @@ router.all('*', async function(req, res, next) {
         // ------------------------
         else{
             let canonical_url = config.origin + path;
-            let app_name, app_title, app_description, app_icon;
+            let app_name, app_title, app_description, app_icon, app_social_media_image;
             let launch_options = {
                 on_initialized: []
             };
@@ -318,10 +318,16 @@ router.all('*', async function(req, res, next) {
             else if(path.startsWith('/app/')){
                 app_name = path.replace('/app/', '');
                 const app = await get_app({name: app_name});
+
+
                 if(app){
+                    // parse app metadata if available
+                    app.metadata  = app.metadata ? JSON.parse(app.metadata) : {};
+                    // set app attributes to be passed to the homepage service
                     app_title = app.title;
                     app_description = app.description;
                     app_icon = app.icon;
+                    app_social_media_image = app.metadata?.social_image;
                 }
                 // 404 - Not found!
                 else if(app_name){
@@ -359,6 +365,7 @@ router.all('*', async function(req, res, next) {
                     title: app_title,
                     description: app_description || config.short_description,
                     short_description: app_description || config.short_description,
+                    social_media_image: app_social_media_image || config.social_media_image,
                     company: 'Puter Technologies Inc.',
                     canonical_url: canonical_url,
                     icon: app_icon,

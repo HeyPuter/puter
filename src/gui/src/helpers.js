@@ -817,6 +817,7 @@ window.create_folder = async(basedir, appendto_element)=>{
                     window.actions_history.push({
                         operation: 'create_folder',
                         data: el_created_dir
+                        
                     });
                 }
                 clearTimeout(progwin_timeout);
