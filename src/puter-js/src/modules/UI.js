@@ -1282,7 +1282,7 @@ class UI extends EventListener {
         }
     }
 
-    showWorking() {
+    showSpinner() {
         if (this.#overlayActive) return;
     
         // Create and add stylesheet for spinner if it doesn't exist
@@ -1361,7 +1361,7 @@ class UI extends EventListener {
         }, 1000);
     }
 
-    hideWorking() {
+    hideSpinner() {
         if (!this.#overlayActive) return;
     
         if (this.#overlayTimer) {

@@ -952,6 +952,9 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         return;
     }
 
+    // show working spinner
+    puter.ui.showSpinner();
+
     // parse filetype_associations
     filetype_associations = filetype_associations.split(',').map(element => element.trim());
     // disable submit button
@@ -1010,7 +1013,6 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         $(`[data-app-uid="${uid}"]`).attr('data-app-title', html_encode(app.title));
         $(`[data-app-name="${uid}"]`).attr('data-app-name', html_encode(app.name));
     }).catch((err) => {
-
         $('#edit-app-success').hide();
         $('#edit-app-error').show();
         $('#edit-app-error').html(err.error?.message);
@@ -1018,6 +1020,8 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         document.body.scrollTop = document.documentElement.scrollTop = 0;
         // re-enable submit button
         $('.edit-app-save-btn').prop('disabled', false);
+    }).finally(() => {
+        puter.ui.hideSpinner();
     })
 })
 
