@@ -352,10 +352,6 @@ const pt = {
         login2fa_recovery_back: 'Voltar',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        
         'Editor': 'Editor', // In English: "Editor"
         'Viewer': 'Visualizador', // In English: "Viewer"
         'People_with_access': 'Pessoas com acesso', // In English: "People with access"
