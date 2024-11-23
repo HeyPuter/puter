@@ -52,6 +52,7 @@ const deploying_spinner = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns
 const loading_spinner = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><style>.spinner_P7sC{transform-origin:center;animation:spinner_svv2 .75s infinite linear}@keyframes spinner_svv2{100%{transform:rotate(360deg)}}</style><path d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z" class="spinner_P7sC"/></svg>`;
 const drop_area_placeholder = `<p>Drop your app folder and files here to deploy.</p><p style="font-size: 16px; margin-top: 0px;">HTML, JS, CSS, ...</p>`;
 const index_missing_error = `Please upload an 'index.html' file or if you're uploading a directory, make sure it contains an 'index.html' file at its root.`;
+const lock_svg = '<svg style="width: 20px; height: 20px; margin-bottom: -5px; margin-left: 5px; opacity: 0.5;" width="59px" height="59px" stroke-width="1.9" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M16 12H17.4C17.7314 12 18 12.2686 18 12.6V19.4C18 19.7314 17.7314 20 17.4 20H6.6C6.26863 20 6 19.7314 6 19.4V12.6C6 12.2686 6.26863 12 6.6 12H8M16 12V8C16 6.66667 15.2 4 12 4C8.8 4 8 6.66667 8 8V12M16 12H8" stroke="#000000" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
 
 // authUsername
 (async () => {
@@ -488,7 +489,7 @@ function generate_edit_app_section(app) {
         <div class="edit-app-navbar">
             <div style="flex-grow:1;">
                 <img class="app-icon" data-uid="${html_encode(app.uid)}" src="${html_encode(!app.icon ? './img/app.svg' : app.icon)}">
-                <h3 class="app-title" data-uid="${html_encode(app.uid)}">${html_encode(app.title)}</h3>
+                <h3 class="app-title" data-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg : ''}</h3>
                 <div style="margin-top: 4px; margin-bottom: 4px;">
                     <span class="open-app-btn" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Open</span>
                     <span style="margin: 5px; opacity: 0.3;">&bull;</span>
@@ -521,7 +522,7 @@ function generate_edit_app_section(app) {
                 <div class="success" id="edit-app-success">App has been successfully updated.<span class="close-success-msg">&times;</span></div>
                 <input type="hidden" id="edit-app-uid" value="${html_encode(app.uid)}">
 
-                <h3 style="border-bottom: 1px solid #EEE; margin-top: 40px;">Basic Info</h3>
+                <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 40px;">Basic</h3>
                 <label for="edit-app-title">Title</label>
                 <input type="text" id="edit-app-title" placeholder="My Awesome App!" value="${html_encode(app.title)}">
 
@@ -556,7 +557,7 @@ function generate_edit_app_section(app) {
                 <p style="margin-top: 10px; font-size:13px;">A comma-separated list of file type specifiers. For example if you include <code>.txt</code>, your apps could be opened when a user clicks on a TXT file.</p>
                 <textarea id="edit-app-filetype-associations" placeholder=".txt, .jpg, application/json">${app.filetype_associations}</textarea>
 
-                <h3 style="border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window Settings</h3>
+                <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window</h3>
                 <div>
                     <input type="checkbox" id="edit-app-background" name="edit-app-background" value="true" style="margin-top:30px;" ${app.background ? 'checked' : ''}>
                     <label for="edit-app-background" style="display: inline;">Run as a background process.</label>
@@ -596,14 +597,14 @@ function generate_edit_app_section(app) {
                     <label for="edit-app-hide-titlebar" style="display: inline;">Hide window titlebar</label>
                 </div>
 
-                <h3 style="border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Misc</h3>
+                <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Misc</h3>
                 <div style="margin-top:30px;">
                     <input type="checkbox" id="edit-app-locked" name="edit-app-locked" value="true" ${app.metadata?.locked ? 'checked' : ''}>
                     <label for="edit-app-locked" style="display: inline;">Locked</label>
                     <p>When locked, the app cannot be deleted. This is useful to prevent accidental deletion of important apps.</p>
                 </div>
 
-                <h3 style="border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Advanced</h3>
+                <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Advanced</h3>
                 <div style="margin-top:30px;">
                     <input type="checkbox" id="edit-app-credentialless" name="edit-app-credentialless" value="true" ${(app.metadata?.credentialless === true || app.metadata === undefined || app.metadata?.credentialless === undefined) ? 'checked' : ''}>
                     <label for="edit-app-credentialless" style="display: inline;">Credentialless</label>
@@ -1290,7 +1291,7 @@ function generate_app_card(app) {
     // Info
     h += `<div style="float:left; padding-left: 10px;">`;
     // Title
-    h += `<h3 class="got-to-edit-app app-card-title" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? '<svg style="width: 20px; height: 20px; margin-bottom: -5px; margin-left: 5px; opacity: 0.5;" width="59px" height="59px" stroke-width="1.9" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M16 12H17.4C17.7314 12 18 12.2686 18 12.6V19.4C18 19.7314 17.7314 20 17.4 20H6.6C6.26863 20 6 19.7314 6 19.4V12.6C6 12.2686 6.26863 12 6.6 12H8M16 12V8C16 6.66667 15.2 4 12 4C8.8 4 8 6.66667 8 8V12M16 12H8" stroke="#000000" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"></path></svg>' : ''}</h3>`;
+    h += `<h3 class="got-to-edit-app app-card-title" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg : ''}</h3>`;
     // // Category
     // if (app.metadata?.category) {
     //     const category = APP_CATEGORIES.find(c => c.id === app.metadata.category);
