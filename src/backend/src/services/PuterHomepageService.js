@@ -195,7 +195,7 @@ class PuterHomepageService extends BaseService {
     <head>
         <title>${e(title)}</title>
         <meta name="author" content="${e(company)}">
-        <meta name="description" content="${e((description).replace(/\n/g, " "))}">
+        <meta name="description" content="${e((description).replace(/\n/g, " ").trim())}">
         <meta name="facebook-domain-verification" content="e29w3hjbnnnypf4kzk2cewcdaxym1y" />
         <link rel="canonical" href="${e(canonical_url)}">
 
@@ -203,7 +203,7 @@ class PuterHomepageService extends BaseService {
         <meta property="og:url" content="${e(canonical_url)}">
         <meta property="og:type" content="website">
         <meta property="og:title" content="${e(title)}">
-        <meta property="og:description" content="${e((short_description).replace(/\n/g, " "))}">
+        <meta property="og:description" content="${e((short_description).replace(/\n/g, " ").trim())}">
         <meta property="og:image" content="${e(social_media_image_url)}">
 
         <!-- Twitter meta tags -->
@@ -211,7 +211,7 @@ class PuterHomepageService extends BaseService {
         <meta property="twitter:domain" content="puter.com">
         <meta property="twitter:url" content="${e(canonical_url)}">
         <meta name="twitter:title" content="${e(title)}">
-        <meta name="twitter:description" content="${e((short_description).replace(/\n/g, " "))}">
+        <meta name="twitter:description" content="${e((short_description).replace(/\n/g, " ").trim())}">
         <meta name="twitter:image" content="${e(social_media_image_url)}">
 
         <!-- favicons -->
