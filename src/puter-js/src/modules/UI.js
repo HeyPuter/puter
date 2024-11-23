@@ -1282,6 +1282,9 @@ class UI extends EventListener {
         }
     }
 
+    #showTime = null;
+    #hideTimeout = null;
+
     showSpinner() {
         if (this.#overlayActive) return;
     
@@ -1301,7 +1304,6 @@ class UI extends EventListener {
                 }
     
                 .puter-loading-text {
-                    color: white;
                     font-family: Arial, sans-serif;
                     font-size: 16px;
                     margin-top: 10px;
@@ -1332,7 +1334,7 @@ class UI extends EventListener {
             left: '0',
             width: '100%',
             height: '100%',
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
             zIndex: '2147483647',
             display: 'flex',
             justifyContent: 'center',
@@ -1356,11 +1358,12 @@ class UI extends EventListener {
         document.body.appendChild(overlay);
     
         this.#overlayActive = true;
+        this.#showTime = Date.now(); // Add show time tracking
         this.#overlayTimer = setTimeout(() => {
             this.#overlayTimer = null;
         }, 1000);
     }
-
+    
     hideSpinner() {
         if (!this.#overlayActive) return;
     
@@ -1369,12 +1372,34 @@ class UI extends EventListener {
             this.#overlayTimer = null;
         }
     
+        // Calculate how long the spinner has been shown
+        const elapsedTime = Date.now() - this.#showTime;
+        const remainingTime = Math.max(0, 1200 - elapsedTime);
+    
+        // If less than 1 second has passed, delay the hide
+        if (remainingTime > 0) {
+            if (this.#hideTimeout) {
+                clearTimeout(this.#hideTimeout);
+            }
+            
+            this.#hideTimeout = setTimeout(() => {
+                this.#removeSpinner();
+            }, remainingTime);
+        } else {
+            this.#removeSpinner();
+        }
+    }
+    
+    // Add private method to handle spinner removal
+    #removeSpinner() {
         const overlay = document.querySelector('.puter-loading-overlay');
         if (overlay) {
             overlay.parentNode?.removeChild(overlay);
         }
     
         this.#overlayActive = false;
+        this.#showTime = null;
+        this.#hideTimeout = null;
     }
 
     isWorkingActive() {
