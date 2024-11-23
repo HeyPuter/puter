@@ -2228,9 +2228,10 @@ label {
     display: none;
     padding: 30px;
     border-radius: 3px;
-    background-color: #e4f9e4;
+    background-color: #f2fff2;
     position: relative;
     color: green;
+    -webkit-font-smoothing: antialiased;
 }
 
 .hide-sharing-success-alert {

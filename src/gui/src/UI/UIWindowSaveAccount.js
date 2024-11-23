@@ -29,10 +29,12 @@ async function UIWindowSaveAccount(options){
     return new Promise(async (resolve) => {
         let h = '';
         h += `<div>`;
+            h += `<div class="generic-close-window-button disable-user-select" style="z-index:1;"> &times; </div>`;
+
             // success
             h += `<div class="save-account-success">`;
-                h += `<img src="${html_encode(window.icons['c-check.svg'])}" style="width:50px; height:50px; display: block; margin:10px auto;">`;
-                h += `<p style="text-align:center; margin-bottom:10px;">${i18n('session_saved')}</p>`;
+                h += `<img src="${html_encode(window.icons['c-check.svg'])}" style="width:50px; height:50px; display: block; margin:10px auto; margin-bottom: 30px;">`;
+                h += `<p style="text-align:center; margin-bottom:30px;">${i18n('session_saved')}</p>`;
                 h += `<button class="button button-action button-block save-account-success-ok-btn">${i18n('ok')}</button>`
             h+= `</div>`;
     
@@ -77,7 +79,7 @@ async function UIWindowSaveAccount(options){
             single_instance: true,
             is_dir: false,
             body_content: h,
-            has_head: true,
+            has_head: false,
             selectable_body: false,
             draggable_body: true,
             allow_context_menu: false,
@@ -126,6 +128,14 @@ async function UIWindowSaveAccount(options){
             // disable 'Create Account' button
             $(el_window).find('.signup-btn').prop('disabled', true);
 
+            // blur all inputs, blinking cursor is annoying when enter is pressed and form is submitted
+            $(el_window).find('.username').blur();
+            $(el_window).find('.email').blur();
+            $(el_window).find('.password').blur();
+
+            // disable form inputs
+            $(el_window).find('input').prop('disabled', true);
+
             $.ajax({
                 url: window.api_origin + "/save_account",
                 type: 'POST',
@@ -158,12 +168,15 @@ async function UIWindowSaveAccount(options){
                     $(el_window).find('.save-account-form').hide(100, ()=>{
                         $(el_window).find('.save-account-success').show(100);
                     })
+
+                    $(el_window).find('input').prop('disabled', false);
                 },
                 error: function (err){
                     $(el_window).find('.signup-error-msg').html(html_encode(err.responseText));
                     $(el_window).find('.signup-error-msg').fadeIn();
                     // re-enable 'Create Account' button
                     $(el_window).find('.signup-btn').prop('disabled', false);
+                    $(el_window).find('input').prop('disabled', false);
                 }
             });
         })
