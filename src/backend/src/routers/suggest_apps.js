@@ -42,7 +42,7 @@ router.post('/suggest_apps', auth, express.json(), async (req, res, next)=>{
         return res.status(400).send({message: '`uid` or `path` required'})
 
     // modules
-    const {convert_path_to_fsentry, uuid2fsentry, chkperm, suggest_app_for_fsentry}  = require('../helpers')
+    const {convert_path_to_fsentry, uuid2fsentry, suggest_app_for_fsentry}  = require('../helpers')
     let fsentry;
 
     // by uid

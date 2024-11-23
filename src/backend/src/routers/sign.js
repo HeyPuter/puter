@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 "use strict"
-const {sign_file, convert_path_to_fsentry, uuid2fsentry, chkperm, get_app}  = require('../helpers');
+const {sign_file, get_app}  = require('../helpers');
 const eggspress = require('../api/eggspress.js');
 const APIError = require('../api/APIError.js');
 const { Context } = require('../util/context.js');

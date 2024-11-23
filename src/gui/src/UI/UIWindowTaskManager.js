@@ -19,7 +19,6 @@
 import { END_HARD, END_SOFT } from "../definitions.js";
 import UIAlert from "./UIAlert.js";
 import UIContextMenu from "./UIContextMenu.js";
-import UIWindow from "./UIWindow.js";
 import { Component, defineComponent } from '../util/Component.js';
 import UIComponentWindow from './UIComponentWindow.js';
 import Table from './Components/Table.js';

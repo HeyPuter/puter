@@ -20,7 +20,6 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth.js');
-const config = require('../config');
 const { get_user, generate_random_str } = require('../helpers');
 const { DB_WRITE } = require('../services/database/consts.js');
 

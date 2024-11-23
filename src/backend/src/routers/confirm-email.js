@@ -18,7 +18,6 @@
  */
 "use strict"
 const express = require('express');
-const { invalidate_cached_user } = require('../helpers');
 const router = new express.Router();
 const auth = require('../middleware/auth.js');
 const { DB_WRITE } = require('../services/database/consts');

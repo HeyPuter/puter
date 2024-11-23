@@ -21,8 +21,8 @@ const express = require('express');
 const router = new express.Router();
 const auth = require('../middleware/auth.js');
 const config = require('../config');
-const { app_name_exists, refresh_apps_cache, chkperm, convert_path_to_fsentry, get_app } = require('../helpers');
-const { DB_WRITE, DB_READ } = require('../services/database/consts.js');
+const { get_app } = require('../helpers');
+const { DB_READ } = require('../services/database/consts.js');
 const subdomain = require('../middleware/subdomain.js');
 
 // -----------------------------------------------------------------------//

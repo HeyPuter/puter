@@ -17,10 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 "use strict"
-const express = require('express');
-const router = new express.Router();
-const auth = require('../middleware/auth.js');
-const config = require('../config');
 const eggspress = require('../api/eggspress.js');
 const FSNodeParam = require('../api/filesystem/FSNodeParam.js');
 const { Context } = require('../util/context.js');

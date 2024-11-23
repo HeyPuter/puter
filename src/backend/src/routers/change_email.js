@@ -17,11 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 "use strict"
-const validator = require('validator');
-const crypto = require('crypto');
 const eggspress = require('../api/eggspress.js');
 const APIError = require('../api/APIError.js');
-const { DB_READ, DB_WRITE } = require('../services/database/consts.js');
+const { DB_WRITE } = require('../services/database/consts.js');
 
 const config = require('../config.js');
 

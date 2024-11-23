@@ -20,8 +20,7 @@
 const express = require('express')
 const router = new express.Router()
 const config = require('../config')
-const { invalidate_cached_user_by_id, get_user } = require('../helpers')
-const { DB_WRITE } = require('../services/database/consts')
+const { get_user } = require('../helpers')
 
 const jwt = require('jsonwebtoken');
 
