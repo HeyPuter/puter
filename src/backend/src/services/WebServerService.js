@@ -359,6 +359,12 @@ class WebServerService extends BaseService {
                     req.connection?.remoteAddress,
             };
             await svc_event.emit('ip.validate', event);
+
+            // check if no origin
+            if ( req.method === 'POST' && req.headers.origin === undefined ) {
+                event.allow = false;
+            }
+
             if ( ! event.allow ) {
                 return res.status(403).send('Forbidden');
             }
