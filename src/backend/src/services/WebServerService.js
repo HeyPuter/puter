@@ -349,6 +349,21 @@ class WebServerService extends BaseService {
                 return res.status(400).send('Invalid Host header.');
             }
         })
+        
+        // Validate IP with any IP checkers
+        app.use(async (req, res, next)=>{
+            const svc_event = this.services.get('event');
+            const event = {
+                allow: true,
+                ip: req.headers?.['x-forwarded-for'] ||
+                    req.connection?.remoteAddress,
+            };
+            await svc_event.emit('ip.validate', event);
+            if ( ! event.allow ) {
+                return res.status(403).send('Forbidden');
+            }
+            next();
+        });
 
         // Web hooks need a router that occurs before JSON parse middleware
         // so that signatures of the raw JSON can be verified
