@@ -182,9 +182,6 @@ const fa = {
       "شما توسط یک دوست به Puter معرفی شده اید!",
     zip: "فشرده سازی",
 
-    // ***********************************
-    // Missing translations
-    // ***********************************
     account_password: "تایید رمزعبور", // In English: "Verify Account Password"
     allow: "اجازه دسترسی", // In English: "Allow"
     associated_websites: "وب سایت های مرتبط", // In English: "Associated Websites"
