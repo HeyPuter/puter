@@ -83,8 +83,19 @@ class AIChatService extends BaseService {
             },
             async complete (parameters) {
                 const client_driver_call = Context.get('client_driver_call');
-                const { test_mode } = client_driver_call;
-                let { intended_service } = client_driver_call;
+                let { test_mode, intended_service } = client_driver_call;
+                
+                this.log.noticeme('AIChatService.complete', { intended_service, parameters, test_mode });
+                const svc_event = this.services.get('event');
+                const event = {
+                    allow: true,
+                    intended_service,
+                    parameters
+                };
+                await svc_event.emit('ai.prompt.validate', event);
+                if ( ! event.allow ) {
+                    test_mode = true;
+                }
 
                 if ( test_mode ) {
                     intended_service = 'fake-chat';

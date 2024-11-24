@@ -30,6 +30,21 @@ class OpenAICompletionService extends BaseService {
                 ];
             },
             async complete ({ messages, test_mode, stream, model }) {
+
+                // for now this code (also in AIChatService.js) needs to be
+                // duplicated because this hasn't been moved to be under
+                // the centralised controller yet
+                const svc_event = this.services.get('event');
+                const event = {
+                    allow: true,
+                    intended_service: 'openai',
+                    parameters: { messages }
+                };
+                await svc_event.emit('ai.prompt.validate', event);
+                if ( ! event.allow ) {
+                    test_mode = true;
+                }
+                
                 if ( test_mode ) {
                     const { LoremIpsum } = require('lorem-ipsum');
                     const li = new LoremIpsum({
