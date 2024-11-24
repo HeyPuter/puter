@@ -201,6 +201,7 @@ module.exports = eggspress(['/signup'], {
         ip_fwd: req.headers['x-forwarded-for'],
         user_agent: req.headers['user-agent'],
         origin: req.headers['origin'],
+        server: config.server_id,
     };
 
     if(pseudo_user === undefined){
