@@ -22,10 +22,7 @@ import Flexer from './Components/Flexer.js';
 import QRCodeView from './Components/QRCode.js';
 import UIWindow from './UIWindow.js'
 
-let checkbox_id_ = 0;
-
 async function UIWindowQR(options){
-    const confirmations = options.confirmations || [];
 
     options = options ?? {};
 
