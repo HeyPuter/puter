@@ -207,7 +207,14 @@ module.exports = eggspress(['/signup'], {
     if(pseudo_user === undefined){
         insert_res = await db.write(
             `INSERT INTO user
-            (username, email, clean_email, password, uuid, referrer, email_confirm_code, email_confirm_token, free_storage, referred_by, audit_metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (
+                username, email, clean_email, password, uuid, referrer, 
+                email_confirm_code, email_confirm_token, free_storage, 
+                referred_by, audit_metadata, signup_ip, signup_ip_forwarded, 
+                signup_user_agent, signup_origin, signup_server
+            ) 
+            VALUES 
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 // username
                 req.body.username,
@@ -231,7 +238,18 @@ module.exports = eggspress(['/signup'], {
                 referred_by_user ? referred_by_user.id : null,
                 // audit_metadata
                 JSON.stringify(audit_metadata),
-            ]);
+                // signup_ip
+                req.connection.remoteAddress,
+                // signup_ip_fwd
+                req.headers['x-forwarded-for'],
+                // signup_user_agent
+                req.headers['user-agent'],
+                // signup_origin
+                req.headers['origin'],
+                // signup_server
+                config.server_id,
+            ]
+        );
 
         // record activity
         db.write(
