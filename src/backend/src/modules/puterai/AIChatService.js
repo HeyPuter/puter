@@ -92,8 +92,11 @@ class AIChatService extends BaseService {
                     intended_service,
                     parameters
                 };
-                await svc_event.emit('ai.prompt.validate', event);
                 if ( ! event.allow ) {
+                    test_mode = true;
+                }
+                
+                if ( ! test_mode && ! await this.moderate(parameters) ) {
                     test_mode = true;
                 }
 
@@ -104,7 +107,7 @@ class AIChatService extends BaseService {
                 if ( intended_service === this.service_name ) {
                     throw new Error('Calling ai-chat directly is not yet supported');
                 }
-
+                
                 const svc_driver = this.services.get('driver');
                 const ret = await svc_driver.call_new_({
                     actor: Context.get('actor'),
@@ -114,9 +117,46 @@ class AIChatService extends BaseService {
                     args: parameters,
                 });
                 ret.result.via_ai_chat_service = true;
+
+                const username = Context.get('actor').type?.user?.username;
+                
+                console.log('emitting ai.prompt.complete');
+                await svc_event.emit('ai.prompt.complete', {
+                    username,
+                    intended_service,
+                    parameters,
+                    result: ret.result,
+                });
+
                 return ret.result;
             }
         }
+    }
+    
+    async moderate ({ messages }) {
+        const svc_openai = this.services.get('openai-completion');
+
+        // We can't use moderation of openai service isn't available
+        if ( ! svc_openai ) return true;
+        
+        for ( const msg of messages ) {
+            const texts = [];
+            if ( typeof msg.content === 'string' ) texts.push(msg.content);
+            else if ( typeof msg.content === 'object' ) {
+                if ( Array.isArray(msg.content) ) {
+                    texts.push(...msg.content.filter(o => (
+                        ( ! o.type && o.hasOwnProperty('text') ) ||
+                        o.type === 'text')).map(o => o.text));
+                }
+                else texts.push(msg.content.text);
+            }
+            
+            const fulltext = texts.join('\n');
+            
+            const mod_result = await svc_openai.check_moderation(fulltext);
+            if ( mod_result.flagged ) return false;
+        }
+        return true;
     }
 
     async models_ () {
