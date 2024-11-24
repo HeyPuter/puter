@@ -135,6 +135,9 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [27, [
                 '0030_comments.sql',
             ]],
+            [28, [
+                '0031_audit-meta.sql',
+            ]],
         ];
 
         // Database upgrade logic
