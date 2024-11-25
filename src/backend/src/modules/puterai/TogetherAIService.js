@@ -17,18 +17,23 @@ class TogetherAIService extends BaseService {
             apiKey: this.config.apiKey
         });
         this.kvkey = this.modules.uuidv4();
-        debugger;
+
+        const svc_aiChat = this.services.get('ai-chat');
+        svc_aiChat.register_provider({
+            service_name: this.service_name,
+            alias: true,
+        });
     }
     
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
+            async models () {
+                return await this.models_();
+            },
             async list () {
                 let models = this.modules.kv.get(`${this.kvkey}:models`);
-                if ( models ) return models;
-                models = await this.together.models.list();
-                this.modules.kv.set(
-                    `${this.kvkey}:models`, models, { EX: 5*60 });
-                return models;
+                if ( ! models ) models = await this.models_();
+                return models.map(model => model.id);
             },
             async complete ({ messages, stream, model }) {
                 console.log('model?', model);
@@ -67,6 +72,30 @@ class TogetherAIService extends BaseService {
                 return completion.choices[0];
             }
         }
+    }
+
+    async models_ () {
+        let models = this.modules.kv.get(`${this.kvkey}:models`);
+        if ( models ) return models;
+        const api_models = await this.together.models.list();
+        models = [];
+        for ( const model of api_models ) {
+            models.push({
+                id: model.id,
+                name: model.display_name,
+                context: model.context_length,
+                description: model.description,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: model.pricing.input,
+                    output: model.pricing.output,
+                },
+            });
+        }
+        this.modules.kv.set(
+            `${this.kvkey}:models`, models, { EX: 5*60 });
+        return models;
     }
 }
 
