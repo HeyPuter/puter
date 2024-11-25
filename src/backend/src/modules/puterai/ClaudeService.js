@@ -147,7 +147,9 @@ class ClaudeService extends BaseService {
         return [
             {
                 id: 'claude-3-5-sonnet-20241022',
+                name: 'Claude 3.5 Sonnet',
                 aliases: ['claude-3-5-sonnet-latest'],
+                context: 200000,
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
@@ -161,6 +163,7 @@ class ClaudeService extends BaseService {
             {
                 id: 'claude-3-5-sonnet-20240620',
                 succeeded_by: 'claude-3-5-sonnet-20241022',
+                context: 200000, // might be wrong
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
@@ -171,6 +174,7 @@ class ClaudeService extends BaseService {
             {
                 id: 'claude-3-haiku-20240307',
                 // aliases: ['claude-3-haiku-latest'],
+                context: 200000,
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,

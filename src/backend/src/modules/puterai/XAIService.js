@@ -142,11 +142,24 @@ class XAIService extends BaseService {
             {
                 id: 'grok-beta',
                 name: 'Grok Beta',
+                context: 131072,
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
                     input: 500,
                     output: 1500,
+                },
+            },
+            {
+                id: 'grok-vision-beta',
+                name: 'Grok Vision Beta',
+                context: 8192,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 500,
+                    output: 1500,
+                    image: 1000,
                 },
             }
         ];
