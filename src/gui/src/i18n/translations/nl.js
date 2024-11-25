@@ -347,24 +347,20 @@ const nl = {
 		login2fa_recovery_back: 'Terug',
 		login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-		"change": undefined, // In English: "Change"
-		"clock_visibility": undefined, // In English: "Clock Visibility"
-		"reading": undefined, // In English: "Reading %strong%"
-		"writing": undefined, // In English: "Writing %strong%"
-		"unzipping": undefined, // In English: "Unzipping %strong%"
-		"sequencing": undefined, // In English: "Sequencing %strong%"
-		"zipping": undefined, // In English: "Zipping %strong%"
-		"Editor": undefined, // In English: "Editor"
-		"Viewer": undefined, // In English: "Viewer"
-		"People with access": undefined, // In English: "People with access"
-		"Share With…": undefined, // In English: "Share With…"
-		"Owner": undefined, // In English: "Owner"
-		"You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-		"This user already has access to this item": undefined, // In English: "This user already has access to this item"
-
+		"change": 'Wijzigen', // In English: "Change"
+		"clock_visibility": 'Klok zichtbaarheid', // In English: "Clock Visibility"
+		"reading": 'Lezen %strong%', // In English: "Reading %strong%"
+		"writing": 'Schrijven %strong%', // In English: "Writing %strong%"
+		"unzipping": 'Decomprimeren %strong%', // In English: "Unzipping %strong%"
+		"sequencing": 'Alles op een rijtje aan het zetten %strong%', // In English: "Sequencing %strong%"
+		"zipping": 'Aan het comprimeren %strong%', // In English: "Zipping %strong%"
+		"Editor": 'Redacteur', // In English: "Editor"
+		"Viewer": 'Kijker', // In English: "Viewer"
+		"People with access": 'Mensen met toegang', // In English: "People with access"
+		"Share With…": "Deel met...", // In English: "Share With…"
+		"Owner": "Eigenaar", // In English: "Owner"
+		"You can't share with yourself.": "Je kan niet met jezelf delen.", // In English: "You can't share with yourself."
+		"This user already has access to this item": "De gebruiker heeft al toegang tot dit item", // In English: "This user already has access to this item"
 	}
 };
 

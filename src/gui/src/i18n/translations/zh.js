@@ -347,25 +347,21 @@ const zh = {
         login2fa_recovery_back: '后退',
         login2fa_recovery_placeholder: '********',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        "change": '修改', // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "plural_suffix": '复数后缀，比如,单词(apple)的复数需要在单词未尾加 s', // In English: "s"
-        "reading": '正在读取 %strong% ', // In English: "Reading %strong%"
+        "change": '更改', // In English: "Change"
+        "clock_visibility": '时钟可见性', // In English: "Clock Visibility"
+        "plural_suffix": '单位后缀', // In English: "plural_suffix"
+        "reading": '正在读取 %strong%', // In English: "Reading %strong%"
         "writing": '正在写入 %strong%', // In English: "Writing %strong%"
         "unzipping": '正在解压 %strong%', // In English: "Unzipping %strong%"
-        "sequencing": '正在给 %strong% 排序', // In English: "Sequencing %strong%"
+        "sequencing": '正在排序 %strong%', // In English: "Sequencing %strong%"
         "zipping": '正在压缩 %strong%', // In English: "Zipping %strong%"
-        "Editor": '编辑器', // In English: "Editor"
-        "Viewer": '浏览器', // In English: "Viewer"
-        "People with access": '有访问权限的人(们)', // In English: "People with access"
+        "Editor": '文本编辑器', // In English: "Editor"
+        "Viewer": '查看器', // In English: "Viewer"
+        "People with access": '拥有权限者', // In English: "People with access"
         "Share With…": '分享给...', // In English: "Share With…"
-        "Owner": '所有者', // In English: "Owner"
-        "You can't share with yourself.": '你自己不可以直接分享给自己.', // In English: "You can't share with yourself."
-        "This user already has access to this item": '当前用户已有访问权限.', // In English: "This user already has access to this item"
-
+        "Owner": '作者', // In English: "Owner"
+        "You can't share with yourself.": '你不能与自己分享', // In English: "You can't share with yourself."
+        "This user already has access to this item": '该用户已有访问此项的权限', // In English: "This user already has access to this item"
     }
 };
 
