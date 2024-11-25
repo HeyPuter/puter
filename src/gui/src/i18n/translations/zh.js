@@ -347,9 +347,6 @@ const zh = {
         login2fa_recovery_back: '后退',
         login2fa_recovery_placeholder: '********',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
         "change": '更改', // In English: "Change"
         "clock_visibility": '时钟可见性', // In English: "Clock Visibility"
         "plural_suffix": '单位后缀', // In English: "plural_suffix"
