@@ -131,6 +131,19 @@ class GroqAIService extends BaseService {
                 }
             },
             {
+                // This was only available on their Discord, not
+                // on the pricing page.
+                "id": "llama-3.1-70b-specdec",
+                "name": "Llama 3.1 8B Instant 128k",
+                "context": 128000,
+                "cost": {
+                    "currency": "usd-cents",
+                    "tokens": 1000000,
+                    "input": 59,
+                    "output": 99
+                }
+            },
+            {
                 "id": "llama-3.1-8b-instant",
                 "name": "Llama 3.1 8B Instant 128k",
                 "context": 128000,
