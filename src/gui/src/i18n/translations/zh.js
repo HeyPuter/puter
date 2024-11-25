@@ -362,7 +362,6 @@ const zh = {
         "Owner": '作者', // In English: "Owner"
         "You can't share with yourself.": '你不能与自己分享', // In English: "You can't share with yourself."
         "This user already has access to this item": '该用户已有访问此项的权限', // In English: "This user already has access to this item"
-
     }
 };
 
