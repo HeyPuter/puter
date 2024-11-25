@@ -350,21 +350,21 @@ const zh = {
 		// ***********************************
 		// Missing translations
 		// ***********************************
-        "change": undefined, // In English: "Change"
+        "change": '修改', // In English: "Change"
         "clock_visibility": undefined, // In English: "Clock Visibility"
-        "plural_suffix": undefined, // In English: "s"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        "plural_suffix": '复数后缀，比如,单词(apple)的复数需要在单词未尾加 s', // In English: "s"
+        "reading": '正在读取 %strong% ', // In English: "Reading %strong%"
+        "writing": '正在写入 %strong%', // In English: "Writing %strong%"
+        "unzipping": '正在解压 %strong%', // In English: "Unzipping %strong%"
+        "sequencing": '正在给 %strong% 排序', // In English: "Sequencing %strong%"
+        "zipping": '正在压缩 %strong%', // In English: "Zipping %strong%"
+        "Editor": '编辑器', // In English: "Editor"
+        "Viewer": '浏览器', // In English: "Viewer"
+        "People with access": '有访问权限的人(们)', // In English: "People with access"
+        "Share With…": '分享给...', // In English: "Share With…"
+        "Owner": '所有者', // In English: "Owner"
+        "You can't share with yourself.": '你自己不可以直接分享给自己.', // In English: "You can't share with yourself."
+        "This user already has access to this item": '当前用户已有访问权限.', // In English: "This user already has access to this item"
 
     }
 };
