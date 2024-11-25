@@ -135,6 +135,10 @@ class AIChatService extends BaseService {
                     test_mode = true;
                 }
 
+                if ( ! test_mode ) {
+                    Context.set('moderated', true);
+                }
+
                 if ( test_mode ) {
                     intended_service = 'fake-chat';
                 }
@@ -145,6 +149,7 @@ class AIChatService extends BaseService {
                 
                 const svc_driver = this.services.get('driver');
                 let ret, error, errors = [];
+                let service_used = intended_service;
                 try {
                     ret = await svc_driver.call_new_({
                         actor: Context.get('actor'),
@@ -199,6 +204,7 @@ class AIChatService extends BaseService {
                                 },
                             });
                             error = null;
+                            service_used = fallback_service_name;
                             response_metadata.fallback = {
                                 service: fallback_service_name,
                                 model: fallback_model_name,
@@ -217,6 +223,7 @@ class AIChatService extends BaseService {
                     }
                 }
                 ret.result.via_ai_chat_service = true;
+                response_metadata.service_used = service_used;
 
                 const username = Context.get('actor').type?.user?.username;
                 

@@ -19,19 +19,74 @@ class OpenAICompletionService extends BaseService {
         this.openai = new this.modules.openai.OpenAI({
             apiKey: sk_key
         });
+
+        const svc_aiChat = this.services.get('ai-chat');
+        svc_aiChat.register_provider({
+            service_name: this.service_name,
+            alias: true,
+        });
     }
 
     get_default_model () {
         return 'gpt-4o-mini';
     }
 
+    async models_ () {
+        return [
+            {
+                id: 'gpt-4o',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 250,
+                    output: 500,
+                }
+            },
+            {
+                id: 'gpt-4o-mini',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 15,
+                    output: 30,
+                }
+            },
+            // {
+            //     id: 'o1-preview',
+            //     cost: {
+            //         currency: 'usd-cents',
+            //         tokens: 1_000_000,
+            //         input: 1500,
+            //         output: 6000,
+            //     },
+            // }
+            {
+                id: 'o1-mini',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 300,
+                    output: 1200,
+                }
+            },
+        ];
+    }
+
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
+            async models () {
+                return await this.models_();
+            },
             async list () {
-                return [
-                    'gpt-4o',
-                    'gpt-4o-mini',
-                ];
+                const models = await this.models_();
+                const model_names = [];
+                for ( const model of models ) {
+                    model_names.push(model.id);
+                    if ( model.aliases ) {
+                        model_names.push(...model.aliases);
+                    }
+                }
+                return model_names;
             },
             async complete ({ messages, test_mode, stream, model }) {
 
@@ -134,7 +189,12 @@ class OpenAICompletionService extends BaseService {
                 else texts.push(msg.content.text);
             }
 
-            if ( moderation ) {
+            this.log.noticeme('OPENAI MODERATION CHECK', {
+                moderation,
+                context_value: Context.get('moderated'),
+            })
+            if ( moderation && ! Context.get('moderated') ) {
+                console.log('RAN MODERATION');
                 for ( const text of texts ) {
                     const moderation_result = await this.check_moderation(text);
                     if ( moderation_result.flagged ) {
