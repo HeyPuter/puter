@@ -25,13 +25,27 @@ class AIChatService extends BaseService {
             
             // Populate simple model list
             {
-                const models = await delegate.list();
+                const models = await (async () => {
+                    try {
+                        return await delegate.list() ?? [];
+                    } catch (e) {
+                        this.log.error(e);
+                        return [];
+                    }
+                })();
                 this.simple_model_list.push(...models);
             }
 
             // Populate detail model list and map
             {
-                const models = await delegate.models();
+                const models = await (async () => {
+                    try {
+                        return await delegate.models() ?? [];
+                    } catch (e) {
+                        this.log.error(e);
+                        return [];
+                    }
+                })();
                 const annotated_models = [];
                 for ( const model of models ) {
                     annotated_models.push({
