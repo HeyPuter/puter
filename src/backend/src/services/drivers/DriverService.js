@@ -116,6 +116,12 @@ class DriverService extends BaseService {
             return await this._call(o);
         } catch ( e ) {
             this.log.error('Driver error response: ' + e.toString());
+            if ( ! (e instanceof APIError) ) {
+                this.errors.report('driver', {
+                    source: e,
+                    trace: true,
+                });
+            }
             return this._driver_response_from_error(e);
         }
     }
@@ -159,6 +165,7 @@ class DriverService extends BaseService {
 
         const client_driver_call = {
             intended_service: driver,
+            response_metadata: {},
             test_mode,
         };
         driver = this.service_aliases[driver] ?? driver;
@@ -180,13 +187,15 @@ class DriverService extends BaseService {
             return await Context.sub({
                 client_driver_call,
             }).arun(async () => {
-                return await this.call_new_({
+                const result = await this.call_new_({
                     actor,
                     service,
                     service_name: driver,
                     iface, method, args: processed_args,
                     skip_usage,
                 });
+                result.metadata = client_driver_call.response_metadata;
+                return result;
             });
         }
 

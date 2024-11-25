@@ -39,6 +39,10 @@ class XAIService extends BaseService {
         });
     }
 
+    get_default_model () {
+        return 'grok-beta';
+    }
+
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
             async models () {
@@ -98,7 +102,7 @@ class XAIService extends BaseService {
                     }, stream);
                     (async () => {
                         const completion = await this.anthropic.messages.stream({
-                            model: model ?? 'grok-beta',
+                            model: model ?? this.get_default_model(),
                             max_tokens: 1000,
                             temperature: 0,
                             system: this.get_system_prompt() +
@@ -122,7 +126,7 @@ class XAIService extends BaseService {
                 }
 
                 const msg = await this.anthropic.messages.create({
-                    model: model ?? 'grok-beta',
+                    model: model ?? this.get_default_model(),
                     max_tokens: 1000,
                     temperature: 0,
                     system: this.get_system_prompt() +

@@ -21,6 +21,10 @@ class OpenAICompletionService extends BaseService {
         });
     }
 
+    get_default_model () {
+        return 'gpt-4o-mini';
+    }
+
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
             async list () {
@@ -106,7 +110,7 @@ class OpenAICompletionService extends BaseService {
             throw new Error('`messages` must be an array');
         }
 
-        model = model ?? 'gpt-4o-mini';
+        model = model ?? this.get_default_model();
 
         for ( let i = 0; i < messages.length; i++ ) {
             let msg = messages[i];

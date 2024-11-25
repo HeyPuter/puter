@@ -20,6 +20,10 @@ class GroqAIService extends BaseService {
             alias: true,
         });
     }
+
+    get_default_model () {
+        return 'llama-3.1-8b-instant';
+    }
     
     static IMPLEMENTS = {
         'puter-chat-completion': {
@@ -36,6 +40,8 @@ class GroqAIService extends BaseService {
                     const message = messages[i];
                     if ( ! message.role ) message.role = 'user';
                 }
+
+                model = model ?? this.get_default_model();
 
                 const completion = await this.client.chat.completions.create({
                     messages,

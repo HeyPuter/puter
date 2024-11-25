@@ -130,6 +130,9 @@ class MistralAIService extends BaseService {
         }
         // return resp.data;
     }
+    get_default_model () {
+        return 'mistral-large-latest';
+    }
     static IMPLEMENTS = {
         'puter-chat-completion': {
             async models () {
@@ -153,7 +156,7 @@ class MistralAIService extends BaseService {
                         chunked: true,
                     }, stream);
                     const completion = await this.client.chat.stream({
-                        model: model ?? 'mistral-large-latest',
+                        model: model ?? this.get_default_model(),
                         messages,
                     });
                     (async () => {
@@ -179,7 +182,7 @@ class MistralAIService extends BaseService {
 
                 try {
                     const completion = await this.client.chat.complete({
-                        model: model ?? 'mistral-large-latest',
+                        model: model ?? this.get_default_model(),
                         messages,
                     });
                     // Expected case when mistralai/client-ts#23 is fixed

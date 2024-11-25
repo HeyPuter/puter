@@ -32,6 +32,10 @@ class ClaudeService extends BaseService {
             alias: true,
         });
     }
+
+    get_default_model () {
+        return 'claude-3-5-sonnet-latest';
+    }
     
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
@@ -106,7 +110,7 @@ class ClaudeService extends BaseService {
                     }, stream);
                     (async () => {
                         const completion = await this.anthropic.messages.stream({
-                            model: model ?? 'claude-3-5-sonnet-latest',
+                            model: model ?? this.get_default_model(),
                             max_tokens: 1000,
                             temperature: 0,
                             system: PUTER_PROMPT + JSON.stringify(system_prompts),
@@ -129,7 +133,7 @@ class ClaudeService extends BaseService {
                 }
 
                 const msg = await this.anthropic.messages.create({
-                    model: 'claude-3-5-sonnet-latest',
+                    model: model ?? this.get_default_model(),
                     max_tokens: 1000,
                     temperature: 0,
                     system: PUTER_PROMPT + JSON.stringify(system_prompts),

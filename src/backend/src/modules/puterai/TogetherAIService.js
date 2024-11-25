@@ -19,10 +19,15 @@ class TogetherAIService extends BaseService {
         this.kvkey = this.modules.uuidv4();
 
         const svc_aiChat = this.services.get('ai-chat');
+        console.log('registering provider', this.service_name);
         svc_aiChat.register_provider({
             service_name: this.service_name,
             alias: true,
         });
+    }
+
+    get_default_model () {
+        return 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo';
     }
     
     static IMPLEMENTS = {
@@ -36,10 +41,12 @@ class TogetherAIService extends BaseService {
                 return models.map(model => model.id);
             },
             async complete ({ messages, stream, model }) {
-                console.log('model?', model);
+                if ( model === 'model-fallback-test-1' ) {
+                    throw new Error('Model Fallback Test 1');
+                }
+
                 const completion = await this.together.chat.completions.create({
-                    model: model ??
-                        'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+                    model: model ?? this.get_default_model(),
                     messages: messages,
                     stream,
                 });
@@ -93,6 +100,17 @@ class TogetherAIService extends BaseService {
                 },
             });
         }
+        models.push({
+            id: 'model-fallback-test-1',
+            name: 'Model Fallback Test 1',
+            context: 1000,
+            cost: {
+                currency: 'usd-cents',
+                tokens: 1_000_000,
+                input: 10,
+                output: 10,
+            },
+        });
         this.modules.kv.set(
             `${this.kvkey}:models`, models, { EX: 5*60 });
         return models;
