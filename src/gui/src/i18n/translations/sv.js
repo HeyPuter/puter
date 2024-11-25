@@ -347,9 +347,6 @@ const sv = {
         login2fa_recovery_back: "Tillbaka",
         login2fa_recovery_placeholder: "XXXXXXXX",
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
         "change": "Ändra", // In English: "Change"
 	"clock_visibility": "Klocksynlighet", // In English: "Clock Visibility"
 	"plural_suffix": "", // In English: "s" (Plural suffix is context dependent in Swedish, it can be "or", "ar", "er", "en" or just no suffix)
