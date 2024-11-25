@@ -347,9 +347,6 @@ const nl = {
 		login2fa_recovery_back: 'Terug',
 		login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		// ***********************************
-		// Updated translations
-		// ***********************************
 		"change": 'Wijzigen', // In English: "Change"
 		"clock_visibility": 'Klok zichtbaarheid', // In English: "Clock Visibility"
 		"reading": 'Lezen', // In English: "Reading %strong%"
@@ -364,7 +361,6 @@ const nl = {
 		"Owner": "Eigenaar", // In English: "Owner"
 		"You can't share with yourself.": "Je kan niet met jezelf delen.", // In English: "You can't share with yourself."
 		"This user already has access to this item": "De gebruiker heeft al toegang tot dit item", // In English: "This user already has access to this item"
-
 	}
 };
 
