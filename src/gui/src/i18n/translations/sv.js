@@ -347,24 +347,22 @@ const sv = {
         login2fa_recovery_back: "Tillbaka",
         login2fa_recovery_placeholder: "XXXXXXXX",
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "plural_suffix": undefined, // In English: "s"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        "change": "Ändra", // In English: "Change"
+	"clock_visibility": "Klocksynlighet", // In English: "Clock Visibility"
+	"plural_suffix": "", // In English: "s" (Plural suffix is context dependent in Swedish, it can be "or", "ar", "er", "en" or just no suffix)
+	"reading": "Läser %strong%", // In English: "Reading %strong%"
+	"writing": "Skriver %strong%", // In English: "Writing %strong%"
+	"unzipping": "Packar upp %strong%", // In English: "Unzipping %strong%"
+	"sequencing": "Sekvenserar %strong%", // In English: "Sequencing %strong%"
+	"zipping": "Komprimerar %strong%", // In English: "Zipping %strong%"
+	"Editor": "Redigerare", // In English: "Editor"
+	"Viewer": "Granskare", // In English: "Viewer"
+	"People with access": "Personer med åtkomst", // In English: "People with access"
+	"Share With…": "Dela med…", // In English: "Share With…"
+	"Owner": "Ägare", // In English: "Owner"
+	"You can't share with yourself.": "Du kan inte dela med dig själv.", // In English: "You can't share with yourself."
+	"This user already has access to this item":
+	"Den här användaren har redan åtkomst till det här objektet", // In English: "This user already has access to this item"
 
     }
 };
