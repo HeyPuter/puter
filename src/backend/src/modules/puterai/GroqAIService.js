@@ -13,10 +13,19 @@ class GroqAIService extends BaseService {
         this.client = new Groq({
             apiKey: this.config.apiKey,
         });
+
+        const svc_aiChat = this.services.get('ai-chat');
+        svc_aiChat.register_provider({
+            service_name: this.service_name,
+            alias: true,
+        });
     }
     
     static IMPLEMENTS = {
         'puter-chat-completion': {
+            async models () {
+                return await this.models_();
+            },
             async list () {
                 // They send: { "object": "list", data }
                 const funny_wrapper = await this.client.models.list();
@@ -63,6 +72,163 @@ class GroqAIService extends BaseService {
             }
         }
     };
+
+    models_ () {
+        return [
+            {
+                id: 'gemma2-9b-it',
+                name: 'Gemma 2 9B 8k',
+                context: 8192,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 20,
+                    output: 20,
+                }
+            },
+            {
+                id: 'gemma-7b-it',
+                name: 'Gemma 7B 8k Instruct',
+                context: 8192,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 7,
+                    output: 7,
+                }
+            },
+            {
+                id: 'llama3-groq-70b-8192-tool-use-preview',
+                name: 'Llama 3 Groq 70B Tool Use Preview 8k',
+                context: 8192,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 89,
+                    output: 89,
+                },
+            },
+            {
+                id: 'llama3-groq-8b-8192-tool-use-preview',
+                name: 'Llama 3 Groq 8B Tool Use Preview 8k',
+                context: 8192,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 19,
+                    output: 19,
+                },
+            },
+            {
+                "id": "llama-3.1-70b-versatile",
+                "name": "Llama 3.1 70B Versatile 128k",
+                "context": 128000,
+                "cost": {
+                    "currency": "usd-cents",
+                    "tokens": 1000000,
+                    "input": 59,
+                    "output": 79
+                }
+            },
+            {
+                "id": "llama-3.1-8b-instant",
+                "name": "Llama 3.1 8B Instant 128k",
+                "context": 128000,
+                "cost": {
+                    "currency": "usd-cents",
+                    "tokens": 1000000,
+                    "input": 5,
+                    "output": 8
+                }
+            },
+            {
+                "id": "llama-3.2-1b-preview",
+                "name": "Llama 3.2 1B (Preview) 8k",
+                "context": 128000,
+                "cost": {
+                    "currency": "usd-cents",
+                    "tokens": 1000000,
+                    "input": 4,
+                    "output": 4
+                }
+            },
+            {
+                "id": "llama-3.2-3b-preview",
+                "name": "Llama 3.2 3B (Preview) 8k",
+                "context": 128000,
+                "cost": {
+                    "currency": "usd-cents",
+                    "tokens": 1000000,
+                    "input": 6,
+                    "output": 6
+                }
+            },
+            {
+                id: 'llama-3.2-11b-vision-preview',
+                name: 'Llama 3.2 11B Vision 8k (Preview)',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 18,
+                    output: 18,
+                }
+            },
+            {
+                id: 'llama-3.2-90b-vision-preview',
+                name: 'Llama 3.2 90B Vision 8k (Preview)',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 90,
+                    output: 90,
+                },
+            },
+            {
+                "id": "llama3-70b-8192",
+                "name": "Llama 3 70B 8k",
+                "context": 8192,
+                "cost": {
+                    "currency": "usd-cents",
+                    "tokens": 1000000,
+                    "input": 59,
+                    "output": 79
+                }
+            },
+            {
+                "id": "llama3-8b-8192",
+                "name": "Llama 3 8B 8k",
+                "context": 8192,
+                "cost": {
+                    "currency": "usd-cents",
+                    "tokens": 1000000,
+                    "input": 5,
+                    "output": 8
+                }
+            },
+            {
+                "id": "mixtral-8x7b-32768",
+                "name": "Mixtral 8x7B Instruct 32k",
+                "context": 32768,
+                "cost": {
+                    "currency": "usd-cents",
+                    "tokens": 1000000,
+                    "input": 24,
+                    "output": 24
+                }
+            },
+            {
+                "id": "llama-guard-3-8b",
+                "name": "Llama Guard 3 8B 8k",
+                "context": 8192,
+                "cost": {
+                    "currency": "usd-cents",
+                    "tokens": 1000000,
+                    "input": 20,
+                    "output": 20
+                }
+            }
+        ];
+    }
 }
 
 module.exports = {
