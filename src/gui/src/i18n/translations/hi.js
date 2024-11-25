@@ -338,9 +338,6 @@ const hi = {
         login2fa_recovery_back: 'पीछे',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-        // ***********************************
-        // Missing translations
-        // ***********************************
         "change": "बदलें", // In English: "Change"
         "clock_visibility": "घड़ी की दृश्यता", // In English: "Clock Visibility"
         "confirm": "पुष्टि करें", // In English: "Confirm"
@@ -356,7 +353,6 @@ const hi = {
         "Owner": "मालिक", // In English: "Owner"
         "You can't share with yourself.": "आप अपने आप के साथ साझा नहीं कर सकते।", // In English: "You can't share with yourself."
         "This user already has access to this item": "इस उपयोगकर्ता के पास पहले से ही इस वस्तु का प्रवेश है", // In English: "This user already has access to this item"
-
     }
 };
 
