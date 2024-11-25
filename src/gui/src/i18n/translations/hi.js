@@ -338,26 +338,27 @@ const hi = {
         login2fa_recovery_back: 'पीछे',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "confirm": undefined, // In English: "Confirm"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        // ***********************************
+        // Missing translations
+        // ***********************************
+        "change": "बदलें", // In English: "Change"
+        "clock_visibility": "घड़ी की दृश्यता", // In English: "Clock Visibility"
+        "confirm": "पुष्टि करें", // In English: "Confirm"
+        "reading": "पढ़ना %strong%", // In English: "Reading %strong%"
+        "writing": "लिखना %strong%", // In English: "Writing %strong%"
+        "unzipping": "अनज़िपिंग %strong%", // In English: "Unzipping %strong%"
+        "sequencing": "क्रमबद्ध करना %strong%", // In English: "Sequencing %strong%"
+        "zipping": "ज़िपिंग %strong%", // In English: "Zipping %strong%"
+        "Editor": "संपादक", // In English: "Editor"
+        "Viewer": "दर्शक", // In English: "Viewer"
+        "People with access": "प्रवेश वाले लोग", // In English: "People with access"
+        "Share With…": "के साथ साझा करें…", // In English: "Share With…"
+        "Owner": "मालिक", // In English: "Owner"
+        "You can't share with yourself.": "आप अपने आप के साथ साझा नहीं कर सकते।", // In English: "You can't share with yourself."
+        "This user already has access to this item": "इस उपयोगकर्ता के पास पहले से ही इस वस्तु का प्रवेश है", // In English: "This user already has access to this item"
 
     }
 };
 
 export default hi;
+
