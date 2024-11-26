@@ -34,6 +34,12 @@ class BootLogger {
             ...args,
         );
     }
+    warn (...args) {
+        console.log(
+            '\x1B[33;1m[BOOT/WARN]\x1B[0m',
+            ...args,
+        );
+    }
 }
 
 module.exports = {

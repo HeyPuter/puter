@@ -260,6 +260,38 @@ class Kernel extends AdvancedBase {
                     });
                     fs.copyFileSync(mod_path, path_.join(mod_package_dir, 'main.js'));
                 } else {
+                    if ( ! fs.existsSync(path_.join(mod_path, 'package.json')) ) {
+                        // Expect main.js or index.js to exist
+                        const options = ['main.js', 'index.js'];
+                        let entry_file = null;
+                        for ( const option of options ) {
+                            if ( fs.existsSync(path_.join(mod_path, option)) ) {
+                                entry_file = option;
+                                break;
+                            }
+                        }
+                        if ( ! entry_file ) {
+                            // If directory is empty, we'll just skip it
+                            if ( fs.readdirSync(mod_path).length === 0 ) {
+                                this.bootLogger.warn(`Empty mod directory ${quot(mod_path)}; skipping...`);
+                                continue;
+                            }
+
+                            // Other wise, we'll throw an error
+                            this.bootLogger.error(`Expected main.js or index.js in ${quot(mod_path)}`);
+                            if ( ! process.env.SKIP_INVALID_MODS ) {
+                                this.bootLogger.error(`Set SKIP_INVALID_MODS=1 (environment variable) to run anyway.`);
+                                process.exit(1);
+                            } else {
+                                continue;
+                            }
+                        }
+
+                        this.create_mod_package_json(mod_package_dir, {
+                            name: mod_name,
+                            entry: entry_file,
+                        });
+                    }
                     fs.cpSync(mod_path, mod_package_dir, {
                         recursive: true,
                     });
@@ -344,15 +376,17 @@ class Kernel extends AdvancedBase {
 
     }
     
-    create_mod_package_json (mod_path, { name }) {
+    create_mod_package_json (mod_path, { name, entry }) {
         const fs = require('fs');
         const path_ = require('path');
 
         const data = JSON.stringify({
             name,
             version: '1.0.0',
-            main: 'main.js',
+            main: entry ?? 'main.js',
         });
+        
+        console.log('WRITING TO', path_.join(mod_path, 'package.json'));
         
         fs.writeFileSync(path_.join(mod_path, 'package.json'), data);
     }
