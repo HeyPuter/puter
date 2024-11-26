@@ -348,24 +348,21 @@ const ja = {
         
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "plural_suffix": undefined, // In English: "s"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        "change": "変更", // In English: "Change"
+        "clock_visibility": "時計の表示設定", // In English: "Clock Visibility"
+        "plural_suffix": "", // In English: "s"
+        "reading": "読み取り中 %strong%", // In English: "Reading %strong%"
+        "writing": "書き込み中 %strong%", // In English: "Writing %strong%"
+        "unzipping": "解凍中 %strong%", // In English: "Unzipping %strong%"
+        "sequencing": "シーケンス中 %strong%", // In English: "Sequencing %strong%"
+        "zipping": "圧縮中 %strong%", // In English: "Zipping %strong%"
+        "Editor": "エディター", // In English: "Editor"
+        "Viewer": "ビューアー", // In English: "Viewer"
+        "People with access": "アクセス権を持つ人々", // In English: "People with access"
+        "Share With…": "共有する…", // In English: "Share With…"
+        "Owner": "所有者", // In English: "Owner"
+        "You can't share with yourself.": "自分自身と共有することはできません。", // In English: "You can't share with yourself."
+        "This user already has access to this item": "このユーザーは既にこのアイテムにアクセスできます。", // In English: "This user already has access to this item"
 
     }
 };
