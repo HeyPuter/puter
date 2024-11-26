@@ -378,20 +378,20 @@ const ku = {
     login2fa_recovery_back: "گەڕانەوە",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
-    "change": بیگۆڕە, // In English: "Change"
-    "clock_visibility": بینینی کاتژمێر, // In English: "Clock Visibility"
-    "reading": خوێندنەوە, // In English: "Reading %strong%"
-    "writing": دەنوسێ, // In English: "Writing %strong%"
-    "unzipping": كردنەوەی فایلی زیپ, // In English: "Unzipping %strong%"
-    "sequencing": زنجیرەکردن, // In English: "Sequencing %strong%"
-    "zipping": داخستنی فایلی زیپ, // In English: "Zipping %strong%"
-    "Editor": دەستکاریکەر, // In English: "Editor"
-    "Viewer": بینەر, // In English: "Viewer"
-    "People with access": كەسانی دەست گەیشتوو بە, // In English: "People with access"
-    "Share With…": بڵاوکردنەوە لەگەڵ..., // In English: "Share With…"
-    "Owner": خاوەن, // In English: "Owner"
-    "You can't share with yourself.": ناتوانیت لەگەڵ خودی خۆت بڵاوی کەیتەوە, // In English: "You can't share with yourself."
-    "This user already has access to this item": ئەم بەکارهێنەرە پێشتر ڕێپێدراوە بۆ ئەم فایلە, // In English: "This user already has access to this item"
+    "change": "بیگۆڕە", // In English: "Change"
+    "clock_visibility": "بینینی کاتژمێر", // In English: "Clock Visibility"
+    "reading": "خوێندنەوە", // In English: "Reading %strong%"
+    "writing": "دەنوسێ", // In English: "Writing %strong%"
+    "unzipping": "كردنەوەی فایلی زیپ", // In English: "Unzipping %strong%"
+    "sequencing": "زنجیرەکردن", // In English: "Sequencing %strong%"
+    "zipping": "داخستنی فایلی زیپ", // In English: "Zipping %strong%"
+    "Editor": "دەستکاریکەر", // In English: "Editor"
+    "Viewer": "بینەر", // In English: "Viewer"
+    "People with access": "كەسانی دەست گەیشتوو بە", // In English: "People with access"
+    "Share With…": "بڵاوکردنەوە لەگەڵ...", // In English: "Share With…"
+    "Owner": "خاوەن", // In English: "Owner"
+    "You can't share with yourself.": "ناتوانیت لەگەڵ خودی خۆت بڵاوی کەیتەوە", // In English: "You can't share with yourself."
+    "This user already has access to this item": "ئەم بەکارهێنەرە پێشتر ڕێپێدراوە بۆ ئەم فایلە", // In English: "This user already has access to this item"
   },
 };
 
