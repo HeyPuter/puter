@@ -378,9 +378,6 @@ const ku = {
     login2fa_recovery_back: "گەڕانەوە",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
     "change": بیگۆڕە, // In English: "Change"
     "clock_visibility": بینینی کاتژمێر, // In English: "Clock Visibility"
     "reading": خوێندنەوە, // In English: "Reading %strong%"
