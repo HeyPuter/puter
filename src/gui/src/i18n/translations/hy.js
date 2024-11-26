@@ -346,9 +346,6 @@ const hy = {
         login2fa_recovery_back: "Հետ",
         login2fa_recovery_placeholder: "XXXXXXXX",
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
         "change": "փոփոխել", // In English: "Change"
         "clock_visibility": "ժամացույցի տեսանելիություն", // In English: "Clock Visibility"
         "reading": "կարդալ", // In English: "Reading %strong%"
