@@ -180,22 +180,17 @@ class MistralAIService extends BaseService {
                     return retval;
                 }
 
-                try {
-                    const completion = await this.client.chat.complete({
-                        model: model ?? this.get_default_model(),
-                        messages,
-                    });
-                    // Expected case when mistralai/client-ts#23 is fixed
-                    return completion.choices[0];
-                } catch (e) {
-                    if ( ! e?.rawValue?.choices[0] ) {
-                        throw e;
-                    }
-                    // The SDK attempts to validate APIs response and throws
-                    // an exception, even if the response was successful
-                    // https://github.com/mistralai/client-ts/issues/23
-                    return e.rawValue.choices[0];
-                }
+                const completion = await this.client.chat.complete({
+                    model: model ?? this.get_default_model(),
+                    messages,
+                });
+                // Expected case when mistralai/client-ts#23 is fixed
+                const ret = completion.choices[0];
+                ret.usage = {
+                    input_tokens: completion.usage.promptTokens,
+                    output_tokens: completion.usage.completionTokens,
+                };
+                return ret;
             }
         }
     }

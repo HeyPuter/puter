@@ -150,6 +150,7 @@ class AIChatService extends BaseService {
                 const svc_driver = this.services.get('driver');
                 let ret, error, errors = [];
                 let service_used = intended_service;
+                let model_used = this.get_model_from_request(parameters);
                 try {
                     ret = await svc_driver.call_new_({
                         actor: Context.get('actor'),
@@ -160,7 +161,7 @@ class AIChatService extends BaseService {
                     });
                 } catch (e) {
                     const tried = [];
-                    let model = this.get_model_from_request(parameters);
+                    let model = model_used;
 
                     // TODO: if conflict models exist, add service name
                     tried.push(model);
@@ -205,6 +206,7 @@ class AIChatService extends BaseService {
                             });
                             error = null;
                             service_used = fallback_service_name;
+                            model_used = fallback_model_name;
                             response_metadata.fallback = {
                                 service: fallback_service_name,
                                 model: fallback_model_name,
@@ -233,6 +235,8 @@ class AIChatService extends BaseService {
                     intended_service,
                     parameters,
                     result: ret.result,
+                    model_used,
+                    service_used,
                 });
 
                 return ret.result;

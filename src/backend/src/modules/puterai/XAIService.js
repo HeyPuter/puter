@@ -135,6 +135,7 @@ class XAIService extends BaseService {
                 });
                 return {
                     message: msg,
+                    usage: msg.usage,
                     finish_reason: 'stop'
                 };
             }

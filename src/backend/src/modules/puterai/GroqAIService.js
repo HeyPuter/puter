@@ -74,7 +74,12 @@ class GroqAIService extends BaseService {
                     return retval;
                 }
                 
-                return completion.choices[0];
+                const ret = completion.choices[0];
+                ret.usage = {
+                    input_tokens: completion.usage.prompt_tokens,
+                    output_tokens: completion.usage.completion_tokens,
+                };
+                return ret;
             }
         }
     };
