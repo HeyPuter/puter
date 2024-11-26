@@ -346,23 +346,20 @@ const hy = {
         login2fa_recovery_back: "Հետ",
         login2fa_recovery_placeholder: "XXXXXXXX",
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        "change": "փոփոխել", // In English: "Change"
+        "clock_visibility": "ժամացույցի տեսանելիություն", // In English: "Clock Visibility"
+        "reading": "կարդալ", // In English: "Reading %strong%"
+        "writing": "գրել", // In English: "Writing %strong%"
+        "unzipping": "Արխիվի բացում", // In English: "Unzipping %strong%"
+        "sequencing": "հաջորդականացում", // In English: "Sequencing %strong%"
+        "zipping": "Արխիվացում", // In English: "Zipping %strong%"
+        "Editor": "Խմբագիր", // In English: "Editor"
+        "Viewer": "Դիտող", // In English: "Viewer"
+        "People with access": "Մարդիկ, ովքեր ունեն հասանելիություն", // In English: "People with access"
+        "Share With…": "Կիսվել …", // In English: "Share With…"
+        "Owner": "Սեփականատեր", // In English: "Owner"
+        "You can't share with yourself.": "Դուք չեք կարող կիսվել ինքներդ ձեզ հետ։", // In English: "You can't share with yourself."
+        "This user already has access to this item": "Այս օգտատերը արդեն ունի հասանելիություն այս տարրին։", // In English: "This user already has access to this item"
     }
 };
 
