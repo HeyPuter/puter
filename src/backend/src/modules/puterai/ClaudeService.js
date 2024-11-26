@@ -4,6 +4,7 @@ const { whatis } = require("../../util/langutil");
 const { PassThrough } = require("stream");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const APIError = require("../../api/APIError");
+const { TeePromise } = require("../../util/promise");
 
 const PUTER_PROMPT = `
     You are running on an open-source platform called Puter,
@@ -102,6 +103,8 @@ class ClaudeService extends BaseService {
                 }
                 
                 if ( stream ) {
+                    let usage_promise = new TeePromise();
+
                     const stream = new PassThrough();
                     const retval = new TypedValue({
                         $: 'stream',
@@ -116,7 +119,16 @@ class ClaudeService extends BaseService {
                             system: PUTER_PROMPT + JSON.stringify(system_prompts),
                             messages: adapted_messages,
                         });
+                        const counts = { input_tokens: 0, output_tokens: 0 };
                         for await ( const event of completion ) {
+                            const input_tokens =
+                                (event?.usage ?? event?.message?.usage)?.input_tokens;
+                            const output_tokens =
+                                (event?.usage ?? event?.message?.usage)?.output_tokens;
+
+                            if ( input_tokens ) counts.input_tokens += input_tokens;
+                            if ( output_tokens ) counts.output_tokens += output_tokens;
+
                             if (
                                 event.type !== 'content_block_delta' ||
                                 event.delta.type !== 'text_delta'
@@ -127,9 +139,14 @@ class ClaudeService extends BaseService {
                             stream.write(str + '\n');
                         }
                         stream.end();
+                        usage_promise.resolve(counts);
                     })();
 
-                    return retval;
+                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
+                        stream: true,
+                        response: retval,
+                        usage_promise: usage_promise,
+                    });
                 }
 
                 const msg = await this.anthropic.messages.create({

@@ -2,6 +2,7 @@ const { PassThrough } = require("stream");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { nou } = require("../../util/langutil");
+const { TeePromise } = require("../../util/promise");
 
 class TogetherAIService extends BaseService {
     static MODULES = {
@@ -52,6 +53,8 @@ class TogetherAIService extends BaseService {
                 });
 
                 if ( stream ) {
+                    let usage_promise = new TeePromise();
+
                     const stream = new PassThrough();
                     const retval = new TypedValue({
                         $: 'stream',
@@ -60,6 +63,14 @@ class TogetherAIService extends BaseService {
                     }, stream);
                     (async () => {
                         for await ( const chunk of completion ) {
+                            // DRY: same as openai
+                            if ( chunk.usage ) {
+                                usage_promise.resolve({
+                                    input_tokens: chunk.usage.prompt_tokens,
+                                    output_tokens: chunk.usage.completion_tokens,
+                                });
+                            }
+
                             if ( chunk.choices.length < 1 ) continue;
                             if ( chunk.choices[0].finish_reason ) {
                                 stream.end();
@@ -73,7 +84,12 @@ class TogetherAIService extends BaseService {
                         }
                         stream.end();
                     })();
-                    return retval;
+
+                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
+                        stream: true,
+                        response: retval,
+                        usage_promise: usage_promise,
+                    });
                 }
                 
                 // return completion.choices[0];

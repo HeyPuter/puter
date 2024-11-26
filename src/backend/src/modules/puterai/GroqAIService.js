@@ -2,6 +2,7 @@ const { PassThrough } = require("stream");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { nou } = require("../../util/langutil");
+const { TeePromise } = require("../../util/promise");
 
 class GroqAIService extends BaseService {
     static MODULES = {
@@ -50,6 +51,8 @@ class GroqAIService extends BaseService {
                 });
 
                 if ( stream ) {
+                    const usage_promise = new TeePromise();
+
                     const stream = new PassThrough();
                     const retval = new TypedValue({
                         $: 'stream',
@@ -58,6 +61,15 @@ class GroqAIService extends BaseService {
                     }, stream);
                     (async () => {
                         for await ( const chunk of completion ) {
+                            let usage = chunk?.x_groq?.usage ?? chunk.usage;
+                            if ( usage ) {
+                                usage_promise.resolve({
+                                    input_tokens: usage.prompt_tokens,
+                                    output_tokens: usage.completion_tokens,
+                                });
+                                continue;
+                            }
+
                             if ( chunk.choices.length < 1 ) continue;
                             if ( chunk.choices[0].finish_reason ) {
                                 stream.end();
@@ -71,7 +83,12 @@ class GroqAIService extends BaseService {
                         }
                         stream.end();
                     })();
-                    return retval;
+
+                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
+                        stream: true,
+                        response: retval,
+                        usage_promise: usage_promise,
+                    });
                 }
                 
                 const ret = completion.choices[0];

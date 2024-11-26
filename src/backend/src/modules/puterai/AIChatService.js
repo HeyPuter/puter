@@ -1,4 +1,6 @@
 const BaseService = require("../../services/BaseService");
+const { TypeSpec } = require("../../services/drivers/meta/Construct");
+const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
 
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -18,6 +20,17 @@ class AIChatService extends BaseService {
     }
     _init () {
         this.kvkey = this.modules.uuidv4();
+
+        const svc_event = this.services.get('event');
+        svc_event.on('ai.prompt.report-usage', async (_, details) => {
+            const user_id = details.actor?.type?.user?.id;
+            const app_id = details.actor?.type?.app?.id;
+            const service_name = details.service_used;
+            const model_name = details.model_used;
+            const value_uint_1 = details.usage?.input_tokens;
+            const value_uint_2 = details.usage?.output_tokens;
+
+            console.log('reporting usage', { user_id, app_id, service_name, model_name, value_uint_1, value_uint_2 });     });
     }
 
     async ['__on_boot.consolidation'] () {
@@ -168,6 +181,7 @@ class AIChatService extends BaseService {
 
                     error = e;
                     errors.push(e);
+                    console.error(e);
                     this.log.error('error calling service', {
                         intended_service,
                         model,
@@ -228,6 +242,34 @@ class AIChatService extends BaseService {
                 response_metadata.service_used = service_used;
 
                 const username = Context.get('actor').type?.user?.username;
+
+                if (
+                    // Check if we have 'ai-chat-intermediate' response type;
+                    // this means we're streaming and usage comes from a promise.
+                    (ret.result instanceof TypedValue) &&
+                    TypeSpec.adapt({ $: 'ai-chat-intermediate' })
+                    .equals(ret.result.type)
+                ) {
+                    (async () => {
+                        const usage_promise = ret.result.value.usage_promise;
+                        const usage = await usage_promise;
+                        await svc_event.emit('ai.prompt.report-usage', {
+                            actor: Context.get('actor'),
+                            service_used,
+                            model_used,
+                            usage,
+                        });
+                    })();
+                    return ret.result.value.response;
+                } else {
+                    await svc_event.emit('ai.prompt.report-usage', {
+                        actor: Context.get('actor'),
+                        username,
+                        service_used,
+                        model_used,
+                        usage: ret.result.usage,
+                    });
+                }
                 
                 console.log('emitting ai.prompt.complete');
                 await svc_event.emit('ai.prompt.complete', {

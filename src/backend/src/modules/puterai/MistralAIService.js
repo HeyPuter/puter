@@ -4,6 +4,7 @@ const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { nou } = require("../../util/langutil");
 
 const axios = require('axios');
+const { TeePromise } = require("../../util/promise");
 
 class MistralAIService extends BaseService {
     static MODULES = {
@@ -149,6 +150,8 @@ class MistralAIService extends BaseService {
                 }
 
                 if ( stream ) {
+                    let usage_promise = new TeePromise();
+
                     const stream = new PassThrough();
                     const retval = new TypedValue({
                         $: 'stream',
@@ -164,6 +167,14 @@ class MistralAIService extends BaseService {
                             // just because Mistral wants to be different
                             chunk = chunk.data;
 
+                            if ( chunk.usage ) {
+                                usage_promise.resolve({
+                                    input_tokens: chunk.usage.promptTokens,
+                                    output_tokens: chunk.usage.completionTokens,
+                                });
+                                continue;
+                            }
+
                             if ( chunk.choices.length < 1 ) continue;
                             if ( chunk.choices[0].finish_reason ) {
                                 stream.end();
@@ -177,7 +188,12 @@ class MistralAIService extends BaseService {
                         }
                         stream.end();
                     })();
-                    return retval;
+
+                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
+                        stream: true,
+                        response: retval,
+                        usage_promise: usage_promise,
+                    });
                 }
 
                 const completion = await this.client.chat.complete({

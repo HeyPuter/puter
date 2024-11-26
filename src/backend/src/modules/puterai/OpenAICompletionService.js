@@ -5,6 +5,7 @@ const { TypedValue } = require('../../services/drivers/meta/Runtime');
 const { Context } = require('../../util/context');
 const SmolUtil = require('../../util/smolutil');
 const { nou } = require('../../util/langutil');
+const { TeePromise } = require('../../util/promise');
 
 class OpenAICompletionService extends BaseService {
     static MODULES = {
@@ -287,9 +288,14 @@ class OpenAICompletionService extends BaseService {
             model: model,
             max_tokens,
             stream,
+            ...(stream ? {
+                stream_options: { include_usage: true },
+            } : {}),
         });
-        
+
         if ( stream ) {
+            let usage_promise = new TeePromise();
+        
             const entire = [];
             const stream = new PassThrough();
             const retval = new TypedValue({
@@ -300,11 +306,14 @@ class OpenAICompletionService extends BaseService {
             (async () => {
                 for await ( const chunk of completion ) {
                     entire.push(chunk);
-                    if ( chunk.choices.length < 1 ) continue;
-                    if ( chunk.choices[0].finish_reason ) {
-                        stream.end();
-                        break;
+                    if ( chunk.usage ) {
+                        usage_promise.resolve({
+                            input_tokens: chunk.usage.prompt_tokens,
+                            output_tokens: chunk.usage.completion_tokens,
+                        });
+                        continue;
                     }
+                    if ( chunk.choices.length < 1 ) continue;
                     if ( nou(chunk.choices[0].delta.content) ) continue;
                     const str = JSON.stringify({
                         text: chunk.choices[0].delta.content
@@ -313,6 +322,12 @@ class OpenAICompletionService extends BaseService {
                 }
                 stream.end();
             })();
+            
+            return new TypedValue({ $: 'ai-chat-intermediate' }, {
+                stream: true,
+                response: retval,
+                usage_promise: usage_promise,
+            });
             return retval;
         }
 
