@@ -3,29 +3,39 @@ const fs = require('fs');
 const EmitPlugin = require('./EmitPlugin.cjs');
 
 module.exports = async (options = {}) => {
-    // Directory containing extension files
-    const extensionsDir = path.join(__dirname, '../src/extensions');
+    const extension_directories = [];
+    
+    extension_directories.push(path.join(__dirname, '../src/extensions'));
+    
+    if ( process.env.PUTER_GUI_EXTENSION_PATHS ) {
+        const paths = process.env.PUTER_GUI_EXTENSION_PATHS.split(';');
+        extension_directories.push(...paths);
+    }
 
-    // Read and process extension entries from the extensions directory
-    const entries = fs.readdirSync(extensionsDir, { withFileTypes: true })
-        .map(entry => {
+    const entries = [];
+
+    for ( const extensionsDir of extension_directories ) {
+        console.log(`Reading extensions from ${extensionsDir}`);
+        // Read and process extension entries from the extensions directory
+        const readdir_entries = fs.readdirSync(extensionsDir, { withFileTypes: true })
+        for ( const entry of readdir_entries ) {
             // Case 1: Direct JavaScript files in extensions directory
             if (entry.isFile() && entry.name.endsWith('.js')) {
-                return `./src/extensions/${entry.name}`;
+                const entry_path = path.join(extensionsDir, entry.name);
+                entries.push(entry_path);
+                continue;
             }
             // Case 2: Extension directories with index.js files
             if (entry.isDirectory()) {
                 const indexPath = path.join(extensionsDir, entry.name, 'index.js');
                 // Check if directory contains an index.js file
                 if (fs.existsSync(indexPath)) {
-                    return `./src/extensions/${entry.name}/index.js`;
+                    entries.push(indexPath);
+                    continue;
                 }
             }
-            // Skip entries that don't match either case
-            return null;
-        })
-        // Remove null entries from the array
-        .filter(entry => entry !== null);
+        }
+    }
 
     const config = {};
     config.entry = [
