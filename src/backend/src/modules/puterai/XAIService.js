@@ -1,8 +1,9 @@
 const { default: Anthropic } = require("@anthropic-ai/sdk");
 const BaseService = require("../../services/BaseService");
-const { whatis } = require("../../util/langutil");
+const { whatis, nou } = require("../../util/langutil");
 const { PassThrough } = require("stream");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
+const { TeePromise } = require("../../util/promise");
 
 const PUTER_PROMPT = `
     You are running on an open-source platform called Puter,
@@ -15,7 +16,7 @@ const PUTER_PROMPT = `
 
 class XAIService extends BaseService {
     static MODULES = {
-        Anthropic: require('@anthropic-ai/sdk'),
+        openai: require('openai'),
     }
 
     get_system_prompt () {
@@ -27,9 +28,9 @@ class XAIService extends BaseService {
     }
     
     async _init () {
-        this.anthropic = new Anthropic({
+        this.openai = new this.modules.openai.OpenAI({
             apiKey: this.global_config.services.xai.apiKey,
-            baseURL: 'https://api.x.ai'
+            baseURL: "https://api.x.ai/v1",
         });
 
         const svc_aiChat = this.services.get('ai-chat');
@@ -92,8 +93,26 @@ class XAIService extends BaseService {
                         previous_was_user = true;
                     }
                 }
+
+                adapted_messages.unshift({
+                    role: 'system',
+                    content: this.get_system_prompt() +
+                        JSON.stringify(system_prompts),
+                })
+
+                const completion = await this.openai.chat.completions.create({
+                    messages: adapted_messages,
+                    model: model ?? this.get_default_model(),
+                    max_tokens: 1000,
+                    stream,
+                    ...(stream ? {
+                        stream_options: { include_usage: true },
+                    } : {}),
+                });
                 
                 if ( stream ) {
+                    let usage_promise = new TeePromise();
+
                     const stream = new PassThrough();
                     const retval = new TypedValue({
                         $: 'stream',
@@ -101,43 +120,44 @@ class XAIService extends BaseService {
                         chunked: true,
                     }, stream);
                     (async () => {
-                        const completion = await this.anthropic.messages.stream({
-                            model: model ?? this.get_default_model(),
-                            max_tokens: 1000,
-                            temperature: 0,
-                            system: this.get_system_prompt() +
-                                JSON.stringify(system_prompts),
-                            messages: adapted_messages,
-                        });
-                        for await ( const event of completion ) {
-                            if (
-                                event.type !== 'content_block_delta' ||
-                                event.delta.type !== 'text_delta'
-                            ) continue;
+                        let last_usage = null;
+                        for await ( const chunk of completion ) {
+                            if ( chunk.usage ) last_usage = chunk.usage;
+                            // if (
+                            //     event.type !== 'content_block_delta' ||
+                            //     event.delta.type !== 'text_delta'
+                            // ) continue;
+                            // const str = JSON.stringify({
+                            //     text: event.delta.text,
+                            // });
+                            // stream.write(str + '\n');
+                            if ( chunk.choices.length < 1 ) continue;
+                            if ( nou(chunk.choices[0].delta.content) ) continue;
                             const str = JSON.stringify({
-                                text: event.delta.text,
+                                text: chunk.choices[0].delta.content
                             });
                             stream.write(str + '\n');
                         }
+                        usage_promise.resolve({
+                            input_tokens: last_usage.prompt_tokens,
+                            output_tokens: last_usage.completion_tokens,
+                        });
                         stream.end();
                     })();
 
-                    return retval;
+                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
+                        stream: true,
+                        response: retval,
+                        usage_promise: usage_promise,
+                    });
                 }
 
-                const msg = await this.anthropic.messages.create({
-                    model: model ?? this.get_default_model(),
-                    max_tokens: 1000,
-                    temperature: 0,
-                    system: this.get_system_prompt() +
-                        JSON.stringify(system_prompts),
-                    messages: adapted_messages,
-                });
-                return {
-                    message: msg,
-                    usage: msg.usage,
-                    finish_reason: 'stop'
+                const ret = completion.choices[0];
+                ret.usage = {
+                    input_tokens: completion.usage.prompt_tokens,
+                    output_tokens: completion.usage.completion_tokens,
                 };
+                return ret;
             }
         }
     }
