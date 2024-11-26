@@ -16,13 +16,9 @@
     ·
     <a href="https://discord.com/invite/PQcx7Teh8u">ডিসকর্ড</a>
     ·
-    <a href="https://www.youtube.com/@EricsPuterVideos">ইউটিউব</a>
-    ·
     <a href="https://reddit.com/r/puter">রেডিট</a>
     ·
     <a href="https://twitter.com/HeyPuter">X (টুইটার)</a>
-    ·
-    <a href="https://hackerone.com/puter_h1b">বাগ বাউন্টি</a>
 </p>
 
 <h3 align="center"><img width="800" style="border-radius:5px;" alt="স্ক্রিনশট" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>

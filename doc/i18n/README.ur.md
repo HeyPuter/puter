@@ -15,13 +15,9 @@
     ·
     <a href="https://discord.com/invite/PQcx7Teh8u">ڈسکورڈ</a>
     ·
-    <a href="https://www.youtube.com/@EricsPuterVideos">یوٹیوب</a>
-    ·
     <a href="https://reddit.com/r/puter">ریڈڈٹ</a>
     ·
     <a href="https://twitter.com/HeyPuter">ایکس (ٹوئٹر)</a>
-    ·
-    <a href="https://hackerone.com/puter_h1b">بگ باؤنٹی</a>
 </p>
 
 <h3 align="center"><img width="800" style="border-radius:5px;" alt="اسکرین شاٹ" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>

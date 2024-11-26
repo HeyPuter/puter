@@ -15,13 +15,9 @@
     ·
     <a href="https://discord.com/invite/PQcx7Teh8u">Discord</a>
     ·
-    <a href="https://www.youtube.com/@EricsPuterVideos">YouTube</a>
-    ·
     <a href="https://reddit.com/r/puter">Reddit</a>
     ·
     <a href="https://twitter.com/HeyPuter">X (Twitter)</a>
-    ·
-    <a href="https://hackerone.com/puter_h1b">Bug Bounty</a>
 </p>
 
 <h3 align="center"><img width="800" style="border-radius:5px;" alt="skærmbillede" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>

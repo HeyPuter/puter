@@ -18,8 +18,6 @@
     <a href="https://reddit.com/r/puter">Reddit</a>
     ·
     <a href="https://twitter.com/HeyPuter">X (Twitter)</a>
-    ·
-    <a href="https://hackerone.com/puter_h1b">Bug Bounty</a>
 </p>
 
 

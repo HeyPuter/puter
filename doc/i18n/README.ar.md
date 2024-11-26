@@ -15,13 +15,9 @@
     ·
     <a href="https://discord.com/invite/PQcx7Teh8u">ديسكورد</a>
     ·
-    <a href="https://www.youtube.com/@EricsPuterVideos">يوتيوب</a>
-    ·
     <a href="https://reddit.com/r/puter">ريديت</a>
     ·
     <a href="https://twitter.com/HeyPuter">إكس (تويتر)</a>
-    ·
-    <a href="https://hackerone.com/puter_h1b">مكافأة اكتشاف الثغرات</a>
 </p>
 
 <h3 align="center"><img width="800" style="border-radius:5px;" alt="لقطة شاشة" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>
