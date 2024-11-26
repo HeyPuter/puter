@@ -371,18 +371,18 @@ const id = {
     // ***********************************
     // Missing translations
     // ***********************************
-    change: "Mengubah", // In English: "Change"
-    clock_visibility: "Visibilitas Waktu", // In English: "Clock Visibility"
-    reading: "Membaca", // In English: "Reading %strong%"
-    writing: "Menulis", // In English: "Writing %strong%"
-    unzipping: "Membuka Resleting", // In English: "Unzipping %strong%"
-    sequencing: "Pengurutan", // In English: "Sequencing %strong%"
-    zipping: "Resleting", // In English: "Zipping %strong%"
-    Editor: "Pengedit", // In English: "Editor"
-    Viewer: "Penonton", // In English: "Viewer"
+    "change": "Mengubah", // In English: "Change"
+    "clock_visibility": "Visibilitas Waktu", // In English: "Clock Visibility"
+    "reading": "Membaca", // In English: "Reading %strong%"
+    "writing": "Menulis", // In English: "Writing %strong%"
+    "unzipping": "Membuka Resleting", // In English: "Unzipping %strong%"
+    "sequencing": "Pengurutan", // In English: "Sequencing %strong%"
+    "zipping": "Resleting", // In English: "Zipping %strong%"
+    "Editor": "Pengedit", // In English: "Editor"
+    "Viewer": "Penonton", // In English: "Viewer"
     "People with access": "Orang yang memeliki akse", // In English: "People with access"
     "Share With…": "Bagikan dengan...", // In English: "Share With…"
-    Owner: "Pemilik", // In English: "Owner"
+    "Owner": "Pemilik", // In English: "Owner"
     "You can't share with yourself.":
       "Anda tidak dapat membaginya dengan dirimu sendiri.", // In English: "You can't share with yourself."
     "This user already has access to this item":
