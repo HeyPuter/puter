@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 const id = {
     name: "Bahasa Indonesia",
     english_name: "Indonesian",
@@ -72,7 +71,7 @@ const id = {
         confirm_your_email_address: "Konfirmasi Alamat Email Anda",
         contact_us: "Hubungi Kami",
         contact_us_verification_required: "Anda harus memiliki alamat email yang terverifikasi untuk menggunakan ini.",
-        contain: 'Kandung',
+        contain: "Kandung",
         continue: "Lanjutkan",
         copy: 'Salin',
         copy_link: "Salin Tautan",
@@ -177,7 +176,7 @@ const id = {
         name_cannot_contain_slash: "Nama tidak boleh berisi karakter '/'",
         name_must_be_string: "Nama hanya boleh berupa string.",
         name_too_long: `Nama tidak boleh lebih dari %% karakter.`,
-        new: 'Baru',
+        new: "Baru",
         new_email: 'Email Baru',
         new_folder: "Folder Baru",
         new_password: "Kata Sandi Baru",
@@ -317,54 +316,58 @@ const id = {
         you_have_been_referred_to_puter_by_a_friend: "Teman Anda telah merujuk Anda ke Puter!",
         zip: "Zip",
         zipping_file: "Mengompresi file %strong%",
-
-        // === 2FA Setup ===
-        setup2fa_1_step_heading: "Buka aplikasi autentikator Anda",
-        setup2fa_1_instructions: `
+      
+    // === 2FA Setup ===
+    setup2fa_1_step_heading: "Buka aplikasi autentikator Anda",
+    setup2fa_1_instructions: `
         Anda dapat menggunakan aplikasi autentikator apa pun yang mendukung protokol Time-based One-Time Password (TOTP).
         Ada banyak pilihan, tetapi jika Anda tidak yakin
         <a target="_blank" href="https://authy.com/download">Authy</a>
         adalah pilihan yang solid untuk Android dan iOS.
     `,
-        setup2fa_2_step_heading: "Pindai kode QR",
-        setup2fa_3_step_heading: "Masukkan kode 6 digit",
-        setup2fa_4_step_heading: "Salin kode pemulihan Anda",
-        setup2fa_4_instructions: `
+    setup2fa_2_step_heading: "Pindai kode QR",
+    setup2fa_3_step_heading: "Masukkan kode 6 digit",
+    setup2fa_4_step_heading: "Salin kode pemulihan Anda",
+    setup2fa_4_instructions: `
         Kode pemulihan ini adalah satu-satunya cara untuk mengakses akun Anda jika Anda kehilangan ponsel atau tidak dapat menggunakan aplikasi autentikator Anda.
         Pastikan untuk menyimpannya di tempat yang aman.
     `,
-        setup2fa_5_step_heading: "Konfirmasi pengaturan 2FA",
-        setup2fa_5_confirmation_1: "Saya telah menyimpan kode pemulihan saya di tempat yang aman",
-        setup2fa_5_confirmation_2: "Saya siap untuk mengaktifkan 2FA",
-        setup2fa_5_button: "Aktifkan 2FA",
+    setup2fa_5_step_heading: "Konfirmasi pengaturan 2FA",
+    setup2fa_5_confirmation_1:
+      "Saya telah menyimpan kode pemulihan saya di tempat yang aman",
+    setup2fa_5_confirmation_2: "Saya siap untuk mengaktifkan 2FA",
+    setup2fa_5_button: "Aktifkan 2FA",
 
-        // === 2FA Login ===
-        login2fa_otp_title: "Masukkan Kode 2FA",
-        login2fa_otp_instructions: "Masukkan kode 6 digit dari aplikasi autentikator Anda.",
-        login2fa_recovery_title: "Masukkan kode pemulihan",
-        login2fa_recovery_instructions: "Masukkan salah satu kode pemulihan Anda untuk mengakses akun Anda.",
-        login2fa_use_recovery_code: "Gunakan kode pemulihan",
-        login2fa_recovery_back: "Kembali",
-        login2fa_recovery_placeholder: "XXXXXXXX",
+    // === 2FA Login ===
+    login2fa_otp_title: "Masukkan Kode 2FA",
+    login2fa_otp_instructions: "Masukkan kode 6 digit dari aplikasi autentikator Anda.",
+    login2fa_recovery_title: "Masukkan kode pemulihan",
+    login2fa_recovery_instructions:
+      "Masukkan salah satu kode pemulihan Anda untuk mengakses akun Anda.",
+    login2fa_use_recovery_code: "Gunakan kode pemulihan",
+    login2fa_recovery_back: "Kembali",
+    login2fa_recovery_placeholder: "XXXXXXXX",
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
-    }
+    // ***********************************
+    // Missing translations
+    // ***********************************
+    "change": "Mengubah", // In English: "Change"
+    "clock_visibility": "Visibilitas Waktu", // In English: "Clock Visibility"
+    "reading": "Membaca", // In English: "Reading %strong%"
+    "writing": "Menulis", // In English: "Writing %strong%"
+    "unzipping": "Membuka Resleting", // In English: "Unzipping %strong%"
+    "sequencing": "Pengurutan", // In English: "Sequencing %strong%"
+    "zipping": "Resleting", // In English: "Zipping %strong%"
+    "Editor": "Pengedit", // In English: "Editor"
+    "Viewer": "Penonton", // In English: "Viewer"
+    "People with access": "Orang yang memeliki akse", // In English: "People with access"
+    "Share With…": "Bagikan dengan...", // In English: "Share With…"
+    "Owner": "Pemilik", // In English: "Owner"
+    "You can't share with yourself.":
+      "Anda tidak dapat membaginya dengan dirimu sendiri.", // In English: "You can't share with yourself."
+    "This user already has access to this item":
+      "Pengunah ini telah mengakses ke barang ini", // In English: "This user already has access to this item"
+  },
 };
 
 export default id;
