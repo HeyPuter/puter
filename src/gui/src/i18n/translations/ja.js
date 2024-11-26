@@ -348,9 +348,6 @@ const ja = {
         
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
         "change": "変更", // In English: "Change"
         "clock_visibility": "時計の表示設定", // In English: "Clock Visibility"
         "plural_suffix": "", // In English: "s"
