@@ -58,6 +58,7 @@ const install = async ({ services, app, useapi, modapi }) => {
         def('Library', Library);
 
         def('core.util.helpers', require('./helpers'));
+        def('core.util.permission', require('./services/auth/PermissionService').PermissionUtil);
         def('puter.middlewares.auth', require('./middleware/auth2'));
         def('puter.middlewares.anticsrf', require('./middleware/anticsrf'));
         
