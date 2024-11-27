@@ -115,7 +115,7 @@ module.exports = eggspress('/query/app', {
             description: app.description,
             metadata: app.metadata,
             tags: app.tags ? app.tags.split(',') : [],
-            // created: app.timestamp,
+            created: app.timestamp,
             associations,
             ...stats,
         });
