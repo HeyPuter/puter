@@ -368,9 +368,6 @@ const id = {
     login2fa_recovery_back: "Kembali",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
-    // ***********************************
-    // Missing translations
-    // ***********************************
     "change": "Ubah", // In English: "Change"
     "clock_visibility": "Visibilitas Jam", // In English: "Clock Visibility"
     "reading": "Membaca %strong%", // In English: "Reading %strong%"
