@@ -350,20 +350,20 @@ const ig = {
 		// ***********************************
 		// Missing translations
 		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        "change": "gbanwee", // In English: "Change"
+        "clock_visibility": "ngosi_clock", // In English: "Clock Visibility"
+        "reading": "Ọgụgụ %strong%", // In English: "Reading %strong%"
+        "writing": "Na-ede %strong%", // In English: "Writing %strong%"
+        "unzipping": "mkpọpu %strong%", // In English: "Unzipping %strong%"
+        "sequencing": "osoro %strong%", // In English: "Sequencing %strong%"
+        "zipping": "zipụ %strong%", // In English: "Zipping %strong%"
+        "Editor": "Onye dezie", // In English: "Editor"
+        "Viewer": "Onye na-ekiri", // In English: "Viewer"
+        "People with access": "Ndị nwere ohere", // In English: "People with access"
+        "Share With…": "kerịta ya", // In English: "Share With…"
+        "Owner": "Onye nwe ya", // In English: "Owner"
+        "You can't share with yourself.": "Ị nweghị ike ịkọrọ onwe gị", // In English: "You can't share with yourself."
+        "This user already has access to this item": "Onye a weerị ohere ịnweta ihe a", // In English: "This user already has access to this item"
     }
 };
 
