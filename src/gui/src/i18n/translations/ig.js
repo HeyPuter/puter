@@ -347,20 +347,24 @@ const ig = {
         login2fa_recovery_back: 'Azu',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-        "change": "gbanwee", // In English: "Change"
-        "clock_visibility": "ngosi_clock", // In English: "Clock Visibility"
-        "reading": "Ọgụgụ %strong%", // In English: "Reading %strong%"
-        "writing": "Na-ede %strong%", // In English: "Writing %strong%"
-        "unzipping": "mkpọpu %strong%", // In English: "Unzipping %strong%"
-        "sequencing": "osoro %strong%", // In English: "Sequencing %strong%"
-        "zipping": "zipụ %strong%", // In English: "Zipping %strong%"
-        "Editor": "Onye dezie", // In English: "Editor"
-        "Viewer": "Onye na-ekiri", // In English: "Viewer"
-        "People with access": "Ndị nwere ohere", // In English: "People with access"
-        "Share With…": "kerịta ya", // In English: "Share With…"
-        "Owner": "Onye nwe ya", // In English: "Owner"
-        "You can't share with yourself.": "Ị nweghị ike ịkọrọ onwe gị", // In English: "You can't share with yourself."
-        "This user already has access to this item": "Onye a weerị ohere ịnweta ihe a", // In English: "This user already has access to this item"
+        //****************************************
+        //Missing translations
+        //****************************************
+
+        "change": "gbanwee", 
+        "clock_visibility": "Ihe ngosi elekere", 
+        "reading": "gụgụ", 
+        "writing": "Na-ede", 
+        "unzipping": "mkpọpu", 
+        "sequencing": "Ịtọgharị n’usoro", 
+        "zipping": "zipụ", 
+        "Editor": "Onye nchịgharị", 
+        "Viewer": "Onye na-ekiri", 
+        "People with access": "Ndị nwere ohere", 
+        "Share With…": "Kekọrịta na", 
+        "Owner": "Onye nwe", 
+        "You can't share with yourself.": "Ị nweghị ike ịkekọrịta ya onwe gị.", 
+        "This user already has access to this item": "Onye a enweela ohere ịbanye ihe a", 
     }
 };
 
