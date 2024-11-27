@@ -365,9 +365,7 @@ const ko = {
     login2fa_use_recovery_code: "복구코드 사용",
     login2fa_recovery_back: "뒤로 가기",
     login2fa_recovery_placeholder: "XXXXXXXX",
-    // ***********************************
-    // Updated translations
-    // ***********************************
+
     account_password: "계정 비밀번호 확인",
     change: "수정하기",
     Owner: "소유자",
