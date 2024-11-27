@@ -55,18 +55,22 @@ const ko = {
     confirm_account_for_free_referral_storage_c2a:
       "계정을 생성하고 이메일 주소를 확인하여 1GB의 무료 저장 공간을 받으십시오. 친구도 1GB의 무료 저장 공간을 받게 됩니다.",
     confirm_code_generic_incorrect: "잘못된 코드입니다.",
-    confirm_code_generic_too_many_requests: "요청이 너무 많습니다. 몇 분만 기다려주십시오.",
+    confirm_code_generic_too_many_requests:
+      "요청이 너무 많습니다. 몇 분만 기다려주십시오.",
     confirm_code_generic_submit: "코드 제출",
     confirm_code_generic_try_again: "재시도",
     confirm_code_generic_title: "확인 코드를 입력하십시오",
     confirm_code_2fa_instruction: "인증 앱의 6자리 코드를 입력하십시오.",
     confirm_code_2fa_submit_btn: "제출",
     confirm_code_2fa_title: "2FA 코드를 입력하십시오",
-    confirm_delete_multiple_items: "정말로 이 항목들을 영구적으로 삭제하시겠습니까?",
+    confirm_delete_multiple_items:
+      "정말로 이 항목들을 영구적으로 삭제하시겠습니까?",
     confirm_delete_single_item: "이 항목을 영구적으로 삭제하시겠습니까?",
-    confirm_open_apps_log_out: "열려있는 앱들이 있습니다. 정말로 로그아웃 하시겠습니까?",
+    confirm_open_apps_log_out:
+      "열려있는 앱들이 있습니다. 정말로 로그아웃 하시겠습니까?",
     confirm_new_password: "새 비밀번호 확인",
-    confirm_delete_user: "정말로 계정을 삭제하시겠습니까? 모든 파일과 데이터가 영구적으로 삭제됩니다. 이 작업은 취소될 수 없습니다.",
+    confirm_delete_user:
+      "정말로 계정을 삭제하시겠습니까? 모든 파일과 데이터가 영구적으로 삭제됩니다. 이 작업은 취소될 수 없습니다.",
     confirm_delete_user_title: "계정 삭제?",
     confirm_session_revoke: "정말로 이 세션을 취소하시겠습니까?",
     confirm_your_email_address: "이메일 주소를 확인하십시오",
@@ -113,7 +117,8 @@ const ko = {
     download_file: "파일 다운로드",
     downloading: "다운로드 중",
     email: "이메일",
-    email_change_confirmation_sent: "새 이메일 주소로 확인 메일이 전송되었습니다. 받은 편지함을 확인하시고 안내에 따라 절차를 완료하십시오.",
+    email_change_confirmation_sent:
+      "새 이메일 주소로 확인 메일이 전송되었습니다. 받은 편지함을 확인하시고 안내에 따라 절차를 완료하십시오.",
     email_invalid: "이메일이 유효하지 않습니다.",
     email_or_username: "이메일 또는 사용자 이름",
     email_required: "이메일은 필수 입력사항입니다.",
@@ -125,14 +130,17 @@ const ko = {
     end_process_force_confirm: "정말로 이 프로세스를 강제 종료 하시겠습니까?",
     end_soft: "소프트 종료",
     enlarged_qr_code: "확대된 QR 코드",
-    enter_password_to_confirm_delete_user: "계정 삭제를 승인하려면 비밀번호를 입력하십시오.",
+    enter_password_to_confirm_delete_user:
+      "계정 삭제를 승인하려면 비밀번호를 입력하십시오.",
     error_message_is_missing: "오류 메세지를 찾을 수 없습니다.",
     error_unknown_cause: "알 수 없는 오류가 발생했습니다.",
     error_uploading_files: "파일들을 업로드 하는데 실패했습니다",
     favorites: "즐겨찾기",
     feedback: "피드백",
-    feedback_c2a: "아래 양식을 사용하여 피드백, 의견 및 버그 보고를 보내십시오.",
-    feedback_sent_confirmation: "문의해 주셔서 감사합니다. 계정에 이메일이 연결되어 있으면 가능한 빨리 회신 드리겠습니다.",
+    feedback_c2a:
+      "아래 양식을 사용하여 피드백, 의견 및 버그 보고를 보내십시오.",
+    feedback_sent_confirmation:
+      "문의해 주셔서 감사합니다. 계정에 이메일이 연결되어 있으면 가능한 빨리 회신 드리겠습니다.",
     fit: "맞춤",
     folder: "폴더",
     force_quit: "강제 종료",
@@ -195,12 +203,17 @@ const ko = {
     oss_code_and_content: "오픈 소스 소프트웨어 및 콘텐츠",
     password: "비밀번호",
     password_changed: "비밀번호가 변경되었습니다.",
-    password_recovery_rate_limit: "속도 제한에 도달했습니다. 몇 분만 기다려 주십시오. 앞으로 이 문제를 방지하려면 페이지를 너무 많이 다시 로드하지 마십시오.",
-    password_recovery_token_invalid: "이 비밀번호 복구 토큰은 더 이상 유효하지 않습니다.",
-    password_recovery_unknown_error: "알 수 없는 오류가 발생했습니다. 나중에 다시 시도해주십시오.",
+    password_recovery_rate_limit:
+      "속도 제한에 도달했습니다. 몇 분만 기다려 주십시오. 앞으로 이 문제를 방지하려면 페이지를 너무 많이 다시 로드하지 마십시오.",
+    password_recovery_token_invalid:
+      "이 비밀번호 복구 토큰은 더 이상 유효하지 않습니다.",
+    password_recovery_unknown_error:
+      "알 수 없는 오류가 발생했습니다. 나중에 다시 시도해주십시오.",
     password_required: "비밀번호는 필수 입력사항 입니다.",
-    password_strength_error: "비밀번호는 반드시 최소 8자 이상이어야 하며 최소 대문자 1개, 소문자 1개, 숫자 1개, 특수문자 1개를 포함해야 합니다.",
-    passwords_do_not_match: "`새 비밀번호`와 `새 비밀번호 확인`이 일치하지 않습니다.",
+    password_strength_error:
+      "비밀번호는 반드시 최소 8자 이상이어야 하며 최소 대문자 1개, 소문자 1개, 숫자 1개, 특수문자 1개를 포함해야 합니다.",
+    passwords_do_not_match:
+      "`새 비밀번호`와 `새 비밀번호 확인`이 일치하지 않습니다.",
     paste: "붙여넣기",
     paste_into_folder: "폴더에 붙여넣기",
     path: "경로",
@@ -230,7 +243,8 @@ const ko = {
     recent: "최근",
     recommended: "추천",
     recover_password: "비밀번호 찾기",
-    refer_friends_c2a: "Puter에서 계정을 생성하고 확인한 친구마다 1GB를 받으십시오. 친구도 1GB를 받게 됩니다!",
+    refer_friends_c2a:
+      "Puter에서 계정을 생성하고 확인한 친구마다 1GB를 받으십시오. 친구도 1GB를 받게 됩니다!",
     refer_friends_social_media_c2a: `Puter.com에서 1GB의 무료 저장 공간을 받으십시오!`,
     refresh: "새로 고침",
     release_address_confirmation: `이 주소를 해제하시겠습니까?`,
@@ -249,8 +263,10 @@ const ko = {
     save_account_to_get_copy_link: "계속하려면 계정을 생성하십시오.",
     save_account_to_publish: "계속하려면 계정을 생성하십시오.",
     save_session: "세션 저장",
-    save_session_c2a: "현재 세션을 저장하고 작업을 잃지 않으려면 계정을 생성하십시오.",
-    scan_qr_c2a: "다른 기기에서 이 세션으로 로그인하려면 아래 코드를 스캔하십시오",
+    save_session_c2a:
+      "현재 세션을 저장하고 작업을 잃지 않으려면 계정을 생성하십시오.",
+    scan_qr_c2a:
+      "다른 기기에서 이 세션으로 로그인하려면 아래 코드를 스캔하십시오",
     scan_qr_2fa: "인증 앱으로 QR 코드를 스캔하십시오.",
     scan_qr_generic: "휴대전화나 다른 기기로 QR 코드를 스캔하십시오",
     search: "검색",
@@ -267,7 +283,7 @@ const ko = {
     set_new_password: "새 비밀번호 설정",
     share: "공유",
     share_to: "공유처",
-    share_with: "공유 대상:",
+    share_with: "공유 대상",
     shortcut_to: "바로 가기",
     show_all_windows: "모든 창 표시",
     show_hidden: "숨김 항목 표시",
@@ -282,7 +298,8 @@ const ko = {
     status: "상태",
     storage_usage: "저장 공간 사용량",
     storage_puter_used: "Puter에서 사용 중",
-    taking_longer_than_usual: "보통보다 조금 더 오래 걸립니다. 잠시만 기다려 주십시오...",
+    taking_longer_than_usual:
+      "보통보다 조금 더 오래 걸립니다. 잠시만 기다려 주십시오...",
     task_manager: "작업 관리자",
     taskmgr_header_name: "이름",
     taskmgr_header_status: "상태",
@@ -296,7 +313,8 @@ const ko = {
     two_factor_disabled: "2FA 비활성화됨",
     two_factor_enabled: "2FA 활성화됨",
     type: "유형",
-    type_confirm_to_delete_account: "계정을 삭제하려면 'confirm'을 입력하십시오.",
+    type_confirm_to_delete_account:
+      "계정을 삭제하려면 'confirm'을 입력하십시오.",
     ui_colors: "UI 색상",
     ui_manage_sessions: "세션 관리자",
     ui_revoke: "취소",
@@ -342,14 +360,12 @@ const ko = {
     login2fa_otp_title: "2FA 코드를 입력하십시오",
     login2fa_otp_instructions: "인증 앱의 6자리 코드를 입력하십시오.",
     login2fa_recovery_title: "복구코드를 입력하십시오",
-    login2fa_recovery_instructions: "계정 접속을 위해 복구코드들 중 하나를 입력하십시오.",
+    login2fa_recovery_instructions:
+      "계정 접속을 위해 복구코드들 중 하나를 입력하십시오.",
     login2fa_use_recovery_code: "복구코드 사용",
     login2fa_recovery_back: "뒤로 가기",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
     "account_password": "계정 비밀번호 인증",
     "change": "변경", 
     "clock_visibility": "시계 표시 설정", 
@@ -365,7 +381,6 @@ const ko = {
     "Owner": "소유자", 
     "You can't share with yourself.": "자기 자신과는 공유할 수 없습니다.", 
     "This user already has access to this item": "이 사용자는 이미 접근 권한이 있습니다.", 
-
   },
 };
 
