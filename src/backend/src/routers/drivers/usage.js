@@ -44,7 +44,15 @@ module.exports = eggspress('/drivers/usage', {
         user: {}, // map[str(iface:method)]{date,count,max}
         apps: {}, // []{app,map[str(iface:method)]{date,count,max}}
         app_objects: {},
+        usages: [],
     };
+    
+    const event = {
+        usages: [],
+    };
+    const svc_event = x.get('services').get('event');
+    await svc_event.emit('usages.query', event);
+    usages.usages = event.usages;
 
     const rows = await db.read(
         'SELECT * FROM `service_usage_monthly` WHERE user_id=? ' +
@@ -184,5 +192,6 @@ module.exports = eggspress('/drivers/usage', {
         user: Object.values(usages.user),
         apps: usages.apps,
         app_objects: usages.app_objects,
+        usages: usages.usages,
     });
 })

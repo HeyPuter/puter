@@ -1,3 +1,5 @@
+const APIError = require("../../api/APIError");
+const { PermissionUtil } = require("../../services/auth/PermissionService");
 const BaseService = require("../../services/BaseService");
 const { DB_WRITE } = require("../../services/database/consts");
 const { TypeSpec } = require("../../services/drivers/meta/Construct");
@@ -28,7 +30,7 @@ class AIChatService extends BaseService {
         svc_event.on('ai.prompt.report-usage', async (_, details) => {
             const values = {
                 user_id: details.actor?.type?.user?.id,
-                app_id: details.actor?.type?.app?.id,
+                app_id: details.actor?.type?.app?.id ?? null,
                 service_name: details.service_used,
                 model_name: details.model_used,
                 value_uint_1: details.usage?.input_tokens,
@@ -196,6 +198,11 @@ class AIChatService extends BaseService {
                 let ret, error, errors = [];
                 let service_used = intended_service;
                 let model_used = this.get_model_from_request(parameters);
+                await this.check_usage_({
+                    actor: Context.get('actor'),
+                    service: service_used,
+                    model: model_used,
+                });
                 try {
                     ret = await svc_driver.call_new_({
                         actor: Context.get('actor'),
@@ -239,6 +246,11 @@ class AIChatService extends BaseService {
                             fallback_model_name
                         });
 
+                        await this.check_usage_({
+                            actor: Context.get('actor'),
+                            service: fallback_service_name,
+                            model: fallback_model_name,
+                        });
                         try {
                             ret = await svc_driver.call_new_({
                                 actor: Context.get('actor'),
@@ -315,6 +327,35 @@ class AIChatService extends BaseService {
 
                 return ret.result;
             }
+        }
+    }
+    
+    async check_usage_ ({ actor, service, model }) {
+        const svc_permission = this.services.get('permission');
+        const svc_event = this.services.get('event');
+        const reading = await svc_permission.scan(actor, `paid-services:ai-chat`);
+        const options = PermissionUtil.reading_to_options(reading);
+
+        // Query current ai usage in terms of cost
+        const [row] = await this.db.read(
+            'SELECT SUM(`cost`) AS sum FROM `ai_usage` ' +
+            'WHERE `user_id` = ?',
+            [actor.type.user.id]
+        );
+        
+        const cost_used = row?.sum || 0;
+    
+        const event = {
+            allowed: true,
+            actor,
+            service, model,
+            cost_used,
+            permission_options: options,
+        };
+        await svc_event.emit('ai.prompt.check-usage', event);
+        if ( event.error ) throw event.error;
+        if ( ! event.allowed ) {
+            throw new APIError('forbidden');
         }
     }
     
