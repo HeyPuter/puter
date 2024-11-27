@@ -57,6 +57,22 @@ export default {
             success: function (res) {
                 let h = ''; // Initialize HTML string for driver usage bars
 
+                // Usages provided by arbitrary services
+                res.usages.forEach(entry => {
+                    if ( ! entry.usage_percentage ) {
+                        entry.usage_percentage = (entry.used / entry.available * 100).toFixed(0);
+                    }
+                    h += `
+                        <div class="driver-usage" style="margin-bottom: 10px;">
+                            <h3 style="margin-bottom: 5px; font-size: 14px;">${html_encode(entry.name)}:</h3>
+                            <span style="font-size: 13px; margin-bottom: 3px;">${Number(entry.used)} used of ${Number(entry.available)}</span>
+                            <div class="usage-progbar-wrapper" style="width: 100%;">
+                                <div class="usage-progbar" style="width: ${Number(entry.usage_percentage)}%;"><span class="usage-progbar-percent">${Number(entry.usage_percentage)}%</span></div>
+                            </div>
+                        </div>
+                    `;
+                });
+
                 // Loop through user services
                 res.user.forEach(service => {
                     const { monthly_limit, monthly_usage } = service;

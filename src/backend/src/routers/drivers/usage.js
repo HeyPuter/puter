@@ -48,6 +48,7 @@ module.exports = eggspress('/drivers/usage', {
     };
     
     const event = {
+        actor,
         usages: [],
     };
     const svc_event = x.get('services').get('event');
