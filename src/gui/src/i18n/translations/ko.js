@@ -350,21 +350,21 @@ const ko = {
 		// ***********************************
 		// Missing translations
 		// ***********************************
-    "account_password": undefined, // In English: "Verify Account Password"
-    "change": undefined, // In English: "Change"
-    "clock_visibility": undefined, // In English: "Clock Visibility"
-    "reading": undefined, // In English: "Reading %strong%"
-    "writing": undefined, // In English: "Writing %strong%"
-    "unzipping": undefined, // In English: "Unzipping %strong%"
-    "sequencing": undefined, // In English: "Sequencing %strong%"
-    "zipping": undefined, // In English: "Zipping %strong%"
-    "Editor": undefined, // In English: "Editor"
-    "Viewer": undefined, // In English: "Viewer"
-    "People with access": undefined, // In English: "People with access"
-    "Share With…": undefined, // In English: "Share With…"
-    "Owner": undefined, // In English: "Owner"
-    "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-    "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+    "account_password": "계정 비밀번호 인증",
+    "change": "변경", 
+    "clock_visibility": "시계 표시 설정", 
+    "reading": `%strong% 읽는 중`,
+    "writing": `%strong% 기록 중`, 
+    "unzipping": `%strong% 압축 해제 중`,
+    "sequencing": `%strong% 순서 처리 중`, 
+    "zipping": `%strong% 압축 중`, 
+    "Editor": "편집자", // If it refers to a person, the correct translation is "편집자" ,If it refers to the tool or software, the translation would be "편집기" 
+    "Viewer": "조회자", // If it refers to a person, the correct translation is "조회자" ,If it refers to the tool or software, the translation would be "뷰어" 
+    "People with access": "권한 보유자", 
+    "Share With…": "공유 대상...",
+    "Owner": "소유자", 
+    "You can't share with yourself.": "자기 자신과는 공유할 수 없습니다.", 
+    "This user already has access to this item": "이 사용자는 이미 접근 권한이 있습니다.", 
 
   },
 };
