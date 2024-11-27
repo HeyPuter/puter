@@ -65,8 +65,8 @@ const id = {
     confirm_code_2fa_submit_btn: "Kirim",
     confirm_code_2fa_title: "Masukkan Kode 2FA",
     confirm_delete_multiple_items:
-      "Apakah Anda yakin ingin menghapus item-item ini secara permanen?",
-    confirm_delete_single_item: "Apakah Anda ingin menghapus item ini secara permanen?",
+      "Apakah Anda yakin ingin menghapus barang-barang ini secara permanen?",
+    confirm_delete_single_item: "Apakah Anda ingin menghapus barang ini secara permanen?",
     confirm_open_apps_log_out:
       "Anda memiliki aplikasi yang terbuka. Apakah Anda yakin ingin keluar?",
     confirm_new_password: "Konfirmasi Kata Sandi Baru",
@@ -78,12 +78,12 @@ const id = {
     contact_us: "Hubungi Kami",
     contact_us_verification_required:
       "Anda harus memiliki alamat email yang terverifikasi untuk menggunakan ini.",
-    contain: "Kandung",
+    contain: "Berisi",
     continue: "Lanjutkan",
     copy: "Salin",
     copy_link: "Salin Tautan",
     copying: "Menyalin",
-    copying_file: "Menyalin %%",
+    copying_file: "Menyalin berkas",
     cover: "Sampul",
     create_account: "Buat Akun",
     create_free_account: "Buat Akun Gratis",
@@ -98,11 +98,11 @@ const id = {
     close_all: "Tutup Semua",
     created: "Dibuat",
     date_modified: "Tanggal diubah",
-    default: "Default",
+    default: "Bawaan",
     delete: "Hapus",
     delete_account: "Hapus Akun",
     delete_permanently: "Hapus Permanen",
-    deleting_file: "Menghapus %%",
+    deleting_file: "Menghapus berkas %%",
     deploy_as_app: "Pasang sebagai aplikasi",
     descending: "Menurun",
     desktop: "Desktop",
@@ -125,11 +125,11 @@ const id = {
     email_or_username: "Email atau Nama Pengguna",
     email_required: "Email diperlukan.",
     empty_trash: "Kosongkan Sampah",
-    empty_trash_confirmation: `Apakah Anda yakin ingin menghapus item-item di Sampah secara permanen?`,
+    empty_trash_confirmation: `Apakah Anda yakin ingin menghapus barang-barang di Sampah secara permanen?`,
     emptying_trash: "Mengosongkan Sampah…",
     enable_2fa: "Aktifkan 2FA",
     end_hard: "Akhiri Secara Paksa",
-    end_process_force_confirm: "Apakah Anda yakin ingin memaksa menghentikan proses ini?",
+    end_process_force_confirm: "Apakah Anda yakin menghentikan proses ini secara paksa?",
     end_soft: "Akhiri Secara Lembut",
     enlarged_qr_code: "Kode QR Diperbesar",
     enter_password_to_confirm_delete_user:
@@ -137,7 +137,7 @@ const id = {
     error_message_is_missing: "Pesan kesalahan hilang.",
     error_unknown_cause: "Terjadi kesalahan yang tidak diketahui.",
     error_uploading_files: "Gagal mengunggah file",
-    favorites: "Favorit",
+    favorites: "Kesukaan",
     feedback: "Umpan Balik",
     feedback_c2a:
       "Silakan gunakan formulir di bawah ini untuk mengirimkan umpan balik, komentar, dan laporan bug kepada kami.",
@@ -145,7 +145,7 @@ const id = {
       "Terima kasih telah menghubungi kami. Jika Anda memiliki email yang terhubung dengan akun Anda, Anda akan menerima balasan dari kami sesegera mungkin.",
     fit: "Cocokkan",
     folder: "Folder",
-    force_quit: "Keluar Paksa",
+    force_quit: "Keluar dengan Paksa",
     forgot_pass_c2a: "Lupa kata sandi?",
     from: "Dari",
     general: "Umum",
@@ -158,10 +158,10 @@ const id = {
     image: "Gambar",
     incorrect_password: "Kata sandi salah",
     invite_link: "Tautan Undangan",
-    item: "item",
-    items_in_trash_cannot_be_renamed: `Item ini tidak dapat dinamai ulang karena berada di sampah. Untuk mengganti nama item ini, pertama-tama seret keluar dari Sampah.`,
+    item: "barang",
+    items_in_trash_cannot_be_renamed: `Barang ini tidak dapat dinamai ulang karena berada di sampah. Untuk mengganti nama barang ini, pertama-tama keluarkan dari Sampah.`,
     jpeg_image: "Gambar JPEG",
-    keep_in_taskbar: "Pertahankan di Taskbar",
+    keep_in_taskbar: "Pertahankan di Bilah Tugas",
     language: "Bahasa",
     license: "Lisensi",
     lightness: "Kecerahan",
@@ -208,16 +208,16 @@ const id = {
     password_changed: "Kata sandi telah diubah.",
     password_recovery_rate_limit:
       "Anda telah mencapai batas kecepatan kami; silakan tunggu beberapa menit. Untuk mencegah ini di masa depan, hindari memuat ulang halaman terlalu sering.",
-    password_recovery_token_invalid: "Token pemulihan kata sandi ini tidak lagi berlaku.",
+    password_recovery_token_invalid: "Token pemulihan kata sandi sudah tidak berlaku.",
     password_recovery_unknown_error:
       "Terjadi kesalahan yang tidak dikenal. Silakan coba lagi nanti.",
     password_required: "Kata sandi diperlukan.",
     password_strength_error:
-      "Kata sandi harus panjangnya setidaknya 8 karakter dan mengandung setidaknya satu huruf kapital, satu huruf kecil, satu angka, dan satu karakter khusus.",
+      "Panjang Kata sandi minimal 8 karakter dan mengandung setidaknya satu huruf kapital, satu huruf kecil, satu angka, dan satu karakter khusus.",
     passwords_do_not_match:
       "`Kata Sandi Baru` dan `Konfirmasi Kata Sandi Baru` tidak cocok.",
     paste: "Tempel",
-    paste_into_folder: "Tempel ke Folder",
+    paste_into_folder: "Tempel ke dalam Folder",
     path: "Jalur",
     personalization: "Personalisasi",
     pick_name_for_website: "Pilih nama untuk situs web Anda:",
@@ -225,11 +225,11 @@ const id = {
     pictures: "Gambar",
     plural_suffix: "s",
     powered_by_puter_js: `Ditenagai oleh {{link=docs}}Puter.js{{/link}}`,
-    preparing: "Memproses...",
-    preparing_for_upload: "Persiapan untuk diunggah...",
+    preparing: "Mempersiapkan...",
+    preparing_for_upload: "Persiapan untuk menggunggah...",
     print: "Cetak",
     privacy: "Privasi",
-    proceed_to_login: "Lanjutkan ke login",
+    proceed_to_login: "Lanjutkan untuk masuk",
     proceed_with_account_deletion: "Lanjutkan dengan Penghapusan Akun",
     process_status_initializing: "Memulai",
     process_status_running: "Berjalan",
@@ -248,7 +248,7 @@ const id = {
     refer_friends_c2a:
       "Dapatkan 1 GB untuk setiap teman yang membuat dan mengonfirmasi akun di Puter. Teman Anda juga akan mendapatkan 1 GB!",
     refer_friends_social_media_c2a: "Dapatkan 1 GB penyimpanan gratis di Puter.com!",
-    refresh: "Segarkan",
+    refresh: "Memuat Ulang",
     release_address_confirmation: "Apakah Anda yakin ingin melepaskan alamat ini?",
     remove_from_taskbar: "Hapus dari Bilah Tugas",
     rename: "Ganti Nama",
@@ -256,13 +256,13 @@ const id = {
     replace: "Ganti",
     replace_all: "Ganti Semua",
     resend_confirmation_code: "Kirim Ulang Kode Konfirmasi",
-    reset_colors: "Reset Warna",
+    reset_colors: "Mengatur Ulang Warna",
     restart_puter_confirm: "Apakah Anda yakin ingin memulai ulang Puter?",
     restore: "Pulihkan",
     save: "Simpan",
-    saturation: "Kenyaringan",
+    saturation: "Saturasi",
     save_account: "Simpan akun",
-    save_account_to_get_copy_link: "Silakan buat akun untuk melanjutkan.",
+    save_account_to_get_copy_link: "Silakan buat akun untuk mendapatkan salinan tautan.",
     save_account_to_publish: "Silakan buat akun untuk melanjutkan.",
     save_session: "Simpan sesi",
     save_session_c2a:
@@ -270,7 +270,7 @@ const id = {
     scan_qr_c2a: "Pindai kode di bawah ini\nuntuk masuk ke sesi ini dari perangkat lain",
     scan_qr_2fa: "Pindai kode QR dengan aplikasi autentikator Anda",
     scan_qr_generic: "Pindai kode QR ini menggunakan ponsel atau perangkat lain Anda",
-    search: "Cari",
+    search: "Pencarian",
     seconds: "detik",
     security: "Keamanan",
     select: "Pilih",
@@ -333,7 +333,7 @@ const id = {
     yes: "Ya",
     yes_release_it: "Ya, Lepaskan",
     you_have_been_referred_to_puter_by_a_friend:
-      "Anda telah dirujuk ke Puter oleh teman!",
+      "Anda telah dirujuk ke Puter oleh seorang teman!",
     zip: "Zip",
     zipping_file: "Mengekstrak %strong%",
 
@@ -368,7 +368,7 @@ const id = {
     login2fa_recovery_back: "Kembali",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
-    "change": "Ubah", // In English: "Change"
+    "change": "Mengubah", // In English: "Change"
     "clock_visibility": "Visibilitas Jam", // In English: "Clock Visibility"
     "reading": "Membaca %strong%", // In English: "Reading %strong%"
     "writing": "Menulis %strong%", // In English: "Writing %strong%"
@@ -381,9 +381,9 @@ const id = {
     "Share With…": "Bagikan Dengan...", // In English: "Share With…"
     "Owner": "Pemilik", // In English: "Owner"
     "You can't share with yourself.":
-      "Anda tidak dapat membagikannya dengan diri sendiri.", // In English: "You can't share with yourself."
+      "Anda tidak bisa membaginya dengan diri sendiri.", // In English: "You can't share with yourself."
     "This user already has access to this item":
-      "Pengguna ini sudah memiliki akses ke item ini", // In English: "This user already has access to this item"
+      "Pengguna ini telah memiliki akses ke barang ini", // In English: "This user already has access to this item"
   },
 };
 
