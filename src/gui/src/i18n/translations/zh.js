@@ -352,16 +352,18 @@ const zh = {
         "plural_suffix": '单位后缀', // In English: "plural_suffix"
         "reading": '正在读取 %strong%', // In English: "Reading %strong%"
         "writing": '正在写入 %strong%', // In English: "Writing %strong%"
-        "unzipping": '正在解压 %strong%', // In English: "Unzipping %strong%"
+        "unzipping": '正在解压缩 %strong%', // In English: "Unzipping %strong%"
         "sequencing": '正在排序 %strong%', // In English: "Sequencing %strong%"
         "zipping": '正在压缩 %strong%', // In English: "Zipping %strong%"
-        "Editor": '文本编辑器', // In English: "Editor"
+        "Editor": '编辑器', // In English: "Editor"
         "Viewer": '查看器', // In English: "Viewer"
-        "People with access": '拥有权限者', // In English: "People with access"
-        "Share With…": '分享给...', // In English: "Share With…"
-        "Owner": '作者', // In English: "Owner"
-        "You can't share with yourself.": '你不能与自己分享', // In English: "You can't share with yourself."
-        "This user already has access to this item": '该用户已有访问此项的权限', // In English: "This user already has access to this item"
+        "People with access": '有访问权限的人', // In English: "People with access"
+        "Share With…": '与他人分享…', // In English: "Share With…"
+        "Owner": '所有者', // In English: "Owner"
+        "You can't share with yourself.": '不能分享给你自己', // In English: "You can't share with yourself."
+        "This user already has access to this item": '该用户已经拥有访问此项目的权限了', // In English: "This user already has access to this item"
+
+
     }
 };
 
