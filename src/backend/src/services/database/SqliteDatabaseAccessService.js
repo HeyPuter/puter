@@ -141,6 +141,9 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [29, [
                 '0032_signup_metadata.sql',
             ]],
+            [30, [
+                '0033_ai-usage.sql',
+            ]],
         ];
 
         // Database upgrade logic

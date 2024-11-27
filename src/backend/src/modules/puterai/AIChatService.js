@@ -1,4 +1,5 @@
 const BaseService = require("../../services/BaseService");
+const { DB_WRITE } = require("../../services/database/consts");
 const { TypeSpec } = require("../../services/drivers/meta/Construct");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
@@ -21,16 +22,47 @@ class AIChatService extends BaseService {
     _init () {
         this.kvkey = this.modules.uuidv4();
 
+        this.db = this.services.get('database').get(DB_WRITE, 'ai-usage');
+
         const svc_event = this.services.get('event');
         svc_event.on('ai.prompt.report-usage', async (_, details) => {
-            const user_id = details.actor?.type?.user?.id;
-            const app_id = details.actor?.type?.app?.id;
-            const service_name = details.service_used;
-            const model_name = details.model_used;
-            const value_uint_1 = details.usage?.input_tokens;
-            const value_uint_2 = details.usage?.output_tokens;
+            const values = {
+                user_id: details.actor?.type?.user?.id,
+                app_id: details.actor?.type?.app?.id,
+                service_name: details.service_used,
+                model_name: details.model_used,
+                value_uint_1: details.usage?.input_tokens,
+                value_uint_2: details.usage?.output_tokens,
+            };
 
-            console.log('reporting usage', { user_id, app_id, service_name, model_name, value_uint_1, value_uint_2 });     });
+            let model_details = this.detail_model_map[details.model_used];
+            if ( Array.isArray(model_details) ) {
+                for ( const model of model_details ) {
+                    if ( model.provider === details.service_used ) {
+                        model_details = model;
+                        break;
+                    }
+                }
+            }
+            if ( Array.isArray(model_details) ) {
+                model_details = model_details[0];
+            }
+            if ( model_details ) {
+                values.cost = 0 + // for formatting
+
+                    model_details.cost.input  * details.usage.input_tokens
+                    //            cents/MTok                        tokens
+                                              +
+
+                    model_details.cost.output * details.usage.output_tokens
+                    //            cents/MTok                        tokens
+                    ;
+            } else {
+                this.log.error('could not find model details', { details });
+            }
+
+            await this.db.insert('ai_usage', values);
+        });
     }
 
     async ['__on_boot.consolidation'] () {

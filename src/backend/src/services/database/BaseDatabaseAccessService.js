@@ -52,6 +52,21 @@ class BaseDatabaseAccessService extends BaseService {
         return this._write(query, params);
     }
 
+    insert (table_name, data) {
+        const values = Object.values(data);
+        const sql = this._gen_insert_sql(table_name, data);
+        console.log('INSERT SQL', sql);
+        return this.write(sql, values);
+    }
+
+    _gen_insert_sql (table_name, data) {
+        const cols = Object.keys(data);
+        return 'INSERT INTO `' + table_name + '` ' +
+            '(' + cols.map(str => '`' + str + '`').join(', ') + ') ' +
+            'VALUES (' + cols.map(() => '?').join(', ') + ')';
+    }
+
+
     batch_write (statements) {
         return this._batch_write(statements);
     }
