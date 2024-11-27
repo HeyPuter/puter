@@ -371,8 +371,8 @@ const id = {
     // ***********************************
     // Missing translations
     // ***********************************
-    "change": "Mengubah", // In English: "Change"
-    "clock_visibility": "Visibilitas Waktu", // In English: "Clock Visibility"
+    "change": "Ubah", // In English: "Change"
+    "clock_visibility": "Visibilitas Jam", // In English: "Clock Visibility"
     "reading": "Membaca %strong%", // In English: "Reading %strong%"
     "writing": "Menulis %strong%", // In English: "Writing %strong%"
     "unzipping": "Mengekstrak %strong%", // In English: "Unzipping %strong%"
