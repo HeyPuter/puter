@@ -347,9 +347,6 @@ const ig = {
         login2fa_recovery_back: 'Azu',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
         "change": "gbanwee", // In English: "Change"
         "clock_visibility": "ngosi_clock", // In English: "Clock Visibility"
         "reading": "Ọgụgụ %strong%", // In English: "Reading %strong%"
