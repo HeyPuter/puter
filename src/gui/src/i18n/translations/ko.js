@@ -366,22 +366,21 @@ const ko = {
     login2fa_recovery_back: "뒤로 가기",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
-    account_password: "계정 비밀번호 확인",
-    change: "수정하기",
-    Owner: "소유자",
-    Editor: "편집자",
-    Viewer: "뷰어",
-    "People with access": "액세스 권한이 있는 사용자",
-    reading: "읽는 중 %strong%",
-    writing: "쓰는 중 %strong%",
-    unzipping: "압축 해제 중 %strong%",
-    sequencing: "순서 지정 중 %strong%",
-    zipping: "압축 중 %strong%",
-    clock_visibility: "시계 가시성",
-    "You can't share with yourself.": "자신과는 공유할 수 없습니다.",
-    "This user already has access to this item":
-      "이 사용자는 이미 액세스 권한이 있습니다.",
+    "account_password": "계정 비밀번호 인증",
+    "change": "변경", 
+    "clock_visibility": "시계 표시 설정", 
+    "reading": `%strong% 읽는 중`,
+    "writing": `%strong% 기록 중`, 
+    "unzipping": `%strong% 압축 해제 중`,
+    "sequencing": `%strong% 순서 처리 중`, 
+    "zipping": `%strong% 압축 중`, 
+    "Editor": "편집자", // If it refers to a person, the correct translation is "편집자" ,If it refers to the tool or software, the translation would be "편집기" 
+    "Viewer": "조회자", // If it refers to a person, the correct translation is "조회자" ,If it refers to the tool or software, the translation would be "뷰어" 
+    "People with access": "권한 보유자", 
     "Share With…": "공유 대상...",
+    "Owner": "소유자", 
+    "You can't share with yourself.": "자기 자신과는 공유할 수 없습니다.", 
+    "This user already has access to this item": "이 사용자는 이미 접근 권한이 있습니다.", 
   },
 };
 
