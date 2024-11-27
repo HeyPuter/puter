@@ -350,21 +350,21 @@ const ko = {
 		// ***********************************
 		// Missing translations
 		// ***********************************
-    "account_password": undefined, // In English: "Verify Account Password"
-    "change": undefined, // In English: "Change"
-    "clock_visibility": undefined, // In English: "Clock Visibility"
-    "reading": undefined, // In English: "Reading %strong%"
-    "writing": undefined, // In English: "Writing %strong%"
-    "unzipping": undefined, // In English: "Unzipping %strong%"
-    "sequencing": undefined, // In English: "Sequencing %strong%"
-    "zipping": undefined, // In English: "Zipping %strong%"
-    "Editor": undefined, // In English: "Editor"
-    "Viewer": undefined, // In English: "Viewer"
-    "People with access": undefined, // In English: "People with access"
-    "Share With…": undefined, // In English: "Share With…"
-    "Owner": undefined, // In English: "Owner"
-    "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-    "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+    "account_password": "계정 비밀번호 확인 해주세요", // In English: "Verify Account Password"
+    "change": "변경", // In English: "Change"
+    "clock_visibility": "시계 가시성", // In English: "Clock Visibility"
+    "reading": "%strong% 읽는 중", // In English: "Reading %strong%"
+    "writing": "%strong% 쓰는 중", // In English: "Writing %strong%"
+    "unzipping": "압축 해제 중", // In English: "Unzipping %strong%"
+    "sequencing": "undefined", // In English: "Sequencing %strong%"
+    "zipping": "압축 중", // In English: "Zipping %strong%"
+    "Editor": "편집기", // In English: "Editor"
+    "Viewer": "뷰어", // In English: "Viewer"
+    "People with access": "접근가진 분들", // In English: "People with access"
+    "Share With…": "...와 공유 하시길", // In English: "Share With…"
+    "Owner": "소유자", // In English: "Owner"
+    "You can't share with yourself.": "자기와 공유가 가능 하지 안씁니다", // In English: "You can't share with yourself."
+    "This user already has access to this item": "이 사용자가 항목에 이미 접근화 되여이씁니다", // In English: "This user already has access to this item"
 
   },
 };
