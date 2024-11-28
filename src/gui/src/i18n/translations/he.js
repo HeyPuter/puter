@@ -368,20 +368,20 @@ const en = {
 		// ***********************************
 		// Missing translations
 		// ***********************************
-    "change": undefined, // In English: "Change"
-    "clock_visibility": undefined, // In English: "Clock Visibility"
-    "reading": undefined, // In English: "Reading %strong%"
-    "writing": undefined, // In English: "Writing %strong%"
-    "unzipping": undefined, // In English: "Unzipping %strong%"
-    "sequencing": undefined, // In English: "Sequencing %strong%"
-    "zipping": undefined, // In English: "Zipping %strong%"
-    "Editor": undefined, // In English: "Editor"
-    "Viewer": undefined, // In English: "Viewer"
-    "People with access": undefined, // In English: "People with access"
-    "Share With…": undefined, // In English: "Share With…"
-    "Owner": undefined, // In English: "Owner"
-    "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-    "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+"change": "שנה", // In English: "Change"
+"clock_visibility": "נראות שעון", // In English: "Clock Visibility"
+"reading": "קורא %strong%", // In English: "Reading %strong%"
+"writing": "כותב %strong%", // In English: "Writing %strong%"
+"unzipping": "מחלץ %strong%", // In English: "Unzipping %strong%"
+"sequencing": "רצף %strong%", // In English: "Sequencing %strong%"
+"zipping": "מכווץ %strong%", // In English: "Zipping %strong%"
+"Editor": "עורך", // In English: "Editor"
+"Viewer": "צופה", // In English: "Viewer"
+"People with access": "אנשים עם גישה", // In English: "People with access"
+"Share With…": "שתף עם…", // In English: "Share With…"
+"Owner": "בעלים", // In English: "Owner"
+"You can't share with yourself.": "אינך יכול לשתף עם עצמך.", // In English: "You can't share with yourself."
+"This user already has access to this item": "למשתמש זה כבר יש גישה לפריט זה" // In English: "This user already has access to this item"
   },
 };
 
