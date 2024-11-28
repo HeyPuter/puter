@@ -346,7 +346,7 @@ const pl = {
         login2fa_recovery_back: 'Powrót',
         login2fa_recovery_placeholder: 'XXXXXXXX',
         
-"change": 'Zmiana',
+        "change": 'Zmiana',
         "clock_visibility": 'Widoczność zegara',
         "plural_suffix": undefined, //In polish there is a ton of plural suffixes, so will be left empty eg Samochód (car) → Samochody (cars) and Pies (dog) → Psy (dogs)
         "reading": 'Odczyt %strong%', 
