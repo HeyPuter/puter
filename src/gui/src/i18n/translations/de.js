@@ -346,9 +346,6 @@ const de = {
         login2fa_recovery_back: 'Zurück',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
         "change": "Änderung", // In English: "Change"
         "clock_visibility": "Uhrensichtbarkeit", // In English: "Clock Visibility"
         "confirm": "Bestätigen", // In English: "Confirm"
