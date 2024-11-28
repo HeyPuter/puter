@@ -35,8 +35,6 @@ module.exports = eggspress('/query/app', {
 }, async (req, res, next) => {
     const results = [];
 
-    console.log('BODY?', req.body);
-
     const db = req.services.get('database').get(DB_READ, 'apps');
 
     const svc_appInformation = req.services.get('app-information');
@@ -56,10 +54,7 @@ module.exports = eggspress('/query/app', {
             if ( amount === undefined ) amount = 20;
             let uids = svc_appInformation.collections[col_name];
             uids = uids.slice(0, Math.min(uids.length, amount));
-            console.log('GOT SOME UIDS', uids);
             app_list.splice(i, 1, ...uids);
-
-            console.log('NEW LIST', app_list);
         }
     }
 
@@ -70,10 +65,7 @@ module.exports = eggspress('/query/app', {
             if ( amount === undefined ) amount = 20;
             let uids = svc_appInformation.tags[tag_name] ?? [];
             uids = uids.slice(0, Math.min(uids.length, amount));
-            console.log('GOT SOME UIDS', uids);
             app_list.splice(i, 1, ...uids);
-
-            console.log('NEW LIST', app_list);
         }
     }
 
