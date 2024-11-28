@@ -349,21 +349,21 @@ const de = {
 		// ***********************************
 		// Missing translations
 		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "confirm": undefined, // In English: "Confirm"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        "change": "Änderung", // In English: "Change"
+        "clock_visibility": "Uhrensichtbarkeit", // In English: "Clock Visibility"
+        "confirm": "Bestätigen", // In English: "Confirm"
+        "reading": "Lesen", // In English: "Reading %strong%"
+        "writing": "Schreiben", // In English: "Writing %strong%"
+        "unzipping": "Entpacken", // In English: "Unzipping %strong%"
+        "sequencing": "Sequenzierung", // In English: "Sequencing %strong%"
+        "zipping": "Zippen", // In English: "Zipping %strong%"
+        "Editor": "Editor", // In English: "Editor"
+        "Viewer": "Zuschauer", // In English: "Viewer"
+        "People with access": "Personen mit Zugriff", // In English: "People with access"
+        "Share With…": "Teilen mit...", // In English: "Share With…"
+        "Owner": "Eigentümer", // In English: "Owner"
+        "You can't share with yourself.": "Du kannst nicht mit dir selbst teilen.", // In English: "You can't share with yourself."
+        "This user already has access to this item": "Dieser Benutzer hat bereits Zugriff auf dieses Element.", // In English: "This user already has access to this item"
 
     }
 };
