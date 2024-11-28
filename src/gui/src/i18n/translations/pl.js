@@ -345,25 +345,22 @@ const pl = {
         login2fa_use_recovery_code: 'Użyj kod odzyskiwania',
         login2fa_recovery_back: 'Powrót',
         login2fa_recovery_placeholder: 'XXXXXXXX',
-
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "plural_suffix": undefined, // In English: "s"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        
+"change": 'Zmiana',
+        "clock_visibility": 'Widoczność zegara',
+        "plural_suffix": undefined, //In polish there is a ton of plural suffixes, so will be left empty eg Samochód (car) → Samochody (cars) and Pies (dog) → Psy (dogs)
+        "reading": 'Odczyt %strong%', 
+        "writing": 'Pisownia %strong%',
+        "unzipping": 'Rozpakowanie %strong%',
+        "sequencing": 'Kolejność %strong%',
+        "zipping": 'Pakowanie %strong%',
+        "Editor": 'Edytor',
+        "Viewer": 'Widz',
+        "People with access": 'Osoby z dostępem',
+        "Share With…": 'Podziel się z',
+        "Owner": 'właściciel',
+        "You can't share with yourself.": 'Nie możesz dzielić się z samym sobą',
+        "This user already has access to this item": 'Ten użytkownik ma już dostęp do tego elementu',
     }
 };
 
