@@ -537,7 +537,7 @@ function generate_edit_app_section(app) {
                 <input type="text" style="width: 362px;" class="app-uid" value="${html_encode(app.uid)}" readonly>
 
                 <label for="edit-app-icon">Icon</label>
-                <div id="edit-app-icon" style="background-image:url(${!app.icon ? './img/app.svg' : html_encode(app.icon)});" ${app.icon ? 'data-url="' + html_encode(app.icon) + '"' : ''}>
+                <div id="edit-app-icon" style="background-image:url(${!app.icon ? './img/app.svg' : html_encode(app.icon)});" ${app.icon ? 'data-url="' + html_encode(app.icon) + '"' : ''}  ${app.icon ? 'data-base64="' + html_encode(app.icon) + '"' : ''} >
                     <div id="change-app-icon">Change App Icon</div>
                 </div>
                 <span id="edit-app-icon-delete" style="${app.icon ? 'display:block;' : ''}">Remove icon</span>
@@ -727,6 +727,7 @@ function resetToOriginalValues() {
     if (originalValues.icon) {
         $('#edit-app-icon').css('background-image', `url(${originalValues.icon})`);
         $('#edit-app-icon').attr('data-url', originalValues.icon);
+        $('#edit-app-icon').attr('data-base64', originalValues.icon);
         $('#edit-app-icon-delete').show();
     } else {
         $('#edit-app-icon').css('background-image', '');
@@ -738,6 +739,7 @@ function resetToOriginalValues() {
     if (originalValues.socialImage) {
         $('#edit-app-social-image').css('background-image', `url(${originalValues.socialImage})`);
         $('#edit-app-social-image').attr('data-url', originalValues.socialImage);
+        $('#edit-app-social-image').attr('data-base64', originalValues.socialImage);
     } else {
         $('#edit-app-social-image').css('background-image', '');
         $('#edit-app-social-image').removeAttr('data-url');
@@ -2491,7 +2493,7 @@ async function initializeAssetsDirectory() {
 function generateSocialImageSection(app) {
     return `
         <label for="edit-app-social-image">Social Graph Image (1200×630 strongly recommended)</label>
-        <div id="edit-app-social-image" class="social-image-preview" ${app.metadata?.social_image ? `style="background-image:url(${html_encode(app.metadata.social_image)})" data-url="${html_encode(app.metadata.social_image)}"` : ''}>
+        <div id="edit-app-social-image" class="social-image-preview" ${app.metadata?.social_image ? `style="background-image:url(${html_encode(app.metadata.social_image)})" data-url="${html_encode(app.metadata.social_image)}" data-base64="${html_encode(app.metadata.social_image)}"` : ''}>
             <div id="change-social-image">Change Social Image</div>
         </div>
         <span id="edit-app-social-image-delete" style="${app.metadata?.social_image ? 'display:block;' : ''}">Remove social image</span>
