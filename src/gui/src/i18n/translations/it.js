@@ -349,20 +349,20 @@ const it = {
 		// ***********************************
 		// Missing translations
 		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        change: 'Cambia', // In English: "Change"
+        clock_visibility: 'Visibilità dell`ora', // In English: "Clock Visibility"
+        reading: 'Lettura %strong%', // In English: "Reading %strong%"
+        writing: 'Scrittura %strong%', // In English: "Writing %strong%"
+        unzipping: 'Unzip %strong%', // In English: "Unzipping %strong%"
+        sequencing: 'Ordinamento', // In English: "Sequencing %strong%"
+        zipping: 'Zipping  %strong%', // In English: "Zipping %strong%"
+        Editor: 'Editor', // In English: "Editor"
+        Viewer: 'Visualizzatore', // In English: "Viewer"
+        "People with access": 'Persone con accesso', // In English: "People with access"
+        "Share With…": 'Condividi con…', // In English: "Share With…"
+        Owner: 'Proprietario', // In English: "Owner"
+        "You can't share with yourself.": 'Non puoi condividere con te stesso', // In English: "You can't share with yourself."
+        "This user already has access to this item": 'L`utente ha già effettuato l`accesso a questo elemento', // In English: "This user already has access to this item"
     }
 };
 
