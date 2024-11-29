@@ -315,7 +315,7 @@ const it = {
         yes_release_it: 'Si, rilascialo',
         you_have_been_referred_to_puter_by_a_friend: "Sei stato invitato su Puter da un amico!",
         zip: "File compresso",
-        zipping_file: "Compressione di %strong%"
+        zipping_file: "Compressione di %strong%",
 
         // === 2FA Setup ===
         setup2fa_1_step_heading: 'Apri la tua app di autenticazione',      
