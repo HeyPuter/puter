@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -18,15 +19,36 @@
  */
 const BaseService = require("./BaseService");
 
+
+/**
+* Represents a Command class that encapsulates command execution functionality.
+* Each Command instance contains a specification (spec) that defines its ID,
+* name, description, handler function, and optional argument completer.
+* The class provides methods for executing commands and handling command
+* argument completion.
+*/
 class Command {
     constructor(spec) {
         this.spec_ = spec;
     }
 
+
+    /**
+    * Gets the unique identifier for this command
+    * @returns {string} The command's ID as specified in the constructor
+    */
     get id() {
         return this.spec_.id;
     }
 
+
+    /**
+    * Executes the command with given arguments and logging
+    * @param {Array} args - Command arguments to pass to the handler
+    * @param {Object} [log=console] - Logger object for output, defaults to console
+    * @returns {Promise<void>}
+    * @throws {Error} Logs any errors that occur during command execution
+    */
     async execute(args, log) {
         log = log ?? console;
         const { id, name, description, handler } = this.spec_;
@@ -46,10 +68,30 @@ class Command {
     }
 }
 
+
+/**
+* CommandService class manages the registration, execution, and handling of commands in the Puter system.
+* Extends BaseService to provide command-line interface functionality. Maintains a collection of Command
+* objects, supports command registration with namespaces, command execution with arguments, and provides
+* command lookup capabilities. Includes built-in help command functionality.
+* @extends BaseService
+*/
 class CommandService extends BaseService {
+    /**
+    * Service for managing and executing commands in the system.
+    * Extends BaseService to provide command registration, execution and lookup functionality.
+    * Commands are stored internally with unique IDs and can be executed with arguments.
+    * Built-in 'help' command is registered during initialization.
+    */
     async _construct () {
         this.commands_ = [];
     }
+    /**
+    * Initializes the command service's internal state
+    * Called during service construction to set up the empty commands array
+    * @private
+    * @returns {Promise<void>}
+    */
     async _init () {
         this.commands_.push(new Command({
             id: 'help',
@@ -73,6 +115,14 @@ class CommandService extends BaseService {
         }
     }
 
+
+    /**
+    * Executes a command with the given arguments and logging context
+    * @param {string[]} args - Array of command arguments where first element is command name
+    * @param {Object} log - Logger object for output (defaults to console if not provided)
+    * @returns {Promise<void>}
+    * @throws {Error} If command execution fails
+    */
     async executeCommand(args, log) {
         const [commandName, ...commandArgs] = args;
         const command = this.commands_.find(c => c.spec_.id === commandName);
@@ -80,17 +130,37 @@ class CommandService extends BaseService {
             log.error(`unknown command: ${commandName}`);
             return;
         }
+        /**
+        * Executes a command with the given arguments in a global context
+        * @param {string[]} args - Array of command arguments where first element is command name
+        * @param {Object} log - Logger object for output
+        * @returns {Promise<void>}
+        * @throws {Error} If command execution fails
+        */
         await globalThis.root_context.arun(async () => {
             await command.execute(commandArgs, log);
         });
     }
 
+
+    /**
+    * Executes a raw command string by splitting it into arguments and executing the command
+    * @param {string} text - Raw command string to execute
+    * @param {object} log - Logger object for output (defaults to console if not provided)
+    * @returns {Promise<void>}
+    * @todo Replace basic whitespace splitting with proper tokenizer (obvious-json)
+    */
     async executeRawCommand(text, log) {
         // TODO: add obvious-json as a tokenizer
         const args = text.split(/\s+/);
         await this.executeCommand(args, log);
     }
 
+
+    /**
+    * Gets a list of all registered command names/IDs
+    * @returns {string[]} Array of command identifier strings
+    */
     get commandNames() {
         return this.commands_.map(command => command.id);
     }
