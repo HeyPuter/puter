@@ -1,0 +1,22 @@
+{
+  "name": "comment-writer",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "AGPL-3.0-only",
+  "description": "",
+  "dependencies": {
+    "axios": "^1.7.8",
+    "console-table-printer": "^2.12.1",
+    "dedent": "^1.5.3",
+    "diff-match-patch": "^1.0.5",
+    "enquirer": "^2.4.1",
+    "js-levenshtein": "^1.1.6",
+    "word-wrap": "^1.2.5",
+    "yaml": "^2.4.5"
+  }
+}
