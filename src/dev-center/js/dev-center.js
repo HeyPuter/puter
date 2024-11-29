@@ -628,10 +628,10 @@ function trackOriginalValues(){
         name: $('#edit-app-name').val(),
         indexURL: $('#edit-app-index-url').val(),
         description: $('#edit-app-description').val(),
-        icon: $('#edit-app-icon').attr('data-url') || $('#edit-app-icon').attr('data-base64'),
+        icon: $('#edit-app-icon').attr('data-base64'),
         fileAssociations: $('#edit-app-filetype-associations').val(),
         category: $('#edit-app-category').val(),
-        socialImage: $('#edit-app-social-image').attr('data-url') || $('#edit-app-social-image').attr('data-base64'),
+        socialImage: $('#edit-app-social-image').attr('data-base64'),
         windowSettings: {
             width: $('#edit-app-window-width').val(),
             height: $('#edit-app-window-height').val(),
@@ -652,15 +652,26 @@ function trackOriginalValues(){
 
 /* This function compares for all fields and checks if anything has changed from before editting*/
 function hasChanges() {
+    // is icon changed
+    if($('#edit-app-icon').attr('data-base64') !== originalValues.icon){
+        return true;
+    }
+
+    // if social image is changed
+    if($('#edit-app-social-image').attr('data-base64') !== originalValues.socialImage){
+        return true;
+    }
+
+    // if any of the fields have changed
     return(
         $('#edit-app-title').val() !== originalValues.title ||
         $('#edit-app-name').val() !== originalValues.name ||
         $('#edit-app-index-url').val() !== originalValues.indexURL ||
         $('#edit-app-description').val() !== originalValues.description ||
-        ($('#edit-app-icon').attr('data-url') || $('#edit-app-icon').attr('data-base64')) !== originalValues.icon ||
+        $('#edit-app-icon').attr('data-base64') !== originalValues.icon ||
         $('#edit-app-filetype-associations').val() !== originalValues.fileAssociations ||
         $('#edit-app-category').val() !== originalValues.category ||
-        ($('#edit-app-social-image').attr('data-url') || $('#edit-app-social-image').attr('data-base64')) !== originalValues.socialImage ||
+        $('#edit-app-social-image').attr('data-base64') !== originalValues.socialImage ||
         $('#edit-app-window-width').val() !== originalValues.windowSettings.width ||
         $('#edit-app-window-height').val() !== originalValues.windowSettings.height ||
         $('#edit-app-window-top').val() !== originalValues.windowSettings.top ||
@@ -1334,6 +1345,9 @@ $(document).on('click', '#edit-app-icon-delete', async function (e) {
     $('#edit-app-icon').removeAttr('data-url');
     $('#edit-app-icon').removeAttr('data-base64');
     $('#edit-app-icon-delete').hide();
+
+    toggleSaveButton();
+    toggleResetButton();
 })
 
 $(document).on('click', '#edit-app-icon', async function (e) {
@@ -1360,6 +1374,9 @@ $(document).on('click', '#edit-app-icon', async function (e) {
         $('#edit-app-icon').css('background-image', `url(${image})`);
         $('#edit-app-icon').attr('data-base64', image);
         $('#edit-app-icon-delete').show();
+
+        toggleSaveButton();
+        toggleResetButton();
     }
 })
 
@@ -2505,6 +2522,9 @@ $(document).on('click', '#edit-app-social-image', async function(e) {
         $('#edit-app-social-image').css('background-image', `url(${image})`);
         $('#edit-app-social-image').attr('data-base64', image);
         $('#edit-app-social-image-delete').show();
+
+        toggleSaveButton();
+        toggleResetButton();
     }
 });
 
