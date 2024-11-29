@@ -346,9 +346,6 @@ const it = {
         login2fa_recovery_back: 'Indietro',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
         "change": 'Cambia', // In English: "Change"
         "clock_visibility": 'Visibilità orologio', // In English: "Clock Visibility"
         "reading": 'Legendo %strong%', // In English: "Reading %strong%"
