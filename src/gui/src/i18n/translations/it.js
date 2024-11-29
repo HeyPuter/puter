@@ -22,7 +22,7 @@ const it = {
     english_name: "Italian",
     code: "it",
     dictionary: {
-        about: "Informazioni", // This is better inn the context of the setting page title. It may be tricky.
+        about: "Informazioni", // This is better in the context of the setting page title. It may be tricky.
         account: "Account",
         account_password: "Verifica  Password del account",
         access_granted_to: "Accesso garantito a",
