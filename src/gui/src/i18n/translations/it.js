@@ -347,22 +347,24 @@ const it = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
 		// ***********************************
-		// Missing translations
+		// Italian translation
 		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        "change": "Cambia",
+        "clock_visibility": "Visibilità dell'orologio",
+        "reading": "Lettura",
+        "writing": "Scrittura",
+        "unzipping": "Decomprimendo",
+        "sequencing": "Sequenziando",
+        "zipping": "Compressione",
+        "Editor": "Editor",
+        "Viewer": "Visualizzatore",
+        "People with access": "Persone con accesso",
+        "Share With…": "Condividi con…",
+        "Owner": "Proprietario",
+        "You can't share with yourself.": "Non puoi condividere con te stesso.",
+        "This user already has access to this item": "Questo utente ha già accesso a questo elemento",
+
+
     }
 };
 
