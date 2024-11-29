@@ -407,20 +407,20 @@ const fi = {
 		// ***********************************
 		// Missing translations
 		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        "change": "Muuta", // In English: "Change"
+        "clock_visibility": "Kellon näkyvyys", // In English: "Clock Visibility"
+        "reading": "Luetaan %strong%", // In English: "Reading %strong%"
+        "writing": "Kirjoitetaan %strong%", // In English: "Writing %strong%"
+        "unzipping": "Puretaan %strong%", // In English: "Unzipping %strong%"
+        "sequencing": "Järjestetään %strong%", // In English: "Sequencing %strong%"
+        "zipping": "Paketoidaan %strong%", // In English: "Zipping %strong%"
+        "Editor": "Muokkaaja", // In English: "Editor"
+        "Viewer": "Katsoja", // In English: "Viewer"
+        "People with access": "Henkilöt, joilla on oikeudet", // In English: "People with access"
+        "Share With…": "Jaa...", // In English: "Share With…"
+        "Owner": "Omistaja", // In English: "Owner"
+        "You can't share with yourself.": "Et voi jakaa itsellesi.", // In English: "You can't share with yourself."
+        "This user already has access to this item": "Käyttäjällä on jo oikeudet tähän kohteeseen.", // In English: "This user already has access to this item"
     }
 }
 
