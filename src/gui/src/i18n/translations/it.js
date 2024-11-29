@@ -22,9 +22,9 @@ const it = {
     english_name: "Italian",
     code: "it",
     dictionary: {
-        about: "About",
+        about: "Informazioni", // This is better inn the context of the setting page title. It may be tricky.
         account: "Account",
-        account_password: "Verifica Account Password",
+        account_password: "Verifica  Password del account",
         access_granted_to: "Accesso garantito a",
         add_existing_account: "Aggiungi un account esistente",
         all_fields_required: "Tutti i campi sono richiesti.",
@@ -65,7 +65,7 @@ const it = {
         confirm_delete_single_item: 'Vuoi eliminare definitivamente questo elemento?',
         confirm_open_apps_log_out: 'Ci sono delle applicazioni aperte. Sei sicuro di voler effettuare il log out?',
         confirm_new_password: "Conferma la nuova Password",
-        confirm_delete_user: "Sei sicuro di voler cancellare il tuo account? tutti i tuoi file e dati saranno definitivamente cancellati. Quest'azione non è reversibile.",
+        confirm_delete_user: "Sei sicuro di voler cancellare il tuo account? Tutti i tuoi file e dati saranno definitivamente cancellati. Quest'azione non è reversibile.",
         confirm_delete_user_title: "Cancellare l'Account?",
         confirm_session_revoke: "Sei sicuro di voler revocare questa sessione?",
         confirm_your_email_address: "Conferma il tuo indirizzo email",
@@ -81,31 +81,31 @@ const it = {
         create_account: "Crea Account",
         create_free_account: "Crea un account gratis",
         create_shortcut: "Crea Scorciatoia",
-        credits: "Credits",
-        current_password: "Password corrente",
+        credits: "Crediti",
+        current_password: "Password attuale",
         cut: 'Taglia',
         clock: "Orologio",
         clock_visible_hide: 'Nascondi - Sempre nascosto',
         clock_visible_show: 'Mostra - Sempre visibile',
         clock_visible_auto: 'Auto - Default, visibile solo in modalità schermo intero',
-        close_all: 'Close All',
-        created: 'Created',
+        close_all: 'Chiudi tutte',
+        created: 'Creata',
         date_modified: 'Data ultima modifica',
-        default: 'Default',
+        default: 'Predefinita',
         delete: 'Elimina',
         delete_account: "Elimina Account",
         delete_permanently: "Elimina permanentemente",
         deleting_file: "Eliminando %%",
         deploy_as_app: 'Distribuisci come Applicazione',
         descending: 'Discendente',
-        desktop: 'Desktop',
+        desktop: 'Scrivania',
         desktop_background_fit: "Adatta",
         developers: "Sviluppatori",
         dir_published_as_website: `%strong% è stato pubblicato su:`,
         disable_2fa: 'Disabilita 2FA',
         disable_2fa_confirm: "Sei sicuro di voler disabilitare la 2FA?",
         disable_2fa_instructions: "Inserisci la tua password per disabilitare la 2FA.",
-        disassociate_dir: "Dissocia la Directory",
+        disassociate_dir: "Dissocia la Directory", 
         documents: 'Documenti',
         dont_allow: 'Non consentire',
         download: 'Scarica',
@@ -162,9 +162,9 @@ const it = {
         looks_good: "Sembra buono!",
         manage_sessions: "Gestisci le sessioni",
         menubar_style: "Stile della barra dei menu",
-        menubar_style_desktop: "Desktop",
-        menubar_style_system: "System",
-        menubar_style_window: "Window",
+        menubar_style_desktop: "Scrivania",
+        menubar_style_system: "Sistema",
+        menubar_style_window: "Finestra",
         modified: 'Modificato',
         move: 'Sposta',
         moving_file: "Spostamento in corso %%",
@@ -208,7 +208,7 @@ const it = {
         picture: "Immagine",
         pictures: 'Immagini',
         plural_suffix: 'i',
-        powered_by_puter_js: `Powered by {{link=docs}}Puter.js{{/link}}`,
+        powered_by_puter_js: `Realizzato con {{link=docs}}Puter.js{{/link}}`,
         preparing: "Preparazione in corso...",
         preparing_for_upload: "Preparazione per l’upload...",
         print: 'Stampa',
@@ -218,7 +218,7 @@ const it = {
         process_status_initializing: "Inizializzando",
         process_status_running: "In esecuzione",
         process_type_app: 'App',
-        process_type_init: 'Init',
+        process_type_init: 'Inizializzazione',
         process_type_ui: 'UI',
         properties: "Proprietà",
         public: "Pubblico",
@@ -254,7 +254,7 @@ const it = {
         scan_qr_generic: 'Scansiona il codice QR usando il tuo smartphone',
         search: 'Search',
         seconds: 'seconds',
-        security: "Security",
+        security: "Sicurezza",
         select: "Seleziona",
         selected: 'Selezionato',
         select_color: 'Seleziona un colore…',
@@ -314,8 +314,8 @@ const it = {
         yes: 'Sì',
         yes_release_it: 'Si, rilascialo',
         you_have_been_referred_to_puter_by_a_friend: "Sei stato invitato su Puter da un amico!",
-        zip: "Zip",
-        zipping_file: "Zipping %strong%",
+        zip: "File compresso",
+        zipping_file: "Compressione di %strong%"
 
         // === 2FA Setup ===
         setup2fa_1_step_heading: 'Apri la tua app di autenticazione',      
@@ -349,20 +349,20 @@ const it = {
 		// ***********************************
 		// Missing translations
 		// ***********************************
-        "change": undefined, // In English: "Change"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
+        "change": 'Cambia', // In English: "Change"
+        "clock_visibility": 'Visibilità orologio', // In English: "Clock Visibility"
+        "reading": 'Legendo %strong%', // In English: "Reading %strong%"
+        "writing": 'Scrivendo %strong%', // In English: "Writing %strong%"
+        "unzipping": 'Decompressione di %strong%', // In English: "Unzipping %strong%"
+        "sequencing": 'Sequenziamento di %strong%', // In English: "Sequencing %strong%"
+        "zipping": 'Compressione di %strong%', // In English: "Zipping %strong%"
+        "Editor": 'Editore', // In English: "Editor"
+        "Viewer": 'Visualizatore', // In English: "Viewer"
+        "People with access": 'Persone con accesso', // In English: "People with access"
+        "Share With…": 'Condividi con…', // In English: "Share With…"
+        "Owner": 'Proprietario', // In English: "Owner"
+        "You can't share with yourself.": "Non puoi condividere con te stesso", // In English: "You can't share with yourself."
+        "This user already has access to this item": "Questo utente ha già accesso a questo file", // In English: "This user already has access to this item"
     }
 };
 
