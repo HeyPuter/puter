@@ -354,6 +354,8 @@ const fi = {
         // "Type of an object" => 'Tyyppi' or
         // "Type on the keyboard" => 'Kirjoita'
 
+        
+        
         type_confirm_to_delete_account: "Kirjoita 'vahvista' poistaaksesi tilisi.",
         ui_colors: "Käyttöliittymän värit",
         ui_manage_sessions: "Istunnon hallinta",
@@ -395,6 +397,7 @@ const fi = {
         setup2fa_5_confirmation_2: 'Olen valmis ottamaan kaksivaiheisen tunnistautumisen käyttöön',
         setup2fa_5_button: 'Ota kaksivaiheinen tunnistautuminen käyttöön',
 
+
         // === 2FA Login ===
         login2fa_otp_title: 'Syötä kaksivaiheisen tunnistautumisen koodi',
         login2fa_otp_instructions: 'Syötä kuusinumeroinen koodi todennussovelluksestasi.',
@@ -404,7 +407,9 @@ const fi = {
         login2fa_recovery_back: 'Takaisin',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-        "change": "Muuta", // In English: "Change"
+        
+
+       "change": "Muuta", // In English: "Change"
         "clock_visibility": "Kellon näkyvyys", // In English: "Clock Visibility"
         "reading": "Luetaan %strong%", // In English: "Reading %strong%"
         "writing": "Kirjoitetaan %strong%", // In English: "Writing %strong%"
@@ -414,11 +419,10 @@ const fi = {
         "Editor": "Muokkaaja", // In English: "Editor"
         "Viewer": "Katsoja", // In English: "Viewer"
         "People with access": "Henkilöt, joilla on oikeudet", // In English: "People with access"
-        "Share With…": "Jaa...", // In English: "Share With…"
+        "Share With…": "Jaa kanssa…", // In English: "Share With…"
         "Owner": "Omistaja", // In English: "Owner"
         "You can't share with yourself.": "Et voi jakaa itsellesi.", // In English: "You can't share with yourself."
         "This user already has access to this item": "Käyttäjällä on jo oikeudet tähän kohteeseen.", // In English: "This user already has access to this item"
     }
 }
-
 export default fi;
