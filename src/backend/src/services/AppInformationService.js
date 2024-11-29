@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"xai"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -23,6 +24,17 @@ const { DB_READ } = require("./database/consts");
 
 const uuidv4 = require('uuid').v4;
 
+
+/**
+* @class AppInformationService
+* @description
+* The AppInformationService class manages application-related information,
+* including caching, statistical data, and tags for applications within the Puter ecosystem.
+* It provides methods for refreshing application data, managing app statistics,
+* and handling tags associated with apps. This service is crucial for maintaining
+* up-to-date information about applications, facilitating features like app listings,
+* recent apps, and tag-based app discovery.
+*/
 class AppInformationService {
     constructor ({ services }) {
         this.services = services;
@@ -37,33 +49,87 @@ class AppInformationService {
             // await new Promise(rslv => setTimeout(rslv, 500))
 
             await this._refresh_app_cache();
+            /**
+            * Refreshes the application cache by querying the database for all apps and updating the key-value store.
+            * 
+            * This method is called periodically to ensure that the in-memory cache reflects the latest
+            * state from the database. It uses the 'database' service to fetch app data and then updates
+            * multiple cache entries for quick lookups by name, ID, and UID.
+            *
+            * @async
+            */
             asyncSafeSetInterval(async () => {
                 this._refresh_app_cache();
             }, 30 * 1000);
 
             await this._refresh_app_stats();
+            /**
+            * Refreshes the cache of recently opened apps.
+            * This method updates the 'recent' collection with the UIDs of apps sorted by their most recent timestamp.
+            * 
+            * @async
+            * @returns {Promise<void>} A promise that resolves when the cache has been refreshed.
+            */
             asyncSafeSetInterval(async () => {
                 this._refresh_app_stats();
             }, 120 * 1000);
 
             // This stat is more expensive so we don't update it as often
             await this._refresh_app_stat_referrals();
+            /**
+            * Refreshes the app referral statistics.
+            * This method is computationally expensive and thus runs less frequently.
+            * It queries the database for user counts referred by each app's origin URL.
+            * 
+            * @async
+            */
             asyncSafeSetInterval(async () => {
                 this._refresh_app_stat_referrals();
             }, 15 * MINUTE);
 
             await this._refresh_recent_cache();
+            /**
+            * Refreshes the recent cache by updating the list of recently added or updated apps.
+            * This method fetches all app data, filters for approved apps, sorts them by timestamp,
+            * and updates the `this.collections.recent` array with the UIDs of the most recent 50 apps.
+            * 
+            * @async
+            * @private
+            */
             asyncSafeSetInterval(async () => {
                 this._refresh_recent_cache();
             }, 120 * 1000);
 
             await this._refresh_tags();
+            /**
+            * Refreshes the tags cache by iterating through all approved apps,
+            * extracting their tags, and organizing them into a structured format.
+            * This method updates the `this.tags` object with the latest tag information.
+            *
+            * @async
+            * @method
+            * @memberof AppInformationService
+            */
             asyncSafeSetInterval(async () => {
                 this._refresh_tags();
             } , 120 * 1000);
         })();
     }
 
+
+    /**
+    * Retrieves and returns statistical data for a specific application.
+    * 
+    * This method fetches various metrics such as the number of times the app has been opened,
+    * the count of unique users who have opened the app, and the number of referrals attributed to the app.
+    * It uses cached data where available to improve performance.
+    *
+    * @param {string} app_uid - The unique identifier for the application.
+    * @returns {Promise<Object>} An object containing:
+    *   - {number} open_count - The total number of times the app has been opened.
+    *   - {number} user_count - The count of unique users who have opened the app.
+    *   - {number|null} referral_count - The number of referrals, or null if the data is not available or too expensive to retrieve.
+    */
     async get_stats (app_uid) {
         const db = this.services.get('database').get(DB_READ, 'apps');
 
@@ -100,6 +166,19 @@ class AppInformationService {
         };
     }
 
+
+    /**
+    * Retrieves various statistics for a given app.
+    * 
+    * This method fetches the open count, user count, and referral count for an app identified by its UID.
+    * It uses cached values where available to improve performance, but will query the database if necessary.
+    * 
+    * @param {string} app_uid - The unique identifier of the app for which to retrieve stats.
+    * @returns {Promise<Object>} An object containing:
+    *   - {number} open_count - Total number of times the app was opened.
+    *   - {number} user_count - Number of unique users who opened the app.
+    *   - {number|null} referral_count - Number of referrals attributed to the app. This value might not be reported if not cached.
+    */
     async _refresh_app_cache () {
         this.log.tick('refresh app cache');
 
@@ -114,6 +193,17 @@ class AppInformationService {
         }
     }
 
+
+    /**
+    * Refreshes the application cache by querying the database for all apps and updating the key-value store.
+    * 
+    * @async
+    * @returns {Promise<void>} A promise that resolves when the cache refresh operation is complete.
+    * 
+    * @notes
+    * - This method logs a tick event for performance monitoring.
+    * - It populates the cache with app data indexed by name, id, and uid.
+    */
     async _refresh_app_stats () {
         this.log.tick('refresh app stats');
 
@@ -144,6 +234,13 @@ class AppInformationService {
         }
     }
 
+
+    /**
+    * Refreshes the cache of app statistics including open and user counts.
+    * This method updates the cache every 120 seconds to ensure data freshness.
+    *
+    * @async
+    */
     async _refresh_app_stat_referrals () {
         this.log.tick('refresh app stat referrals');
 
@@ -176,6 +273,17 @@ class AppInformationService {
         this.log.info('DONE refresh app stat referrals');
     }
 
+
+    /**
+    * Updates the cache with recently updated apps.
+    * 
+    * @description This method refreshes the cache containing the most recently updated applications.
+    *              It fetches all app UIDs, retrieves the corresponding app data, filters for approved apps,
+    *              sorts them by timestamp in descending order, and updates the 'recent' collection with
+    *              the UIDs of the top 50 most recent apps.
+    * 
+    * @returns {Promise<void>} Resolves when the cache has been updated.
+    */
     async _refresh_recent_cache () {
         const app_keys = kv.keys(`apps:uid:*`);
         // console.log('APP KEYS', app_keys);
@@ -194,6 +302,16 @@ class AppInformationService {
         this.collections.recent = apps.map(app => app.uid).slice(0, 50);
     }
 
+
+    /**
+    * Refreshes the cache of recently added or updated apps.
+    * 
+    * This method retrieves all apps from the cache, filters for approved listings,
+    * sorts them by timestamp in descending order, and updates the `recent` collection
+    * with the UIDs of the most recent 50 apps.
+    *
+    * @returns {Promise<void>}
+    */
     async _refresh_tags () {
         const app_keys = kv.keys(`apps:uid:*`);
         // console.log('APP KEYS', app_keys);
@@ -229,6 +347,22 @@ class AppInformationService {
         this.tags = new_tags;
     }
 
+
+    /**
+    * Deletes an application from the system.
+    * 
+    * This method performs the following actions:
+    * - Retrieves the app data from cache or database if not provided.
+    * - Deletes the app record from the database.
+    * - Removes the app from all relevant caches (by name, id, and uid).
+    * - Removes the app from the recent collection if present.
+    * - Removes the app from any associated tags.
+    * 
+    * @param {string} app_uid - The unique identifier of the app to be deleted.
+    * @param {Object} [app] - The app object, if already fetched. If not provided, it will be retrieved.
+    * @throws {Error} If the app is not found in either cache or database.
+    * @returns {Promise<void>} A promise that resolves when the app has been successfully deleted.
+    */
     async delete_app (app_uid, app) {
         const db = this.services.get('database').get(DB_READ, 'apps');
 

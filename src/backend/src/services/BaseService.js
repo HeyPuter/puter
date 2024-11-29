@@ -1,3 +1,4 @@
+// METADATA // {"ai-params":{"service":"xai"},"ai-refs":["../../doc/contributors/boot-sequence.md"],"ai-commented":{"service":"xai"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -18,8 +19,25 @@
  */
 const { concepts } = require("@heyputer/putility");
 
+
+
+// This is a no-op function that AI is incapable of writing a comment for.
+// That said, I suppose it didn't need one anyway.
 const NOOP = async () => {};
 
+
+/**
+* @class BaseService
+* @extends concepts.Service
+* @description
+* BaseService is the foundational class for all services in the Puter backend.
+* It provides lifecycle methods like `construct` and `init` that are invoked during
+* different phases of the boot sequence. This class ensures that services can be
+* instantiated, initialized, and activated in a coordinated manner through
+* events emitted by the Kernel. It also manages common service resources like
+* logging and error handling, and supports legacy services by allowing
+* instantiation after initialization but before consolidation.
+*/
 class BaseService extends concepts.Service {
     constructor (service_resources, ...a) {
         const { services, config, my_config, name, args } = service_resources;
@@ -36,10 +54,29 @@ class BaseService extends concepts.Service {
         }
     }
 
+
+    /**
+    * Initializes the service with configuration and dependencies.
+    * This method sets up logging and error handling, and calls a custom `_init` method if defined.
+    * 
+    * @param {Object} args - Arguments passed to the service for initialization.
+    * @returns {Promise<void>} A promise that resolves when initialization is complete.
+    */
     async construct () {
         await (this._construct || NOOP).call(this, this.args);
     }
 
+
+    /**
+    * Performs the initialization phase of the service lifecycle.
+    * This method sets up logging and error handling for the service,
+    * then calls the service-specific initialization logic if defined.
+    * 
+    * @async
+    * @memberof BaseService
+    * @instance
+    * @returns {Promise<void>} A promise that resolves when initialization is complete.
+    */
     async init () {
         const services = this.services;
         this.log = services.get('log-service').create(this.service_name);
@@ -48,6 +85,15 @@ class BaseService extends concepts.Service {
         await (this._init || NOOP).call(this, this.args);
     }
 
+
+    /**
+    * Handles an event by retrieving the appropriate event handler
+    * and executing it with the provided arguments.
+    *
+    * @param {string} id - The identifier of the event to handle.
+    * @param {Array<any>} args - The arguments to pass to the event handler.
+    * @returns {Promise<any>} The result of the event handler execution.
+    */
     async __on (id, args) {
         const handler = this.__get_event_handler(id);
 

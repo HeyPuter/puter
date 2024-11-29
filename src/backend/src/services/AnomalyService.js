@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -18,9 +19,26 @@
  */
 const BaseService = require("./BaseService");
 
+// Symbol used to indicate a denial of service instruction in anomaly handling.
 const DENY_SERVICE_INSTRUCTION = Symbol('DENY_SERVICE_INSTRUCTION');
 
+
+/**
+* @class AnomalyService
+* @extends BaseService
+* @description The AnomalyService class is responsible for managing and processing anomaly detection types and configurations.
+* It allows the registration of different types with associated handlers, enabling the detection of anomalies based on specified criteria.
+*/
 class AnomalyService extends BaseService {
+    /**
+    * AnomalyService class that extends BaseService and provides methods
+    * for registering anomaly types and handling incoming data for those anomalies.
+    * 
+    * The register method allows the registration of different anomaly types 
+    * and their respective configurations, including custom handlers for data 
+    * evaluation. It supports two modes of operation: a direct handler or 
+    * a threshold-based evaluation.
+    */
     _construct () {
         this.types = {};
     }
@@ -39,6 +57,16 @@ class AnomalyService extends BaseService {
         }
         this.types[type] = type_instance;
     }
+    /**
+     * Registers a new type with the service, including its configuration and handler.
+     * 
+     * @param {string} type - The name of the type to register.
+     * @param {Object} config - The configuration object for the type.
+     * @param {Function} [config.handler] - An optional handler function for the type.
+     * @param {number} [config.high] - An optional threshold value; triggers the handler if exceeded.
+     * 
+     * @returns {void}
+     */
     async note (id, data) {
         const type = this.types[id];
         if ( ! type ) return;
