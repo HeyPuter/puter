@@ -614,6 +614,7 @@ function generate_edit_app_section(app) {
 
                 <hr style="margin-top: 40px;">
                 <button type="button" class="edit-app-save-btn button button-primary">Save</button>
+                <button type="button" class="edit-app-reset-btn button button-secondary">Reset</button>
             </form>
         </div>
     `
@@ -680,6 +681,47 @@ function toggleSaveButton() {
         $('.edit-app-save-btn').prop('disabled', false);
     } else {
         $('.edit-app-save-btn').prop('disabled', true);
+    }
+}
+
+/* This function revers the changes made back to the original values of the edit form */
+function resetToOriginalValues() {
+    $('#edit-app-title').val(originalValues.title);
+    $('#edit-app-name').val(originalValues.name);
+    $('#edit-app-index-url').val(originalValues.indexURL);
+    $('#edit-app-description').val(originalValues.description);
+    $('#edit-app-filetype-associations').val(originalValues.fileAssociations);
+    $('#edit-app-category').val(originalValues.category);
+    $('#edit-app-window-width').val(originalValues.windowSettings.width);
+    $('#edit-app-window-height').val(originalValues.windowSettings.height);
+    $('#edit-app-window-top').val(originalValues.windowSettings.top);
+    $('#edit-app-window-left').val(originalValues.windowSettings.left);
+    $('#edit-app-maximize-on-start').prop('checked', originalValues.checkboxes.maximizeOnStart);
+    $('#edit-app-background').prop('checked', originalValues.checkboxes.background);
+    $('#edit-app-window-resizable').prop('checked', originalValues.checkboxes.resizableWindow);
+    $('#edit-app-hide-titlebar').prop('checked', originalValues.checkboxes.hideTitleBar);
+    $('#edit-app-locked').prop('checked', originalValues.checkboxes.locked);
+    $('#edit-app-credentialless').prop('checked', originalValues.checkboxes.credentialless);
+    $('#edit-app-fullpage-on-landing').prop('checked', originalValues.checkboxes.fullPageOnLanding);
+
+    if (originalValues.icon) {
+        $('#edit-app-icon').css('background-image', `url(${originalValues.icon})`);
+        $('#edit-app-icon').attr('data-url', originalValues.icon);
+        $('#edit-app-icon-delete').show();
+    } else {
+        $('#edit-app-icon').css('background-image', '');
+        $('#edit-app-icon').removeAttr('data-url');
+        $('#edit-app-icon').removeAttr('data-base64');
+        $('#edit-app-icon-delete').hide();
+    }
+
+    if (originalValues.socialImage) {
+        $('#edit-app-social-image').css('background-image', `url(${originalValues.socialImage})`);
+        $('#edit-app-social-image').attr('data-url', originalValues.socialImage);
+    } else {
+        $('#edit-app-social-image').css('background-image', '');
+        $('#edit-app-social-image').removeAttr('data-url');
+        $('#edit-app-social-image').removeAttr('data-base64');
     }
 }
 
@@ -1121,6 +1163,11 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
 
 $(document).on('input change', '#edit-app input, #edit-app textarea, #edit-app select', () => {
     toggleSaveButton();
+});
+
+$(document).on('click', '.edit-app-reset-btn', function () {
+    resetToOriginalValues();
+    toggleSaveButton();   // Disable Save button since values are reverted to original
 });
 
 $(document).on('click', '.open-app-btn', async function (e) {
