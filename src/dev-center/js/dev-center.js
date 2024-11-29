@@ -29,6 +29,7 @@ let activeTab = 'apps';
 let currently_editing_app;
 let dropped_items;
 let search_query;
+let originalValues = {};
 
 const APP_CATEGORIES = [
     { id: 'games', label: 'Games' },
@@ -619,6 +620,69 @@ function generate_edit_app_section(app) {
     return h;
 }
 
+/* This function keeps track of the original values of the app before it is edited*/ 
+function trackOriginalValues(){
+    originalValues = {
+        title: $('#edit-app-title').val(),
+        name: $('#edit-app-name').val(),
+        indexURL: $('#edit-app-index-url').val(),
+        description: $('#edit-app-description').val(),
+        icon: $('#edit-app-icon').attr('data-url') || $('#edit-app-icon').attr('data-base64'),
+        fileAssociations: $('#edit-app-filetype-associations').val(),
+        category: $('#edit-app-category').val(),
+        socialImage: $('#edit-app-social-image').attr('data-url') || $('#edit-app-social-image').attr('data-base64'),
+        windowSettings: {
+            width: $('#edit-app-window-width').val(),
+            height: $('#edit-app-window-height').val(),
+            top: $('#edit-app-window-top').val(),
+            left: $('#edit-app-window-left').val()
+        },
+        checkboxes: {
+            maximizeOnStart: $('#edit-app-maximize-on-start').is(':checked'),
+            background: $('#edit-app-background').is(':checked'),
+            resizableWindow: $('#edit-app-window-resizable').is(':checked'),
+            hideTitleBar: $('#edit-app-hide-titlebar').is(':checked'),
+            locked: $('#edit-app-locked').is(':checked'),
+            credentialless: $('#edit-app-credentialless').is(':checked'),
+            fullPageOnLanding: $('#edit-app-fullpage-on-landing').is(':checked')
+        }
+    };
+}
+
+/* This function compares for all fields and checks if anything has changed from before editting*/
+function hasChanges() {
+    return(
+        $('#edit-app-title').val() !== originalValues.title ||
+        $('#edit-app-name').val() !== originalValues.name ||
+        $('#edit-app-index-url').val() !== originalValues.indexURL ||
+        $('#edit-app-description').val() !== originalValues.description ||
+        ($('#edit-app-icon').attr('data-url') || $('#edit-app-icon').attr('data-base64')) !== originalValues.icon ||
+        $('#edit-app-filetype-associations').val() !== originalValues.fileAssociations ||
+        $('#edit-app-category').val() !== originalValues.category ||
+        ($('#edit-app-social-image').attr('data-url') || $('#edit-app-social-image').attr('data-base64')) !== originalValues.socialImage ||
+        $('#edit-app-window-width').val() !== originalValues.windowSettings.width ||
+        $('#edit-app-window-height').val() !== originalValues.windowSettings.height ||
+        $('#edit-app-window-top').val() !== originalValues.windowSettings.top ||
+        $('#edit-app-window-left').val() !== originalValues.windowSettings.left ||
+        $('#edit-app-maximize-on-start').is(':checked') !== originalValues.checkboxes.maximizeOnStart ||
+        $('#edit-app-background').is(':checked') !== originalValues.checkboxes.background ||
+        $('#edit-app-window-resizable').is(':checked') !== originalValues.checkboxes.resizableWindow ||
+        $('#edit-app-hide-titlebar').is(':checked') !== originalValues.checkboxes.hideTitleBar ||
+        $('#edit-app-locked').is(':checked') !== originalValues.checkboxes.locked ||
+        $('#edit-app-credentialless').is(':checked') !== originalValues.checkboxes.credentialless ||
+        $('#edit-app-fullpage-on-landing').is(':checked') !== originalValues.checkboxes.fullPageOnLanding
+    );
+}
+
+/* This function enables or disables the save button if there are any changes made */
+function toggleSaveButton() {
+    if (hasChanges()) {
+        $('.edit-app-save-btn').prop('disabled', false);
+    } else {
+        $('.edit-app-save-btn').prop('disabled', true);
+    }
+}
+
 async function edit_app_section(cur_app_name) {
     $('section:not(.sidebar)').hide();
     $('.tab-btn').removeClass('active');
@@ -628,8 +692,9 @@ async function edit_app_section(cur_app_name) {
     currently_editing_app = cur_app;
 
     // generate edit app section
-    let edit_app_section_html = generate_edit_app_section(cur_app);
-    $('#edit-app').html(edit_app_section_html);
+    $('#edit-app').html(generate_edit_app_section(cur_app));
+    trackOriginalValues();  // Track initial field values
+    toggleSaveButton();  // Ensure Save button is initially disabled
     $('#edit-app').show();
 
     // --------------------------------------------------------
@@ -1024,11 +1089,11 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         filetypeAssociations: filetype_associations,
     }).then(async (app) => {
         currently_editing_app = app;
+        trackOriginalValues();  // Update original values after save
+        toggleSaveButton();  //Disable Save Button after succesful save
         $('#edit-app-error').hide();
         $('#edit-app-success').show();
         document.body.scrollTop = document.documentElement.scrollTop = 0;
-        // Re-enable submit button
-        $('.edit-app-save-btn').prop('disabled', false);
         // Update open-app-btn
         $(`.open-app-btn[data-app-uid="${uid}"]`).attr('data-app-name', app.name);
         $(`.open-app[data-uid="${uid}"]`).attr('data-app-name', app.name);
@@ -1053,6 +1118,10 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         puter.ui.hideSpinner();
     })
 })
+
+$(document).on('input change', '#edit-app input, #edit-app textarea, #edit-app select', () => {
+    toggleSaveButton();
+});
 
 $(document).on('click', '.open-app-btn', async function (e) {
     puter.ui.launchApp($(this).attr('data-app-name'))
