@@ -404,9 +404,6 @@ const fi = {
         login2fa_recovery_back: 'Takaisin',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
         "change": "Muuta", // In English: "Change"
         "clock_visibility": "Kellon näkyvyys", // In English: "Clock Visibility"
         "reading": "Luetaan %strong%", // In English: "Reading %strong%"
