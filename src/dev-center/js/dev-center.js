@@ -684,6 +684,15 @@ function toggleSaveButton() {
     }
 }
 
+/* This function enables or disables the reset button if there are any changes made */
+function toggleResetButton() {
+    if (hasChanges()) {
+        $('.edit-app-reset-btn').prop('disabled', false);
+    } else {
+        $('.edit-app-reset-btn').prop('disabled', true);
+    }
+}
+
 /* This function revers the changes made back to the original values of the edit form */
 function resetToOriginalValues() {
     $('#edit-app-title').val(originalValues.title);
@@ -737,6 +746,7 @@ async function edit_app_section(cur_app_name) {
     $('#edit-app').html(generate_edit_app_section(cur_app));
     trackOriginalValues();  // Track initial field values
     toggleSaveButton();  // Ensure Save button is initially disabled
+    toggleResetButton();  // Ensure Reset button is initially disabled
     $('#edit-app').show();
 
     // --------------------------------------------------------
@@ -1133,6 +1143,7 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         currently_editing_app = app;
         trackOriginalValues();  // Update original values after save
         toggleSaveButton();  //Disable Save Button after succesful save
+        toggleResetButton();  //DIsable Reset Button after succesful save
         $('#edit-app-error').hide();
         $('#edit-app-success').show();
         document.body.scrollTop = document.documentElement.scrollTop = 0;
@@ -1163,11 +1174,13 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
 
 $(document).on('input change', '#edit-app input, #edit-app textarea, #edit-app select', () => {
     toggleSaveButton();
+    toggleResetButton();
 });
 
 $(document).on('click', '.edit-app-reset-btn', function () {
     resetToOriginalValues();
     toggleSaveButton();   // Disable Save button since values are reverted to original
+    toggleResetButton();  //Disable Reset button since values are reverted to original
 });
 
 $(document).on('click', '.open-app-btn', async function (e) {
