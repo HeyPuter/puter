@@ -951,6 +951,12 @@ ol li:before {
     margin-top: 20px; 
     margin-bottom: 20px;
 }
+.edit-app-reset-btn{
+    float: right; 
+    margin-top: 20px; 
+    margin-bottom: 20px;
+    margin-right: 10px;
+}
 input:read-only {
     background-color: rgb(242 242 242);
 }
