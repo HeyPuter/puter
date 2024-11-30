@@ -360,6 +360,25 @@ const en = {
         'Owner': 'Owner',
         "You can't share with yourself.": `You can't share with yourself.`,
         'This user already has access to this item': 'This user already has access to this item',
+
+        // Billing
+        'billing.change_payment_method': "Change",
+        'billing.cancel': "Cancel",
+        'billing.download_invoice': "Download",
+        'billing.payment_method': "Payment Method",
+        'billing.payment_method_updated': "Payment method updated!",
+        'billing.confirm_payment_method': 'Confirm Payment Method',
+        'billing.payment_history': "Payment History",
+        'billing.refunded': "Refunded",
+        'billing.paid': "Paid",
+        'billing.ok': "OK",
+        'billing.confirm_payment_method': 'Confirm Payment Method',
+        'billing.resume_subscription': 'Resume Subscription',
+        'billing.subscription_cancelled': 'Your subscription has been canceled.',
+        'billing.subscription_cancelled_description': 'You will still have access to your subscription until the end of this billing period.',
+        'billing.offering.free': 'Free',
+        'billing.offering.pro': 'Professional',
+        'billing.offering.business': 'Business',
     }
 };
 
