@@ -349,10 +349,10 @@ const ig = {
 
         "change": "gbanwee", 
         "clock_visibility": "Ihe ngosi elekere", 
-        "reading": "gụgụ %strong%", 
+        "reading": "ogụgụ %strong%", 
         "writing": "Na-ede %strong%", 
-        "unzipping": "mkpọpu %strong%", 
-        "sequencing": "Ịtọgharị n’usoro %strong%", 
+        "unzipping": "na mkpọpu ya %strong%", 
+        "sequencing": "usoro %strong%", 
         "zipping": "zipụ %strong%", 
         "Editor": "Onye nchịgharị", 
         "Viewer": "Onye na-ekiri", 
