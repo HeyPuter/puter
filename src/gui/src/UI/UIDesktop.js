@@ -1509,6 +1509,16 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
         items: [
             ...items,
             //--------------------------------------------------
+            // Settings
+            //--------------------------------------------------
+            {
+                html: i18n('settings'),
+                id: 'settings',
+                onClick: async function(){
+                    UIWindowSettings();
+                }
+            },
+            //--------------------------------------------------
             // My Websites
             //--------------------------------------------------
             {
@@ -1516,15 +1526,6 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
                 id: 'my_websites',
                 onClick: async function(){
                     UIWindowMyWebsites();
-                }
-            },
-            //--------------------------------------------------
-            // Settings
-            //--------------------------------------------------
-            {
-                html: i18n('settings'),
-                onClick: async function(){
-                    UIWindowSettings();
                 }
             },
             //--------------------------------------------------
