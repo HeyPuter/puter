@@ -1513,6 +1513,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             //--------------------------------------------------
             {
                 html: i18n('my_websites'),
+                id: 'my_websites',
                 onClick: async function(){
                     UIWindowMyWebsites();
                 }
