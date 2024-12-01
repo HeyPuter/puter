@@ -56,6 +56,7 @@ const index_missing_error = `Please upload an 'index.html' file or if you're upl
 const lock_svg =
   '<svg style="width: 20px; height: 20px; margin-bottom: -5px; margin-left: 5px; opacity: 0.5;" width="59px" height="59px" stroke-width="1.9" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M16 12H17.4C17.7314 12 18 12.2686 18 12.6V19.4C18 19.7314 17.7314 20 17.4 20H6.6C6.26863 20 6 19.7314 6 19.4V12.6C6 12.2686 6.26863 12 6.6 12H8M16 12V8C16 6.66667 15.2 4 12 4C8.8 4 8 6.66667 8 8V12M16 12H8" stroke="#000000" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
 
+
 // authUsername
 (async () => {
   let user = await puter.auth.getUser();
@@ -590,7 +591,8 @@ function generate_edit_app_section(app) {
 
                 <label for="edit-app-filetype-associations">File Associations</label>
                 <p style="margin-top: 10px; font-size:13px;">A comma-separated list of file type specifiers. For example if you include <code>.txt</code>, your apps could be opened when a user clicks on a TXT file.</p>
-                <textarea id="edit-app-filetype-associations" name="edit-app-filetype-associations" placeholder=".txt, .jpg, application/json">${app.filetype_associations}</textarea>
+
+                <textarea style="width: 100%" id="edit-app-filetype-associations"  placeholder=".txt, .jpg, application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })),null,app.filetype_associations.length)}</textarea>
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window</h3>
                 <div>
@@ -660,12 +662,43 @@ async function edit_app_section(cur_app_name) {
   $('.tab-btn[data-tab="apps"]').addClass("active");
 
   let cur_app = await puter.apps.get(cur_app_name);
+  
   currently_editing_app = cur_app;
 
   // generate edit app section
   let edit_app_section_html = generate_edit_app_section(cur_app);
   $("#edit-app").html(edit_app_section_html);
   $("#edit-app").show();
+
+  
+
+  const input = document.querySelector('textarea[id=edit-app-filetype-associations]');
+    tagify = new Tagify(input, {
+        
+        delimiters       : null,
+        whitelist        : [
+          // Document file types
+          ".doc", ".docx", ".pdf", ".txt", ".odt", ".rtf", ".tex",
+          // Spreadsheet file types
+          ".xls", ".xlsx", ".csv", ".ods",
+          // Image file types
+          ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg", ".webp",
+          // Video file types
+          ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".flv", ".webm",
+          // Audio file types
+          ".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a",
+          // Code file types
+          ".js", ".ts", ".html", ".css", ".json", ".xml", ".php", ".py", ".java", ".cpp",
+          // Archive file types
+          ".zip", ".rar", ".7z", ".tar", ".gz",
+          // Other
+          ".exe", ".dll", ".iso"
+        ],
+    })
+
+
+
+
 
   // --------------------------------------------------------
   // Dragster
@@ -1037,33 +1070,38 @@ $(document).on("click", ".edit-app-save-btn", async function(e) {
     }
   }
 
-  // parse filetype_associations
-  filetype_associations = filetype_associations
-    .split(",")
-    .map((element) => element.trim());
+  console.log(typeof(filetype_associations));
 
-  //filetype_associations validations
+  //parse filetype_associations and validations
+  // Tagify returns a JSON string, so we parse it into an array
+  filetype_associations = JSON.parse(filetype_associations);
+
   filetype_associations = filetype_associations.map((type) => {
-    if (type == "" || type == null || type == undefine || type == "." || type == "/") {
-
+    const fileType = type.value;
+  
+    console.log(fileType);
+  
+    if (
+      !fileType ||
+      fileType === "." ||
+      fileType === "/"
+    ) {
       error = `<strong>File Association Type</strong> must be valid.`;
-
-      return;
-    };
-
-    const lower = type.toLocaleLowerCase()
-
-    if (type.includes("/")) {
+      return null; // Return null for invalid cases
+    }
+  
+    const lower = fileType.toLocaleLowerCase();
+  
+    if (fileType.includes("/")) {
       return lower;
-    }
-    else if (type.includes(".")) {
+    } else if (fileType.includes(".")) {
       return "." + lower.split(".")[1];
-    }
-    else {
+    } else {
       return "." + lower;
     }
-
-  })
+  }).filter(Boolean); // Remove null or undefined values
+  
+  console.log(filetype_associations);
 
   // error?
   if (error) {
