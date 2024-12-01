@@ -18,7 +18,6 @@
  */
 "use strict"
 const express = require('express');
-const router = new express.Router();
 const {uuid2fsentry, validate_signature_auth, get_url_from_req, sign_file} = require('../helpers');
 const fs = require('../middleware/fs.js');
 const { NodePathSelector, NodeUIDSelector } = require('../filesystem/node/selectors');

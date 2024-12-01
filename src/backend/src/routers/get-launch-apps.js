@@ -20,7 +20,6 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth.js');
-const config = require('../config');
 const { get_app } = require('../helpers.js');
 const { DB_READ } = require('../services/database/consts.js');
 

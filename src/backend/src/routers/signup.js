@@ -17,14 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 "use strict"
-const express = require('express');
-const router = new express.Router();
 const {get_taskbar_items, generate_random_username, generate_system_fsentries, send_email_verification_code, send_email_verification_token, username_exists, invalidate_cached_user_by_id, get_user } = require('../helpers');
 const config = require('../config');
 const eggspress = require('../api/eggspress');
 const { Context } = require('../util/context');
 const { DB_WRITE } = require('../services/database/consts');
-const { can } = require('../util/langutil');
 
 // -----------------------------------------------------------------------//
 // POST /signup
