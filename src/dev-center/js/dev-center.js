@@ -590,7 +590,7 @@ function generate_edit_app_section(app) {
 
                 <label for="edit-app-filetype-associations">File Associations</label>
                 <p style="margin-top: 10px; font-size:13px;">A comma-separated list of file type specifiers. For example if you include <code>.txt</code>, your apps could be opened when a user clicks on a TXT file.</p>
-                <textarea id="edit-app-filetype-associations" placeholder=".txt, .jpg, application/json">${app.filetype_associations}</textarea>
+                <textarea id="edit-app-filetype-associations" name="edit-app-filetype-associations" placeholder=".txt, .jpg, application/json">${app.filetype_associations}</textarea>
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window</h3>
                 <div>
@@ -1044,7 +1044,7 @@ $(document).on("click", ".edit-app-save-btn", async function(e) {
 
   //filetype_associations validations
   filetype_associations = filetype_associations.map((type) => {
-    if (type == "" || type == null || type == undefined) {
+    if (type == "" || type == null || type == undefine || type == "." || type == "/") {
 
       error = `<strong>File Association Type</strong> must be valid.`;
 
