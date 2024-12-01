@@ -239,15 +239,15 @@ module.exports = eggspress(['/signup'], {
                 // audit_metadata
                 JSON.stringify(audit_metadata),
                 // signup_ip
-                req.connection.remoteAddress,
+                req.connection.remoteAddress ?? null,
                 // signup_ip_fwd
-                req.headers['x-forwarded-for'],
+                req.headers['x-forwarded-for'] ?? null,
                 // signup_user_agent
-                req.headers['user-agent'],
+                req.headers['user-agent'] ?? null,
                 // signup_origin
-                req.headers['origin'],
+                req.headers['origin'] ?? null,
                 // signup_server
-                config.server_id,
+                config.server_id ?? null,
             ]
         );
 
