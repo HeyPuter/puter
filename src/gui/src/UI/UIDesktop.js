@@ -1509,21 +1509,23 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
         items: [
             ...items,
             //--------------------------------------------------
-            // My Websites
-            //--------------------------------------------------
-            {
-                html: i18n('my_websites'),
-                onClick: async function(){
-                    UIWindowMyWebsites();
-                }
-            },
-            //--------------------------------------------------
             // Settings
             //--------------------------------------------------
             {
                 html: i18n('settings'),
+                id: 'settings',
                 onClick: async function(){
                     UIWindowSettings();
+                }
+            },
+            //--------------------------------------------------
+            // My Websites
+            //--------------------------------------------------
+            {
+                html: i18n('my_websites'),
+                id: 'my_websites',
+                onClick: async function(){
+                    UIWindowMyWebsites();
                 }
             },
             //--------------------------------------------------

@@ -439,9 +439,6 @@ const fi = {
     login2fa_recovery_back: "Takaisin",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
-    // ***********************************
-    // Missing translations
-    // ***********************************
     change: "muutos", // In English: "Change"
     clock_visibility: "kellon näkyvyys", // In English: "Clock Visibility"
     reading: "lukeminen", // In English: "Reading %strong%"
@@ -456,7 +453,7 @@ const fi = {
     Owner: "Omistaja", // In English: "Owner"
     "You can't share with yourself.": "Et voi jakaa itsellesi.", // In English: "You can't share with yourself."
     "This user already has access to this item":
-      "Tällä käyttäjällä on jo pääsy tähän kohteeseen", // In English: "This user already has access to this item"
+    "Tällä käyttäjällä on jo pääsy tähän kohteeseen", // In English: "This user already has access to this item"
   },
 };
 
