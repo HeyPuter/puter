@@ -1,4 +1,4 @@
-// METADATA // {"ai-params":{"service":"xai"}}
+// METADATA // {"ai-params":{"service":"claude"},"comment-verbosity": "high","ai-commented":{"service":"claude"}}
 const enq = require('enquirer');
 const wrap = require('word-wrap');
 const dedent = require('dedent');
@@ -158,6 +158,27 @@ const js_processor = new JavascriptFileProcessor(context, {
             }
         },
         {
+            name: 'if',
+            pattern: /^\s*if\s*\(.*\)\s*{/,
+            handler: () => {
+                return { type: 'if' };
+            }
+        },
+        {
+            name: 'while',
+            pattern: /^\s*while\s*\(.*\)\s*{/,
+            handler: () => {
+                return { type: 'while' };
+            }
+        },
+        {
+            name: 'for',
+            pattern: /^\s*for\s*\(.*\)\s*{/,
+            handler: () => {
+                return { type: 'for' };
+            }
+        },
+        {
             name: 'method',
             pattern: /^\s*async .*\(.*\).*{/,
             handler: (match) => {
@@ -174,6 +195,12 @@ const js_processor = new JavascriptFileProcessor(context, {
             pattern: /^\s*[A-Za-z_\$]+.*\(\).*{/,
             handler: (match) => {
                 const [ , name ] = match;
+                if ( name === 'if' ) {
+                    return { type: 'if' };
+                }
+                if ( name === 'while' ) {
+                    return { type: 'while' };
+                }
                 return {
                     type: 'method',
                     name,
@@ -556,6 +583,14 @@ const main = async () => {
                 instruction = dedent(`
                     Since the comment is going above a class definition, please write a JSDoc style comment.
                     Make the comment as descriptive as possible, including the class name and its purpose.
+                `);
+            }
+
+            if ( def.type === 'if' || def.type === 'while' || def.type === 'for' ) {
+                if ( metadata['comment-verbosity'] !== 'high' ) continue;
+                instruction = dedent(`
+                    Since the comment is going above a control structure, please write a short concise comment.
+                    The comment should be only one or two lines long, and should use line comments.
                 `);
             }
 
