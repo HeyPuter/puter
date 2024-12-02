@@ -408,7 +408,7 @@ const en = {
         'billing.limited': 'Limited',
         'billing.expanded': 'Expanded',
         'billing.accelerated': 'Accelerated',
-        'billing.enjoy_msg': 'Enjoy %% of Cloud Storage plus other benefits.'
+        'billing.enjoy_msg': 'Enjoy %% of Cloud Storage plus other benefits.',
     }
 };
 
