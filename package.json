@@ -47,7 +47,6 @@
     ]
   },
   "dependencies": {
-    "@yaireo/tagify": "^4.32.1",
     "javascript-time-ago": "^2.5.11",
     "json-colorizer": "^3.0.1",
     "open": "^10.1.0",
