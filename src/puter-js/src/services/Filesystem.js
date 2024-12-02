@@ -71,6 +71,11 @@ export class FilesystemService extends putility.concepts.Service {
         const svc_apiAccess = this._.context.services.get('api-access');
         const api_info = svc_apiAccess.get_api_info();
 
+        if ( api_info.api_origin === undefined ) {
+            // This will get called again later with updated information
+            return;
+        }
+
         this.socket = io(api_info.api_origin, {
             auth: { auth_token: api_info.auth_token }
         });
