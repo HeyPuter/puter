@@ -1,21 +1,21 @@
 /**
- * Copyright (C) 2024 Puter Technologies Inc.
- *
- * This file is part of Puter.
- *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
+* Copyright (C) 2024 Puter Technologies Inc.
+*
+* This file is part of Puter.
+*
+* Puter is free software: you can redistribute it and/or modify
+* it under the terms of the GNU Affero General Public License as published
+* by the Free Software Foundation, either version 3 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU Affero General Public License for more details.
+*
+* You should have received a copy of the GNU Affero General Public License
+* along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 
 let URLParams = new URLSearchParams(window.location.search);
 let domain = "puter.com",
@@ -180,11 +180,11 @@ $(document).ready(function() {
 });
 
 /**
- * Refreshes the list of apps in the UI.
- *
- * @param {boolean} [show_loading=false] - Whether to show a loading indicator while refreshing.
- *
- */
+* Refreshes the list of apps in the UI.
+*
+* @param {boolean} [show_loading=false] - Whether to show a loading indicator while refreshing.
+*
+*/
 
 function refresh_app_list(show_loading = false) {
   if (show_loading) $("#loading").show();
@@ -492,27 +492,27 @@ function applink(app) {
 }
 
 /**
- * Generates the HTML for the app editing section.
- *
- * @param {Object} app - The app object containing details of the app to be edited.
- *  *
- * @returns {string} HTML string for the app editing section.
- *
- * @description
- * This function creates the HTML for the app editing interface, including:
- * - App icon and title display
- * - Options to open, add to desktop, or delete the app
- * - Tabs for deployment and settings
- * - Form fields for editing various app properties
- * - Display of app statistics
- *
- * The generated HTML includes interactive elements and placeholders for
- * dynamic content to be filled or updated by other functions.
- *
- * @example
- * const appEditHTML = generate_edit_app_section(myAppObject);
- * $('#edit-app').html(appEditHTML);
- */
+* Generates the HTML for the app editing section.
+*
+* @param {Object} app - The app object containing details of the app to be edited.
+*  *
+* @returns {string} HTML string for the app editing section.
+*
+* @description
+* This function creates the HTML for the app editing interface, including:
+* - App icon and title display
+* - Options to open, add to desktop, or delete the app
+* - Tabs for deployment and settings
+* - Form fields for editing various app properties
+* - Display of app statistics
+*
+* The generated HTML includes interactive elements and placeholders for
+* dynamic content to be filled or updated by other functions.
+*
+* @example
+* const appEditHTML = generate_edit_app_section(myAppObject);
+* $('#edit-app').html(appEditHTML);
+*/
 
 function generate_edit_app_section(app) {
   if (app.result) app = app.result;
@@ -521,78 +521,78 @@ function generate_edit_app_section(app) {
 
   let h = ``;
   h += `
-        <div class="edit-app-navbar">
-            <div style="flex-grow:1;">
-                <img class="app-icon" data-uid="${html_encode(app.uid)}" src="${html_encode(!app.icon ? "./img/app.svg" : app.icon)}">
-                <h3 class="app-title" data-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg : ""}</h3>
-                <div style="margin-top: 4px; margin-bottom: 4px;">
-                    <span class="open-app-btn" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Open</span>
-                    <span style="margin: 5px; opacity: 0.3;">&bull;</span>
-                    <span class="add-app-to-desktop" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}">Add Shortcut to Desktop</span>
-                    <span style="margin: 5px; opacity: 0.3;">&bull;</span>
-                    <span title="Delete app" class="delete-app-settings" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">Delete</span>
-                </div>
-                <a class="app-url" target="_blank" data-uid="${html_encode(app.uid)}" href="${html_encode(applink(app))}">${html_encode(applink(app))}</a>
-            </div>
-            <button class="back-to-main-btn button button-default">Back</button>
-        </div>
+          <div class="edit-app-navbar">
+              <div style="flex-grow:1;">
+                  <img class="app-icon" data-uid="${html_encode(app.uid)}" src="${html_encode(!app.icon ? "./img/app.svg" : app.icon)}">
+                  <h3 class="app-title" data-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg : ""}</h3>
+                  <div style="margin-top: 4px; margin-bottom: 4px;">
+                      <span class="open-app-btn" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Open</span>
+                      <span style="margin: 5px; opacity: 0.3;">&bull;</span>
+                      <span class="add-app-to-desktop" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}">Add Shortcut to Desktop</span>
+                      <span style="margin: 5px; opacity: 0.3;">&bull;</span>
+                      <span title="Delete app" class="delete-app-settings" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">Delete</span>
+                  </div>
+                  <a class="app-url" target="_blank" data-uid="${html_encode(app.uid)}" href="${html_encode(applink(app))}">${html_encode(applink(app))}</a>
+              </div>
+              <button class="back-to-main-btn button button-default">Back</button>
+          </div>
 
-        <ul class="section-tab-buttons disable-user-select">
-            <li class="section-tab-btn active" data-tab="deploy"><span>Deploy</span></li>
-            <li class="section-tab-btn" data-tab="info"><span>Settings</span></li>
-        </ul>
+          <ul class="section-tab-buttons disable-user-select">
+              <li class="section-tab-btn active" data-tab="deploy"><span>Deploy</span></li>
+              <li class="section-tab-btn" data-tab="info"><span>Settings</span></li>
+          </ul>
 
-        <div class="section-tab active" data-tab="deploy">
-            <div class="success deploy-success-msg">
-                New version deployed successfully 🎉<span class="close-success-msg">&times;</span>
-                <p style="margin-bottom:0;"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
-            </div>
-            <div class="drop-area disable-user-select">${drop_area_placeholder}</div>
-            <button class="deploy-btn disable-user-select button button-primary disabled">Deploy Now</button>
-        </div>
+          <div class="section-tab active" data-tab="deploy">
+              <div class="success deploy-success-msg">
+                  New version deployed successfully 🎉<span class="close-success-msg">&times;</span>
+                  <p style="margin-bottom:0;"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
+              </div>
+              <div class="drop-area disable-user-select">${drop_area_placeholder}</div>
+              <button class="deploy-btn disable-user-select button button-primary disabled">Deploy Now</button>
+          </div>
 
-        <div class="section-tab" data-tab="info">
-            <form style="clear:both;">
-                <div class="error" id="edit-app-error"></div>
-                <div class="success" id="edit-app-success">App has been successfully updated.<span class="close-success-msg">&times;</span></div>
-                <input type="hidden" id="edit-app-uid" value="${html_encode(app.uid)}">
+          <div class="section-tab" data-tab="info">
+              <form style="clear:both;">
+                  <div class="error" id="edit-app-error"></div>
+                  <div class="success" id="edit-app-success">App has been successfully updated.<span class="close-success-msg">&times;</span></div>
+                  <input type="hidden" id="edit-app-uid" value="${html_encode(app.uid)}">
 
-                <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 40px;">Basic</h3>
-                <label for="edit-app-title">Title</label>
-                <input type="text" id="edit-app-title" placeholder="My Awesome App!" value="${html_encode(app.title)}">
+                  <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 40px;">Basic</h3>
+                  <label for="edit-app-title">Title</label>
+                  <input type="text" id="edit-app-title" placeholder="My Awesome App!" value="${html_encode(app.title)}">
 
-                <label for="edit-app-name">Name</label>
-                <input type="text" id="edit-app-name" placeholder="my-awesome-app" style="font-family: monospace;" value="${html_encode(app.name)}">
+                  <label for="edit-app-name">Name</label>
+                  <input type="text" id="edit-app-name" placeholder="my-awesome-app" style="font-family: monospace;" value="${html_encode(app.name)}">
 
-                <label for="edit-app-index-url">Index URL</label>
-                <input type="text" id="edit-app-index-url" placeholder="https://example-app.com/index.html" value="${html_encode(app.index_url)}">
-                
-                <label for="edit-app-app-id">App ID</label>
-                <input type="text" style="width: 362px;" class="app-uid" value="${html_encode(app.uid)}" readonly>
+                  <label for="edit-app-index-url">Index URL</label>
+                  <input type="text" id="edit-app-index-url" placeholder="https://example-app.com/index.html" value="${html_encode(app.index_url)}">
+                  
+                  <label for="edit-app-app-id">App ID</label>
+                  <input type="text" style="width: 362px;" class="app-uid" value="${html_encode(app.uid)}" readonly>
 
-                <label for="edit-app-icon">Icon</label>
-                <div id="edit-app-icon" style="background-image:url(${!app.icon ? "./img/app.svg" : html_encode(app.icon)});" ${app.icon ? 'data-url="' + html_encode(app.icon) + '"' : ""}>
-                    <div id="change-app-icon">Change App Icon</div>
-                </div>
-                <span id="edit-app-icon-delete" style="${app.icon ? "display:block;" : ""}">Remove icon</span>
+                  <label for="edit-app-icon">Icon</label>
+                  <div id="edit-app-icon" style="background-image:url(${!app.icon ? "./img/app.svg" : html_encode(app.icon)});" ${app.icon ? 'data-url="' + html_encode(app.icon) + '"' : ""}>
+                      <div id="change-app-icon">Change App Icon</div>
+                  </div>
+                  <span id="edit-app-icon-delete" style="${app.icon ? "display:block;" : ""}">Remove icon</span>
 
-                ${generateSocialImageSection(app)}
-                <label for="edit-app-description">Description</label>
-                <textarea id="edit-app-description">${html_encode(app.description)}</textarea>
-                
-                <label for="edit-app-category">Category</label>
-                <select id="edit-app-category" class="category-select">
-                    <option value="">Select a category</option>
-                    ${APP_CATEGORIES.map(
+                  ${generateSocialImageSection(app)}
+                  <label for="edit-app-description">Description</label>
+                  <textarea id="edit-app-description">${html_encode(app.description)}</textarea>
+                  
+                  <label for="edit-app-category">Category</label>
+                  <select id="edit-app-category" class="category-select">
+                      <option value="">Select a category</option>
+                      ${APP_CATEGORIES.map(
     (category) =>
       `<option value="${html_encode(category.id)}" ${app.metadata?.category === category.id ? "selected" : ""}>${html_encode(category.label)}</option>`
   ).join("")}
-                </select>
+                  </select>
 
-                <label for="edit-app-filetype-associations">File Associations</label>
-                <p style="margin-top: 10px; font-size:13px;">A comma-separated list of file type specifiers. For example if you include <code>.txt</code>, your apps could be opened when a user clicks on a TXT file.</p>
+                  <label for="edit-app-filetype-associations">File Associations</label>
+                  <p style="margin-top: 10px; font-size:13px;">A list of file type specifiers. For example if you include <code>.txt</code> your apps could be opened when a user clicks on a TXT file.</p>
 
-                <textarea style="width: 100%" id="edit-app-filetype-associations"  placeholder=".txt, .jpg, application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })),null,app.filetype_associations.length)}</textarea>
+                <textarea id="edit-app-filetype-associations"  placeholder=".txt  .jpg    application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length)}</textarea>
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window</h3>
                 <div>
@@ -662,7 +662,7 @@ async function edit_app_section(cur_app_name) {
   $('.tab-btn[data-tab="apps"]').addClass("active");
 
   let cur_app = await puter.apps.get(cur_app_name);
-  
+
   currently_editing_app = cur_app;
 
   // generate edit app section
@@ -670,32 +670,31 @@ async function edit_app_section(cur_app_name) {
   $("#edit-app").html(edit_app_section_html);
   $("#edit-app").show();
 
-  
 
-  const input = document.querySelector('textarea[id=edit-app-filetype-associations]');
-    tagify = new Tagify(input, {
-        
-        delimiters       : null,
-        whitelist        : [
-          // Document file types
-          ".doc", ".docx", ".pdf", ".txt", ".odt", ".rtf", ".tex",
-          // Spreadsheet file types
-          ".xls", ".xlsx", ".csv", ".ods",
-          // Image file types
-          ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg", ".webp",
-          // Video file types
-          ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".flv", ".webm",
-          // Audio file types
-          ".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a",
-          // Code file types
-          ".js", ".ts", ".html", ".css", ".json", ".xml", ".php", ".py", ".java", ".cpp",
-          // Archive file types
-          ".zip", ".rar", ".7z", ".tar", ".gz",
-          // Other
-          ".exe", ".dll", ".iso"
-        ],
-    })
 
+  const filetype_association_input = document.querySelector('textarea[id=edit-app-filetype-associations]');
+  tagify = new Tagify(filetype_association_input, {
+    pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/[a-z0-9.-]+)/, // pattern for filetype file like .pdf or MIME type like text/plain
+    delimiters: null,
+    whitelist: [
+      // Document file types
+      ".doc", ".docx", ".pdf", ".txt", ".odt", ".rtf", ".tex",
+      // Spreadsheet file types 
+      ".xls", ".xlsx", ".csv", ".ods",
+      // Image file types
+      ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg", ".webp",
+      // Video file types
+      ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".flv", ".webm",
+      // Audio file types
+      ".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a",
+      // Code file types
+      ".js", ".ts", ".html", ".css", ".json", ".xml", ".php", ".py", ".java", ".cpp",
+      // Archive file types
+      ".zip", ".rar", ".7z", ".tar", ".gz",
+      // Other
+      ".exe", ".dll", ".iso"
+    ],
+  })
 
 
 
@@ -1070,7 +1069,6 @@ $(document).on("click", ".edit-app-save-btn", async function(e) {
     }
   }
 
-  console.log(typeof(filetype_associations));
 
   //parse filetype_associations and validations
   // Tagify returns a JSON string, so we parse it into an array
@@ -1078,9 +1076,8 @@ $(document).on("click", ".edit-app-save-btn", async function(e) {
 
   filetype_associations = filetype_associations.map((type) => {
     const fileType = type.value;
-  
-    console.log(fileType);
-  
+
+
     if (
       !fileType ||
       fileType === "." ||
@@ -1089,9 +1086,9 @@ $(document).on("click", ".edit-app-save-btn", async function(e) {
       error = `<strong>File Association Type</strong> must be valid.`;
       return null; // Return null for invalid cases
     }
-  
+
     const lower = fileType.toLocaleLowerCase();
-  
+
     if (fileType.includes("/")) {
       return lower;
     } else if (fileType.includes(".")) {
@@ -1100,8 +1097,7 @@ $(document).on("click", ".edit-app-save-btn", async function(e) {
       return "." + lower;
     }
   }).filter(Boolean); // Remove null or undefined values
-  
-  console.log(filetype_associations);
+
 
   // error?
   if (error) {
