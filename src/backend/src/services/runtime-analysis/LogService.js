@@ -17,24 +17,18 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const logSeverity = (ordinal, label, esc, winst) => ({ ordinal, label, esc, winst });
 // Defines a function to create log severity objects used for logging
 // The function is used to define various log levels and their properties
-const LOG_LEVEL_ERRO = logSeverity(0, 'ERRO', '31;1', 'error');
-// Defines the log level for error messages, used throughout the logging system.
-const LOG_LEVEL_WARN = logSeverity(1, 'WARN', '33;1', 'warn');
-// Defines the WARN log level, used for warning messages in the logging system.
-const LOG_LEVEL_INFO = logSeverity(2, 'INFO', '36;1', 'info');
-// Defines the log level constant for informational messages. Used throughout the code for logging informational events.
-const LOG_LEVEL_TICK = logSeverity(10, 'TICK', '34;1', 'info');
-// LOG_LEVEL_TICK is a constant defining a specific log level for tick events, used for periodic logging.
-const LOG_LEVEL_DEBU = logSeverity(4, 'DEBU', '37;1', 'debug');
-// Defines the debug log level used for detailed logging and debugging purposes.
+const logSeverity = (ordinal, label, esc, winst) => ({ ordinal, label, esc, winst });
 
-```javascript
+// TODO: support the following annotation in tools/comment-writer/main.js
+// AI-COMMENT-WRITER // SKIP 7 LINES
+const LOG_LEVEL_ERRO = logSeverity(0, 'ERRO', '31;1', 'error');
+const LOG_LEVEL_WARN = logSeverity(1, 'WARN', '33;1', 'warn');
+const LOG_LEVEL_INFO = logSeverity(2, 'INFO', '36;1', 'info');
+const LOG_LEVEL_TICK = logSeverity(10, 'TICK', '34;1', 'info');
 const LOG_LEVEL_DEBU = logSeverity(4, 'DEBU', '37;1', 'debug');
 const LOG_LEVEL_NOTICEME = logSeverity(4, 'NOTICE_ME', '33;1', 'error');
-// Defines a log level constant for special notifications, used in logging functions.
 const LOG_LEVEL_SYSTEM = logSeverity(4, 'SYSTEM', '33;1', 'system');
 
 const winston = require('winston');
@@ -566,7 +560,6 @@ class LogService extends BaseService {
     *
     * @param {Object} commands - The commands object to register commands to.
     */
-    ```
     async _init () {
         const config = this.global_config;
 

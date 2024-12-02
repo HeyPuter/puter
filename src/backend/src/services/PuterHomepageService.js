@@ -54,9 +54,6 @@ class PuterHomepageService extends BaseService {
     * The parsed data is then assigned to the `manifest` property of the instance.
     * @returns {Promise} A promise that resolves with the initialized PuterHomepageService instance.
     */
-    PuterHomepageService._init() {
-    // code here...
-    }
     async _init () {
         // Load manifest
         const config = this.global_config;

@@ -316,10 +316,6 @@ class HTTPThumbnailService extends BaseService {
 
         this.status = this.constructor.STATUS_RUNNING;
 
-        Here's the comment for the constant definition at line 189:
-        
-        ```javascript
-        // LIMIT: Maximum file size in bytes for thumbnail processing.
         const LIMIT = this.LIMIT;
 
         // Grab up to 400MB worth of files to send to the thumbnail service.

@@ -141,7 +141,6 @@ class ExpectationService extends BaseService {
         * @returns {void}
         */
         
-        ```javascript
         // The comment should be placed above the method at line 68
         setInterval(() => {
             this.purgeExpectations_();

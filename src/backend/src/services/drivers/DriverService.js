@@ -29,12 +29,9 @@ const { get_user } = require("../../helpers");
 
 /**
  * DriverService provides the functionality of Puter drivers.
+ * This class is responsible for managing and interacting with Puter drivers.
+ * It provides methods for registering drivers, calling driver methods, and handling driver errors.
  */
-/**
-* @classdesc DriverService provides the functionality of Puter drivers.
-* This class is responsible for managing and interacting with Puter drivers.
-* It provides methods for registering drivers, calling driver methods, and handling driver errors.
-*/
 class DriverService extends BaseService {
     static MODULES = {
         types: require('./types'),
@@ -60,9 +57,6 @@ class DriverService extends BaseService {
     * This method is responsible for registering collections in the service registry.
     * It registers 'interfaces', 'drivers', and 'types' collections.
     */
-    DriverService.prototype['__on_registry.collections'] = function() {
-    // Your code here
-    };
     async ['__on_registry.collections'] () {
         const svc_registry = this.services.get('registry');
         svc_registry.register_collection('interfaces');
@@ -157,10 +151,6 @@ class DriverService extends BaseService {
     * @returns {Promise<Object>} A promise that resolves to an object containing the result of the method call,
     *                           or rejects with an error if any check fails.
     */
-    113: * @param {Object} o - An object containing the driver, interface, method, and arguments.
-    114: * @returns {Promise<Object>} A promise that resolves to an object containing the result of the method call,
-    115: *                           or rejects with an error if any check fails.
-    116: */
     async call (o) {
         try {
             return await this._call(o);
@@ -182,8 +172,6 @@ class DriverService extends BaseService {
     * It handles various aspects such as argument processing, permission checks, and invoking the driver's method.
     * It returns a promise that resolves to an object containing the result, metadata, and an error if one occurred.
     */
-    128: async _call ({ driver, iface, method, args }) {
-    // comment above method _call in DriverService.js
     async _call ({ driver, iface, method, args }) {
         console.log('??', driver, iface, method, args);
         const processed_args = await this._process_args(iface, method, args);
@@ -237,7 +225,6 @@ class DriverService extends BaseService {
         * @param {string} interfaceName - The name of the interface for which to retrieve the driver service.
         * @returns {DriverService} The driver service instance for the provided interface.
         */
-        // line 172
         const driver_service_exists = (() => {
             console.log('CHECKING FOR THIS', driver, iface);
             return this.services.has(driver) &&
@@ -279,19 +266,13 @@ class DriverService extends BaseService {
         }
         /**
         * This method is responsible for calling a driver method. It performs various checks and preparations before making the actual call.
-        *
         * It first checks if the driver service exists for the given driver and interface. If it does, it checks if the driver supports the test mode. If it does, it skips the usage of the driver.
-        *
         * If the driver service does not exist, it looks for a default implementation for the given interface and uses it if found.
-        *
         * The method then calls the driver method with the processed arguments and returns the result. If an error occurs during the call, it is caught and handled accordingly.
         *
         * @param {Object} o - An object containing the driver name, interface name, method name, and arguments.
         * @returns {Promise<Object>} - A promise that resolves to an object containing the result of the driver method call, or an error object if an error occurred.
         */
-        DriverService.prototype._call = function(o) {
-        // Your comment here
-        };
         const meta = await (async () => {
             if ( instance instanceof Driver ) {
                 return await instance.get_response_meta();
@@ -353,19 +334,6 @@ class DriverService extends BaseService {
         const svc_su = this.services.get('su');
         
         const policies = await Promise.all(option.path.map(async path_node => {
-            /**
-            * This method is responsible for executing a driver call by invoking the appropriate service and method.
-            * It takes an object containing the driver name, interface name, method name, and arguments as input.
-            * The method first checks if the driver service exists and if the user has the necessary permissions.
-            * If the driver service does not exist, it throws an error. If the user has the necessary permissions,
-            * the method calls the appropriate method on the driver service with the provided arguments.
-            * If an error occurs during the call, it is wrapped in an APIError and returned to the client.
-            *
-            * @param {Object} o - Object containing the driver name, interface name, method name, and arguments.
-            * @returns {Promise<Object>} - A Promise that resolves to an object containing the result of the driver call or an error object.
-            */
-            // Add comment above line 264
-            // (line 254 in your provided code)
             const policy = await svc_su.sudo(async () => {
                 return await svc_systemData.interpret(option.data);
             });
@@ -381,11 +349,8 @@ class DriverService extends BaseService {
 
     /**
     * Description: This method is responsible for handling driver calls. It takes an object containing the driver name, interface name, method name, and arguments, and calls the corresponding method in the driver implementation.
-    *
     * Behavior: The method first checks if the driver service exists for the given driver name and interface name. If it does, it calls the method in the driver implementation with the provided arguments. If the method is not found, it throws an error. If the driver service does not exist, it throws an error.
-    *
     * Parameters: The method takes an object containing the driver name, interface name, method name, and arguments.
-    *
     * Return Value: The method returns a promise that resolves with an object containing the result of the method call, the metadata of the driver call, and a boolean indicating whether the call was successful.
     */
     // Add this comment above line 276 in DriverService.js

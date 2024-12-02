@@ -35,15 +35,6 @@ class DriverUsagePolicyService extends BaseService {
         const svc_su = this.services.get('su');
         
         const policies = await Promise.all(option.path.map(async path_node => {
-            /**
-             * Retrieves the policies associated with a given option.
-             * This method processes the provided option's path and interprets its data
-             * using the system services. It returns a list of policies for each path node
-             * by using sudo access to ensure the actions are performed with the required permissions.
-             *
-             * @param {Object} option - An object containing the path and data used for policy retrieval.
-             * @returns {Promise<Array>} A promise that resolves to an array of policy objects for the given option.
-             */
             const policy = await svc_su.sudo(async () => {
                 return await svc_systemData.interpret(option.data);
             });

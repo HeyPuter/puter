@@ -27,7 +27,6 @@ const { UUIDFPE } = require("../../util/uuidfpe");
 
 // This constant defines the namespace used for generating app UUIDs from their origins
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
-const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 
 const LegacyTokenError = class extends Error {};
 

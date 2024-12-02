@@ -77,9 +77,6 @@ class WebServerService extends BaseService {
     *
     * @returns {Promise<void>} A promise that resolves once the server is started.
     */
-    WebServerService.prototype['__on_start.webserver'] = async function () {
-       // ... rest of the method
-    }
     async ['__on_boot.activation'] () {
         const services = this.services;
         await services.emit('start.webserver');
@@ -287,9 +284,6 @@ class WebServerService extends BaseService {
     * @param {object} services - An object containing all services available to the web server.
     * @returns {Promise<void>} A promise that resolves when the web server is fully started.
     */
-    WebServerService.prototype._init = async function(services) {
-       // ... existing code
-    };
     get_server () {
         return this.server_;
     }
@@ -300,9 +294,6 @@ class WebServerService extends BaseService {
     *
     * @param {Object} services - An object containing all services.
     */
-    WebServerService._init.prototype._init = function(services) {
-       // Implementation goes here
-    };
     async _init () {
         const app = express();
         this.app = app;

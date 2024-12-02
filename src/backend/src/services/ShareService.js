@@ -29,10 +29,6 @@ const BaseService = require("./BaseService");
 const { DB_WRITE } = require("./database/consts");
 const { UsernameNotifSelector } = require("./NotificationService");
 
-
-/**
-401:  * @classdesc ShareService - Handles share related operations.
-402:  */
 class ShareService extends BaseService {
     static MODULES = {
         uuidv4: require('uuid').v4,
@@ -325,16 +321,6 @@ class ShareService extends BaseService {
     
     install_share_endpoint ({ app }) {
         // track: scoping iife
-        /**
-        401:  * Method to grant permissions to the user after they have applied the share token.
-        402:  *
-        403:  * @param {Object} req - Request object containing the application request.
-        404:  * @param {Object} res - Response object to send the response.
-        405:  * @returns {Promise<void>} Resolves when the operation is completed.
-        406:  */
-        407: ShareService.prototype.grant_permissions_on_apply = async function (req, res) {
-        408:     // Your implementation here.
-        409: };
         const router = (() => {
             const require = this.require;
             const express = require('express');
@@ -375,15 +361,6 @@ class ShareService extends BaseService {
         }).attach(router);
     }
     
-
-    /**
-    401 * @description Method to get a share by its UID.
-    402 *
-    403 * @param {Object} params - An object containing the UID of the share.
-    404 * @param {String} params.uid - The UID of the share.
-    405 *
-    406 * @returns {Promise<Share>} A promise that resolves to the Share object.
-    407 */
     async get_share ({ uid }) {
         const [share] = await this.db.read(
             'SELECT * FROM share WHERE uid = ?',

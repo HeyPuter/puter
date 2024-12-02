@@ -31,13 +31,6 @@ const BaseService = require("./BaseService");
 * @class
 * @extends BaseService
 */
-
-```javascript
-class SystemValidationService extends BaseService {
-```
-
-```javascript
-}
 class SystemValidationService extends BaseService {
     /**
      * Marks the server is being in an invalid state.

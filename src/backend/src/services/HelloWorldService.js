@@ -29,15 +29,6 @@ class HelloWorldService extends BaseService {
             * @param {string} [options.subject] - The subject of the greeting. If not provided, defaults to "World".
             * @returns {string} The greeting message.
             */
-            
-            ```javascript
-            11:             async greet ({ subject }) {
-            12:                 if ( subject ) {
-            13:                     return `Hello, ${subject}!`;
-            14:                 }
-            15:                 return `Hello, World!`;
-            16:             }
-            17:         },
             async greet ({ subject }) {
                 if ( subject ) {
                     return `Hello, ${subject}!`;

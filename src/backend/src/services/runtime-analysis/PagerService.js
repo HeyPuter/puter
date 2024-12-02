@@ -33,11 +33,6 @@ const { Context } = require('../../util/context');
 * command registration.
 */
 class PagerService extends BaseService {
-    /**
-    * Class representing a PagerService.
-    * @extends BaseService
-    */
-    class PagerService extends BaseService {
     async _construct () {
         this.config = this.global_config.pager;
         this.alertHandlers_ = [];
@@ -73,7 +68,6 @@ class PagerService extends BaseService {
     *
     * @method onInit
     */
-    ```
     onInit () {
         if ( this.config.pagerduty && this.config.pagerduty.enabled ) {
             this.alertHandlers_.push(async alert => {

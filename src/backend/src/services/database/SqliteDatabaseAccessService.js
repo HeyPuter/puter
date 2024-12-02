@@ -24,11 +24,6 @@ const { CompositeError } = require("../../util/errorutil");
 const structutil = require("../../util/structutil");
 const { BaseDatabaseAccessService } = require("./BaseDatabaseAccessService");
 
-
-/**
-* Class SqliteDatabaseAccessService
-* 
-* This service provides
 class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
     static ENGINE_NAME = 'sqlite';
 
@@ -272,9 +267,6 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         * @description This method is used to register SQLite database-related commands with the dev-console service.
         * @param {object} commands - The dev-console service commands object.
         */
-        241: _register_commands(commands) {
-        242: ...
-        243: }
         svc_serverHealth.add_check('sqlite', async () => {
             const [{ user_version }] = await this._requireRead('PRAGMA user_version');
             if ( user_version !== TARGET_VERSION ) {
@@ -346,15 +338,6 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         * @param {Array<{statement: string, values: any[]}>} entries - An array of SQL queries and their corresponding parameters.
         * @return {void} This method does not return any value.
         */
-        275:     async _batch_write (entries) {
-        276:         this.db.transaction(() => {
-        277:             for ( let { statement, values } of entries ) {
-        278:                 statement = this.sqlite_transform_query_(statement);
-        279:                 values = this.sqlite_transform_params_(values);
-        280:                 this.db.prepare(statement).run(values);
-        281:             }
-        282:         })();
-        283:     }
         this.db.transaction(() => {
             for ( let { statement, values } of entries ) {
                 statement = this.sqlite_transform_query_(statement);
@@ -397,17 +380,6 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         *
         * @returns {Promise<void>} A promise that resolves when the migration is completed.
         */
-        303:     async run_js_migration_ ({ filename, contents }) {
-        304:         contents = `(async () => {${contents}})()`;
-        305:         const vm = require('vm');
-        306:         const context = vm.createContext({
-        307:             read: this.read.bind(this),
-        308:             write: this.write.bind(this),
-        309:             log: this.log,
-        310:             structutil,
-        311:         });
-        312:         await vm.runInContext(contents, context);
-        313:     }
         contents = `(async () => {${contents}})()`;
         const vm = require('vm');
         const context = vm.createContext({
