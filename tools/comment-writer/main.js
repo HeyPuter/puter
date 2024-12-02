@@ -625,13 +625,8 @@ const main = async () => {
         }
 
         if ( action.action === 'all' ) {
-            limit = await enq.prompt({
-                type: 'input',
-                name: 'limit',
-                message: 'Enter limit:'
-            });
             i = 1;
-            limit = Number(limit.limit);
+            limit = Infinity;
         }
 
         const { definitions } = js_processor.process(lines);
