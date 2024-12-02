@@ -387,16 +387,22 @@ const en = {
         'billing.payment_setup': 'Payment Setup',
         'billing.back': 'Back',
         'billing.you_are_now_subscribed_to': 'You are now subscribed to %strong% tier.',
+        'billing.you_are_now_subscribed_to_without_tier': 'You are now subscribed',
         'billing.subscription_cancellation_confirmation': 'Are you sure you want to cancel your subscription?',
         'billing.subscription_setup': 'Subscription Setup',
         'billing.cancel_it': 'Cancel It',
         'billing.keep_it': 'Keep It',
         'billing.subscription_resumed': 'Your %strong% subscription has been resumed!',
         'billing.upgrade_now': 'Upgrade Now',
+        'billing.upgrade': 'Upgrade',
         'billing.currently_on_free_plan': 'You are currently on the free plan.',
         'billing.download_receipt': 'Download Receipt',
         'billing.subscription_check_error': 'A problem occurred while checking your subscription status.',
         'billing.payment_method_updated': 'Payment method updated!',
+        'billing.email_confirmation_needed': 'Your email has not been confirmed. We\'ll send you a code to confirm it now.',
+        'billing.sub_cancelled_but_valid_until': 'You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe.',
+        'billing.current_plan_until_end_of_period': 'Your current plan until the end of this billing period.',
+        'billing.current_plan': 'Current plan',
     }
 };
 
