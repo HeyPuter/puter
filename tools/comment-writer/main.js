@@ -1,3 +1,4 @@
+// METADATA // {"ai-params":{"service":"xai"}}
 const enq = require('enquirer');
 const wrap = require('word-wrap');
 const dedent = require('dedent');
@@ -21,6 +22,33 @@ const FILE_EXCLUDES = [
     /^eslint\.config\.js$/,
 ];
 
+const models_to_try = [
+    {
+        service: 'openai-completion',
+        model: 'gpt-4o-mini',
+    },
+    {
+        service: 'openai-completion',
+        model: 'gpt-4o',
+    },
+    {
+        service: 'claude',
+    },
+    {
+        service: 'xai',
+    },
+    // llama broke code - that's a "one strike you're out" situation
+    // {
+    //     service: 'together-ai',
+    //     model: 'meta-llama/Meta-Llama-3-70B-Instruct-Turbo',
+    // },
+    {
+        service: 'mistral',
+        model: 'mistral-large-latest',
+    }
+];
+
+
 const axi = axios.create({
     httpsAgent: new https.Agent({  
         rejectUnauthorized: false
@@ -39,10 +67,11 @@ class AI {
         //
     }
     
-    async complete ({ messages }) {
+    async complete ({ messages, driver_params }) {
         const response = await axi.post(`${context.config.api_url}/drivers/call`, {
             interface: 'puter-chat-completion',
             method: 'complete',
+            ...driver_params,
             args: {
                 messages,
             },
@@ -56,6 +85,19 @@ class AI {
         
         return response.data.result.message;
     }
+}
+
+const ai_message_to_lines = text => {
+    while ( typeof text === 'object' ) {
+        if ( Array.isArray(text) ) text = text[0];
+        else if ( text.content ) text = text.content;
+        else if ( text.text ) text = text.text;
+        else {
+            console.log('Invalid message object', text);
+            throw new Error('Invalid message object');
+        }
+    }
+    return text.split('\n');
 }
 
 class CommentWriter {
@@ -159,7 +201,7 @@ const js_processor = new JavascriptFileProcessor(context, {
                     type: 'function',
                     scope: 'lexical',
                     name,
-                    args: args.split(',').map(arg => arg.trim()),
+                    args: (args ?? '').split(',').map(arg => arg.trim()),
                 };
             }
         },
@@ -305,6 +347,15 @@ const inject_comments = (lines, comments) => {
         console.log('????', comment.position, lines[comment.position], '|' + indentation + '|');
         const comment_lines = comment.lines.map(line => `${indentation}${line}`);
         lines.splice(comment.position, 0, ...comment_lines);
+        
+        // If the first line of the comment lines starts with '/*`, ensure there is
+        // a blank line above it.
+        
+        if ( comment_lines[0].trim().startsWith('/*') ) {
+            if ( comment.position > 0 && lines[comment.position - 1].trim() === '' ) {
+                lines.splice(comment.position, 0, '');
+            }
+        }
     }
 }
 
@@ -354,7 +405,10 @@ const main = async () => {
         excludes: FILE_EXCLUDES,
     }, rootpath);
     
+    let i = 0;
     for await ( const value of walk_iter ) {
+        i++;
+        if ( i == 12 ) process.exit(0);
         if ( value.is_dir ) {
             console.log('directory:', value.path);
             continue;
@@ -365,11 +419,46 @@ const main = async () => {
         console.log('file:', value.path);
         const lines = fs.readFileSync(value.path, 'utf8').split('\n');
         
+        let metadata, has_metadata_line = false;
         if ( lines[0].startsWith('// METADATA // ') ) {
-            const metadata = JSON.parse(lines[0].slice('// METADATA // '.length));
+            has_metadata_line = true;
+            metadata = JSON.parse(lines[0].slice('// METADATA // '.length));
             if ( metadata['ai-commented'] ) {
                 console.log('File was already commented by AI; skipping...');
                 continue;
+            }
+        }
+        
+        let refs = null;
+        if ( metadata['ai-refs'] ) {
+            const relative_file_paths = metadata['ai-refs'];
+            // name of file is the key, value is the contents
+            const references = {};
+            
+            let n  = 0;
+            for ( const relative_file_path of relative_file_paths ) {
+                n++;
+                const full_path = path_.join(path_.dirname(value.path), relative_file_path);
+                const ref_text = fs.readFileSync(full_path, 'utf8');
+                references[relative_file_path] = ref_text;
+            }
+            
+            if ( n === 1 ) {
+                refs = dedent(`
+                    The following documentation contains relevant information about the code.
+                    The code will follow after this documentation.
+                `);
+                
+                refs += '\n\n' + dedent(references[Object.keys(references)[0]]);
+            } else if ( n > 2 ) {
+                refs = dedent(`
+                    The following documentation contains relevant information about the code.
+                    The code will follow after a number of documentation files.
+                `);
+                
+                for ( const key of Object.keys(references) ) {
+                    refs += '\n\n' + dedent(references[key]);
+                }
             }
         }
         
@@ -383,6 +472,7 @@ const main = async () => {
                 'exit',
             ]
         })
+        // const action = 'generate';
         
         if ( action.action === 'exit' ) {
             break;
@@ -490,6 +580,9 @@ const main = async () => {
                 instruction: instruction,
             });
         }
+
+        const driver_params = metadata['ai-params'] ??
+            models_to_try[Math.floor(Math.random() * models_to_try.length)];
         
         for ( const comment of comments ) {
             // This doesn't work very well yet
@@ -534,24 +627,32 @@ const main = async () => {
                 console.log(limited_view);
             }
             */
-
+           
+            const prompt =
+                dedent(`
+                    Please write a comment to be added above line ${comment.position}.
+                    Do not write any surrounding text; just the comment itself.
+                    Please include comment markers. If the comment is on a class, function, or method, please use jsdoc style.
+                    The code is written in JavaScript.
+                `).trim() +
+                (refs ? '\n\n' + dedent(refs) : '') +
+                (comment.instruction ? '\n\n' + dedent(comment.instruction) : '') +
+                '\n\n' + limited_view
+                ;
+           
+            // console.log('prompt:', prompt);
+           
             const message = await context.ai.complete({
                 messages: [
                     {
                         role: 'user',
-                        content: dedent(`
-                            Please write a comment to be added above line ${comment.position}.
-                            Do not write any surrounding text; just the comment itself.
-                            Please include comment markers. If the comment is on a class, function, or method, please use jsdoc style.
-                            The code is written in JavaScript.
-                        `).trim() +
-                        (comment.instruction ? '\n\n' + dedent(comment.instruction) : '') +
-                        '\n\n' + limited_view
+                        content: prompt
                     }
-                ]
+                ],
+                driver_params,
             });
             console.log('message:', message);
-            comment.lines = message.content.split('\n');
+            comment.lines = ai_message_to_lines(message.content);
             
             // Remove leading and trailing blank lines
             while ( comment.lines.length && ! comment.lines[0].trim() ) {
@@ -579,8 +680,13 @@ const main = async () => {
         console.log('--- lines ---');
         console.log(lines);
         
+        if ( has_metadata_line ) {
+            lines.shift();
+        }
+        
         lines.unshift('// METADATA // ' + JSON.stringify({
-            'ai-commented': true,
+            ...metadata,
+            'ai-commented': driver_params,
         }));
         
         // Write the modified file
