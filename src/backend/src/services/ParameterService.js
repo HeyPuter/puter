@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  * 
@@ -37,11 +38,34 @@ const BaseService = require("./BaseService");
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+/**
+* @class ParameterService
+* @extends BaseService
+* @description Service class for managing system parameters and their values.
+* Provides functionality for creating, getting, setting, and subscribing to parameters.
+* Supports parameter binding to instances and includes command registration for parameter management.
+* Parameters can have constraints, default values, and change listeners.
+*/
 class ParameterService extends BaseService {
+    /**
+    * Parameter service for managing system-wide parameters
+    * @extends BaseService
+    * @class
+    * @description Handles registration, storage, and access of parameters across services.
+    * Parameters can be bound to instances, subscribed to for changes, and accessed via commands.
+    * Each parameter has a unique service-scoped ID and optional constraints.
+    */
     _construct () {
         this.parameters_ = [];
     }
     
+
+    /**
+    * Initializes the service by registering commands with the command service.
+    * This method is called during service startup to set up command handlers
+    * for parameter management.
+    * @private
+    */
     _init () {
         this._registerCommands(this.services.get('commands'));
     }
@@ -63,6 +87,13 @@ class ParameterService extends BaseService {
         }
     }
 
+
+    /**
+    * Gets the value of a parameter by its ID
+    * @param {string} id - The unique identifier of the parameter to retrieve
+    * @returns {Promise<*>} The current value of the parameter
+    * @throws {Error} If parameter with given ID is not found
+    */
     async get(id) {
         const parameter = this._get_param(id);
         return await parameter.get();
@@ -87,6 +118,10 @@ class ParameterService extends BaseService {
     }
 
     _registerCommands (commands) {
+        /**
+        * Registers parameter-related commands with the command service
+        * @param {Object} commands - The command service instance to register with
+        */
         const completeParameterName = (args) => {
             // The parameter name is the first argument, so return no results if we're on the second or later.
             if (args.length > 1)
@@ -146,6 +181,13 @@ class ParameterService extends BaseService {
     }
 }
 
+
+/**
+* @class Parameter
+* @description Represents a configurable parameter with value management, constraints, and change notification capabilities.
+* Provides functionality for setting/getting values, binding to object instances, and subscribing to value changes.
+* Supports validation through configurable constraints and maintains a list of value change listeners.
+*/
 class Parameter {
     constructor(spec) {
         this.spec_ = spec;
@@ -156,6 +198,14 @@ class Parameter {
         }
     }
 
+
+    /**
+    * Sets a new value for the parameter after validating against constraints
+    * @param {*} value - The new value to set for the parameter
+    * @throws {Error} If the value fails any constraint checks
+    * @fires valueListeners with new value and old value
+    * @async
+    */
     async set (value) {
         for ( const constraint of (this.spec_.constraints ?? []) ) {
             if ( ! await constraint.check(value) ) {
@@ -170,6 +220,11 @@ class Parameter {
         }
     }
 
+
+    /**
+    * Gets the current value of this parameter
+    * @returns {Promise<*>} The parameter's current value
+    */
     async get () {
         return this.value_;
     }

@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -30,13 +31,28 @@ const BaseService = require('../BaseService.js');
 const { split_lines } = require('../../util/stdioutil.js');
 const { Context } = require('../../util/context.js');
 
+
+/**
+* @classdesc AlarmService class is responsible for managing alarms. It provides methods for creating, clearing, and handling alarms.
+*/
 class AlarmService extends BaseService {
+    /**
+    * This method initializes the AlarmService by setting up its internal data structures and initializing any required dependencies.
+    *
+    * It reads in the known errors from a JSON5 file and sets them as the known_errors property of the AlarmService instance.
+    *
+    * It also registers commands with the provided commands service.
+    */
     async _construct () {
         this.alarms = {};
         this.alarm_aliases = {};
 
         this.known_errors = [];
     }
+    /**
+    * Method to initialize AlarmService. Sets the known errors and registers commands.
+    * @returns {Promise<void>}
+    */
     async _init () {
         const services = this.services;
         this.pager = services.get('pager');
@@ -62,6 +78,13 @@ class AlarmService extends BaseService {
         this._register_commands(services.get('commands'));
 
         if ( this.global_config.env === 'dev' ) {
+            /**
+            * This method initializes the AlarmService instance by registering commands, setting up the pager, and initializing the known errors.
+            * It also sets up the widget to display alarms in the dev environment.
+            *
+            * @param {BaseService} services - The BaseService instance that provides access to other services.
+            * @returns {void}
+            */
             this.alarm_widget = () => {
                 // return `\x1B[31;1m alarms (${
                 //     Object.keys(this.alarms)
@@ -100,6 +123,14 @@ class AlarmService extends BaseService {
     create (id, message, fields) {
         this.log.error(`upcoming alarm: ${id}: ${message}`);
         let existing = false;
+        /**
+        * Method to create an alarm with the given ID, message, and fields.
+        * If the ID already exists, it will be updated with the new fields.
+        * @param {string} id - Unique identifier for the alarm.
+        * @param {string} message - Message associated with the alarm.
+        * @param {object} fields - Additional information about the alarm.
+        * @returns {void}
+        */
         const alarm = (() => {
             const short_id = this.adapt_id_(id);
 
@@ -116,12 +147,34 @@ class AlarmService extends BaseService {
             };
 
             Object.defineProperty(alarm, 'count', {
+                /**
+                * Method to create a new alarm.
+                *
+                * This method takes an id, message, and optional fields as parameters.
+                * It creates a new alarm object with the provided id and message,
+                * and adds it to the alarms object. It also keeps track of the number of occurrences of the alarm.
+                * If the alarm already exists, it increments the occurrence count and calls the handle\_alarm\_repeat\_ method.
+                * If it's a new alarm, it calls the handle\_alarm\_on\_ method.
+                *
+                * @param {string} id - The unique identifier for the alarm.
+                * @param {string} message - The message associated with the alarm.
+                * @param {object} [fields] - Optional fields associated with the alarm.
+                * @returns {void}
+                */
                 get () {
                     return alarm.timestamps?.length ?? 0;
                 }
             });
 
             Object.defineProperty(alarm, 'id_string', {
+                /**
+                * Method to handle creating a new alarm with given parameters.
+                * This method adds the alarm to the `alarms` object, updates the occurrences count,
+                * and processes any known errors that may apply to the alarm.
+                * @param {string} id - The unique identifier for the alarm.
+                * @param {string} message - The message associated with the alarm.
+                * @param {Object} fields - Additional fields to associate with the alarm.
+                */
                 get () {
                     if ( alarm.id.length < 20 ) {
                         return alarm.id;
@@ -318,6 +371,21 @@ class AlarmService extends BaseService {
     }
 
     _register_commands (commands) {
+        // Function to handle a specific alarm event.
+        // This comment can be added above line 320.
+        // This function is responsible for processing specific events related to alarms.
+        // It can be used for tasks such as updating alarm status, sending notifications, or triggering actions.
+        // This function is called internally by the AlarmService class.
+        
+        // /*
+        //  * handleAlarmEvent - Handles a specific alarm event.
+        //  *
+        //  * @param {Object} alarm - The alarm object containing relevant information.
+        //  * @param {Function} callback - Optional callback function to be called when the event is handled.
+        //  */
+        // function handleAlarmEvent(alarm, callback) {
+        //     // Implementation goes here.
+        // }
         const completeAlarmID = (args) => {
             // The alarm ID is the first argument, so return no results if we're on the second or later.
             if (args.length > 1)

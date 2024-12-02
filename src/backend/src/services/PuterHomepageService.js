@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -24,16 +25,38 @@ const {is_valid_url} = require('../helpers');
  * PuterHomepageService serves the initial HTML page that loads the Puter GUI
  * and all of its assets.
  */
+/**
+* This class serves the initial HTML page that loads the Puter GUI and all of its assets.
+* It extends the BaseService class to provide common functionality.
+*/
 class PuterHomepageService extends BaseService {
     static MODULES = {
         fs: require('node:fs'),
     }
 
+
+    /**
+    * This method sets a parameter for the GUI.
+    * It takes a key and value as arguments and adds them to the `gui_params` object.
+    *
+    * @param {string} key - The key for the parameter.
+    * @param {any} val - The value for the parameter.
+    */
     _construct () {
         this.service_scripts = [];
         this.gui_params = {};
     }
 
+
+    /**
+    * @description This method initializes the PuterHomepageService by loading the manifest file.
+    * It reads the manifest file located at the specified path and parses its JSON content.
+    * The parsed data is then assigned to the `manifest` property of the instance.
+    * @returns {Promise} A promise that resolves with the initialized PuterHomepageService instance.
+    */
+    PuterHomepageService._init() {
+    // code here...
+    }
     async _init () {
         // Load manifest
         const config = this.global_config;
@@ -56,6 +79,12 @@ class PuterHomepageService extends BaseService {
         this.gui_params[key] = val;
     }
 
+
+    /**
+    * @description This method sets a GUI parameter. It allows you to assign a value to a key within the `gui_params` object.
+    * @param {string} key - The key for the parameter.
+    * @param {any} val - The value for the parameter.
+    */
     async send ({ req, res }, meta, launch_options) {
         const config = this.global_config;
         
@@ -238,6 +267,20 @@ class PuterHomepageService extends BaseService {
 
         <script>
             if ( ! window.service_script ) {
+                /**
+                * This method initializes the service by registering any necessary scripts and setting up GUI parameters.
+                * It is called after the PuterHomepageService instance has been constructed and initialized.
+                *
+                * @param {import('express').Request} req - The Express request object.
+                * @param {import('express').Response} res - The Express response object.
+                * @param {object} meta - Metadata about the Puter instance, including the environment, manifest, and launch options.
+                */
+                // Add this comment above line 240
+                // method: send
+                // purpose: Send the initial HTML page that loads the Puter GUI and its assets.
+                // notes: If the request contains certain query parameters, an error message will be returned instead.
+                // parameters: req, res, meta, launch_options
+                // return value: None, instead it sends an HTML response.
                 window.service_script_api_promise = (() => {
                     let resolve, reject;
                     const promise = new Promise((res, rej) => {
@@ -279,6 +322,20 @@ class PuterHomepageService extends BaseService {
         <script src="/dist/bundle.min.js"></script>
         <!-- Initialize GUI when document is loaded -->
         <script type="module">
+        /**
+        * This method generates the HTML for the initial Puter page, including script tags and other necessary metadata.
+        * It takes in an object containing various parameters to customize the page.
+        * It returns the generated HTML string.
+        * @param {Object} params - An object containing the following properties:
+        *  - env: The environment (e.g., 'dev' or 'prod')
+        *  - manifest: The Puter GUI manifest
+        *  - use_bundled_gui: A boolean indicating whether to use the bundled GUI or not
+        *  - app_origin: The origin of the application
+        *  - api_origin: The origin of the API
+        *  - meta: The page metadata
+        *  - launch_options: Launch options for the GUI
+        *  - gui_params: GUI parameters
+        */
         window.addEventListener('load', function() {
             gui(${
                 // TODO: override JSON.stringify to ALWAYS to this...

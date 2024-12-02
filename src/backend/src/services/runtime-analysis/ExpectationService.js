@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -20,10 +21,33 @@ const { v4: uuidv4 } = require('uuid');
 const { quot } = require('../../util/strutil');
 const BaseService = require('../BaseService');
 
+
+/**
+* @class WorkUnit
+* @description The WorkUnit class represents a unit of work that can be tracked and monitored for checkpoints.
+* It includes methods to create instances, set checkpoints, and manage the state of the work unit.
+*/
 class WorkUnit {
+    /**
+    * Represents a unit of work with checkpointing capabilities.
+    *
+    * @class
+    */
+    
+    /**
+    * Creates and returns a new instance of WorkUnit.
+    *
+    * @static
+    * @returns {WorkUnit} A new instance of WorkUnit.
+    */
     static create () {
         return new WorkUnit();
     }
+    /**
+    * Creates a new instance of the WorkUnit class.
+    * @static
+    * @returns {WorkUnit} A new WorkUnit instance.
+    */
     constructor () {
         this.id = uuidv4();
         this.checkpoint_ = null;
@@ -34,11 +58,24 @@ class WorkUnit {
     }
 }
 
+
+/**
+* @class CheckpointExpectation
+* @classdesc The CheckpointExpectation class is used to represent an expectation that a specific checkpoint
+* will be reached during the execution of a work unit. It includes methods to check if the checkpoint has
+* been reached and to report the results of this check.
+*/
 class CheckpointExpectation {
     constructor (workUnit, checkpoint) {
         this.workUnit = workUnit;
         this.checkpoint = checkpoint;
     }
+    /**
+    * Constructor for CheckpointExpectation class.
+    * Initializes the instance with a WorkUnit and a checkpoint label.
+    * @param {WorkUnit} workUnit - The work unit associated with the checkpoint.
+    * @param {string} checkpoint - The checkpoint label to be checked.
+    */
     check () {
         // TODO: should be true if checkpoint was ever reached
         return this.workUnit.checkpoint_ == this.checkpoint;
@@ -57,15 +94,55 @@ class CheckpointExpectation {
  * This service helps diagnose errors involving the potentially
  * complex relationships between asynchronous operations.
  */
+/**
+* @class ExpectationService
+* @extends BaseService
+*
+* The `ExpectationService` is a specialized service designed to assist in the diagnosis and
+* management of errors related to the intricate interactions among asynchronous operations.
+* It facilitates tracking and reporting on expectations, enabling better fault isolation
+* and resolution in systems where synchronization and timing of operations are crucial.
+*
+* This service inherits from the `BaseService` and provides methods for registering,
+* purging, and handling expectations, making it a valuable tool for diagnosing complex
+* runtime behaviors in a system.
+*/
 class ExpectationService extends BaseService {
+    /**
+    * Constructs the ExpectationService and initializes its internal state.
+    * This method is intended to be called asynchronously.
+    * It sets up the `expectations_` array which will be used to track expectations.
+    *
+    * @async
+    */
     async _construct () {
         this.expectations_ = [];
     }
 
+
+    /**
+    * Initializes the ExpectationService, setting up interval functions and registering commands.
+    *
+    * This method sets up a periodic interval to purge expectations and registers a command
+    * to list pending expectations. The interval invokes `purgeExpectations_` every second.
+    * The command 'pending' allows users to list and log all pending expectations.
+    *
+    * @returns {Promise<void>} A promise that resolves when initialization is complete.
+    */
     async _init () {
         const services = this.services;
 
         // TODO: service to track all interval functions?
+        /**
+        * Initializes the service by setting up interval functions and registering commands.
+        * This method sets up a periodic interval function to purge expectations and registers
+        * a command to list pending expectations.
+        *
+        * @returns {void}
+        */
+        
+        ```javascript
+        // The comment should be placed above the method at line 68
         setInterval(() => {
             this.purgeExpectations_();
         }, 1000);
@@ -89,6 +166,16 @@ class ExpectationService extends BaseService {
         ]);
     }
 
+
+    /**
+    * Purges expectations that have been met.
+    *
+    * This method iterates through the list of expectations and removes
+    * those that have been satisfied. Currently, this functionality is
+    * disabled and needs to be re-enabled.
+    *
+    * @returns {void} This method does not return anything.
+    */
     purgeExpectations_ () {
         return;
         // TODO: Re-enable this

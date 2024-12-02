@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -22,11 +23,28 @@ const { Endpoint } = require("../util/expressutil");
 const { whatis } = require("../util/langutil");
 const BaseService = require("./BaseService");
 
+
+/**
+* @class PermissionAPIService
+* @extends BaseService
+* @description Service class that handles API endpoints for permission management, including user-app permissions,
+* user-user permissions, and group management. Provides functionality for creating groups, managing group memberships,
+* granting/revoking various types of permissions, and checking access control lists (ACLs). Implements RESTful
+* endpoints for group operations like creation, adding/removing users, and listing groups.
+*/
 class PermissionAPIService extends BaseService {
     static MODULES = {
         express: require('express'),
     };
 
+
+    /**
+    * Installs routes for authentication and permission management into the Express app
+    * @param {Object} _ Unused parameter
+    * @param {Object} options Installation options
+    * @param {Express} options.app Express application instance to install routes on
+    * @returns {Promise<void>}
+    */
     async ['__on_install.routes'] (_, { app }) {
         app.use(require('../routers/auth/get-user-app-token'))
         app.use(require('../routers/auth/grant-user-app'))
@@ -44,6 +62,11 @@ class PermissionAPIService extends BaseService {
         }).attach(app);
         
         // track: scoping iife
+        /**
+        * Creates a scoped router for group-related endpoints using an IIFE pattern
+        * @private
+        * @returns {express.Router} Express router instance with isolated require scope
+        */
         const r_group = (() => {
             const require = this.require;
             const express = require('express');

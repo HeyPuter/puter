@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -21,6 +22,13 @@
  *
  * Tracks information about cached files for LRU and LFU eviction.
  */
+/**
+* @class FileTracker
+* @description A class that manages and tracks metadata for cached files, including their lifecycle phases,
+* access patterns, and timing information. Used for implementing cache eviction strategies like LRU (Least
+* Recently Used) and LFU (Least Frequently Used). Maintains state about file size, access count, last access
+* time, and creation time to help determine which files should be evicted from cache when necessary.
+*/
 class FileTracker {
     static PHASE_PENDING = { label: 'pending' };
     static PHASE_PRECACHE = { label: 'precache' };
@@ -36,6 +44,14 @@ class FileTracker {
         this.birth = Date.now();
     }
 
+
+    /**
+    * Calculates a score for cache eviction prioritization
+    * Combines access frequency and recency using weighted formula
+    * Higher scores indicate files that should be kept in cache
+    * 
+    * @returns {number} Eviction score - higher values mean higher priority to keep
+    */
     get score () {
         const weight_recency = 0.5;
         const weight_access_count = 0.5;
@@ -47,11 +63,22 @@ class FileTracker {
             (weight_recency * recency);
     }
 
+
+    /**
+    * Gets the age of the file in milliseconds since creation
+    * @returns {number} Time in milliseconds since this tracker was created
+    */
     get age () {
         return Date.now() - this.birth;
     }
 
 
+
+    /**
+    * Updates the access count and timestamp for this file
+    * Increments access_count and sets last_access to current time
+    * Used to track file usage for cache eviction scoring
+    */
     touch () {
         this.access_count++;
         this.last_access = Date.now();

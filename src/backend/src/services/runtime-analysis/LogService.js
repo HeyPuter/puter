@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -17,12 +18,23 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const logSeverity = (ordinal, label, esc, winst) => ({ ordinal, label, esc, winst });
+// Defines a function to create log severity objects used for logging
+// The function is used to define various log levels and their properties
 const LOG_LEVEL_ERRO = logSeverity(0, 'ERRO', '31;1', 'error');
+// Defines the log level for error messages, used throughout the logging system.
 const LOG_LEVEL_WARN = logSeverity(1, 'WARN', '33;1', 'warn');
+// Defines the WARN log level, used for warning messages in the logging system.
 const LOG_LEVEL_INFO = logSeverity(2, 'INFO', '36;1', 'info');
+// Defines the log level constant for informational messages. Used throughout the code for logging informational events.
 const LOG_LEVEL_TICK = logSeverity(10, 'TICK', '34;1', 'info');
+// LOG_LEVEL_TICK is a constant defining a specific log level for tick events, used for periodic logging.
+const LOG_LEVEL_DEBU = logSeverity(4, 'DEBU', '37;1', 'debug');
+// Defines the debug log level used for detailed logging and debugging purposes.
+
+```javascript
 const LOG_LEVEL_DEBU = logSeverity(4, 'DEBU', '37;1', 'debug');
 const LOG_LEVEL_NOTICEME = logSeverity(4, 'NOTICE_ME', '33;1', 'error');
+// Defines a log level constant for special notifications, used in logging functions.
 const LOG_LEVEL_SYSTEM = logSeverity(4, 'SYSTEM', '33;1', 'system');
 
 const winston = require('winston');
@@ -41,6 +53,14 @@ const WINSTON_LEVELS = {
     silly: 60
 };
 
+
+/**
+* @class LogContext
+* @classdesc The LogContext class provides a structured way to handle logging within the application.
+* It encapsulates the logging service, breadcrumbs for context, and fields for additional information.
+* This class includes methods for different logging levels such as info, warn, debug, error, tick,
+* and system logs. It also provides utility methods for sub-contexts, caching, and trace identification.
+*/
 class LogContext {
     constructor (logService, { crumbs, fields }) {
         this.logService = logService;
@@ -98,6 +118,13 @@ class LogContext {
 
     // convenience method to get a trace id that isn't as difficult
     // for a human to read as a uuid.
+    /**
+    * Generates a human-readable trace ID.
+    * This method creates a trace ID that is easier for humans to read compared to a UUID.
+    * The trace ID is composed of two random alphanumeric strings joined by a hyphen.
+    *
+    * @returns {string} A human-readable trace ID.
+    */
     mkid () {
         // generate trace id
         const trace_id = [];
@@ -108,21 +135,55 @@ class LogContext {
     }
 
     // add a trace id to this logging context
+    /**
+    * Adds a trace ID to the logging context.
+    * This method generates a new trace ID and assigns it to the logging context's fields.
+    * It then returns the modified logging context.
+    *
+    * @returns {LogContext} The modified logging context with the trace ID added.
+    */
     traceOn () {
         this.fields.trace_id = this.mkid();
         return this;
     }
 
+
+    /**
+    * Retrieves the current log buffer.
+    *
+    * @returns {Array} The current log buffer containing log entries.
+    */
     get_log_buffer () {
         return this.logService.get_log_buffer();
     }
 }
 
 let log_epoch = Date.now();
+/**
+* Function to initialize the log epoch timestamp.
+* This timestamp is used to calculate the time difference for log entries.
+*/
 const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects }) => {
     const { colorize } = require('json-colorizer');
 
     let lines = [], m;
+    /**
+    * Converts a log entry into a formatted string for display.
+    *
+    * This method formats log entries by combining the prefix, log level, crumbs (breadcrumbs),
+    * message, fields, and objects into a readable string. It includes color coding for log levels
+    * and timestamp information if available. The method processes each log entry into a multi-line
+    * string for enhanced readability.
+    *
+    * @param {Object} entry - The log entry object to be stringified.
+    * @param {string} entry.prefix - The optional prefix to prepend to the log message.
+    * @param {Object} entry.log_lvl - The log level object containing label and escape sequences.
+    * @param {Array} entry.crumbs - An array of breadcrumbs for context.
+    * @param {string} entry.message - The main log message.
+    * @param {Object} entry.fields - Additional fields to include in the log entry.
+    * @param {Object} entry.objects - Additional objects to include in the log entry.
+    * @returns {string} - The formatted log entry string.
+    */
     const lf = () => {
         if ( ! m ) return;
         lines.push(m);
@@ -156,6 +217,14 @@ const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects
 };
 
 
+
+/**
+* @class DevLogger
+* @description The DevLogger class is responsible for handling logging operations in a development environment.
+* It can delegate logging to another logger and manage log output to a file. This class provides methods for
+* logging messages at different levels and managing the state of logging, such as turning logging on or off
+* and recording log output to a file. It is particularly useful for debugging and development purposes.
+*/
 class DevLogger {
     // TODO: this should eventually delegate to winston logger
     constructor (log, opt_delegate) {
@@ -195,6 +264,14 @@ class DevLogger {
     }
 }
 
+
+/**
+* @class
+* @classdesc The `NullLogger` class is a logging utility that does not perform any actual logging.
+* It is designed to be used as a placeholder or for environments where logging is not desired.
+* This class can be extended or used as a base for other logging implementations that need to
+* delegate logging responsibilities to another logger.
+*/
 class NullLogger {
     // TODO: this should eventually delegate to winston logger
     constructor (log, opt_delegate) {
@@ -204,10 +281,27 @@ class NullLogger {
             this.delegate = opt_delegate;
         }
     }
+    /**
+    * Constructor for the NullLogger class.
+    * This method initializes a new instance of the NullLogger class.
+    * It optionally accepts a delegate logger to which it can pass log messages.
+    *
+    * @param {function} log - The logging function to use (e.g., console.log).
+    * @param {Object} opt_delegate - An optional delegate logger to pass log messages to.
+    */
     onLogMessage () {
     }
 }
 
+
+/**
+* @class WinstonLogger
+* @classdesc The WinstonLogger class is responsible for integrating the Winston logging library
+* into the logging system. It handles forwarding log messages to Winston transports, which can
+* include various logging destinations such as files, consoles, and remote logging services.
+* This class is a key component in ensuring that log messages are appropriately recorded and
+* managed, providing a structured and configurable logging mechanism.
+*/
 class WinstonLogger {
     constructor (winst) {
         this.winst = winst;
@@ -222,6 +316,101 @@ class WinstonLogger {
     }
 }
 
+
+/**
+* @class LogContext
+* @description The `LogContext` class provides a context for logging messages within the application.
+* It encapsulates the log service, a list of breadcrumbs (contextual information for the logs),
+* and fields that can be attached to log messages.
+*
+* This class includes methods for various log levels (info, warn, debug, error, etc.),
+* allowing for structured logging with contextual information.
+*
+* It also provides methods for creating sub-contexts, generating trace IDs, and managing log buffers.
+*/
+/**
+* @class DevLogger
+* @description The `DevLogger` class is a simple logger that outputs log messages to the console.
+* It is primarily used in development environments. This logger can also delegate log messages to another logger.
+*
+* The class includes methods for toggling log output, recording log messages to a file,
+* and adding timestamps to log entries.
+*/
+/**
+* @class NullLogger
+* @description The `NullLogger` class is a logger that does not output any log messages.
+* It is used when logging is disabled or when logging is not required.
+*/
+/**
+* @class WinstonLogger
+* @description The `WinstonLogger` class is a logger that integrates with the Winston logging library.
+* It provides a structured way to log messages with different log levels and transports.
+*
+* This logger can be used to log messages to files, with options for daily rotation and compression.
+*/
+/**
+* @class TimestampLogger
+* @description The `TimestampLogger` class is a decorator logger that adds timestamps to log messages.
+* It delegates the actual logging to another logger.
+*
+* This class ensures that each log message includes a timestamp, which can be useful for debugging and performance monitoring.
+*/
+/**
+* @class BufferLogger
+* @description The `BufferLogger` class is a logger that maintains a buffer of log messages.
+* It delegates the actual logging to another logger.
+*
+* This logger can be used to keep a limited number of recent log messages in memory,
+* which can be useful for debugging and troubleshooting.
+*/
+/**
+* @class CustomLogger
+* @description The `CustomLogger` class is a flexible logger that allows for custom log message processing.
+* It delegates the actual logging to another logger.
+*
+* This logger can be used to modify log messages before they are logged,
+* allowing for custom log message formatting and processing.
+*/
+/**
+* @class LogService
+* @description The `LogService` class is a service that provides logging functionality for the application.
+* It manages a collection of loggers, a buffer of recent log messages, and log directories.
+*
+* This class includes methods for registering log middleware, creating log contexts,
+* and logging messages at various log levels. It also ensures that log messages are only output if they are at or above the configured output level.
+*
+* The `LogService` class is responsible for initializing loggers based on the application's configuration,
+* ensuring that log directories exist, and providing methods for retrieving log files and buffers.
+*/
+/**
+* @class
+* @description The `TimestampLogger` class is a logger that adds timestamps to log messages. It delegates the actual logging to another logger.
+* This class ensures that each log message includes a timestamp, which can be useful for debugging and performance monitoring.
+*/
+/**
+* @class BufferLogger
+* @description The `BufferLogger` class is a logger that maintains a buffer of log messages. It delegates the actual logging to another logger.
+* This logger can be used to keep a limited number of recent log messages in memory, which can be useful for debugging and troubleshooting.
+*/
+/**
+* @class CustomLogger
+* @description The `CustomLogger` class is a flexible logger that allows for custom log message processing. It delegates the actual logging to another logger.
+* This logger can be used to modify log messages before they are logged, allowing for custom log message formatting and processing.
+*/
+/**
+* @class
+* @description The `LogService` class is a service that provides logging functionality for the application.
+* It manages a collection of loggers, a buffer of recent log messages, and log directories.
+* This class includes methods for registering log middleware, creating log contexts,
+* and logging messages at various log levels. It also ensures that log messages are only output if they are at or above the configured output level.
+* The `LogService` class is responsible for initializing loggers based on the application's configuration,
+* ensuring that log directories exist, and providing methods for retrieving log files and buffers.
+*/
+/**
+* @class
+* @description The `TimestampLogger` class is a logger that adds timestamps to log messages. It delegates the actual logging to another logger.
+* This class ensures that each log message includes a timestamp, which can be useful for debugging and performance monitoring.
+*/
 class TimestampLogger {
     constructor (delegate) {
         this.delegate = delegate;
@@ -232,6 +421,20 @@ class TimestampLogger {
     }
 }
 
+
+/**
+* The LogService class is a core service that manages logging across the application.
+* It facilitates the creation and management of various logging middleware, such as
+* DevLogger, NullLogger, WinstonLogger, and more. This class extends BaseService and
+* includes methods for initializing and configuring loggers, ensuring log directories,
+* and handling log messages. It also allows for the registration of custom log middleware
+* via the register_log_middleware method.
+*
+* The LogService class supports multiple logging levels, each with its own file and
+* transport mechanisms. It includes utility methods for creating new log contexts,
+* logging messages, and getting the log buffer. This class is essential for tracking
+* and monitoring application behavior, errors, and system events.
+*/
 class BufferLogger {
     constructor (size, delegate) {
         this.size = size;
@@ -247,6 +450,14 @@ class BufferLogger {
     }
 }
 
+
+/**
+* The `CustomLogger` class is a specialized logger that allows for custom
+* logging behavior by applying a callback function to modify log entries
+* before they are passed to the delegate logger. This class is part of the
+* logging infrastructure, providing flexibility to alter log messages, fields,
+* or other parameters dynamically based on the context in which the logging occurs.
+*/
 class CustomLogger {
     constructor (delegate, callback) {
         this.delegate = delegate;
@@ -279,10 +490,24 @@ class CustomLogger {
     }
 }
 
+
+/**
+* The `LogService` class extends the `BaseService` and is responsible for managing logging operations.
+* It handles the registration of log middleware, initializes various logging mechanisms, and provides
+* methods to log messages at different severity levels. The class ensures that log directories are
+* properly set up and manages the logging output levels based on configuration.
+*/
 class LogService extends BaseService {
     static MODULES = {
         path: require('path'),
     }
+    /**
+    * Initializes the log service by setting up the logging directory, configuring loggers,
+    * and registering commands for log management.
+    *
+    * @async
+    * @returns {Promise<void>} A promise that resolves when the initialization is complete.
+    */
     async _construct () {
         this.loggers = [];
         this.bufferLogger = null;
@@ -332,6 +557,16 @@ class LogService extends BaseService {
             }
         ]);
     }
+    /**
+    * Registers log-related commands for the service.
+    *
+    * This method defines a set of commands for managing log output,
+    * such as toggling log visibility, starting/stopping log recording to a file,
+    * and toggling log indentation.
+    *
+    * @param {Object} commands - The commands object to register commands to.
+    */
+    ```
     async _init () {
         const config = this.global_config;
 
@@ -457,6 +692,13 @@ class LogService extends BaseService {
         }
     }
 
+
+    /**
+    * Ensures that the log directory exists by attempting to create it in several
+    * predefined locations. If none of the locations are available, an error is thrown.
+    *
+    * @throws {Error} If the log directory cannot be created or found.
+    */
     ensure_log_directory_ () {
         // STEP 1: Try /var/puter/logs/heyputer
         {
@@ -512,6 +754,15 @@ class LogService extends BaseService {
         return this.modules.path.join(this.log_directory, name);
     }
 
+
+    /**
+    * Retrieves the log buffer.
+    *
+    * This method returns the current log buffer, which is an array of log entries.
+    * Each log entry contains details such as the log level, crumbs, message, and fields.
+    *
+    * @returns {Array} The log buffer containing log entries.
+    */
     get_log_buffer () {
         return this.bufferLogger.buffer;
     }

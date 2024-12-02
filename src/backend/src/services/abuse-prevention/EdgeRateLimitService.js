@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -29,7 +30,19 @@ const BaseService = require("../BaseService");
     follow the latter form.
 */
 
+
+/**
+* Class representing an edge rate limiting service that manages 
+* request limits for various scopes (e.g. login, signup) 
+* to prevent abuse. It keeps track of request timestamps 
+* and enforces limits based on a specified time window.
+*/
 class EdgeRateLimitService extends BaseService {
+    /**
+    * Initializes the EdgeRateLimitService by setting up the rate limit scopes 
+    * and creating a Map to store request timestamps. It also starts a periodic 
+    * cleanup process to remove old request logs.
+    */
     _construct () {
         this.scopes = {
             ['login']: {
@@ -113,6 +126,12 @@ class EdgeRateLimitService extends BaseService {
         this.requests = new Map();
     }
 
+
+    /**
+     * Initializes the EdgeRateLimitService by setting up a periodic cleanup interval.
+     * This method sets an interval that calls the cleanup function every 5 minutes.
+     * It does not take any parameters and does not return any value.
+     */
     async _init () {
         asyncSafeSetInterval(() => this.cleanup(), 5 * MINUTE);
     }
@@ -151,6 +170,12 @@ class EdgeRateLimitService extends BaseService {
         }
     }
 
+
+    /**
+     * Cleans up the rate limit request records by removing entries
+     * that have no associated timestamps. This method is intended
+     * to be called periodically to free up memory.
+     */
     cleanup() {
         this.log.tick('edge rate-limit cleanup task');
         for (const [key, timestamps] of this.requests.entries()) {

@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -20,6 +21,14 @@ const Jimp = require('jimp');
 const BaseService = require('../BaseService');
 const { stream_to_buffer } = require('../../util/streamutil');
 
+
+/**
+* @class PureJSThumbnailService
+* @extends BaseService
+* @description This class represents a thumbnail service that operates entirely in JavaScript without relying on any low-level compiled libraries.
+* It is designed for development and testing environments due to its CPU-intensive nature, making it less suitable for production deployments.
+* The service supports various image formats and provides methods to check supported MIME types and file sizes, as well as to generate thumbnails.
+*/
 class PureJSThumbnailService extends BaseService {
     static DESCRIPTION = `
         This thumbnail service doesn't depend on any low-level compiled
@@ -47,6 +56,17 @@ class PureJSThumbnailService extends BaseService {
         return size <= this.constructor.LIMIT;
     }
 
+
+    /**
+    * Generates a thumbnail for the provided file.
+    *
+    * This method reads the file stream, resizes the image to 128x128 pixels,
+    * and returns the resulting image as a base64 string.
+    *
+    * @param {Object} file - The file object containing the stream.
+    * @param {Stream} file.stream - The stream of the file to be thumbnailed.
+    * @returns {Promise<string>} A promise that resolves to the base64 string of the thumbnail.
+    */
     async thumbify (file) {
         const buffer = await stream_to_buffer(file.stream);
         const image = await Jimp.read(buffer);

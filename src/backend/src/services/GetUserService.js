@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -31,7 +32,17 @@ const { DB_READ } = require("./database/consts");
  * 
  * The original `get_user` function now uses this service.
  */
+/**
+* Class representing a service to retrieve user information by various identifying properties.
+* The GetUserService provides an interface for accessing user data while facilitating caching
+* mechanisms to optimize database interactions, allowing for read operations against different 
+* identifiers such as username, email, UUID, and referral codes.
+*/
 class GetUserService extends BaseService {
+    /**
+    * Constructor for GetUserService.
+    * Initializes the set of identifying properties used to retrieve user data.
+    */
     _construct () {
         this.id_properties = new Set();
 
@@ -41,8 +52,19 @@ class GetUserService extends BaseService {
         this.id_properties.add('email');
         this.id_properties.add('referral_code');
     }
+    /**
+    * Initializes the GetUserService instance, setting up the 
+    * identifying properties used for user retrieval.
+    */
     async _init () {
     }
+    /**
+    * Initializes the GetUserService instance.
+    * This method prepares any necessary internal structures or states.
+    * It is called automatically upon instantiation of the service.
+    * 
+    * @returns {Promise<void>} A promise that resolves when the initialization is complete.
+    */
     async get_user (options) {
         const user = await this.get_user_(options);
         if ( ! user ) return null;
@@ -51,6 +73,19 @@ class GetUserService extends BaseService {
         await svc_whoami.get_details({ user }, user);
         return user;
     }
+    /**
+     * Retrieves a user object based on the provided options.
+     * 
+     * This method queries the user from cache or database,
+     * depending on the caching options provided. If the user 
+     * is found, it also calls the 'whoami' service to enrich 
+     * the user details before returning.
+     * 
+     * @param {Object} options - The options for retrieving the user.
+     * @param {boolean} [options.cached=true] - Indicates if caching should be used.
+     * @param {boolean} [options.force=false] - Forces a read from the database regardless of cache.
+     * @returns {Promise<Object|null>} The user object if found, else null.
+     */
     async get_user_ (options) {
         const services = this.services;
 

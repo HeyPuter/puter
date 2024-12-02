@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -21,7 +22,21 @@ const BaseService = require("./BaseService");
 const express = require('express');
 const _path = require('path');
 
+
+/**
+* Class representing the ServeGUIService, which extends the BaseService.
+* This service is responsible for setting up the GUI-related routes 
+* and serving static files for the Puter application.
+*/
 class ServeGUIService extends BaseService {
+    /**
+    * Handles the installation of GUI-related routes for the web server.
+    * This method sets up the routing for Puter site domains and other cases,
+    * including static file serving from the public directory.
+    *
+    * @async
+    * @returns {Promise<void>} Resolves when routing is successfully set up.
+    */
     async ['__on_install.routes-gui'] () {
         const { app } = this.services.get('web-server');
 

@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -21,6 +22,16 @@ const BaseService = require("../BaseService");
 const { Context } = require("../../util/context");
 const config = require("../../config");
 
+
+/**
+* @class Requester
+* @classdesc This class represents a requester in the system. It encapsulates
+* information about the requester's user-agent, IP address, origin, referer, and
+* other relevant details. The class includes methods to create instances from
+* request objects, check if the referer or origin is from Puter, and serialize
+* the requester's information. It also includes a method to get a unique identifier
+* based on the requester's IP address.
+*/
 class Requester {
     constructor (o) {
         for ( const k in o ) this[k] = o[k];
@@ -52,6 +63,12 @@ class Requester {
         });
     }
 
+
+    /**
+    * Checks if the referer origin is from Puter.
+    *
+    * @returns {boolean} True if the referer origin matches any of the configured Puter origins, otherwise false.
+    */
     is_puter_referer () {
         const puter_origins = [
             config.origin,
@@ -60,6 +77,12 @@ class Requester {
         return puter_origins.includes(this.referer_origin);
     }
 
+
+    /**
+    * Checks if the request origin is from a known Puter origin.
+    *
+    * @returns {boolean} - Returns true if the request origin matches one of the known Puter origins, false otherwise.
+    */
     is_puter_origin () {
         const puter_origins = [
             config.origin,
@@ -68,10 +91,25 @@ class Requester {
         return puter_origins.includes(this.origin);
     }
 
+
+    /**
+    * @method get rl_identifier
+    * @description Retrieves the rate-limiter identifier, which is either the forwarded IP or the direct IP.
+    * @returns {string} The IP address used for rate-limiting purposes.
+    */
     get rl_identifier () {
         return this.ip_forwarded || this.ip;
     }
 
+
+    /**
+    * Serializes the Requester object into a plain JavaScript object.
+    *
+    * This method converts the properties of the Requester instance into a plain object,
+    * making it suitable for serialization (e.g., for JSON).
+    *
+    * @returns {Object} The serialized representation of the Requester object.
+    */
     serialize () {
         return {
             ua: this.ua,
@@ -85,6 +123,13 @@ class Requester {
 }
 
 // DRY: (3/3) - src/util/context.js; move install() to base class
+/**
+* @class RequesterIdentificationExpressMiddleware
+* @extends AdvancedBase
+* @description This class extends AdvancedBase and provides middleware functionality for identifying the requester in an Express application.
+* It registers initializers, installs the middleware on the Express application, and runs the middleware to identify and log details about the requester.
+* The class uses the 'isbot' module to determine if the requester is a bot.
+*/
 class RequesterIdentificationExpressMiddleware extends AdvancedBase {
     static MODULES = {
         isbot: require('isbot'),
@@ -95,6 +140,13 @@ class RequesterIdentificationExpressMiddleware extends AdvancedBase {
     install (app) {
         app.use(this.run.bind(this));
     }
+    /**
+    * Installs the middleware into the Express application.
+    * This method binds the `run` method to the current instance
+    * and uses it as a middleware function in the Express app.
+    *
+    * @param {object} app - The Express application instance.
+    */
     async run (req, res, next) {
         const x = Context.get();
 
@@ -113,13 +165,42 @@ class RequesterIdentificationExpressMiddleware extends AdvancedBase {
     }
 }
 
+
+/**
+* @class IdentificationService
+* @extends BaseService
+* @description The IdentificationService class is responsible for handling the identification of requesters in the application.
+* It extends the BaseService class and utilizes the RequesterIdentificationExpressMiddleware to process and identify requesters.
+* This service ensures that requester information is properly logged and managed within the application context.
+*/
 class IdentificationService extends BaseService {
+    /**
+    * Constructs the IdentificationService instance.
+    *
+    * This method initializes the service by creating an instance of
+    * RequesterIdentificationExpressMiddleware and assigning it to the `mw` property.
+    *
+    * @returns {void}
+    */
     _construct () {
         this.mw = new RequesterIdentificationExpressMiddleware();
     }
+    /**
+    * Constructor for the IdentificationService class.
+    * Initializes the middleware for requester identification.
+    */
     _init () {
         this.mw.log = this.log;
     }
+    /**
+    * Initializes the middleware logger.
+    *
+    * This method sets the logger for the `RequesterIdentificationExpressMiddleware` instance.
+    * It does not take any parameters and does not return any value.
+    *
+    * @method
+    * @name _init
+    */
     async ['__on_install.middlewares.context-aware'] (_, { app }) {
         this.mw.install(app);
     }

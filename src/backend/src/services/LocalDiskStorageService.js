@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -21,12 +22,30 @@ const { TeePromise } = require("../util/promise");
 const { progress_stream, size_limit_stream } = require("../util/streamutil");
 const BaseService = require("./BaseService");
 
+
+/**
+* @class LocalDiskStorageService
+* @extends BaseService
+*
+* The LocalDiskStorageService class is responsible for managing local disk storage.
+* It provides methods for storing, retrieving, and managing files on the local disk.
+* This service extends the BaseService class to inherit common service functionalities.
+*/
 class LocalDiskStorageService extends BaseService {
     static MODULES = {
         fs: require('fs'),
         path: require('path'),
     }
 
+
+    /**
+    * Initializes the context for the storage service.
+    *
+    * This method registers the LocalDiskStorageStrategy with the context
+    * initialization service and sets the storage for the mountpoint service.
+    *
+    * @returns {Promise<void>} A promise that resolves when the context is initialized.
+    */
     async ['__on_install.context-initializers'] () {
         const svc_contextInit = this.services.get('context-init');
         const storage = new LocalDiskStorageStrategy({ services: this.services });
@@ -36,6 +55,14 @@ class LocalDiskStorageService extends BaseService {
         svc_mountpoint.set_storage(storage);
     }
 
+
+    /**
+    * Initializes the local disk storage service.
+    *
+    * This method sets up the storage directory and ensures it exists.
+    *
+    * @returns {Promise<void>} A promise that resolves when the initialization is complete.
+    */
     async _init () {
         const require = this.require;
         const path_ = require('path');
@@ -53,6 +80,22 @@ class LocalDiskStorageService extends BaseService {
         return path.join(this.path, key);
     }
 
+
+    /**
+    * Stores a stream to local disk storage.
+    *
+    * This method takes a stream and stores it on the local disk under the specified key.
+    * It also supports progress tracking and size limiting.
+    *
+    * @async
+    * @function store_stream
+    * @param {Object} options - The options object.
+    * @param {string} options.key - The key under which the stream will be stored.
+    * @param {number} options.size - The size of the stream.
+    * @param {stream.Readable} options.stream - The readable stream to be stored.
+    * @param {Function} [options.on_progress] - The callback function to track progress.
+    * @returns {Promise} A promise that resolves when the stream is fully stored.
+    */
     async store_stream ({ key, size, stream, on_progress }) {
         const require = this.require;
         const fs = require('fs');
@@ -78,6 +121,17 @@ class LocalDiskStorageService extends BaseService {
         return await writePromise;
     }
 
+
+    /**
+    * Stores a buffer to the local disk.
+    *
+    * This method writes a given buffer to a file on the local disk, identified by a key.
+    *
+    * @param {Object} params - The parameters object.
+    * @param {string} params.key - The key used to identify the file.
+    * @param {Buffer} params.buffer - The buffer containing the data to be stored.
+    * @returns {Promise<void>} A promise that resolves when the buffer is successfully stored.
+    */
     async store_buffer ({ key, buffer }) {
         const require = this.require;
         const fs = require('fs');
@@ -86,6 +140,14 @@ class LocalDiskStorageService extends BaseService {
         await fs.promises.writeFile(path, buffer);
     }
 
+
+    /**
+    * Creates a read stream for a given key.
+    *
+    * @param {Object} options - The options object.
+    * @param {string} options.key - The key for which to create the read stream.
+    * @returns {stream.Readable} The read stream for the given key.
+    */
     async create_read_stream ({ key }) {
         const require = this.require;
         const fs = require('fs');
@@ -94,6 +156,15 @@ class LocalDiskStorageService extends BaseService {
         return fs.createReadStream(path);
     }
 
+
+    /**
+    * Copies a file from one key to another within the local disk storage.
+    *
+    * @param {Object} params - The parameters for the copy operation.
+    * @param {string} params.src_key - The source key of the file to be copied.
+    * @param {string} params.dst_key - The destination key where the file will be copied.
+    * @returns {Promise<void>} A promise that resolves when the file is successfully copied.
+    */
     async copy ({ src_key, dst_key }) {
         const require = this.require;
         const fs = require('fs');
@@ -104,6 +175,16 @@ class LocalDiskStorageService extends BaseService {
         await fs.promises.copyFile(src_path, dst_path);
     }
 
+
+    /**
+    * Deletes a file from the local disk storage.
+    *
+    * This method removes the file associated with the given key from the storage.
+    *
+    * @param {Object} params - The parameters for the delete operation.
+    * @param {string} params.key - The key of the file to be deleted.
+    * @returns {Promise} - A promise that resolves when the file is successfully deleted.
+    */
     async delete ({ key }) {
         const require = this.require;
         const fs = require('fs');

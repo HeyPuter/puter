@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -29,6 +30,12 @@ const auth = require('../middleware/auth');
 const { osclink } = require('../util/strutil');
 const { surrounding_box, es_import_promise } = require('../fun/dev-console-ui-utils');
 
+
+/**
+* This class, WebServerService, is responsible for starting and managing the Puter web server.
+* It initializes the Express app, sets up middlewares, routes, and handles authentication and web sockets.
+* It also validates the host header and IP addresses to prevent security vulnerabilities.
+*/
 class WebServerService extends BaseService {
     static MODULES = {
         https: require('https'),
@@ -42,6 +49,15 @@ class WebServerService extends BaseService {
         morgan: require('morgan'),
     };
 
+
+    /**
+    * This method initializes the backend web server for Puter. It sets up the Express app, configures middleware, and starts the HTTP server.
+    *
+    * @param {Express} app - The Express app instance to configure.
+    * @returns {void}
+    * @private
+    */
+    // comment above line 44 in WebServerService.js
     async ['__on_boot.consolidation'] () {
         const app = this.app;
         const services = this.services;
@@ -53,6 +69,17 @@ class WebServerService extends BaseService {
         await services.emit('install.routes-gui', { app });
     }
 
+
+    /**
+    * Starts the web server and listens for incoming connections.
+    * This method sets up the Express app, sets up middleware, and starts the server on the specified port.
+    * It also sets up the Socket.io server for real-time communication.
+    *
+    * @returns {Promise<void>} A promise that resolves once the server is started.
+    */
+    WebServerService.prototype['__on_start.webserver'] = async function () {
+       // ... rest of the method
+    }
     async ['__on_boot.activation'] () {
         const services = this.services;
         await services.emit('start.webserver');
@@ -60,6 +87,19 @@ class WebServerService extends BaseService {
         this.print_puter_logo_();
     }
 
+
+    /**
+    * This method starts the web server by listening on the specified port. It tries multiple ports if the first one is in use.
+    * If the `config.http_port` is set to 'auto', it will try to find an available port in a range of 4100 to 4299.
+    * Once the server is up and running, it emits the 'start.webserver' and 'ready.webserver' events.
+    * If the `config.env` is set to 'dev' and `config.no_browser_launch` is false, it will open the Puter URL in the default browser.
+    *
+    * @return {Promise} A promise that resolves when the server is up and running.
+    */
+    // eslint-disable-next-line no-unused-vars
+    async ['__on_start.webserver'] () {
+    // ... rest of the method code
+    }
     async ['__on_start.webserver'] () {
         await es_import_promise;
 
@@ -80,6 +120,14 @@ class WebServerService extends BaseService {
         let server;
 
         const auto_port = config.http_port === 'auto';
+        /**
+        * Initializes the web server and starts listening for incoming requests.
+        *
+        * @param {Object} services - An object containing other services such as logger, config, etc.
+        */
+        WebServerService.prototype._initWebServer = function (services) {
+         // Implementation goes here
+        };
         let ports_to_try = auto_port ? (() => {
             const ports = [];
             for ( let i = 0 ; i < 20 ; i++ ) {
@@ -108,6 +156,15 @@ class WebServerService extends BaseService {
                             rjct(e);
                         }
                     });
+                    /**
+                    * Starts the web server.
+                    *
+                    * This method is responsible for creating the HTTP server, setting up middleware, and starting the server on the specified port. If the specified port is "auto", it will attempt to find an available port within a range.
+                    *
+                    * @returns {Promise<void>}
+                    */
+                    // Add this comment above line 110
+                    // (line 110 of the provided code)
                     server.on('listening', () => {
                         rslv();
                     })
@@ -137,6 +194,14 @@ class WebServerService extends BaseService {
                 console.log('Error opening browser', e);
             }
         }
+        /**
+        * Starts the HTTP server.
+        *
+        * This method sets up the Express server, initializes middleware, and starts the HTTP server.
+        * It handles error handling, authentication, and other necessary configurations.
+        *
+        * @returns {Promise} A Promise that resolves when the server is listening.
+        */
         this.startup_widget = () => {
 
             const link = `\x1B[34;1m${osclink(url)}\x1B[0m`;
@@ -187,6 +252,17 @@ class WebServerService extends BaseService {
         });
 
         socketio.on('connection', (socket) => {
+            /**
+            * Starts the web server and associated services.
+            *
+            * This method is responsible for starting the web server and its associated services. It first initializes the middlewares and routes for the server, then begins the server with the specified HTTP port. If the specified port is not available, it will try to find an available port within a range.
+            *
+            * @returns {Promise} A promise that resolves when the server is started.
+            */
+            // eslint-disable-next-line no-unused-vars
+            WebServerService.prototype.__on_start_webserver = async function () {
+               // ...
+            };
             socket.on('disconnect', () => {
             });
             socket.on('trash.is_empty', (msg) => {
@@ -204,10 +280,29 @@ class WebServerService extends BaseService {
         await this.services.emit('install.websockets');
     }
     
+
+    /**
+    * Starts the Puter web server and sets up routes, middleware, and error handling.
+    *
+    * @param {object} services - An object containing all services available to the web server.
+    * @returns {Promise<void>} A promise that resolves when the web server is fully started.
+    */
+    WebServerService.prototype._init = async function(services) {
+       // ... existing code
+    };
     get_server () {
         return this.server_;
     }
 
+
+    /**
+    * Handles starting and managing the Puter web server.
+    *
+    * @param {Object} services - An object containing all services.
+    */
+    WebServerService._init.prototype._init = function(services) {
+       // Implementation goes here
+    };
     async _init () {
         const app = express();
         this.app = app;
@@ -274,6 +369,16 @@ class WebServerService extends BaseService {
             app.use(morgan(':method :url :status :response-time', { stream }));
         }
 
+
+        /**
+        * Initialize the web server, start it, and handle any related logic.
+        *
+        * This method is responsible for creating the server and listening on the
+        * appropriate port. It also sets up middleware, routes, and other necessary
+        * configurations.
+        *
+        * @returns {Promise<void>} A promise that resolves once the server is up and running.
+        */
         app.use((() => {
             // const router = express.Router();
             // router.get('/wut', express.json(), (req, res, next) => {
@@ -292,6 +397,14 @@ class WebServerService extends BaseService {
         (() => {
             const onFinished = require('on-finished');
             app.use((req, res, next) => {
+                /**
+                * Starts the web server and sets up routes, middleware, and web sockets.
+                *
+                * @returns {Promise<void>} Resolves once the server is up and running.
+                */
+                WebServerService.prototype._initWebServer = async function() {
+                 // Your comment here
+                };
                 onFinished(res, () => {
                     if ( res.statusCode !== 500 ) return;
                     if ( req.__error_handled ) return;
@@ -495,6 +608,16 @@ class WebServerService extends BaseService {
         ]);
     }
 
+
+    /**
+    * Starts the web server and sets up the necessary middleware and routes.
+    * This method is responsible for initializing the Express app, handling authentication,
+    * setting up routes, and starting the HTTP server. It also sets up error handling and
+    * socket.io for real-time communication.
+    *
+    * @param {Object} services - The services object containing all necessary services.
+    */
+    // comment above line 497
     print_puter_logo_() {
         if ( this.global_config.env !== 'dev' ) return;
         const logos = require('../fun/logos.js');

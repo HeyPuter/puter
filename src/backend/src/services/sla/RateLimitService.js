@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -26,6 +27,14 @@ const { DB_WRITE } = require("../database/consts");
 const ts_to_sql = (ts) => Math.floor(ts / 1000);
 const ts_fr_sql = (ts) => ts * 1000;
 
+
+/**
+* RateLimitService class handles rate limiting functionality for API requests.
+* Implements a fixed window counter strategy to track and limit request rates
+* per user/consumer. Manages rate limit data both in memory (KV store) and
+* persistent storage (database). Extends BaseService and includes SyncFeature
+* for synchronized rate limit checking and incrementing.
+*/
 class RateLimitService extends BaseService {
     static MODULES = {
         kv: globalThis.kv,
@@ -37,10 +46,28 @@ class RateLimitService extends BaseService {
         ]),
     ]
 
+
+    /**
+    * Initializes the service by setting up the database connection
+    * for rate limiting operations. Gets a database instance from
+    * the database service using the 'rate-limit' namespace.
+    * @private
+    * @returns {Promise<void>}
+    */
     async _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'rate-limit');
     }
 
+
+    /**
+    * Checks if a rate limit has been exceeded and increments the counter
+    * @param {string} key - The rate limit key/identifier
+    * @param {number} max - Maximum number of requests allowed in the period
+    * @param {number} period - Time window in milliseconds
+    * @param {Object} [options={}] - Additional options
+    * @param {boolean} [options.global] - Whether this is a global rate limit across servers
+    * @throws {APIError} When rate limit is exceeded
+    */
     async check_and_increment (key, max, period, options = {}) {
         const { kv } = this.modules;
         const consumer_id = this._get_consumer_id();
@@ -125,6 +152,12 @@ class RateLimitService extends BaseService {
         );
     }
 
+
+    /**
+    * Gets the consumer ID for rate limiting based on the current user context
+    * @returns {string} Consumer ID in format 'user:{id}' if user exists, or 'missing' if no user
+    * @private
+    */
     _get_consumer_id () {
         const context = Context.get();
         const user = context.get('user');

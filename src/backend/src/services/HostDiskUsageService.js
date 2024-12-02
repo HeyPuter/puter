@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"xai"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -20,6 +21,16 @@ const { BaseService } = require("../../exports");
 const { execSync } = require('child_process');
 const config = require("../config");
 
+
+/**
+* The HostDiskUsageService class extends BaseService to provide functionality for monitoring
+* and reporting disk usage on the host system. This service identifies the mount point or drive
+* where the current process is running, and performs disk usage checks for that specific location.
+* It supports different operating systems like macOS and Linux, with placeholders for future
+* Windows support.
+*
+* @extends BaseService
+*/
 class HostDiskUsageService extends BaseService {
     static DESCRIPTION = `
         This service is responsible for identifying the mountpoint/drive
@@ -27,6 +38,18 @@ class HostDiskUsageService extends BaseService {
         disk usage of that mountpoint/drive.
     `;
 
+
+    /**
+    * Initializes the service by determining the disk usage of the mountpoint/drive 
+    * where the current working directory resides.
+    * 
+    * @async
+    * @function
+    * @memberof HostDiskUsageService
+    * @instance
+    * @returns {Promise<void>} A promise that resolves when initialization is complete.
+    * @throws {Error} If unable to determine disk usage for the platform.
+    */
     async _init() {
         const current_platform = process.platform;
 
@@ -49,6 +72,17 @@ class HostDiskUsageService extends BaseService {
     }
 
     // TODO: TTL cache this value
+    /**
+    * Retrieves the current disk usage for the host system.
+    * 
+    * This method checks the disk usage of the mountpoint or drive
+    * where the current process is running, based on the operating system.
+    * 
+    * @returns {number} The amount of disk space used in bytes.
+    * 
+    * @note This method does not cache its results and should be optimized
+    *       with a TTL cache to prevent excessive system calls.
+    */
     get_host_usage () {
         const current_platform = process.platform;
 
@@ -67,6 +101,13 @@ class HostDiskUsageService extends BaseService {
     }
 
     // Called by the /df endpoint
+    /**
+    * Retrieves extra disk usage information for the host.
+    * This method is used by the /df endpoint to gather
+    * additional statistics on host disk usage.
+    *
+    * @returns {Object} An object containing the host's disk usage data.
+    */
     get_extra () {
         return {
             host_used: this.get_host_usage(),

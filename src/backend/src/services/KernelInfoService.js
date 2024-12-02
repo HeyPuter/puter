@@ -1,18 +1,42 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 const configurable_auth = require("../middleware/configurable_auth");
 const { Context } = require("../util/context");
 const { Endpoint } = require("../util/expressutil");
 const BaseService = require("./BaseService");
 const { Interface } = require("./drivers/meta/Construct");
 
+// Permission flag that grants access to view all services in the kernel info system
 const PERM_SEE_ALL = 'kernel-info:see-all-services';
+// Permission flag that grants access to view all services in the kernel info system
 const PERM_SEE_DRIVERS = 'kernel-info:see-all-drivers';
 
+
+/**
+* KernelInfoService class provides information about the kernel's services, modules, and interfaces.
+* It handles listing available modules, services, and their implementations based on user permissions.
+* The service exposes endpoints for querying kernel module information and manages access control
+* through permission checks for viewing all services and drivers.
+* @extends BaseService
+*/
 class KernelInfoService extends BaseService {
+    /**
+    * Service for providing kernel and service information
+    * Extends BaseService to provide system-level information about services, interfaces and drivers
+    * Handles permissions and access control for viewing service information
+    * Exposes endpoints for listing modules and service information
+    */
     async _init () {
         //
     }
 
     ['__on_install.routes'] (_, { app }) {
+        /**
+        * Installs routes for the kernel info service
+        * @param {*} _ Unused parameter
+        * @param {Object} param1 Object containing Express app instance
+        * @param {Express} param1.app Express application instance
+        * @private
+        */
         const router = (() => {
             const require = this.require;
             const express = require('express');

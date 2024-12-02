@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -27,11 +28,30 @@ const BaseService = require("../BaseService");
 const { AppUnderUserActorType, UserActorType, Actor, SystemActorType, AccessTokenActorType } = require("./Actor");
 const { PermissionUtil } = require("./PermissionService");
 
+
+/**
+* ACLService class handles Access Control List functionality for the Puter filesystem.
+* Extends BaseService to provide permission management, access control checks, and ACL operations.
+* Manages user-to-user permissions, filesystem node access, and handles special cases like
+* public folders, app data access, and system actor privileges. Provides methods for
+* checking permissions, setting ACLs, and managing access control hierarchies.
+* @extends BaseService
+*/
 class ACLService extends BaseService {
     static MODULES = {
         express: require('express'),
     };
 
+
+    /**
+    * Initializes the ACLService by registering the 'public-folders' feature flag
+    * with the feature flag service. The flag's value is determined by the 
+    * global_config.enable_public_folders setting.
+    * 
+    * @async
+    * @private
+    * @returns {Promise<void>}
+    */
     async _init () {
         const svc_featureFlag = this.services.get('feature-flag');
         svc_featureFlag.register('public-folders', {
@@ -39,8 +59,24 @@ class ACLService extends BaseService {
             value: this.global_config.enable_public_folders ?? false,
         });
     }
+    /**
+    * Checks if an actor has permission to perform a specific mode of access on a resource
+    * 
+    * @param {Actor} actor - The actor requesting access (user, system, app, etc)
+    * @param {FSNode} resource - The filesystem resource being accessed
+    * @param {string} mode - The access mode being requested ('read', 'write', etc)
+    * @returns {Promise<boolean>} True if access is allowed, false otherwise
+    */
     async check (actor, resource, mode) {
         const ld = (Context.get('logdent') ?? 0) + 1;
+        /**
+        * Checks if an actor has permission for a specific mode on a resource
+        * 
+        * @param {Actor} actor - The actor requesting permission
+        * @param {FSNode} resource - The filesystem resource to check permissions for
+        * @param {string} mode - The permission mode to check ('see', 'list', 'read', 'write')
+        * @returns {Promise<boolean>} True if actor has permission, false otherwise
+        */
         return await Context.get().sub({ logdent: ld }).arun(async () => {
             const result =  await this._check_fsNode(actor, resource, mode);
             if ( this.verbose ) console.log('LOGGING ACL CHECK', {
@@ -52,7 +88,30 @@ class ACLService extends BaseService {
         });
     }
 
+
+    /**
+    * Checks if an actor has permission for a specific mode on a filesystem node.
+    * Handles various actor types (System, User, AppUnderUser, AccessToken) and
+    * enforces access control rules including public folder access and app data permissions.
+    * 
+    * @param {Actor} actor - The actor requesting access
+    * @param {FSNode} fsNode - The filesystem node to check permissions on
+    * @param {string} mode - The permission mode to check ('see', 'list', 'read', 'write')
+    * @returns {Promise<boolean>} True if actor has permission, false otherwise
+    * @private
+    */
     async ['__on_install.routes'] (_, { app }) {
+        /**
+        * Handles route installation for ACL service endpoints.
+        * Sets up routes for user-to-user permission management including:
+        * - /acl/stat-user-user: Get permissions between users
+        * - /acl/set-user-user: Set permissions between users
+        * 
+        * @param {*} _ Unused parameter 
+        * @param {Object} options Installation options
+        * @param {Express} options.app Express app instance to attach routes to
+        * @returns {Promise<void>}
+        */
         const r_acl = (() => {
             const require = this.require;
             const express = require('express');
@@ -142,6 +201,18 @@ class ACLService extends BaseService {
         }).attach(r_acl);
     }
 
+
+    /**
+    * Sets user-to-user permissions for a filesystem resource
+    * @param {Actor} issuer - The user granting the permission
+    * @param {Actor|string} holder - The user receiving the permission, or their username
+    * @param {FSNode|string} resource - The filesystem resource or permission string
+    * @param {string} mode - The permission mode to set
+    * @param {Object} [options={}] - Additional options
+    * @param {boolean} [options.only_if_higher] - Only set permission if no higher mode exists
+    * @returns {Promise<boolean>} False if permission already exists or higher mode present
+    * @throws {Error} If issuer or holder is not a UserActorType
+    */
     async set_user_user (issuer, holder, resource, mode, options = {}) {
         const svc_perm = this.services.get('permission');
         const svc_fs = this.services.get('filesystem');
@@ -219,6 +290,18 @@ class ACLService extends BaseService {
         }
     }
 
+
+    /**
+    * Sets user-to-user permissions for a filesystem resource
+    * @param {Actor} issuer - The user granting the permission
+    * @param {Actor|string} holder - The user receiving the permission, or their username
+    * @param {FSNode|string} resource - The filesystem resource or permission string
+    * @param {string} mode - The permission mode to set
+    * @param {Object} [options={}] - Additional options
+    * @param {boolean} [options.only_if_higher] - Only set permission if no higher mode exists
+    * @returns {Promise<boolean>} False if permission already exists or higher mode present
+    * @throws {Error} If issuer or holder is not a UserActorType
+    */
     async stat_user_user (issuer, holder, resource) {
         const svc_perm = this.services.get('permission');
 
@@ -248,6 +331,23 @@ class ACLService extends BaseService {
         return permissions;
     }
 
+
+    /**
+    * Checks filesystem node permissions for a given actor and mode
+    * 
+    * @param {Actor} actor - The actor requesting access (User, System, AccessToken, or AppUnderUser)
+    * @param {FSNode} fsNode - The filesystem node to check permissions for
+    * @param {string} mode - The permission mode to check ('see', 'list', 'read', 'write')
+    * @returns {Promise<boolean>} True if actor has permission, false otherwise
+    * 
+    * @description
+    * Evaluates access permissions by checking:
+    * - System actors always have access
+    * - Public folder access rules
+    * - Access token authorizer permissions
+    * - App data directory special cases
+    * - Explicit permissions in the ACL hierarchy
+    */
     async _check_fsNode (actor, fsNode, mode) {
         const context = Context.get();
 
@@ -269,6 +369,18 @@ class ACLService extends BaseService {
         if ( this.global_config.enable_public_folders ) {
             const public_modes = Object.freeze(['read', 'list', 'see']);
             let is_public;
+            /**
+            * Checks if a given mode is allowed for a public folder path
+            * 
+            * @param {Actor} actor - The actor requesting access
+            * @param {FSNode} fsNode - The filesystem node to check
+            * @param {string} mode - The access mode being requested (read/write/etc)
+            * @returns {Promise<boolean>} True if access is allowed, false otherwise
+            * 
+            * Handles special case for /user/public directories when public folders are enabled.
+            * Only allows read, list, and see modes for public folders, and only if the folder
+            * owner has confirmed their email (except for admin user).
+            */
             await (async () => {
                 if ( ! public_modes.includes(mode) ) return;
                 if ( ! (await fsNode.isPublic()) ) return;
@@ -325,6 +437,17 @@ class ACLService extends BaseService {
         //            under a **different user**, allow,
         //            IFF that appdata directory is shared with  user
         //              (by "user also has permission" check above)
+        /**
+        * Checks if an actor has permission to perform a specific mode of access on a filesystem node.
+        * Handles various actor types (System, AccessToken, AppUnderUser) and special cases like
+        * public folders and app data directories.
+        * 
+        * @param {Actor} actor - The actor requesting access
+        * @param {FSNode} fsNode - The filesystem node to check access for
+        * @param {string} mode - The access mode to check ('see', 'list', 'read', 'write')
+        * @returns {Promise<boolean>} True if access is allowed, false otherwise
+        * @private
+        */
         if (await (async () => {
             if ( ! (actor.type instanceof AppUnderUserActorType) ) {
                 return false;
@@ -362,6 +485,15 @@ class ACLService extends BaseService {
         return false;
     }
 
+
+    /**
+    * Gets a safe error message for ACL check failures
+    * @param {Actor} actor - The actor attempting the operation
+    * @param {FSNode} resource - The filesystem resource being accessed
+    * @param {string} mode - The access mode being checked ('read', 'write', etc)
+    * @returns {APIError} Returns 'subject_does_not_exist' if actor cannot see resource,
+    *                     otherwise returns 'forbidden' error
+    */
     async get_safe_acl_error (actor, resource, mode) {
         const can_see = await this.check(actor, resource, 'see');
         if ( ! can_see ) {
@@ -373,6 +505,16 @@ class ACLService extends BaseService {
 
     // If any logic depends on knowledge of the highest ACL mode, it should use
     // this method in case a higher mode is added (ex: might add 'config' mode)
+    /**
+    * Gets the highest permission mode in the ACL system
+    * 
+    * @returns {string} Returns 'write' as the highest permission mode
+    * 
+    * @remarks
+    * This method should be used by any logic that depends on knowing the highest ACL mode,
+    * in case higher modes are added in the future (e.g. a potential 'config' mode).
+    * Currently 'write' is the highest mode in the hierarchy: see > list > read > write
+    */
     get_highest_mode () {
         return 'write';
     }

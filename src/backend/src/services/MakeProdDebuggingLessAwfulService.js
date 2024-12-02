@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -27,23 +28,58 @@ const { stringify_log_entry } = require("./runtime-analysis/LogService");
  * Consequentially, the value of X-PUTER-DEBUG will included in all
  * log messages produced by the request.
  */
+/**
+* @class MakeProdDebuggingLessAwfulService
+* @extends BaseService
+* @description Service that improves production debugging by capturing and processing debug headers.
+* Extends the base service to provide middleware functionality that captures the X-PUTER-DEBUG header
+* value and incorporates it into the request's Context object. This enables detailed logging and
+* debugging capabilities in production environments while maintaining system security. The service
+* also handles the creation and management of debug-specific log files for better traceability.
+*/
 class MakeProdDebuggingLessAwfulService extends BaseService {
     static MODULES = {
         fs: require('fs'),
     }
+    /**
+    * Inner class that defines the modules required by the MakeProdDebuggingLessAwfulService.
+    * Currently includes the file system (fs) module for writing debug logs to files.
+    * @static
+    * @memberof MakeProdDebuggingLessAwfulService
+    */
     static ProdDebuggingMiddleware = class ProdDebuggingMiddleware {
+        /**
+        * Middleware class that handles production debugging functionality
+        * by capturing and processing the X-PUTER-DEBUG header value.
+        * 
+        * This middleware extracts the debug header value and makes it
+        * available through the Context for logging and debugging purposes.
+        */
         constructor () {
             this.header_name_ = 'x-puter-debug';
         }
         install (app) {
             app.use(this.run.bind(this));
         }
+        /**
+        * Installs the middleware into the Express application
+        * 
+        * @param {Express} app - The Express application instance
+        * @returns {void}
+        */
         async run (req, res, next) {
             const x = Context.get();
             x.set('prod-debug', req.headers[this.header_name_]);
             next();
         }
     }
+    /**
+    * Handles the actual middleware execution for production debugging
+    * @param {Object} req - Express request object containing headers
+    * @param {Object} res - Express response object
+    * @param {Function} next - Express next middleware function
+    * @returns {Promise<void>} 
+    */
     async _init () {
         // Initialize express middleware
         this.mw = new this.constructor.ProdDebuggingMiddleware();
@@ -81,6 +117,13 @@ class MakeProdDebuggingLessAwfulService extends BaseService {
             };
         });
     }
+    /**
+    * Handles installation of the context-aware middleware for production debugging
+    * @param {*} _ Unused parameter
+    * @param {Object} options Installation options
+    * @param {Express} options.app Express application instance
+    * @returns {Promise<void>}
+    */
     async ['__on_install.middlewares.context-aware'] (_, { app }) {
         // Add express middleware
         this.mw.install(app);

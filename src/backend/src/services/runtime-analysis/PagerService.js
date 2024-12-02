@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -21,12 +22,35 @@ const BaseService = require('../BaseService');
 const util = require('util');
 const { Context } = require('../../util/context');
 
+
+/**
+* @class PagerService
+* @extends BaseService
+* @description The PagerService class is responsible for handling pager alerts.
+* It extends the BaseService class and provides methods for constructing,
+* initializing, and managing alert handlers. The class interacts with PagerDuty
+* through the pdjs library to send alerts and integrates with other services via
+* command registration.
+*/
 class PagerService extends BaseService {
+    /**
+    * Class representing a PagerService.
+    * @extends BaseService
+    */
+    class PagerService extends BaseService {
     async _construct () {
         this.config = this.global_config.pager;
         this.alertHandlers_ = [];
 
     }
+    /**
+    * Initializes the PagerService instance by setting the configuration and
+    * initializing an empty alert handler array.
+    *
+    * @async
+    * @memberOf PagerService
+    * @returns {Promise<void>}
+    */
     async _init () {
         const services = this.services;
 
@@ -41,6 +65,15 @@ class PagerService extends BaseService {
         this._register_commands(services.get('commands'));
     }
 
+
+    /**
+    * Initializes PagerDuty configuration and registers alert handlers.
+    * If PagerDuty is enabled in the configuration, it sets up an alert handler
+    * to send alerts to PagerDuty.
+    *
+    * @method onInit
+    */
+    ```
     onInit () {
         if ( this.config.pagerduty && this.config.pagerduty.enabled ) {
             this.alertHandlers_.push(async alert => {
@@ -89,6 +122,15 @@ class PagerService extends BaseService {
         }
     }
 
+
+    /**
+    * Sends an alert to all registered alert handlers.
+    *
+    * This method iterates through all alert handlers and attempts to send the alert.
+    * If any handler fails to send the alert, an error message is logged.
+    *
+    * @param {Object} alert - The alert object containing details about the alert.
+    */
     async alert (alert) {
         for ( const handler of this.alertHandlers_ ) {
             try {

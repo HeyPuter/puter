@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -18,6 +19,17 @@
  */
 const { AdvancedBase } = require("@heyputer/putility");
 
+
+/**
+* @class EngPortalService
+* @extends {AdvancedBase}
+*
+* EngPortalService is a class that provides services for managing and accessing various operations, alarms, and statistics
+* within a system. It inherits from the AdvancedBase class and utilizes multiple dependencies such as socket.io for communication
+* and uuidv4 for generating unique identifiers. The class includes methods for listing operations, serializing frames, listing alarms,
+* fetching server statistics, and registering command handlers. This class is integral to maintaining and monitoring system health
+* and operations efficiently.
+*/
 class EngPortalService extends AdvancedBase {
     static MODULES = {
         socketio: require('../socketio.js'),
@@ -31,6 +43,15 @@ class EngPortalService extends AdvancedBase {
         this._registerCommands(this.commands);
     }
 
+
+    /**
+    * Lists all ongoing operations.
+    * This method retrieves all ongoing operations from the 'operationTrace' service,
+    * serializes them, and returns the serialized list.
+    *
+    * @async
+    * @returns {Promise<Array>} A list of serialized operation frames.
+    */
     async list_operations () {
         const svc_operationTrace = this.services.get('operationTrace');
         const ls = [];
@@ -68,6 +89,14 @@ class EngPortalService extends AdvancedBase {
         return out;
     }
 
+
+    /**
+    * Retrieves a list of alarms.
+    *
+    * This method fetches all active alarms from the 'alarm' service and returns a serialized array of alarm objects.
+    *
+    * @returns {Promise<Array>} A promise that resolves to an array of serialized alarm objects.
+    */
     async list_alarms () {
         const svc_alarm = this.services.get('alarm');
         const ls = [];
@@ -79,6 +108,15 @@ class EngPortalService extends AdvancedBase {
         return ls;
     }
 
+
+    /**
+    * Gets the system statistics.
+    *
+    * This method retrieves the system statistics from the server-health service and returns them.
+    *
+    * @async
+    * @returns {Promise<Object>} A promise that resolves to the system statistics.
+    */
     async get_stats () {
         const svc_health = this.services.get('server-health');
         return await svc_health.get_stats();

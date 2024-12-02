@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -18,6 +19,25 @@
  */
 const BaseService = require("./BaseService");
 
+
+/**
+* SystemValidationService class.
+*
+* This class extends BaseService and is responsible for handling system validation
+* and marking the server as invalid. It includes methods for reporting invalid
+* system states, raising alarms, and managing the server's response in different
+* environments (e.g., development and production).
+*
+* @class
+* @extends BaseService
+*/
+
+```javascript
+class SystemValidationService extends BaseService {
+```
+
+```javascript
+}
 class SystemValidationService extends BaseService {
     /**
      * Marks the server is being in an invalid state.
@@ -28,6 +48,15 @@ class SystemValidationService extends BaseService {
      * @param {*} message - why mark_invalid was called
      * @param {*} source - the error that caused the invalid state, if any
      */
+    /**
+    * Marks the server as being in an invalid state.
+    *
+    * This method is used to indicate that the server is in a serious error state. It will attempt
+    * to alert the user and then shut down the server after 25 minutes.
+    *
+    * @param {string} message - A description of why mark_invalid was called.
+    * @param {Error} [source] - The error that caused the invalid state, if any.
+    */
     async mark_invalid (message, source) {
         if ( ! source ) source = new Error('no source error');
 
@@ -56,6 +85,12 @@ class SystemValidationService extends BaseService {
             // Display a permanent message in the console
             const svc_devConsole = this.services.get('dev-console');
             svc_devConsole.turn_on_the_warning_lights();
+            /**
+            * Turns on the warning lights in the developer console and adds a widget indicating that the system is in an invalid state.
+            * This is used in development mode to provide a visual indicator of the invalid state without shutting down the server.
+            *
+            * @returns {void}
+            */
             svc_devConsole.add_widget(() => {
                 return `\x1B[33;1m *** SYSTEM IS IN AN INVALID STATE *** \x1B[0m`;
             });

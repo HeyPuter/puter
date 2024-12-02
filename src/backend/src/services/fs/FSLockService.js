@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -20,14 +21,37 @@ const { RWLock } = require("../../util/lockutil");
 const { TeePromise } = require("../../util/promise");
 const BaseService = require("../BaseService");
 
+// Constant representing the read lock mode used for distinguishing between read and write operations.
 const MODE_READ = Symbol('read');
+// Constant representing the read mode for locks, used to distinguish between read and write operations.
 const MODE_WRITE = Symbol('write');
 
 // TODO: DRY: could use LockService now
+/**
+* FSLockService is a service class that manages file system locks using read-write locks.
+* It provides functionality to create, list, and manage locks on file paths,
+* allowing concurrent read and exclusive write operations.
+*/
 class FSLockService extends BaseService {
+    /**
+    * FSLockService handles file system locking mechanisms,
+    * providing methods to acquire read and write locks on paths.
+    * @param {string} path - The path to lock.
+    * @param {string} name - The name of the resource to lock.
+    * @param {symbol} mode - The mode of the lock (read or write).
+    * @returns {Promise} A promise that resolves when the lock is acquired.
+    * @throws {Error} Throws an error if an invalid mode is provided.
+    */
     async _construct () {
         this.locks = {};
     }
+    /**
+     * Initializes the FSLockService by setting up the locks object.
+     * This method should be called before using the service to ensure
+     * that the locks property is properly instantiated.
+     *
+     * @returns {Promise<void>} A promise that resolves when the initialization is complete.
+     */
     async _init () {
         const svc_commands = this.services.get('commands');
         svc_commands.registerCommands('fslock', [
@@ -64,16 +88,40 @@ class FSLockService extends BaseService {
             }
         ]);
     }
+    /**
+    * Initializes the filesystem lock service by registering the 'fslock' commands.
+    * This method sets up the necessary command handlers and prepares the service 
+    * for use. It does not return any value.
+    */
     async lock_child (path, name, mode) {
         if ( path.endsWith('/') ) path = path.slice(0, -1);
         return await this.lock_path(path + '/' + name, mode);
     }
+    /**
+    * Acquires a lock on a child resource, given a path and name.
+    * This method modifies the path to ensure it ends with the correct formatting. 
+    * 
+    * @param {string} path - The base path of the resource to lock.
+    * @param {string} name - The name of the child resource to lock.
+    * @param {Symbol} mode - The mode of the lock (either MODE_READ or MODE_WRITE).
+    * @returns {Promise} Resolves when the lock has been successfully acquired.
+    */
     async lock_path (path, mode) {
         // TODO: Why???
         // if ( this.locks === undefined ) this.locks = {};
 
         if ( ! this.locks[path] ) {
             const rwlock = new RWLock();
+            /**
+             * Acquires a lock for the specified path and mode. If the lock does not exist,
+             * a new RWLock instance is created and associated with the path. The lock is
+             * released when there are no more active locks.
+             *
+             * @param {string} path - The path for which to acquire the lock.
+             * @param {Symbol} mode - The mode of the lock, either MODE_READ or MODE_WRITE.
+             * @returns {Promise} A promise that resolves once the lock is successfully acquired.
+             * @throws {Error} Throws an error if the mode provided is invalid.
+             */
             rwlock.on_empty_ = () => {
                 delete this.locks[path];
             };

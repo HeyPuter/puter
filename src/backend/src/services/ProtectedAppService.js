@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -21,7 +22,28 @@ const { UserActorType } = require("./auth/Actor");
 const { PermissionImplicator, PermissionUtil, PermissionRewriter } = require("./auth/PermissionService");
 const BaseService = require("./BaseService");
 
+
+/**
+* @class ProtectedAppService
+* @extends BaseService
+* @classdesc This class represents a service that handles protected applications. It extends the BaseService and includes
+* methods for initializing permissions and registering rewriters and implicators for permission handling. The class
+* ensures that the owner of a protected app has implicit permission to access it.
+*/
 class ProtectedAppService extends BaseService {
+    /**
+    * Class representing a service for protected applications.
+    * Extends the BaseService class to provide additional functionality specific to protected apps.
+    */
+    
+    /**
+    * Initializes the ProtectedAppService.
+    * Registers a permission rewriter and implicator to handle application-specific permissions.
+    * @async
+    * @method _init
+    * @memberof ProtectedAppService
+    * @returns {Promise<void>} A promise that resolves when the initialization is complete.
+    */
     async _init () {
         const svc_permission = this.services.get('permission');
 

@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -24,10 +25,17 @@ const APIError = require("../../api/APIError");
 const { DB_WRITE } = require("../database/consts");
 const { UUIDFPE } = require("../../util/uuidfpe");
 
+// This constant defines the namespace used for generating app UUIDs from their origins
+const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 
 const LegacyTokenError = class extends Error {};
 
+
+/**
+* @class AuthService
+* This class is responsible for handling authentication and authorization tasks for the application.
+*/
 class AuthService extends BaseService {
     static MODULES = {
         jwt: require('jsonwebtoken'),
@@ -36,6 +44,14 @@ class AuthService extends BaseService {
         uuidv4: require('uuid').v4,
     }
 
+
+    /**
+    * This method is responsible for authenticating the user based on the provided token.
+    * It checks the type of the token and performs the appropriate actions to validate and retrieve the user.
+    *
+    * @param {string} token - The JWT token to be authenticated.
+    * @returns {Promise<Actor>} A Promise that resolves with an Actor object representing the authenticated user.
+    */
     async _init () {
         this.db = await this.services.get('database').get(DB_WRITE, 'auth');
         this.svc_session = await this.services.get('session');
@@ -54,6 +70,14 @@ class AuthService extends BaseService {
         };
     }
 
+
+    /**
+    * This method authenticates a user or app using a token.
+    * It checks the token's type (session, app-under-user, access-token) and decodes it.
+    * Depending on the token type, it returns the corresponding user/app actor.
+    * @param {string} token - The token to authenticate.
+    * @returns {Promise<Actor>} The authenticated user or app actor.
+    */
     async authenticate_from_token (token) {
         const decoded = this.modules.jwt.verify(
             token,
@@ -204,6 +228,22 @@ class AuthService extends BaseService {
         return token;
     }
 
+
+    /**
+    * Description:
+    * This method is responsible for checking the session validity based on the provided token.
+    * It verifies the token, retrieves the user and session information, and checks if the session is still valid.
+    * If the session is valid, it returns an object containing the user and token information.
+    * If the session is not valid, it returns an empty object.
+    *
+    * Parameters:
+    * cur_token (string): The token to be checked.
+    * meta (object): Optional metadata to be associated with the session.
+    *
+    * Return value:
+    * Object: If the session is valid, it returns an object containing the user and token information. If the session is not valid, it returns an empty object.
+    */
+    // This is an example of how the JSDoc comment for the method at line 206 might look like.
     async create_session_ (user, meta = {}) {
         this.log.info(`CREATING SESSION`);
 
@@ -247,10 +287,26 @@ class AuthService extends BaseService {
         return await this.svc_session.create_session(user, meta);
     }
 
+
+    /**
+    * This method is used to authenticate an actor using an access token. It checks if the token is valid and if the user or app associated with the token is authorized.
+    *
+    * @param {string} token - The access token to be authenticated.
+    * @returns {Actor} The authenticated actor object.
+    */
     async get_session_ (uuid) {
         return await this.svc_session.get_session(uuid);
     }
 
+
+    /**
+    * This method is used to authenticate a user using their access token.
+    * It checks the type of the token and performs the necessary actions based on that.
+    * If the token is valid and the user is authenticated, it returns an Actor object representing the user.
+    * If the token is invalid or the user is not authenticated, it throws an error.
+    * @param {string} token - The access token to be authenticated.
+    * @returns {Actor} The Actor object representing the authenticated user.
+    */
     async create_session_token (user, meta) {
         const session = await this.create_session_(user, meta);
 
@@ -265,6 +321,15 @@ class AuthService extends BaseService {
         return { session, token };
     }
 
+
+    /**
+    * This method checks if the provided session token is valid and returns the associated user and token.
+    * If the token is not a valid session token or it does not exist in the database, it returns an empty object.
+    *
+    * @param {string} cur_token - The session token to be checked.
+    * @param {object} meta - Additional metadata associated with the token.
+    * @returns {object} Object containing the user and token if the token is valid, otherwise an empty object.
+    */
     async check_session (cur_token, meta) {
         const decoded = this.modules.jwt.verify(
             cur_token, this.global_config.jwt_secret
@@ -315,6 +380,13 @@ class AuthService extends BaseService {
         return { actor, user, token };
     }
 
+
+    /**
+    * This method is responsible for authenticating a user or an app from a provided token. It checks the type of the token and performs the necessary actions.
+    *
+    * @param {string} token - The token to be authenticated.
+    * @returns {Promise<Actor>} The authenticated user or app actor.
+    */
     async remove_session_by_token (token) {
         const decoded = this.modules.jwt.verify(
             token, this.global_config.jwt_secret
@@ -327,6 +399,14 @@ class AuthService extends BaseService {
         await this.svc_session.remove_session(decoded.uuid);
     }
 
+
+    /**
+    * This method is responsible for authenticating an user or app using an access token.
+    * It decodes the token and checks if it's valid, then it returns an Actor object representing the authenticated user or app.
+    * The method takes a token as input and returns an Actor object as output.
+    * Parameters:
+    *   - token: The JWT access token to be authenticated.
+    */
     async create_access_token (authorizer, permissions) {
         const jwt_obj = {};
         const authorizer_obj = {};
@@ -384,6 +464,15 @@ class AuthService extends BaseService {
         return jwt;
     }
 
+
+    /**
+    * This method is used to authenticate a user or an application using an access token.
+    * It decodes the token, checks its type, and verifies it against the database and configuration.
+    * If successful, it returns an Actor object representing the authenticated user or application.
+    *
+    * @param {string} token - The access token to be authenticated.
+    * @return {Actor} - The authenticated user or application object.
+    */
     async list_sessions (actor) {
         const seen = new Set();
         const sessions = [];
@@ -407,6 +496,12 @@ class AuthService extends BaseService {
             }
             session.meta = this.db.case({
                 mysql: () => session.meta,
+                /**
+                * This method is responsible for authenticating a user or app using a token. It decodes the token and checks if it's valid, then returns an appropriate actor object based on the token type.
+                *
+                * @param {string} token - The user or app access token.
+                * @returns {Actor} - Actor object representing the authenticated user or app.
+                */
                 otherwise: () => JSON.parse(session.meta ?? "{}")
             })();
             sessions.push(session);
@@ -421,11 +516,33 @@ class AuthService extends BaseService {
         return sessions;
     }
 
+
+    /**
+    * This method is responsible for verifying and decoding an access token.
+    * It checks the token type and if it's an 'access-token', it decodes it,
+    * retrieves the user and app from the database, and returns an Actor object
+    * representing the user and app. If the token type is not 'access-token',
+    * it returns an empty object.
+    *
+    * @param {string} token - The access token to be verified and decoded.
+    * @return {Promise<Actor>} - A Promise that resolves to an Actor object
+    * representing the user and app, or an empty object if the token type is not 'access-token'.
+    */
     async revoke_session (actor, uuid) {
         delete this.sessions[uuid];
         this.svc_session.remove_session(uuid);
     }
 
+
+    /**
+    * This method is used to authenticate a user or an application using an access token.
+    * It decodes the token and checks if it is valid, then it returns an Actor object representing the authenticated user or application.
+    * If the token is invalid, it throws an error.
+    *
+    * @param {string} token - The access token to be authenticated.
+    * @return {Actor} - An Actor object representing the authenticated user or application.
+    * @throws {LegacyTokenError} - If the token is in an old format.
+    */
     async get_user_app_token_from_origin (origin) {
         origin = this._origin_from_url(origin);
         const app_uid = await this._app_uid_from_origin(origin);
@@ -459,6 +576,14 @@ class AuthService extends BaseService {
         return this.get_user_app_token(app_uid);
     }
 
+
+    /**
+    * This method is responsible for authenticating a user or an app using an access token.
+    * It decodes the token and checks if it's valid. If it's valid, it returns an Actor object that represents the authenticated user or app.
+    * The method handles different types of tokens: session, app-under-user, access-token, and actor-site.
+    * @param {string} token - The access token to authenticate.
+    * @returns {Actor} The authenticated user or app represented as an Actor object.
+    */
     async app_uid_from_origin (origin) {
         origin = this._origin_from_url(origin);
         if ( origin === null ) {
@@ -467,6 +592,12 @@ class AuthService extends BaseService {
         return await this._app_uid_from_origin(origin);
     }
 
+
+    /**
+    * @description This method decodes an access token and checks its validity. It returns the decoded token data if the token is valid, or an error if not.
+    * @param {string} token - The access token to be decoded and checked.
+    * @returns {Object|Error} The decoded token data if the token is valid, or an error if not.
+    */
     async _app_uid_from_origin (origin) {
         // UUIDV5
         const uuid = this.modules.uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE);

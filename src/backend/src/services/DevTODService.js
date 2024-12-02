@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -50,6 +51,13 @@ const tips = (
     .filter((line) => line.length)
     ;
 
+
+/**
+* Wraps text to specified width by breaking it into lines
+* @param {string} text - The text to wrap
+* @param {number} width - Maximum width of each line
+* @returns {string[]} Array of wrapped text lines
+*/
 const wordwrap = (text, width) => {
     const lines = [];
     while ( text.length ) {
@@ -59,11 +67,32 @@ const wordwrap = (text, width) => {
     return lines;
 };
 
+
+/**
+* @class DevTODService
+* @extends BaseService
+* @description Service that manages the "Tip of the Day" functionality in the development console.
+* Displays random helpful tips about the system during startup and provides commands to manage
+* the tip display. Inherits from BaseService and integrates with the dev-console and commands
+* services to provide an interactive tip system for developers.
+*/
 class DevTODService extends BaseService {
+    /**
+    * DevTODService class - Manages "Tip of the Day" functionality for the developer console
+    * @extends BaseService
+    * @description Provides random development tips and console commands for managing tip display
+    * Integrates with the dev console to show helpful tips about source code and CLI usage
+    */
     async _init () {
         const svc_commands = this.services.get('commands');
         this._register_commands(svc_commands);
     }
+    /**
+    * Initializes the DevTODService by registering commands with the command service
+    * @private
+    * @async
+    * @returns {Promise<void>}
+    */
     async ['__on_boot.consolidation'] () {
         let random_tip = tips[Math.floor(Math.random() * tips.length)];
         random_tip = wordwrap(
@@ -71,6 +100,13 @@ class DevTODService extends BaseService {
             process.stdout.columns
                 ? process.stdout.columns - 6 : 50
         );
+        /**
+        * Handles the boot consolidation phase for the Tip of the Day service
+        * Selects a random tip, wraps it to fit the console width, and creates
+        * a widget function to display the formatted tip with optional header/footer
+        * 
+        * @returns {Promise<void>}
+        */
         this.tod_widget = () => {
             const lines = [
                 ...random_tip,

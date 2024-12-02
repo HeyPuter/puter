@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -24,13 +25,46 @@ const { DB_WRITE } = require('./database/consts');
 const BaseService = require('./BaseService');
 const { UsernameNotifSelector, UserIDNotifSelector } = require('./NotificationService');
 
+
+/**
+* Class ReferralCodeService
+* 
+* This class is responsible for managing the generation and handling of referral codes 
+* within the application. It extends the BaseService and provides methods to initialize
+* referral code generation for users, verify referrals, and manage updates to user 
+* storage based on successful referrals. The service ensures that referral codes are 
+* unique and properly assigned during user interactions.
+*/
 class ReferralCodeService extends BaseService {
+    /**
+    * Generates a unique referral code for the specified user.
+    * The method attempts to create a referral code and store it 
+    * in the database. It will retry up to a maximum number of 
+    * attempts if a collision occurs. If the user is missing or 
+    * not properly defined, an error is reported.
+    * 
+    * @param {Object} user - The user object for whom the referral 
+    *                        code is being generated.
+    * @returns {Promise<string>} The generated referral code.
+    * @throws {Error} If the user is not defined or if an error 
+    *                 occurs while writing to the database.
+    */
     _construct () {
         this.REFERRAL_INCREASE_LEFT = 1 * 1024 * 1024 * 1024; // 1 GB
         this.REFERRAL_INCREASE_RIGHT = 1 * 1024 * 1024 * 1024; // 1 GB
         this.STORAGE_INCREASE_STRING = '1 GB';
     }
 
+
+    /**
+    * Initializes the ReferralCodeService by setting up event listeners
+    * for user email confirmation. Listens for the 'user.email-confirmed' 
+    * event and triggers the on_verified method when a user confirms their 
+    * email address.
+    *
+    * @async
+    * @returns {Promise<void>} A promise that resolves when initialization is complete.
+    */
     async _init () {
         const svc_event = this.services.get('event');
         svc_event.on('user.email-confirmed', async (_, { user_uid }) => {
@@ -39,6 +73,17 @@ class ReferralCodeService extends BaseService {
         });
     }
 
+
+    /**
+    * Generates a unique referral code for the specified user.
+    * This method attempts to create a referral code and store it in the database.
+    * It retries the generation process up to a predefined number of attempts if
+    * any errors occur during the database write operation.
+    * 
+    * @param {Object} user - The user for whom the referral code is being generated.
+    * @returns {Promise<string>} The generated referral code.
+    * @throws Will throw an error if the user is missing or if the code generation fails after retries.
+    */
     async gen_referral_code (user) {
         let iteration = 0;
         let rng = seedrandom(`gen1-${user.id}`);
@@ -54,6 +99,7 @@ class ReferralCodeService extends BaseService {
             throw err;
         }
 
+        // Constant representing the number of attempts to generate a unique referral code.
         const TRIES = 5;
 
         const db = Context.get('services').get('database').get(DB_WRITE, 'referrals');
@@ -84,6 +130,15 @@ class ReferralCodeService extends BaseService {
         throw last_error ?? new Error('unknown error from gen_referral_code');
     }
 
+
+    /**
+     * Handles the logic when a user is verified.
+     * This method checks if the user has been referred by another user and updates
+     * the storage of both the referring user and the newly verified user accordingly.
+     * 
+     * @param {Object} user - The user object representing the verified user.
+     * @returns {Promise<void>} - A promise that resolves when the operation is complete.
+     */
     async on_verified (user) {
         if ( ! user.referred_by ) return;
 
