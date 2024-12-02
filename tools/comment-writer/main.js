@@ -25,10 +25,6 @@ const FILE_EXCLUDES = [
 const models_to_try = [
     {
         service: 'openai-completion',
-        model: 'gpt-4o-mini',
-    },
-    {
-        service: 'openai-completion',
         model: 'gpt-4o',
     },
     {
@@ -37,15 +33,22 @@ const models_to_try = [
     {
         service: 'xai',
     },
-    // llama broke code - that's a "one strike you're out" situation
+    // === Models that didn't work for this ===
+    // Sometimes outputs source lines despite "no surrounding text" instruction
+    // {
+    //     service: 'openai-completion',
+    //     model: 'gpt-4o-mini',
+    // },
+    // Was the first to break a source file
     // {
     //     service: 'together-ai',
     //     model: 'meta-llama/Meta-Llama-3-70B-Instruct-Turbo',
     // },
-    {
-        service: 'mistral',
-        model: 'mistral-large-latest',
-    }
+    // Occasionally fails spectacularly
+    // {
+    //     service: 'mistral',
+    //     model: 'mistral-large-latest',
+    // }
 ];
 
 
