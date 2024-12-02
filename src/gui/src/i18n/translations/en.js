@@ -405,6 +405,9 @@ const en = {
         'billing.current_plan': 'Current plan',
         'billing.cancelled_subscription_tier': 'Cancelled Subscription (%%)',
         'billing.manage': 'Manage',
+        'billing.limited': 'Limited',
+        'billing.expanded': 'Expanded',
+        'billing.accelerated': 'Accelerated',
     }
 };
 
