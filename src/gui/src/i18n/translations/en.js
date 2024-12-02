@@ -403,6 +403,8 @@ const en = {
         'billing.sub_cancelled_but_valid_until': 'You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe.',
         'billing.current_plan_until_end_of_period': 'Your current plan until the end of this billing period.',
         'billing.current_plan': 'Current plan',
+        'billing.cancelled_subscription_tier': 'Cancelled Subscription (%%)',
+        'billing.manage': 'Manage',
     }
 };
 
