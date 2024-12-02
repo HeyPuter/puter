@@ -63,15 +63,16 @@ export class FilesystemService extends putility.concepts.Service {
         this.fs_proxy_.delegate = this.fs_nocache_;
     }
 
-    initializeSocket () {
+    async initializeSocket () {
         if (this.socket) {
             this.socket.disconnect();
         }
 
-        this.socket = io(this.APIOrigin, {
-            auth: {
-                auth_token: this.authToken,
-            }
+        const svc_apiAccess = this._.context.services.get('api-access');
+        const api_info = svc_apiAccess.get_api_info();
+
+        this.socket = io(api_info.api_origin, {
+            auth: { auth_token: api_info.auth_token }
         });
 
         this.bindSocketEvents();
