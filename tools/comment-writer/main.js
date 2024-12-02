@@ -524,10 +524,11 @@ const main = async () => {
         excludes: FILE_EXCLUDES,
     }, rootpath);
     
-    let i = 0;
+    let i = 0, limit = undefined;
     for await ( const value of walk_iter ) {
+        if ( limit !== undefined && i >= limit ) break;
         i++;
-        if ( i == 12 ) process.exit(0);
+
         // Exit after processing 12 files
         if ( value.is_dir ) {
             console.log('directory:', value.path);
@@ -550,7 +551,7 @@ const main = async () => {
                 console.log('File was already commented by AI; skipping...');
                 continue;
             }
-        }
+        } else metadata = {};
         
         let refs = null;
         // Check if there are any references in the metadata
@@ -589,16 +590,18 @@ const main = async () => {
             }
         }
         
-        const action = await enq.prompt({
+        const action = limit === undefined ? await enq.prompt({
             type: 'select',
             name: 'action',
             message: 'Select action:',
             choices: [
                 'generate',
                 'skip',
+                'all',
+                'limit',
                 'exit',
             ]
-        })
+        }) : 'generate';
         // const action = 'generate';
         
         // Check if user wants to exit the program
@@ -609,6 +612,26 @@ const main = async () => {
         // Skip if user chose to exit
         if ( action.action === 'skip' ) {
             continue;
+        }
+
+        if ( action.action === 'limit' ) {
+            limit = await enq.prompt({
+                type: 'input',
+                name: 'limit',
+                message: 'Enter limit:'
+            });
+            i = 1;
+            limit = Number(limit.limit);
+        }
+
+        if ( action.action === 'all' ) {
+            limit = await enq.prompt({
+                type: 'input',
+                name: 'limit',
+                message: 'Enter limit:'
+            });
+            i = 1;
+            limit = Number(limit.limit);
         }
 
         const { definitions } = js_processor.process(lines);
