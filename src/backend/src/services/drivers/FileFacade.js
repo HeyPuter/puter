@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -35,6 +36,11 @@ const { LLRead } = require("../../filesystem/ll_operations/ll_read");
  *
  *
  */
+/**
+* @class FileFacade
+* @extends AdvancedBase
+* @description This class provides a unified interface for passing files through the Puter Driver API. It aims to avoid unnecessary operations such as downloading files from S3 when a Puter file is specified, especially if the underlying implementation can accept S3 bucket information instead of the file's contents.
+*/
 class FileFacade extends AdvancedBase {
     static OUT_TYPES = {
         S3_INFO: { key: 's3-info' },

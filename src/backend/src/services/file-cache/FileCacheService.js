@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"xai"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -28,6 +29,27 @@ const { pausing_tee } = require("../../util/streamutil");
  * It is assumed that files are only accessed by one server at a given time,
  * so this will need to be revised when ACL and sharing is implemented.
  */
+/**
+* @class FileCacheService
+* @extends AdvancedBase
+* @description
+* The FileCacheService class manages a cache for file storage and retrieval in the Puter system. 
+* This service provides functionalities to:
+* - Cache files either in memory (precache) or on disk.
+* - Track file usage with FileTracker instances to manage cache eviction policies.
+* - Ensure files are stored within configured limits for both disk and memory usage.
+* - Provide methods for initializing the cache, storing, retrieving, and invalidating cached files.
+* - Register commands for managing and inspecting the cache status.
+* 
+* @property {Object} MODULES - Static property containing module dependencies.
+* @property {number} disk_limit - The maximum size allowed for disk storage of cached files.
+* @property {number} disk_max_size - The maximum size of a file that can be cached on disk.
+* @property {number} precache_size - The size limit for memory (precache) storage.
+* @property {string} path - The directory path where cached files are stored on disk.
+* @property {number} ttl - Time-to-live for cached files, after which they are considered for eviction.
+* @property {Map} precache - A Map to hold files in memory.
+* @property {Map} uid_to_tracker - A Map to track each file with its FileTracker instance.
+*/
 class FileCacheService extends AdvancedBase {
     static MODULES = {
         fs: require('fs'),
@@ -55,6 +77,12 @@ class FileCacheService extends AdvancedBase {
         this._register_commands(services.get('commands'));
     }
 
+
+    /**
+    * Retrieves the amount of precache space currently used.
+    * 
+    * @returns {number} The total size in bytes of files stored in the precache.
+    */
     get _precache_used () {
         let used = 0;
 
@@ -67,6 +95,12 @@ class FileCacheService extends AdvancedBase {
         return used;
     }
 
+
+    /**
+    * Calculates the total disk space used by files in the PHASE_DISK phase.
+    * 
+    * @returns {number} The total size of all files currently stored on disk.
+    */
     get _disk_used () {
         let used = 0;
 
@@ -79,6 +113,15 @@ class FileCacheService extends AdvancedBase {
         return used;
     }
 
+
+    /**
+    * Initializes the cache by ensuring the storage directory exists.
+    * 
+    * @async
+    * @method init
+    * @returns {Promise<void>} A promise that resolves when the initialization is complete.
+    * @throws {Error} If there's an error creating the directory.
+    */
     async init () {
         const { fs } = this.modules;
         // Ensure storage path exists
@@ -90,6 +133,13 @@ class FileCacheService extends AdvancedBase {
         return path_.join(this.path, uid);
     }
 
+
+    /**
+    * Get the file path for a given file UID.
+    * 
+    * @param {string} uid - The unique identifier of the file.
+    * @returns {string} The full path where the file is stored on disk.
+    */
     async try_get (fsNode, opt_log) {
         const tracker = this.uid_to_tracker.get(await fsNode.get('uid'));
 
@@ -138,6 +188,19 @@ class FileCacheService extends AdvancedBase {
         return null;
     }
 
+
+    /**
+    * Attempts to retrieve a cached file.
+    * 
+    * This method first checks if the file exists in the cache by its UID.
+    * If found, it verifies the file's age against the TTL (time-to-live).
+    * If the file is expired, it invalidates the cache entry. Otherwise,
+    * it returns the cached data or null if not found or invalidated.
+    *
+    * @param {Object} fsNode - The file system node representing the file.
+    * @param {Object} [opt_log] - Optional logging service to log cache hits.
+    * @returns {Promise<Buffer|null>} - The file data if found, or null.
+    */
     async maybe_store (fsNode, stream) {
         const size = await fsNode.get('size');
 
@@ -179,6 +242,18 @@ class FileCacheService extends AdvancedBase {
         return { cached: true, stream: replace_stream };
     }
 
+
+    /**
+    * Invalidates a file from the cache.
+    * 
+    * @param {FsNode} fsNode - The file system node to invalidate.
+    * @returns {Promise<void>} A promise that resolves when the file has been invalidated.
+    * 
+    * @description
+    * This method checks if the given file is in the cache, and if so, removes it from both
+    * the precache and disk storage, ensuring that any references to this file are cleaned up.
+    * If the file is not found in the cache, the method does nothing.
+    */
     async invalidate (fsNode) {
         const key = await fsNode.get('uid');
         if ( ! this.uid_to_tracker.has(key) ) return;
@@ -192,6 +267,16 @@ class FileCacheService extends AdvancedBase {
         this.uid_to_tracker.delete(key);
     }
 
+
+    /**
+    * Invalidates a file from the cache.
+    * 
+    * @param {Object} fsNode - The file system node representing the file to invalidate.
+    * @returns {Promise<void>} A promise that resolves when the file has been invalidated from both precache and disk.
+    * 
+    * @note This method removes the file's tracker from the cache, deletes the file from precache if present,
+    * and ensures the file is evicted from disk storage if it exists there.
+    */
     async _precache_make_room (size) {
         if (this._precache_used + size > this.precache_size) {
             await this._precache_evict(
@@ -200,6 +285,14 @@ class FileCacheService extends AdvancedBase {
         }
     }
 
+
+    /**
+    * Evicts files from precache to make room for new files.
+    * This method sorts all trackers by score and evicts the lowest scoring
+    * files in precache phase until the specified capacity is freed.
+    * 
+    * @param {number} capacity_needed - The amount of capacity (in bytes) that needs to be freed in precache.
+    */
     async _precache_evict (capacity_needed) {
         // Sort by score from tracker
         const sorted = Array.from(this.uid_to_tracker.values())
@@ -214,6 +307,17 @@ class FileCacheService extends AdvancedBase {
         }
     }
 
+
+    /**
+    * Evicts files from the precache to make room for new files.
+    * 
+    * @param {number} capacity_needed - The amount of space needed to be freed in bytes.
+    * 
+    * @description
+    * This method sorts all cached files by their score in descending order,
+    * then iterates through them to evict files from the precache to disk
+    * until the required capacity is met. If a file is already on disk, it is skipped.
+    */
     async _maybe_promote_to_disk (tracker) {
         if (tracker.phase !== FileTracker.PHASE_PRECACHE) return;
 
@@ -255,6 +359,15 @@ class FileCacheService extends AdvancedBase {
         tracker.phase = FileTracker.PHASE_DISK;
     }
 
+
+    /**
+    * Evicts a file from disk cache.
+    * 
+    * @param {FileTracker} tracker - The FileTracker instance representing the file to be evicted.
+    * @returns {Promise<void>} A promise that resolves when the file is evicted or if the tracker is not in the disk phase.
+    * 
+    * @note This method ensures that the file is removed from the disk cache and the tracker's phase is updated to GONE.
+    */
     async _disk_evict (tracker) {
         if (tracker.phase !== FileTracker.PHASE_DISK) return;
 

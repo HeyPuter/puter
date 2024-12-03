@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -18,6 +19,12 @@
  */
 const BaseService = require("../BaseService");
 
+
+/**
+* Represents the OTP (One-Time Password) service.
+* This class provides functionalities to create OTP secrets, recovery codes,
+* and verify OTPs against given secrets and codes, using the 'otpauth' and 'crypto' libraries.
+*/
 class OTPService extends BaseService {
     static MODULES = {
         otpauth: require('otpauth'),
@@ -44,6 +51,14 @@ class OTPService extends BaseService {
         };
     }
 
+
+    /**
+    * Creates a recovery code for the user.
+    * Generates a random byte sequence, encodes it in base32,
+    * and returns a unique 8-character recovery code.
+    * 
+    * @returns {string} The generated recovery code.
+    */
     create_recovery_code () {
         const require = this.require;
         const crypto = require('crypto');
@@ -74,6 +89,14 @@ class OTPService extends BaseService {
         return true;
     }
 
+
+    /**
+    * Generates a random OTP secret.
+    * This method creates a 15-byte random buffer and encodes it into a base32 string.
+    * The resulting string is trimmed to a maximum length of 24 characters.
+    * 
+    * @returns {string} The generated OTP secret in base32 format.
+    */
     gen_otp_secret_ () {
         const require = this.require;
         const crypto = require('crypto');

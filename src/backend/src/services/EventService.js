@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -19,6 +20,13 @@
 const { Context } = require("../util/context");
 const BaseService = require("./BaseService");
 
+
+/**
+* EventService class extends BaseService to provide a mechanism for 
+* emitting and listening to events within the application. It manages
+* event listeners scoped to specific keys and allows global listeners
+* for broader event handling.
+*/
 class ScopedEventBus {
     constructor (event_bus, scope) {
         this.event_bus = event_bus;
@@ -34,7 +42,22 @@ class ScopedEventBus {
     }
 }
 
+
+/**
+* Class representing the EventService, which extends the BaseService.
+* This service is responsible for managing event listeners and emitting 
+* events within a scoped context, allowing for flexible event handling 
+* and decoupled communication between different parts of the application.
+*/
 class EventService extends BaseService {
+    /**
+     * Initializes listeners and global listeners for the EventService.
+     * This method is called to set up the internal data structures needed 
+     * for managing event listeners upon construction of the service.
+     * 
+     * @async
+     * @returns {Promise} A promise that resolves when the initialization is complete.
+     */
     async _construct () {
         this.listeners_ = {};
         this.global_listeners_ = [];
@@ -56,6 +79,17 @@ class EventService extends BaseService {
 
                 // IIAFE wrapper to catch errors without blocking
                 // event dispatch.
+                /**
+                * IIAFE wrapper to handle emitting events asynchronously while catching errors.
+                * This method ensures that any errors thrown in the event listeners do not block
+                * the dispatching of other events.
+                * 
+                * @param {string} key - The event key to emit.
+                * @param {any} data - The data to be sent with the event.
+                * @param {Object} [meta={}] - Additional metadata for the event.
+                * 
+                * @returns {void}
+                */
                 Context.arun(async () => {
                     try {
                         await callback(key, data, meta);
@@ -73,6 +107,16 @@ class EventService extends BaseService {
         for ( const callback of this.global_listeners_ ) {
             // IIAFE wrapper to catch errors without blocking
             // event dispatch.
+            /**
+            * Invokes all registered global listeners for an event with the provided key, data, and meta
+            * information. Each callback is executed within a context that handles errors gracefully, 
+            * ensuring that one failing listener does not disrupt subsequent invocations.
+            *
+            * @param {string} key - The event key to emit.
+            * @param {*} data - The data to be passed to the listeners.
+            * @param {Object} [meta={}] - Optional metadata related to the event.
+            * @returns {void}
+            */
             Context.arun(async () => {
                 try {
                     await callback(key, data, meta);
@@ -95,6 +139,17 @@ class EventService extends BaseService {
         listeners.push(callback);
 
         const det = {
+            /**
+            * Registers a callback function for the specified event selector.
+            * 
+            * This method will push the provided callback onto the list of listeners
+            * for the event specified by the selector. It returns an object containing
+            * a detach method, which can be used to remove the listener.
+            *
+            * @param {string} selector - The event selector to listen for.
+            * @param {Function} callback - The function to be invoked when the event is emitted.
+            * @returns {Object} An object with a detach method to unsubscribe the listener.
+            */
             detach: () => {
                 const idx = listeners.indexOf(callback);
                 if ( idx !== -1 ) {

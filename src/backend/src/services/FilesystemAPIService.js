@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -18,7 +19,27 @@
  */
 const BaseService = require("./BaseService");
 
+
+/**
+* @class FilesystemAPIService
+* @extends BaseService
+* @description This service handles all filesystem-related API routes, 
+*              allowing for operations like file creation, deletion, 
+*              reading, and searching through a structured set of 
+*              endpoints. It integrates with the web server to expose 
+*              these functionalities for client use.
+*/
 class FilesystemAPIService extends BaseService {
+    /**
+     * Sets up the route handlers for the Filesystem API.
+     * This method registers various endpoints related to filesystem operations
+     * such as creating, deleting, reading, and updating files. It uses the
+     * web server's app instance to attach the corresponding routers.
+     * 
+     * @async
+     * @function __on_install.routes
+     * @returns {Promise<void>} A promise that resolves when the routes are set up.
+     */
     async ['__on_install.routes'] () {
         const { app } = this.services.get('web-server');
 

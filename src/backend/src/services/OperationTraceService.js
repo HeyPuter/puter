@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -23,8 +24,15 @@ const { OtelFeature } = require("../traits/OtelFeature");
 const APIError = require("../api/APIError");
 const { AssignableMethodsFeature } = require("../traits/AssignableMethodsFeature");
 
+// CONTEXT_KEY is used to create a unique context key for operation tracing
+// and is utilized throughout the OperationTraceService to manage frames.
 const CONTEXT_KEY = Context.make_context_key('operation-trace');
 
+
+/**
+* @class OperationFrame
+* @description The `OperationFrame` class represents a frame within an operation trace. It is designed to manage the state, attributes, and hierarchy of frames within an operational context. This class provides methods to set status, calculate effective status, add tags, attributes, messages, errors, children, and describe the frame. It also includes methods to recursively search through frames to find attributes and handle frame completion.
+*/
 class OperationFrame {
     constructor ({ parent, label, x }) {
         this.parent = parent;
@@ -68,6 +76,12 @@ class OperationFrame {
             this.parent._calc_effective_status();
         }
     }
+    /**
+    * Sets the status of the frame and updates the effective status.
+    * This method logs the status change and updates the parent frame's effective status if necessary.
+    *
+    * @param {Object} status - The new status to set.
+    */
     _calc_effective_status () {
         for ( const child of this.children ) {
             if ( child.status === OperationFrame.FRAME_STATUS_STUCK ) {
@@ -97,6 +111,17 @@ class OperationFrame {
         }
     }
 
+
+    /**
+    * Gets the effective status of the operation frame.
+    *
+    * This method returns the effective status of the current operation frame,
+    * considering the statuses of its children. The effective status is the
+    * aggregated status of the frame and its children, reflecting the current
+    * progress or state of the operation.
+    *
+    * @return {Object} The effective status of the operation frame.
+    */
     get status () {
         return this.effective_status_;
     }
@@ -132,6 +157,12 @@ class OperationFrame {
         return this;
     }
 
+
+    /**
+    * Recursively traverses the frame hierarchy to find the root frame.
+    *
+    * @returns {OperationFrame} The root frame of the current frame hierarchy.
+    */
     get_root_frame () {
         let frame = this;
         while ( frame.parent ) {
@@ -140,6 +171,13 @@ class OperationFrame {
         return frame;
     }
 
+
+    /**
+    * Marks the operation frame as done.
+    * This method sets the status of the operation frame to 'done' and updates
+    * the effective status accordingly. It triggers a recalculation of the
+    * effective status for parent frames if necessary.
+    */
     done () {
         this.status = OperationFrame.FRAME_STATUS_DONE;
     }
@@ -161,6 +199,14 @@ class OperationFrame {
         const prefix_deep = '│ ';
         const prefix_deep_end = '  ';
 
+
+        /**
+        * Recursively builds a string representation of the frame and its children.
+        *
+        * @param {boolean} show_tree - If true, includes the tree structure of child frames.
+        * @param {OperationFrame} highlight_frame - The frame to highlight in the output.
+        * @returns {string} - A string representation of the frame and its children.
+        */
         const recurse = (frame, prefix) => {
             const children = frame.children;
             for ( let i = 0; i < children.length; i++ ) {
@@ -178,6 +224,13 @@ class OperationFrame {
     }
 }
 
+
+/**
+* @class OperationTraceService
+* @classdesc The OperationTraceService class manages operation frames and their statuses.
+* It provides methods to add frames, track their progress, and handle their completion.
+* This service is essential for monitoring and logging the lifecycle of operations within the system.
+*/
 class OperationTraceService {
     constructor ({ services }) {
         this.log = services.get('log-service').create('operation-trace');
@@ -186,6 +239,19 @@ class OperationTraceService {
         this.ongoing = {};
     }
 
+
+    /**
+    * Adds a new operation frame to the trace.
+    *
+    * This method creates a new frame with the given label and context,
+    * and adds it to the ongoing operations. If a context is provided,
+    * it logs the context description. The frame is then added to the
+    * parent frame if one exists, and the frame's description is logged.
+    *
+    * @param {string} label - The label for the new operation frame.
+    * @param {?Object} [x] - The context for the operation frame.
+    * @returns {OperationFrame} The new operation frame.
+    */
     async add_frame (label) {
         return this.add_frame_sync(label);
     }
@@ -219,6 +285,16 @@ class OperationTraceService {
     }
 }
 
+
+/**
+* @class BaseOperation
+* @extends AdvancedBase
+* @description The BaseOperation class extends AdvancedBase and serves as the foundation for
+* operations within the system. It integrates various features such as context awareness,
+* observability through OpenTelemetry (OtelFeature), and assignable methods. This class is
+* designed to be extended by specific operation classes to provide a common structure and
+* functionality for running and tracing operations.
+*/
 class BaseOperation extends AdvancedBase {
     static FEATURES = [
         new ContextAwareFeature(),
@@ -226,6 +302,18 @@ class BaseOperation extends AdvancedBase {
         new AssignableMethodsFeature(),
     ]
 
+
+    /**
+    * Executes the operation with the provided values.
+    *
+    * This method initiates an operation frame within the context, sets the operation status to working,
+    * executes the `_run` method, and handles post-run logic. It also manages the status of child frames
+    * and handles errors, updating the frame's attributes accordingly.
+    *
+    * @param {Object} values - The values to be used in the operation.
+    * @returns {Promise<*>} - The result of the operation.
+    * @throws {Error} - If the frame is missing or any other error occurs during the operation.
+    */
     async run (values) {
         this.values = values;
 
@@ -247,6 +335,17 @@ class BaseOperation extends AdvancedBase {
 
         // Run operation in new context
         try {
+            /**
+            * Runs an operation within a new context.
+            *
+            * This method sets up a new operation frame, updates the context, and runs the
+            * operation. It handles the operation's lifecycle, logging, and error handling.
+            *
+            * @async
+            * @function run
+            * @param {Object} values - The values to be passed to the operation.
+            * @returns {Promise<*>} The result of the operation.
+            */
             return await x.arun(async () => {
                 const x = Context.get();
                 const operationTraceSvc = x.get('services').get('operationTrace');
@@ -283,6 +382,13 @@ class BaseOperation extends AdvancedBase {
         this.frame.attributes[key] = value;
     }
 
+
+    /**
+    * Updates the checkpoint for the current operation frame.
+    *
+    * @param {string} name - The name of the checkpoint to set.
+    * @returns {void}
+    */
     _post_run () {
         let any_async = false;
         for ( const child of this.frame.children ) {

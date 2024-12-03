@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"xai"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -29,12 +30,32 @@ const APIError = require("../../api/APIError.js");
  * excluding login. These endpoints are typically for actions that affect
  * security settings on the user's account.
  */
+/**
+* @class UserProtectedEndpointsService
+* @extends BaseService
+* @classdesc
+* This service manages endpoints that are protected by password authentication,
+* excluding login. It ensures that only authenticated user sessions can access
+* these endpoints, which typically involve actions affecting security settings
+* such as changing passwords, email addresses, or disabling two-factor authentication.
+* The service also handles middleware for rate limiting, session validation,
+* and password verification for security-critical operations.
+*/
 class UserProtectedEndpointsService extends BaseService {
     static MODULES = {
         express: require('express'),
     };
 
     ['__on_install.routes'] () {
+        /**
+        * Sets up and configures routes for user-protected endpoints.
+        * This method initializes an Express router, applies middleware for authentication,
+        * rate limiting, and session validation, and attaches user-specific endpoints.
+        * 
+        * @memberof UserProtectedEndpointsService
+        * @instance
+        * @method __on_install.routes
+        */
         const router = (() => {
             const require = this.require;
             const express = require('express');
@@ -86,6 +107,17 @@ class UserProtectedEndpointsService extends BaseService {
                 return (APIError.create('password_required')).write(res);
             }
 
+
+            /**
+            * Middleware to validate the provided password against the stored user password.
+            * 
+            * This method ensures that the user has entered their current password correctly before 
+            * allowing changes to critical account settings. It uses bcrypt for password comparison.
+            * 
+            * @param {Object} req - Express request object, containing user and password in body.
+            * @param {Object} res - Express response object for sending back the response.
+            * @param {Function} next - Callback to pass control to the next middleware or route handler.
+            */
             const bcrypt = (() => {
                 const require = this.require;
                 return require('bcrypt');

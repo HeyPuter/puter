@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"xai"}}
 const insert = async (tbl, subject) => {
     const keys = Object.keys(subject);
 

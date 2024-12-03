@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 const APIError = require("../api/APIError");
 const FSNodeParam = require("../api/filesystem/FSNodeParam");
 const { get_user } = require("../helpers");
@@ -6,15 +7,37 @@ const { Endpoint } = require("../util/expressutil");
 const BaseService = require("./BaseService");
 const { DB_WRITE } = require("./database/consts");
 
+
+/**
+* CommentService class handles all comment-related functionality in the system.
+* Extends BaseService to provide comment creation, retrieval, and attachment capabilities
+* for filesystem entries. Manages database operations for user comments and their
+* associations with filesystem nodes. Provides REST API endpoints for comment
+* operations including posting new comments and listing existing comments.
+* @extends BaseService
+*/
 class CommentService extends BaseService {
     static MODULES = {
         uuidv4: require('uuid').v4,
     }
+    /**
+    * Static module dependencies used by the CommentService class
+    * @property {Function} uuidv4 - UUID v4 generator function from the uuid package
+    */
     _init () {
         const svc_database = this.services.get('database');
         this.db = svc_database.get(DB_WRITE, 'notification');
     }
     ['__on_install.routes'] (_, { app }) {
+        /**
+        * Installs route handlers for comment-related endpoints
+        * Sets up POST routes for creating and listing comments on filesystem entries
+        * 
+        * @param {*} _ Unused parameter
+        * @param {Object} options Installation options
+        * @param {Express} options.app Express application instance
+        * @private
+        */
         const r_comment = (() => {
             const require = this.require;
             const express = require('express');
@@ -113,6 +136,16 @@ class CommentService extends BaseService {
 
     }
 
+
+    /**
+    * Creates a new comment with the given text
+    * 
+    * @param {Object} params - The parameters object
+    * @param {Object} params.req - Express request object containing user and body data
+    * @param {Object} params.res - Express response object
+    * @returns {Promise<Object>} The created comment object with id and uid
+    * @throws {APIError} If text field is missing from request body
+    */
     async create_comment_ ({ req, res }) {
         if ( ! req.body.text ) {
             throw APIError.create('field_missing', null, { key: 'text' });
@@ -135,6 +168,15 @@ class CommentService extends BaseService {
         };
     }
 
+
+    /**
+    * Attaches a comment to a filesystem entry
+    * 
+    * @param {Object} params - The parameters object
+    * @param {Object} params.node - The filesystem node to attach the comment to
+    * @param {Object} params.comment - The comment object containing id and other details
+    * @returns {Promise<void>} Resolves when comment is successfully attached
+    */
     async attach_comment_to_fsentry ({ node, comment })  {
         await this.db.write(
             'INSERT INTO `user_fsentry_comments` ' +
@@ -144,6 +186,14 @@ class CommentService extends BaseService {
         );
     }
 
+
+    /**
+    * Retrieves all comments associated with a filesystem entry
+    * 
+    * @param {Object} params - The parameters object
+    * @param {Object} params.node - The filesystem node to get comments for
+    * @returns {Promise<Array>} Array of comment objects with user info attached
+    */
     async get_comments_for_fsentry ({ node }) {
         const comments = await this.db.read(
             'SELECT * FROM `user_comments` ' +

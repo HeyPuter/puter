@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -18,6 +19,18 @@
  */
 const BaseService = require("../BaseService");
 
+
+/**
+* **ErrorContext Class**
+*
+* The `ErrorContext` class is designed to encapsulate error reporting functionality within a specific logging context.
+* It facilitates the reporting of errors by providing a method to log error details along with additional contextual information.
+*
+* @class
+* @classdesc Provides a context for error reporting with specific logging details.
+* @param {ErrorService} error_service - The error service instance to use for reporting errors.
+* @param {object} log_context - The logging context to associate with the error reports.
+*/
 class ErrorContext {
     constructor (error_service, log_context) {
         this.error_service = error_service;
@@ -32,7 +45,22 @@ class ErrorContext {
     }
 }
 
+
+/**
+* @class ErrorService
+* @extends BaseService
+* @description The ErrorService class is responsible for handling and reporting errors within the system.
+* It provides methods to initialize the service, create error contexts, and report errors with detailed logging and alarm mechanisms.
+*/
 class ErrorService extends BaseService {
+    /**
+    * Initializes the ErrorService, setting up the alarm and backup logger services.
+    *
+    * @async
+    * @function init
+    * @memberof ErrorService
+    * @returns {Promise<void>} A promise that resolves when the initialization is complete.
+    */
     async init () {
         const services = this.services;
         this.alarm = services.get('alarm');

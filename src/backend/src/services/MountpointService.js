@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -28,7 +29,22 @@ const BaseService = require("./BaseService");
  * in situations where ContextInitService isn't able to
  * initialize a context.
  */
+/**
+* @class MountpointService
+* @extends BaseService
+* @description Service class responsible for managing storage backends for mountpoints.
+* Currently provides a temporary solution for accessing storage backend when context
+* initialization is not possible. Will be expanded to handle multiple mountpoints
+* and their associated storage backends in future implementations.
+*/
 class MountpointService extends BaseService {
+    /**
+    * Initializes the MountpointService instance
+    * Sets up initial state with null storage backend
+    * @private
+    * @async
+    * @returns {Promise<void>}
+    */
     async _init () {
         // this.mountpoints_ = {};
         
@@ -40,6 +56,10 @@ class MountpointService extends BaseService {
     set_storage (storage) {
         this.storage_ = storage;
     }
+    /**
+    * Gets the current storage backend instance
+    * @returns {Object} The storage backend instance
+    */
     get_storage () {
         return this.storage_;
     }

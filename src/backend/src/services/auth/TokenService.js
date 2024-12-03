@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -105,15 +106,38 @@ const compression = {
     }),
 };
 
+
+/**
+* TokenService class for managing token creation and verification.
+* This service extends the BaseService class and provides methods 
+* for signing and verifying JWTs, as well as compressing and decompressing 
+* payloads to and from a compact format.
+*/
 class TokenService extends BaseService {
     static MODULES = {
         jwt: require('jsonwebtoken'),
     };
 
+
+    /**
+     * Constructs a new TokenService instance and initializes the compression settings.
+     * This method is called when a TokenService object is created.
+     * 
+     * @returns {void}
+     */
     _construct () {
         this.compression = compression;
     }
 
+
+    /**
+     * Initializes the TokenService instance by setting the JWT secret
+     * from the global configuration.
+     * 
+     * @function
+     * @returns {void}
+     * @throws {Error} Throws an error if the jwt_secret is not defined in global_config.
+     */
     _init () {
         // TODO: move to service config
         this.secret = this.global_config.jwt_secret;

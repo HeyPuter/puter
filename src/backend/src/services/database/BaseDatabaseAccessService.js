@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -20,6 +21,13 @@ const { AdvancedBase } = require("../../../../putility");
 const BaseService = require("../BaseService");
 const { DB_WRITE, DB_READ } = require("./consts");
 
+
+/**
+* BaseDatabaseAccessService class extends BaseService to provide 
+* an abstraction layer for database access, enabling operations 
+* like reading, writing, and inserting data while managing 
+* different database configurations and optimizations.
+*/
 class BaseDatabaseAccessService extends BaseService {
     static DB_WRITE = DB_WRITE;
     static DB_READ = DB_READ;
@@ -36,6 +44,15 @@ class BaseDatabaseAccessService extends BaseService {
     // future it can be used to audit the behaviour
     // of other services or handle service-specific
     // database optimizations.
+    /**
+    * Retrieves the current instance of the service.
+    * This method currently returns `this`, but it is designed
+    * to allow for future enhancements such as auditing behavior
+    * or implementing service-specific optimizations for database 
+    * interactions.
+    * 
+    * @returns {BaseDatabaseAccessService} The current instance of the service.
+    */
     get () {
         return this;
     }

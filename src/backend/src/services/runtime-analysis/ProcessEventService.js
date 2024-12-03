@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -18,6 +19,15 @@
  */
 const { Context } = require("../../util/context");
 
+
+/**
+* Service class that handles process-wide events and errors.
+* Provides centralized error handling for uncaught exceptions and unhandled promise rejections.
+* Sets up event listeners on the process object to capture and report critical errors
+* through the logging and error reporting services.
+* 
+* @class ProcessEventService
+*/
 class ProcessEventService {
     constructor ({ services }) {
         const log = services.get('log-service').create('process-event-service');
@@ -27,6 +37,13 @@ class ProcessEventService {
         //       in the init hook
 
         process.on('uncaughtException', async (err, origin) => {
+            /**
+            * Handles uncaught exceptions in the process
+            * Sets up an event listener that reports errors when uncaught exceptions occur
+            * @param {Error} err - The uncaught exception error object
+            * @param {string} origin - The origin of the uncaught exception
+            * @returns {Promise<void>} 
+            */
             await Context.allow_fallback(async () => {
                 errors.report('process:uncaughtException', {
                     source: err,
@@ -39,6 +56,12 @@ class ProcessEventService {
         });
 
         process.on('unhandledRejection', async (reason, promise) => {
+            /**
+            * Handles unhandled promise rejections by reporting them to the error service
+            * @param {*} reason - The rejection reason/error
+            * @param {Promise} promise - The rejected promise
+            * @returns {Promise<void>} Resolves when error is reported
+            */
             await Context.allow_fallback(async () => {
                 errors.report('process:unhandledRejection', {
                     source: reason,

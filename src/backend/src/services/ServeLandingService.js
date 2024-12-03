@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -20,4 +21,11 @@
 /**
  * ServeLandingService is for "landing" pages, like payment success or failure.
  */
+/**
+* @class ServeLandingService
+* @description Handles the serving and rendering of landing pages throughout the Puter platform.
+* This service manages various landing pages such as payment success/failure pages, confirmation
+* pages, and other static informational pages. It provides a centralized way to serve these
+* pages while maintaining consistent styling and functionality across the platform.
+*/
 class ServceLandingService {}

@@ -346,20 +346,20 @@ const hy = {
         login2fa_recovery_back: "Հետ",
         login2fa_recovery_placeholder: "XXXXXXXX",
 
-        "change": "փոփոխել", // In English: "Change"
-        "clock_visibility": "ժամացույցի տեսանելիություն", // In English: "Clock Visibility"
-        "reading": "կարդալ", // In English: "Reading %strong%"
-        "writing": "գրել", // In English: "Writing %strong%"
-        "unzipping": "Արխիվի բացում", // In English: "Unzipping %strong%"
-        "sequencing": "հաջորդականացում", // In English: "Sequencing %strong%"
-        "zipping": "Արխիվացում", // In English: "Zipping %strong%"
-        "Editor": "Խմբագիր", // In English: "Editor"
-        "Viewer": "Դիտող", // In English: "Viewer"
-        "People with access": "Մարդիկ, ովքեր ունեն հասանելիություն", // In English: "People with access"
-        "Share With…": "Կիսվել …", // In English: "Share With…"
-        "Owner": "Սեփականատեր", // In English: "Owner"
-        "You can't share with yourself.": "Դուք չեք կարող կիսվել ինքներդ ձեզ հետ։", // In English: "You can't share with yourself."
-        "This user already has access to this item": "Այս օգտատերը արդեն ունի հասանելիություն այս տարրին։", // In English: "This user already has access to this item"
+        change: "Փոփոխել",
+        clock_visibility: "Ժամացույցի տեսանելիություն",
+        reading: "Ընթերցում",
+        writing: "Գրում",
+        unzipping: "Արխիվը բացել",
+        sequencing: "Հաջորդականություն",
+        zipping: "Արխիվացում",
+        Editor: "Խմբագրիչ",
+        Viewer: "Դիտորդ",
+        "People with access": "Մուտքի իրավունք ունեցող անձինք",
+        "Share With…": "Կիսվել…",
+        Owner: "Սեփականատեր",
+        "You can’t share with yourself.": "Դուք չեք կարող կիսվել ինքներդ ձեզ հետ։",
+        "This user already has access to this item": "Այս օգտատերն արդեն մուտքի իրավունք ունի։"
     }
 };
 

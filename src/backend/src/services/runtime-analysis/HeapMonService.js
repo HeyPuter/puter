@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -18,6 +19,14 @@
  */
 const memwatch = require('@airbnb/node-memwatch');
 
+
+/**
+* The HeapMonService class monitors the application's memory usage,
+* utilizing the memwatch library to detect heap memory leaks and 
+* gather heap statistics at specified intervals. It interfaces with 
+* logging and alarm services to report memory conditions and 
+* trigger alerts as necessary.
+*/
 class HeapMonService {
     constructor ({ services, my_config }) {
         this.log = services.get('log-service').create('heap-monitor');

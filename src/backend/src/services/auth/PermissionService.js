@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"xai"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -34,6 +35,12 @@ const implicit_user_permissions = {
     // 'driver': {},
 };
 
+
+/**
+* The PermissionService class manages the core functionality for handling permissions within the Puter ecosystem.
+* It provides methods for granting, revoking, and checking permissions for various entities such as users and applications.
+* This service interacts with the database to store, retrieve, and audit permission changes, and also handles complex permission logic like rewriting, implication, and explosion of permissions.
+*/
 class PermissionRewriter {
     static create ({ id, matcher, rewriter }) {
         return new PermissionRewriter({ id, matcher, rewriter });
@@ -49,11 +56,25 @@ class PermissionRewriter {
         return this.matcher(permission);
     }
 
+
+    /**
+    * Determines if the given permission matches the criteria set for this rewriter.
+    * 
+    * @param {string} permission - The permission string to check.
+    * @returns {boolean} - True if the permission matches, false otherwise.
+    */
     async rewrite (permission) {
         return await this.rewriter(permission);
     }
 }
 
+
+/**
+* The PermissionImplicator class is used to manage implicit permissions.
+* It defines methods to match and check if a given permission is implicitly granted to an actor.
+* @class
+* @name PermissionImplicator
+*/
 class PermissionImplicator {
     static create ({ id, matcher, checker }) {
         return new PermissionImplicator({ id, matcher, checker });
@@ -75,11 +96,24 @@ class PermissionImplicator {
      * @param  {string} permission
      * @returns 
      */
+    /**
+    * Rewrites a permission string if it matches any registered rewriter.
+    * @param {string} permission - The permission string to potentially rewrite.
+    * @returns {Promise<string>} The possibly rewritten permission string.
+    */
     async check ({ actor, permission, recurse }) {
         return await this.checker({ actor, permission, recurse });
     }
 }
 
+
+/**
+* The PermissionExploder class is responsible for expanding permissions into a set of more granular permissions.
+* It uses a matcher function to determine if a permission should be exploded and an exploder function to perform the expansion.
+* This class is part of the permission management system, allowing for dynamic and complex permission structures.
+* 
+* @class PermissionExploder
+*/
 class PermissionExploder {
     static create ({ id, matcher, exploder }) {
         return new PermissionExploder({ id, matcher, exploder });
@@ -101,15 +135,36 @@ class PermissionExploder {
      * @param  {string} permission
      * @returns 
      */
+    /**
+    * Explodes a permission into a set of implied permissions.
+    * 
+    * This method takes a permission string and an actor object, 
+    * then uses the associated exploder function to derive additional 
+    * permissions that are implied by the given permission.
+    * 
+    * @param {Object} options - The options object containing:
+    * @param {Actor} options.actor - The actor requesting the permission explosion.
+    * @param {string} options.permission - The base permission to be exploded.
+    * @returns {Promise<Array<string>>} A promise resolving to an array of implied permissions.
+    */
     async explode ({ actor, permission }) {
         return await this.exploder({ actor, permission });
     }
 }
 
+
+/**
+* The PermissionUtil class provides utility methods for handling
+* permission strings and operations, including splitting, joining,
+* escaping, and unescaping permission components. It also includes
+* functionality to convert permission reading structures into options.
+*/
 class PermissionUtil {
     static unescape_permission_component (component) {
         let unescaped_str = '';
+        // Constant for unescaped permission component string
         const STATE_NORMAL = {};
+        // Constant for escaping special characters in permission strings
         const STATE_ESCAPE = {};
         let state = STATE_NORMAL;
         const const_escapes = { C: ':' };
@@ -197,18 +252,52 @@ class PermissionUtil {
     }
 }
 
+
+/**
+* @class PermissionService
+* @extends BaseService
+* @description
+* The PermissionService class manages and enforces permissions within the application. It provides methods to:
+* - Check, grant, and revoke permissions for users and applications.
+* - Scan for existing permissions.
+* - Handle permission implications, rewriting, and explosion to support complex permission hierarchies.
+* This service interacts with the database to manage permissions and logs actions for auditing purposes.
+*/
 class PermissionService extends BaseService {
+    /**
+    * Initializes the PermissionService by setting up internal arrays for permission handling.
+    * 
+    * This method is called during the construction of the PermissionService instance to
+    * prepare it for handling permissions, rewriters, implicators, and exploders.
+    */
     _construct () {
         this._permission_rewriters = [];
         this._permission_implicators = [];
         this._permission_exploders = [];
     }
 
+
+    /**
+    * Registers a permission exploder which expands permissions into their component parts or related permissions.
+    * 
+    * @param {PermissionExploder} exploder - The PermissionExploder instance to register.
+    * @throws {Error} If the provided exploder is not an instance of PermissionExploder.
+    */
     async _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'permissions');
         this._register_commands(this.services.get('commands'));
     }
 
+
+    /**
+    * Rewrites the given permission string based on registered PermissionRewriters.
+    * 
+    * @param {string} permission - The original permission string to be rewritten.
+    * @returns {Promise<string>} A promise that resolves to the rewritten permission string.
+    * 
+    * @note This method iterates through all registered rewriters. If a rewriter matches the permission,
+    *       it applies the rewrite transformation. The process continues until no more matches are found.
+    */
     async _rewrite_permission (permission) {
         for ( const rewriter of this._permission_rewriters ) {
             if ( ! rewriter.matches(permission) ) continue;
@@ -217,6 +306,18 @@ class PermissionService extends BaseService {
         return permission;
     }
     
+
+    /**
+    * Checks if the actor has any of the specified permissions.
+    * 
+    * @param {Actor} actor - The actor to check permissions for.
+    * @param {Array|string} permission_options - The permissions to check against. 
+    * Can be a single permission string or an array of permission strings.
+    * @returns {Promise<boolean>} - True if the actor has at least one of the permissions, false otherwise.
+    * 
+    * @note This method currently delegates to `scan()`, but a TODO suggests 
+    * an optimized implementation is planned.
+    */
     async check (actor, permission_options) {
         // TODO: optimized implementation for check instead of
         //       delegating to the scan() method
@@ -225,6 +326,22 @@ class PermissionService extends BaseService {
         return options.length > 0;
     }
 
+
+    /**
+    * Scans the permissions for an actor against specified permission options.
+    * 
+    * This method performs a comprehensive scan of permissions, considering:
+    * - Direct permissions
+    * - Implicit permissions
+    * - Permission rewriters
+    * 
+    * @param {Actor} actor - The actor whose permissions are being checked.
+    * @param {string|string[]} permission_options - One or more permission strings to check against.
+    * @param {*} _reserved - Reserved for future use, currently not utilized.
+    * @param {Object} state - State object to manage recursion and prevent cycles.
+    * 
+    * @returns {Promise<Array>} A promise that resolves to an array of permission readings.
+    */
     async scan (actor, permission_options, _reserved, state) {
         if ( ! state ) this.log.info('scan', {
             actor: actor.uid,
@@ -267,6 +384,18 @@ class PermissionService extends BaseService {
         return reading;
     }
     
+
+    /**
+    * Grants a user permission to interact with another user.
+    * 
+    * @param {Actor} actor - The actor granting the permission (must be a user).
+    * @param {string} username - The username of the user receiving the permission.
+    * @param {string} permission - The permission string to grant.
+    * @param {Object} [extra={}] - Additional metadata or conditions for the permission.
+    * @param {Object} [meta] - Metadata for logging or auditing purposes.
+    * @throws {Error} If the user to grant permission to is not found or if attempting to grant permissions to oneself.
+    * @returns {Promise<void>}
+    */
     async grant_user_app_permission (actor, app_uid, permission, extra = {}, meta) {
         permission = await this._rewrite_permission(permission);
 
@@ -313,6 +442,20 @@ class PermissionService extends BaseService {
         );
     }
 
+
+    /**
+    * Grants a permission to a user for a specific app.
+    * 
+    * @param {Actor} actor - The actor granting the permission, must be a user.
+    * @param {string} app_uid - The unique identifier or name of the app.
+    * @param {string} permission - The permission string to be granted.
+    * @param {Object} [extra={}] - Additional data associated with the permission.
+    * @param {Object} [meta] - Metadata for the operation, including a reason for the grant.
+    * 
+    * @throws {Error} If the actor is not a user or if the app is not found.
+    * 
+    * @returns {Promise<void>} A promise that resolves when the permission is granted and logged.
+    */
     async revoke_user_app_permission (actor, app_uid, permission, meta) {
         permission = await this._rewrite_permission(permission);
 
@@ -357,6 +500,15 @@ class PermissionService extends BaseService {
         );
     }
 
+
+    /**
+    * Revokes all permissions for a user on a specific app.
+    * 
+    * @param {Actor} actor - The actor performing the revocation, must be a user.
+    * @param {string} app_uid - The unique identifier or name of the app for which permissions are being revoked.
+    * @param {Object} meta - Metadata for logging the revocation action.
+    * @throws {Error} If the actor is not a user.
+    */
     async revoke_user_app_all (actor, app_uid, meta) {
         // For now, actor MUST be a user
         if ( ! (actor.type instanceof UserActorType) ) {
@@ -398,6 +550,22 @@ class PermissionService extends BaseService {
         );
     }
 
+
+    /**
+    * Grants a permission from one user to another.
+    * 
+    * This method handles the process of granting permissions between users,
+    * ensuring that the permission is correctly formatted, the users exist,
+    * and that self-granting is not allowed.
+    * 
+    * @param {Actor} actor - The actor granting the permission (must be a user).
+    * @param {string} username - The username of the user receiving the permission.
+    * @param {string} permission - The permission string to be granted.
+    * @param {Object} [extra={}] - Additional metadata or conditions for the permission.
+    * @param {Object} [meta] - Metadata for auditing purposes, including a reason for the action.
+    * @throws {Error} Throws if the user is not found or if attempting to grant permissions to oneself.
+    * @returns {Promise<void>}
+    */
     async grant_user_user_permission (actor, username, permission, extra = {}, meta) {
         permission = await this._rewrite_permission(permission);
         const user = await get_user({ username });
@@ -445,6 +613,21 @@ class PermissionService extends BaseService {
         );
     }
     
+
+    /**
+    * Grants a user permission to interact with a specific group.
+    * 
+    * @param {Actor} actor - The actor granting the permission.
+    * @param {string} gid - The group identifier (UID or name).
+    * @param {string} permission - The permission string to be granted.
+    * @param {Object} [extra={}] - Additional metadata for the permission.
+    * @param {Object} [meta] - Metadata about the grant action, including the reason.
+    * @returns {Promise<void>}
+    * 
+    * @note This method ensures the group exists before granting permission.
+    * @note The permission is first rewritten using any registered rewriters.
+    * @note If the permission already exists, its extra data is updated.
+    */
     async grant_user_group_permission (actor, gid, permission, extra = {}, meta) {
         permission = await this._rewrite_permission(permission);
         const svc_group = this.services.get('group');
@@ -487,6 +670,19 @@ class PermissionService extends BaseService {
         );
     }
 
+
+    /**
+    * Revokes a specific user-to-user permission
+    * 
+    * @param {Actor} actor - The actor performing the revocation
+    * @param {string} username - The username of the user whose permission is being revoked
+    * @param {string} permission - The specific permission string to revoke
+    * @param {Object} meta - Metadata for the revocation action
+    * 
+    * @throws {Error} If the specified user is not found
+    * 
+    * @returns {Promise<void>} A promise that resolves when the permission has been revoked and audit logs updated
+    */
     async revoke_user_user_permission (actor, username, permission, meta) {
         permission = await this._rewrite_permission(permission);
 
@@ -524,6 +720,19 @@ class PermissionService extends BaseService {
         );
     }
     
+
+    /**
+    * Revokes a specific permission granted by the actor to a group.
+    * 
+    * This method removes the specified permission from the `user_to_group_permissions` table,
+    * ensuring that the actor no longer has that permission for the specified group.
+    * 
+    * @param {Actor} actor - The actor revoking the permission.
+    * @param {string} gid - The group ID for which the permission is being revoked.
+    * @param {string} permission - The permission string to revoke.
+    * @param {Object} meta - Metadata for the revocation action, including reason.
+    * @returns {Promise<void>} A promise that resolves when the revocation is complete.
+    */
     async revoke_user_group_permission (actor, gid, permission, meta) {
         permission = await this._rewrite_permission(permission);
         const svc_group = this.services.get('group');
@@ -572,6 +781,14 @@ class PermissionService extends BaseService {
      *   home directories of users that shared files with the
      *   current user.
      */
+    /**
+    * Lists users who have granted any permissions to the specified user.
+    * 
+    * This method provides a flat, non-recursive view of permission issuers.
+    * 
+    * @param {Object} user - The user whose permission issuers are to be listed.
+    * @returns {Promise<Array>} A promise that resolves to an array of user objects.
+    */
     async list_user_permission_issuers (user) {
         const rows = await this.db.read(
             'SELECT DISTINCT issuer_user_id FROM `user_to_user_permissions` ' +
@@ -601,6 +818,16 @@ class PermissionService extends BaseService {
      * - This was written for FSNodeContext.fetchShares to query
      *   all the "shares" associated with a file.
      */
+    /**
+    * Queries permissions granted by an issuer to various users and apps based on a permission prefix.
+    * 
+    * This method retrieves permissions from the database where the permission key starts with a specified prefix.
+    * It is designed for "flat" (non-cascading) queries.
+    * 
+    * @param {Object} issuer - The actor granting the permissions.
+    * @param {string} prefix - The prefix to match in the permission key.
+    * @returns {Object} An object containing arrays of user and app permissions matching the prefix.
+    */
     async query_issuer_permissions_by_prefix (issuer, prefix) {
         const user_perms = await this.db.read(
             'SELECT DISTINCT holder_user_id, permission ' +
@@ -654,6 +881,17 @@ class PermissionService extends BaseService {
      * @param {*} prefix 
      * @returns 
      */
+    /**
+    * Queries the permissions granted by an issuer to a holder with a specific prefix.
+    * 
+    * This method retrieves permissions that match a given prefix from the database.
+    * It's a flat view, meaning it does not include cascading permissions.
+    * 
+    * @param {Object} issuer - The actor granting the permissions.
+    * @param {Object} holder - The actor receiving the permissions.
+    * @param {string} prefix - The prefix of the permission keys to match.
+    * @returns {Promise<Array<string>>} An array of permission strings matching the prefix.
+    */
     async query_issuer_holder_permissions_by_prefix (issuer, holder, prefix) {
         const user_perms = await this.db.read(
             'SELECT permission ' +
@@ -667,6 +905,18 @@ class PermissionService extends BaseService {
         return user_perms.map(row => row.permission);
     }
     
+
+    /**
+    * Retrieves permissions granted by an issuer to a specific holder with a given prefix.
+    * 
+    * @param {Actor} issuer - The actor granting the permissions.
+    * @param {Actor} holder - The actor receiving the permissions.
+    * @param {string} prefix - The prefix to filter permissions by.
+    * @returns {Promise<Array<string>>} A promise that resolves to an array of permission strings.
+    * 
+    * @note This method performs a database query to fetch permissions. It does not handle
+    *       recursion or implication of permissions, providing only a direct, flat list.
+    */
     async get_higher_permissions (permission) {
         const higher_perms = new Set()
         higher_perms.add(permission);

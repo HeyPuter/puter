@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -22,6 +23,14 @@ const { generate_random_code } = require("../../util/identifier");
 const { DB_MODE_WRITE } = require("../MysqlAccessService");
 const { DB_MODE_READ } = require("../MysqlAccessService");
 
+
+/**
+* Base Job class for handling migration tasks in the FSEntryMigrateService.
+* Provides common functionality for managing job state (green/yellow/red),
+* progress tracking, and graceful stopping of migration jobs.
+* Contains methods for state management, progress visualization,
+* and controlled execution flow.
+*/
 class Job {
     static STATE_GREEN = {};
     static STATE_YELLOW = {};
@@ -32,6 +41,11 @@ class Job {
         this.log = log;
         this.state = this.constructor.STATE_RED;
     }
+    /**
+    * Checks if the job should stop based on its current state
+    * @returns {boolean} True if the job should stop, false if it can continue
+    * @private
+    */
     maybe_stop_ () {
         if ( this.state !== this.constructor.STATE_GREEN ) {
             this.log.info(`Stopping job`);
@@ -40,11 +54,19 @@ class Job {
         }
         return false;
     }
+    /**
+    * Checks if the job should stop based on its current state
+    * @returns {boolean} True if the job should stop, false if it can continue
+    * @private
+    */
     stop () {
         this.state = this.constructor.STATE_YELLOW;
     }
     set_progress (progress) {
         let bar = '';
+        // Progress bar string to display migration progress in the console
+        const WIDTH = 30;
+        // Width of the progress bar display in characters
         const WIDTH = 30;
         const N = Math.floor(WIDTH * progress);
         for ( let i = 0 ; i < WIDTH ; i++ ) {
@@ -58,7 +80,28 @@ class Job {
     }
 }
 
+
+/**
+* @class Mig_StorePath
+* @extends Job
+* @description Handles the migration of file system entries to include path information.
+* This class processes fsentries that don't have path data set, calculating and storing
+* their full paths in batches. It includes rate limiting and progress tracking to prevent
+* server overload during migration.
+*/
 class Mig_StorePath extends Job {
+    /**
+    * Handles migration of file system entries to update storage paths
+    * @param {Object} args - Command line arguments for the migration
+    * @param {string[]} args.verbose - If --verbose is included, logs detailed path info
+    * @returns {Promise<void>} Resolves when migration is complete
+    * 
+    * Migrates fsentry records that have null paths by:
+    * - Processing entries in batches of 50
+    * - Converting UUIDs to full paths
+    * - Updating the path column in the database
+    * - Includes throttling between batches to reduce server load
+    */
     async start (args) {
         this.state = this.constructor.STATE_GREEN;
         const { dbrr, dbrw, log } = this;
@@ -111,7 +154,25 @@ class Mig_StorePath extends Job {
     }
 }
 
+
+/**
+* @class Mig_IndexAccessed
+* @extends Job
+* @description Migration job that updates the 'accessed' timestamp for file system entries.
+* Sets the 'accessed' field to match the 'created' timestamp for entries where 'accessed' is NULL.
+* Processes entries in batches of 10000 to avoid overloading the database, with built-in delays
+* between batches for server load management.
+*/
 class Mig_IndexAccessed extends Job {
+    /**
+    * Migrates fsentries to include 'accessed' timestamps by setting null values to their 'created' time
+    * @param {Array} args - Command line arguments passed to the migration
+    * @returns {Promise<void>} 
+    * 
+    * Processes fsentries in batches of 10000, updating any null 'accessed' fields
+    * to match their 'created' timestamp. Includes built-in delays between batches
+    * to reduce server load. Continues until no more records need updating.
+    */
     async start (args) {
         this.state = this.constructor.STATE_GREEN;
         const { dbrr, dbrw, log } = this;
@@ -146,7 +207,29 @@ class Mig_IndexAccessed extends Job {
     }
 }
 
+
+/**
+* @class Mig_FixTrash
+* @extends Job
+* @description Migration job that ensures each user has a Trash directory in their root folder.
+* Creates missing Trash directories with proper UUIDs, updates user records with trash_uuid,
+* and sets appropriate timestamps and permissions. The Trash directory is marked as immutable
+* and is created with standardized path '/Trash'.
+*/
 class Mig_FixTrash extends Job {
+    /**
+    * Handles migration to fix missing Trash directories for users
+    * Creates a new Trash directory and updates necessary records if one doesn't exist
+    * 
+    * @param {Array} args - Command line arguments passed to the migration
+    * @returns {Promise<void>} Resolves when migration is complete
+    * 
+    * @description
+    * - Identifies users without a Trash directory
+    * - Creates new Trash directory with UUID for each user
+    * - Updates user table with new trash_uuid
+    * - Includes throttling between operations to reduce server load
+    */
     async start (args) {
         const { v4: uuidv4 } = require('uuid');
 
@@ -201,18 +284,37 @@ class Mig_FixTrash extends Job {
     }
 }
 
+
+/**
+* Class for managing referral code migrations in the user database.
+* Generates and assigns unique referral codes to users who don't have them.
+* Uses deterministic random generation with seeding to ensure consistent codes
+* while avoiding collisions with existing codes. Processes users in batches
+* and provides progress tracking.
+*/
 class Mig_AddReferralCodes extends Job {
+    /**
+    * Adds referral codes to users who don't have them yet.
+    * Generates unique 8-character random codes using a seeded RNG.
+    * If a generated code conflicts with existing ones, it iterates with
+    * a new seed until finding an unused code.
+    * Updates users in batches, showing progress every 500 users.
+    * Can be stopped gracefully via stop() method.
+    * @returns {Promise<void>}
+    */
     async start (args) {
         this.state = this.constructor.STATE_GREEN;
         const { dbrr, dbrw, log } = this;
 
         let existing_codes = new Set();
+        // Set to store existing referral codes to avoid duplicates during migration
         const SQL_EXISTING_CODES = `SELECT referral_code FROM user`;
         let [codes] = await dbrr.promise().execute(SQL_EXISTING_CODES);
         for ( const { referal_code } of codes ) {
             existing_codes.add(referal_code);
         }
 
+        // SQL query to fetch all user IDs and their referral codes from the user table
         const SQL_USER_IDS = `SELECT id, referral_code FROM user`;
 
         let [users] = await dbrr.promise().execute(SQL_USER_IDS);
@@ -243,7 +345,24 @@ class Mig_AddReferralCodes extends Job {
     }
 }
 
+
+/**
+* @class Mig_AuditInitialStorage
+* @extends Job
+* @description Migration class responsible for adding audit logs for users' initial storage capacity.
+* This migration is designed to retroactively create audit records for each user's storage capacity
+* from before the implementation of the auditing system. Inherits from the base Job class to
+* handle migration state management and progress tracking.
+*/
 class Mig_AuditInitialStorage extends Job {
+    /**
+    * Handles migration for auditing initial storage capacity for users
+    * before auditing was implemented. Creates audit log entries for each
+    * user's storage capacity from before the auditing system existed.
+    * 
+    * @param {Array} args - Command line arguments passed to the migration
+    * @returns {Promise<void>}
+    */
     async start (args) {
         this.state = this.constructor.STATE_GREEN;
         const { dbrr, dbrw, log } = this;
@@ -253,6 +372,15 @@ class Mig_AuditInitialStorage extends Job {
     }
 }
 
+
+/**
+* @class FSEntryMigrateService
+* @description Service responsible for managing and executing database migrations for filesystem entries.
+* Provides functionality to run various migrations including path storage updates, access time indexing,
+* trash folder fixes, and referral code generation. Exposes commands to start and stop migrations through
+* a command interface. Each migration is implemented as a separate Job class that can be controlled
+* independently.
+*/
 class FSEntryMigrateService {
     constructor ({ services }) {
         const mysql = services.get('mysql');
