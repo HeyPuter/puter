@@ -22,6 +22,7 @@ import bn from './bn.js';
 import br from './br.js';
 import da from './da.js';
 import de from './de.js';
+import emoji from './emoji.js';
 import en from './en.js';
 import es from './es.js';
 import fa from './fa.js';
@@ -29,7 +30,9 @@ import fi from './fi.js';
 import fr from './fr.js';
 import he from './he.js';
 import hi from './hi.js';
+import hu from './hu.js';
 import hy from './hy.js';
+import id from './id.js';
 import it from './it.js';
 import ig from './ig.js';
 import ja from './ja.js';
@@ -46,14 +49,11 @@ import sv from './sv.js';
 import ta from './ta.js';
 import th from './th.js';
 import tr from './tr.js';
-import ur from './ur.js';
 import ua from './ua.js';
-import zh from './zh.js';
-import hu from './hu.js';
-import zhtw from './zhtw.js';
+import ur from './ur.js';
 import vi from "./vi.js";
-import emoji from './emoji.js';
-import id from './id.js';
+import zh from './zh.js';
+import zhtw from './zhtw.js';
 
 export default {
     ar,
@@ -61,6 +61,7 @@ export default {
     br,
     da,
     de,
+    emoji,
     en,
     es,
     fa,
@@ -68,7 +69,9 @@ export default {
     fr,
     he,
     hi,
+    hu,
     hy,
+    id,
     it,
     ig,
     ja,
@@ -86,11 +89,8 @@ export default {
     th,
     tr,
     ua,
-    zh,
-    hu,
-    zhtw,
     ur,
     vi,
-    emoji,
-    id,
+    zh,
+    zhtw,
 };
