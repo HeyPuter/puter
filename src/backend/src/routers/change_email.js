@@ -75,6 +75,12 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
         'UPDATE `user` SET `email` = ?, `clean_email` = ?, `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL, `pass_recovery_token` = NULL WHERE `id` = ?',
         [new_email, clean_email, user_id]
     );
+    
+    const svc_event = req.services.get('event');
+    svc_event.emit('user.email-changed', {
+        user_id: user_id,
+        new_email,
+    });
 
     invalidate_cached_user_by_id(user_id);
     let socketio = require('../socketio.js').getio();
