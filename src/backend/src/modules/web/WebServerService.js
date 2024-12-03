@@ -104,7 +104,7 @@ class WebServerService extends BaseService {
         // error handling middleware goes last, as per the
         // expressjs documentation:
         // https://expressjs.com/en/guide/error-handling.html
-        this.app.use(require('../../api/api_error_handler.js'));
+        this.app.use(require('./lib/api_error_handler.js'));
 
         const { jwt_auth } = require('../../helpers.js');
 
