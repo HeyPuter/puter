@@ -116,7 +116,6 @@ class HLWrite extends HLFilesystemOperation {
 
     static MODULES = {
         _path: require('path'),
-        socketio: require('../../socketio.js'),
         mime: require('mime-types'),
     }
 

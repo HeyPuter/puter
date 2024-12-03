@@ -28,6 +28,7 @@ const { Context } = require("./src/util/context.js");
 const { TestDriversModule } = require("./src/modules/test-drivers/TestDriversModule.js");
 const { PuterAIModule } = require("./src/modules/puterai/PuterAIModule.js");
 const { BroadcastModule } = require("./src/modules/broadcast/BroadcastModule.js");
+const { WebModule } = require("./src/modules/web/WebModule.js");
 
 
 module.exports = {
@@ -42,9 +43,15 @@ module.exports = {
     Context,
 
     Kernel,
+    
+    EssentialModules: [
+        CoreModule,
+        WebModule,
+    ],
 
     // Pre-built modules
     CoreModule,
+    WebModule,
     DatabaseModule,
     PuterDriversModule,
     LocalDiskStorageModule,

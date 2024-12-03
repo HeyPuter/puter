@@ -457,10 +457,8 @@ module.exports = eggspress('/writeFile', {
         };
 
         // send realtime success msg to client
-        let socketio = require('../socketio.js').getio();
-        if(socketio){
-            socketio.to(fsentry.user_id).emit('item.renamed', return_obj)
-        }
+        const svc_socketio = req.services.get('socketio');
+        svc_socketio.send({ room: req.user.id }, 'item.renamed', return_obj);
 
         return res.send(return_obj);
     }

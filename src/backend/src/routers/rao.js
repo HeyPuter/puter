@@ -90,8 +90,8 @@ router.post('/rao', auth, express.json(), async (req, res, next)=>{
     }
 
     // Update clients
-    const socketio = require('../socketio.js').getio();
-    socketio.to(req.user.id).emit('app.opened', {
+    const svc_socketio = req.services.get('socketio');
+    svc_socketio.send({ room: req.user.id }, 'app.opened', {
         uuid: opened_app.uid,
         uid: opened_app.uid,
         name: opened_app.name,

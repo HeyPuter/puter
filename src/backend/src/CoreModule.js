@@ -129,7 +129,6 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { ConfigurableCountingService } = require('./services/ConfigurableCountingService');
     const { FSLockService } = require('./services/fs/FSLockService');
     const { StrategizedService } = require('./services/StrategizedService');
-    const WebServerService = require('./services/WebServerService');
     const FilesystemAPIService = require('./services/FilesystemAPIService');
     const ServeGUIService = require('./services/ServeGUIService');
     const PuterAPIService = require('./services/PuterAPIService');
@@ -143,7 +142,6 @@ const install = async ({ services, app, useapi, modapi }) => {
     services.registerService('server-health', ServerHealthService);
     services.registerService('log-service', LogService);
     services.registerService('commands', CommandService);
-    services.registerService('web-server', WebServerService, { app });
     services.registerService('__api-filesystem', FilesystemAPIService);
     services.registerService('__api', PuterAPIService);
     services.registerService('__gui', ServeGUIService);
@@ -354,6 +352,9 @@ const install = async ({ services, app, useapi, modapi }) => {
     
     const { UserService } = require('./services/UserService');
     services.registerService('user', UserService);
+
+    const { WSPushService } = require('./services/WSPushService');
+    services.registerService('__event-push-ws', WSPushService);
 }
 
 const install_legacy = async ({ services }) => {
@@ -361,7 +362,6 @@ const install_legacy = async ({ services }) => {
     // const { FilesystemService } = require('./filesystem/FilesystemService');
     const PerformanceMonitor = require('./monitor/PerformanceMonitor');
     const { OperationTraceService } = require('./services/OperationTraceService');
-    const { WSPushService } = require('./services/WSPushService');
     const { ClientOperationService } = require('./services/ClientOperationService');
     const { EngPortalService } = require('./services/EngPortalService');
     const { AppInformationService } = require('./services/AppInformationService');
@@ -371,7 +371,6 @@ const install_legacy = async ({ services }) => {
     services.registerService('process-event', ProcessEventService);
     // services.registerService('filesystem', FilesystemService);
     services.registerService('operationTrace', OperationTraceService);
-    services.registerService('__event-push-ws', WSPushService);
     services.registerService('file-cache', FileCacheService);
     services.registerService('client-operation', ClientOperationService);
     services.registerService('app-information', AppInformationService);

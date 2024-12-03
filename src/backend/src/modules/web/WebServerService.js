@@ -18,18 +18,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const express = require('express');
-const eggspress = require("../api/eggspress");
-const { Context, ContextExpressMiddleware } = require("../util/context");
-const BaseService = require("./BaseService");
+const eggspress = require("../../api/eggspress.js");
+const { Context, ContextExpressMiddleware } = require("../../util/context.js");
+const BaseService = require("../../services/BaseService.js");
 
-const config = require('../config');
+const config = require('../../config.js');
 const https = require('https')
 var http = require('http');
 const fs = require('fs');
-const auth = require('../middleware/auth');
-const { osclink } = require('../util/strutil');
-const { surrounding_box, es_import_promise } = require('../fun/dev-console-ui-utils');
+const auth = require('../../middleware/auth.js');
+const { osclink } = require('../../util/strutil.js');
+const { surrounding_box, es_import_promise } = require('../../fun/dev-console-ui-utils.js');
 
+const relative_require = require;
 
 /**
 * This class, WebServerService, is responsible for starting and managing the Puter web server.
@@ -103,9 +104,9 @@ class WebServerService extends BaseService {
         // error handling middleware goes last, as per the
         // expressjs documentation:
         // https://expressjs.com/en/guide/error-handling.html
-        this.app.use(require('../api/api_error_handler'));
+        this.app.use(require('../../api/api_error_handler.js'));
 
-        const { jwt_auth } = require('../helpers');
+        const { jwt_auth } = require('../../helpers.js');
 
         config.http_port = process.env.PORT ?? config.http_port;
 
@@ -224,7 +225,11 @@ class WebServerService extends BaseService {
         // server.keepAliveTimeout = 1000 * 60 * 60 * 2; // 2 hours
 
         // Socket.io server instance
-        const socketio = require('../socketio.js').init(server);
+        // const socketio = require('../../socketio.js').init(server);
+
+        // TODO: ^ Replace above line with the following code:
+        await this.services.emit('install.socketio', { server });
+        const socketio = this.services.get('socketio').io;
 
         // Socket.io middleware for authentication
         socketio.use(async (socket, next) => {
@@ -305,13 +310,13 @@ class WebServerService extends BaseService {
 
 
         const require = this.require;
-
+        
         const config = this.global_config;
         new ContextExpressMiddleware({
             parent: globalThis.root_context.sub({
                 puter_environment: Context.create({
                     env: config.env,
-                    version: require('../../package.json').version,
+                    version: relative_require('../../../package.json').version,
                 }),
             }, 'mw')
         }).install(app);
@@ -580,6 +585,8 @@ class WebServerService extends BaseService {
         app.options('/*', (_, res) => {
             return res.sendStatus(200);
         });
+        
+        console.log('WEB SERVER INIT DONE');
     }
 
     _register_commands (commands) {
@@ -611,7 +618,7 @@ class WebServerService extends BaseService {
     // comment above line 497
     print_puter_logo_() {
         if ( this.global_config.env !== 'dev' ) return;
-        const logos = require('../fun/logos.js');
+        const logos = require('../../fun/logos.js');
         let last_logo = undefined;
         for ( const logo of logos ) {
             if ( logo.sz <= (process.stdout.columns ?? 0) ) {

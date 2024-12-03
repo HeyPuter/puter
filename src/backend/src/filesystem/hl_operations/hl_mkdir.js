@@ -242,7 +242,6 @@ class HLMkdir extends HLFilesystemOperation {
 
     static MODULES = {
         _path: require('path'),
-        socketio: require('../../socketio.js'),
     }
 
     static PROPERTIES = {
@@ -258,7 +257,7 @@ class HLMkdir extends HLFilesystemOperation {
 
     async _run () {
         const { context, values } = this;
-        const { _path, socketio } = this.modules;
+        const { _path } = this.modules;
         const fs = context.get('services').get('filesystem');
 
         if ( ! is_valid_path(values.path, {
