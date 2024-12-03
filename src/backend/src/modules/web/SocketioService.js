@@ -1,10 +1,20 @@
 const BaseService = require('../../services/BaseService');
 
+/**
+ * SocketioService provides a service for sending messages to clients.
+ * socket.io is used behind the scenes. This service provides a simpler
+ * interface for sending messages to rooms or socket ids.
+ */
 class SocketioService extends BaseService {
     static MODULES = {
         socketio: require('socket.io'),
     };
 
+    /**
+     * Initializes socket.io
+     * 
+     * @evtparam server The server to attach socket.io to.
+     */
     ['__on_install.socketio'] (_, { server }) {
         const require = this.require;
         
