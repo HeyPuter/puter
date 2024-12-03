@@ -345,7 +345,8 @@ module.exports = eggspress(['/signup'], {
         }
     }
 
-    await generate_system_fsentries(user);
+    const svc_user = Context.get('services').get('user');
+    await svc_user.generate_default_fsentries({ user });
 
     //set cookie
     res.cookie(config.cookie_name, token, {

@@ -351,6 +351,9 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { ReferralCodeService } = require('./services/ReferralCodeService');
     services.registerService('referral-code', ReferralCodeService);
+    
+    const { UserService } = require('./services/UserService');
+    services.registerService('user', UserService);
 }
 
 const install_legacy = async ({ services }) => {
