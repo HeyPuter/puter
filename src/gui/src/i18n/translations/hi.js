@@ -354,9 +354,6 @@ const hi = {
         "You can't share with yourself.": "आप अपने आप के साथ साझा नहीं कर सकते।", // In English: "You can't share with yourself."
         "This user already has access to this item": "इस उपयोगकर्ता के पास पहले से ही इस वस्तु का प्रवेश है", // In English: "This user already has access to this item"
 
-        // ----------------------------------------
-        // Missing translations:
-        // ----------------------------------------
         "billing.change_payment_method": "बदलें", // In English: "Change"
         "billing.cancel": "रद्द करें", // In English: "Cancel"
         "billing.download_invoice": "डाउनलोड करें", // In English: "Download"
