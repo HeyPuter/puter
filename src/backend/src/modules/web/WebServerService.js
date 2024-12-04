@@ -18,7 +18,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const express = require('express');
-const eggspress = require("../../api/eggspress.js");
+const eggspress = require("./lib/eggspress.js");
 const { Context, ContextExpressMiddleware } = require("../../util/context.js");
 const BaseService = require("../../services/BaseService.js");
 
@@ -27,7 +27,6 @@ const https = require('https')
 var http = require('http');
 const fs = require('fs');
 const auth = require('../../middleware/auth.js');
-const { osclink } = require('../../util/strutil.js');
 const { surrounding_box, es_import_promise } = require('../../fun/dev-console-ui-utils.js');
 
 const relative_require = require;
@@ -38,6 +37,10 @@ const relative_require = require;
 * It also validates the host header and IP addresses to prevent security vulnerabilities.
 */
 class WebServerService extends BaseService {
+    static USE = {
+        strutil: 'std.string',
+    }
+
     static MODULES = {
         https: require('https'),
         http: require('http'),
@@ -198,7 +201,7 @@ class WebServerService extends BaseService {
         */
         this.startup_widget = () => {
 
-            const link = `\x1B[34;1m${osclink(url)}\x1B[0m`;
+            const link = `\x1B[34;1m${this.strutil.osclink(url)}\x1B[0m`;
             const lines = [
                 `Puter is now live at: ${link}`,
                 `Type web:dismiss to un-stick this message`,

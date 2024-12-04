@@ -40,7 +40,7 @@ const NOOP = async () => {};
 */
 class BaseService extends concepts.Service {
     constructor (service_resources, ...a) {
-        const { services, config, my_config, name, args } = service_resources;
+        const { services, config, my_config, name, args, context } = service_resources;
         super(service_resources, ...a);
 
         this.args = args;
@@ -48,6 +48,7 @@ class BaseService extends concepts.Service {
         this.services = services;
         this.config = my_config;
         this.global_config = config;
+        this.context = context;
 
         if ( this.global_config.server_id === '' ) {
             this.global_config.server_id = 'local';
@@ -63,6 +64,12 @@ class BaseService extends concepts.Service {
     * @returns {Promise<void>} A promise that resolves when initialization is complete.
     */
     async construct () {
+        console.log('CLASS', this.constructor.name);
+        const useapi = this.context.get('useapi');
+        const use = this._get_merged_static_object('USE');
+        for ( const [key, value] of Object.entries(use) ) {
+            this[key] = useapi.use(value);
+        }
         await (this._construct || NOOP).call(this, this.args);
     }
 

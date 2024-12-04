@@ -29,6 +29,7 @@ const { TestDriversModule } = require("./src/modules/test-drivers/TestDriversMod
 const { PuterAIModule } = require("./src/modules/puterai/PuterAIModule.js");
 const { BroadcastModule } = require("./src/modules/broadcast/BroadcastModule.js");
 const { WebModule } = require("./src/modules/web/WebModule.js");
+const { Core2Module } = require("./src/modules/core/Core2Module.js");
 
 
 module.exports = {
@@ -46,6 +47,7 @@ module.exports = {
     
     EssentialModules: [
         CoreModule,
+        Core2Module,
         WebModule,
     ],
 

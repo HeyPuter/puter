@@ -57,7 +57,6 @@ extension.
 
 **Imports:**
 - `../../services/BaseService` (use.BaseService)
-- `../../api/eggspress.js`
 - `../../util/context.js`
 - `../../services/BaseService.js`
 - `../../config.js`
