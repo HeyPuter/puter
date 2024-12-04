@@ -5,51 +5,9 @@ const rootdir = path_.resolve(process.argv[2] ?? '.');
 
 const parser = require('@babel/parser');
 const traverse = require('@babel/traverse').default;
-const doctrine = require('doctrine');
+const { ModuleDoc } = require("./defs");
 
-const def_module = {
-    services: [],
-};
-
-const to_module_add_service = (def_module, values) => {
-    def_module.services.push({
-        ...values,
-    });
-}
-
-const to_service_add_listener = (def_service, values) => {
-    const parsed_comment = doctrine.parse(values.comment, { unwrap: true });
-    
-    const params = [];
-    for ( const tag of parsed_comment.tags ) {
-        if ( tag.title !== 'evtparam' ) continue;
-        const name = tag.description.slice(0, tag.description.indexOf(' '));
-        const desc = tag.description.slice(tag.description.indexOf(' '));
-        params.push({ name, desc })
-    }
-
-    def_service.listeners.push({
-        ...values,
-        comment: parsed_comment.description,
-        params,
-    });
-};
-
-const to_service_add_comment = (def_service, comment) => {
-    console.log('comment', comment);
-    const parsed_comment = doctrine.parse(comment.value, { unwrap: true });
-    def_service.comment = parsed_comment.description;
-};
-
-const to_module_add_comment = (def_module, comment) => {
-    console.log('comment', comment);
-    const parsed_comment = doctrine.parse(comment.value, { unwrap: true });
-    def_module.comment = parsed_comment.description;
-};
-
-const create_service = () => ({
-    listeners: []
-});
+const doc_module = new ModuleDoc();
 
 // List files in this directory
 const files = fs.readdirSync(rootdir);
@@ -67,16 +25,21 @@ for ( const file of files ) {
         
     if ( type === null ) continue;
     
-    const def_service = create_service();
-    
     console.log('file', file);
     const code = fs.readFileSync(path_.join(rootdir, file), 'utf8');
     const ast = parser.parse(code);
     traverse(ast, {
+        CallExpression (path) {
+            const callee = path.get('callee');
+            if ( ! callee.isIdentifier() ) return;
+            
+            if ( callee.node.name === 'require' ) {
+                doc_module.requires.push(path.node.arguments[0].value);
+            }
+        },
         ClassDeclaration (path) {
             const node = path.node;
             const name = node.id.name;
-            def_service.name = name;
             
             // Skip utility classes (for now)
             if ( name !== file.slice(0, -3) ) {
@@ -88,16 +51,24 @@ for ( const file of files ) {
                 node.leadingComments[node.leadingComments.length - 1]
             )) ?? '';
             
-            if ( type === 'module' ) {
-                def_module.name = name;
-                if ( comment !== '' ) {
-                    to_module_add_comment(def_module, comment);
-                }
-                return;
+            let doc_item = doc_module;
+            if ( type !== 'module' ) {
+                doc_item = doc_module.add_service();
             }
             
+            doc_item.name = name;
             if ( comment !== '' ) {
-                to_service_add_comment(def_service, comment);
+                doc_item.provide_comment(comment);
+            }
+
+            if ( type === 'module' ) {
+                return;
+            }
+    
+            
+            if ( comment !== '' ) {
+                doc_item.provide_comment(comment);
+                // to_service_add_comment(def_service, comment);
             }
             
             console.log('class', name);
@@ -111,7 +82,7 @@ for ( const file of files ) {
                     // we want the list of keys in the object:
                     const params = member.params?.[1]?.properties ?? [];
                 
-                    to_service_add_listener(def_service, {
+                    doc_item.provide_listener({
                         key: key.slice(5),
                         comment,
                         params,
@@ -119,48 +90,12 @@ for ( const file of files ) {
                 }
                 console.log(member.type, key, member.leadingComments);
             });
-            // module_info.services.push({
-            //     name,
-            //     file,
-            // });
         }
     })
-    
-    to_module_add_service(def_module, def_service);
-    // console.log('parsed?', parsed);
 }
-
-console.log('module', JSON.stringify(def_module, undefined, '  '));
 
 const outfile = path_.join(rootdir, 'README.md');
 
-let out = '';
-
-out += `# ${def_module.name}\n\n`;
-
-if ( def_module.comment ) {
-    out += `${def_module.comment}\n\n`;
-}
-
-out += '## Services\n\n';
-
-for ( const service of def_module.services ) {
-    out += `### ${service.name}\n\n`;
-    out += `${service.comment}\n\n`;
-    
-    out += '#### Listeners\n\n';
-    for ( const listener of service.listeners ) {
-        out += `##### \`${listener.key}\`\n\n`;
-        out += `${listener.comment}\n\n`;
-        
-        if ( listener.params.length > 0 ) {
-            out += '###### Parameters\n\n';
-            for ( const param of listener.params ) {
-                out += `- \`${param.name}\`: ${param.desc}\n`;
-            }
-            out += '\n';
-        }
-    }
-}
+const out = doc_module.toMarkdown();
 
 fs.writeFileSync(outfile, out);

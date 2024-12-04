@@ -20,13 +20,7 @@ Initializes socket.io
 
 ###### Parameters
 
-- `server`:  The server to attach socket.io to.
-
-### WebModule
-
-undefined
-
-#### Listeners
+- **server:**  The server to attach socket.io to.
 
 ### WebServerService
 
@@ -53,7 +47,22 @@ If the `config.http_port` is set to 'auto', it will try to find an available por
 Once the server is up and running, it emits the 'start.webserver' and 'ready.webserver' events.
 If the `config.env` is set to 'dev' and `config.no_browser_launch` is false, it will open the Puter URL in the default browser.
 
-##### `start.webserver`
+## Notes
 
+### Outside Imports
 
+This module has external relative imports. When these are
+removed it may become possible to move this module to an
+extension.
 
+**Imports:**
+- `../../services/BaseService` (use.BaseService)
+- `../../api/eggspress.js`
+- `../../util/context.js`
+- `../../services/BaseService.js`
+- `../../config.js`
+- `../../middleware/auth.js`
+- `../../util/strutil.js`
+- `../../fun/dev-console-ui-utils.js`
+- `../../helpers.js`
+- `../../fun/logos.js`

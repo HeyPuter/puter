@@ -12,6 +12,7 @@
   "dependencies": {
     "@babel/parser": "^7.26.2",
     "@babel/traverse": "^7.25.9",
+    "dedent": "^1.5.3",
     "doctrine": "^3.0.0"
   }
 }

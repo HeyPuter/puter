@@ -94,10 +94,6 @@ class WebServerService extends BaseService {
     *
     * @return {Promise} A promise that resolves when the server is up and running.
     */
-    // eslint-disable-next-line no-unused-vars
-    async ['__on_start.webserver'] () {
-    // ... rest of the method code
-    }
     async ['__on_start.webserver'] () {
         await es_import_promise;
 
