@@ -555,8 +555,8 @@ function generate_edit_app_section(app) {
                 </select>
 
                 <label for="edit-app-filetype-associations">File Associations</label>
-                <p style="margin-top: 10px; font-size:13px;">A comma-separated list of file type specifiers. For example if you include <code>.txt</code>, your apps could be opened when a user clicks on a TXT file.</p>
-                <textarea id="edit-app-filetype-associations" placeholder=".txt, .jpg, application/json">${app.filetype_associations}</textarea>
+               <p style="margin-top: 10px; font-size:13px;">A list of file type specifiers. For example if you include <code>.txt</code> your apps could be opened when a user clicks on a TXT file.</p>
+               <textarea id="edit-app-filetype-associations"  placeholder=".txt  .jpg    application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length)}</textarea>
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window</h3>
                 <div>
@@ -761,6 +761,30 @@ async function edit_app_section(cur_app_name) {
     toggleSaveButton();  // Ensure Save button is initially disabled
     toggleResetButton();  // Ensure Reset button is initially disabled
     $('#edit-app').show();
+
+    const filetype_association_input = document.querySelector('textarea[id=edit-app-filetype-associations]');
+    let tagify = new Tagify(filetype_association_input, {
+      pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/[a-z0-9.-]+)/, // pattern for filetype file like .pdf or MIME type like text/plain
+      delimiters: null,
+      whitelist: [
+        // Document file types
+        ".doc", ".docx", ".pdf", ".txt", ".odt", ".rtf", ".tex",
+        // Spreadsheet file types 
+        ".xls", ".xlsx", ".csv", ".ods",
+        // Image file types
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg", ".webp",
+        // Video file types
+        ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".flv", ".webm",
+        // Audio file types
+        ".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a",
+        // Code file types
+        ".js", ".ts", ".html", ".css", ".json", ".xml", ".php", ".py", ".java", ".cpp",
+        // Archive file types
+        ".zip", ".rar", ".7z", ".tar", ".gz",
+        // Other
+        ".exe", ".dll", ".iso"
+      ],
+    })
 
     // --------------------------------------------------------
     // Dragster
@@ -1102,6 +1126,32 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         }
     }
 
+    // parse filetype_associations
+
+    filetype_associations = JSON.parse(filetype_associations);
+    filetype_associations = filetype_associations.map((type) => {
+        const fileType = type.value;
+
+
+       if (
+           !fileType ||
+           fileType === "." ||
+           fileType === "/"
+       ) {
+      error = `<strong>File Association Type</strong> must be valid.`;
+      return null; // Return null for invalid cases
+    }
+    const lower = fileType.toLocaleLowerCase();
+
+    if (fileType.includes("/")) {
+      return lower;
+    } else if (fileType.includes(".")) {
+      return "." + lower.split(".")[1];
+    } else {
+      return "." + lower;
+    }
+    }).filter(Boolean);
+
     // error?
     if (error) {
         $('#edit-app-error').show();
@@ -1113,8 +1163,8 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
     // show working spinner
     puter.ui.showSpinner();
 
-    // parse filetype_associations
-    filetype_associations = filetype_associations.split(',').map(element => element.trim());
+    
+    
     // disable submit button
     $('.edit-app-save-btn').prop('disabled', true);
 
