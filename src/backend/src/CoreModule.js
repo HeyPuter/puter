@@ -86,7 +86,6 @@ const install = async ({ services, app, useapi, modapi }) => {
     // call to services.registerService. We'll clean this up
     // in a future PR.
 
-    const { LogService } = require('./services/runtime-analysis/LogService');
     const { PagerService } = require('./services/runtime-analysis/PagerService');
     const { AlarmService } = require('./services/runtime-analysis/AlarmService');
     const { ErrorService } = require('./services/runtime-analysis/ErrorService');
@@ -140,7 +139,6 @@ const install = async ({ services, app, useapi, modapi }) => {
     // === Services which extend BaseService ===
     services.registerService('system-validation', SystemValidationService);
     services.registerService('server-health', ServerHealthService);
-    services.registerService('log-service', LogService);
     services.registerService('commands', CommandService);
     services.registerService('__api-filesystem', FilesystemAPIService);
     services.registerService('__api', PuterAPIService);

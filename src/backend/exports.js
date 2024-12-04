@@ -46,8 +46,8 @@ module.exports = {
     Kernel,
     
     EssentialModules: [
-        CoreModule,
         Core2Module,
+        CoreModule,
         WebModule,
     ],
 

@@ -26,7 +26,6 @@ const fs = require('fs');
 
 const { fallbackRead } = require('../../util/files.js');
 const { generate_identifier } = require('../../util/identifier.js');
-const { stringify_log_entry } = require('./LogService.js');
 const BaseService = require('../BaseService.js');
 const { split_lines } = require('../../util/stdioutil.js');
 const { Context } = require('../../util/context.js');
@@ -36,6 +35,9 @@ const { Context } = require('../../util/context.js');
 * @classdesc AlarmService class is responsible for managing alarms. It provides methods for creating, clearing, and handling alarms.
 */
 class AlarmService extends BaseService {
+    static USE = {
+        logutil: 'core.util.logutil',
+    }
     /**
     * This method initializes the AlarmService by setting up its internal data structures and initializing any required dependencies.
     *
@@ -492,7 +494,7 @@ class AlarmService extends BaseService {
                     }
                     log.log(`┏━━ Logs before: ${alarm.id_string} ━━━━`);
                     for ( const lg of occurance.logs ) {
-                        log.log("┃ " + stringify_log_entry(lg));
+                        log.log("┃ " + this.logutil.stringify_log_entry(lg));
                     }
                     log.log(`┗━━ Logs before: ${alarm.id_string} ━━━━`);
                 },

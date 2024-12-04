@@ -19,7 +19,6 @@
  */
 const { Context } = require("../util/context");
 const BaseService = require("./BaseService");
-const { stringify_log_entry } = require("./runtime-analysis/LogService");
 
 /**
  * This service registers a middleware that will apply the value of
@@ -38,6 +37,9 @@ const { stringify_log_entry } = require("./runtime-analysis/LogService");
 * also handles the creation and management of debug-specific log files for better traceability.
 */
 class MakeProdDebuggingLessAwfulService extends BaseService {
+    static USE = {
+        logutil: 'core.util.logutil',
+    }
     static MODULES = {
         fs: require('fs'),
     }
@@ -102,7 +104,7 @@ class MakeProdDebuggingLessAwfulService extends BaseService {
             try {
                 await this.modules.fs.promises.appendFile(
                     outfile,
-                    stringify_log_entry(log_details) + '\n',
+                    this.logutil.stringify_log_entry(log_details) + '\n',
                 );
             } catch ( e ) {
                 console.error(e);

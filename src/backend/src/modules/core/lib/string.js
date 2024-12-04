@@ -1,3 +1,4 @@
+// METADATA // {"def":"core.util.strutil","ai-params":{"service":"claude"},"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -16,9 +17,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-// Convenience function for quoting strings in error messages.
-// Turns a string like this: some`value`
-// Into a string like this: `some\`value\``
+
+/**
+* Quotes a string value, handling special cases for undefined, null, functions, objects and numbers.
+* Escapes quotes and returns a JSON-stringified version with quote character normalization.
+* @param {*} str - The value to quote
+* @returns {string} The quoted string representation
+*/
 const quot = (str) => {
     if ( str === undefined ) return '[undefined]';
     if ( str === null ) return '[null]';
@@ -34,11 +39,24 @@ const quot = (str) => {
     return str;
 }
 
+
+/**
+* Creates an OSC 8 hyperlink sequence for terminal output
+* @param {string} url - The URL to link to
+* @param {string} [text] - Optional display text, defaults to URL if not provided
+* @returns {string} Terminal escape sequence containing the hyperlink
+*/
 const osclink = (url, text) => {
     if ( ! text ) text = url;
     return `\x1B]8;;${url}\x1B\\${text}\x1B]8;;\x1B\\`;
 }
 
+
+/**
+* Formats a number as a USD currency string with appropriate decimal places
+* @param {number} amount - The amount to format
+* @returns {string} The formatted USD string
+*/
 const format_as_usd = (amount) => {
     if ( amount < 0.01 ) {
         if ( amount < 0.00001 ) {

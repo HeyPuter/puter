@@ -28,7 +28,8 @@ const LOG_LEVEL_SYSTEM = logSeverity(4, 'SYSTEM', '33;1', 'system');
 
 const winston = require('winston');
 const { Context } = require('../../util/context');
-const BaseService = require('../BaseService');
+const BaseService = require('../../services/BaseService');
+const { stringify_log_entry } = require('./lib/log');
 require('winston-daily-rotate-file');
 
 const WINSTON_LEVELS = {
@@ -139,58 +140,9 @@ class LogContext {
     }
 }
 
-let log_epoch = Date.now();
 /**
 * Timestamp in milliseconds since the epoch, used for calculating log entry duration.
 */
-const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects }) => {
-    const { colorize } = require('json-colorizer');
-
-    let lines = [], m;
-    /**
-    * Stringifies a log entry into a formatted string for console output.
-    * @param {Object} logEntry - The log entry object containing:
-    *   @param {string} [prefix] - Optional prefix for the log message.
-    *   @param {Object} log_lvl - Log level object with properties for label, escape code, etc.
-    *   @param {string[]} crumbs - Array of context crumbs.
-    *   @param {string} message - The log message.
-    *   @param {Object} fields - Additional fields to be included in the log.
-    *   @param {Object} objects - Objects to be logged.
-    * @returns {string} A formatted string representation of the log entry.
-    */
-    const lf = () => {
-        if ( ! m ) return;
-        lines.push(m);
-        m = '';
-    }
-
-    m = prefix ? `${prefix} ` : '';
-    m += `\x1B[${log_lvl.esc}m[${log_lvl.label}\x1B[0m`;
-    for ( const crumb of crumbs ) {
-        m += `::${crumb}`;
-    }
-    m += `\x1B[${log_lvl.esc}m]\x1B[0m`;
-    if ( fields.timestamp ) {
-        // display seconds since logger epoch
-        const n = (fields.timestamp - log_epoch) / 1000;
-        m += ` (${n.toFixed(3)}s)`;
-    }
-    m += ` ${message} `;
-    lf();
-    for ( const k in fields ) {
-        if ( k === 'timestamp' ) continue;
-        let v; try {
-            v = colorize(JSON.stringify(fields[k]));
-        } catch (e) {
-            v = '' + fields[k];
-        }
-        m += ` \x1B[1m${k}:\x1B[0m ${v}`;
-        lf();
-    }
-    return lines.join('\n');
-};
-
-
 
 /**
 * @class DevLogger
@@ -385,9 +337,18 @@ class LogService extends BaseService {
         this.loggers = [];
         this.bufferLogger = null;
     }
+    
+    /**
+     * Registers a custom logging middleware with the LogService.
+     * @param {*} callback - The callback function that modifies log parameters before delegation.
+     */
     register_log_middleware (callback) {
         this.loggers[0] = new CustomLogger(this.loggers[0], callback);
     }
+    
+    /**
+     * Registers logging commands with the command service.
+     */
     ['__on_boot.consolidation'] () {
         const commands = this.services.get('commands');
         commands.registerCommands('logs', [
@@ -530,6 +491,13 @@ class LogService extends BaseService {
         globalThis.root_context.set('logger', this.create('root-context'));
     }
 
+    /**
+     * Create a new log context with the specified prefix
+     * 
+     * @param {1} prefix - The prefix for the log context
+     * @param {*} fields - Optional fields to include in the log context
+     * @returns {LogContext} A new log context with the specified prefix and fields
+     */
     create (prefix, fields = {}) {
         const logContext = new LogContext(
             this,
@@ -622,6 +590,12 @@ class LogService extends BaseService {
         throw new Error('Unable to create or find log directory');
     }
 
+    /**
+    * Generates a sanitized file path for log files.
+    * 
+    * @param {string} name - The name of the log file, which will be sanitized to remove any path characters.
+    * @returns {string} A sanitized file path within the log directory.
+    */
     get_log_file (name) {
         // sanitize name: cannot contain path characters
         name = name.replace(/[^a-zA-Z0-9-_]/g, '_');
@@ -630,11 +604,10 @@ class LogService extends BaseService {
 
 
     /**
-    * Generates a sanitized file path for log files.
-    * 
-    * @param {string} name - The name of the log file, which will be sanitized to remove any path characters.
-    * @returns {string} A sanitized file path within the log directory.
-    */
+     * Get the most recent log entries from the buffer maintained by the LogService.
+     * By default, the buffer contains the last 20 log entries.
+     * @returns 
+     */
     get_log_buffer () {
         return this.bufferLogger.buffer;
     }

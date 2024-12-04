@@ -1,3 +1,4 @@
+// METADATA // {"ai-params":{"service":"claude"},"ai-commented":{"service":"claude"}}
 const BaseService = require('../../services/BaseService');
 
 /**
@@ -29,6 +30,15 @@ class SocketioService extends BaseService {
         });
     }
     
+
+    /**
+    * Sends a message to specified socket(s) or room(s)
+    * 
+    * @param {Array|Object} socket_specifiers - Single or array of objects specifying target sockets/rooms
+    * @param {string} key - The event key/name to emit
+    * @param {*} data - The data payload to send
+    * @returns {Promise<void>}
+    */
     async send (socket_specifiers, key, data) {
         const svc_getUser = this.services.get('get-user');
         
@@ -47,6 +57,12 @@ class SocketioService extends BaseService {
         }
     }
     
+    /**
+     * Checks if the specified socket or room exists
+     * 
+     * @param {Object} socket_specifier - The socket specifier object
+     * @returns {boolean} True if the socket exists, false otherwise
+     */
     has (socket_specifier) {
         if ( socket_specifier.room ) {
             const room = this.io.sockets.adapter.rooms.get(socket_specifier.room);

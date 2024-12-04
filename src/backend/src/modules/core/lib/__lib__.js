@@ -1,3 +1,6 @@
 module.exports = {
-    string: require('./string.js'),
+    util: {
+        strutil: require('./string.js'),
+        logutil: require('./log.js'),
+    },
 };

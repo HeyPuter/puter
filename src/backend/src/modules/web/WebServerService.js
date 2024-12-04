@@ -38,7 +38,7 @@ const relative_require = require;
 */
 class WebServerService extends BaseService {
     static USE = {
-        strutil: 'std.string',
+        strutil: 'core.util.strutil',
     }
 
     static MODULES = {
