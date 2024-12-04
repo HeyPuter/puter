@@ -76,7 +76,7 @@ const handle_file = (code, context) => {
 }
 
 // Library files
-{
+if ( fs.existsSync(path_.join(rootdir, 'lib')) ) {
     const files = fs.readdirSync(path_.join(rootdir, 'lib'));
     for ( const file of files ) {
         if ( file.startsWith('_') ) continue;

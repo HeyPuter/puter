@@ -1,11 +1,26 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
 
+
+/**
+* Service class for generating images using OpenAI's DALL-E API.
+* Extends BaseService to provide image generation capabilities through
+* the puter-image-generation interface. Supports different aspect ratios
+* (square, portrait, landscape) and handles API authentication, request
+* validation, and spending tracking.
+*/
 class OpenAIImageGenerationService extends BaseService {
     static MODULES = {
         openai: require('openai'),
     }
+    /**
+    * Initializes the OpenAI client with API credentials from config
+    * @private
+    * @async
+    * @returns {Promise<void>}
+    */
     async _init () {
         const sk_key =
             this.config?.openai?.secret_key ??
@@ -24,6 +39,15 @@ class OpenAIImageGenerationService extends BaseService {
             }
         },
         ['puter-image-generation']: {
+            /**
+            * Generates an image using OpenAI's DALL-E API
+            * @param {string} prompt - The text description of the image to generate
+            * @param {Object} options - Generation options
+            * @param {Object} options.ratio - Image dimensions ratio object with w/h properties
+            * @param {string} [options.model='dall-e-3'] - The model to use for generation
+            * @returns {Promise<string>} URL of the generated image
+            * @throws {Error} If prompt is not a string or ratio is invalid
+            */
             async generate ({ prompt, test_mode }) {
                 if ( test_mode ) {
                     return new TypedValue({

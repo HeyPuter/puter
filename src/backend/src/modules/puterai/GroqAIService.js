@@ -1,14 +1,31 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 const { PassThrough } = require("stream");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { nou } = require("../../util/langutil");
 const { TeePromise } = require("../../util/promise");
 
+
+/**
+* Service class for integrating with Groq AI's language models.
+* Extends BaseService to provide chat completion capabilities through the Groq API.
+* Implements the puter-chat-completion interface for model management and text generation.
+* Supports both streaming and non-streaming responses, handles multiple models including
+* various versions of Llama, Mixtral, and Gemma, and manages usage tracking.
+* @class GroqAIService
+* @extends BaseService
+*/
 class GroqAIService extends BaseService {
     static MODULES = {
         Groq: require('groq-sdk'),
     }
 
+
+    /**
+    * Initializes the GroqAI service by setting up the Groq client and registering with the AI chat provider
+    * @returns {Promise<void>}
+    * @private
+    */
     async _init () {
         const Groq = require('groq-sdk');
         this.client = new Groq({
@@ -22,20 +39,47 @@ class GroqAIService extends BaseService {
         });
     }
 
+
+    /**
+    * Returns the default model ID for the Groq AI service
+    * @returns {string} The default model ID 'llama-3.1-8b-instant'
+    */
     get_default_model () {
         return 'llama-3.1-8b-instant';
     }
     
     static IMPLEMENTS = {
         'puter-chat-completion': {
+            /**
+            * Defines the interface implementations for the puter-chat-completion service
+            * Contains methods for listing models and handling chat completions
+            * @property {Object} models - Returns available AI models
+            * @property {Object} list - Lists raw model data from the Groq API
+            * @property {Object} complete - Handles chat completion requests with optional streaming
+            * @returns {Object} Interface implementation object
+            */
             async models () {
                 return await this.models_();
             },
+            /**
+            * Lists available AI models from the Groq API
+            * @returns {Promise<Array>} Array of model objects from the API's data field
+            * @description Unwraps and returns the model list from the Groq API response,
+            * which comes wrapped in an object with {object: "list", data: [...]}
+            */
             async list () {
                 // They send: { "object": "list", data }
                 const funny_wrapper = await this.client.models.list();
                 return funny_wrapper.data;
             },
+            /**
+            * Completes a chat interaction using the Groq API
+            * @param {Object} options - The completion options
+            * @param {Array<Object>} options.messages - Array of message objects containing the conversation history
+            * @param {string} [options.model] - The model ID to use for completion. Defaults to service's default model
+            * @param {boolean} [options.stream] - Whether to stream the response
+            * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or completion object with usage stats
+            */
             async complete ({ messages, model, stream }) {
                 for ( let i = 0; i < messages.length; i++ ) {
                     const message = messages[i];
@@ -101,6 +145,18 @@ class GroqAIService extends BaseService {
         }
     };
 
+
+    /**
+    * Returns an array of available AI models with their specifications
+    * 
+    * Each model object contains:
+    * - id: Unique identifier for the model
+    * - name: Human-readable name
+    * - context: Maximum context window size in tokens
+    * - cost: Pricing details including currency and token rates
+    * 
+    * @returns {Array<Object>} Array of model specification objects
+    */
     models_ () {
         return [
             {

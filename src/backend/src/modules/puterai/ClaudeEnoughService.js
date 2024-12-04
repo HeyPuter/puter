@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 const { XAIService } = require("./XAIService");
 
 const CLAUDE_ENOUGH_PROMPT = `
@@ -19,7 +20,20 @@ const CLAUDE_ENOUGH_PROMPT = `
     user of the driver interface (typically an app on Puter):
 `.replace('\n', ' ').trim();
 
+
+/**
+* ClaudeEnoughService - A service class that implements a Claude-like AI interface
+* Extends XAIService to provide Claude-compatible responses while using alternative AI models.
+* Includes custom system prompts and model adaptation to simulate Claude's behavior
+* in the Puter platform's chat completion interface.
+*/
 class ClaudeEnoughService extends XAIService {
+    /**
+    * Service that emulates Claude's behavior using alternative AI models
+    * @extends XAIService
+    * @description Provides a Claude-like interface while using other AI models as the backend.
+    * Includes custom system prompts and model adaptations to approximate Claude's behavior.
+    */
     get_system_prompt () {
         return CLAUDE_ENOUGH_PROMPT;
     }

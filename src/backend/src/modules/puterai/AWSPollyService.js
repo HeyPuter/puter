@@ -1,12 +1,28 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 const { PollyClient, SynthesizeSpeechCommand, DescribeVoicesCommand } = require("@aws-sdk/client-polly");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 
+
+/**
+* AWSPollyService class provides text-to-speech functionality using Amazon Polly.
+* Extends BaseService to integrate with AWS Polly for voice synthesis operations.
+* Implements voice listing, speech synthesis, and voice selection based on language.
+* Includes caching for voice descriptions and supports both text and SSML inputs.
+* @extends BaseService
+*/
 class AWSPollyService extends BaseService {
     static MODULES = {
         kv: globalThis.kv,
     }
 
+
+    /**
+    * Initializes the service by creating an empty clients object.
+    * This method is called during service construction to set up
+    * the internal state needed for AWS Polly client management.
+    * @returns {Promise<void>}
+    */
     async _construct () {
         this.clients_ = {};
     }
@@ -18,6 +34,14 @@ class AWSPollyService extends BaseService {
             }
         },
         ['puter-tts']: {
+            /**
+            * Implements the driver interface methods for text-to-speech functionality
+            * Contains methods for listing available voices and synthesizing speech
+            * @interface
+            * @property {Object} list_voices - Lists available Polly voices with language info
+            * @property {Object} synthesize - Converts text to speech using specified voice/language
+            * @property {Function} supports_test_mode - Indicates test mode support for methods
+            */
             async list_voices () {
                 const polly_voices = await this.describe_voices();
 
@@ -64,6 +88,12 @@ class AWSPollyService extends BaseService {
         }
     }
 
+
+    /**
+    * Creates AWS credentials object for authentication
+    * @private
+    * @returns {Object} Object containing AWS access key ID and secret access key
+    */
     _create_aws_credentials () {
         return {
             accessKeyId: this.config.aws.access_key,
@@ -86,6 +116,13 @@ class AWSPollyService extends BaseService {
         return this.clients_[region];
     }
 
+
+    /**
+    * Describes available AWS Polly voices and caches the results
+    * @returns {Promise<Object>} Response containing array of voice details in Voices property
+    * @description Fetches voice information from AWS Polly API and caches it for 10 minutes
+    * Uses KV store for caching to avoid repeated API calls
+    */
     async describe_voices () {
         let voices = this.modules.kv.get('svc:polly:voices');
         if ( voices ) {
@@ -109,6 +146,17 @@ class AWSPollyService extends BaseService {
         return response;
     }
 
+
+    /**
+    * Synthesizes speech from text using AWS Polly
+    * @param {string} text - The text to synthesize
+    * @param {Object} options - Synthesis options
+    * @param {string} options.format - Output audio format (e.g. 'mp3')
+    * @param {string} [options.voice_id] - AWS Polly voice ID to use
+    * @param {string} [options.language] - Language code (e.g. 'en-US')
+    * @param {string} [options.text_type] - Type of input text ('text' or 'ssml')
+    * @returns {Promise<AWS.Polly.SynthesizeSpeechOutput>} The synthesized speech response
+    */
     async synthesize_speech (text, { format, voice_id, language, text_type }) {
         const client = this._get_client(this.config.aws.region);
 
@@ -140,6 +188,13 @@ class AWSPollyService extends BaseService {
         return response;
     }
 
+
+    /**
+    * Attempts to find an appropriate voice for the given language code
+    * @param {string} language - The language code to find a voice for (e.g. 'en-US')
+    * @returns {Promise<?string>} The voice ID if found, null if no matching voice exists
+    * @private
+    */
     async maybe_get_language_appropriate_voice_ (language) {
         const voices = await this.describe_voices();
 
