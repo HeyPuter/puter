@@ -1638,7 +1638,123 @@ function sort_apps() {
     }
 }
 
+/**
+ * Checks if the items being deployed contain a .git directory
+ * @param {Array|string} items - Items to check (can be path string or array of items)
+ * @returns {Promise<boolean>} - True if .git directory is found
+ */
+async function hasGitDirectory(items) {
+    // Case 1: Single Puter path
+    if (typeof items === 'string' && (items.startsWith('/') || items.startsWith('~'))) {
+        const stat = await puter.fs.stat(items);
+        if (stat.is_dir) {
+            const files = await puter.fs.readdir(items);
+            return files.some(file => file.name === '.git' && file.is_dir);
+        }
+        return false;
+    }
+    
+    // Case 2: Array of Puter items
+    if (Array.isArray(items) && items[0]?.uid) {
+        return items.some(item => item.name === '.git' && item.is_dir);
+    }
+    
+    // Case 3: Local items (DataTransferItems)
+    if (Array.isArray(items)) {
+        for (let item of items) {
+            if (item.fullPath?.includes('/.git/') || 
+                item.path?.includes('/.git/') || 
+                item.filepath?.includes('/.git/')) {
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
+
+/**
+ * Shows a warning dialog about .git directory deployment
+ * @returns {Promise<boolean>} - True if the user wants to proceed with deployment
+ */
+async function showGitWarningDialog() {
+    try {
+        // Check if the user has chosen to skip the warning
+        const skipWarning = await puter.kv.get('skip-git-warning');
+
+        // Log retrieved value for debugging
+        console.log('Retrieved skip-git-warning:', skipWarning);
+
+        // If the user opted to skip the warning, proceed without showing it
+        if (skipWarning === true) {
+            return true;
+        }
+    } catch (error) {
+        console.error('Error accessing KV store:', error);
+        // If KV store access fails, fall back to showing the dialog
+    }
+
+    // Create the modal dialog
+    const modal = document.createElement('div');
+    modal.innerHTML = `
+        <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2); z-index: 10000;">
+            <h3 style="margin-top: 0;">Warning: Git Repository Detected</h3>
+            <p>A .git directory was found in your deployment files. Deploying .git directories may:</p>
+            <ul>
+                <li>Expose sensitive information like commit history and configuration</li>
+                <li>Significantly increase deployment size</li>
+            </ul>
+            <div style="margin-top: 15px; display: flex; align-items: center;">
+                <input type="checkbox" id="skip-git-warning" style="margin-right: 10px;">
+                <label for="skip-git-warning" style="margin-top:0;">Don't show this warning again</label>
+            </div>
+            <div style="margin-top: 15px; display: flex; justify-content: flex-end;">
+                <button id="cancel-deployment" style="margin-right: 10px; padding: 10px 15px; background: #f0f0f0; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+                <button id="continue-deployment" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Continue Deployment</button>
+            </div>
+        </div>
+        <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 9999;"></div>
+    `;
+    document.body.appendChild(modal);
+
+    return new Promise((resolve) => {
+        // Handle "Continue Deployment"
+        document.getElementById('continue-deployment').addEventListener('click', async () => {
+            try {
+                const skipChecked = document.getElementById('skip-git-warning')?.checked;
+                if (skipChecked) {
+                    console.log("Saving 'skip-git-warning' preference as true");
+                    await puter.kv.set('skip-git-warning', true);
+                }
+            } catch (error) {
+                console.error('Error saving user preference to KV store:', error);
+            } finally {
+                document.body.removeChild(modal);
+                resolve(true); // Continue deployment
+            }
+        });
+
+        // Handle "Cancel Deployment"
+        document.getElementById('cancel-deployment').addEventListener('click', () => {
+            document.body.removeChild(modal);
+            resolve(false); // Cancel deployment
+        });
+    });
+}
+
 window.deploy = async function (app, items) {
+    // Check for .git directory before proceeding
+    try {
+        if (await hasGitDirectory(items)) {
+            const shouldProceed = await showGitWarningDialog();
+            if (!shouldProceed) {
+                reset_drop_area();
+                return;
+            }
+        }
+    } catch (err) {
+        console.error('Error checking for .git directory:', err);
+    }
     let appdata_dir, current_app_dir;
 
     // disable deploy button
