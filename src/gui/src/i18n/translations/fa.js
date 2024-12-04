@@ -393,9 +393,6 @@ const fa = {
     "This user already has access to this item":
       "این کاربر از قبل به این مورد دسترسی دارد", // In English: "This user already has access to this item"
 
-    // ----------------------------------------
-    // Missing translations:
-    // ----------------------------------------
     "billing.change_payment_method": "تغییر روش پرداخت", // In English: "Change"
     "billing.cancel": "لغو", // In English: "Cancel"
     "billing.download_invoice": "دانلود فاکتور", // In English: "Download"
