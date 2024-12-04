@@ -366,9 +366,6 @@ const tr = {
         "You can't share with yourself.": "Kendinizle paylaşamazsınız.", // In English: "You can't share with yourself."
         "This user already has access to this item": "Bu kullanıcının zaten bu öğeye erişimi var. ", // In English: "This user already has access to this item"
 
-        // ----------------------------------------
-        // Missing translations:
-        // ----------------------------------------
         "billing.change_payment_method": "Değiştir", // In English: "Change"
         "billing.cancel": "İptal et", // In English: "Cancel"
         "billing.download_invoice": "İndir", // In English: "Download"
@@ -415,7 +412,6 @@ const tr = {
         "billing.expanded": "Genişletilmiş", // In English: "Expanded"
         "billing.accelerated": "Hızlandırılmış", // In English: "Accelerated"
         "billing.enjoy_msg": "Diğer avantajların yanı sıra %% Bulut Depolamanın keyfini çıkarın.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
     }
 };
 
