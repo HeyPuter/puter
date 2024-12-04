@@ -39,9 +39,15 @@ processors.push({
         ClassDeclaration (path, context) {
             context.doc_item = context.doc_module;
             if ( context.type === 'service' ) {
+                // Skip if class name doesn't end with 'Service'
+                if ( ! path.node.id.name.endsWith('Service') ) {
+                    context.skip = true;
+                    return;
+                }
                 context.doc_item = context.doc_module.add_service();
             }
             context.doc_item.name = path.node.id.name;
+            if ( context.comment === '' ) return;
             context.doc_item.provide_comment(context.comment);
         }
     }
@@ -86,6 +92,50 @@ processors.push({
                         params,
                     });
                 }
+            });
+        }
+    }
+});
+
+processors.push({
+    title: 'provide library function documentation',
+    match (context) {
+        return context.type === 'lib';
+    },
+    traverse: {
+        VariableDeclaration (path, context) {
+            // skip non-const declarations
+            if ( path.node.kind !== 'const' ) return;
+            
+            // skip declarations with multiple declarators
+            if ( path.node.declarations.length !== 1 ) return;
+            
+            // skip declarations without an initializer
+            if ( ! path.node.declarations[0].init ) return;
+            
+            // skip declarations that aren't in the root scope
+            if ( path.scope.parent ) return;
+            
+            console.log('path.node', path.node.declarations);
+
+            // is it a function?
+            if ( ! ['FunctionExpression', 'ArrowFunctionExpression'].includes(
+                path.node.declarations[0].init.type
+            ) ) return;
+            
+            // get the name of the function
+            const name = path.node.declarations[0].id.name;
+            
+            // get the comment
+            const comment = path.node.leadingComments?.[0]?.value ?? '';
+            
+            // get the parameters
+            const params = path.node.declarations[0].init.params ?? [];
+            
+            context.doc_item.provide_function({
+                key: name,
+                comment,
+                params,
             });
         }
     }

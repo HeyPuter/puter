@@ -36,12 +36,19 @@ class ModuleDoc extends Doc {
     _construct () {
         this.services = [];
         this.requires = [];
+        this.libs = [];
     }
     
     add_service () {
         const service = new ServiceDoc();
         this.services.push(service);
         return service;
+    }
+    
+    add_lib () {
+        const lib = new LibDoc();
+        this.libs.push(lib);
+        return lib;
     }
     
     ready () {
@@ -85,6 +92,14 @@ class ModuleDoc extends Doc {
             }
         }
         
+        if ( this.libs.length > 0 ) {
+            out.h(hl + 1, 'Libraries');
+            
+            for ( const lib of this.libs ) {
+                lib.toMarkdown({ out, hl: hl + 2 });
+            }
+        }
+
         if ( this.notes.length > 0 ) {
             out.h(hl + 1, 'Notes');
             for ( const note of this.notes ) {
@@ -93,7 +108,7 @@ class ModuleDoc extends Doc {
                 out.lf();
             }
         }
-
+        
 
         return out.text();
     }
@@ -180,6 +195,57 @@ class ServiceDoc extends Doc {
                 if ( method.params.length > 0 ) {
                     out.h(hl + 3, 'Parameters');
                     for ( const param of method.params ) {
+                        out(`- **${param.name}:** ${param.desc}\n`);
+                    }
+                    out.lf();
+                }
+            }
+        }
+        
+        return out.text();
+    }
+}
+
+class LibDoc extends Doc {
+    _construct () {
+        this.functions = [];
+    }
+    
+    provide_function ({ key, comment, params }) {
+        const parsed_comment = doctrine.parse(comment, { unwrap: true });
+        
+        const parsed_params = [];
+        for ( const tag of parsed_comment.tags ) {
+            if ( tag.title !== 'param' ) continue;
+            const name = tag.name;
+            const desc = tag.description;
+            parsed_params.push({ name, desc });
+        }
+        
+        this.functions.push({
+            key,
+            comment: parsed_comment.description,
+            params: parsed_params,
+        });
+    }
+    
+    toMarkdown ({ hl, out } = { hl: 1 }) {
+        out = out ?? new Out();
+        
+        out.h(hl, this.name);
+        
+        console.log('functions?', this.functions);
+        
+        if ( this.functions.length > 0 ) {
+            out.h(hl + 1, 'Functions');
+            
+            for ( const func of this.functions ) {
+                out.h(hl + 2, '`' + func.key + '`');
+                out(func.comment + '\n\n');
+                
+                if ( func.params.length > 0 ) {
+                    out.h(hl + 3, 'Parameters');
+                    for ( const param of func.params ) {
                         out(`- **${param.name}:** ${param.desc}\n`);
                     }
                     out.lf();
