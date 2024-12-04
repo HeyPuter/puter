@@ -764,26 +764,54 @@ async function edit_app_section(cur_app_name) {
 
     const filetype_association_input = document.querySelector('textarea[id=edit-app-filetype-associations]');
     let tagify = new Tagify(filetype_association_input, {
-      pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/[a-z0-9.-]+)/, // pattern for filetype file like .pdf or MIME type like text/plain
-      delimiters: null,
-      whitelist: [
-        // Document file types
-        ".doc", ".docx", ".pdf", ".txt", ".odt", ".rtf", ".tex",
-        // Spreadsheet file types 
-        ".xls", ".xlsx", ".csv", ".ods",
-        // Image file types
-        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg", ".webp",
-        // Video file types
-        ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".flv", ".webm",
-        // Audio file types
-        ".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a",
-        // Code file types
-        ".js", ".ts", ".html", ".css", ".json", ".xml", ".php", ".py", ".java", ".cpp",
-        // Archive file types
-        ".zip", ".rar", ".7z", ".tar", ".gz",
-        // Other
-        ".exe", ".dll", ".iso"
-      ],
+        pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/(?:[a-z0-9.-]+|\*))/,
+        delimiters: null,
+        whitelist: [
+          // MIME type patterns
+          "text/*", "image/*", "audio/*", "video/*", "application/*",
+          
+          // Documents
+          ".doc", ".docx", ".pdf", ".txt", ".odt", ".rtf", ".tex", ".md", ".pages", ".epub", ".mobi", ".azw", ".azw3", ".djvu", ".xps", ".oxps", ".fb2", ".textile", ".markdown", ".asciidoc", ".rst", ".wpd", ".wps", ".abw", ".zabw",
+          
+          // Spreadsheets
+          ".xls", ".xlsx", ".csv", ".ods", ".numbers", ".tsv", ".gnumeric", ".xlt", ".xltx", ".xlsm", ".xltm", ".xlam", ".xlsb",
+          
+          // Presentations
+          ".ppt", ".pptx", ".key", ".odp", ".pps", ".ppsx", ".pptm", ".potx", ".potm", ".ppam",
+          
+          // Images
+          ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".svg", ".webp", ".ico", ".psd", ".ai", ".eps", ".raw", ".cr2", ".nef", ".orf", ".sr2", ".heic", ".heif", ".avif", ".jxr", ".hdp", ".wdp", ".jng", ".xcf", ".pgm", ".pbm", ".ppm", ".pnm",
+          
+          // Video
+          ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".flv", ".webm", ".m4v", ".mpeg", ".mpg", ".3gp", ".3g2", ".ogv", ".vob", ".drc", ".gifv", ".mng", ".qt", ".yuv", ".rm", ".rmvb", ".asf", ".amv", ".m2v", ".svi",
+          
+          // Audio
+          ".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a", ".wma", ".aiff", ".alac", ".ape", ".au", ".mid", ".midi", ".mka", ".pcm", ".ra", ".ram", ".snd", ".wv", ".opus",
+          
+          // Code/Development
+          ".js", ".ts", ".html", ".css", ".json", ".xml", ".php", ".py", ".java", ".cpp", ".c", ".cs", ".h", ".hpp", ".hxx", ".rs", ".go", ".rb", ".pl", ".swift", ".kt", ".kts", ".scala", ".coffee", ".sass", ".scss", ".less", ".jsx", ".tsx", ".vue", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd", ".sql", ".r", ".dart", ".f", ".f90", ".for", ".lua", ".m", ".mm", ".clj", ".erl", ".ex", ".exs", ".elm", ".hs", ".lhs", ".lisp", ".ml", ".mli", ".nim", ".pl", ".rkt", ".v", ".vhd",
+          
+          // Archives
+          ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".z", ".lz", ".lzma", ".tlz", ".txz", ".tgz", ".tbz2", ".bz", ".br", ".lzo", ".ar", ".cpio", ".shar", ".lrz", ".lz4", ".lz2", ".rz", ".sfark", ".sz", ".zoo",
+          
+          // Database
+          ".db", ".sql", ".sqlite", ".sqlite3", ".dbf", ".mdb", ".accdb", ".db3", ".s3db", ".dbx",
+          
+          // Fonts
+          ".ttf", ".otf", ".woff", ".woff2", ".eot", ".pfa", ".pfb", ".sfd",
+          
+          // CAD and 3D
+          ".dwg", ".dxf", ".stl", ".obj", ".fbx", ".dae", ".3ds", ".blend", ".max", ".ma", ".mb", ".c4d", ".skp", ".usd", ".usda", ".usdc", ".abc",
+          
+          // Scientific/Technical
+          ".mat", ".fig", ".nb", ".cdf", ".fits", ".fts", ".fit", ".gmsh", ".msh", ".fem", ".neu", ".hdf", ".h5", ".nx", ".unv",
+          
+          // System
+          ".exe", ".dll", ".so", ".dylib", ".app", ".dmg", ".iso", ".img", ".bin", ".msi", ".apk", ".ipa", ".deb", ".rpm",
+          
+          // Directory
+          ".directory"
+        ],
     })
 
     // --------------------------------------------------------
