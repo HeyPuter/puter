@@ -102,6 +102,7 @@ class ModuleDoc extends Doc {
 class ServiceDoc extends Doc {
     _construct () {
         this.listeners = [];
+        this.methods = [];
     }
     
     provide_comment (comment) {
@@ -127,6 +128,24 @@ class ServiceDoc extends Doc {
         });
     }
     
+    provide_method (method) {
+        const parsed_comment = doctrine.parse(method.comment, { unwrap: true });
+        
+        const params = [];
+        for ( const tag of parsed_comment.tags ) {
+            if ( tag.title !== 'param' ) continue;
+            const name = tag.name;
+            const desc = tag.description;
+            params.push({ name, desc })
+        }
+
+        this.methods.push({
+            ...method,
+            comment: parsed_comment.description,
+            params,
+        });
+    }
+    
     toMarkdown ({ hl, out } = { hl: 1 }) {
         out = out ?? new Out();
         
@@ -144,6 +163,23 @@ class ServiceDoc extends Doc {
                 if ( listener.params.length > 0 ) {
                     out.h(hl + 3, 'Parameters');
                     for ( const param of listener.params ) {
+                        out(`- **${param.name}:** ${param.desc}\n`);
+                    }
+                    out.lf();
+                }
+            }
+        }
+        
+        if ( this.methods.length > 0 ) {
+            out.h(hl + 1, 'Methods');
+            
+            for ( const method of this.methods ) {
+                out.h(hl + 2, '`' + method.key + '`');
+                out (method.comment + '\n\n');
+                
+                if ( method.params.length > 0 ) {
+                    out.h(hl + 3, 'Parameters');
+                    for ( const param of method.params ) {
                         out(`- **${param.name}:** ${param.desc}\n`);
                     }
                     out.lf();
