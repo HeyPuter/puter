@@ -1686,7 +1686,7 @@ async function showGitWarningDialog() {
         console.log('Retrieved skip-git-warning:', skipWarning);
 
         // If the user opted to skip the warning, proceed without showing it
-        if (skipWarning?.result === true) {
+        if (skipWarning === true) {
             return true;
         }
     } catch (error) {
@@ -1706,7 +1706,7 @@ async function showGitWarningDialog() {
             </ul>
             <div style="margin-top: 15px; display: flex; align-items: center;">
                 <input type="checkbox" id="skip-git-warning" style="margin-right: 10px;">
-                <label for="skip-git-warning">Don't show this warning again</label>
+                <label for="skip-git-warning" style="margin-top:0;">Don't show this warning again</label>
             </div>
             <div style="margin-top: 15px; display: flex; justify-content: flex-end;">
                 <button id="cancel-deployment" style="margin-right: 10px; padding: 10px 15px; background: #f0f0f0; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
