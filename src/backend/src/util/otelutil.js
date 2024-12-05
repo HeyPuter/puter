@@ -23,7 +23,7 @@
 
 const { context, trace, SpanStatusCode } = require('@opentelemetry/api');
 const { Context } = require('./context');
-const { TeePromise } = require('./promise');
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 /*
 parallel span example from GPT-4:

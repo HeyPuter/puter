@@ -6,7 +6,7 @@ const { TypedValue } = require('../../services/drivers/meta/Runtime');
 const { Context } = require('../../util/context');
 const SmolUtil = require('../../util/smolutil');
 const { nou } = require('../../util/langutil');
-const { TeePromise } = require('../../util/promise');
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 
 /**

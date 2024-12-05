@@ -3,7 +3,7 @@ const { PassThrough } = require("stream");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { nou } = require("../../util/langutil");
-const { TeePromise } = require("../../util/promise");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 
 /**

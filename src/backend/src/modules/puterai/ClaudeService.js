@@ -5,7 +5,7 @@ const { whatis } = require("../../util/langutil");
 const { PassThrough } = require("stream");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const APIError = require("../../api/APIError");
-const { TeePromise } = require("../../util/promise");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 const PUTER_PROMPT = `
     You are running on an open-source platform called Puter,

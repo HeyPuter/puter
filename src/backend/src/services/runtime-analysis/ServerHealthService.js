@@ -18,9 +18,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const BaseService = require("../BaseService");
-const { SECOND } = require("@heyputer/putility").libs.time;
+const { time, promise } = require("@heyputer/putility").libs;
 const { parse_meminfo } = require("../../util/linux");
-const { asyncSafeSetInterval, TeePromise } = require("../../util/promise");
 
 
 /**
@@ -135,11 +134,11 @@ class ServerHealthService extends BaseService {
         * @param {none} - No parameters are passed to this method.
         * @returns {void}
         */
-        asyncSafeSetInterval(async () => {
+        promise.asyncSafeSetInterval(async () => {
             this.log.tick('service checks');
             const check_failures = [];
             for ( const { name, fn, chainable } of this.checks_ ) {
-                const p_timeout = new TeePromise();
+                const p_timeout = new promise.TeePromise();
                 /**
                 * Creates a TeePromise to handle potential timeouts during health checks.
                 * 
@@ -147,7 +146,7 @@ class ServerHealthService extends BaseService {
                 */
                 const timeout = setTimeout(() => {
                     p_timeout.reject(new Error('Health check timed out'));
-                }, 5 * SECOND);
+                }, 5 * time.SECOND);
                 try {
                     await Promise.race([
                         fn(),
@@ -180,7 +179,7 @@ class ServerHealthService extends BaseService {
             }
 
             this.failures_ = check_failures;
-        }, 10 * SECOND, null, {
+        }, 10 * time.SECOND, null, {
             onBehindSchedule: (drift) => {
                 svc_alarm.create(
                     'health-checks-behind-schedule',

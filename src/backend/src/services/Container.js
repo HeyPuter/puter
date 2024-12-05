@@ -21,7 +21,7 @@ const { AdvancedBase } = require("@heyputer/putility");
 const config = require("../config");
 const { Context } = require("../util/context");
 const { CompositeError } = require("../util/errorutil");
-const { TeePromise } = require("../util/promise");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 // 17 lines of code instead of an entire dependency-injection framework
 /**

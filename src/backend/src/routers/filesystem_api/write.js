@@ -23,7 +23,7 @@ const { HLWrite } = require('../../filesystem/hl_operations/hl_write.js');
 const { boolify } = require('../../util/hl_types.js');
 const { Context } = require('../../util/context.js');
 const Busboy = require('busboy');
-const { TeePromise } = require('../../util/promise.js');
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 const APIError = require('../../api/APIError.js');
 const { valid_file_size } = require('../../util/validutil.js');
 

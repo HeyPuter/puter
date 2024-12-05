@@ -1,7 +1,7 @@
 // METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 const { get_user } = require("../helpers");
 const { Context } = require("../util/context");
-const { TeePromise } = require("../util/promise");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 const { Actor, UserActorType } = require("./auth/Actor");
 const BaseService = require("./BaseService");
 
