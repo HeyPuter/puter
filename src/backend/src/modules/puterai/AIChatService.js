@@ -503,15 +503,6 @@ class AIChatService extends BaseService {
     }
 
 
-    /**
-    * Performs content moderation on chat messages
-    * @param {Object} params - The parameters object
-    * @param {Array} params.messages - Array of chat messages to moderate
-    * @returns {Promise<boolean>} Returns true if content passes moderation, false if flagged
-    * @description Checks message content against OpenAI's moderation API. Handles both string
-    * and structured message content. Returns false if any message is flagged as inappropriate.
-    * If OpenAI service is unavailable, returns true to allow messages through.
-    */
     async models_ () {
         return this.detail_model_list;
     }
