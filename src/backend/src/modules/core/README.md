@@ -47,6 +47,36 @@ Method to get an alarm by its ID.
 
 - **id:** The ID of the alarm to get.
 
+### ErrorService
+
+The ErrorService class is responsible for handling and reporting errors within the system.
+It provides methods to initialize the service, create error contexts, and report errors with detailed logging and alarm mechanisms.
+
+#### Methods
+
+##### `init`
+
+Initializes the ErrorService, setting up the alarm and backup logger services.
+
+##### `create`
+
+Creates an ErrorContext instance with the provided logging context.
+
+###### Parameters
+
+- **log_context:** The logging context to associate with the error reports.
+
+##### `report`
+
+Reports an error with the specified location and details.
+The "location" is a string up to the callers discretion to identify
+the source of the error.
+
+###### Parameters
+
+- **location:** The location where the error occurred.
+- **fields:** The error details to report.
+
 ### LogService
 
 The `LogService` class extends `BaseService` and is responsible for managing and 

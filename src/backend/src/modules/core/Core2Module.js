@@ -24,6 +24,9 @@ class Core2Module extends AdvancedBase {
         
         const { AlarmService } = require("./AlarmService.js");
         services.registerService('alarm', AlarmService);
+        
+        const { ErrorService } = require("./ErrorService.js");
+        services.registerService('error-service', ErrorService);
     }
 }
 
