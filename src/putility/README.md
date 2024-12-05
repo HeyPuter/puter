@@ -10,6 +10,33 @@ Each class in this module is best described as an _idea_:
 
 Putility contains general purpose library functions.
 
+### `putility.libs.smol`
+
+A small ("smol") library with commonly useful utility functions. This was
+moved here from a utility class called SmolUtil that used to be in Puter's
+backend.
+
+#### `ensure_array(value)`
+
+Wraps a value in an array if that value is not an array already.
+
+#### `add(...v)`
+
+Variadic sum function; nothing more.
+
+#### `split(str, sep, options)`
+
+Split a string by the specified separator.
+
+The parameter `options` is optional. It provided, it must be an object
+and can have any of the following values:
+
+- `trim` - trim leading and trailing whitespace from each separated component
+- `discard_empty` - discard empty components
+
+It is recommended to enable `trim` when `discard_empty` is enabled to also
+remove whitespace-only strings.
+
 ### `putility.libs.context`
 
 This library exports class **Context**. This provides a context object
