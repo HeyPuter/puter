@@ -28,8 +28,9 @@ const BaseService = require('../../services/BaseService.js');
 
 
 /**
-* @classdesc AlarmService class is responsible for managing alarms. It provides methods for creating, clearing, and handling alarms.
-*/
+ * AlarmService class is responsible for managing alarms.
+ * It provides methods for creating, clearing, and handling alarms.
+ */
 class AlarmService extends BaseService {
     static USE = {
         logutil: 'core.util.logutil',
@@ -87,6 +88,10 @@ class AlarmService extends BaseService {
         }
     }
     
+    /**
+     * AlarmService registers its commands at the consolidation phase because
+     * the '_init' method of CommandService may not have been called yet.
+     */
     ['__on_boot.consolidation'] () {
         this._register_commands(this.services.get('commands'));
     }
@@ -108,6 +113,15 @@ class AlarmService extends BaseService {
         return id;
     }
 
+    /**
+     * Method to create an alarm with the given ID, message, and fields.
+     * If the ID already exists, it will be updated with the new fields
+     * and the occurrence count will be incremented.
+     * 
+     * @param {string} id - Unique identifier for the alarm.
+     * @param {string} message - Message associated with the alarm.
+     * @param {object} fields - Additional information about the alarm.
+     */
     create (id, message, fields) {
         this.log.error(`upcoming alarm: ${id}: ${message}`);
         let existing = false;
@@ -211,6 +225,11 @@ class AlarmService extends BaseService {
         }
     }
 
+    /**
+     * Method to clear an alarm with the given ID.
+     * @param {*} id - The ID of the alarm to clear.
+     * @returns {void}
+     */
     clear (id) {
         const alarm = this.alarms[id];
         if ( !alarm ) {
@@ -354,6 +373,12 @@ class AlarmService extends BaseService {
         );
     }
 
+    /**
+     * Method to get an alarm by its ID.
+     * 
+     * @param {*} id - The ID of the alarm to get.
+     * @returns 
+     */
     get_alarm (id) {
         return this.alarms[id] ?? this.alarm_aliases[id];
     }

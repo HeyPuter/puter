@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -21,7 +22,8 @@
  * Strip ANSI escape sequences from a string (e.g. color codes)
  * and then return the length of the resulting string.
  *
- * @param {*} str
+ * @param {string} str - The string to calculate visible length for
+ * @returns {number} The length of the string without ANSI escape sequences
  */
 const visible_length = (str) => {
     // eslint-disable-next-line no-control-regex
@@ -32,7 +34,8 @@ const visible_length = (str) => {
  * Split a string into lines according to the terminal width,
  * preserving ANSI escape sequences, and return an array of lines.
  *
- * @param {*} str
+ * @param {string} str The string to split into lines
+ * @returns {string[]} Array of lines split according to terminal width
  */
 const split_lines = (str) => {
     const lines = [];

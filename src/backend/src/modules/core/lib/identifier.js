@@ -1,4 +1,4 @@
-// METADATA // {"def":"core.util.identutil"}
+// METADATA // {"def":"core.util.identutil","ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -53,6 +53,13 @@ const words = {
     nouns,
 };
 
+/**
+ * Select a random item from an array using a random number generator function.
+ * 
+ * @param {Array<T>} arr - The array to select an item from
+ * @param {function} [random=Math.random] - Random number generator function
+ * @returns {T} A random item from the array
+ */
 const randomItem = (arr, random) => arr[Math.floor((random ?? Math.random)() * arr.length)];
 
 /**
@@ -61,6 +68,7 @@ const randomItem = (arr, random) => arr[Math.floor((random ?? Math.random)() * a
  * It is useful when you need to create unique identifiers that are also human-friendly.
  *
  * @param {string} [separator='_'] - The character used to separate the adjective, noun, and number. Defaults to '_' if not provided.
+ * @param {function} [rng=Math.random] - Random number generator function
  * @returns {string} A unique, human-friendly identifier.
  *
  * @example
@@ -79,6 +87,7 @@ function generate_identifier(separator = '_', rng = Math.random){
     ].join(separator);
 }
 
+// Character set used for generating human-readable, case-insensitive random codes
 const HUMAN_READABLE_CASE_INSENSITIVE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 function generate_random_code(n, {
@@ -93,11 +102,11 @@ function generate_random_code(n, {
 }
 
 /**
- * 
- * @param {*} n length of output code
- * @param {*} mask - a string of characters to start with
- * @param {*} value - a number to be converted to base-36 and put on the right
- */
+* Composes a code by combining a mask string with a base-36 converted number
+* @param {string} mask - Initial string template to use as base
+* @param {number} value - Number to convert to base-36 and append to the right
+* @returns {string} Combined uppercase code
+*/
 function compose_code(mask, value) {
     const right_str = value.toString(36);
     let out_str = mask;
@@ -112,6 +121,7 @@ function compose_code(mask, value) {
 }
 
 module.exports = {
+    randomItem,
     generate_identifier,
     generate_random_code,
 };
