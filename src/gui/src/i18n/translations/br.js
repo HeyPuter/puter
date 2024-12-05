@@ -408,7 +408,7 @@ const br = {
     "billing.cancelled_subscription_tier": "Assinatura Cancelada (%%)", // In English: "Cancelled Subscription (%%)"
     "billing.manage": "Gerenciar", // In English: "Manage"
     "billing.limited": "Limitado", // In English: "Limited"
-    "billing.expanded": "Ampliado ", // In English: "Expanded"
+    "billing.expanded": "Expandido", // In English: "Expanded"
     "billing.accelerated": "Aprimorado", // In English: "Accelerated"
     "billing.enjoy_msg": "Aproveite %% de Armazenamento em Nuvem, além de outros benefícios.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
