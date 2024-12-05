@@ -363,9 +363,6 @@ const zh = {
         "You can't share with yourself.": '不能分享给你自己', // In English: "You can't share with yourself."
         "This user already has access to this item": '该用户已经拥有访问此项目的权限了', // In English: "This user already has access to this item"
 
-        // ----------------------------------------
-        // Missing translations:
-        // ----------------------------------------
         "billing.change_payment_method": '更改', // In English: "Change"
         "billing.cancel": '取消', // In English: "Cancel"
         "billing.download_invoice": '下载', // In English: "Download"
@@ -412,7 +409,6 @@ const zh = {
         "billing.expanded": '扩展', // In English: "Expanded"
         "billing.accelerated": '加快', // In English: "Accelerated"
         "billing.enjoy_msg": '请享受%%云存储服务及其他优惠。', // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
     }
 };
 
