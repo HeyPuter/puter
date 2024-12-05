@@ -18,7 +18,7 @@
  */
 const { AdvancedBase } = require("@heyputer/putility");
 const useapi = require("useapi");
-const { BaseService } = require("../exports");
+const { BaseService, EssentialModules } = require("../exports");
 const CoreModule = require("../src/CoreModule");
 const { Context } = require("../src/util/context");
 const { Kernel } = require("../src/Kernel");
@@ -131,7 +131,9 @@ TestKernel.prototype._create_mod_context =
     Kernel.prototype._create_mod_context;
 
 const k = new TestKernel();
-k.add_module(new CoreModule());
+for ( const mod of EssentialModules ) {
+    k.add_module(new mod());
+}
 k.add_module({
     install: async (context) => {
         const services = context.get('services');
