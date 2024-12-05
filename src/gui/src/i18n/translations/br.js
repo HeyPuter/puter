@@ -362,9 +362,6 @@ const br = {
     "You can't share with yourself.": "Vocẽ não pode compartilhar com você mesmo", // In English: "You can't share with yourself."
     "This user already has access to this item": "Esse usuário já tem acesso a esse item", // In English: "This user already has access to this item"     
 
-    // ----------------------------------------
-    // Missing translations:
-    // ----------------------------------------
     "billing.change_payment_method": "Mudar", // In English: "Change"
     "billing.cancel": "Cancelar", // In English: "Cancel"
     "billing.download_invoice": "Baixar", // In English: "Download"
@@ -411,7 +408,6 @@ const br = {
     "billing.expanded": "Expandido", // In English: "Expanded"
     "billing.accelerated": "Aprimorado", // In English: "Accelerated"
     "billing.enjoy_msg": "Aproveite %% de Armazenamento em Nuvem, além de outros benefícios.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
   }
 };
 
