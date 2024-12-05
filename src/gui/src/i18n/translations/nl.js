@@ -142,14 +142,14 @@ const nl = {
 		get_copy_link: 'Krijg Kopieerlink',
 		hide_all_windows: 'Alle Vensters Verbergen',
 		home: 'Home',
-		html_document: 'HTML document',
+		html_document: 'HTML-document',
 		hue: 'Tint',
 		image: 'Afbeelding',
 		incorrect_password: 'Onjuist wachtwoord',
 		invite_link: 'Uitnodigingslink',
 		item: 'item',
 		items_in_trash_cannot_be_renamed: `Dit item kan niet worden hernoemd omdat het in de prullenbak zit. Om dit item te hernoemen, sleept u het eerst uit de prullenbak.`,
-		jpeg_image: 'JPEG afbeelding',
+		jpeg_image: 'JPEG-afbeelding',
 		keep_in_taskbar: 'In Taakbalk Houden',
 		language: 'Taal',
 		license: 'Licentie',
@@ -347,70 +347,67 @@ const nl = {
 		login2fa_recovery_back: 'Terug',
 		login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		"change": 'Wijzigen', // In English: "Change"
-		"clock_visibility": 'Klok zichtbaarheid', // In English: "Clock Visibility"
-		"reading": 'Lezen %strong%', // In English: "Reading %strong%"
-		"writing": 'Schrijven %strong%', // In English: "Writing %strong%"
-		"unzipping": 'Decomprimeren %strong%', // In English: "Unzipping %strong%"
-		"sequencing": 'Alles op een rijtje aan het zetten %strong%', // In English: "Sequencing %strong%"
-		"zipping": 'Aan het comprimeren %strong%', // In English: "Zipping %strong%"
-		"Editor": 'Redacteur', // In English: "Editor"
-		"Viewer": 'Kijker', // In English: "Viewer"
-		"People with access": 'Mensen met toegang', // In English: "People with access"
-		"Share With…": "Deel met...", // In English: "Share With…"
-		"Owner": "Eigenaar", // In English: "Owner"
-		"You can't share with yourself.": "Je kan niet met jezelf delen.", // In English: "You can't share with yourself."
-		"This user already has access to this item": "De gebruiker heeft al toegang tot dit item", // In English: "This user already has access to this item"
+		"change": 'Wijzig',
+		"clock_visibility": 'Klok zichtbaarheid',
+		"reading": 'Lezen %strong%',
+		"writing": 'Schrijven %strong%',
+		"unzipping": 'Decomprimeren %strong%',
+		"sequencing": 'Alles op een rijtje aan het zetten %strong%',
+		"zipping": 'Aan het comprimeren %strong%',
+		"Editor": 'Redacteur',
+		"Viewer": 'Kijker',
+		"People with access": 'Mensen met toegang',
+		"Share With…": "Deel met...",
+		"Owner": "Eigenaar",
+		"You can't share with yourself.": "Je kan niet met jezelf delen.",
+		"This user already has access to this item": "De gebruiker heeft al toegang tot dit item",
 
-		// ----------------------------------------
-		// Missing translations:
-		// ----------------------------------------
-		"billing.change_payment_method": undefined, // In English: "Change"
-		"billing.cancel": undefined, // In English: "Cancel"
-		"billing.download_invoice": undefined, // In English: "Download"
-		"billing.payment_method": undefined, // In English: "Payment Method"
-		"billing.payment_method_updated": undefined, // In English: "Payment method updated!"
-		"billing.confirm_payment_method": undefined, // In English: "Confirm Payment Method"
-		"billing.payment_history": undefined, // In English: "Payment History"
-		"billing.refunded": undefined, // In English: "Refunded"
-		"billing.paid": undefined, // In English: "Paid"
-		"billing.ok": undefined, // In English: "OK"
-		"billing.resume_subscription": undefined, // In English: "Resume Subscription"
-		"billing.subscription_cancelled": undefined, // In English: "Your subscription has been canceled."
-		"billing.subscription_cancelled_description": undefined, // In English: "You will still have access to your subscription until the end of this billing period."
-		"billing.offering.free": undefined, // In English: "Free"
-		"billing.offering.pro": undefined, // In English: "Professional"
-		"billing.offering.business": undefined, // In English: "Business"
-		"billing.cloud_storage": undefined, // In English: "Cloud Storage"
-		"billing.ai_access": undefined, // In English: "AI Access"
-		"billing.bandwidth": undefined, // In English: "Bandwidth"
-		"billing.apps_and_games": undefined, // In English: "Apps & Games"
-		"billing.upgrade_to_pro": undefined, // In English: "Upgrade to %strong%"
-		"billing.switch_to": undefined, // In English: "Switch to %strong%"
-		"billing.payment_setup": undefined, // In English: "Payment Setup"
-		"billing.back": undefined, // In English: "Back"
-		"billing.you_are_now_subscribed_to": undefined, // In English: "You are now subscribed to %strong% tier."
-		"billing.you_are_now_subscribed_to_without_tier": undefined, // In English: "You are now subscribed"
-		"billing.subscription_cancellation_confirmation": undefined, // In English: "Are you sure you want to cancel your subscription?"
-		"billing.subscription_setup": undefined, // In English: "Subscription Setup"
-		"billing.cancel_it": undefined, // In English: "Cancel It"
-		"billing.keep_it": undefined, // In English: "Keep It"
-		"billing.subscription_resumed": undefined, // In English: "Your %strong% subscription has been resumed!"
-		"billing.upgrade_now": undefined, // In English: "Upgrade Now"
-		"billing.upgrade": undefined, // In English: "Upgrade"
-		"billing.currently_on_free_plan": undefined, // In English: "You are currently on the free plan."
-		"billing.download_receipt": undefined, // In English: "Download Receipt"
-		"billing.subscription_check_error": undefined, // In English: "A problem occurred while checking your subscription status."
-		"billing.email_confirmation_needed": undefined, // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-		"billing.sub_cancelled_but_valid_until": undefined, // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-		"billing.current_plan_until_end_of_period": undefined, // In English: "Your current plan until the end of this billing period."
-		"billing.current_plan": undefined, // In English: "Current plan"
-		"billing.cancelled_subscription_tier": undefined, // In English: "Cancelled Subscription (%%)"
-		"billing.manage": undefined, // In English: "Manage"
-		"billing.limited": undefined, // In English: "Limited"
-		"billing.expanded": undefined, // In English: "Expanded"
-		"billing.accelerated": undefined, // In English: "Accelerated"
-		"billing.enjoy_msg": undefined, // In English: "Enjoy %% of Cloud Storage plus other benefits."
+		"billing.change_payment_method": "Wijzig", // In English: "Change"
+        "billing.cancel": "Annuleer", // In English: "Cancel"
+        "billing.download_invoice": "Download", // In English: "Download"
+        "billing.payment_method": "Betaalmethode", // In English: "Payment Method"
+        "billing.payment_method_updated": "Betaalmethode bijgewerkt!", // In English: "Payment method updated!"
+        "billing.confirm_payment_method": "Bevestig Betaalmethode", // In English: "Confirm Payment Method"
+        "billing.payment_history": "Betaalgeschiedenis", // In English: "Payment History"
+        "billing.refunded": "Terugbetaald", // In English: "Refunded"
+        "billing.paid": "Betaald", // In English: "Paid"
+        "billing.ok": "OK", // In English: "OK"
+        "billing.resume_subscription": "Zet Abonnement voort", // In English: "Resume Subscription"
+        "billing.subscription_cancelled": "Uw abonnement is stopgezet.", // In English: "Your subscription has been canceled."
+        "billing.subscription_cancelled_description": "U behoudt toegang tot uw abonnement tot het einde van deze factureringsperiode.", // In English: "You will still have access to your subscription until the end of this billing period."
+        "billing.offering.free": "Gratis", // In English: "Free"
+        "billing.offering.pro": "Professioneel", // In English: "Professional"
+        "billing.offering.business": "Bedrijf", // In English: "Business"
+        "billing.cloud_storage": "Cloudopslag", // In English: "Cloud Storage"
+        "billing.ai_access": "AI Toegang", // In English: "AI Access"
+        "billing.bandwidth": "Bandbreedte", // In English: "Bandwidth"
+        "billing.apps_and_games": "Apps & Spelletjes", // In English: "Apps & Games"
+        "billing.upgrade_to_pro": "Upgraden naar %strong%", // In English: "Upgrade to %strong%"
+        "billing.switch_to": "Wissel naar %strong%", // In English: "Switch to %strong%"
+        "billing.payment_setup": "Betaal", // In English: "Payment Setup"
+        "billing.back": "Terug", // In English: "Back"
+        "billing.you_are_now_subscribed_to": "U bent nu geabonneerd op de %strong% rang.", // In English: "You are now subscribed to %strong% tier."
+        "billing.you_are_now_subscribed_to_without_tier": "U bent nu geabonneerd", // In English: "You are now subscribed"
+        "billing.subscription_cancellation_confirmation": "Bent u zeker dat u uw abonnement wilt stopzetten?", // In English: "Are you sure you want to cancel your subscription?"
+        "billing.subscription_setup": "Abonnement Instellen ", // In English: "Subscription Setup"
+        "billing.cancel_it": "Annuleer het", // In English: "Cancel It"
+        "billing.keep_it": "Hou het", // In English: "Keep It"
+        "billing.subscription_resumed": "Uw %strong% abonnement is voortgezet!", // In English: "Your %strong% subscription has been resumed!"
+        "billing.upgrade_now": "Upgrade Nu", // In English: "Upgrade Now"
+        "billing.upgrade": "Upgrade", // In English: "Upgrade"
+        "billing.currently_on_free_plan": "U hebt momenteel het gratis abonnement.", // In English: "You are currently on the free plan."
+        "billing.download_receipt": "Download Ontvangstbewijs", // In English: "Download Receipt"
+        "billing.subscription_check_error": "Er is een probleem opgetreden bij het controleren van uw abonnementsstatus.", // In English: "A problem occurred while checking your subscription status."
+        "billing.email_confirmation_needed": "Uw e-mail is nog niet bevestigd. We zullen u een code sturen om het te bevestigen.", // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
+        "billing.sub_cancelled_but_valid_until": "U hebt uw abonnement stopgezet en het zal automatisch overschakelen naar het gratis abonnement op het einde van deze factureringsperiode. Er worden geen kosten in rekening gebracht, tenzij u opnieuw abonneert.", // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
+        "billing.current_plan_until_end_of_period": "Uw huidige abonnement tot het einde van deze factureringsperiode.", // In English: "Your current plan until the end of this billing period."
+        "billing.current_plan": "Huidige Abonnement", // In English: "Current plan"
+        "billing.cancelled_subscription_tier": "Stop Abonnement", // In English: "Cancelled Subscription (%%)"
+        "billing.manage": "Beheer", // In English: "Manage"
+        "billing.limited": "Beperkt", // In English: "Limited"
+        "billing.expanded": "Uitgebreid", // In English: "Expanded"
+        "billing.accelerated": "Versneld", // In English: "Accelerated"
+        "billing.enjoy_msg": "Geniet %% van Cloudopslag en meer voordelen.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
 	}
 };
 
