@@ -18,82 +18,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { v4: uuidv4 } = require('uuid');
-const { quot } = require('../../util/strutil');
-const BaseService = require('../BaseService');
+const BaseService = require('../../services/BaseService');
 
-
-/**
-* @class WorkUnit
-* @description The WorkUnit class represents a unit of work that can be tracked and monitored for checkpoints.
-* It includes methods to create instances, set checkpoints, and manage the state of the work unit.
-*/
-class WorkUnit {
-    /**
-    * Represents a unit of work with checkpointing capabilities.
-    *
-    * @class
-    */
-    
-    /**
-    * Creates and returns a new instance of WorkUnit.
-    *
-    * @static
-    * @returns {WorkUnit} A new instance of WorkUnit.
-    */
-    static create () {
-        return new WorkUnit();
-    }
-    /**
-    * Creates a new instance of the WorkUnit class.
-    * @static
-    * @returns {WorkUnit} A new WorkUnit instance.
-    */
-    constructor () {
-        this.id = uuidv4();
-        this.checkpoint_ = null;
-    }
-    checkpoint (label) {
-        console.log('CHECKPOINT', label);
-        this.checkpoint_ = label;
-    }
-}
-
-
-/**
-* @class CheckpointExpectation
-* @classdesc The CheckpointExpectation class is used to represent an expectation that a specific checkpoint
-* will be reached during the execution of a work unit. It includes methods to check if the checkpoint has
-* been reached and to report the results of this check.
-*/
-class CheckpointExpectation {
-    constructor (workUnit, checkpoint) {
-        this.workUnit = workUnit;
-        this.checkpoint = checkpoint;
-    }
-    /**
-    * Constructor for CheckpointExpectation class.
-    * Initializes the instance with a WorkUnit and a checkpoint label.
-    * @param {WorkUnit} workUnit - The work unit associated with the checkpoint.
-    * @param {string} checkpoint - The checkpoint label to be checked.
-    */
-    check () {
-        // TODO: should be true if checkpoint was ever reached
-        return this.workUnit.checkpoint_ == this.checkpoint;
-    }
-    report (log) {
-        if ( this.check() ) return;
-        log.log(
-            `operation(${this.workUnit.id}): ` +
-            `expected ${quot(this.checkpoint)} ` +
-            `and got ${quot(this.workUnit.checkpoint_)}.`
-        );
-    }
-}
-
-/**
- * This service helps diagnose errors involving the potentially
- * complex relationships between asynchronous operations.
- */
 /**
 * @class ExpectationService
 * @extends BaseService
@@ -108,6 +34,10 @@ class CheckpointExpectation {
 * runtime behaviors in a system.
 */
 class ExpectationService extends BaseService {
+    static USE = {
+        expect: 'core.expect'
+    };
+
     /**
     * Constructs the ExpectationService and initializes its internal state.
     * This method is intended to be called asynchronously.
@@ -119,6 +49,29 @@ class ExpectationService extends BaseService {
         this.expectations_ = [];
     }
 
+    /**
+     * ExpectationService registers its commands at the consolidation phase because
+     * the '_init' method of CommandService may not have been called yet.
+     */
+    ['__on_boot.consolidation'] () {
+        const commands = this.services.get('commands');
+        commands.registerCommands('expectations', [
+            {
+                id: 'pending',
+                description: 'lists pending expectations',
+                handler: async (args, log) => {
+                    this.purgeExpectations_();
+                    if ( this.expectations_.length < 1 ) {
+                        log.log(`there are none`);
+                        return;
+                    }
+                    for ( const expectation of this.expectations_ ) {
+                        expectation.report(log);
+                    }
+                }
+            }
+        ]);
+    }
 
     /**
     * Initializes the ExpectationService, setting up interval functions and registering commands.
@@ -145,24 +98,6 @@ class ExpectationService extends BaseService {
         setInterval(() => {
             this.purgeExpectations_();
         }, 1000);
-
-        const commands = services.get('commands');
-        commands.registerCommands('expectations', [
-            {
-                id: 'pending',
-                description: 'lists pending expectations',
-                handler: async (args, log) => {
-                    this.purgeExpectations_();
-                    if ( this.expectations_.length < 1 ) {
-                        log.log(`there are none`);
-                        return;
-                    }
-                    for ( const expectation of this.expectations_ ) {
-                        expectation.report(log);
-                    }
-                }
-            }
-        ]);
     }
 
 
@@ -187,13 +122,12 @@ class ExpectationService extends BaseService {
     }
 
     expect_eventually ({ workUnit, checkpoint }) {
-        this.expectations_.push(new CheckpointExpectation(workUnit, checkpoint));
+        this.expectations_.push(new this.expect.CheckpointExpectation(workUnit, checkpoint));
     }
 }
 
 
 
 module.exports = {
-    WorkUnit,
     ExpectationService
 };

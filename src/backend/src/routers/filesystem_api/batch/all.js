@@ -20,7 +20,6 @@ const APIError = require("../../../api/APIError");
 const eggspress = require("../../../api/eggspress");
 const config = require("../../../config");
 const PathResolver = require("./PathResolver");
-const { WorkUnit } = require("../../../services/runtime-analysis/ExpectationService");
 const { Context } = require("../../../util/context");
 const Busboy = require('busboy');
 const { BatchExecutor } = require("../../../filesystem/batch/BatchExecutor");

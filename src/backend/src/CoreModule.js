@@ -86,9 +86,7 @@ const install = async ({ services, app, useapi, modapi }) => {
     // call to services.registerService. We'll clean this up
     // in a future PR.
 
-    const { PagerService } = require('./services/runtime-analysis/PagerService');
     const { CommandService } = require('./services/CommandService');
-    const { ExpectationService } = require('./services/runtime-analysis/ExpectationService');
     const { HTTPThumbnailService } = require('./services/thumbnails/HTTPThumbnailService');
     const { PureJSThumbnailService } = require('./services/thumbnails/PureJSThumbnailService');
     const { NAPIThumbnailService } = require('./services/thumbnails/NAPIThumbnailService');
@@ -141,8 +139,6 @@ const install = async ({ services, app, useapi, modapi }) => {
     services.registerService('__api-filesystem', FilesystemAPIService);
     services.registerService('__api', PuterAPIService);
     services.registerService('__gui', ServeGUIService);
-    services.registerService('expectations', ExpectationService);
-    services.registerService('pager', PagerService);
     services.registerService('registry', RegistryService);
     services.registerService('__registrant', RegistrantService);
     services.registerService('fslock', FSLockService);
@@ -352,7 +348,6 @@ const install = async ({ services, app, useapi, modapi }) => {
 }
 
 const install_legacy = async ({ services }) => {
-    const { ProcessEventService } = require('./services/runtime-analysis/ProcessEventService');
     // const { FilesystemService } = require('./filesystem/FilesystemService');
     const PerformanceMonitor = require('./monitor/PerformanceMonitor');
     const { OperationTraceService } = require('./services/OperationTraceService');
@@ -362,7 +357,6 @@ const install_legacy = async ({ services }) => {
     const { FileCacheService } = require('./services/file-cache/FileCacheService');
 
     // === Services which do not yet extend BaseService ===
-    services.registerService('process-event', ProcessEventService);
     // services.registerService('filesystem', FilesystemService);
     services.registerService('operationTrace', OperationTraceService);
     services.registerService('file-cache', FileCacheService);

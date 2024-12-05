@@ -18,9 +18,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const pdjs = require('@pagerduty/pdjs');
-const BaseService = require('../BaseService');
+const BaseService = require('../../services/BaseService');
 const util = require('util');
-const { Context } = require('../../util/context');
 
 
 /**
@@ -33,11 +32,24 @@ const { Context } = require('../../util/context');
 * command registration.
 */
 class PagerService extends BaseService {
+    static USE = {
+        Context: 'core.context',
+    }
+    
     async _construct () {
         this.config = this.global_config.pager;
         this.alertHandlers_ = [];
 
     }
+    
+    /**
+     * PagerService registers its commands at the consolidation phase because
+     * the '_init' method of CommandService may not have been called yet.
+     */
+    ['__on_boot.consolidation'] () {
+        this._register_commands(this.services.get('commands'));
+    }
+
     /**
     * Initializes the PagerService instance by setting the configuration and
     * initializing an empty alert handler array.
@@ -56,10 +68,7 @@ class PagerService extends BaseService {
         }
 
         this.onInit();
-
-        this._register_commands(services.get('commands'));
     }
-
 
     /**
     * Initializes PagerDuty configuration and registers alert handlers.
@@ -83,7 +92,7 @@ class PagerService extends BaseService {
                     server_id: this.global_config.server_id,
                 };
 
-                const ctx = Context.get(undefined, { allow_fallback: true });
+                const ctx = this.Context.get(undefined, { allow_fallback: true });
 
                 // Add request payload if any exists
                 const req = ctx.get('req');

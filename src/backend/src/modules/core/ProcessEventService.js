@@ -17,8 +17,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Context } = require("../../util/context");
 
+const BaseService = require("../../services/BaseService");
 
 /**
 * Service class that handles process-wide events and errors.
@@ -28,8 +28,13 @@ const { Context } = require("../../util/context");
 * 
 * @class ProcessEventService
 */
-class ProcessEventService {
-    constructor ({ services }) {
+class ProcessEventService extends BaseService {
+    static USE = {
+        Context: 'core.context',
+    };
+    
+    _init () {
+        const services = this.services;
         const log = services.get('log-service').create('process-event-service');
         const errors = services.get('error-service').create(log);
 
@@ -44,7 +49,7 @@ class ProcessEventService {
             * @param {string} origin - The origin of the uncaught exception
             * @returns {Promise<void>} 
             */
-            await Context.allow_fallback(async () => {
+            await this.Context.allow_fallback(async () => {
                 errors.report('process:uncaughtException', {
                     source: err,
                     origin,
@@ -62,7 +67,7 @@ class ProcessEventService {
             * @param {Promise} promise - The rejected promise
             * @returns {Promise<void>} Resolves when error is reported
             */
-            await Context.allow_fallback(async () => {
+            await this.Context.allow_fallback(async () => {
                 errors.report('process:unhandledRejection', {
                     source: reason,
                     promise,
