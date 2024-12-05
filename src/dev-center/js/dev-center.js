@@ -765,7 +765,12 @@ async function edit_app_section(cur_app_name) {
     const filetype_association_input = document.querySelector('textarea[id=edit-app-filetype-associations]');
     let tagify = new Tagify(filetype_association_input, {
         pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/(?:[a-z0-9.-]+|\*))/,
-        delimiters: null,
+        delimiters: ", ",
+        enforceWhitelist: false,
+        dropdown : {
+            // show the dropdown immediately on focus (0 character typed)
+            enabled: 0,
+        },
         whitelist: [
           // MIME type patterns
           "text/*", "image/*", "audio/*", "video/*", "application/*",
