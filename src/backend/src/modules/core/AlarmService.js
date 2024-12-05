@@ -24,11 +24,7 @@ const util = require('util');
 const _path = require('path');
 const fs = require('fs');
 
-const { fallbackRead } = require('../../util/files.js');
-const { generate_identifier } = require('../../util/identifier.js');
-const BaseService = require('../BaseService.js');
-const { split_lines } = require('../../util/stdioutil.js');
-const { Context } = require('../../util/context.js');
+const BaseService = require('../../services/BaseService.js');
 
 
 /**
@@ -37,6 +33,9 @@ const { Context } = require('../../util/context.js');
 class AlarmService extends BaseService {
     static USE = {
         logutil: 'core.util.logutil',
+        identutil: 'core.util.identutil',
+        stdioutil: 'core.util.stdioutil',
+        Context: 'core.context',
     }
     /**
     * This method initializes the AlarmService by setting up its internal data structures and initializing any required dependencies.
@@ -61,23 +60,6 @@ class AlarmService extends BaseService {
 
         // TODO:[self-hosted] fix this properly
         this.known_errors = [];
-        // (async () => {
-        //     try {
-        //         this.known_errors = JSON5.parse(
-        //             await fallbackRead(
-        //                 'data/known_errors.json5',
-        //                 '/var/puter/data/known_errors.json5',
-        //             ),
-        //         );
-        //     } catch (e) {
-        //         this.create(
-        //             'missing-known-errors',
-        //             e.message,
-        //         )
-        //     }
-        // })();
-
-        this._register_commands(services.get('commands'));
 
         if ( this.global_config.env === 'dev' ) {
             /**
@@ -96,13 +78,17 @@ class AlarmService extends BaseService {
                     const line =
                         `\x1B[31;1m [alarm]\x1B[0m ` +
                         `${alarm.id_string}: ${alarm.message} (${alarm.count})`;
-                    const line_lines = split_lines(line);
+                    const line_lines = this.stdioutil.split_lines(line);
                     lines.push(...line_lines);
                 }
 
                 return lines;
             }
         }
+    }
+    
+    ['__on_boot.consolidation'] () {
+        this._register_commands(this.services.get('commands'));
     }
 
     adapt_id_ (id) {
@@ -116,7 +102,7 @@ class AlarmService extends BaseService {
 
         if ( shorten ) {
             const rng = seedrandom(id);
-            id = generate_identifier('-', rng);
+            id = this.identutil.generate_identifier('-', rng);
         }
 
         return id;
@@ -307,7 +293,7 @@ class AlarmService extends BaseService {
             svc_devConsole.add_widget(this.alarm_widget);
         }
 
-        const args = Context.get('args') ?? {};
+        const args = this.Context.get('args') ?? {};
         if ( args['quit-on-alarm'] ) {
             const svc_shutdown = this.services.get('shutdown');
             svc_shutdown.shutdown({

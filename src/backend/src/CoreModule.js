@@ -87,7 +87,6 @@ const install = async ({ services, app, useapi, modapi }) => {
     // in a future PR.
 
     const { PagerService } = require('./services/runtime-analysis/PagerService');
-    const { AlarmService } = require('./services/runtime-analysis/AlarmService');
     const { ErrorService } = require('./services/runtime-analysis/ErrorService');
     const { CommandService } = require('./services/CommandService');
     const { ExpectationService } = require('./services/runtime-analysis/ExpectationService');
@@ -145,7 +144,6 @@ const install = async ({ services, app, useapi, modapi }) => {
     services.registerService('__gui', ServeGUIService);
     services.registerService('expectations', ExpectationService);
     services.registerService('pager', PagerService);
-    services.registerService('alarm', AlarmService);
     services.registerService('error-service', ErrorService);
     services.registerService('registry', RegistryService);
     services.registerService('__registrant', RegistrantService);

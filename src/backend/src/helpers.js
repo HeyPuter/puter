@@ -22,7 +22,6 @@ const micromatch = require('micromatch');
 const config = require('./config')
 const mime = require('mime-types');
 const PerformanceMonitor = require('./monitor/PerformanceMonitor.js');
-const { generate_identifier } = require('./util/identifier.js');
 const { ManagedError } = require('./util/errorutil.js');
 const { spanify } = require('./util/otelutil.js');
 const APIError = require('./api/APIError.js');
@@ -1230,14 +1229,6 @@ function send_email_verification_token(email_confirm_token, email, user_uuid){
     svc_email.send_email({ email }, 'email_verification_link', { link });
 }
 
-async function generate_random_username(){
-    let username;
-    do {
-        username = generate_identifier();
-    } while (await username_exists(username));
-    return username;
-}
-
 function generate_random_str(length) {
     var result           = '';
     var characters       = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -1617,7 +1608,6 @@ module.exports = {
     get_taskbar_items,
     get_url_from_req,
     generate_random_str,
-    generate_random_username,
     get_app,
     get_user,
     invalidate_cached_user,

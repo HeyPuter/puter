@@ -14,11 +14,16 @@ class Core2Module extends AdvancedBase {
             useapi.def(`core.${k}`, lib[k], { assign: true });
         }
         
+        useapi.def('core.context', require('../../util/context.js').Context);
+        
         // === SERVICES === //
         const services = context.get('services');
 
         const { LogService } = require('./LogService.js');
         services.registerService('log-service', LogService);
+        
+        const { AlarmService } = require("./AlarmService.js");
+        services.registerService('alarm', AlarmService);
     }
 }
 
