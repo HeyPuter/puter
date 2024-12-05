@@ -77,6 +77,28 @@ the source of the error.
 - **location:** The location where the error occurred.
 - **fields:** The error details to report.
 
+### ExpectationService
+
+
+
+#### Listeners
+
+##### `boot.consolidation`
+
+ExpectationService registers its commands at the consolidation phase because
+the '_init' method of CommandService may not have been called yet.
+
+#### Methods
+
+##### `expect_eventually`
+
+Registers an expectation to be tracked by the service.
+
+###### Parameters
+
+- **workUnit:** The work unit to track
+- **checkpoint:** The checkpoint to expect
+
 ### LogService
 
 The `LogService` class extends `BaseService` and is responsible for managing and 
@@ -122,7 +144,46 @@ Generates a sanitized file path for log files.
 Get the most recent log entries from the buffer maintained by the LogService.
 By default, the buffer contains the last 20 log entries.
 
+### PagerService
+
+
+
+#### Listeners
+
+##### `boot.consolidation`
+
+PagerService registers its commands at the consolidation phase because
+the '_init' method of CommandService may not have been called yet.
+
+#### Methods
+
+##### `onInit`
+
+Initializes PagerDuty configuration and registers alert handlers.
+If PagerDuty is enabled in the configuration, it sets up an alert handler
+to send alerts to PagerDuty.
+
+##### `alert`
+
+Sends an alert to all registered alert handlers.
+
+This method iterates through all alert handlers and attempts to send the alert.
+If any handler fails to send the alert, an error message is logged.
+
+###### Parameters
+
+- **alert:** The alert object containing details about the alert.
+
+### ProcessEventService
+
+Service class that handles process-wide events and errors.
+Provides centralized error handling for uncaught exceptions and unhandled promise rejections.
+Sets up event listeners on the process object to capture and report critical errors
+through the logging and error reporting services.
+
 ## Libraries
+
+### core.expect
 
 ### core.util.identutil
 
@@ -201,5 +262,8 @@ extension.
 - `../../services/BaseService.js`
 - `../../util/context.js`
 - `../../services/BaseService` (use.BaseService)
+- `../../services/BaseService` (use.BaseService)
 - `../../util/context`
+- `../../services/BaseService` (use.BaseService)
+- `../../services/BaseService` (use.BaseService)
 - `../../services/BaseService` (use.BaseService)

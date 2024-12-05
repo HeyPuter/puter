@@ -121,6 +121,13 @@ class ExpectationService extends BaseService {
         // this.expectations_ = this.expectations_.filter(v => v !== null);
     }
 
+    /**
+     * Registers an expectation to be tracked by the service.
+     * 
+     * @param {Object} workUnit - The work unit to track
+     * @param {string} checkpoint - The checkpoint to expect
+     * @returns {void}
+     */
     expect_eventually ({ workUnit, checkpoint }) {
         this.expectations_.push(new this.expect.CheckpointExpectation(workUnit, checkpoint));
     }
