@@ -18,7 +18,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { TimeWindow } = require("../util/opmath");
-const SmolUtil = require("../util/smolutil");
+const smol = require('@heyputer/putility').libs.smol;
 const { format_as_usd } = require('@heyputer/putility').libs.string;
 const { MINUTE, SECOND } = require("@heyputer/putility").libs.time;
 const BaseService = require("./BaseService");
@@ -77,7 +77,7 @@ class TrackSpendingService extends BaseService {
             const input_tokens = data.count_tokens_input ?? 0;
             const output_tokens = data.count_tokens_output ?? 0;
 
-            const cost = SmolUtil.add(
+            const cost = smol.add(
                 this.multiply_by_ratio_(input_tokens, cost_per_input_token),
                 this.multiply_by_ratio_(output_tokens, cost_per_output_token),
             );

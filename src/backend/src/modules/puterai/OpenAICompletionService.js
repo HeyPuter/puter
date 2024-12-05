@@ -4,7 +4,7 @@ const APIError = require('../../api/APIError');
 const BaseService = require('../../services/BaseService');
 const { TypedValue } = require('../../services/drivers/meta/Runtime');
 const { Context } = require('../../util/context');
-const SmolUtil = require('../../util/smolutil');
+const smol = require('@heyputer/putility').libs.smol;
 const { nou } = require('../../util/langutil');
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
@@ -300,7 +300,7 @@ class OpenAICompletionService extends BaseService {
             if ( ! msg.content ) continue;
             if ( typeof msg.content !== 'object' ) continue;
 
-            const content = SmolUtil.ensure_array(msg.content);
+            const content = smol.ensure_array(msg.content);
 
             for ( const o of content ) {
                 if ( ! o.hasOwnProperty('image_url') ) continue;
@@ -326,7 +326,7 @@ class OpenAICompletionService extends BaseService {
             if ( ! msg.content ) continue;
             if ( typeof msg.content !== 'object' ) continue;
 
-            const content = SmolUtil.ensure_array(msg.content);
+            const content = smol.ensure_array(msg.content);
 
             for ( const o of content ) {
                 // console.log('part of content', o);

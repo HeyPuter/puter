@@ -119,7 +119,6 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { ESBuilder } = require('./om/entitystorage/ESBuilder');
     const { Eq, Or } = require('./om/query/query');
     const { TrackSpendingService } = require('./services/TrackSpendingService');
-    const { ServerHealthService } = require('./services/runtime-analysis/ServerHealthService');
     const { MakeProdDebuggingLessAwfulService } = require('./services/MakeProdDebuggingLessAwfulService');
     const { ConfigurableCountingService } = require('./services/ConfigurableCountingService');
     const { FSLockService } = require('./services/fs/FSLockService');
@@ -134,7 +133,6 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     // === Services which extend BaseService ===
     services.registerService('system-validation', SystemValidationService);
-    services.registerService('server-health', ServerHealthService);
     services.registerService('commands', CommandService);
     services.registerService('__api-filesystem', FilesystemAPIService);
     services.registerService('__api', PuterAPIService);

@@ -36,6 +36,9 @@ class Core2Module extends AdvancedBase {
 
         const { ProcessEventService } = require("./ProcessEventService.js");
         services.registerService('process-event', ProcessEventService);
+        
+        const { ServerHealthService } = require("./ServerHealthService.js");
+        services.registerService('server-health', ServerHealthService);
     }
 }
 

@@ -17,9 +17,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("../BaseService");
+const BaseService = require("../../services/BaseService");
 const { time, promise } = require("@heyputer/putility").libs;
-const { parse_meminfo } = require("../../util/linux");
 
 
 /**
@@ -34,6 +33,10 @@ const { parse_meminfo } = require("../../util/linux");
 * from `/proc/meminfo` and handling alarms via an external 'alarm' service.
 */
 class ServerHealthService extends BaseService {
+    static USE = {
+        linuxutil: 'core.util.linuxutil'
+    };
+    
     static MODULES = {
         fs: require('fs'),
     }
@@ -95,7 +98,7 @@ class ServerHealthService extends BaseService {
             const meminfo_text = await this.modules.fs.promises.readFile(
                 '/proc/meminfo', 'utf8'
             );
-            const meminfo = parse_meminfo(meminfo_text);
+            const meminfo = this.linuxutil.parse_meminfo(meminfo_text);
             const alarm_fields = {
                 mem_free: meminfo.MemFree,
                 mem_available: meminfo.MemAvailable,
