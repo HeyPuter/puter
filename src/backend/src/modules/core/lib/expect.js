@@ -1,4 +1,5 @@
 // METADATA // {"def":"core.expect"}
+const { v4: uuidv4 } = require('uuid');
 
 /**
 * @class WorkUnit
