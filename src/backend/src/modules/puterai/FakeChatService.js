@@ -9,6 +9,9 @@ const BaseService = require("../../services/BaseService");
 * Implements the 'puter-chat-completion' interface with list() and complete() methods.
 */
 class FakeChatService extends BaseService {
+    get_default_model () {
+        return 'fake';
+    }
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
             /**

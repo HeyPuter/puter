@@ -53,6 +53,8 @@ class AIChatService extends BaseService {
 
         const svc_event = this.services.get('event');
         svc_event.on('ai.prompt.report-usage', async (_, details) => {
+            if ( details.service_used === 'fake-chat' ) return;
+
             const values = {
                 user_id: details.actor?.type?.user?.id,
                 app_id: details.actor?.type?.app?.id ?? null,
@@ -289,7 +291,9 @@ class AIChatService extends BaseService {
                 const svc_driver = this.services.get('driver');
                 let ret, error, errors = [];
                 let service_used = intended_service;
-                let model_used = this.get_model_from_request(parameters);
+                let model_used = this.get_model_from_request(parameters, {
+                    intended_service
+                });
                 await this.check_usage_({
                     actor: Context.get('actor'),
                     service: service_used,
@@ -594,13 +598,21 @@ class AIChatService extends BaseService {
         });
     }
 
-    get_model_from_request (parameters) {
+    get_model_from_request (parameters, modified_context = {}) {
         const client_driver_call = Context.get('client_driver_call');
         let { intended_service } = client_driver_call;
+        
+        if ( modified_context.intended_service ) {
+            intended_service = modified_context.intended_service;
+        }
 
         let model = parameters.model;
         if ( ! model ) {
             const service = this.services.get(intended_service);
+            console.log({
+                what: intended_service,
+                w: service.get_default_model
+            });
             if ( ! service.get_default_model ) {
                 throw new Error('could not infer model from service');
             }
