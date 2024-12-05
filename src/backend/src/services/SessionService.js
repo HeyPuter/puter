@@ -19,7 +19,7 @@
  */
 const { invalidate_cached_user, get_user } = require("../helpers");
 const { asyncSafeSetInterval } = require("../util/promise");
-const { MINUTE, SECOND } = require("../util/time");
+const { MINUTE, SECOND } = require("@heyputer/putility").libs.time;
 const BaseService = require("./BaseService");
 const { DB_WRITE } = require("./database/consts");
 

@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { URLSearchParams } = require("node:url");
-const { quot } = require("../util/strutil");
+const { quot } = require('@heyputer/putility').libs.string;
 
 /**
  * APIError represents an error that can be sent to the client.

@@ -30,6 +30,7 @@ const auth = require('../../middleware/auth.js');
 const { surrounding_box, es_import_promise } = require('../../fun/dev-console-ui-utils.js');
 
 const relative_require = require;
+const strutil = require('@heyputer/putility').libs.string;
 
 /**
 * This class, WebServerService, is responsible for starting and managing the Puter web server.
@@ -37,10 +38,6 @@ const relative_require = require;
 * It also validates the host header and IP addresses to prevent security vulnerabilities.
 */
 class WebServerService extends BaseService {
-    static USE = {
-        strutil: 'core.util.strutil',
-    }
-
     static MODULES = {
         https: require('https'),
         http: require('http'),
@@ -201,7 +198,7 @@ class WebServerService extends BaseService {
         */
         this.startup_widget = () => {
 
-            const link = `\x1B[34;1m${this.strutil.osclink(url)}\x1B[0m`;
+            const link = `\x1B[34;1m${strutil.osclink(url)}\x1B[0m`;
             const lines = [
                 `Puter is now live at: ${link}`,
                 `Type web:dismiss to un-stick this message`,

@@ -18,7 +18,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const BaseService = require("../BaseService");
-const { SECOND } = require("../../util/time");
+const { SECOND } = require("@heyputer/putility").libs.time;
 const { parse_meminfo } = require("../../util/linux");
 const { asyncSafeSetInterval, TeePromise } = require("../../util/promise");
 

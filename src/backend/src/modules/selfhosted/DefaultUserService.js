@@ -27,7 +27,7 @@ const { buffer_to_stream } = require("../../util/streamutil");
 const BaseService = require("../../services/BaseService");
 const { Actor, UserActorType } = require("../../services/auth/Actor");
 const { DB_WRITE } = require("../../services/database/consts");
-const { quot } = require("../../util/strutil");
+const { quot } = require('@heyputer/putility').libs.string;
 
 const USERNAME = 'admin';
 

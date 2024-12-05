@@ -18,7 +18,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { asyncSafeSetInterval } = require("../util/promise");
-const { MINUTE, SECOND } = require("../util/time");
+const { MINUTE, SECOND } = require("@heyputer/putility").libs.time;
 const { origin_from_url } = require("../util/urlutil");
 const { DB_READ } = require("./database/consts");
 

@@ -19,8 +19,8 @@
  */
 const { TimeWindow } = require("../util/opmath");
 const SmolUtil = require("../util/smolutil");
-const { format_as_usd } = require("../util/strutil");
-const { MINUTE, SECOND } = require("../util/time");
+const { format_as_usd } = require('@heyputer/putility').libs.string;
+const { MINUTE, SECOND } = require("@heyputer/putility").libs.time;
 const BaseService = require("./BaseService");
 
 

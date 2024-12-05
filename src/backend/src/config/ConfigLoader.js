@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require("@heyputer/putility");
-const { quot } = require("../util/strutil");
+const { quot } = require('@heyputer/putility').libs.string;
 
 class ConfigLoader extends AdvancedBase {
     static MODULES = {

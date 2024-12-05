@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { quot } = require("./strutil");
+const { quot } = require('@heyputer/putility').libs.string;
 
 const hl_type_definitions = {
     flag: {

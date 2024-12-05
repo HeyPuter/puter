@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
+const { AdvancedBase, libs } = require("@heyputer/putility");
 const { Context } = require('./util/context');
 const BaseService = require("./services/BaseService");
 const useapi = require('useapi');
@@ -25,7 +25,8 @@ const { hideBin } = require('yargs/helpers');
 const { Extension } = require("./Extension");
 const { ExtensionModule } = require("./ExtensionModule");
 const { spawn } = require("node:child_process");
-const { quot } = require("./util/strutil");
+
+const { quot } = libs.string;
 
 class Kernel extends AdvancedBase {
     constructor ({ entry_path } = {}) {
