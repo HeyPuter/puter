@@ -392,9 +392,6 @@ const ur = {
     "You can't share with yourself.": "آپ خود کے ساتھ شیئر نہیں کر سکتے۔", // In English: "You can't share with yourself."
     "This user already has access to this item": "اس صارف کو پہلے ہی اس آئٹم تک رسائی حاصل ہے۔", // In English: "This user already has access to this item"
 
-    // ----------------------------------------
-    // Missing translations:
-    // ----------------------------------------
     "billing.change_payment_method": "ادائیگی کے طریقہ کو تبدیل کریں", // In English: "Change"
     "billing.cancel": "منسوخ کریں", // In English: "Cancel"
     "billing.download_invoice": "انوائس ڈاؤن لوڈ کریں", // In English: "Download"
