@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  * 
@@ -29,6 +30,15 @@ const { CommentParser } = require('../comment-parser/main');
 const fs = require('fs');
 const path_ = require('path');
 
+
+/**
+* Compares two license headers and returns their Levenshtein distance and formatted diff
+* @param {Object} params - The parameters object
+* @param {string} params.header1 - First header text to compare
+* @param {string} params.header2 - Second header text to compare  
+* @param {boolean} [params.distance_only=false] - If true, only return distance without diff
+* @returns {Object} Object containing distance and formatted terminal diff
+*/
 const CompareFn = ({ header1, header2, distance_only = false }) => {
     
     // Calculate Levenshtein distance
@@ -64,6 +74,13 @@ const CompareFn = ({ header1, header2, distance_only = false }) => {
     };
 }
 
+/**
+* Creates a license checker instance that can compare and validate license headers
+* @param {Object} params - Configuration parameters
+* @param {Object} params.comment_parser - Comment parser instance to use
+* @param {string} params.desired_header - The expected license header text
+* @returns {Object} License checker instance with compare and supports methods
+*/
 const LicenseChecker = ({
     comment_parser,
     desired_header,
@@ -197,6 +214,15 @@ const license_check_test = async ({ options }) => {
     }
 };
 
+
+/**
+* Executes the main command line interface for the license header tool.
+* Sets up Commander.js program with commands for checking and syncing license headers.
+* Handles configuration file loading and command execution.
+* 
+* @async
+* @returns {Promise<void>} Resolves when command execution is complete
+*/
 const cmd_check_fn = async () => {
     const comment_parser = CommentParser();
     const license_checker = LicenseChecker({
@@ -335,6 +361,18 @@ const cmd_check_fn = async () => {
     t.printTable();
 };
 
+
+/**
+* Synchronizes license headers in source files by adding missing headers and handling conflicts
+* 
+* Walks through files, checks for license headers, and:
+* - Adds headers to files missing them
+* - Prompts user to resolve conflicts when headers don't match
+* - Handles duplicate headers by allowing removal
+* - Tracks counts of different header statuses (ok, missing, conflict, etc)
+* 
+* @returns {Promise<void>} Resolves when synchronization is complete
+*/
 const cmd_sync_fn = async () => {
     const comment_parser = CommentParser();
     const desired_header = fs.readFileSync(
@@ -547,6 +585,14 @@ const cmd_sync_fn = async () => {
     t.printTable();
 };
 
+
+/**
+* Main entry point for the license header tool.
+* Sets up command line interface using Commander and processes commands.
+* Handles 'check' and 'sync' commands for managing license headers in files.
+* 
+* @returns {Promise<void>} Resolves when command processing is complete
+*/
 const main = async () => {
     const { program } = require('commander');
     const helptext = dedent(`

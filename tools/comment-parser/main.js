@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  * 
@@ -44,6 +45,14 @@ lib.dedent_lines = lines => {
     }
 };
 
+
+/**
+* Creates a StringStream object for parsing a string with position tracking
+* @param {string} str - The string to parse
+* @param {Object} [options] - Optional configuration object
+* @param {Object} [options.state_] - Initial state with position
+* @returns {Object} StringStream instance with parsing methods
+*/
 const StringStream = (str, { state_ } = {}) => {
     const state = state_ ?? { pos: 0 };
     return {
@@ -190,6 +199,13 @@ const BlockCommentParser = ({
     };
 };
 
+
+/**
+* Creates a writer for line-style comments with a specified prefix
+* @param {Object} options - Configuration options
+* @param {string} options.prefix - The prefix to use for each comment line
+* @returns {Object} A comment writer object
+*/
 const LinesCommentWriter = ({ prefix }) => {
     return {
         write: (lines) => {
@@ -202,6 +218,15 @@ const LinesCommentWriter = ({ prefix }) => {
     };
 };
 
+
+/**
+* Creates a block comment writer with specified start/end markers and prefix
+* @param {Object} options - Configuration options
+* @param {string} options.start - Comment start marker (e.g. "/*")
+* @param {string} options.end - Comment end marker (e.g. "* /") 
+* @param {string} options.prefix - Line prefix within comment (e.g. " * ")
+* @returns {Object} Block comment writer object
+*/
 const BlockCommentWriter = ({ start, end, prefix }) => {
     return {
         write: (lines) => {
@@ -217,6 +242,15 @@ const BlockCommentWriter = ({ start, end, prefix }) => {
     };
 };
 
+
+/**
+* Creates a new CommentParser instance for parsing and handling source code comments
+* 
+* @returns {Object} An object with methods:
+*   - supports: Checks if a file type is supported
+*   - extract_top_comments: Extracts comments from source code
+*   - output_comment: Formats and outputs comments in specified style
+*/
 const CommentParser = () => {
     const registry_ = {
         object: {
@@ -263,6 +297,13 @@ const CommentParser = () => {
         
     };
     
+
+    /**
+    * Gets the language configuration for a given filename by extracting and validating its extension
+    * @param {Object} params - The parameters object
+    * @param {string} params.filename - The filename to get the language for
+    * @returns {Object} Object containing the language configuration
+    */
     const get_language_by_filename = ({ filename }) => {
         const { language } = (({ filename }) => {
             const { language_id } = (({ filename }) => {
@@ -293,6 +334,13 @@ const CommentParser = () => {
         return { language };
     }
     
+
+    /**
+    * Checks if a given filename is supported by the comment parser
+    * @param {Object} params - The parameters object
+    * @param {string} params.filename - The filename to check support for
+    * @returns {boolean} Whether the file type is supported
+    */
     const supports = ({ filename }) => {
         try {
             get_language_by_filename({ filename });
@@ -338,6 +386,15 @@ const CommentParser = () => {
         return results;
     }
     
+
+    /**
+    * Outputs a comment in the specified style for a given filename and text
+    * @param {Object} params - The parameters object
+    * @param {string} params.filename - The filename to determine comment style
+    * @param {string} params.style - The comment style to use ('lines' or 'block')
+    * @param {string} params.text - The text content of the comment
+    * @returns {string} The formatted comment string
+    */
     const output_comment = ({ filename, style, text }) => {
         const { language } = get_language_by_filename({ filename });
         

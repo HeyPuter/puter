@@ -1,6 +1,19 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 const dedent = require('dedent');
 const doctrine = require('doctrine');
 
+
+/**
+* Out class - A utility class for generating formatted text output
+* Provides methods for creating headings, line feeds, and text output
+*
+* ~~with a fluent interface.~~
+*  ^ Nope, AI got this wrong but maybe it's a good idea to
+*    make this a fluent interface
+*
+* The constructor returns a bound function that
+* maintains the output state and provides access to helper methods.
+*/
 class Out {
     constructor () {
         this.str = '';
@@ -15,13 +28,29 @@ class Out {
         this.str += '#'.repeat(n) + ' ' + text + '\n\n';
     }
     
+
+    /**
+    * Adds a line feed (newline) to the output string
+    * @returns {void}
+    */
     lf () { this.str += '\n'; }
     
+    /**
+     * Append to the string
+     * @param {string} str 
+     */
     out (str) {
         this.str += str;
     }
 }
 
+
+/**
+* Doc class serves as a base class for documentation generation.
+* Provides core functionality for parsing and storing documentation comments
+* using the doctrine parser. Contains methods for handling JSDoc-style
+* comments and maintaining documentation state.
+*/
 class Doc {
     constructor () {
         this._construct();
@@ -32,25 +61,52 @@ class Doc {
     }
 }
 
+
+/**
+* ModuleDoc class extends Doc to represent documentation for a module.
+* Handles module-level documentation including services, libraries, and requirements.
+* Provides methods for adding services/libraries and generating markdown documentation.
+* Tracks external imports and generates notes about module dependencies.
+*/
 class ModuleDoc extends Doc {
+    /**
+    * Initializes the base properties for a ModuleDoc instance
+    * Sets up empty arrays for services, requires, and libs collections
+    * @private
+    */
     _construct () {
         this.services = [];
         this.requires = [];
         this.libs = [];
     }
     
+
+    /**
+    * Creates and adds a new service to this module's services array
+    * @returns {ServiceDoc} The newly created service document instance
+    */
     add_service () {
         const service = new ServiceDoc();
         this.services.push(service);
         return service;
     }
     
+
+    /**
+    * Creates and adds a new LibDoc instance to the module's libs array
+    * @returns {LibDoc} The newly created LibDoc instance
+    */
     add_lib () {
         const lib = new LibDoc();
         this.libs.push(lib);
         return lib;
     }
     
+
+    /**
+     * Populates a "notes" array for the module documentation
+     * based on findings about imports.
+     */
     ready () {
         this.notes = [];
         const rel_requires = this.requires.filter(r => r.startsWith('../'));
@@ -114,7 +170,19 @@ class ModuleDoc extends Doc {
     }
 }
 
+
+/**
+* ServiceDoc class represents documentation for a service module.
+* Handles parsing and formatting of service-related documentation including
+* listeners, methods, and their associated parameters. Extends the base Doc class
+* to provide specialized documentation capabilities for service components.
+*/
 class ServiceDoc extends Doc {
+    /**
+    * Represents documentation for a service
+    * Handles parsing and storing service documentation including listeners and methods
+    * Initializes with empty arrays for listeners and methods
+    */
     _construct () {
         this.listeners = [];
         this.methods = [];
@@ -206,7 +274,21 @@ class ServiceDoc extends Doc {
     }
 }
 
+
+/**
+* LibDoc class for documenting library modules
+* Handles documentation for library functions including their descriptions,
+* parameters, and markdown generation. Extends the base Doc class to provide
+* specialized documentation capabilities for library components.
+*/
 class LibDoc extends Doc {
+    /**
+    * Represents documentation for a library module
+    * 
+    * Handles parsing and formatting documentation for library functions.
+    * Stores function definitions with their comments, parameters and descriptions.
+    * Can output formatted markdown documentation.
+    */
     _construct () {
         this.functions = [];
     }
