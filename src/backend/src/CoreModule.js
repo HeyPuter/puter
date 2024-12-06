@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -23,6 +24,16 @@ const { ProtectedAppES } = require("./om/entitystorage/ProtectedAppES");
 const { Context } = require('./util/context');
 
 
+
+/**
+ * Core module for the Puter platform that includes essential services including
+ * authentication, filesystems, rate limiting, permissions, and various API endpoints.
+ * 
+ * This is a monolithic module. Incrementally, services should be migrated to
+ * Core2Module and other modules instead. Core2Module has a smaller scope, and each
+ * new module will be a cohesive concern. Once CoreModule is empty, it will be removed
+ * and Core2Module will take on its name.
+ */
 class CoreModule extends AdvancedBase {
     dirname () { return __dirname; }
     async install (context) {
@@ -33,11 +44,16 @@ class CoreModule extends AdvancedBase {
         await install({ services, app, useapi, modapi });
     }
 
-    // Some services were created before the BaseService
-    // class existed. They don't listen to the init event
-    // and the order in which they're instantiated matters.
-    // They all need to be installed after the init event
-    // is dispatched, so they get a separate install method.
+    /**
+    * Installs legacy services that don't extend BaseService and require special handling.
+    * These services were created before the BaseService class existed and don't listen
+    * to the init event. They need to be installed after the init event is dispatched
+    * due to initialization order dependencies.
+    * 
+    * @param {Object} context - The context object containing service references
+    * @param {Object} context.services - Service registry for registering legacy services
+    * @returns {Promise<void>} Resolves when legacy services are installed
+    */
     async install_legacy (context) {
         const services = context.get('services');
         await install_legacy({ services });
@@ -51,6 +67,9 @@ module.exports = CoreModule;
  */
 const install = async ({ services, app, useapi, modapi }) => {
     const config = require('./config');
+
+
+    // === LIBRARIES ===
 
     useapi.withuse(() => {
         def('Service', require('./services/BaseService'));
@@ -68,7 +87,6 @@ const install = async ({ services, app, useapi, modapi }) => {
         def('core.config', config);
     });
     
-    // === LIBRARIES ===
     useapi.withuse(() => {
         const ArrayUtil = require('./libraries/ArrayUtil');
         services.registerService('util-array', ArrayUtil);
@@ -82,7 +100,7 @@ const install = async ({ services, app, useapi, modapi }) => {
     // === SERVICES ===
 
     // /!\ IMPORTANT /!\
-    // For new services, put the import immediate above the
+    // For new services, put the import immediately above the
     // call to services.registerService. We'll clean this up
     // in a future PR.
 

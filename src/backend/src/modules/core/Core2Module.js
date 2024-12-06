@@ -3,6 +3,14 @@ const { AdvancedBase } = require("@heyputer/putility");
 /**
  * A replacement for CoreModule with as few external relative requires as possible.
  * This will eventually be the successor to CoreModule, the main module for Puter's backend.
+ * 
+ * The scope of this module is:
+ * - logging and error handling
+ * - alarm handling
+ * - services that are tightly coupled with alarm handling are allowed
+ * - any essential information about server stats or health
+ * - any very generic service which other services can register
+ *   behavior to.
  */
 class Core2Module extends AdvancedBase {
     async install (context) {
