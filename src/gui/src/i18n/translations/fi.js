@@ -455,9 +455,6 @@ const fi = {
     "This user already has access to this item":
     "Tällä käyttäjällä on jo pääsy tähän kohteeseen", // In English: "This user already has access to this item"
 
-    // ----------------------------------------
-    // Missing translations:
-    // ----------------------------------------
     "billing.change_payment_method": "Vaihda", // In English: "Change"
     "billing.cancel": "Peruuta", // In English: "Cancel"
     "billing.download_invoice": "Lataa", // In English: "Download"
