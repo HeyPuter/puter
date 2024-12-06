@@ -379,9 +379,6 @@ const en = {
     "You can't share with yourself.": "אינך יכול לשתף עם עצמך.", // In English: "You can't share with yourself."
     "This user already has access to this item": "למשתמש זה כבר יש גישה לפריט זה", // In English: "This user already has access to this item"
 
-    // ----------------------------------------
-    // Missing translations:
-    // ----------------------------------------
     "billing.change_payment_method": "שינוי", // In English: "Change"
     "billing.cancel": "ביטול", // In English: "Cancel"
     "billing.download_invoice": "הורדה", // In English: "Download"
