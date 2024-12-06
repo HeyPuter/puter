@@ -16,9 +16,18 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { adapt_parser, VALUE } from './parser.js';
+import * as parserjs from './parser.js';
+import * as streamsjs from './streams.js';
 import { Discard, FirstMatch, Optional, Repeat, Sequence } from './parsers/combinators.js';
 import { Fail, Literal, None, StringOf, StringUntil, Symbol } from './parsers/terminals.js';
+
+export const adapt_parser = parserjs.adapt_parser;
+export const Parser = parserjs.Parser;
+export const UNRECOGNIZED = parserjs.UNRECOGNIZED;
+export const INVALID = parserjs.INVALID;
+export const VALUE = parserjs.VALUE;
+
+export const streams = streamsjs;
 
 class ParserWithAction {
     #parser;

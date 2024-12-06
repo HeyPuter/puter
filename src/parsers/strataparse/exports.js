@@ -29,6 +29,10 @@ import WhitespaceParserImpl from './parse_impls/whitespace.js';
 import LiteralParserImpl from './parse_impls/literal.js';
 import StrUntilParserImpl from './parse_impls/StrUntilParserImpl.js';
 
+export {
+    MergeWhitespacePStratumImpl,
+} from './strata_impls/MergeWhitespacePStratumImpl.js'
+
 import {
     SequenceParserImpl,
     ChoiceParserImpl,
