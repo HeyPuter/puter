@@ -81,13 +81,6 @@ class HLReadDir extends HLFilesystemOperation {
                 await child.fetchSuggestedApps(user);
                 await child.fetchSubdomains(user);
             }
-            const fs = require('fs');
-            // fs.appendFileSync('/tmp/children.log',
-            //     JSON.stringify({
-            //         no_thumbs,
-            //         no_assocs,
-            //         entry: child.entry,
-            //     }) + '\n');
             return await child.getSafeEntry({ thumbnail: ! no_thumbs });
         }));
     }

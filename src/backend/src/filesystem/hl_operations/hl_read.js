@@ -28,7 +28,6 @@ class HLRead extends HLFilesystemOperation {
     }
 
     async _run () {
-        const { context } = this;
         const {
             fsNode, actor,
             line_count, byte_count,

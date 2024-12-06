@@ -73,8 +73,7 @@ class MkTree extends HLFilesystemOperation {
     }
 
     async create_branch_ ({ parent_node, tree, parent_exists }) {
-        const { context, values } = this;
-        const { _path } = this.modules;
+        const { context } = this;
         const fs = context.get('services').get('filesystem');
         const actor = context.get('actor');
 
@@ -82,7 +81,6 @@ class MkTree extends HLFilesystemOperation {
         const branches = tree.slice(1);
 
         let current = parent_node.selector;
-        let lastCreatedSelector = parent_node.selector;
 
         // trunk = a/b/c
 
@@ -384,12 +382,8 @@ class HLMkdir extends HLFilesystemOperation {
     }
 
     async _create_parents ({ parent_node }) {
-        const { context, values } = this;
+        const { values } = this;
         const { _path } = this.modules;
-        const fs = context.get('services').get('filesystem');
-
-        let current = parent_node.selector;
-        let lastCreatedSelector = null;
 
         const tree_op = new MkTree();
         await tree_op.run({

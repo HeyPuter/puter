@@ -103,7 +103,6 @@ class ResourceService {
     }
 
     async waitForResource (selector) {
-        const i = waiti++;
         if ( selector instanceof NodePathSelector ) {
             await this.waitForResourceByPath(selector.value);
         }

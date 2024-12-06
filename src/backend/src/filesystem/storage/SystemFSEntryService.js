@@ -95,7 +95,6 @@ class SystemFSEntryService {
     async get_uuid_from_path (path) {
         path = PuterPath.adapt(path);
 
-        let current = path.reference;
         let pathOfReference = path.reference === PuterPath.NULL_UUID
             ? '/' : this.get_path_from_uuid(path.reference);
         
