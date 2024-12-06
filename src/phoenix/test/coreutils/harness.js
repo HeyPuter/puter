@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { libs } from '@heyputer/putility';
-const { Context } = libs.context;
+import putility from '@heyputer/putility';
+const { Context } = putility.libs.context;
 import { SyncLinesReader } from '../../src/ansi-shell/ioutil/SyncLinesReader.js';
 import { CommandStdinDecorator } from '../../src/ansi-shell/pipeline/iowrappers.js';
 import { ReadableStream, WritableStream } from 'stream/web'
