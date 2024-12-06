@@ -63,9 +63,8 @@ class Job {
         this.state = this.constructor.STATE_YELLOW;
     }
     set_progress (progress) {
-        let bar = '';
         // Progress bar string to display migration progress in the console
-        const WIDTH = 30;
+        let bar = '';
         // Width of the progress bar display in characters
         const WIDTH = 30;
         const N = Math.floor(WIDTH * progress);
