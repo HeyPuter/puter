@@ -625,7 +625,6 @@ class WebServerService extends BaseService {
             const lines = last_logo.txt.split('\n');
             const width = process.stdout.columns;
             const pad = (width - last_logo.sz) / 2;
-            const asymmetrical = pad % 1 !== 0;
             const pad_left = Math.floor(pad);
             const pad_right = Math.ceil(pad);
             for ( let i = 0 ; i < lines.length ; i++ ) {

@@ -61,7 +61,6 @@ class ComplainAboutVersionsService extends BaseService {
         let timeago = (() => {
             let years = cur_date_obj.getFullYear() - eol_date.getFullYear();
             let months = cur_date_obj.getMonth() - eol_date.getMonth();
-            let days = cur_date_obj.getDate() - eol_date.getDate();
             
             let str = '';
             while ( years > 0 ) {

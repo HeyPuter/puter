@@ -59,8 +59,6 @@ class PagerService extends BaseService {
     * @returns {Promise<void>}
     */
     async _init () {
-        const services = this.services;
-
         this.alertHandlers_ = [];
 
         if ( ! this.config ) {

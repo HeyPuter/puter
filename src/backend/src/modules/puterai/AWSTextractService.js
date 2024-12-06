@@ -185,7 +185,6 @@ class AWSTextractService extends BaseService {
 
         const try_buffer = await file_facade.get('buffer');
         if ( try_buffer ) {
-            const base64 = try_buffer.toString('base64');
             return {
                 client: this._get_client(),
                 document: {

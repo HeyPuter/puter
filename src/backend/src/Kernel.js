@@ -79,8 +79,6 @@ class Kernel extends AdvancedBase {
 
         this._runtime_init({ args });
 
-        // const express = require('express')
-        // const app = express();
         const config = require('./config');
 
         globalThis.ll = o => o;
@@ -113,7 +111,6 @@ class Kernel extends AdvancedBase {
 
         const services = new Container({ logger: this.bootLogger });
         this.services = services;
-        // app.set('services', services);
 
         const root_context = Context.create({
             environment: this.environment,
@@ -131,7 +128,6 @@ class Kernel extends AdvancedBase {
         });
 
 
-        // Error.stackTraceLimit = Infinity;
         Error.stackTraceLimit = 200;
     }
 

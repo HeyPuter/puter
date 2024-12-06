@@ -233,16 +233,12 @@ class RuntimeEnvironment extends AdvancedBase {
             ]
         );
 
+        // Note: there used to be a 'mods_path_entry' here too
+        //       but it was never used
         const pwd_path_entry = this.get_first_suitable_path_(
             { pathFor: 'working directory' },
             this.runtime_paths,
             [ this.path_checks.require_write_permission ]
-        );
-
-        const mods_path_entry = this.get_first_suitable_path_(
-            { pathFor: 'mods', optional: true },
-            this.mod_paths,
-            [ this.path_checks.require_read_permission ],
         );
 
         process.chdir(pwd_path_entry.path);

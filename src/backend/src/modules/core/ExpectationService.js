@@ -83,8 +83,6 @@ class ExpectationService extends BaseService {
     * @returns {Promise<void>} A promise that resolves when initialization is complete.
     */
     async _init () {
-        const services = this.services;
-
         // TODO: service to track all interval functions?
         /**
         * Initializes the service by setting up interval functions and registering commands.

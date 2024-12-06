@@ -72,7 +72,6 @@ class ServerHealthService extends BaseService {
         */
 
 
-        const min_free_KiB = 1024 * 1024; // 1 GiB
         const min_available_KiB = 1024 * 1024 * 2; // 2 GiB
 
         const svc_alarm = this.services.get('alarm');

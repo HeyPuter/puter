@@ -364,7 +364,6 @@ const install = async ({ services, app, useapi, modapi }) => {
 }
 
 const install_legacy = async ({ services }) => {
-    // const { FilesystemService } = require('./filesystem/FilesystemService');
     const PerformanceMonitor = require('./monitor/PerformanceMonitor');
     const { OperationTraceService } = require('./services/OperationTraceService');
     const { ClientOperationService } = require('./services/ClientOperationService');

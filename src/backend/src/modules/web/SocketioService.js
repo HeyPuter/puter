@@ -40,8 +40,6 @@ class SocketioService extends BaseService {
     * @returns {Promise<void>}
     */
     async send (socket_specifiers, key, data) {
-        const svc_getUser = this.services.get('get-user');
-        
         if ( ! Array.isArray(socket_specifiers) ) {
             socket_specifiers = [socket_specifiers];
         }
