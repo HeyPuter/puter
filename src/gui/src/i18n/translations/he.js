@@ -410,7 +410,7 @@ const en = {
     "billing.you_are_now_subscribed_to_without_tier": "אתם עכשיו מנויים", // In English: "You are now subscribed"
     "billing.subscription_cancellation_confirmation": "אתם בטוחים שאתם מעוניינים לבטל את המנוי?", // In English: "Are you sure you want to cancel your subscription?"
     "billing.subscription_setup": "הגדרות מנוי", // In English: "Subscription Setup"
-    "billing.cancel_it": "ביטול:, // In English: "Cancel It"
+    "billing.cancel_it": "ביטול:", // In English: "Cancel It"
     "billing.keep_it": "שמירה", // In English: "Keep It"
     "billing.subscription_resumed": "%strong% המנוי שוחזר!", // In English: "Your %strong% subscription has been resumed!"
     "billing.upgrade_now": "שדרגו עכשיו", // In English: "Upgrade Now"
