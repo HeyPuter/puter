@@ -17,9 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { ConcreteSyntaxError } from "./ConcreteSyntaxError.js";
-import { MultiWriter } from "./ioutil/MultiWriter.js";
-import { Coupler } from "./pipeline/Coupler.js";
-import { Pipe } from "./pipeline/Pipe.js";
 import { Pipeline } from "./pipeline/Pipeline.js";
 
 export class ANSIShell extends EventTarget {
