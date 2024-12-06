@@ -1011,7 +1011,6 @@ async function gen_public_token(file_uuid, ttl = 24 * 60 * 60){
     }
 
     const uid = fsentry.uuid;
-    const expires = Math.ceil(Date.now() / 1000) + ttl;
     const token = uuidv4();
     const contentType = mime.contentType(fsentry.name);
 
@@ -1230,10 +1229,10 @@ function send_email_verification_token(email_confirm_token, email, user_uuid){
 }
 
 function generate_random_str(length) {
-    var result           = '';
-    var characters       = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    var charactersLength = characters.length;
-    for ( var i = 0; i < length; i++ ) {
+    let result           = '';
+    const characters       = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const charactersLength = characters.length;
+    for ( let i = 0; i < length; i++ ) {
       result += characters.charAt(Math.floor(Math.random() *
  charactersLength));
    }
@@ -1248,11 +1247,11 @@ function generate_random_str(length) {
  * @throws {TypeError} If the `seconds` parameter is not a number.
  */
 function seconds_to_string(seconds) {
-    var numyears = Math.floor(seconds / 31536000);
-    var numdays = Math.floor((seconds % 31536000) / 86400);
-    var numhours = Math.floor(((seconds % 31536000) % 86400) / 3600);
-    var numminutes = Math.floor((((seconds % 31536000) % 86400) % 3600) / 60);
-    var numseconds = (((seconds % 31536000) % 86400) % 3600) % 60;
+    const numyears = Math.floor(seconds / 31536000);
+    const numdays = Math.floor((seconds % 31536000) / 86400);
+    const numhours = Math.floor(((seconds % 31536000) % 86400) / 3600);
+    const numminutes = Math.floor((((seconds % 31536000) % 86400) % 3600) / 60);
+    const numseconds = (((seconds % 31536000) % 86400) % 3600) % 60;
     return numyears + " years " + numdays + " days " + numhours + " hours " + numminutes + " minutes " + numseconds + " seconds";
 }
 
@@ -1267,14 +1266,11 @@ async function suggest_app_for_fsentry(fsentry, options){
     const suggested_apps = [];
 
     let content_type = mime.contentType(fsentry.name);
-    if(content_type === null || content_type === undefined || content_type === false)
-        content_type = '';
+    if( ! content_type ) content_type = '';
 
     // IIFE just so fsname can stay `const`
     const fsname = (() => {
         if ( ! fsentry.name ) {
-            const fs = require('fs');
-            fs.writeFileSync('/tmp/missing-fsentry-name.txt', JSON.stringify(fsentry, null, 2));
             return 'missing-fsentry-name';
         }
         let fsname = fsentry.name.toLowerCase();
@@ -1283,74 +1279,79 @@ async function suggest_app_for_fsentry(fsentry, options){
         return fsname;
     })();
     const file_extension = _path.extname(fsname).toLowerCase();
+    
+    const any_of = (list, name) => {
+        return list.some(v => name.endsWith(v));
+    }
 
     //---------------------------------------------
     // Code
     //---------------------------------------------
-    if(
-        fsname.endsWith('.asm') ||
-        fsname.endsWith('.asp') ||
-        fsname.endsWith('.aspx') ||
-        fsname.endsWith('.bash') ||
-        fsname.endsWith('.c') ||
-        fsname.endsWith('.cpp') ||
-        fsname.endsWith('.css') ||
-        fsname.endsWith('.csv') ||
-        fsname.endsWith('.dhtml') ||
-        fsname.endsWith('.f') ||
-        fsname.endsWith('.go') ||
-        fsname.endsWith('.h') ||
-        fsname.endsWith('.htm') ||
-        fsname.endsWith('.html') ||
-        fsname.endsWith('.html5') ||
-        fsname.endsWith('.java') ||
-        fsname.endsWith('.jl') ||
-        fsname.endsWith('.js') ||
-        fsname.endsWith('.jsa') ||
-        fsname.endsWith('.json') ||
-        fsname.endsWith('.jsonld') ||
-        fsname.endsWith('.jsf') ||
-        fsname.endsWith('.jsp') ||
-        fsname.endsWith('.kt') ||
-        fsname.endsWith('.log') ||
-        fsname.endsWith('.lock') ||
-        fsname.endsWith('.lua') ||
-        fsname.endsWith('.md') ||
-        fsname.endsWith('.perl') ||
-        fsname.endsWith('.phar') ||
-        fsname.endsWith('.php') ||
-        fsname.endsWith('.pl') ||
-        fsname.endsWith('.py') ||
-        fsname.endsWith('.r') ||
-        fsname.endsWith('.rb') ||
-        fsname.endsWith('.rdata') ||
-        fsname.endsWith('.rda') ||
-        fsname.endsWith('.rdf') ||
-        fsname.endsWith('.rds') ||
-        fsname.endsWith('.rs') ||
-        fsname.endsWith('.rlib') ||
-        fsname.endsWith('.rpy') ||
-        fsname.endsWith('.scala') ||
-        fsname.endsWith('.sc') ||
-        fsname.endsWith('.scm') ||
-        fsname.endsWith('.sh') ||
-        fsname.endsWith('.sol') ||
-        fsname.endsWith('.sql') ||
-        fsname.endsWith('.ss') ||
-        fsname.endsWith('.svg') ||
-        fsname.endsWith('.swift') ||
-        fsname.endsWith('.toml') ||
-        fsname.endsWith('.ts') ||
-        fsname.endsWith('.wasm') ||
-        fsname.endsWith('.xhtml') ||
-        fsname.endsWith('.xml') ||
-        fsname.endsWith('.yaml') ||
-        // files with no extension
-        !fsname.includes('.')
-    ){
+    const exts_code = [
+        '.asm',
+        '.asp',
+        '.aspx',
+        '.bash',
+        '.c',
+        '.cpp',
+        '.css',
+        '.csv',
+        '.dhtml',
+        '.f',
+        '.go',
+        '.h',
+        '.htm',
+        '.html',
+        '.html5',
+        '.java',
+        '.jl',
+        '.js',
+        '.jsa',
+        '.json',
+        '.jsonld',
+        '.jsf',
+        '.jsp',
+        '.kt',
+        '.log',
+        '.lock',
+        '.lua',
+        '.md',
+        '.perl',
+        '.phar',
+        '.php',
+        '.pl',
+        '.py',
+        '.r',
+        '.rb',
+        '.rdata',
+        '.rda',
+        '.rdf',
+        '.rds',
+        '.rs',
+        '.rlib',
+        '.rpy',
+        '.scala',
+        '.sc',
+        '.scm',
+        '.sh',
+        '.sol',
+        '.sql',
+        '.ss',
+        '.svg',
+        '.swift',
+        '.toml',
+        '.ts',
+        '.wasm',
+        '.xhtml',
+        '.xml',
+        '.yaml',
+    ];
+
+    if ( any_of(exts_code, fsname) || !fsname.includes('.') ) {
         suggested_apps.push(await get_app({name: 'code'}))
         suggested_apps.push(await get_app({name: 'editor'}))
     }
+
     //---------------------------------------------
     // Editor
     //---------------------------------------------
@@ -1414,19 +1415,17 @@ async function suggest_app_for_fsentry(fsentry, options){
     //---------------------------------------------
     // 3rd-party apps
     //---------------------------------------------
-    const apps = kv.get(`assocs:${file_extension.slice(1)}:apps`)
+    const apps = kv.get(`assocs:${file_extension.slice(1)}:apps`) ?? [];
 
     monitor.label("third party associations");
-    if(apps && apps.length > 0){
-        for (let index = 0; index < apps.length; index++) {
-            // retrieve app from DB
-            const third_party_app = await get_app({id: apps[index]})
-            if ( ! third_party_app ) continue;
-            // only add if the app is approved for opening items or the app is owned by this user
-            if( third_party_app.approved_for_opening_items ||
-                (options !== undefined && options.user !== undefined && options.user.id === third_party_app.owner_user_id))
-                suggested_apps.push(third_party_app)
-        }
+    for ( const app_id of apps ) {
+        // retrieve app from DB
+        const third_party_app = await get_app({id: app_id})
+        if ( ! third_party_app ) continue;
+        // only add if the app is approved for opening items or the app is owned by this user
+        if( third_party_app.approved_for_opening_items ||
+            (options !== undefined && options.user !== undefined && options.user.id === third_party_app.owner_user_id))
+            suggested_apps.push(third_party_app)
     }
     monitor.stamp();
     monitor.end();
@@ -1441,10 +1440,6 @@ async function suggest_app_for_fsentry(fsentry, options){
         // Remove any duplicate entries
         return self.indexOf(suggested_app) === pos;
     });
-}
-
-function build_item_object(item){
-
 }
 
 async function get_taskbar_items(user) {
@@ -1569,13 +1564,13 @@ async function mv(options){
 function number_format (number, decimals, dec_point, thousands_sep) {
     // Strip all characters but numerical ones.
     number = (number + '').replace(/[^0-9+\-Ee.]/g, '');
-    var n = !isFinite(+number) ? 0 : +number,
+    let n = !isFinite(+number) ? 0 : +number,
         prec = !isFinite(+decimals) ? 0 : Math.abs(decimals),
         sep = (typeof thousands_sep === 'undefined') ? ',' : thousands_sep,
         dec = (typeof dec_point === 'undefined') ? '.' : dec_point,
         s = '',
         toFixedFix = function (n, prec) {
-            var k = Math.pow(10, prec);
+            const k = Math.pow(10, prec);
             return '' + Math.round(n * k) / k;
         };
     // Fix for IE parseFloat(0.55).toFixed(0) = 0;
@@ -1595,7 +1590,6 @@ module.exports = {
     app_name_exists,
     app_exists,
     body_parser_error_handler,
-    build_item_object,
     byte_format,
     change_username,
     chkperm,
