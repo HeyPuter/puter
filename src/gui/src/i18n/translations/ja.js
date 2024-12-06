@@ -364,9 +364,6 @@ const ja = {
         "You can't share with yourself.": "自分自身と共有することはできません。", // In English: "You can't share with yourself."
         "This user already has access to this item": "このユーザーは既にこのアイテムにアクセスできます。", // In English: "This user already has access to this item"
     
-        // ----------------------------------------
-        // Missing translations:
-        // ----------------------------------------
         "plural_suffix": "複数形接尾辞", // In English: "s"
         "billing.change_payment_method": "支払い方法を変更", // In English: "Change"
         "billing.cancel": "支払いをキャンセル", // In English: "Cancel"
