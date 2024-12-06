@@ -399,9 +399,6 @@ const ru = {
     "You can't share with yourself.": 'Вы не можете поделиться с самим собой.',
     'This user already has access to this item': 'Этот пользователь уже имеет доступ к этому элементу.',
 
-    // ----------------------------------------
-    // Missing translations (filled):
-    // ----------------------------------------
     "billing.change_payment_method": 'Изменить', // In English: "Change"
     "billing.cancel": 'Отмена', // In English: "Cancel"
     "billing.download_invoice": 'Загрузить', // In English: "Download"
@@ -448,7 +445,6 @@ const ru = {
     "billing.expanded": 'Расширенный', // In English: "Expanded"
     "billing.accelerated": 'Ускоренный', // In English: "Accelerated"
     "billing.enjoy_msg": 'Пользуйтесь %% Облачным Хранилищем и остальными выгодами', // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
   },
 }
 
