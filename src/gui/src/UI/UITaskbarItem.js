@@ -72,11 +72,23 @@ function UITaskbarItem(options){
         if($(el_taskbar_item).hasClass('has-open-contextmenu'))
             return;
 
+        el_taskbar_item.querySelector("img").animate(
+            [
+              { transform: 'translateY(0) scale(1)' },
+              { transform: 'translateY(-5px) scale(1.2)' },
+              { transform: 'translateY(0) scale(1)' }
+            ],
+            {
+              duration: 300,
+              easing: 'ease-out',
+            }
+          );   
+
         if(options.onClick === undefined || options.onClick(el_taskbar_item) === false){
             const clicked_window = $(`.window[data-app="${options.app}"]`)
             
             // hide window, unless there's more than one in app group
-            if (clicked_window.hasClass("window-active") && clicked_window.length < 2) {
+            if (clicked_window.hasClass("window-active") && clicked_window.length < 2) {             
                 clicked_window.hideWindow();
                 return;
             }
