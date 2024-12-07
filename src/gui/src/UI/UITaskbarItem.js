@@ -73,8 +73,16 @@ function UITaskbarItem(options){
             return;
 
         if(options.onClick === undefined || options.onClick(el_taskbar_item) === false){
+            const clicked_window = $(`.window[data-app="${options.app}"]`)
+            
+            // hide window, unless there's more than one in app group
+            if (clicked_window.hasClass("window-active") && clicked_window.length < 2) {
+                clicked_window.hideWindow();
+                return;
+            }
+            
             // re-show each window in this app group
-            $(`.window[data-app="${options.app}"]`).showWindow();
+            clicked_window.showWindow();
         }
     })
 
