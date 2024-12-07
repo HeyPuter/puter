@@ -385,11 +385,11 @@ const ko = {
     // ----------------------------------------
     // Missing translations:
     // ----------------------------------------
-    "billing.change_payment_method": undefined, // In English: "Change"
-    "billing.cancel": undefined, // In English: "Cancel"
-    "billing.download_invoice": undefined, // In English: "Download"
-    "billing.payment_method": undefined, // In English: "Payment Method"
-    "billing.payment_method_updated": undefined, // In English: "Payment method updated!"
+    "billing.change_payment_method": "변경", 
+    "billing.cancel": "취소",
+    "billing.download_invoice": "다운로드",
+    "billing.payment_method": "결제 방법",
+    "billing.payment_method_updated": "결제 방법 업데이트!",
     "billing.confirm_payment_method": undefined, // In English: "Confirm Payment Method"
     "billing.payment_history": undefined, // In English: "Payment History"
     "billing.refunded": undefined, // In English: "Refunded"
