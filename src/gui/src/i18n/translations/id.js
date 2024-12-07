@@ -383,9 +383,6 @@ const id = {
     "You can't share with yourself.": "Anda tidak bisa membaginya dengan diri sendiri.", // In English: "You can't share with yourself."
     "This user already has access to this item": "Pengguna ini telah memiliki akses ke barang ini", // In English: "This user already has access to this item"
 
-    // ----------------------------------------
-    // Missing translations:
-    // ----------------------------------------
     "billing.change_payment_method": "Ubah", // In English: "Change"
     "billing.cancel": "Batal", // In English: "Cancel"
     "billing.download_invoice": "Unduh", // In English: "Download"
