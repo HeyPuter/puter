@@ -67,14 +67,37 @@ function UITaskbarItem(options){
     // fade in the taskbar item
     $(el_taskbar_item).show(50);
 
-    $(el_taskbar_item).on("click", function(){
+    $(el_taskbar_item).on("click", function(e){
+        e.preventDefault();
+        e.stopPropagation();
+
         // If this item has an open context menu, don't do anything
         if($(el_taskbar_item).hasClass('has-open-contextmenu'))
             return;
 
+        el_taskbar_item.querySelector("img").animate(
+            [
+              { transform: 'translateY(0) scale(1)' },
+              { transform: 'translateY(-5px) scale(1.2)' },
+              { transform: 'translateY(0) scale(1)' }
+            ],
+            {
+              duration: 300,
+              easing: 'ease-out',
+            }
+          );   
+
         if(options.onClick === undefined || options.onClick(el_taskbar_item) === false){
+            const clicked_window = $(`.window[data-app="${options.app}"]`)
+            
+            // hide window, unless there's more than one in app group
+            if (clicked_window.hasClass("window-active") && clicked_window.length < 2) {             
+                clicked_window.hideWindow();
+                return;
+            }
+            
             // re-show each window in this app group
-            $(`.window[data-app="${options.app}"]`).showWindow();
+            clicked_window.showWindow();
         }
     })
 
