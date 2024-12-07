@@ -67,7 +67,10 @@ function UITaskbarItem(options){
     // fade in the taskbar item
     $(el_taskbar_item).show(50);
 
-    $(el_taskbar_item).on("click", function(){
+    $(el_taskbar_item).on("click", function(e){
+        e.preventDefault();
+        e.stopPropagation();
+
         // If this item has an open context menu, don't do anything
         if($(el_taskbar_item).hasClass('has-open-contextmenu'))
             return;
