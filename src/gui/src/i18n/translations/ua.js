@@ -349,9 +349,6 @@ const ua = {
         "You can't share with yourself.": "Ви не можете поділитися з собою.",
         "This user already has access to this item": "Цей користувач уже має доступ до цього елементу",
 
-        // ----------------------------------------
-        // Missing translations:
-        // ----------------------------------------
         "billing.change_payment_method": "Змінити",
         "billing.cancel": "Відмінити",
         "billing.download_invoice": "Завантажити",
