@@ -396,65 +396,59 @@ const it = {
     "You can't share with yourself.": "Non puoi condividere con te stesso", // In English: "You can't share with yourself."
     "This user already has access to this item":
       "Questo utente ha già accesso a questo file", // In English: "This user already has access to this item"
-
-    // ----------------------------------------
-    // Missing translations:
-    // ----------------------------------------
-    "billing.change_payment_method": "Modifica", // Change
-    "billing.cancel": "Annulla", // Cancel
-    "billing.download_invoice": "Scarica", // Download
-    "billing.payment_method": "Metodo di pagamento", // Payment Method
-    "billing.payment_method_updated": "Metodo di pagamento aggiornato!", // Payment method updated!
-    "billing.confirm_payment_method": "Conferma il metodo di pagamento", // Confirm Payment Method
-    "billing.payment_history": "Storico pagamenti", // Payment History
-    "billing.refunded": "Rimborsato", // Refunded
-    "billing.paid": "Pagato", // Paid
-    "billing.ok": "OK", // OK
-    "billing.resume_subscription": "Riprendi abbonamento", // Resume Subscription
-    "billing.subscription_cancelled": "Il tuo abbonamento è stato annullato.", // Your subscription has been canceled.
-    "billing.subscription_cancelled_description":
-      "Avrai comunque accesso all'abbonamento fino alla fine di questo periodo di fatturazione.", // You will still have access to your subscription until the end of this billing period.
-    "billing.offering.free": "Gratuito", // Free
-    "billing.offering.pro": "Professionale", // Professional
-    "billing.offering.business": "Business", // Business
-    "billing.cloud_storage": "Archiviazione cloud", // Cloud Storage
-    "billing.ai_access": "Accesso all'AI", // AI Access
-    "billing.bandwidth": "Larghezza di banda", // Bandwidth
-    "billing.apps_and_games": "App e giochi", // Apps & Games
-    "billing.upgrade_to_pro": "Passa a %strong%", // Upgrade to %strong%
-    "billing.switch_to": "Cambia a %strong%", // Switch to %strong%
-    "billing.payment_setup": "Configurazione del pagamento", // Payment Setup
-    "billing.back": "Indietro", // Back
-    "billing.you_are_now_subscribed_to":
-      "Sei ora iscritto al livello %strong%.", // You are now subscribed to %strong% tier.
-    "billing.you_are_now_subscribed_to_without_tier": "Sei ora iscritto", // You are now subscribed
-    "billing.subscription_cancellation_confirmation":
-      "Sei sicuro di voler annullare il tuo abbonamento?", // Are you sure you want to cancel your subscription?
-    "billing.subscription_setup": "Configurazione dell'abbonamento", // Subscription Setup
-    "billing.cancel_it": "Annullalo", // Cancel It
-    "billing.keep_it": "Tienilo", // Keep It
-    "billing.subscription_resumed":
-      "Il tuo abbonamento %strong% è stato ripreso!", // Your %strong% subscription has been resumed!
-    "billing.upgrade_now": "Aggiorna ora", // Upgrade Now
-    "billing.upgrade": "Aggiorna", // Upgrade
-    "billing.currently_on_free_plan": "Attualmente sei sul piano gratuito.", // You are currently on the free plan.
-    "billing.download_receipt": "Scarica ricevuta", // Download Receipt
-    "billing.subscription_check_error":
-      "Si è verificato un problema durante il controllo dello stato del tuo abbonamento.", // A problem occurred while checking your subscription status.
-    "billing.email_confirmation_needed":
-      "La tua email non è stata confermata. Ti invieremo ora un codice per confermarla.", // Your email has not been confirmed. We'll send you a code to confirm it now.
-    "billing.sub_cancelled_but_valid_until":
-      "Hai annullato il tuo abbonamento e passerà automaticamente al livello gratuito alla fine del periodo di fatturazione. Non ti verrà addebitato nuovamente a meno che non ti riabboni.", // You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe.
-    "billing.current_plan_until_end_of_period":
-      "Il tuo piano attuale fino alla fine di questo periodo di fatturazione.", // Your current plan until the end of this billing period.
-    "billing.current_plan": "Piano attuale", // Current plan
-    "billing.cancelled_subscription_tier": "Abbonamento annullato (%%)", // Cancelled Subscription (%%)
-    "billing.manage": "Gestisci", // Manage
-    "billing.limited": "Limitato", // Limited
-    "billing.expanded": "Espanso", // Expanded
-    "billing.accelerated": "Accelerato", // Accelerated
-    "billing.enjoy_msg": "Goditi %% di archiviazione cloud più altri vantaggi.", // Enjoy %% of Cloud Storage plus other benefits.
-  },
+    
+        "billing.change_payment_method": "Modifica", // In English: "Change"
+        "billing.cancel": "Annulla", // In English: "Cancel"
+        "billing.download_invoice": "Scarica", // In English: "Download"
+        "billing.payment_method": "Metodo di pagamento", // In English: "Payment Method"
+        "billing.payment_method_updated": "Metodo di pagamento aggiornato!", // In English: "Payment method updated!"
+        "billing.confirm_payment_method": "Conferma metodo di pagamento", // In English: "Confirm Payment Method"
+        "billing.payment_history": "Storico dei pagamenti", // In English: "Payment History"
+        "billing.refunded": "Rimborsato", // In English: "Refunded"
+        "billing.paid":  "Pagato", // In English: "Paid"
+        "billing.ok": "OK", // In English: "OK"
+        "billing.resume_subscription":  "Riprendi abbonamento", // In English: "Resume Subscription"
+        "billing.subscription_cancelled": "Il tuo abbonamento è stato annullato.", // In English: "Your subscription has been canceled."
+        "billing.subscription_cancelled_description": "Avrai ancora accesso al tuo abbonamento fino alla fine di questo periodo di fatturazione.",
+        // In English: "You will still have access to your subscription until the end of this billing period."
+        "billing.offering.free": "Gratuito", // In English: "Free"
+        "billing.offering.pro": "Professionale", // In English: "Professional"
+        "billing.offering.business": "Business", // In English: "Business"
+        "billing.cloud_storage": "Archiviazione cloud", // In English: "Cloud Storage"
+        "billing.ai_access": "Accesso AI", // In English: "AI Access"
+        "billing.bandwidth": "Larghezza di banda", // In English: "Bandwidth"
+        "billing.apps_and_games": "App e Giochi", // In English: "Apps & Games"
+        "billing.upgrade_to_pro": "Passa al piano %strong%", // In English: "Upgrade to %strong%"
+        "billing.switch_to": "Passa a %strong%", // In English: "Switch to %strong%"
+        "billing.payment_setup": "Impostazioni di pagamento", // In English: "Payment Setup"
+        "billing.back": "Indietro", // In English: "Back"
+        "billing.you_are_now_subscribed_to":  "Ora sei abbonato al piano %strong%.", // In English: "You are now subscribed to %strong% tier."
+        "billing.you_are_now_subscribed_to_without_tier":  "Ora sei abbonato.", // In English: "You are now subscribed"
+        "billing.subscription_cancellation_confirmation":  "Sei sicuro di voler annullare il tuo abbonamento?", // In English: "Are you sure you want to cancel your subscription?"
+        "billing.subscription_setup": "Impostazione abbonamento", // In English: "Subscription Setup"
+        "billing.cancel_it":  "Annulla", // In English: "Cancel It"
+        "billing.keep_it": "Mantieni", // In English: "Keep It"
+        "billing.subscription_resumed": "Il tuo abbonamento %strong% è stato ripristinato!", // In English: "Your %strong% subscription has been resumed!"
+        "billing.upgrade_now": "Aggiorna ora", // In English: "Upgrade Now"
+        "billing.upgrade":  "Aggiorna", // In English: "Upgrade"
+        "billing.currently_on_free_plan": "Attualmente sei nel piano gratuito.", // In English: "You are currently on the free plan."
+        "billing.download_receipt": "Scarica ricevuta", // In English: "Download Receipt"
+        "billing.subscription_check_error": "Si è verificato un problema durante il controllo dello stato dell'abbonamento.",
+        // In English: "A problem occurred while checking your subscription status."
+        "billing.email_confirmation_needed": "La tua email non è stata confermata. Ti invieremo un codice per completare la conferma.", 
+        // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
+        "billing.sub_cancelled_but_valid_until": "Hai annullato il tuo abbonamento. Passerà automaticamente al piano gratuito alla fine del periodo di fatturazione. Non ti verrà addebitato nuovamente a meno che non ti iscrivi di nuovo.",
+        // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
+        "billing.current_plan_until_end_of_period": "Il tuo piano attuale è valido fino alla fine del periodo di fatturazione.",
+        // In English: "Your current plan until the end of this billing period."
+        "billing.current_plan": "Piano attuale", // In English: "Current plan"
+        "billing.cancelled_subscription_tier":  "Abbonamento annullato (%%)", // In English: "Cancelled Subscription (%%)"
+        "billing.manage":  "Gestisci", // In English: "Manage"
+        "billing.limited": "Limitato", // In English: "Limited"
+        "billing.expanded": "Espanso", // In English: "Expanded"
+        "billing.accelerated": "Accelerato", // In English: "Accelerated"
+        "billing.enjoy_msg": "Goditi %% di spazio di archiviazione cloud e altri vantaggi.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
+    }
 };
 
 export default it;
