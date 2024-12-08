@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import assert from 'assert';
-import { JSDOM } from 'jsdom';
 
 // Function to test
 async function hasGitDirectory(items) {
