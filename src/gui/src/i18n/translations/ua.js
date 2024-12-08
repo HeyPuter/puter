@@ -386,13 +386,13 @@ const ua = {
         "billing.upgrade_now": "Оновити зараз",
         "billing.upgrade": "Оновити",
         "billing.currently_on_free_plan": "Наразі ви перебуваєте на безкоштовному тарифі.",
-        "billing.download_receipt": "Завантажити квитанцію
+        "billing.download_receipt": "Завантажити квитанцію",
         "billing.subscription_check_error": "Під час перевірки статусу підписки виникла проблема",
         "billing.email_confirmation_needed": "Ваша електронна пошта не була підтверджена. Ми надішлемо вам зараз код для підтвердження.",
         "billing.sub_cancelled_but_valid_until": "Ви скасували підписку, і вона автоматично перейде на безкоштовний рівень в кінці розрахункового періоду. Плата за підписку не стягуватиметься, якщо ви не оформите її повторно.",
         "billing.current_plan_until_end_of_period": "Ваш поточний тарифний план до кінця цього розрахункового періоду",
         "billing.current_plan": "Поточний тарифний план",
-        "billing.cancelled_subscription_tier": "Скасована підписка (%%)","
+        "billing.cancelled_subscription_tier": "Скасована підписка (%%)",
         "billing.manage": "Керувати",
         "billing.limited": "Обмежений",
         "billing.expanded": "Розширений",
