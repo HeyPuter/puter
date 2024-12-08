@@ -384,9 +384,6 @@ const ar = {
       "You can't share with yourself.": "لا يمكنك المشاركة مع نفسك.", // In English: "You can't share with yourself."
       "This user already has access to this item": "هذا المستخدم لديه بالفعل تحكم إلى هذا العنصر", // In English: "This user already has access to this item"
 
-      // ----------------------------------------
-      // Missing translations:
-      // ----------------------------------------
       "billing.change_payment_method": "تغيير", // In English: "Change"
       "billing.cancel": "إلغاء", // In English: "Cancel"
       "billing.download_invoice": "تنزيل", // In English: "Download"
