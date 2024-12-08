@@ -368,9 +368,6 @@ const bn = {
     "You can't share with yourself.": "নিজের সাথে শেয়ার করতে পারবেন না।", 
     "This user already has access to this item": "এই ব্যবহারকারীর ইতিমধ্যে এটাতে অ্যাক্সেস রয়েছে।",
 
-    // ----------------------------------------
-    // Missing translations:(have done the work,check if ok)
-    // ----------------------------------------
     "billing.change_payment_method": "পরিশোধ পদ্ধতি পরিবর্তন করুন",
     "billing.cancel": "বাতিল করুন",
     "billing.download_invoice": "চালান ডাউনলোড করুন",
