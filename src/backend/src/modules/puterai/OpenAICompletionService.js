@@ -1,17 +1,33 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 const { PassThrough } = require('stream');
 const APIError = require('../../api/APIError');
 const BaseService = require('../../services/BaseService');
 const { TypedValue } = require('../../services/drivers/meta/Runtime');
 const { Context } = require('../../util/context');
-const SmolUtil = require('../../util/smolutil');
+const smol = require('@heyputer/putility').libs.smol;
 const { nou } = require('../../util/langutil');
-const { TeePromise } = require('../../util/promise');
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 
+
+/**
+* OpenAICompletionService class provides an interface to OpenAI's chat completion API.
+* Extends BaseService to handle chat completions, message moderation, token counting,
+* and streaming responses. Implements the puter-chat-completion interface and manages
+* OpenAI API interactions with support for multiple models including GPT-4 variants.
+* Handles usage tracking, spending records, and content moderation.
+*/
 class OpenAICompletionService extends BaseService {
     static MODULES = {
         openai: require('openai'),
         tiktoken: require('tiktoken'),
     }
+    /**
+    * Initializes the OpenAI service by setting up the API client with credentials
+    * and registering this service as a chat provider.
+    * 
+    * @returns {Promise<void>} Resolves when initialization is complete
+    * @private
+    */
     async _init () {
         const sk_key =
             this.config?.openai?.secret_key ??
@@ -28,10 +44,21 @@ class OpenAICompletionService extends BaseService {
         });
     }
 
+
+    /**
+    * Gets the default model identifier for OpenAI completions
+    * @returns {string} The default model ID 'gpt-4o-mini'
+    */
     get_default_model () {
         return 'gpt-4o-mini';
     }
 
+
+    /**
+    * Returns an array of available AI models with their pricing information.
+    * Each model object includes an ID and cost details (currency, tokens, input/output rates).
+    * @returns {Promise<Array<{id: string, cost: {currency: string, tokens: number, input: number, output: number}}>}
+    */
     async models_ () {
         return [
             {
@@ -75,9 +102,25 @@ class OpenAICompletionService extends BaseService {
 
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
+            /**
+            * Implements the puter-chat-completion interface methods for model listing and chat completion
+            * @property {Object} models - Returns available AI models and their pricing
+            * @property {Function} list - Returns list of available model names/aliases
+            * @property {Function} complete - Handles chat completion requests with optional streaming
+            * @param {Object} params - Parameters for completion
+            * @param {Array} params.messages - Array of chat messages
+            * @param {boolean} params.test_mode - Whether to use test mode
+            * @param {boolean} params.stream - Whether to stream responses
+            * @param {string} params.model - Model ID to use
+            */
             async models () {
                 return await this.models_();
             },
+            /**
+            * Retrieves a list of available AI models with their cost information
+            * @returns {Promise<Array>} Array of model objects containing id and cost details
+            * @private
+            */
             async list () {
                 const models = await this.models_();
                 const model_names = [];
@@ -89,6 +132,10 @@ class OpenAICompletionService extends BaseService {
                 }
                 return model_names;
             },
+            /**
+            * Lists all available model names including aliases
+            * @returns {Promise<string[]>} Array of model IDs and their aliases
+            */
             async complete ({ messages, test_mode, stream, model }) {
 
                 // for now this code (also in AIChatService.js) needs to be
@@ -139,6 +186,14 @@ class OpenAICompletionService extends BaseService {
         }
     };
 
+
+    /**
+    * Checks text content against OpenAI's moderation API for inappropriate content
+    * @param {string} text - The text content to check for moderation
+    * @returns {Promise<Object>} Object containing flagged status and detailed results
+    * @property {boolean} flagged - Whether the content was flagged as inappropriate
+    * @property {Object} results - Raw moderation results from OpenAI API
+    */
     async check_moderation (text) {
         // create moderation
         const results = await this.openai.moderations.create({
@@ -160,6 +215,17 @@ class OpenAICompletionService extends BaseService {
         };
     }
 
+
+    /**
+    * Completes a chat conversation using OpenAI's API
+    * @param {Array} messages - Array of message objects or strings representing the conversation
+    * @param {Object} options - Configuration options
+    * @param {boolean} options.stream - Whether to stream the response
+    * @param {boolean} options.moderation - Whether to perform content moderation
+    * @param {string} options.model - The model to use for completion
+    * @returns {Promise<Object>} The completion response containing message and usage info
+    * @throws {Error} If messages are invalid or content is flagged by moderation
+    */
     async complete (messages, { stream, moderation, model }) {
         // Validate messages
         if ( ! Array.isArray(messages) ) {
@@ -234,7 +300,7 @@ class OpenAICompletionService extends BaseService {
             if ( ! msg.content ) continue;
             if ( typeof msg.content !== 'object' ) continue;
 
-            const content = SmolUtil.ensure_array(msg.content);
+            const content = smol.ensure_array(msg.content);
 
             for ( const o of content ) {
                 if ( ! o.hasOwnProperty('image_url') ) continue;
@@ -260,7 +326,7 @@ class OpenAICompletionService extends BaseService {
             if ( ! msg.content ) continue;
             if ( typeof msg.content !== 'object' ) continue;
 
-            const content = SmolUtil.ensure_array(msg.content);
+            const content = smol.ensure_array(msg.content);
 
             for ( const o of content ) {
                 // console.log('part of content', o);
@@ -338,6 +404,13 @@ class OpenAICompletionService extends BaseService {
         const spending_meta = {};
         spending_meta.timestamp = Date.now();
         spending_meta.count_tokens_input = token_count;
+        /**
+        * Records spending metadata for the chat completion request and performs token counting.
+        * Initializes metadata object with timestamp and token counts for both input and output.
+        * Uses tiktoken to count output tokens from the completion response.
+        * Records spending data via spending service and increments usage counters.
+        * @private
+        */
         spending_meta.count_tokens_output = (() => {
             // count output tokens (overestimate)
             const enc = this.modules.tiktoken.encoding_for_model(model);

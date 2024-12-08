@@ -16,7 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { ParserBuilder, ParserFactory, StrataParseFacade } from "strataparse"
+import { strataparse } from '@heyputer/parsers'
+const { ParserBuilder, ParserFactory, StrataParseFacade } = strataparse;
 
 import { PARSE_CONSTANTS } from "./PARSE_CONSTANTS.js";
 const escapeSubstitutions = PARSE_CONSTANTS.escapeSubstitutions;

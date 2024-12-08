@@ -31,6 +31,9 @@ module.exports = {
         context: require('./src/libs/context'),
         listener: require('./src/libs/listener'),
         log: require('./src/libs/log'),
+        string: require('./src/libs/string'),
+        time: require('./src/libs/time'),
+        smol: require('./src/libs/smol'),
     },
     concepts: {
         Service,

@@ -555,8 +555,8 @@ function generate_edit_app_section(app) {
                 </select>
 
                 <label for="edit-app-filetype-associations">File Associations</label>
-                <p style="margin-top: 10px; font-size:13px;">A comma-separated list of file type specifiers. For example if you include <code>.txt</code>, your apps could be opened when a user clicks on a TXT file.</p>
-                <textarea id="edit-app-filetype-associations" placeholder=".txt, .jpg, application/json">${app.filetype_associations}</textarea>
+               <p style="margin-top: 10px; font-size:13px;">A list of file type specifiers. For example if you include <code>.txt</code> your apps could be opened when a user clicks on a TXT file.</p>
+               <textarea id="edit-app-filetype-associations"  placeholder=".txt  .jpg    application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length)}</textarea>
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window</h3>
                 <div>
@@ -761,6 +761,63 @@ async function edit_app_section(cur_app_name) {
     toggleSaveButton();  // Ensure Save button is initially disabled
     toggleResetButton();  // Ensure Reset button is initially disabled
     $('#edit-app').show();
+
+    const filetype_association_input = document.querySelector('textarea[id=edit-app-filetype-associations]');
+    let tagify = new Tagify(filetype_association_input, {
+        pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/(?:[a-z0-9.-]+|\*))/,
+        delimiters: ", ",
+        enforceWhitelist: false,
+        dropdown : {
+            // show the dropdown immediately on focus (0 character typed)
+            enabled: 0,
+        },
+        whitelist: [
+          // MIME type patterns
+          "text/*", "image/*", "audio/*", "video/*", "application/*",
+          
+          // Documents
+          ".doc", ".docx", ".pdf", ".txt", ".odt", ".rtf", ".tex", ".md", ".pages", ".epub", ".mobi", ".azw", ".azw3", ".djvu", ".xps", ".oxps", ".fb2", ".textile", ".markdown", ".asciidoc", ".rst", ".wpd", ".wps", ".abw", ".zabw",
+          
+          // Spreadsheets
+          ".xls", ".xlsx", ".csv", ".ods", ".numbers", ".tsv", ".gnumeric", ".xlt", ".xltx", ".xlsm", ".xltm", ".xlam", ".xlsb",
+          
+          // Presentations
+          ".ppt", ".pptx", ".key", ".odp", ".pps", ".ppsx", ".pptm", ".potx", ".potm", ".ppam",
+          
+          // Images
+          ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".svg", ".webp", ".ico", ".psd", ".ai", ".eps", ".raw", ".cr2", ".nef", ".orf", ".sr2", ".heic", ".heif", ".avif", ".jxr", ".hdp", ".wdp", ".jng", ".xcf", ".pgm", ".pbm", ".ppm", ".pnm",
+          
+          // Video
+          ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".flv", ".webm", ".m4v", ".mpeg", ".mpg", ".3gp", ".3g2", ".ogv", ".vob", ".drc", ".gifv", ".mng", ".qt", ".yuv", ".rm", ".rmvb", ".asf", ".amv", ".m2v", ".svi",
+          
+          // Audio
+          ".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a", ".wma", ".aiff", ".alac", ".ape", ".au", ".mid", ".midi", ".mka", ".pcm", ".ra", ".ram", ".snd", ".wv", ".opus",
+          
+          // Code/Development
+          ".js", ".ts", ".html", ".css", ".json", ".xml", ".php", ".py", ".java", ".cpp", ".c", ".cs", ".h", ".hpp", ".hxx", ".rs", ".go", ".rb", ".pl", ".swift", ".kt", ".kts", ".scala", ".coffee", ".sass", ".scss", ".less", ".jsx", ".tsx", ".vue", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd", ".sql", ".r", ".dart", ".f", ".f90", ".for", ".lua", ".m", ".mm", ".clj", ".erl", ".ex", ".exs", ".elm", ".hs", ".lhs", ".lisp", ".ml", ".mli", ".nim", ".pl", ".rkt", ".v", ".vhd",
+          
+          // Archives
+          ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".z", ".lz", ".lzma", ".tlz", ".txz", ".tgz", ".tbz2", ".bz", ".br", ".lzo", ".ar", ".cpio", ".shar", ".lrz", ".lz4", ".lz2", ".rz", ".sfark", ".sz", ".zoo",
+          
+          // Database
+          ".db", ".sql", ".sqlite", ".sqlite3", ".dbf", ".mdb", ".accdb", ".db3", ".s3db", ".dbx",
+          
+          // Fonts
+          ".ttf", ".otf", ".woff", ".woff2", ".eot", ".pfa", ".pfb", ".sfd",
+          
+          // CAD and 3D
+          ".dwg", ".dxf", ".stl", ".obj", ".fbx", ".dae", ".3ds", ".blend", ".max", ".ma", ".mb", ".c4d", ".skp", ".usd", ".usda", ".usdc", ".abc",
+          
+          // Scientific/Technical
+          ".mat", ".fig", ".nb", ".cdf", ".fits", ".fts", ".fit", ".gmsh", ".msh", ".fem", ".neu", ".hdf", ".h5", ".nx", ".unv",
+          
+          // System
+          ".exe", ".dll", ".so", ".dylib", ".app", ".dmg", ".iso", ".img", ".bin", ".msi", ".apk", ".ipa", ".deb", ".rpm",
+          
+          // Directory
+          ".directory"
+        ],
+    })
 
     // --------------------------------------------------------
     // Dragster
@@ -1102,6 +1159,32 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         }
     }
 
+    // parse filetype_associations
+
+    filetype_associations = JSON.parse(filetype_associations);
+    filetype_associations = filetype_associations.map((type) => {
+        const fileType = type.value;
+
+
+       if (
+           !fileType ||
+           fileType === "." ||
+           fileType === "/"
+       ) {
+      error = `<strong>File Association Type</strong> must be valid.`;
+      return null; // Return null for invalid cases
+    }
+    const lower = fileType.toLocaleLowerCase();
+
+    if (fileType.includes("/")) {
+      return lower;
+    } else if (fileType.includes(".")) {
+      return "." + lower.split(".")[1];
+    } else {
+      return "." + lower;
+    }
+    }).filter(Boolean);
+
     // error?
     if (error) {
         $('#edit-app-error').show();
@@ -1113,8 +1196,8 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
     // show working spinner
     puter.ui.showSpinner();
 
-    // parse filetype_associations
-    filetype_associations = filetype_associations.split(',').map(element => element.trim());
+    
+    
     // disable submit button
     $('.edit-app-save-btn').prop('disabled', true);
 

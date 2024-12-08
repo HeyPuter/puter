@@ -17,17 +17,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-
-class WSPushService  extends AdvancedBase {
-    static MODULES = {
-        socketio: require('../socketio.js'),
-    }
-
-    constructor ({ services }) {
-        super();
-        this.log = services.get('log-service').create('WSPushService');
-        this.svc_event = services.get('event');
+const BaseService = require("./BaseService");
+class WSPushService  extends BaseService {
+    async _init () {
+        this.svc_event = this.services.get('event');
 
         this.svc_event.on('fs.create.*', this._on_fs_create.bind(this));
         this.svc_event.on('fs.write.*', this._on_fs_update.bind(this));
@@ -50,7 +43,6 @@ class WSPushService  extends AdvancedBase {
     */
     async _on_fs_create (key, data) {
         const { node, context } = data;
-        const { socketio } = this.modules;
 
         const metadata = {
             from_new_service: true,
@@ -111,7 +103,6 @@ class WSPushService  extends AdvancedBase {
     */
     async _on_fs_update (key, data) {
         const { node, context } = data;
-        const { socketio } = this.modules;
 
         const metadata = {
             from_new_service: true,
@@ -177,7 +168,6 @@ class WSPushService  extends AdvancedBase {
     */
     async _on_fs_move (key, data) {
         const { moved, old_path, context } = data;
-        const { socketio } = this.modules;
 
         const metadata = {
             from_new_service: true,
@@ -235,7 +225,6 @@ class WSPushService  extends AdvancedBase {
     */
     async _on_fs_pending (key, data) {
         const { fsentry, context } = data;
-        const { socketio } = this.modules;
 
         const metadata = {
             from_new_service: true,
@@ -292,7 +281,6 @@ class WSPushService  extends AdvancedBase {
     */
     async _on_upload_progress (key, data) {
         this.log.info('got upload progress event');
-        const { socketio } = this.modules;
         const { upload_tracker, context, meta } = data;
 
         const metadata = {
@@ -320,25 +308,23 @@ class WSPushService  extends AdvancedBase {
         }
 
         this.log.info('socket id: ' + socket_id);
-
-        const io = socketio.getio()
-            .sockets.sockets
-            .get(socket_id);
-
-        // socket disconnected; that's allowed
-        if ( ! io ) return;
+        
+        const svc_socketio = context.get('services').get('socketio');
+        if ( ! svc_socketio.has({ socket: socket_id }) ) {
+            return;
+        }
 
         const ws_event_name = metadata.call_it_download
             ? 'download.progress' : 'upload.progress' ;
 
         upload_tracker.sub(delta => {
             this.log.info('emitting progress event');
-            io.emit(ws_event_name, {
+            svc_socketio.send({ socket: socket_id }, ws_event_name, {
                 ...metadata,
                 total: upload_tracker.total_,
                 loaded: upload_tracker.progress_,
                 loaded_diff: delta,
-            })
+            });
         })
     }
     
@@ -357,16 +343,13 @@ class WSPushService  extends AdvancedBase {
     async _on_outer_gui (key, { user_id_list, response }, meta) {
         key = key.slice('outer.gui.'.length);
 
-        const { socketio } = this.modules;
-
-        const io = socketio.getio();
+        const svc_socketio = this.services.get('socketio');
 
         for ( const user_id of user_id_list ) {
-            const room = io.sockets.adapter.rooms.get(user_id);
-            if ( ! room || room.size <= 0 ) {
+            if ( ! svc_socketio.has({ room: user_id }) ) {
                 continue;
             }
-            io.to(user_id).emit(key, response);
+            svc_socketio.send({ room: user_id }, key, response);
             this.svc_event.emit(`sent-to-user.${key}`, {
                 user_id,
                 response,

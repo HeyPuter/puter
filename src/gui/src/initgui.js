@@ -1247,33 +1247,6 @@ window.initgui = async function(options){
         clearTimeout(this.long_hover_timeout);
     })
 
-    // if an element has the .long-hover class, cancel the long-hover event if the mouse leaves
-    $(document).on('paste', function(event){
-        event = event.originalEvent ?? event;
-
-        let clipboardData = event.clipboardData || window.clipboardData;
-        let items = clipboardData.items || clipboardData.files;
-
-        // return if paste is on input or textarea
-        if($(event.target).is('input') || $(event.target).is('textarea'))
-            return;
-
-        if(!(items instanceof DataTransferItemList))
-            return;
-
-        // upload files
-        if(items?.length>0){
-            let parent_container = determine_active_container_parent();
-            if(parent_container){
-                window.upload_items(items, $(parent_container).attr('data-path'));
-            }
-        }
-
-        event.stopPropagation();
-        event.preventDefault();
-        return false;
-    })
-
     document.addEventListener("visibilitychange", (event) => {
         if (document.visibilityState !== "visible") {
             window.doc_title_before_blur = document.title;

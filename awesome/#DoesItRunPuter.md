@@ -13,3 +13,4 @@
 - [Steam Deck](https://twitter.com/everythingSung/status/1782162352403828793)
 - [Ladybird Browser](https://x.com/HeyPuter/status/1810783504503800035)
 - [Garry's Mod](https://x.com/HeyPuter/status/1850587712786722862)
+- [Samsung Q88BA](https://x.com/AmirIsAround/status/1862614583263076540)

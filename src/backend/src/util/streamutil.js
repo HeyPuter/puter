@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { PassThrough, Readable, Transform } = require('stream');
-const { TeePromise } = require('./promise');
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 const { EWMA } = require('./opmath');
 
 class StreamBuffer extends TeePromise {

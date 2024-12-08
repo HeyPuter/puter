@@ -18,7 +18,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { LocalDiskStorageStrategy } = require("../filesystem/strategies/storage_a/LocalDiskStorageStrategy");
-const { TeePromise } = require("../util/promise");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 const { progress_stream, size_limit_stream } = require("../util/streamutil");
 const BaseService = require("./BaseService");
 

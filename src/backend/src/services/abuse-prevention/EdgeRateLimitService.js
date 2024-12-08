@@ -18,10 +18,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { Context } = require("../../util/context");
-const { asyncSafeSetInterval } = require("../../util/promise");
-const { quot } = require("../../util/strutil");
+const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
+const { quot } = require('@heyputer/putility').libs.string;
 
-const { MINUTE, HOUR } = require('../../util/time.js');
+const { MINUTE, HOUR } = require('@heyputer/putility').libs.time;
 const BaseService = require("../BaseService");
 
 /* INCREMENTAL CHANGES

@@ -22,7 +22,6 @@ const micromatch = require('micromatch');
 const config = require('./config')
 const mime = require('mime-types');
 const PerformanceMonitor = require('./monitor/PerformanceMonitor.js');
-const { generate_identifier } = require('./util/identifier.js');
 const { ManagedError } = require('./util/errorutil.js');
 const { spanify } = require('./util/otelutil.js');
 const APIError = require('./api/APIError.js');
@@ -1012,7 +1011,6 @@ async function gen_public_token(file_uuid, ttl = 24 * 60 * 60){
     }
 
     const uid = fsentry.uuid;
-    const expires = Math.ceil(Date.now() / 1000) + ttl;
     const token = uuidv4();
     const contentType = mime.contentType(fsentry.name);
 
@@ -1155,201 +1153,6 @@ async function jwt_auth(req){
     return ancestors;
 }
 
-// THIS LEGACY FUNCTION IS STILL IN USE
-// by: generate_system_fsentries
-// TODO: migrate generate_system_fsentries to use QuickMkdir
-async function mkdir(options){
-    const fs = systemfs;
-
-    debugger;
-
-    const resolved_path = PathBuilder.resolve(options.path, { puterfs: true });
-
-    const dirpath           = _path.dirname(resolved_path);
-    let target_name         = _path.basename(resolved_path);
-    const overwrite         = options.overwrite ?? false;
-    const dedupe_name       = options.dedupe_name ?? false;
-    const immutable         = options.immutable ?? false;
-    const return_id         = options.return_id ?? false;
-    const no_perm_check     = options.no_perm_check ?? false;
-
-    // make parent directories as needed
-    const create_missing_parents           = options.create_missing_parents ?? false;
-
-    // hold a list of all parent directories created in the process
-    let parent_dirs_created                = [];
-    let overwritten_uid;
-
-    // target_name validation
-    try{
-        validate_fsentry_name(target_name)
-    }catch(e){
-        throw e.message;
-    }
-
-    // resolve dirpath to its fsentry
-    let parent = await convert_path_to_fsentry(dirpath);
-
-    // dirpath not found
-    if(parent === false && !create_missing_parents)
-        throw new Error("Target path not found");
-    // create missing parent directories
-    else if(parent === false && create_missing_parents){
-        const dirs = _path.resolve('/', dirpath).split('/');
-        let cur_path = '';
-        for(let j=0; j < dirs.length; j++){
-            if(dirs[j] === '')
-                continue;
-
-            cur_path += '/'+dirs[j];
-            // skip creating '/[username]'
-            if(j === 1)
-                continue;
-            try{
-                let d = await mkdir(fs, {path: cur_path, user: options.user});
-                d.path = cur_path;
-                parent_dirs_created.push(d);
-            }catch(e){
-                console.log(`Skipped mkdir ${cur_path}`);
-            }
-        }
-        // try setting parent again
-        parent = await convert_path_to_fsentry(dirpath);
-        if(parent === false)
-            throw new Error("Target path not found");
-    }
-
-    // check permission
-    if(!no_perm_check && !await chkperm(parent, options.user.id, 'write'))
-        throw { code:`forbidden`, message: `permission denied.`};
-
-    // check if a fsentry with the same name exists under this path
-    const existing_fsentry = await convert_path_to_fsentry(_path.resolve('/', dirpath + '/' + target_name ));
-
-    /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_WRITE, 'filesystem');
-
-    // if trying to create a directory with an existing path and overwrite==false, throw an error
-    if(!overwrite && !dedupe_name && existing_fsentry !== false){
-        throw {
-            code: 'path_exists',
-            message:"A file/directory with the same path already exists.",
-            entry_name: existing_fsentry.name,
-            existing_fsentry: {
-                name: existing_fsentry.name,
-                uid: existing_fsentry.uuid,
-            }
-        };
-    }
-    else if(overwrite && existing_fsentry){
-        overwritten_uid = existing_fsentry.uuid;
-        // check permission
-        if(!await chkperm(existing_fsentry, options.user.id, 'write'))
-            throw {code:`forbidden`, message: `permission denied.`};
-        // delete existing dir
-        await db.write(
-            `DELETE FROM fsentries WHERE id = ? AND user_id = ?`,
-            [
-                //parent_uid
-                existing_fsentry.uuid,
-                //user_id
-                options.user.id,
-            ]);
-    }
-    // dedupe name, generate a new name until its unique
-    else if(dedupe_name && existing_fsentry !== false){
-        for( let i = 1; ; i++){
-            let try_new_name = existing_fsentry.name + ' (' + i + ')';
-            let check_dupe = await db.read(
-                "SELECT `id` FROM `fsentries` WHERE `parent_uid` = ? AND name = ? LIMIT 1",
-                [existing_fsentry.parent_uid, try_new_name]
-            );
-            if(check_dupe[0] === undefined){
-                target_name = try_new_name;
-                break;
-            }
-        }
-    }
-
-    // shrotcut?
-    let shortcut_fsentry;
-    if(options.shortcut_to){
-        shortcut_fsentry = await uuid2fsentry(options.shortcut_to);
-        if(shortcut_fsentry === false){
-            throw ({ code:`not_found`, message: `shortcut_to not found.`})
-        }else if(!parent.is_dir){
-            throw ({ code:`not_dir`, message: `parent of shortcut_to must be a directory`})
-        }else if(!await chkperm(shortcut_fsentry, options.user.id, 'read')){
-            throw ({ code:`forbidden`, message: `shortcut_to permission denied.`})
-        }
-    }
-
-    // current epoch
-    const ts = Math.round(Date.now() / 1000)
-    const uid = uuidv4();
-
-    // record in db
-    let user_id = (parent === null ? options.user.id : parent.user_id);
-    const { insertId: mkdir_db_id } = await db.write(
-        `INSERT INTO fsentries
-        (uuid, parent_uid, user_id,  name,    is_dir, created, modified, immutable,  shortcut_to, is_shortcut) VALUES
-        (   ?,          ?,       ?,     ?,      true,       ?,        ?,         ?,            ?,           ?)`,
-        [
-            //uuid
-            uid,
-            //parent_uid
-            (parent === null) ? null : parent.uuid,
-            //user_id
-            user_id,
-            //name
-            target_name,
-            //created
-            ts,
-            //modified
-            ts,
-            //immutable
-            immutable,
-            //shortcut_to,
-            shortcut_fsentry ? shortcut_fsentry.id : null,
-            //is_shortcut,
-            shortcut_fsentry ? 1 : 0,
-        ]
-    );
-
-    const ret_obj = {
-        uid : uid,
-        name: target_name,
-        immutable: immutable,
-        is_dir: true,
-        path: options.path ?? false,
-        dirpath: dirpath,
-        is_shared: await is_shared_with_anyone(mkdir_db_id),
-        overwritten_uid: overwritten_uid,
-        shortcut_to: shortcut_fsentry ? shortcut_fsentry.uuid : null,
-        shortcut_to_path: shortcut_fsentry ? await id2path(shortcut_fsentry.id) : null,
-        parent_dirs_created: parent_dirs_created,
-        original_client_socket_id: options.original_client_socket_id,
-    };
-    // add existing_fsentry if exists
-    if(existing_fsentry){
-        ret_obj.existing_fsentry ={
-            name: existing_fsentry.name,
-            uid: existing_fsentry.uuid,
-        }
-    }
-
-    if(return_id)
-        ret_obj.id = mkdir_db_id;
-
-    // send realtime success msg to client
-    let socketio = require('./socketio.js').getio();
-    if(socketio){
-        socketio.to(user_id).emit('item.added', ret_obj)
-    }
-
-    return ret_obj;
-}
-
 function is_valid_uuid ( uuid ) {
     let s = "" + uuid;
     s = s.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
@@ -1412,100 +1215,6 @@ async function app_name_exists(name){
         return true;
 }
 
-
-// generates all the default files and directories a user needs,
-// generally used for a brand new account
-async function generate_system_fsentries(user){
-    /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_WRITE, 'filesystem');
-
-    //-------------------------------------------------------------
-    // create root `/[username]/`
-    //-------------------------------------------------------------
-    const root_dir = await mkdir({
-        path: '/' + user.username,
-        user: user,
-        immutable: true,
-        no_perm_check: true,
-        return_id: true,
-    });
-
-    // Normally, it is recommended to use mkdir() to create new folders,
-    // but during signup this could result in multiple queries to the DB server
-    // and for servers in remote regions such as Asia this could result in a
-    // very long time for /signup to finish, sometimes up to 30-40 seconds!
-    // by combining as many queries as we can into one and avoiding multiple back-and-forth
-    // with the DB server, we can speed this process up significantly.
-    const ts = Date.now()/1000;
-
-    // Generate UUIDs for all the default folders and files
-    let trash_uuid = uuidv4();
-    let appdata_uuid = uuidv4();
-    let desktop_uuid = uuidv4();
-    let documents_uuid = uuidv4();
-    let pictures_uuid = uuidv4();
-    let videos_uuid = uuidv4();
-    let public_uuid = uuidv4();
-
-    const insert_res = await db.write(
-        `INSERT INTO fsentries
-        (uuid, parent_uid, user_id, name, path, is_dir, created, modified, immutable) VALUES
-        (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
-        (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
-        (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
-        (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
-        (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
-        (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
-        (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true)
-        `,
-        [
-            // Trash
-            trash_uuid, root_dir.uid, user.id, 'Trash', `/${user.username}/Trash`, ts, ts,
-            // AppData
-            appdata_uuid, root_dir.uid, user.id, 'AppData', `/${user.username}/AppData`, ts, ts,
-            // Desktop
-            desktop_uuid, root_dir.uid, user.id, 'Desktop', `/${user.username}/Desktop`, ts, ts,
-            // Documents
-            documents_uuid, root_dir.uid, user.id, 'Documents', `/${user.username}/Documents`, ts, ts,
-            // Pictures
-            pictures_uuid, root_dir.uid, user.id, 'Pictures', `/${user.username}/Pictures`, ts, ts,
-            // Videos
-            videos_uuid, root_dir.uid, user.id, 'Videos', `/${user.username}/Videos`, ts, ts,
-            // Public
-            public_uuid, root_dir.uid, user.id, 'Public', `/${user.username}/Public`, ts, ts,
-        ]
-    );
-
-    // https://stackoverflow.com/a/50103616
-    let trash_id = insert_res.insertId;
-    let appdata_id = insert_res.insertId + 1;
-    let desktop_id = insert_res.insertId + 2;
-    let documents_id = insert_res.insertId + 3;
-    let pictures_id = insert_res.insertId + 4;
-    let videos_id = insert_res.insertId + 5;
-    let public_id = insert_res.insertId + 6;
-
-    // Asynchronously set the user's system folders uuids in database
-    // This is for caching purposes, so we don't have to query the DB every time we need to access these folders
-    // This is also possible because we know the user's system folders uuids will never change
-
-    // TODO: pass to IIAFE manager to avoid unhandled promise rejection
-    // (IIAFE manager doesn't exist yet, hence this is a TODO)
-    db.write(
-        `UPDATE user SET
-        trash_uuid=?, appdata_uuid=?, desktop_uuid=?, documents_uuid=?, pictures_uuid=?, videos_uuid=?, public_uuid=?,
-        trash_id=?, appdata_id=?, desktop_id=?, documents_id=?, pictures_id=?, videos_id=?, public_id=?
-
-        WHERE id=?`,
-        [
-            trash_uuid, appdata_uuid, desktop_uuid, documents_uuid, pictures_uuid, videos_uuid, public_uuid,
-            trash_id, appdata_id, desktop_id, documents_id, pictures_id, videos_id, public_id,
-            user.id
-        ]
-    );
-    invalidate_cached_user(user);
-}
-
 function send_email_verification_code(email_confirm_code, email){
     const svc_email = Context.get('services').get('email');
     svc_email.send_email({ email }, 'email_verification_code', {
@@ -1519,19 +1228,11 @@ function send_email_verification_token(email_confirm_token, email, user_uuid){
     svc_email.send_email({ email }, 'email_verification_link', { link });
 }
 
-async function generate_random_username(){
-    let username;
-    do {
-        username = generate_identifier();
-    } while (await username_exists(username));
-    return username;
-}
-
 function generate_random_str(length) {
-    var result           = '';
-    var characters       = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    var charactersLength = characters.length;
-    for ( var i = 0; i < length; i++ ) {
+    let result           = '';
+    const characters       = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const charactersLength = characters.length;
+    for ( let i = 0; i < length; i++ ) {
       result += characters.charAt(Math.floor(Math.random() *
  charactersLength));
    }
@@ -1546,11 +1247,11 @@ function generate_random_str(length) {
  * @throws {TypeError} If the `seconds` parameter is not a number.
  */
 function seconds_to_string(seconds) {
-    var numyears = Math.floor(seconds / 31536000);
-    var numdays = Math.floor((seconds % 31536000) / 86400);
-    var numhours = Math.floor(((seconds % 31536000) % 86400) / 3600);
-    var numminutes = Math.floor((((seconds % 31536000) % 86400) % 3600) / 60);
-    var numseconds = (((seconds % 31536000) % 86400) % 3600) % 60;
+    const numyears = Math.floor(seconds / 31536000);
+    const numdays = Math.floor((seconds % 31536000) / 86400);
+    const numhours = Math.floor(((seconds % 31536000) % 86400) / 3600);
+    const numminutes = Math.floor((((seconds % 31536000) % 86400) % 3600) / 60);
+    const numseconds = (((seconds % 31536000) % 86400) % 3600) % 60;
     return numyears + " years " + numdays + " days " + numhours + " hours " + numminutes + " minutes " + numseconds + " seconds";
 }
 
@@ -1565,14 +1266,11 @@ async function suggest_app_for_fsentry(fsentry, options){
     const suggested_apps = [];
 
     let content_type = mime.contentType(fsentry.name);
-    if(content_type === null || content_type === undefined || content_type === false)
-        content_type = '';
+    if( ! content_type ) content_type = '';
 
     // IIFE just so fsname can stay `const`
     const fsname = (() => {
         if ( ! fsentry.name ) {
-            const fs = require('fs');
-            fs.writeFileSync('/tmp/missing-fsentry-name.txt', JSON.stringify(fsentry, null, 2));
             return 'missing-fsentry-name';
         }
         let fsname = fsentry.name.toLowerCase();
@@ -1581,74 +1279,79 @@ async function suggest_app_for_fsentry(fsentry, options){
         return fsname;
     })();
     const file_extension = _path.extname(fsname).toLowerCase();
+    
+    const any_of = (list, name) => {
+        return list.some(v => name.endsWith(v));
+    }
 
     //---------------------------------------------
     // Code
     //---------------------------------------------
-    if(
-        fsname.endsWith('.asm') ||
-        fsname.endsWith('.asp') ||
-        fsname.endsWith('.aspx') ||
-        fsname.endsWith('.bash') ||
-        fsname.endsWith('.c') ||
-        fsname.endsWith('.cpp') ||
-        fsname.endsWith('.css') ||
-        fsname.endsWith('.csv') ||
-        fsname.endsWith('.dhtml') ||
-        fsname.endsWith('.f') ||
-        fsname.endsWith('.go') ||
-        fsname.endsWith('.h') ||
-        fsname.endsWith('.htm') ||
-        fsname.endsWith('.html') ||
-        fsname.endsWith('.html5') ||
-        fsname.endsWith('.java') ||
-        fsname.endsWith('.jl') ||
-        fsname.endsWith('.js') ||
-        fsname.endsWith('.jsa') ||
-        fsname.endsWith('.json') ||
-        fsname.endsWith('.jsonld') ||
-        fsname.endsWith('.jsf') ||
-        fsname.endsWith('.jsp') ||
-        fsname.endsWith('.kt') ||
-        fsname.endsWith('.log') ||
-        fsname.endsWith('.lock') ||
-        fsname.endsWith('.lua') ||
-        fsname.endsWith('.md') ||
-        fsname.endsWith('.perl') ||
-        fsname.endsWith('.phar') ||
-        fsname.endsWith('.php') ||
-        fsname.endsWith('.pl') ||
-        fsname.endsWith('.py') ||
-        fsname.endsWith('.r') ||
-        fsname.endsWith('.rb') ||
-        fsname.endsWith('.rdata') ||
-        fsname.endsWith('.rda') ||
-        fsname.endsWith('.rdf') ||
-        fsname.endsWith('.rds') ||
-        fsname.endsWith('.rs') ||
-        fsname.endsWith('.rlib') ||
-        fsname.endsWith('.rpy') ||
-        fsname.endsWith('.scala') ||
-        fsname.endsWith('.sc') ||
-        fsname.endsWith('.scm') ||
-        fsname.endsWith('.sh') ||
-        fsname.endsWith('.sol') ||
-        fsname.endsWith('.sql') ||
-        fsname.endsWith('.ss') ||
-        fsname.endsWith('.svg') ||
-        fsname.endsWith('.swift') ||
-        fsname.endsWith('.toml') ||
-        fsname.endsWith('.ts') ||
-        fsname.endsWith('.wasm') ||
-        fsname.endsWith('.xhtml') ||
-        fsname.endsWith('.xml') ||
-        fsname.endsWith('.yaml') ||
-        // files with no extension
-        !fsname.includes('.')
-    ){
+    const exts_code = [
+        '.asm',
+        '.asp',
+        '.aspx',
+        '.bash',
+        '.c',
+        '.cpp',
+        '.css',
+        '.csv',
+        '.dhtml',
+        '.f',
+        '.go',
+        '.h',
+        '.htm',
+        '.html',
+        '.html5',
+        '.java',
+        '.jl',
+        '.js',
+        '.jsa',
+        '.json',
+        '.jsonld',
+        '.jsf',
+        '.jsp',
+        '.kt',
+        '.log',
+        '.lock',
+        '.lua',
+        '.md',
+        '.perl',
+        '.phar',
+        '.php',
+        '.pl',
+        '.py',
+        '.r',
+        '.rb',
+        '.rdata',
+        '.rda',
+        '.rdf',
+        '.rds',
+        '.rs',
+        '.rlib',
+        '.rpy',
+        '.scala',
+        '.sc',
+        '.scm',
+        '.sh',
+        '.sol',
+        '.sql',
+        '.ss',
+        '.svg',
+        '.swift',
+        '.toml',
+        '.ts',
+        '.wasm',
+        '.xhtml',
+        '.xml',
+        '.yaml',
+    ];
+
+    if ( any_of(exts_code, fsname) || !fsname.includes('.') ) {
         suggested_apps.push(await get_app({name: 'code'}))
         suggested_apps.push(await get_app({name: 'editor'}))
     }
+
     //---------------------------------------------
     // Editor
     //---------------------------------------------
@@ -1712,19 +1415,17 @@ async function suggest_app_for_fsentry(fsentry, options){
     //---------------------------------------------
     // 3rd-party apps
     //---------------------------------------------
-    const apps = kv.get(`assocs:${file_extension.slice(1)}:apps`)
+    const apps = kv.get(`assocs:${file_extension.slice(1)}:apps`) ?? [];
 
     monitor.label("third party associations");
-    if(apps && apps.length > 0){
-        for (let index = 0; index < apps.length; index++) {
-            // retrieve app from DB
-            const third_party_app = await get_app({id: apps[index]})
-            if ( ! third_party_app ) continue;
-            // only add if the app is approved for opening items or the app is owned by this user
-            if( third_party_app.approved_for_opening_items ||
-                (options !== undefined && options.user !== undefined && options.user.id === third_party_app.owner_user_id))
-                suggested_apps.push(third_party_app)
-        }
+    for ( const app_id of apps ) {
+        // retrieve app from DB
+        const third_party_app = await get_app({id: app_id})
+        if ( ! third_party_app ) continue;
+        // only add if the app is approved for opening items or the app is owned by this user
+        if( third_party_app.approved_for_opening_items ||
+            (options !== undefined && options.user !== undefined && options.user.id === third_party_app.owner_user_id))
+            suggested_apps.push(third_party_app)
     }
     monitor.stamp();
     monitor.end();
@@ -1739,10 +1440,6 @@ async function suggest_app_for_fsentry(fsentry, options){
         // Remove any duplicate entries
         return self.indexOf(suggested_app) === pos;
     });
-}
-
-function build_item_object(item){
-
 }
 
 async function get_taskbar_items(user) {
@@ -1867,13 +1564,13 @@ async function mv(options){
 function number_format (number, decimals, dec_point, thousands_sep) {
     // Strip all characters but numerical ones.
     number = (number + '').replace(/[^0-9+\-Ee.]/g, '');
-    var n = !isFinite(+number) ? 0 : +number,
+    let n = !isFinite(+number) ? 0 : +number,
         prec = !isFinite(+decimals) ? 0 : Math.abs(decimals),
         sep = (typeof thousands_sep === 'undefined') ? ',' : thousands_sep,
         dec = (typeof dec_point === 'undefined') ? '.' : dec_point,
         s = '',
         toFixedFix = function (n, prec) {
-            var k = Math.pow(10, prec);
+            const k = Math.pow(10, prec);
             return '' + Math.round(n * k) / k;
         };
     // Fix for IE parseFloat(0.55).toFixed(0) = 0;
@@ -1893,7 +1590,6 @@ module.exports = {
     app_name_exists,
     app_exists,
     body_parser_error_handler,
-    build_item_object,
     byte_format,
     change_username,
     chkperm,
@@ -1905,9 +1601,7 @@ module.exports = {
     gen_public_token,
     get_taskbar_items,
     get_url_from_req,
-    generate_system_fsentries,
     generate_random_str,
-    generate_random_username,
     get_app,
     get_user,
     invalidate_cached_user,
@@ -1926,7 +1620,6 @@ module.exports = {
     is_specifically_uuidv4,
     is_valid_url,
     jwt_auth,
-    mkdir,
     mv,
     number_format,
     refresh_apps_cache,

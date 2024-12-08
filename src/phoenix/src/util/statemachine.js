@@ -17,7 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { disallowAccessToUndefined } from "./lang.js";
-import { Context } from "contextlink";
+import putility from '@heyputer/putility';
+const { Context } = putility.libs.context;
 
 export class StatefulProcessor {
     constructor (params) {

@@ -27,7 +27,7 @@ const { PermissionUtil } = require("../../services/auth/PermissionService");
 const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 const { TYPE_DIRECTORY } = require("../../filesystem/FSNodeContext");
 const { UsernameNotifSelector } = require("../../services/NotificationService");
-const { quot } = require("../../util/strutil");
+const { quot } = require('@heyputer/putility').libs.string;
 const { whatis } = require("../../util/langutil");
 
 /*

@@ -18,7 +18,6 @@
  */
 import { Exit } from '../coreutils/coreutil_lib/exit.js';
 import { signals } from '../../ansi-shell/signals.js';
-import { TeePromise } from '../../promise.js';
 
 const BUILT_IN_APPS = [
     'explorer',

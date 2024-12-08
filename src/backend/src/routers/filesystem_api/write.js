@@ -23,9 +23,8 @@ const { HLWrite } = require('../../filesystem/hl_operations/hl_write.js');
 const { boolify } = require('../../util/hl_types.js');
 const { Context } = require('../../util/context.js');
 const Busboy = require('busboy');
-const { TeePromise } = require('../../util/promise.js');
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 const APIError = require('../../api/APIError.js');
-const api_error_handler = require('../../api/api_error_handler.js');
 const { valid_file_size } = require('../../util/validutil.js');
 
 // -----------------------------------------------------------------------//
@@ -172,13 +171,8 @@ module.exports = eggspress(['/up', '/write'], {
 
         const values = req.method === 'GET' ? req.query : req.body;
         const getParam = (key) => values[key];
-        try {
-          const result = await param.consolidate({ req, getParam });
-          req.values[key] = result;
-        } catch (e) {
-          api_error_handler(e, req, res, next);
-          return;
-        }
+        const result = await param.consolidate({ req, getParam });
+        req.values[key] = result;
     }
 
     if ( req.body.size === undefined ) {

@@ -26,11 +26,6 @@ const { Endpoint } = require("../../util/expressutil");
 const APIError = require("../../api/APIError.js");
 
 /**
- * This service registers endpoints that are protected by password authentication,
- * excluding login. These endpoints are typically for actions that affect
- * security settings on the user's account.
- */
-/**
 * @class UserProtectedEndpointsService
 * @extends BaseService
 * @classdesc

@@ -23,7 +23,8 @@ import ReadlineLib from "../ansi-shell/readline/readline.js";
 import SimpleArgParser from "../ansi-shell/arg-parsers/simple-parser.js";
 import ErrorsDecorator from "../ansi-shell/decorators/errors.js";
 import { ANSIShell } from "../ansi-shell/ANSIShell.js";
-import { Context } from "contextlink";
+import { libs } from '@heyputer/putility';
+const { Context } = libs.context;
 import { SHELL_VERSIONS } from "../meta/versions.js";
 import { PuterShellParser } from "../ansi-shell/parsing/PuterShellParser.js";
 import { BuiltinCommandProvider } from "./providers/BuiltinCommandProvider.js";
@@ -43,11 +44,6 @@ const argparser_registry = {
 
 const decorator_registry = {
     [ErrorsDecorator.name]: ErrorsDecorator
-};
-
-const GH_LINK = {
-    'terminal': 'https://github.com/HeyPuter/puter/tree/main/packages/terminal',
-    'phoenix': 'https://github.com/HeyPuter/puter/tree/main/packages/phoenix',
 };
 
 export const launchPuterShell = async (ctx) => {

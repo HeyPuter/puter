@@ -20,7 +20,7 @@
 const APIError = require("../api/APIError");
 const auth2 = require("../middleware/auth2");
 const { Endpoint } = require("../util/expressutil");
-const { TeePromise } = require("../util/promise");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 const BaseService = require("./BaseService");
 const { DB_WRITE } = require("./database/consts");
 

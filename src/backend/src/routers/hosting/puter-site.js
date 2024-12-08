@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require("@heyputer/putility");
-const api_error_handler = require("../../api/api_error_handler");
+const api_error_handler = require("../../modules/web/lib/api_error_handler");
 const config = require("../../config");
 const { get_user, get_app, id2path } = require("../../helpers");
 const { Context } = require("../../util/context");

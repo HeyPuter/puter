@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -23,6 +24,16 @@ const { ProtectedAppES } = require("./om/entitystorage/ProtectedAppES");
 const { Context } = require('./util/context');
 
 
+
+/**
+ * Core module for the Puter platform that includes essential services including
+ * authentication, filesystems, rate limiting, permissions, and various API endpoints.
+ * 
+ * This is a monolithic module. Incrementally, services should be migrated to
+ * Core2Module and other modules instead. Core2Module has a smaller scope, and each
+ * new module will be a cohesive concern. Once CoreModule is empty, it will be removed
+ * and Core2Module will take on its name.
+ */
 class CoreModule extends AdvancedBase {
     dirname () { return __dirname; }
     async install (context) {
@@ -33,11 +44,16 @@ class CoreModule extends AdvancedBase {
         await install({ services, app, useapi, modapi });
     }
 
-    // Some services were created before the BaseService
-    // class existed. They don't listen to the init event
-    // and the order in which they're instantiated matters.
-    // They all need to be installed after the init event
-    // is dispatched, so they get a separate install method.
+    /**
+    * Installs legacy services that don't extend BaseService and require special handling.
+    * These services were created before the BaseService class existed and don't listen
+    * to the init event. They need to be installed after the init event is dispatched
+    * due to initialization order dependencies.
+    * 
+    * @param {Object} context - The context object containing service references
+    * @param {Object} context.services - Service registry for registering legacy services
+    * @returns {Promise<void>} Resolves when legacy services are installed
+    */
     async install_legacy (context) {
         const services = context.get('services');
         await install_legacy({ services });
@@ -51,6 +67,9 @@ module.exports = CoreModule;
  */
 const install = async ({ services, app, useapi, modapi }) => {
     const config = require('./config');
+
+
+    // === LIBRARIES ===
 
     useapi.withuse(() => {
         def('Service', require('./services/BaseService'));
@@ -68,7 +87,6 @@ const install = async ({ services, app, useapi, modapi }) => {
         def('core.config', config);
     });
     
-    // === LIBRARIES ===
     useapi.withuse(() => {
         const ArrayUtil = require('./libraries/ArrayUtil');
         services.registerService('util-array', ArrayUtil);
@@ -82,16 +100,11 @@ const install = async ({ services, app, useapi, modapi }) => {
     // === SERVICES ===
 
     // /!\ IMPORTANT /!\
-    // For new services, put the import immediate above the
+    // For new services, put the import immediately above the
     // call to services.registerService. We'll clean this up
     // in a future PR.
 
-    const { LogService } = require('./services/runtime-analysis/LogService');
-    const { PagerService } = require('./services/runtime-analysis/PagerService');
-    const { AlarmService } = require('./services/runtime-analysis/AlarmService');
-    const { ErrorService } = require('./services/runtime-analysis/ErrorService');
     const { CommandService } = require('./services/CommandService');
-    const { ExpectationService } = require('./services/runtime-analysis/ExpectationService');
     const { HTTPThumbnailService } = require('./services/thumbnails/HTTPThumbnailService');
     const { PureJSThumbnailService } = require('./services/thumbnails/PureJSThumbnailService');
     const { NAPIThumbnailService } = require('./services/thumbnails/NAPIThumbnailService');
@@ -124,12 +137,10 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { ESBuilder } = require('./om/entitystorage/ESBuilder');
     const { Eq, Or } = require('./om/query/query');
     const { TrackSpendingService } = require('./services/TrackSpendingService');
-    const { ServerHealthService } = require('./services/runtime-analysis/ServerHealthService');
     const { MakeProdDebuggingLessAwfulService } = require('./services/MakeProdDebuggingLessAwfulService');
     const { ConfigurableCountingService } = require('./services/ConfigurableCountingService');
     const { FSLockService } = require('./services/fs/FSLockService');
     const { StrategizedService } = require('./services/StrategizedService');
-    const WebServerService = require('./services/WebServerService');
     const FilesystemAPIService = require('./services/FilesystemAPIService');
     const ServeGUIService = require('./services/ServeGUIService');
     const PuterAPIService = require('./services/PuterAPIService');
@@ -140,17 +151,10 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     // === Services which extend BaseService ===
     services.registerService('system-validation', SystemValidationService);
-    services.registerService('server-health', ServerHealthService);
-    services.registerService('log-service', LogService);
     services.registerService('commands', CommandService);
-    services.registerService('web-server', WebServerService, { app });
     services.registerService('__api-filesystem', FilesystemAPIService);
     services.registerService('__api', PuterAPIService);
     services.registerService('__gui', ServeGUIService);
-    services.registerService('expectations', ExpectationService);
-    services.registerService('pager', PagerService);
-    services.registerService('alarm', AlarmService);
-    services.registerService('error-service', ErrorService);
     services.registerService('registry', RegistryService);
     services.registerService('__registrant', RegistrantService);
     services.registerService('fslock', FSLockService);
@@ -351,24 +355,25 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { ReferralCodeService } = require('./services/ReferralCodeService');
     services.registerService('referral-code', ReferralCodeService);
+    
+    const { UserService } = require('./services/UserService');
+    services.registerService('user', UserService);
+
+    const { WSPushService } = require('./services/WSPushService');
+    services.registerService('__event-push-ws', WSPushService);
 }
 
 const install_legacy = async ({ services }) => {
-    const { ProcessEventService } = require('./services/runtime-analysis/ProcessEventService');
-    // const { FilesystemService } = require('./filesystem/FilesystemService');
     const PerformanceMonitor = require('./monitor/PerformanceMonitor');
     const { OperationTraceService } = require('./services/OperationTraceService');
-    const { WSPushService } = require('./services/WSPushService');
     const { ClientOperationService } = require('./services/ClientOperationService');
     const { EngPortalService } = require('./services/EngPortalService');
     const { AppInformationService } = require('./services/AppInformationService');
     const { FileCacheService } = require('./services/file-cache/FileCacheService');
 
     // === Services which do not yet extend BaseService ===
-    services.registerService('process-event', ProcessEventService);
     // services.registerService('filesystem', FilesystemService);
     services.registerService('operationTrace', OperationTraceService);
-    services.registerService('__event-push-ws', WSPushService);
     services.registerService('file-cache', FileCacheService);
     services.registerService('client-operation', ClientOperationService);
     services.registerService('app-information', AppInformationService);

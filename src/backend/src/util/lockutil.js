@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { TeePromise } = require("./promise");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 class RWLock {
     static TYPE_READ = Symbol('read');

@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 const APIError = require("../../api/APIError");
 const { PermissionUtil } = require("../../services/auth/PermissionService");
 const BaseService = require("../../services/BaseService");
@@ -6,14 +7,31 @@ const { TypeSpec } = require("../../services/drivers/meta/Construct");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
 
+// Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
 
+
+/**
+* AIChatService class extends BaseService to provide AI chat completion functionality.
+* Manages multiple AI providers, models, and fallback mechanisms for chat interactions.
+* Handles model registration, usage tracking, cost calculation, content moderation,
+* and implements the puter-chat-completion driver interface. Supports streaming responses
+* and maintains detailed model information including pricing and capabilities.
+*/
 class AIChatService extends BaseService {
     static MODULES = {
         kv: globalThis.kv,
         uuidv4: require('uuid').v4,
     }
 
+
+    /**
+    * Initializes the service by setting up core properties.
+    * Creates empty arrays for providers and model lists,
+    * and initializes an empty object for the model map.
+    * Called during service instantiation.
+    * @private
+    */
     _construct () {
         this.providers = [];
 
@@ -21,6 +39,13 @@ class AIChatService extends BaseService {
         this.detail_model_list = [];
         this.detail_model_map = {};
     }
+    /**
+    * Initializes the service by setting up empty arrays and maps for providers and models.
+    * This method is called during service construction to establish the initial state.
+    * Creates empty arrays for providers, simple model list, and detailed model list,
+    * as well as an empty object for the detailed model map.
+    * @private
+    */
     _init () {
         this.kvkey = this.modules.uuidv4();
 
@@ -28,6 +53,8 @@ class AIChatService extends BaseService {
 
         const svc_event = this.services.get('event');
         svc_event.on('ai.prompt.report-usage', async (_, details) => {
+            if ( details.service_used === 'fake-chat' ) return;
+
             const values = {
                 user_id: details.actor?.type?.user?.id,
                 app_id: details.actor?.type?.app?.id ?? null,
@@ -67,6 +94,19 @@ class AIChatService extends BaseService {
         });
     }
 
+
+    /**
+    * Handles consolidation during service boot by registering service aliases
+    * and populating model lists/maps from providers.
+    * 
+    * Registers each provider as an 'ai-chat' service alias and fetches their
+    * available models and pricing information. Populates:
+    * - simple_model_list: Basic list of supported models
+    * - detail_model_list: Detailed model info including costs
+    * - detail_model_map: Maps model IDs/aliases to their details
+    * 
+    * @returns {Promise<void>}
+    */
     async ['__on_boot.consolidation'] () {
         {
             const svc_driver = this.services.get('driver')
@@ -83,6 +123,15 @@ class AIChatService extends BaseService {
 
             // Populate simple model list
             {
+                /**
+                * Populates the simple model list by fetching available models from the delegate service.
+                * Wraps the delegate.list() call in a try-catch block to handle potential errors gracefully.
+                * If the call fails, logs the error and returns an empty array to avoid breaking the service.
+                * The fetched models are added to this.simple_model_list.
+                * 
+                * @private
+                * @returns {Promise<void>}
+                */
                 const models = await (async () => {
                     try {
                         return await delegate.list() ?? [];
@@ -96,6 +145,14 @@ class AIChatService extends BaseService {
 
             // Populate detail model list and map
             {
+                /**
+                * Populates the detail model list and map with model information from the provider.
+                * Fetches detailed model data including pricing and capabilities.
+                * Handles model aliases and potential conflicts by storing multiple models in arrays.
+                * Annotates models with their provider service name.
+                * Catches and logs any errors during model fetching.
+                * @private
+                */
                 const models = await (async () => {
                     try {
                         return await delegate.models() ?? [];
@@ -112,6 +169,13 @@ class AIChatService extends BaseService {
                     });
                 }
                 this.detail_model_list.push(...annotated_models);
+                /**
+                * Helper function to set or push a model into the detail_model_map.
+                * If there's no existing entry for the key, sets it directly.
+                * If there's a conflict, converts the entry to an array and pushes the new model.
+                * @param {string} key - The model ID or alias
+                * @param {Object} model - The model details to add
+                */
                 const set_or_push = (key, model) => {
                     // Typical case: no conflict
                     if ( ! this.detail_model_map[key] ) {
@@ -153,16 +217,46 @@ class AIChatService extends BaseService {
             }
         },
         ['puter-chat-completion']: {
+            /**
+            * Implements the 'puter-chat-completion' interface methods for AI chat functionality.
+            * Handles model selection, fallbacks, usage tracking, and moderation.
+            * Contains methods for listing available models, completing chat prompts,
+            * and managing provider interactions.
+            * 
+            * @property {Object} models - Available AI models with details like costs
+            * @property {Object} list - Simplified list of available models
+            * @property {Object} complete - Main method for chat completion requests
+            * @param {Object} parameters - Chat completion parameters including model and messages
+            * @returns {Promise<Object>} Chat completion response with usage stats
+            * @throws {Error} If service is called directly or no fallback models available
+            */
             async models () {
                 const delegate = this.get_delegate();
                 if ( ! delegate ) return await this.models_();
                 return await delegate.models();
             },
+            /**
+            * Returns list of available AI models with detailed information
+            * 
+            * Delegates to the intended service's models() method if a delegate exists,
+            * otherwise returns the internal detail_model_list containing all available models
+            * across providers with their capabilities and pricing information.
+            * 
+            * @returns {Promise<Array>} Array of model objects with details like id, provider, cost, etc.
+            */
             async list () {
                 const delegate = this.get_delegate();
                 if ( ! delegate ) return await this.list_();
                 return await delegate.list();
             },
+            /**
+            * Lists available AI models in a simplified format
+            * 
+            * Returns a list of basic model information from all registered providers.
+            * This is a simpler version compared to models() that returns less detailed info.
+            * 
+            * @returns {Promise<Array>} Array of simplified model objects
+            */
             async complete (parameters) {
                 const client_driver_call = Context.get('client_driver_call');
                 let { test_mode, intended_service, response_metadata } = client_driver_call;
@@ -197,7 +291,9 @@ class AIChatService extends BaseService {
                 const svc_driver = this.services.get('driver');
                 let ret, error, errors = [];
                 let service_used = intended_service;
-                let model_used = this.get_model_from_request(parameters);
+                let model_used = this.get_model_from_request(parameters, {
+                    intended_service
+                });
                 await this.check_usage_({
                     actor: Context.get('actor'),
                     service: service_used,
@@ -330,6 +426,17 @@ class AIChatService extends BaseService {
         }
     }
     
+
+    /**
+    * Checks if the user has permission to use AI services and verifies usage limits
+    * 
+    * @param {Object} params - The check parameters
+    * @param {Object} params.actor - The user/actor making the request
+    * @param {string} params.service - The AI service being used
+    * @param {string} params.model - The model being accessed
+    * @throws {APIError} If usage is not allowed or limits are exceeded
+    * @private
+    */
     async check_usage_ ({ actor, service, model }) {
         const svc_permission = this.services.get('permission');
         const svc_event = this.services.get('event');
@@ -359,6 +466,20 @@ class AIChatService extends BaseService {
         }
     }
     
+
+    /**
+    * Moderates chat messages for inappropriate content using OpenAI's moderation service
+    * 
+    * @param {Object} params - The parameters object
+    * @param {Array} params.messages - Array of chat messages to moderate
+    * @returns {Promise<boolean>} Returns true if content is appropriate, false if flagged
+    * 
+    * @description
+    * Extracts text content from messages and checks each against OpenAI's moderation.
+    * Handles both string content and structured message objects.
+    * Returns false immediately if any message is flagged as inappropriate.
+    * Returns true if OpenAI service is unavailable or all messages pass moderation.
+    */
     async moderate ({ messages }) {
         const svc_openai = this.services.get('openai-completion');
 
@@ -385,14 +506,28 @@ class AIChatService extends BaseService {
         return true;
     }
 
+
     async models_ () {
         return this.detail_model_list;
     }
 
+
+    /**
+    * Returns a list of available AI models with basic details
+    * @returns {Promise<Array>} Array of simple model objects containing basic model information
+    */
     async list_ () {
         return this.simple_model_list;
     }
 
+
+    /**
+    * Gets the appropriate delegate service for handling chat completion requests.
+    * If the intended service is this service (ai-chat), returns undefined.
+    * Otherwise returns the intended service wrapped as a puter-chat-completion interface.
+    * 
+    * @returns {Object|undefined} The delegate service or undefined if intended service is ai-chat
+    */
     get_delegate () {
         const client_driver_call = Context.get('client_driver_call');
         if ( client_driver_call.intended_service === this.service_name ) {
@@ -463,13 +598,21 @@ class AIChatService extends BaseService {
         });
     }
 
-    get_model_from_request (parameters) {
+    get_model_from_request (parameters, modified_context = {}) {
         const client_driver_call = Context.get('client_driver_call');
         let { intended_service } = client_driver_call;
+        
+        if ( modified_context.intended_service ) {
+            intended_service = modified_context.intended_service;
+        }
 
         let model = parameters.model;
         if ( ! model ) {
             const service = this.services.get(intended_service);
+            console.log({
+                what: intended_service,
+                w: service.get_default_model
+            });
             if ( ! service.get_default_model ) {
                 throw new Error('could not infer model from service');
             }

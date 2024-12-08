@@ -1,11 +1,36 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 const BaseService = require("../../services/BaseService");
 
+
+/**
+* FakeChatService - A mock implementation of a chat service that extends BaseService.
+* Provides fake chat completion responses using Lorem Ipsum text generation.
+* Used for testing and development purposes when a real chat service is not needed.
+* Implements the 'puter-chat-completion' interface with list() and complete() methods.
+*/
 class FakeChatService extends BaseService {
+    get_default_model () {
+        return 'fake';
+    }
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
+            /**
+            * Implementation interface for the puter-chat-completion service.
+            * Provides fake chat completion functionality for testing purposes.
+            * Contains methods for listing available models and generating mock responses.
+            * @interface
+            */
             async list () {
                 return ['fake'];
             },
+            /**
+            * Simulates a chat completion request by generating random Lorem Ipsum text
+            * @param {Object} params - The completion parameters
+            * @param {Array} params.messages - Array of chat messages (unused in fake implementation)
+            * @param {boolean} params.stream - Whether to stream the response (unused in fake implementation)
+            * @param {string} params.model - The model to use (unused in fake implementation)
+            * @returns {Object} A simulated chat completion response with Lorem Ipsum content
+            */
             async complete ({ messages, stream, model }) {
                 const { LoremIpsum } = require('lorem-ipsum');
                 const li = new LoremIpsum({

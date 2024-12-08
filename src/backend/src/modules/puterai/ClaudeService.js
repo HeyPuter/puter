@@ -1,10 +1,11 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 const { default: Anthropic } = require("@anthropic-ai/sdk");
 const BaseService = require("../../services/BaseService");
 const { whatis } = require("../../util/langutil");
 const { PassThrough } = require("stream");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const APIError = require("../../api/APIError");
-const { TeePromise } = require("../../util/promise");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 const PUTER_PROMPT = `
     You are running on an open-source platform called Puter,
@@ -15,13 +16,29 @@ const PUTER_PROMPT = `
     user of the driver interface (typically an app on Puter):
 `.replace('\n', ' ').trim();
 
+// Maximum number of input tokens allowed for Claude API requests
 const MAX_CLAUDE_INPUT_TOKENS = 10000;
 
+
+/**
+* ClaudeService class extends BaseService to provide integration with Anthropic's Claude AI models.
+* Implements the puter-chat-completion interface for handling AI chat interactions.
+* Manages message streaming, token limits, model selection, and API communication with Claude.
+* Supports system prompts, message adaptation, and usage tracking.
+* @extends BaseService
+*/
 class ClaudeService extends BaseService {
     static MODULES = {
         Anthropic: require('@anthropic-ai/sdk'),
     }
     
+
+    /**
+    * Initializes the Claude service by creating an Anthropic client instance
+    * and registering this service as a provider with the AI chat service.
+    * @private
+    * @returns {Promise<void>}
+    */
     async _init () {
         this.anthropic = new Anthropic({
             apiKey: this.config.apiKey
@@ -34,15 +51,34 @@ class ClaudeService extends BaseService {
         });
     }
 
+
+    /**
+    * Returns the default model identifier for Claude API interactions
+    * @returns {string} The default model ID 'claude-3-5-sonnet-latest'
+    */
     get_default_model () {
         return 'claude-3-5-sonnet-latest';
     }
     
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
+            /**
+            * Implements the puter-chat-completion interface for Claude AI models
+            * @param {Object} options - Configuration options for the chat completion
+            * @param {Array} options.messages - Array of message objects containing the conversation history
+            * @param {boolean} options.stream - Whether to stream the response
+            * @param {string} [options.model] - The Claude model to use, defaults to claude-3-5-sonnet-latest
+            * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or a completion object
+            */
             async models () {
                 return await this.models_();
             },
+            /**
+            * Returns a list of available model names including their aliases
+            * @returns {Promise<string[]>} Array of model identifiers and their aliases
+            * @description Retrieves all available Claude model IDs and their aliases,
+            * flattening them into a single array of strings that can be used for model selection
+            */
             async list () {
                 const models = await this.models_();
                 const model_names = [];
@@ -54,6 +90,15 @@ class ClaudeService extends BaseService {
                 }
                 return model_names;
             },
+            /**
+            * Completes a chat interaction with the Claude AI model
+            * @param {Object} options - The completion options
+            * @param {Array} options.messages - Array of chat messages to process
+            * @param {boolean} options.stream - Whether to stream the response
+            * @param {string} [options.model] - The Claude model to use, defaults to service default
+            * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or a completion object
+            * @throws {APIError} If input token count exceeds maximum allowed
+            */
             async complete ({ messages, stream, model }) {
                 const adapted_messages = [];
                 
@@ -87,6 +132,15 @@ class ClaudeService extends BaseService {
                     }
                 }
 
+
+                /**
+                * Calculates the approximate token count for the input messages
+                * @private
+                * @returns {number} Estimated token count based on character length divided by 4
+                * @description Uses a simple character length based heuristic to estimate tokens.
+                * While not perfectly accurate, this provides a reasonable approximation for
+                * checking against max token limits before sending to Claude API.
+                */
                 const token_count = (() => {
                     const text = JSON.stringify(adapted_messages) +
                         JSON.stringify(system_prompts);
@@ -165,6 +219,19 @@ class ClaudeService extends BaseService {
         }
     }
 
+
+    /**
+    * Retrieves available Claude AI models and their specifications
+    * @returns {Promise<Array>} Array of model objects containing:
+    *   - id: Model identifier
+    *   - name: Display name
+    *   - aliases: Alternative names for the model
+    *   - context: Maximum context window size
+    *   - cost: Pricing details (currency, token counts, input/output costs)
+    *   - qualitative_speed: Relative speed rating
+    *   - max_output: Maximum output tokens
+    *   - training_cutoff: Training data cutoff date
+    */
     async models_ () {
         return [
             {

@@ -1,9 +1,23 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 const { TextractClient, AnalyzeDocumentCommand, InvalidS3ObjectException } = require("@aws-sdk/client-textract");
 
 const BaseService = require("../../services/BaseService");
 const APIError = require("../../api/APIError");
 
+
+/**
+* AWSTextractService class - Provides OCR (Optical Character Recognition) functionality using AWS Textract
+* Extends BaseService to integrate with AWS Textract for document analysis and text extraction.
+* Implements driver capabilities and puter-ocr interface for document recognition.
+* Handles both S3-stored and buffer-based document processing with automatic region management.
+*/
 class AWSTextractService extends BaseService {
+    /**
+    * AWS Textract service for OCR functionality
+    * Provides document analysis capabilities using AWS Textract API
+    * Implements interfaces for OCR recognition and driver capabilities
+    * @extends BaseService
+    */
     _construct () {
         this.clients_ = {};
     }
@@ -15,6 +29,13 @@ class AWSTextractService extends BaseService {
             }
         },
         ['puter-ocr']: {
+            /**
+            * Performs OCR recognition on a document using AWS Textract
+            * @param {Object} params - Recognition parameters
+            * @param {Object} params.source - The document source to analyze
+            * @param {boolean} params.test_mode - If true, returns sample test output instead of processing
+            * @returns {Promise<Object>} Recognition results containing blocks of text with confidence scores
+            */
             async recognize ({ source, test_mode }) {
                 if ( test_mode ) {
                     return {
@@ -61,6 +82,12 @@ class AWSTextractService extends BaseService {
         },
     };
 
+
+    /**
+    * Creates AWS credentials object for authentication
+    * @private
+    * @returns {Object} Object containing AWS access key ID and secret access key
+    */
     _create_aws_credentials () {
         return {
             accessKeyId: this.config.aws.access_key,
@@ -83,6 +110,15 @@ class AWSTextractService extends BaseService {
         return this.clients_[region];
     }
 
+
+    /**
+    * Analyzes a document using AWS Textract to extract text and layout information
+    * @param {FileFacade} file_facade - Interface to access the document file
+    * @returns {Promise<Object>} The raw Textract API response containing extracted text blocks
+    * @throws {Error} If document analysis fails or no suitable input format is available
+    * @description Processes document through Textract's AnalyzeDocument API with LAYOUT feature.
+    * Will attempt to use S3 direct access first, falling back to buffer upload if needed.
+    */
     async analyze_document (file_facade) {
         const {
             client, document, using_s3
@@ -119,6 +155,18 @@ class AWSTextractService extends BaseService {
         throw new Error('expected to be unreachable');
     }
 
+
+    /**
+    * Gets AWS client and document configuration for Textract processing
+    * @param {Object} file_facade - File facade object containing document source info
+    * @param {boolean} [force_buffer] - If true, forces using buffer instead of S3
+    * @returns {Promise<Object>} Object containing:
+    *   - client: Configured AWS Textract client
+    *   - document: Document configuration for Textract
+    *   - using_s3: Boolean indicating if using S3 source
+    * @throws {APIError} If file does not exist
+    * @throws {Error} If no suitable input format is available
+    */
     async _get_client_and_document (file_facade, force_buffer) {
         const try_s3info = await file_facade.get('s3-info');
         if ( try_s3info && ! force_buffer ) {
@@ -137,7 +185,6 @@ class AWSTextractService extends BaseService {
 
         const try_buffer = await file_facade.get('buffer');
         if ( try_buffer ) {
-            const base64 = try_buffer.toString('base64');
             return {
                 client: this._get_client(),
                 document: {

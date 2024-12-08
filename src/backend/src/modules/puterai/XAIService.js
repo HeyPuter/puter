@@ -1,9 +1,10 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 const { default: Anthropic } = require("@anthropic-ai/sdk");
 const BaseService = require("../../services/BaseService");
 const { whatis, nou } = require("../../util/langutil");
 const { PassThrough } = require("stream");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
-const { TeePromise } = require("../../util/promise");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 const PUTER_PROMPT = `
     You are running on an open-source platform called Puter,
@@ -14,11 +15,24 @@ const PUTER_PROMPT = `
     user of the driver interface (typically an app on Puter):
 `.replace('\n', ' ').trim();
 
+
+/**
+* XAIService class - Provides integration with X.AI's API for chat completions
+* Extends BaseService to implement the puter-chat-completion interface.
+* Handles model management, message adaptation, streaming responses,
+* and usage tracking for X.AI's language models like Grok.
+* @extends BaseService
+*/
 class XAIService extends BaseService {
     static MODULES = {
         openai: require('openai'),
     }
 
+
+    /**
+    * Gets the system prompt used for AI interactions
+    * @returns {string} The base system prompt that identifies the AI as running on Puter
+    */
     get_system_prompt () {
         return PUTER_PROMPT;
     }
@@ -27,6 +41,12 @@ class XAIService extends BaseService {
         return model;
     }
     
+
+    /**
+    * Initializes the XAI service by setting up the OpenAI client and registering with the AI chat provider
+    * @private
+    * @returns {Promise<void>} Resolves when initialization is complete
+    */
     async _init () {
         this.openai = new this.modules.openai.OpenAI({
             apiKey: this.global_config.services.xai.apiKey,
@@ -40,15 +60,30 @@ class XAIService extends BaseService {
         });
     }
 
+
+    /**
+    * Returns the default model identifier for the XAI service
+    * @returns {string} The default model ID 'grok-beta'
+    */
     get_default_model () {
         return 'grok-beta';
     }
 
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
+            /**
+            * Implements the interface for the puter-chat-completion driver
+            * Contains methods for listing models, getting model details,
+            * and handling chat completions with streaming support
+            * @type {Object}
+            */
             async models () {
                 return await this.models_();
             },
+            /**
+            * Returns a list of available AI models with their capabilities and pricing details
+            * @returns {Promise<Array>} Array of model objects containing id, name, context window size, and cost information
+            */
             async list () {
                 const models = await this.models_();
                 const model_names = [];
@@ -60,6 +95,10 @@ class XAIService extends BaseService {
                 }
                 return model_names;
             },
+            /**
+            * Returns a list of all available model names including their aliases
+            * @returns {Promise<string[]>} Array of model names and their aliases
+            */
             async complete ({ messages, stream, model }) {
                 model = this.adapt_model(model);
                 const adapted_messages = [];
@@ -162,6 +201,16 @@ class XAIService extends BaseService {
         }
     }
 
+
+    /**
+    * Retrieves available AI models and their specifications
+    * @returns {Promise<Array>} Array of model objects containing:
+    *   - id: Model identifier string
+    *   - name: Human readable model name
+    *   - context: Maximum context window size
+    *   - cost: Pricing information object with currency and rates
+    * @private
+    */
     async models_ () {
         return [
             {

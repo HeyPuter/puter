@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -18,6 +19,7 @@
  */
 import { simpleGit } from 'simple-git';
 
+// GitHub repository URL for generating commit links in release notes
 const REPO_URL = 'https://github.com/HeyPuter/puter';
 
 const params = {
@@ -31,6 +33,7 @@ const git = simpleGit();
 const log = await git.log({ from: params.from });
 const commits = log.all;
 
+// Array of all commits from git log between specified versions
 const CC_REGEX = /^([a-z0-9]+)(\([a-z0-9]+\))?:\s(.*)/;
 const parse_conventional_commit = message => {
     const parts = CC_REGEX.exec(message);
@@ -84,6 +87,10 @@ const scope_aliases = {
 };
 
 const complicated_cases = [
+    /**
+    * Handles special cases for commit message transformations
+    * @type {Array<function>}
+    */
     function fix_i18n ({ commit, meta }) {
         if ( meta.type === 'fix' && meta.scope === 'i18n' ) {
             meta.type = 'i18n';

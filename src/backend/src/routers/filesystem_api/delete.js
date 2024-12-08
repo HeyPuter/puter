@@ -48,8 +48,6 @@ module.exports = eggspress('/delete', {
     else if(paths.length === 0)
         return res.status(400).send('paths cannot be empty')
 
-    const socketio = require('../../socketio.js').getio();
-
     // try to delete each path in the array one by one (if glob, resolve first)
     // TODO: remove this pseudo-batch
     for(let j=0; j < paths.length; j++){
@@ -67,9 +65,11 @@ module.exports = eggspress('/delete', {
         });
 
         // send realtime success msg to client
-        if(socketio){
-            socketio.to(req.user.id).emit('item.removed', {path: item_path, descendants_only: descendants_only})
-        }
+        const svc_socketio = req.services.get('socketio');
+        svc_socketio.send({ room: req.user.id }, 'item.removed', {
+            path: item_path,
+            descendants_only: descendants_only,
+        });
     }
 
     res.send({});

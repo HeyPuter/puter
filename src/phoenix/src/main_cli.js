@@ -16,7 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { Context } from 'contextlink';
+import { libs } from '@heyputer/putility';
+const { Context } = libs.context;
 import { launchPuterShell } from './puter-shell/main.js';
 import { NodeStdioPTT } from './pty/NodeStdioPTT.js';
 import { CreateFilesystemProvider } from './platform/node/filesystem.js';

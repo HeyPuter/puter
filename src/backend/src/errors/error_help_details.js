@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { quot, osclink } = require("../util/strutil");
+const { quot, osclink } = require('@heyputer/putility').libs.string;
 
 const reused = {
     runtime_env_references: [

@@ -21,7 +21,7 @@ const { AdvancedBase } = require("@heyputer/putility");
 const config = require("../config");
 const { Context } = require("../util/context");
 const { CompositeError } = require("../util/errorutil");
-const { TeePromise } = require("../util/promise");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 // 17 lines of code instead of an entire dependency-injection framework
 /**
@@ -77,7 +77,10 @@ class Container {
         const my_config = config.services?.[name] || {};
         const instance = cls.getInstance
             ? cls.getInstance({ services: this, config, my_config, name, args })
-            : new cls({ services: this, config, my_config, name, args }) ;
+            : new cls({
+                context: Context.get(),
+                services: this, config, my_config, name, args
+            }) ;
         this.instances_[name] = instance;
         
         if ( this.modname_ ) {

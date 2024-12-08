@@ -23,7 +23,7 @@ const StringParam = require("../../api/filesystem/StringParam");
 const UserParam = require("../../api/filesystem/UserParam");
 const config = require("../../config");
 const { chkperm, validate_fsentry_name } = require("../../helpers");
-const { TeePromise } = require("../../util/promise");
+const { TeePromise } = require("@heyputer/putility").libs.promise;
 const { pausing_tee, logging_stream, offset_write_stream, stream_to_the_void } = require("../../util/streamutil");
 const { TYPE_DIRECTORY } = require("../FSNodeContext");
 const { LLRead } = require("../ll_operations/ll_read");
@@ -116,7 +116,6 @@ class HLWrite extends HLFilesystemOperation {
 
     static MODULES = {
         _path: require('path'),
-        socketio: require('../../socketio.js'),
         mime: require('mime-types'),
     }
 

@@ -22,7 +22,7 @@
 
 const axios = require('axios');
 
-const { TeePromise } = require("../../util/promise");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 const { AdvancedBase } = require('@heyputer/putility');
 const FormData = require("form-data");
 const { stream_to_the_void, buffer_to_stream } = require('../../util/streamutil');

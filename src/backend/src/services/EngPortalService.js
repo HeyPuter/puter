@@ -32,7 +32,6 @@ const { AdvancedBase } = require("@heyputer/putility");
 */
 class EngPortalService extends AdvancedBase {
     static MODULES = {
-        socketio: require('../socketio.js'),
         uuidv4: require('uuid').v4,
     };
 

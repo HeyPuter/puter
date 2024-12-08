@@ -18,7 +18,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { RWLock } = require("../../util/lockutil");
-const { TeePromise } = require("../../util/promise");
 const BaseService = require("../BaseService");
 
 // Constant representing the read lock mode used for distinguishing between read and write operations.

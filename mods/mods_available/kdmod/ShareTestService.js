@@ -21,7 +21,6 @@
 //       we have these things registered in "useapi".
 const {
     get_user,
-    generate_system_fsentries,
     invalidate_cached_user,
     deleteUser,
 } = require('../../../src/backend/src/helpers.js');
@@ -146,7 +145,8 @@ class ShareTestService extends use.Service {
             ],
         );
         const user = await get_user({ username });
-        await generate_system_fsentries(user);
+        const svc_user = this.services.get('user');
+        await svc_user.generate_default_fsentries({ user });
         invalidate_cached_user(user);
         return user;
     }

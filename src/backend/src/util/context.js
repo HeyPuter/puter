@@ -18,7 +18,6 @@
  */
 const { AsyncLocalStorage } = require('async_hooks');
 const config = require('../config');
-const { generate_random_code } = require('./identifier');
 
 class Context {
     static USE_NAME_FALLBACK = {};

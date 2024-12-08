@@ -30,7 +30,7 @@
     "webpack-cli": "^5.1.1"
   },
   "scripts": {
-    "test": "npx mocha src/phoenix/test src/contextlink/test && node src/backend/tools/test",
+    "test": "npx mocha src/phoenix/test && node src/backend/tools/test",
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
     "start": "node ./tools/run-selfhosted.js",
     "build": "cd src/gui; node ./build.js",

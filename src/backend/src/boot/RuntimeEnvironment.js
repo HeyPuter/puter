@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require("@heyputer/putility");
-const { quot } = require("../util/strutil");
+const { quot } = require('@heyputer/putility').libs.string;
 const { TechnicalError } = require("../errors/TechnicalError");
 const { print_error_help } = require("../errors/error_help_details");
 const default_config = require("./default_config");
@@ -233,16 +233,12 @@ class RuntimeEnvironment extends AdvancedBase {
             ]
         );
 
+        // Note: there used to be a 'mods_path_entry' here too
+        //       but it was never used
         const pwd_path_entry = this.get_first_suitable_path_(
             { pathFor: 'working directory' },
             this.runtime_paths,
             [ this.path_checks.require_write_permission ]
-        );
-
-        const mods_path_entry = this.get_first_suitable_path_(
-            { pathFor: 'mods', optional: true },
-            this.mod_paths,
-            [ this.path_checks.require_read_permission ],
         );
 
         process.chdir(pwd_path_entry.path);

@@ -40,7 +40,6 @@ class HLMkShortcut extends HLFilesystemOperation {
     async _run () {
         console.log('HLMKSHORTCUT IS HAPPENING')
         const { context, values } = this;
-        const { _path, socketio } = this.modules;
         const fs = context.get('services').get('filesystem');
 
         const { target, parent, user } = values;

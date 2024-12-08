@@ -44,7 +44,6 @@ class FilesystemService extends BaseService {
     static MODULES = {
         _path: require('path'),
         uuidv4: require('uuid').v4,
-        socketio: require('../socketio.js'),
         config: require('../config.js'),
     }
 

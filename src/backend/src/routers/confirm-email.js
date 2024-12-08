@@ -87,10 +87,10 @@ router.post('/confirm-email', auth, express.json(), async (req, res, next)=>{
 
     // Send realtime success msg to client
     if(req.body.code === req.user.email_confirm_code){
-        let socketio = require('../socketio.js').getio();
-        if(socketio){
-            socketio.to(req.user.id).emit('user.email_confirmed', {original_client_socket_id: req.body.original_client_socket_id})
-        }
+        const svc_socketio = req.services.get('socketio');
+        svc_socketio.send({ room: req.user.id }, 'user.email_confirmed', {
+            original_client_socket_id: req.body.original_client_socket_id
+        });
     }
 
     // return results
