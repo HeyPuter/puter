@@ -353,7 +353,7 @@ const ua = {
         "billing.download_invoice": "Завантажити",
         "billing.payment_method": "Спосіб оплати",
         "billing.payment_method_updated": "Спосіб оплати оновлено!",
-        "billing.confirm_payment_method": "Підтвердити cgjcs, оплати",
+        "billing.confirm_payment_method": "Підтвердити спосіб оплати",
         "billing.payment_history": "Історія платежів",
         "billing.refunded": "Платіж повернено",
         "billing.paid": "Cплачено",
