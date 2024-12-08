@@ -361,9 +361,6 @@ const it = {
         "You can't share with yourself.": "Non puoi condividere con te stesso", // In English: "You can't share with yourself."
         "This user already has access to this item": "Questo utente ha già accesso a questo file", // In English: "This user already has access to this item"
 
-        // ----------------------------------------
-        // Missing translations:
-        // ----------------------------------------
         "billing.change_payment_method": "Modifica", // In English: "Change"
         "billing.cancel": "Annulla", // In English: "Cancel"
         "billing.download_invoice": "Scarica", // In English: "Download"
