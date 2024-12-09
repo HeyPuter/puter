@@ -22,7 +22,6 @@ const config = require('../config');
 const router = express.Router();
 const _path = require('path');
 const _fs = require('fs');
-const auth = require('../middleware/auth.js');
 const { Context } = require('../util/context');
 const { DB_READ } = require('../services/database/consts');
 const { PathBuilder } = require('../util/pathutil.js');

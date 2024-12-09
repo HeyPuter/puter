@@ -50,7 +50,7 @@ module.exports = eggspress('/auth/grant-user-app', {
         });
     }
 
-    const token = await svc_permission.grant_user_app_permission(
+    await svc_permission.grant_user_app_permission(
         actor, req.body.app_uid, req.body.permission,
         req.body.extra || {}, req.body.meta || {}
     );

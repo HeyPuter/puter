@@ -112,8 +112,6 @@ class Driver extends AdvancedBase {
                 sla_key
             );
 
-            const user_method_key = `actor:${actor.uid}:${method_key}`;
-
             // short-term rate limiting
             if ( sla?.rate_limit ) {
                 const svc_rateLimit = services.get('rate-limit');
