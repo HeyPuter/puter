@@ -18,7 +18,7 @@
  */
 const { Context } = require("../../util/context");
 const { LLFilesystemOperation } = require("./definitions");
-const { RESOURCE_STATUS_PENDING_CREATE } = require("../storage/ResourceService");
+const { RESOURCE_STATUS_PENDING_CREATE } = require("../../modules/puterfs/ResourceService.js");
 const { NodeUIDSelector } = require("../node/selectors");
 const { UploadProgressTracker } = require("../storage/UploadProgressTracker");
 const FSNodeContext = require("../FSNodeContext");

@@ -23,7 +23,7 @@ const _path = require('path');
 const { NodeUIDSelector } = require('../../filesystem/node/selectors.js');
 const { HLCopy } = require('../../filesystem/hl_operations/hl_copy.js');
 const { Context } = require('../../util/context.js');
-const { DatabaseFSEntryService } = require('../../filesystem/storage/DatabaseFSEntryService.js');
+const { DatabaseFSEntryService } = require('../../modules/puterfs/DatabaseFSEntryService.js');
 const { ProxyContainer } = require('../../services/Container.js');
 
 // -----------------------------------------------------------------------//

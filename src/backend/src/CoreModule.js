@@ -191,9 +191,6 @@ const install = async ({ services, app, useapi, modapi }) => {
         ]),
     });
 
-    const { ParameterService } = require('./services/ParameterService');
-    services.registerService('params', ParameterService);
-
     const { InformationService } = require('./services/information/InformationService');
     services.registerService('information', InformationService)
     
@@ -378,7 +375,6 @@ const install_legacy = async ({ services }) => {
     services.registerService('client-operation', ClientOperationService);
     services.registerService('app-information', AppInformationService);
     services.registerService('engineering-portal', EngPortalService);
-    // TODO: add to here: ResourceService and DatabaseFSEntryService
 
     // This singleton was made before services existed,
     // so we have to pass that to it manually

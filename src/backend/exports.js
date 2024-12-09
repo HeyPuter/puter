@@ -31,6 +31,7 @@ const { BroadcastModule } = require("./src/modules/broadcast/BroadcastModule.js"
 const { WebModule } = require("./src/modules/web/WebModule.js");
 const { Core2Module } = require("./src/modules/core/Core2Module.js");
 const { TemplateModule } = require("./src/modules/template/TemplateModule.js");
+const { PuterFSModule } = require("./src/modules/puterfs/PuterFSModule.js");
 
 
 module.exports = {
@@ -48,6 +49,7 @@ module.exports = {
     
     EssentialModules: [
         Core2Module,
+        PuterFSModule,
         CoreModule,
         WebModule,
         TemplateModule,

@@ -17,9 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 // TODO: database access can be a service
-const { ResourceService, RESOURCE_STATUS_PENDING_CREATE } = require('./storage/ResourceService');
+const { RESOURCE_STATUS_PENDING_CREATE } = require('../modules/puterfs/ResourceService.js');
 const DatabaseFSEntryFetcher = require("./storage/DatabaseFSEntryFetcher");
-const { DatabaseFSEntryService } = require('./storage/DatabaseFSEntryService');
 const { SizeService } = require('./storage/SizeService');
 const { TraceService } = require('../services/TraceService.js');
 const FSAccessContext = require('./FSAccessContext.js');
@@ -53,7 +52,7 @@ class FilesystemService extends BaseService {
 
         // this.services = services;
 
-        services.registerService('resourceService', ResourceService);
+        // services.registerService('resourceService', ResourceService);
         services.registerService('sizeService', SizeService);
         services.registerService('traceService', TraceService);
 
@@ -61,7 +60,6 @@ class FilesystemService extends BaseService {
         services.set('fsEntryFetcher', new DatabaseFSEntryFetcher({
             services: services,
         }));
-        services.registerService('fsEntryService', DatabaseFSEntryService);
 
         // The new fs entry service
         services.registerService('systemFSEntryService', SystemFSEntryService);
@@ -260,7 +258,6 @@ class FilesystemService extends BaseService {
         await target.fetchEntry({ thumbnail: true });
 
         const { _path, uuidv4 } = this.modules;
-        const resourceService = this.services.get('resourceService');
         const systemFSEntryService = this.services.get('systemFSEntryService');
 
         const ts = Math.round(Date.now() / 1000);

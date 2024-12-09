@@ -47,6 +47,9 @@ class Core2Module extends AdvancedBase {
         
         const { ServerHealthService } = require("./ServerHealthService.js");
         services.registerService('server-health', ServerHealthService);
+        
+        const { ParameterService } = require("./ParameterService.js");
+        services.registerService('params', ParameterService);
     }
 }
 
