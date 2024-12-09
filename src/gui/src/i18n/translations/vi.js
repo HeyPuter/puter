@@ -363,9 +363,6 @@ const vi = {
         "You can't share with yourself.": 'Bạn không thể tự chia sẻ với chính mình', // In English: "You can't share with yourself."
         "This user already has access to this item": 'Người dùng này đã có sẵn quyền truy cập cho mục này', // In English: "This user already has access to this item"
 
-        // ----------------------------------------
-        // Missing translations:
-        // ----------------------------------------
         "billing.change_payment_method": "Thay đổi", // In English: "Change"
         "billing.cancel": "Hủy", // In English: "Cancel"
         "billing.download_invoice": "Tải xuống", // In English: "Download"
