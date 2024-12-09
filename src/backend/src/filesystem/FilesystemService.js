@@ -47,12 +47,8 @@ class FilesystemService extends BaseService {
     }
 
     old_constructor (args) {
-        // super(args);
         const { services } = args;
 
-        // this.services = services;
-
-        // services.registerService('resourceService', ResourceService);
         services.registerService('sizeService', SizeService);
         services.registerService('traceService', TraceService);
 
@@ -81,7 +77,7 @@ class FilesystemService extends BaseService {
 
 
         // Decorate methods with otel span
-        // TODO: language tool for traits; this is a trait
+        // TODO: use putility class feature for method decorators
         const span_methods = [
             'write', 'mkdir', 'rm', 'mv', 'cp', 'read', 'stat',
             'mkdir_2',

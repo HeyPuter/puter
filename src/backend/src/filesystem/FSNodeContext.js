@@ -87,7 +87,7 @@ module.exports = class FSNodeContext {
         this.fs = fs;
 
         // Decorate all fetch methods with otel span
-        // TODO: language tool for traits; this is a trait
+        // TODO: Apply method decorators using a putility class feature
         const fetch_methods = [
             'fetchEntry',
             'fetchPath',
@@ -271,8 +271,6 @@ module.exports = class FSNodeContext {
             resourceService,
         } = Context.get('services').values;
 
-        // await this.fs.resourceService
-        //     .waitForResource(this.selector);
         if ( fetch_entry_options.tracer == null ) {
             fetch_entry_options.tracer = traceService.tracer;
         }
@@ -288,11 +286,7 @@ module.exports = class FSNodeContext {
         await new Promise (rslv => {
             const detachables = new MultiDetachable();
 
-            let resolved = false;
-
             const callback = (resolver) => {
-                // NOTE: commented out for now because it's too verbose
-                resolved = true;
                 detachables.detach();
                 rslv();
             }
@@ -499,8 +493,7 @@ module.exports = class FSNodeContext {
             [this.entry.id]
         );
         const versions_tidy = [];
-        for (let index = 0; index < versions.length; index++) {
-            const version = versions[index];
+        for ( const version of versions ) {
             let username = version.user_id ? (await get_user({id: version.user_id})).username : null;
             versions_tidy.push({
                 id: version.version_id,
@@ -549,14 +542,6 @@ module.exports = class FSNodeContext {
         if ( ! this.uid ) return;
 
         this.entry.is_empty = await is_empty(this.uid);
-    }
-
-    // TODO: this is currently not called anywhere; for now it
-    //   will never be fetched since sharing is not a priority.
-    async fetchIsShared () {
-        if ( ! this.mysql_id ) return;
-
-        this.entry.is_shared = await is_shared_with_anyone(this.mysql_id);
     }
 
     async fetchAll(fsEntryFetcher, user, force) {
@@ -610,7 +595,6 @@ module.exports = class FSNodeContext {
                 );
             }
             if ( ! this.path ) {
-                // console.log('PATH WAS NOT ON ENTRY', this);
                 await this.fetchPath();
             }
             if ( ! this.path ) {
