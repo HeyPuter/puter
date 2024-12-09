@@ -409,7 +409,6 @@ const vi = {
         "billing.expanded": "Mở rộng", // In English: "Expanded"
         "billing.accelerated": "Tăng tốc", // In English: "Accelerated"
         "billing.enjoy_msg": "Tận hưởng %% Lưu trữ đám mây và các tiện ích khác.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
     }
 };
 
