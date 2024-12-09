@@ -366,8 +366,8 @@ const th = {
         // ----------------------------------------
         // Missing translations:
         // ----------------------------------------
-        "billing.change_payment_method": undefined, // In English: "Change"
-        "billing.cancel": undefined, // In English: "Cancel"
+        "billing.change_payment_method": "เปลี่ยน", // In English: "Change"
+        "billing.cancel": "ยกเลิก", // In English: "Cancel"
         "billing.download_invoice": undefined, // In English: "Download"
         "billing.payment_method": undefined, // In English: "Payment Method"
         "billing.payment_method_updated": undefined, // In English: "Payment method updated!"
