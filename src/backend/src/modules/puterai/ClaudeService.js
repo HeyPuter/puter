@@ -168,7 +168,7 @@ class ClaudeService extends BaseService {
                     (async () => {
                         const completion = await this.anthropic.messages.stream({
                             model: model ?? this.get_default_model(),
-                            max_tokens: 1000,
+                            max_tokens: 8096,
                             temperature: 0,
                             system: PUTER_PROMPT + JSON.stringify(system_prompts),
                             messages: adapted_messages,
@@ -205,7 +205,7 @@ class ClaudeService extends BaseService {
 
                 const msg = await this.anthropic.messages.create({
                     model: model ?? this.get_default_model(),
-                    max_tokens: 1000,
+                    max_tokens: 8096,
                     temperature: 0,
                     system: PUTER_PROMPT + JSON.stringify(system_prompts),
                     messages: adapted_messages,
