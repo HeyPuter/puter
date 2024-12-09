@@ -511,13 +511,15 @@ module.exports = class FSNodeContext {
     /**
      * Fetches the size of a file or directory if it was not
      * already fetched.
-     * @param {object} user the user is needed to fetch the size
      */
-    async fetchSize (user) {
+    async fetchSize () {
         const { fsEntryService } = Context.get('services').values;
 
         // we already have the size for files
-        if ( ! this.entry.is_dir ) return;
+        if ( ! this.entry.is_dir ) {
+            await this.fetchEntry();
+            return this.entry.size;
+        }
 
         this.entry.size = await fsEntryService.get_recursive_size(
             this.entry.uuid,

@@ -19,7 +19,6 @@
 // TODO: database access can be a service
 const { RESOURCE_STATUS_PENDING_CREATE } = require('../modules/puterfs/ResourceService.js');
 const DatabaseFSEntryFetcher = require("./storage/DatabaseFSEntryFetcher");
-const { SizeService } = require('./storage/SizeService');
 const { TraceService } = require('../services/TraceService.js');
 const FSAccessContext = require('./FSAccessContext.js');
 const SystemFSEntryService = require('./storage/SystemFSEntryService.js');
@@ -49,7 +48,6 @@ class FilesystemService extends BaseService {
     old_constructor (args) {
         const { services } = args;
 
-        services.registerService('sizeService', SizeService);
         services.registerService('traceService', TraceService);
 
         // TODO: [fs:remove-separate-updater-and-fetcher]

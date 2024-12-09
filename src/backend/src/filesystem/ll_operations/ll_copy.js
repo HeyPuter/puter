@@ -181,7 +181,6 @@ class LLCopy extends LLFilesystemOperation {
                         const child_name = await child_node.get('name');
                         // TODO: this should be LLCopy instead
                         const ll_copy = new LLCopy();
-                        console.log('LL Copy Start');
                         await ll_copy.run({
                             source: await fs.node(
                                 new NodeUIDSelector(child_uuid)
@@ -192,30 +191,6 @@ class LLCopy extends LLFilesystemOperation {
                             user,
                             target_name: child_name,
                         });
-                        console.log('LL Copy End');
-                        // const hl_copy = new HLCopy();
-                        // await hl_copy.run({
-                        //     destination_or_parent: await fs.node(
-                        //         new NodeUIDSelector(uuid)
-                        //     ),
-                        //     source: await fs.node(
-                        //         new NodeUIDSelector(child_uuid)
-                        //     ),
-                        //     user
-                        // });
-                        // await fs.cp(fs, {
-                        //     source: await fs.node(
-                        //         new NodeUIDSelector(child_uuid)
-                        //     ),
-                        //     // TODO: don't do this when cp supports uuids
-                        //     destinationOrParent: await fs.node(
-                        //         new NodeUIDSelector(uuid)
-                        //     ),
-                        //     user,
-                        //     overwrite: false,
-                        //     create_missing_parents: false,
-                        //     ancestor_check_not_needed: true,
-                        // });
                     });
                 }
             }

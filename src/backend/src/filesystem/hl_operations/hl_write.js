@@ -65,8 +65,7 @@ class WriteCommonFeature {
             if ( ! user ) user = this.values.actor.type.user;
 
             const usage = await sizeService.get_usage(user.id);
-            let capacity = config.is_storage_limited ? user.free_storage == undefined
-                ? config.storage_capacity : user.free_storage : config.available_device_storage;
+            const capacity = await sizeService.get_storage_capacity(user.id);
             if( capacity - usage - file.size < 0 ) {
                 throw APIError.create('storage_limit_reached');
             }
