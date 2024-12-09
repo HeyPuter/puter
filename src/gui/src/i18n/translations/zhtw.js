@@ -364,52 +364,55 @@ const zhtw = {
         // ----------------------------------------
         // Missing translations:
         // ----------------------------------------
-        "billing.change_payment_method": undefined, // In English: "Change"
-        "billing.cancel": undefined, // In English: "Cancel"
-        "billing.download_invoice": undefined, // In English: "Download"
-        "billing.payment_method": undefined, // In English: "Payment Method"
-        "billing.payment_method_updated": undefined, // In English: "Payment method updated!"
-        "billing.confirm_payment_method": undefined, // In English: "Confirm Payment Method"
-        "billing.payment_history": undefined, // In English: "Payment History"
-        "billing.refunded": undefined, // In English: "Refunded"
-        "billing.paid": undefined, // In English: "Paid"
-        "billing.ok": undefined, // In English: "OK"
-        "billing.resume_subscription": undefined, // In English: "Resume Subscription"
-        "billing.subscription_cancelled": undefined, // In English: "Your subscription has been canceled."
-        "billing.subscription_cancelled_description": undefined, // In English: "You will still have access to your subscription until the end of this billing period."
-        "billing.offering.free": undefined, // In English: "Free"
-        "billing.offering.pro": undefined, // In English: "Professional"
-        "billing.offering.business": undefined, // In English: "Business"
-        "billing.cloud_storage": undefined, // In English: "Cloud Storage"
-        "billing.ai_access": undefined, // In English: "AI Access"
-        "billing.bandwidth": undefined, // In English: "Bandwidth"
-        "billing.apps_and_games": undefined, // In English: "Apps & Games"
-        "billing.upgrade_to_pro": undefined, // In English: "Upgrade to %strong%"
-        "billing.switch_to": undefined, // In English: "Switch to %strong%"
-        "billing.payment_setup": undefined, // In English: "Payment Setup"
-        "billing.back": undefined, // In English: "Back"
-        "billing.you_are_now_subscribed_to": undefined, // In English: "You are now subscribed to %strong% tier."
-        "billing.you_are_now_subscribed_to_without_tier": undefined, // In English: "You are now subscribed"
-        "billing.subscription_cancellation_confirmation": undefined, // In English: "Are you sure you want to cancel your subscription?"
-        "billing.subscription_setup": undefined, // In English: "Subscription Setup"
-        "billing.cancel_it": undefined, // In English: "Cancel It"
-        "billing.keep_it": undefined, // In English: "Keep It"
-        "billing.subscription_resumed": undefined, // In English: "Your %strong% subscription has been resumed!"
-        "billing.upgrade_now": undefined, // In English: "Upgrade Now"
-        "billing.upgrade": undefined, // In English: "Upgrade"
-        "billing.currently_on_free_plan": undefined, // In English: "You are currently on the free plan."
-        "billing.download_receipt": undefined, // In English: "Download Receipt"
-        "billing.subscription_check_error": undefined, // In English: "A problem occurred while checking your subscription status."
-        "billing.email_confirmation_needed": undefined, // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-        "billing.sub_cancelled_but_valid_until": undefined, // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-        "billing.current_plan_until_end_of_period": undefined, // In English: "Your current plan until the end of this billing period."
-        "billing.current_plan": undefined, // In English: "Current plan"
-        "billing.cancelled_subscription_tier": undefined, // In English: "Cancelled Subscription (%%)"
-        "billing.manage": undefined, // In English: "Manage"
-        "billing.limited": undefined, // In English: "Limited"
-        "billing.expanded": undefined, // In English: "Expanded"
-        "billing.accelerated": undefined, // In English: "Accelerated"
-        "billing.enjoy_msg": undefined, // In English: "Enjoy %% of Cloud Storage plus other benefits."
+        // ----------------------------------------
+// Missing translations:
+// ----------------------------------------
+"billing.change_payment_method": "更改", // Change
+"billing.cancel": "取消", // Cancel
+"billing.download_invoice": "下載發票", // Download
+"billing.payment_method": "付款方式", // Payment Method
+"billing.payment_method_updated": "付款方式已更新！", // Payment method updated!
+"billing.confirm_payment_method": "確認付款方式", // Confirm Payment Method
+"billing.payment_history": "付款記錄", // Payment History
+"billing.refunded": "已退款", // Refunded
+"billing.paid": "已付款", // Paid
+"billing.ok": "確定", // OK
+"billing.resume_subscription": "恢復訂閱", // Resume Subscription
+"billing.subscription_cancelled": "您的訂閱已被取消。", // Your subscription has been canceled.
+"billing.subscription_cancelled_description": "在本計費週期結束之前，您仍然可以使用您的訂閱。", // You will still have access to your subscription until the end of this billing period.
+"billing.offering.free": "免費", // Free
+"billing.offering.pro": "專業版", // Professional
+"billing.offering.business": "商業版", // Business
+"billing.cloud_storage": "雲端儲存空間", // Cloud Storage
+"billing.ai_access": "AI 使用權限", // AI Access
+"billing.bandwidth": "頻寬", // Bandwidth
+"billing.apps_and_games": "應用程式與遊戲", // Apps & Games
+"billing.upgrade_to_pro": "升級到 %strong%", // Upgrade to %strong%
+"billing.switch_to": "切換到 %strong%", // Switch to %strong%
+"billing.payment_setup": "付款設定", // Payment Setup
+"billing.back": "返回", // Back
+"billing.you_are_now_subscribed_to": "您現在的訂閱等級是 %strong%。", // You are now subscribed to %strong% tier.
+"billing.you_are_now_subscribed_to_without_tier": "您現在是訂閱狀態", // You are now subscribed
+"billing.subscription_cancellation_confirmation": "您確定要取消訂閱嗎？", // Are you sure you want to cancel your subscription?
+"billing.subscription_setup": "訂閱設定", // Subscription Setup
+"billing.cancel_it": "取消", // Cancel It
+"billing.keep_it": "保留", // Keep It
+"billing.subscription_resumed": "您的 %strong% 訂閱已恢復！", // Your %strong% subscription has been resumed!
+"billing.upgrade_now": "立即升級", // Upgrade Now
+"billing.upgrade": "升級", // Upgrade
+"billing.currently_on_free_plan": "您目前使用的是免費方案。", // You are currently on the free plan.
+"billing.download_receipt": "下載收據", // Download Receipt
+"billing.subscription_check_error": "無法檢查您的訂閱狀態，請稍後再試。", // A problem occurred while checking your subscription status.
+"billing.email_confirmation_needed": "您的電子郵件尚未確認。我們會向您發送驗證碼以進行確認。", // Your email has not been confirmed. We'll send you a code to confirm it now.
+"billing.sub_cancelled_but_valid_until": "您已取消訂閱，訂閱將在計費週期結束後自動轉為免費方案。除非重新訂閱，否則不會再次收費。", // You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe.
+"billing.current_plan_until_end_of_period": "您的目前方案將持續到本計費週期結束。", // Your current plan until the end of this billing period.
+"billing.current_plan": "目前方案", // Current plan
+"billing.cancelled_subscription_tier": "已取消的訂閱（%%）", // Cancelled Subscription (%%)
+"billing.manage": "管理", // Manage
+"billing.limited": "有限", // Limited
+"billing.expanded": "擴展", // Expanded
+"billing.accelerated": "加速", // Accelerated
+"billing.enjoy_msg": "享受 %% 的雲端儲存空間及其他福利。", // Enjoy %% of Cloud Storage plus other benefits.
 
     }
 };
