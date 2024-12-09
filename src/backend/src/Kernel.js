@@ -100,12 +100,6 @@ class Kernel extends AdvancedBase {
         const { consoleLogManager } = require('./util/consolelog');
         consoleLogManager.initialize_proxy_methods();
 
-        // TODO: temporary dependency inversion; requires moving:
-        //   - rm, so we can move mv
-        //   - mv, so we can move mkdir
-        //   - generate_default_fsentries, so we can move mkdir
-        //   - mkdir, which needs an fs provider
-
         // === START: Initialize Service Registry ===
         const { Container } = require('./services/Container');
 
@@ -235,104 +229,101 @@ class Kernel extends AdvancedBase {
             }
             const mod_dirnames = fs.readdirSync(mods_dirpath);
             for ( const mod_dirname of mod_dirnames ) {
-                let mod_path = path_.join(mods_dirpath, mod_dirname);
-
-                let stat = fs.lstatSync(mod_path);
-                while ( stat.isSymbolicLink() ) {
-                    mod_path = fs.readlinkSync(mod_path);
-                    stat = fs.lstatSync(mod_path);
-                }
-
-                if ( ! stat.isDirectory() && !(mod_dirname.endsWith('.js')) ) {
-                    continue;
-                }
-                
-                const mod_name = path_.parse(mod_path).name;
-                const mod_package_dir = `mod_packages/${mod_name}`;
-                fs.mkdirSync(mod_package_dir);
-
-                if ( ! stat.isDirectory() ) {
-                    this.create_mod_package_json(mod_package_dir, {
-                        name: mod_name,
-                    });
-                    fs.copyFileSync(mod_path, path_.join(mod_package_dir, 'main.js'));
-                } else {
-                    if ( ! fs.existsSync(path_.join(mod_path, 'package.json')) ) {
-                        // Expect main.js or index.js to exist
-                        const options = ['main.js', 'index.js'];
-                        let entry_file = null;
-                        for ( const option of options ) {
-                            if ( fs.existsSync(path_.join(mod_path, option)) ) {
-                                entry_file = option;
-                                break;
-                            }
-                        }
-                        if ( ! entry_file ) {
-                            // If directory is empty, we'll just skip it
-                            if ( fs.readdirSync(mod_path).length === 0 ) {
-                                this.bootLogger.warn(`Empty mod directory ${quot(mod_path)}; skipping...`);
-                                continue;
-                            }
-
-                            // Other wise, we'll throw an error
-                            this.bootLogger.error(`Expected main.js or index.js in ${quot(mod_path)}`);
-                            if ( ! process.env.SKIP_INVALID_MODS ) {
-                                this.bootLogger.error(`Set SKIP_INVALID_MODS=1 (environment variable) to run anyway.`);
-                                process.exit(1);
-                            } else {
-                                continue;
-                            }
-                        }
-
-                        this.create_mod_package_json(mod_package_dir, {
-                            name: mod_name,
-                            entry: entry_file,
-                        });
-                    }
-                    fs.cpSync(mod_path, mod_package_dir, {
-                        recursive: true,
-                    });
-                }
-                
-                const mod_require_dir = path_.join(process.cwd(), mod_package_dir);
-                
-                await this.run_npm_install(mod_require_dir);
-                
-                const mod = new ExtensionModule();
-                mod.extension = new Extension();
-
-                // This is where the module gets the 'use' and 'def' globals
-                await this.useapi.awithuse(async () => {
-                    // This is where the module gets the 'extension' global
-                    await useapi.aglobalwith({
-                        extension: mod.extension,
-                    }, async () => {
-                        const maybe_promise = require(mod_require_dir);
-                        if ( maybe_promise && maybe_promise instanceof Promise ) {
-                            await maybe_promise;
-                        }
-                    });
-                });
-
-                const mod_context = this._create_mod_context(mod_install_root_context, {
-                    name: mod_dirname,
-                    ['module']: mod,
-                    external: true,
-                    mod_path,
-                });
-                
-                // TODO: DRY `awithuse` and `aglobalwith` with above
-                await this.useapi.awithuse(async () => {
-                    await useapi.aglobalwith({
-                        extension: mod.extension,
-                    }, async () => {
-                        // This is where the 'install' event gets triggered
-                        await mod.install(mod_context);
-                    });
+                await this.install_extern_mod_({
+                    mod_install_root_context,
+                    mod_dirname,
+                    mod_path: path_.join(mods_dirpath, mod_dirname),
                 });
             }
         }
     }
+        
+    async install_extern_mod_({
+        mod_install_root_context,
+        mod_dirname,
+        mod_path,
+    }) {
+        const path_ = require('path');
+        const fs = require('fs');
+
+        let stat = fs.lstatSync(mod_path);
+        while ( stat.isSymbolicLink() ) {
+            mod_path = fs.readlinkSync(mod_path);
+            stat = fs.lstatSync(mod_path);
+        }
+
+        // Mod must be a directory or javascript file
+        if ( ! stat.isDirectory() && !(mod_path.endsWith('.js')) ) {
+            return;
+        }
+        
+        const mod_name = path_.parse(mod_path).name;
+        const mod_package_dir = `mod_packages/${mod_name}`;
+        fs.mkdirSync(mod_package_dir);
+
+        if ( ! stat.isDirectory() ) {
+            this.create_mod_package_json(mod_package_dir, {
+                name: mod_name,
+                entry: 'main.js'
+            });
+            fs.copyFileSync(mod_path, path_.join(mod_package_dir, 'main.js'));
+        } else {
+            // If directory is empty, we'll just skip it
+            if ( fs.readdirSync(mod_path).length === 0 ) {
+                this.bootLogger.warn(`Empty mod directory ${quot(mod_path)}; skipping...`);
+                return;
+            }
+
+            // Create package.json if it doesn't exist
+            if ( ! fs.existsSync(path_.join(mod_path, 'package.json')) ) {
+                this.create_mod_package_json(mod_package_dir, {
+                    name: mod_name,
+                });
+            }
+            
+            // Copy mod contents to `/mod_packages`
+            fs.cpSync(mod_path, mod_package_dir, {
+                recursive: true,
+            });
+        }
+        
+        const mod_require_dir = path_.join(process.cwd(), mod_package_dir);
+        
+        await this.run_npm_install(mod_require_dir);
+        
+        const mod = new ExtensionModule();
+        mod.extension = new Extension();
+
+        // This is where the module gets the 'use' and 'def' globals
+        await this.useapi.awithuse(async () => {
+            // This is where the module gets the 'extension' global
+            await useapi.aglobalwith({
+                extension: mod.extension,
+            }, async () => {
+                const maybe_promise = require(mod_require_dir);
+                if ( maybe_promise && maybe_promise instanceof Promise ) {
+                    await maybe_promise;
+                }
+            });
+        });
+
+        const mod_context = this._create_mod_context(mod_install_root_context, {
+            name: mod_dirname,
+            ['module']: mod,
+            external: true,
+            mod_path,
+        });
+        
+        // TODO: DRY `awithuse` and `aglobalwith` with above
+        await this.useapi.awithuse(async () => {
+            await useapi.aglobalwith({
+                extension: mod.extension,
+            }, async () => {
+                // This is where the 'install' event gets triggered
+                await mod.install(mod_context);
+            });
+        });
+    };
 
     _create_mod_context (parent, options) {
         const path_ = require('path');
@@ -376,6 +367,30 @@ class Kernel extends AdvancedBase {
     create_mod_package_json (mod_path, { name, entry }) {
         const fs = require('fs');
         const path_ = require('path');
+
+        // Expect main.js or index.js to exist
+        const options = ['main.js', 'index.js'];
+
+        // If no entry specified, find file with conventional name
+        if ( ! entry ) {
+            for ( const option of options ) {
+                if ( fs.existsSync(path_.join(mod_path, option)) ) {
+                    entry = option;
+                    break;
+                }
+            }
+        }
+
+        // If no entry specified or found, skip or error
+        if ( ! entry ) {
+            this.bootLogger.error(`Expected main.js or index.js in ${quot(mod_path)}`);
+            if ( ! process.env.SKIP_INVALID_MODS ) {
+                this.bootLogger.error(`Set SKIP_INVALID_MODS=1 (environment variable) to run anyway.`);
+                process.exit(1);
+            } else {
+                return;
+            }
+        }
 
         const data = JSON.stringify({
             name,
