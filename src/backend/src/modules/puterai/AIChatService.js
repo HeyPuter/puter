@@ -116,7 +116,6 @@ class AIChatService extends BaseService {
             }
         }
 
-        // TODO: get models and pricing for each model
         for ( const provider of this.providers ) {
             const delegate = this.services.get(provider.service_name)
                 .as('puter-chat-completion');
@@ -289,7 +288,7 @@ class AIChatService extends BaseService {
                 }
                 
                 const svc_driver = this.services.get('driver');
-                let ret, error, errors = [];
+                let ret, error;
                 let service_used = intended_service;
                 let model_used = this.get_model_from_request(parameters, {
                     intended_service
@@ -315,7 +314,6 @@ class AIChatService extends BaseService {
                     tried.push(model);
 
                     error = e;
-                    errors.push(e);
                     console.error(e);
                     this.log.error('error calling service', {
                         intended_service,
@@ -368,7 +366,6 @@ class AIChatService extends BaseService {
                             };
                         } catch (e) {
                             error = e;
-                            errors.push(e);
                             tried.push(fallback_model_name);
                             this.log.error('error calling fallback', {
                                 intended_service,

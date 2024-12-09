@@ -38,9 +38,6 @@ class ProcessEventService extends BaseService {
         const log = services.get('log-service').create('process-event-service');
         const errors = services.get('error-service').create(log);
 
-        // TODO: when the service lifecycle is implemented, but these
-        //       in the init hook
-
         process.on('uncaughtException', async (err, origin) => {
             /**
             * Handles uncaught exceptions in the process

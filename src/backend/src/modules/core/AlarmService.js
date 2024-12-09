@@ -71,9 +71,6 @@ class AlarmService extends BaseService {
             * @returns {void}
             */
             this.alarm_widget = () => {
-                // return `\x1B[31;1m alarms (${
-                //     Object.keys(this.alarms)
-                // })\x1B[0m`;
                 const lines = [];
                 for ( const alarm of Object.values(this.alarms) ) {
                     const line =
@@ -97,12 +94,6 @@ class AlarmService extends BaseService {
     }
 
     adapt_id_ (id) {
-        // let shorten = false;
-        // // Check if id uses characters that aren't on a US QWERTY keyboard.
-        // if ( /[^\x20-\x7E]/.test(id) ) shorten = true;
-
-        // // Check if id is too long
-        // if ( id.length > 20 ) shorten = true;
         let shorten = true;
 
         if ( shorten ) {
@@ -344,7 +335,7 @@ class AlarmService extends BaseService {
         // Write a .log file for the alert that happened
         try {
             const lines = [];
-            lines.push(`ALERT ${alarm.id_string} :: ${alarm.message} (${alarm.count})`),
+            lines.push(`ALERT ${alarm.id_string} :: ${alarm.message} (${alarm.count})`);
             lines.push(`started: ${new Date(alarm.started).toISOString()}`);
             lines.push(`short id: ${alarm.short_id}`);
             lines.push(`original id: ${alarm.id}`);
@@ -356,7 +347,7 @@ class AlarmService extends BaseService {
 
             (async () => {
                 try {
-                    await fs.appendFileSync(`alert_${alarm.id}.log`, alert_info + '\n');
+                    fs.appendFileSync(`alert_${alarm.id}.log`, alert_info + '\n');
                 } catch (e) {
                     this.log.error(`failed to write alert log: ${e.message}`);
                 }
