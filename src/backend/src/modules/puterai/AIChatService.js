@@ -563,7 +563,7 @@ class AIChatService extends BaseService {
             // Calculate the sorted list
             const models = this.detail_model_list;
 
-            sorted_models = models.sort((a, b) => {
+            sorted_models = models.toSorted((a, b) => {
                 return Math.sqrt(
                     Math.pow(a.cost.input - target_model.cost.input, 2) +
                     Math.pow(a.cost.output - target_model.cost.output, 2)
