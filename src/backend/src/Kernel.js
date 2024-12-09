@@ -294,6 +294,13 @@ class Kernel extends AdvancedBase {
         const mod = new ExtensionModule();
         mod.extension = new Extension();
 
+        const mod_context = this._create_mod_context(mod_install_root_context, {
+            name: mod_dirname,
+            ['module']: mod,
+            external: true,
+            mod_path,
+        });
+
         // This is where the module gets the 'use' and 'def' globals
         await this.useapi.awithuse(async () => {
             // This is where the module gets the 'extension' global
@@ -304,21 +311,6 @@ class Kernel extends AdvancedBase {
                 if ( maybe_promise && maybe_promise instanceof Promise ) {
                     await maybe_promise;
                 }
-            });
-        });
-
-        const mod_context = this._create_mod_context(mod_install_root_context, {
-            name: mod_dirname,
-            ['module']: mod,
-            external: true,
-            mod_path,
-        });
-        
-        // TODO: DRY `awithuse` and `aglobalwith` with above
-        await this.useapi.awithuse(async () => {
-            await useapi.aglobalwith({
-                extension: mod.extension,
-            }, async () => {
                 // This is where the 'install' event gets triggered
                 await mod.install(mod_context);
             });
