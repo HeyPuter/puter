@@ -12,6 +12,9 @@ class PuterFSModule extends AdvancedBase {
         
         const { SizeService } = require('./SizeService');
         services.registerService('sizeService', SizeService);
+        
+        const { MountpointService } = require('./MountpointService');
+        services.registerService('mountpoint', MountpointService);
     }
 }
 

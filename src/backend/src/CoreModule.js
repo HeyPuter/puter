@@ -317,9 +317,6 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { PermissionAPIService } = require('./services/PermissionAPIService');
     services.registerService('__permission-api', PermissionAPIService);
 
-    const { MountpointService } = require('./services/MountpointService');
-    services.registerService('mountpoint', MountpointService);
-
     const { AnomalyService } = require('./services/AnomalyService');
     services.registerService('anomaly', AnomalyService);
     
