@@ -383,7 +383,7 @@ const vi = {
         "billing.offering.pro": "Chuyên nghiệp", // In English: "Professional"
         "billing.offering.business": "Doanh nhân", // In English: "Business"
         "billing.cloud_storage": "Lưu trữ đám mây", // In English: "Cloud Storage"
-        "billing.ai_access": "Kết nối AI", // In English: "AI Access"
+        "billing.ai_access": "Truy cập AI", // In English: "AI Access"
         "billing.bandwidth": "Băng thông", // In English: "Bandwidth"
         "billing.apps_and_games": "Ứng dụng và trò chơi", // In English: "Apps & Games"
         "billing.upgrade_to_pro": "Nâng cấp lên %strong%", // In English: "Upgrade to %strong%"
