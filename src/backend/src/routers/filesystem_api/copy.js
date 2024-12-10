@@ -40,16 +40,12 @@ module.exports = eggspress('/copy', {
         source: new FSNodeParam('source'),
         destination: new FSNodeParam('destination'),
     }
-}, async (req, res, next) => {
+}, async (req, res) => {
     const user           = req.user
     const dedupe_name    =
         req.body.dedupe_name ??
         req.body.change_name ?? false;
 
-    // // check if source would be an ancestor of destination
-    // if((abs_dest_path + '/').startsWith(abs_source_path + '/')){
-    //     return res.status(400).send('Can not copy a item into itself.')
-    // }
     let frame;
     {
         const x = Context.get();
@@ -66,23 +62,8 @@ module.exports = eggspress('/copy', {
         x.set(operationTraceSvc.ckey('frame'), frame);
     }
 
-    const log = req.services.get('log-service').create('copy');
-    const filesystem = req.services.get('filesystem');
-
-    // copy
-    const {get_app, uuid2fsentry, is_shared_with_anyone, suggest_app_for_fsentry} = require('../../helpers.js')
-    let new_fsentries = [];
-
     const tracer = req.services.get('traceService').tracer;
     await tracer.startActiveSpan('filesystem_api.copy', async span => {
-        // const op = await filesystem.cp(req.fs, {
-        //     source: req.values.source,
-        //     destinationOrParent: req.values.destination,
-        //     user: user,
-        //     new_name: req.body.new_name,
-        //     overwrite: req.body.overwrite ?? false,
-        //     dedupe_name,
-        // });
 
         // === upcoming copy behaviour ===
         const hl_copy = new HLCopy();

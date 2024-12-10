@@ -47,34 +47,11 @@ module.exports = eggspress('/readdir', {
         no_assocs: new FlagParam('no_assocs', { optional: true }),
     }
 }, async (req, res, next) => {
-    const monitor = PerformanceMonitor.createContext("router.readdir");
-
     let log; {
         const x = Context.get();
         log = x.get('services').get('log-service').create('readdir');
         log.info(`readdir: ${req.body.path}`);
     }
-
-    // // `path` validation
-    // if(req.body.path === undefined)
-    //     return res.status(400).send('path is required.')
-    // else if(req.body.path === '')
-    //     return res.status(400).send('path cannot be empty.')
-    // else if(req.body.path === null)
-    //     return res.status(400).send('path cannot be null.')
-    // else if(typeof req.body.path !== 'string')
-    //     return res.status(400).send('path must be a string.')
-
-    // if ( req.body.path.startsWith('~') ) {
-    //     const homedir = `/${req.user.username}`;
-    //     req.body.path = homedir + req.body.path.slice(1);
-    // }
-
-    // `recursive` validation
-    // if(req.body.recursive !== undefined && typeof req.body.recursive !== 'boolean')
-    //     return res.status(400).send('recursive must be a boolean.')
-    // else if(req.body.recursive === undefined)
-    //     req.body.recursive = false; // default value
 
     const subject = req.values.subject;
     const recursive = req.values.recursive;
