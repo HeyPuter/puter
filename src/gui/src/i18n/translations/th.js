@@ -363,9 +363,6 @@ const th = {
         "You can't share with yourself.": 'คุณไม่สามารถแบ่งปันกับตัวเองได้', // In English: "You can't share with yourself."
         "This user already has access to this item": 'ผู้ใช้นี้สามารถเข้าถึงรายการนี้ได้แล้ว', // In English: "This user already has access to this item"
 
-        // ----------------------------------------
-        // Missing translations:
-        // ----------------------------------------
         "billing.change_payment_method": "เปลี่ยน", // In English: "Change"
         "billing.cancel": "ยกเลิก", // In English: "Cancel"
         "billing.download_invoice": "ดาวน์โหลด", // In English: "Download"
