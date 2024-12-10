@@ -17,11 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 "use strict"
-const {get_taskbar_items, generate_system_fsentries, send_email_verification_code, send_email_verification_token, username_exists, invalidate_cached_user_by_id, get_user } = require('../helpers');
+const {get_taskbar_items, send_email_verification_code, send_email_verification_token, username_exists, invalidate_cached_user_by_id, get_user } = require('../helpers');
 const config = require('../config');
 const eggspress = require('../api/eggspress');
 const { Context } = require('../util/context');
 const { DB_WRITE } = require('../services/database/consts');
+const { generate_identifier } = require('../util/identifier');
 
 async function generate_random_username () {
     let username;
