@@ -233,6 +233,7 @@ class WebServerService extends BaseService {
                 try {
                     let auth_res = await jwt_auth(socket);
                     // successful auth
+                    socket.actor = auth_res.actor;
                     socket.user = auth_res.user;
                     socket.token = auth_res.token;
                     // join user room
@@ -249,6 +250,7 @@ class WebServerService extends BaseService {
             }
         });
 
+        const context = Context.get();
         socketio.on('connection', (socket) => {
             /**
             * Starts the web server and associated services.
@@ -268,8 +270,12 @@ class WebServerService extends BaseService {
             });
             socket.on('puter_is_actually_open', async (msg) => {
                 const svc_event = this.services.get('event');
-                await svc_event.emit('web.socket.user-connected', {
-                    user: socket.user
+                await context.sub({
+                    actor: socket.actor,
+                }).arun(async () => {
+                    await svc_event.emit('web.socket.user-connected', {
+                        user: socket.user
+                    });
                 });
             });
         });

@@ -1115,6 +1115,7 @@ async function jwt_auth(req){
         }
 
         return {
+            actor,
             user: actor.type.user,
             token: token,
         };
