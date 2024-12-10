@@ -68,6 +68,8 @@ class WebServerService extends BaseService {
             router_webhooks: this.router_webhooks,
         });
         await services.emit('install.routes-gui', { app });
+        
+        this.log.noticeme('web server setup done');
     }
 
 
@@ -587,8 +589,6 @@ class WebServerService extends BaseService {
         app.options('/*', (_, res) => {
             return res.sendStatus(200);
         });
-        
-        console.log('WEB SERVER INIT DONE');
     }
 
     _register_commands (commands) {

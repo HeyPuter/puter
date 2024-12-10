@@ -172,7 +172,6 @@ class DriverService extends BaseService {
     * It returns a promise that resolves to an object containing the result, metadata, and an error if one occurred.
     */
     async _call ({ driver, iface, method, args }) {
-        console.log('??', driver, iface, method, args);
         const processed_args = await this._process_args(iface, method, args);
         const test_mode = Context.get('test_mode');
         if ( test_mode ) {
@@ -230,7 +229,6 @@ class DriverService extends BaseService {
         * @returns {DriverService} The driver service instance for the provided interface.
         */
         const driver_service_exists = (() => {
-            console.log('CHECKING FOR THIS', driver, iface);
             return this.services.has(driver) &&
                 this.services.get(driver).list_traits()
                     .includes(iface);
@@ -320,17 +318,12 @@ class DriverService extends BaseService {
             actor,
             PermissionUtil.join('service', service_name, 'ii', iface),
         );
-        console.log({
-            perm: PermissionUtil.join('service', service_name, 'ii', iface),
-            reading,
-        });
         const options = PermissionUtil.reading_to_options(reading);
         if ( options.length <= 0 ) {
             throw APIError.create('forbidden');
         }
         const option = await this.select_best_option_(options);
         const policies = await this.get_policies_for_option_(option);
-        console.log('SLA', JSON.stringify(policies, undefined, '  '));
         
         // NOT FINAL: For now we apply monthly usage logic
         // to the first holder of the permission. Later this
@@ -437,14 +430,12 @@ class DriverService extends BaseService {
                     on_return: async result => {
                         if ( skip_usage ) return result;
 
-                        console.log('monthly usage is returning');
                         const svc_monthlyUsage = services.get('monthly-usage');
                         const extra = {
                             'driver.interface': iface,
                             'driver.implementation': service_name,
                             'driver.method': method,
                         };
-                        console.log('calling the increment method')
                         await svc_monthlyUsage.increment(actor, method_key, extra);
                         return result;
                     },
@@ -473,9 +464,7 @@ class DriverService extends BaseService {
                             const svc_registry = this.services.get('registry');
                             const c_interfaces = svc_registry.get('interfaces');
 
-                            console.log('????--1', iface);
                             const interface_ = c_interfaces.get(iface);
-                            console.log('????--2', interface_);
                             const method_spec = interface_.methods[method];
                             let desired_type =
                                 method_spec.result_choices

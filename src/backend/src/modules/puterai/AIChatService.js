@@ -606,10 +606,6 @@ class AIChatService extends BaseService {
         let model = parameters.model;
         if ( ! model ) {
             const service = this.services.get(intended_service);
-            console.log({
-                what: intended_service,
-                w: service.get_default_model
-            });
             if ( ! service.get_default_model ) {
                 throw new Error('could not infer model from service');
             }

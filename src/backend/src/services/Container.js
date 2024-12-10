@@ -210,7 +210,7 @@ class Container {
     */
     async emit (id, ...args) {
         if ( this.logger ) {
-            this.logger.noticeme(`services:event ${id}`, { args });
+            this.logger.info(`services:event ${id}`, { args });
         }
 
         const promises = [];
