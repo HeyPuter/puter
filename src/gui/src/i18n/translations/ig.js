@@ -387,9 +387,6 @@ const ig = {
     "This user already has access to this item":
       "Onye a enweela ohere ịbanye ihe a",
 
-    // ----------------------------------------
-    // Missing translations:
-    // ----------------------------------------
     "billing.change_payment_method": "Gbanwee", // In English: "Change"
     "billing.cancel": "Kagbuo", // In English: "Cancel"
     "billing.download_invoice": "Budata", // In English: "Download"
