@@ -291,4 +291,7 @@ module.exports = {
         ...ENTITY_STORAGE_INTERFACE,
         description: 'Read notifications on Puter.',
     },
+    'crud-q': {
+        ...ENTITY_STORAGE_INTERFACE,
+    },
 };

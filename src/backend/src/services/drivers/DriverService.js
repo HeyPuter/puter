@@ -200,9 +200,21 @@ class DriverService extends BaseService {
             ['puter-tts']: 'aws-polly',
             ['puter-chat-completion']: 'openai-completion',
             ['puter-image-generation']: 'openai-image-generation',
+            'puter-apps': 'es:app',
+            'puter-subdomains': 'es:subdomain',
+            'puter-notifications': 'es:notification',
         }
         
         driver = driver ?? iface_to_driver[iface] ?? iface;
+        
+        // For these ones, the interface specified actually specifies the
+        // specificc driver to use.
+        const iface_to_iface = {
+            'puter-apps': 'crud-q',
+            'puter-subdomains': 'crud-q',
+            'puter-notifications': 'crud-q',
+        }
+        iface = iface_to_iface[iface] ?? iface;
 
         let skip_usage = false;
         if ( test_mode && this.interface_to_test_service[iface] ) {
