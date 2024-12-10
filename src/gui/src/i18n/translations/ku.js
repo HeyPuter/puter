@@ -36,12 +36,12 @@ const ku = {
     apply: "بەکارهێنان",
     ascending: "سەرووەی",
     associated_websites: "وێبسایتەکان پەیوەندیدار",
-    auto_arrange: "ڕیزکردنی ئۆتۆماتیکی",
+    auto_arrange: "ڕیزکردنی خودکار",
     background: "پاشبنەما",
     browse: "گەڕان",
     cancel: "ڕەتکردنەوە",
     center: "ناوەڕاست",
-    change_desktop_background: "گۆڕینی پاشبنەمای ڕوومیزی...",
+    change_desktop_background: "گۆڕینی پاشبنەمای ڕوومێزی...",
     change_email: "گۆڕینی ئیمەیل",
     change_language: "گۆڕینی زمان",
     change_password: "گۆڕینی وشەی تێپەڕ",
@@ -49,9 +49,9 @@ const ku = {
     change_username: "گۆڕینی ناوی بەکارهێنەر",
     close: "داخستن",
     close_all_windows: "داخستنی هەموو پەنجەکان",
-    close_all_windows_confirm: "دڵنیایت کە ئەتەوێت هەموو پەنجەکان داخەیت؟",
+    close_all_windows_confirm: "دڵنیایت کە ئەتەوێت هەموو پەنجەرەکان داخەیت؟",
     close_all_windows_and_log_out: "داخستن و چوونە دەرەوە",
-    change_always_open_with: "ئەتەوێت هەمیشە ئەم جۆرە فایلە بکرێتەوە بە",
+    change_always_open_with: "دەتەوێت هەمیشە ئەم جۆرە فایلە بکرێتەوە بە",
     color: "ڕەنگ",
     confirm: "پشتڕاستکردنەوە",
     confirm_2fa_setup: "کۆدەکە زیادم کردووە بۆ وەرگرەری پشتڕاستکراوەکان",
@@ -99,24 +99,24 @@ const ku = {
     clock_visible_hide: "شاردنەوە - هەمیشە شاردراوە",
     clock_visible_show: "پیشان - هەمیشە پیشاندراوە",
     clock_visible_auto:
-      "ئۆتۆ - بنەڕەت، تەنها پیشاندراوە لە دۆخەکانی شاشەی تەواو.",
+      "خودکار - بنەڕەت، تەنها پیشاندراوە لە دۆخەکانی شاشەی تەواو.",
     close_all: "داخستنەوەی هەموو",
     created: "دروستکراو",
     date_modified: "بەرواری گۆڕاوە",
     default: "بە ڕێگای بنەڕەت",
     delete: "سڕینەوە",
     delete_account: "سڕینەوەی هەژمار",
-    delete_permanently: "هەمی سڕینەوە",
+    delete_permanently: "سڕینەوەی یەکجاری",
     deleting_file: "سڕینەوەی %%",
     deploy_as_app: "دابەشکردن وەک ئەپ",
     descending: "نزەندەی",
-    desktop: "سەروروومیزی",
+    desktop: "سەروروومێزی",
     desktop_background_fit: "ڕێکخستن",
     developers: "پەرەپێدانەران",
     dir_published_as_website: `%strong% بەشکراوە بۆ:`,
     disable_2fa: "ناچالاککردنی 2FA",
     disable_2fa_confirm: "دڵنیایت کە ئەتەوێت 2FA ناچالاک بکەیت؟",
-    disable_2fa_instructions: "وشەی تێپەڕی نووسە بۆ ناچالاککردنی 2FA.",
+    disable_2fa_instructions: "وشەی تێپەڕی بنووسە بۆ ناچالاککردنی 2FA.",
     disassociate_dir: "جیاکردنەوەی ڕێکەوت",
     documents: "بەڵگەکان",
     dont_allow: "ڕێگەندان",
@@ -149,7 +149,7 @@ const ku = {
       "تکایە فۆرمەکەی خوارەوە بەکاربە بۆ ناردنی فیدباک، لێدوان، و ڕاپۆرتی کێشەکان بۆ ئێمە.",
     feedback_sent_confirmation:
       "سوپاس بۆ پەیوەندی کردن. گەر ناونیشانی ئیمەیلەکەت هەیە، بە زووترین کات لەگەڵت پەیوەندیدەکەین.",
-    fit: "ڕێکخستن",
+    fit: "گونجاندن",
     folder: "فۆڵدەر",
     force_quit: "بەهێزەوە کوژاندنەوە",
     forgot_pass_c2a: "وشەی تێپەڕت لەبیرچووە؟",
@@ -157,7 +157,7 @@ const ku = {
     general: "گشتی",
     get_a_copy_of_on_puter: `کۆپیێک وەرگرتنەوەی '%%' لە پوتەر.com!`,
     get_copy_link: "کۆپی بەستەر وەرگرتن",
-    hide_all_windows: "شاردنەوەی هەموو پەنجەکان",
+    hide_all_windows: "شاردنەوەی هەموو پەنجەرەکان",
     home: "ماڵەوە",
     html_document: "بەڵگەی HTML",
     hue: "هیو",
@@ -170,16 +170,16 @@ const ku = {
     keep_in_taskbar: "ڕێپێدان لە تاکسبار",
     language: "زمان",
     license: "لایسەنس",
-    lightness: "رووناکی",
+    lightness: "ڕووناکی",
     link_copied: "بەستەر کۆپی کرا",
     loading: "بارکردنەوە",
     log_in: "چوونەژوورەوە",
-    log_into_another_account_anyway: "بە هەژماری دیگە هەرچۆنێکەوە چوونەژوورەوە",
+    log_into_another_account_anyway: "بە هەژماری دیکە هەرچۆنێکەوە چوونەژوورەوە",
     log_out: "چوونە دەرەوە",
     looks_good: "پەیوەندیدارە!",
     manage_sessions: "بەڕێوەبردنی دانیشتنەکان",
     menubar_style: "شێوازی منوبار",
-    menubar_style_desktop: "سەروروومیزی",
+    menubar_style_desktop: "سەروروومێزی",
     menubar_style_system: "سیستەم",
     menubar_style_window: "پەنجەرە",
     modified: "گۆڕاو",
@@ -202,10 +202,10 @@ const ku = {
     no_dir_associated_with_site:
       "هیچ ڕێکەوتێک پەیوەندیداری ئەم ناونیشانە نییە.",
     no_websites_published:
-      "هێشتا هیچ وێبسایتێکت نەبڵاوکردووە. لەسەر فۆڵدەرەکە پەنجەکەی راستبکە بۆ دەستپێکردن.",
+      "هێشتا هیچ وێبسایتێکت بڵاونەکردووەتەوە. لەسەر فۆڵدەرەکە پەنجەکەی راستبکە بۆ دەستپێکردن.",
     ok: "باشە",
     open: "کردنەوە",
-    open_in_new_tab: "کردنەوە لە تابێکی نوێ",
+    open_in_new_tab: "کردنەوە لە پەڕێکی نوێ",
     open_in_new_window: "کردنەوە لە پەنجەرەیەکی نوێ",
     open_with: "کردنەوە بە",
     original_name: "ناوی ڕەسەن",
@@ -248,27 +248,27 @@ const ku = {
     public: "گشتی",
     publish: "بڵاوکردنەوە",
     publish_as_website: "بڵاوکردنەوە وەک وێبسایت",
-    puter_description: `پوتەر پێشکەشکراوە بۆ پاراستنی تایبەتیە کەسایەتی، جێگایەکی ئازاد بۆ گەیاندنی هەموو فایلەکان، ئەپەکان، و یارییەکان لە هەر شوێنێک بێ هەموو کاتێک.`,
+    puter_description: `پوتەر پێشکەشکراوە بۆ پاراستنی تایبەتیە کەسییەکان، جێگایەکی ئازاد بۆ گەیاندنی هەموو فایلەکان، ئەپەکان، و یارییەکان لە هەر شوێنێک بێ هەموو کاتێک.`,
     reading_file: "خوێندنی %strong%",
     recent: "نوێترین",
     recommended: "پێشنیارکراوەکان",
     recover_password: "ڕێکخستنەوەی وشەی تێپەڕ",
     refer_friends_c2a:
-      "1 گیگابایت بۆ هەر هاوڕێک دەست بەرکە، پەیوەندیدانی هەژمارێک بۆ پوتەر دروست بکە و پشتڕاست بکە. هاوڕێتیش 1 گیگابایت وەرگرتن دەبێت!",
-    refer_friends_social_media_c2a: `1 گیگابایت پارێزگاکانی پوتەر.com بۆ هەر هاوڕێک بکە!`,
+      "1 گیگابایت بۆ هەر هاوڕێیەک دەست بەرکە، پەیوەندیدانی هەژمارێک بۆ پوتەر دروست بکە و پشتڕاست بکە. هاوڕێتیش 1 گیگابایت وەرگرتن دەبێت!",
+    refer_friends_social_media_c2a: `1 گیگابایت پارێزگاکانی پوتەر.com بۆ هەر هاوڕێیەک بکە!`,
     refresh: "بوژانەوە",
     release_address_confirmation: `دڵنیایت کە ئەتەوێت ئەم ناونیشانە بۆ هەڵگرتن؟`,
-    remove_from_taskbar: "لابردن لە تاکسبار",
+    remove_from_taskbar: "لابردن لە تاسکباڕ",
     rename: "ناونانەوە",
     repeat: "دووبارەکردنەوە",
-    replace: "لە نوێکردنەوە",
-    replace_all: "لە نوێکردنەوەی هەموو",
+    replace: "جێگرتنەوە",
+    replace_all: "جێگرتنەوەی هەموو",
     resend_confirmation_code: "دووبارە ناردنی کۆدی پشتڕاستکردنەوە",
     reset_colors: "ڕێکخستنی ڕەنگەکان",
     restart_puter_confirm: "دڵنیایت کە ئەتەوێت پوتەر دووبارە دەستپێبکەیت؟",
     restore: "گەڕاندنەوە",
     save: "پاشەکەوت",
-    saturation: "سەرەخۆشی",
+    saturation: "ڕەنگتێری",
     save_account: "پاشەکەوتکردنی هەژمار",
     save_account_to_get_copy_link: "تکایە هەژمارێک دروست بکە بۆ بەردەوامبوون.",
     save_account_to_publish: "تکایە هەژمارێک دروست بکە بۆ بەردەوامبوون.",
@@ -295,20 +295,20 @@ const ku = {
     share_to: "هاوبەشکردن بۆ",
     share_with: "هاوبەشکردن بە:",
     shortcut_to: "شارتی بۆ",
-    show_all_windows: "پیشاندانی هەموو پەنجەکان",
+    show_all_windows: "پیشاندانی هەموو پەنجەرەکان",
     show_hidden: "پیشاندانی شاردراوەکان",
     sign_in_with_puter: "چوونەژوورەوە بە پوتەر",
     sign_up: "خۆتۆمارکردن",
     signing_in: "چوونەژوورەوە...",
     size: "قەبارە",
     skip: "هەڵگرتن",
-    something_went_wrong: "هەڵەیەکی رووی دا.",
-    sort_by: "ڕیزکردن بە",
+    something_went_wrong: "هەڵەیەکی ڕووی دا.",
+    sort_by: "ڕیزکردن بەپێی",
     start: "دەستپێکردن",
     status: "دۆخ",
-    storage_usage: "بەکاربردنی پارێزگا",
+    storage_usage: "بەکاربردنی بیرگە",
     storage_puter_used: "بەکاربردنی لەلایەن پوتەر",
-    taking_longer_than_usual: "کەمێک زیاتر کەوتە، تکایە چاوەڕوانبە...",
+    taking_longer_than_usual: "کەمێک زیاتر دەخایەنێت، تکایە چاوەڕوانبە...",
     task_manager: "بەڕێوەبەری کارەکان",
     taskmgr_header_name: "ناو",
     taskmgr_header_status: "دۆخ",
@@ -359,8 +359,8 @@ const ku = {
     setup2fa_3_step_heading: "ناردنی کۆدی 6 ژمارە",
     setup2fa_4_step_heading: "کۆدی پشتڕاستکردنی نوێ پشکنین",
     setup2fa_4_instructions: `
-              ئەم کۆدانە تەنها ڕێگا بۆ گەیشتنەوە بە هەژمارەکەت گەر تۆ موبایلەکەت 
-              لەبیرچووی یاخود ناتوانی ئەپەکەت بەکاربەریت.
+              ئەم کۆدانە تەنها ڕێگایەکە بۆ گەیشتنەوە بە هەژمارەکەت گەر موبایلەکەت 
+              لەبیرچوو یاخود نەتوانیت ئەپەکە بەکاربەریت.
               دڵنیابە کەیان لە شوێنێکی پاراستنەوەیەکان بنووسیت.
           `,
     setup2fa_5_step_heading: "پشتڕاستکردنی ڕێکخستنەوەی 2FA",
@@ -373,7 +373,7 @@ const ku = {
     login2fa_otp_instructions: "کۆدی 6 ژمارەیە بنووسە لە ئەپەکەت.",
     login2fa_recovery_title: "کۆدی پشتڕاستکردنەوەیەک بنووسە",
     login2fa_recovery_instructions:
-      "یەکێک لە کۆدانە پشتڕاستکردنەوە بنووسە بۆ گەیشتنەوە بە هەژمارەکەت.",
+      "یەکێک لە کۆدەکانی پشتڕاستکردنەوە بنووسە بۆ گەیشتنەوە بە هەژمارەکەت.",
     login2fa_use_recovery_code: "بەکارهێنانی کۆدی پشتڕاستکردنەوە",
     login2fa_recovery_back: "گەڕانەوە",
     login2fa_recovery_placeholder: "XXXXXXXX",
@@ -396,52 +396,52 @@ const ku = {
     // ----------------------------------------
     // Missing translations:
     // ----------------------------------------
-    "billing.change_payment_method": undefined, // In English: "Change"
-    "billing.cancel": undefined, // In English: "Cancel"
-    "billing.download_invoice": undefined, // In English: "Download"
-    "billing.payment_method": undefined, // In English: "Payment Method"
-    "billing.payment_method_updated": undefined, // In English: "Payment method updated!"
-    "billing.confirm_payment_method": undefined, // In English: "Confirm Payment Method"
-    "billing.payment_history": undefined, // In English: "Payment History"
-    "billing.refunded": undefined, // In English: "Refunded"
-    "billing.paid": undefined, // In English: "Paid"
-    "billing.ok": undefined, // In English: "OK"
-    "billing.resume_subscription": undefined, // In English: "Resume Subscription"
-    "billing.subscription_cancelled": undefined, // In English: "Your subscription has been canceled."
-    "billing.subscription_cancelled_description": undefined, // In English: "You will still have access to your subscription until the end of this billing period."
-    "billing.offering.free": undefined, // In English: "Free"
-    "billing.offering.pro": undefined, // In English: "Professional"
-    "billing.offering.business": undefined, // In English: "Business"
-    "billing.cloud_storage": undefined, // In English: "Cloud Storage"
-    "billing.ai_access": undefined, // In English: "AI Access"
-    "billing.bandwidth": undefined, // In English: "Bandwidth"
-    "billing.apps_and_games": undefined, // In English: "Apps & Games"
-    "billing.upgrade_to_pro": undefined, // In English: "Upgrade to %strong%"
-    "billing.switch_to": undefined, // In English: "Switch to %strong%"
-    "billing.payment_setup": undefined, // In English: "Payment Setup"
-    "billing.back": undefined, // In English: "Back"
-    "billing.you_are_now_subscribed_to": undefined, // In English: "You are now subscribed to %strong% tier."
-    "billing.you_are_now_subscribed_to_without_tier": undefined, // In English: "You are now subscribed"
-    "billing.subscription_cancellation_confirmation": undefined, // In English: "Are you sure you want to cancel your subscription?"
-    "billing.subscription_setup": undefined, // In English: "Subscription Setup"
-    "billing.cancel_it": undefined, // In English: "Cancel It"
-    "billing.keep_it": undefined, // In English: "Keep It"
-    "billing.subscription_resumed": undefined, // In English: "Your %strong% subscription has been resumed!"
-    "billing.upgrade_now": undefined, // In English: "Upgrade Now"
-    "billing.upgrade": undefined, // In English: "Upgrade"
-    "billing.currently_on_free_plan": undefined, // In English: "You are currently on the free plan."
-    "billing.download_receipt": undefined, // In English: "Download Receipt"
-    "billing.subscription_check_error": undefined, // In English: "A problem occurred while checking your subscription status."
-    "billing.email_confirmation_needed": undefined, // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-    "billing.sub_cancelled_but_valid_until": undefined, // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-    "billing.current_plan_until_end_of_period": undefined, // In English: "Your current plan until the end of this billing period."
-    "billing.current_plan": undefined, // In English: "Current plan"
-    "billing.cancelled_subscription_tier": undefined, // In English: "Cancelled Subscription (%%)"
-    "billing.manage": undefined, // In English: "Manage"
-    "billing.limited": undefined, // In English: "Limited"
-    "billing.expanded": undefined, // In English: "Expanded"
-    "billing.accelerated": undefined, // In English: "Accelerated"
-    "billing.enjoy_msg": undefined, // In English: "Enjoy %% of Cloud Storage plus other benefits."
+    "billing.change_payment_method": "بیگۆڕە", // In English: "Change"
+    "billing.cancel": "پاشگەزبوونەوە", // In English: "Cancel"
+    "billing.download_invoice": "داگرتن", // In English: "Download"
+    "billing.payment_method": "شێوازی پارەدان", // In English: "Payment Method"
+    "billing.payment_method_updated": "شێوازی پارەدان نوێکراوە!", // In English: "Payment method updated!"
+    "billing.confirm_payment_method": "پشتڕاستکردنەوەی شێوازی پارەدان", // In English: "Confirm Payment Method"
+    "billing.payment_history": "مێژووی مامەڵەکان", // In English: "Payment History"
+    "billing.refunded": "گەڕێندراوە", // In English: "Refunded"
+    "billing.paid": "پارە درا", // In English: "Paid"
+    "billing.ok": "باشە", // In English: "OK"
+    "billing.resume_subscription": "بەشداریکردنەوە", // In English: "Resume Subscription"
+    "billing.subscription_cancelled": "بەشداریکردنت هەڵوەشێندراوە.", // In English: "Your subscription has been canceled."
+    "billing.subscription_cancelled_description": ".هێشتا بەشداریکردنت ماوە، تا کۆتایی ئەو ماوەیەی پارەت دابوو", // In English: "You will still have access to your subscription until the end of this billing period."
+    "billing.offering.free": "بەخۆڕایی", // In English: "Free"
+    "billing.offering.pro": "پڕۆ", // In English: "Professional"
+    "billing.offering.business": "بزنس", // In English: "Business"
+    "billing.cloud_storage": "بیرگەی کڵاود", // In English: "Cloud Storage"
+    "billing.ai_access": "دەستگەیشتن بە ژیریی دەستکرد", // In English: "AI Access"
+    "billing.bandwidth": "باندویدث", // In English: "Bandwidth"
+    "billing.apps_and_games": "بەرنامە و یاری", // In English: "Apps & Games"
+    "billing.upgrade_to_pro": "بەرزکردنەوە بۆ %strong%", // In English: "Upgrade to %strong%"
+    "billing.switch_to": "گۆڕین بۆ %strong%", // In English: "Switch to %strong%"
+    "billing.payment_setup": "ڕێکخستنی پارەدان", // In English: "Payment Setup"
+    "billing.back": "گەڕانەوە", // In English: "Back"
+    "billing.you_are_now_subscribed_to": "تۆ ئێستا بەشداربووی لە ئاستی %strong%.", // In English: "You are now subscribed to %strong% tier."
+    "billing.you_are_now_subscribed_to_without_tier": "تۆ ئێستا بەشداربووی", // In English: "You are now subscribed"
+    "billing.subscription_cancellation_confirmation": "دڵنیایت دەتەوێت بەشداربوونت هەڵبوەشێنیتەوە؟", // In English: "Are you sure you want to cancel your subscription?"
+    "billing.subscription_setup": "ڕێکخستنی بەشداریکردن", // In English: "Subscription Setup"
+    "billing.cancel_it": "هەڵیبوەشێنەوە", // In English: "Cancel It"
+    "billing.keep_it": "بیهێڵەوە", // In English: "Keep It"
+    "billing.subscription_resumed": "بەشداریکردنت لە %strong% دەستیپێکردەوە!", // In English: "Your %strong% subscription has been resumed!"
+    "billing.upgrade_now": "ئێستا بەرزی بکەوە", // In English: "Upgrade Now"
+    "billing.upgrade": "بەرزکردنەوە", // In English: "Upgrade"
+    "billing.currently_on_free_plan": "لە ئێستادا لەسەر پلانی بێ بەرامبەریت.", // In English: "You are currently on the free plan."
+    "billing.download_receipt": "داگرتنی پسووڵە", // In English: "Download Receipt"
+    "billing.subscription_check_error": "هەڵەیەک ڕوویدا لەکاتی پشکنینی دۆخی بەشداربوونت.", // In English: "A problem occurred while checking your subscription status."
+    "billing.email_confirmation_needed": "ئیمێڵەکەت هێشتا نەسەلمێندراوە، کۆدێکت بۆ دەنێرین بۆ ئەوەی ئێستا بیسەلمێنیت.", // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
+    "billing.sub_cancelled_but_valid_until": "بەشداریکردنت هەڵوەشاندەوە، لە کۆتایی ئەو ماوەیەی پارەت داوە خودکارانە دەگوازرێیەوە بۆ ئاستی خۆڕایی، مەگەر دووبارە بەشداریبکەیەوە.", // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
+    "billing.current_plan_until_end_of_period": "پلانی ئێستات تا کۆتایی ئەو ماوەیەی پارەت داوە.", // In English: "Your current plan until the end of this billing period."
+    "billing.current_plan": "پلانی ئێستا", // In English: "Current plan"
+    "billing.cancelled_subscription_tier": "بەشداریکردنی (%%) هەڵوەشێندراوە", // In English: "Cancelled Subscription (%%)"
+    "billing.manage": "بەڕێوەبردن", // In English: "Manage"
+    "billing.limited": "سنووردار", // In English: "Limited"
+    "billing.expanded": "کشاندراو", // In English: "Expanded"
+    "billing.accelerated": "تاودراو", // In English: "Accelerated"
+    "billing.enjoy_msg": "چێژوەرگرە لە بیرگەی کڵاود و چەندین خزمەتگوزاری تر.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
   },
 };
 
