@@ -68,7 +68,7 @@ const fr = {
         confirm_delete_user: "Êtes-vous sûr de vouloir supprimer votre compte ? Tous vos fichiers et données seront définitivement supprimés. Cette action est irréversible.",
         confirm_delete_user_title: "Supprimer le compte ?",
         confirm_session_revoke: "Êtes-vous sûr de vouloir révoquer cette session ?",
-        confirm_your_email_address: "Confirm Your Email Address",
+        confirm_your_email_address: "Confirmez votre adresse e-mail",
         contact_us: "Nous contacter",
         contact_us_verification_required: "Vous devez disposer d'une adresse e-mail vérifiée pour pouvoir utiliser ceci.",
         contain: 'Contenir',
@@ -250,7 +250,7 @@ const fr = {
         save_session: 'Sauvegarder la session',
         save_session_c2a: 'Créez un compte pour enregistrer votre session actuelle et éviter de perdre votre travail.',
         scan_qr_c2a: 'Scannez le code ci-dessous\npour vous connecter à cette session depuis d\'autres appareils',
-        scan_qr_2fa: 'Scan the QR code with your authenticator app',
+        scan_qr_2fa: 'Scannez le code QR avec votre application d\'authentification',
         scan_qr_generic: 'Scannez ce code QR à l\'aide de votre téléphone ou d\'un autre appareil',
         search: 'Rechercher',
         seconds: 'secondes',
@@ -362,56 +362,52 @@ const fr = {
         "Owner": 'Propriétaire',
         "You can't share with yourself.": 'Vous ne pouvez pas partager avec vous-même',
         "This user already has access to this item": 'Cet utilisateur à déja accès à cet élément',
-
-        // ----------------------------------------
-        // Missing translations:
-        // ----------------------------------------
-        "billing.change_payment_method": undefined, // In English: "Change"
-        "billing.cancel": undefined, // In English: "Cancel"
-        "billing.download_invoice": undefined, // In English: "Download"
-        "billing.payment_method": undefined, // In English: "Payment Method"
-        "billing.payment_method_updated": undefined, // In English: "Payment method updated!"
-        "billing.confirm_payment_method": undefined, // In English: "Confirm Payment Method"
-        "billing.payment_history": undefined, // In English: "Payment History"
-        "billing.refunded": undefined, // In English: "Refunded"
-        "billing.paid": undefined, // In English: "Paid"
-        "billing.ok": undefined, // In English: "OK"
-        "billing.resume_subscription": undefined, // In English: "Resume Subscription"
-        "billing.subscription_cancelled": undefined, // In English: "Your subscription has been canceled."
-        "billing.subscription_cancelled_description": undefined, // In English: "You will still have access to your subscription until the end of this billing period."
-        "billing.offering.free": undefined, // In English: "Free"
-        "billing.offering.pro": undefined, // In English: "Professional"
-        "billing.offering.business": undefined, // In English: "Business"
-        "billing.cloud_storage": undefined, // In English: "Cloud Storage"
-        "billing.ai_access": undefined, // In English: "AI Access"
-        "billing.bandwidth": undefined, // In English: "Bandwidth"
-        "billing.apps_and_games": undefined, // In English: "Apps & Games"
-        "billing.upgrade_to_pro": undefined, // In English: "Upgrade to %strong%"
-        "billing.switch_to": undefined, // In English: "Switch to %strong%"
-        "billing.payment_setup": undefined, // In English: "Payment Setup"
-        "billing.back": undefined, // In English: "Back"
-        "billing.you_are_now_subscribed_to": undefined, // In English: "You are now subscribed to %strong% tier."
-        "billing.you_are_now_subscribed_to_without_tier": undefined, // In English: "You are now subscribed"
-        "billing.subscription_cancellation_confirmation": undefined, // In English: "Are you sure you want to cancel your subscription?"
-        "billing.subscription_setup": undefined, // In English: "Subscription Setup"
-        "billing.cancel_it": undefined, // In English: "Cancel It"
-        "billing.keep_it": undefined, // In English: "Keep It"
-        "billing.subscription_resumed": undefined, // In English: "Your %strong% subscription has been resumed!"
-        "billing.upgrade_now": undefined, // In English: "Upgrade Now"
-        "billing.upgrade": undefined, // In English: "Upgrade"
-        "billing.currently_on_free_plan": undefined, // In English: "You are currently on the free plan."
-        "billing.download_receipt": undefined, // In English: "Download Receipt"
-        "billing.subscription_check_error": undefined, // In English: "A problem occurred while checking your subscription status."
-        "billing.email_confirmation_needed": undefined, // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-        "billing.sub_cancelled_but_valid_until": undefined, // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-        "billing.current_plan_until_end_of_period": undefined, // In English: "Your current plan until the end of this billing period."
-        "billing.current_plan": undefined, // In English: "Current plan"
-        "billing.cancelled_subscription_tier": undefined, // In English: "Cancelled Subscription (%%)"
-        "billing.manage": undefined, // In English: "Manage"
-        "billing.limited": undefined, // In English: "Limited"
-        "billing.expanded": undefined, // In English: "Expanded"
-        "billing.accelerated": undefined, // In English: "Accelerated"
-        "billing.enjoy_msg": undefined, // In English: "Enjoy %% of Cloud Storage plus other benefits."
+        "billing.change_payment_method": "Modifier", 
+        "billing.cancel": "Annuler", 
+        "billing.download_invoice": "Télécharger", 
+        "billing.payment_method": "Mode de paiement", 
+        "billing.payment_method_updated": "Mode de paiement mis à jour !", 
+        "billing.confirm_payment_method": "Confirmer le mode de paiement", 
+        "billing.payment_history": "Historique des paiements", 
+        "billing.refunded": "Remboursé", 
+        "billing.paid": "Payé", 
+        "billing.ok": "OK", 
+        "billing.resume_subscription": "Reprendre l'abonnement", 
+        "billing.subscription_cancelled": "Votre abonnement a été annulé.", 
+        "billing.subscription_cancelled_description": "Vous aurez toujours accès à votre abonnement jusqu'à la fin de cette période de facturation.", 
+        "billing.offering.free": "Gratuit", 
+        "billing.offering.pro": "Professionnel",
+        "billing.offering.business": "Entreprise", 
+        "billing.cloud_storage": "Stockage Cloud", 
+        "billing.ai_access": "Accès IA", 
+        "billing.bandwidth": "Bande passante", 
+        "billing.apps_and_games": "Applications & Jeux", 
+        "billing.upgrade_to_pro": "Mettre à niveau vers %strong%", 
+        "billing.switch_to": "Passer à %strong%", 
+        "billing.payment_setup": "Configuration du paiement",
+        "billing.back": "Retour",
+        "billing.you_are_now_subscribed_to": "Vous êtes maintenant abonné au niveau %strong%.", 
+        "billing.you_are_now_subscribed_to_without_tier": "Vous êtes maintenant abonné", 
+        "billing.subscription_cancellation_confirmation": "Êtes-vous sûr de vouloir annuler votre abonnement ?", 
+        "billing.subscription_setup": "Configuration de l'abonnement", 
+        "billing.cancel_it": "L'annuler", 
+        "billing.keep_it": "Le garder",
+        "billing.subscription_resumed": "Votre abonnement %strong% a été repris !", 
+        "billing.upgrade_now": "Mettre à niveau maintenant", 
+        "billing.upgrade": "Mettre à niveau", 
+        "billing.currently_on_free_plan": "Vous êtes actuellement sur le plan gratuit.",
+        "billing.download_receipt": "Télécharger le reçu", 
+        "billing.subscription_check_error": "Un problème est survenu lors de la vérification de l'état de votre abonnement.", 
+        "billing.email_confirmation_needed": "Votre e-mail n'a pas été confirmé. Nous allons vous envoyer un code pour le confirmer maintenant.", 
+        "billing.sub_cancelled_but_valid_until": "Vous avez annulé votre abonnement, et il passera automatiquement au niveau gratuit à la fin de la période de facturation. Vous ne serez pas facturé à nouveau, sauf si vous vous réabonnez.", 
+        "billing.current_plan_until_end_of_period": "Votre plan actuel jusqu'à la fin de cette période de facturation.", 
+        "billing.current_plan": "Plan actuel", 
+        "billing.cancelled_subscription_tier": "Abonnement annulé (%%)",
+        "billing.manage": "Gérer", 
+        "billing.limited": "Limité", 
+        "billing.expanded": "Étendu", 
+        "billing.accelerated": "Accéléré", 
+        "billing.enjoy_msg": "Profitez de %% de stockage Cloud ainsi que d'autres avantages.", 
 
     }
 };
