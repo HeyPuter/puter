@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { DBKVStore } = require("../../drivers/DBKVStore");
 const BaseService = require("../../services/BaseService");
 
 class SelfhostedService extends BaseService {
@@ -25,9 +24,6 @@ class SelfhostedService extends BaseService {
     `
 
     async _init () {
-        const svc_driver = this.services.get('driver');
-
-        svc_driver.register_driver('puter-kvstore', new DBKVStore());
     }
 }
 
