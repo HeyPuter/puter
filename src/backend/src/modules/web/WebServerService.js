@@ -266,9 +266,9 @@ class WebServerService extends BaseService {
             socket.on('trash.is_empty', (msg) => {
                 socket.broadcast.to(socket.user.id).emit('trash.is_empty', msg);
             });
-            socket.on('puter_is_actually_open', (msg) => {
+            socket.on('puter_is_actually_open', async (msg) => {
                 const svc_event = this.services.get('event');
-                svc_event.emit('web.socket.user-connected', {
+                await svc_event.emit('web.socket.user-connected', {
                     user: socket.user
                 });
             });

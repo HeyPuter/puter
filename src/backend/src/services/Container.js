@@ -212,10 +212,11 @@ class Container {
         if ( this.logger ) {
             this.logger.noticeme(`services:event ${id}`, { args });
         }
+
         const promises = [];
         for ( const k in this.instances_ ) {
             if ( this.instances_[k].__on ) {
-                promises.push(this.instances_[k].__on(id, args));
+                promises.push(Context.arun(() => this.instances_[k].__on(id, args)));
             }
         }
         await Promise.all(promises);
