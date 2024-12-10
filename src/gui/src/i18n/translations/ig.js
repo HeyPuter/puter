@@ -386,9 +386,7 @@ const ig = {
     "You can't share with yourself.": "Ị nweghị ike ịkekọrịta ya onwe gị.",
     "This user already has access to this item":
       "Onye a enweela ohere ịbanye ihe a",
-        // ----------------------------------------
-        // Missing translations:
-        // ----------------------------------------
+
         "billing.change_payment_method": "Gbanwee", // In English: "Change"
         "billing.cancel": "kagbuo", // In English: "Cancel"
         "billing.download_invoice": "budata", // In English: "Download"
