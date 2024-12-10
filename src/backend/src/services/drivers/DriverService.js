@@ -26,6 +26,8 @@ const { PermissionUtil } = require("../auth/PermissionService");
 const { Invoker } = require("../../../../putility/src/libs/invoker");
 const { get_user } = require("../../helpers");
 
+const strutil = require('@heyputer/putility').libs.string;
+
 /**
  * DriverService provides the functionality of Puter drivers.
  * This class is responsible for managing and interacting with Puter drivers.
@@ -50,8 +52,52 @@ class DriverService extends BaseService {
         this.interface_to_test_service = {};
         this.service_aliases = {};
     }
-    
 
+    /**
+    * This method is responsible for calling a driver's method with provided arguments.
+    * It checks for permissions, selects the best option, and applies rate and monthly usage limits before invoking the driver.
+    *
+    * @param {Object} o - An object containing driver, interface, method, and arguments.
+    * @returns {Promise<{success: boolean, service: DriverService.Driver, result: any, metadata: any}>}
+    */
+    _init () {
+        const svc_registry = this.services.get('registry');
+        svc_registry.register_collection('');
+        
+        const { quot } = strutil;
+        const svc_apiError = this.services.get('api-error');
+        svc_apiError.register({
+            'missing_required_argument': {
+                status: 400,
+                message: ({ interface_name, method_name, arg_name }) =>
+                    `Missing required argument ${quot(arg_name)} for method ${quot(method_name)} on interface ${quot(interface_name)}`,
+            },
+            'argument_consolidation_failed': {
+                status: 400,
+                message: ({ interface_name, method_name, arg_name, message }) =>
+                    `Failed to parse or process argument ${quot(arg_name)} for method ${quot(method_name)} on interface ${quot(interface_name)}: ${message}`,
+            },
+            'interface_not_found': {
+                status: 404,
+                message: ({ interface_name }) => `Interface not found: ${quot(interface_name)}`,
+            },
+            'method_not_found': {
+                status: 404,
+                message: ({ interface_name, method_name }) => `Method not found: ${quot(method_name)} on interface ${quot(interface_name)}`,
+            },
+            'no_implementation_available': {
+                status: 502,
+                message: ({
+                    iface,
+                    interface_name,
+                    driver
+                }) => `No implementation available for ` +
+                    (iface ?? interface_name) ? 'interface' : 'driver' +
+                    ' ' + quot(iface ?? interface_name ?? driver) + '.',
+            },
+        });
+    }
+    
     /**
     * This method is responsible for registering collections in the service registry.
     * It registers 'interfaces', 'drivers', and 'types' collections.
@@ -91,19 +137,6 @@ class DriverService extends BaseService {
             { col_drivers });
     }
     
-
-    /**
-    * This method is responsible for calling a driver's method with provided arguments.
-    * It checks for permissions, selects the best option, and applies rate and monthly usage limits before invoking the driver.
-    *
-    * @param {Object} o - An object containing driver, interface, method, and arguments.
-    * @returns {Promise<{success: boolean, service: DriverService.Driver, result: any, metadata: any}>}
-    */
-    _init () {
-        const svc_registry = this.services.get('registry');
-        svc_registry.register_collection('');
-    }
-
     register_driver (interface_name, implementation) {
         this.interface_to_implementation[interface_name] = implementation;
     }
@@ -235,7 +268,8 @@ class DriverService extends BaseService {
         })();
 
         if ( ! driver_service_exists ) {
-            throw APIError.create('no_implementation_available', null, { iface })
+            const svc_apiError = this.services.get('api-error');
+            throw svc_apiError.create('no_implementation_available', { iface });
         }
 
         const service = this.services.get(driver);
@@ -530,17 +564,19 @@ class DriverService extends BaseService {
         const svc_registry = this.services.get('registry');
         const c_interfaces = svc_registry.get('interfaces');
         const c_types = svc_registry.get('types');
+        
+        const svc_apiError = this.services.get('api-error');
 
         // Note: 'interface' is a strict mode reserved word.
         const interface_ = c_interfaces.get(interface_name);
         if ( ! interface_ ) {
-            throw APIError.create('interface_not_found', null, { interface_name });
+            throw svc_apiError.create('interface_not_found', { interface_name });
         }
 
         const processed_args = {};
         const method = interface_.methods[method_name];
         if ( ! method ) {
-            throw APIError.create('method_not_found', null, { interface_name, method_name });
+            throw svc_apiError.create('method_not_found', { interface_name, method_name });
         }
         
         for ( const [arg_name, arg_descriptor] of Object.entries(method.parameters) ) {
@@ -551,7 +587,7 @@ class DriverService extends BaseService {
             // There's a particular way I want to do this that involves
             // a trait for extensible behaviour.
             if ( arg_value === undefined && arg_descriptor.required ) {
-                throw APIError.create('missing_required_argument', null, {
+                throw svc_apiError.create('missing_required_argument', {
                     interface_name,
                     method_name,
                     arg_name,
@@ -564,7 +600,7 @@ class DriverService extends BaseService {
                 processed_args[arg_name] = await arg_behaviour.consolidate(
                     ctx, arg_value, { arg_descriptor, arg_name });
             } catch ( e ) {
-                throw APIError.create('argument_consolidation_failed', null, {
+                throw svc_apiError.create('argument_consolidation_failed', {
                     interface_name,
                     method_name,
                     arg_name,
