@@ -475,18 +475,6 @@ module.exports = class APIError {
             status: 400,
             message: 'Incorrect or missing anti-CSRF token.',
         },
-
-        // Chat
-        // TODO: specifying these errors here might be a violation
-        // of separation of concerns. Services could register their
-        // own errors with an error registry.
-        'max_tokens_exceeded': {
-            status: 400,
-            message: ({ input_tokens, max_tokens }) =>
-                `Input exceeds maximum token count. ` +
-                `Input has ${input_tokens} tokens, ` +
-                `but the maximum is ${max_tokens}.`,
-        },
     };
 
     /**

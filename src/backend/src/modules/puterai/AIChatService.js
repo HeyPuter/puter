@@ -92,6 +92,17 @@ class AIChatService extends BaseService {
 
             await this.db.insert('ai_usage', values);
         });
+        
+        const svc_apiErrpr = this.services.get('api-error');
+        svc_apiErrpr.register({
+            max_tokens_exceeded: {
+                status: 400,
+                message: ({ input_tokens, max_tokens }) =>
+                    `Input exceeds maximum token count. ` +
+                    `Input has ${input_tokens} tokens, ` +
+                    `but the maximum is ${max_tokens}.`,
+            },
+        });
     }
 
 
