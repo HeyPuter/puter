@@ -27,8 +27,8 @@ const { DB_READ } = require('../services/database/consts.js');
 // GET /get-launch-apps
 // -----------------------------------------------------------------------//
 router.get('/get-launch-apps', auth, express.json(), async (req, res, next)=>{
-    let final_returned_obj = {};
-    let retobj = [];
+    let result = {};
+
     // -----------------------------------------------------------------------//
     // Recent apps
     // -----------------------------------------------------------------------//
@@ -45,37 +45,35 @@ router.get('/get-launch-apps', auth, express.json(), async (req, res, next)=>{
             'SELECT DISTINCT app_uid FROM app_opens WHERE user_id = ? GROUP BY app_uid ORDER BY MAX(_id) DESC LIMIT 10',
             [req.user.id]);
         // Update cache with the results from the db (if any results were returned)
-        if(apps && Array.isArray(apps) && apps.length > 0)
+        if(apps && Array.isArray(apps) && apps.length > 0) {
             kv.set('app_opens:user:' + req.user.id, apps);
-    }
-
-    for (let index = 0; index < apps.length; index++) {
-        const app = await get_app({uid: apps[index].app_uid});
-        let final_obj = {};
-
-        // prepare each app for returning to user by only returning the necessary fields
-        // and adding them to the retobj array
-        if(app){
-            final_obj = {
-                uuid: app.uid,
-                name: app.name,
-                title: app.title,
-                icon: app.icon,
-                godmode: app.godmode,
-                maximize_on_start: app.maximize_on_start,
-                index_url: app.index_url,
-            };
         }
-        // add to object to be returned
-        retobj.push(final_obj)
     }
-    final_returned_obj.recent = retobj;
+
+    // prepare each app for returning to user by only returning the necessary fields
+    // and adding them to the retobj array
+    result.recent = [];
+    console.log('\x1B[36;1m -------- RECENT APPS -------- \x1B[0m', apps);
+    for ( const { app_uid: uid } of apps ) {
+        console.log('\x1B[36;1m -------- UID -------- \x1B[0m', uid);
+        const app = await get_app({ uid });
+        if ( ! app ) continue
+
+        result.recent.push({
+            uuid: app.uid,
+            name: app.name,
+            title: app.title,
+            icon: app.icon,
+            godmode: app.godmode,
+            maximize_on_start: app.maximize_on_start,
+            index_url: app.index_url,
+        });
+    }
+
     // -----------------------------------------------------------------------//
     // Recommended apps
     // -----------------------------------------------------------------------//
-    // reset retobj
-    retobj = [];
-    let app_names = [
+    let app_names = new Set([
         'app-center',
         'dev-center',
         'editor',
@@ -99,49 +97,27 @@ router.get('/get-launch-apps', auth, express.json(), async (req, res, next)=>{
         'plushie-connect',
         'hex-frvr',
         'spider-solitaire',
-    ]
+    ]);
 
     // Prepare each app for returning to user by only returning the necessary fields
     // and adding them to the retobj array
-    if(app_names.length > 0){
-        for (let index = 0; index < app_names.length; index++) {
-            const app = await get_app({name: app_names[index]});
+    result.recommended = [];
+    for ( const name of app_names ) {
+        const app = await get_app({ name });
+        if ( ! app ) continue;
 
-            let final_obj = {};
-            if(app){
-                final_obj = {
-                    uuid: app.uid,
-                    name: app.name,
-                    title: app.title,
-                    icon: app.icon,
-                    godmode: app.godmode,
-                    maximize_on_start: app.maximize_on_start,
-                    index_url: app.index_url,
-                };
-            }
-            // add to object to be returned
-            retobj.push(final_obj)
-        }
-
-        // remove duplicates from retobj
-        if(retobj.length > 0)
-            retobj = retobj.filter((obj, pos, arr) => {
-                return arr.map(mapObj => mapObj['name']).indexOf(obj['name']) === pos;
-            })
+        result.recommended.push({
+            uuid: app.uid,
+            name: app.name,
+            title: app.title,
+            icon: app.icon,
+            godmode: app.godmode,
+            maximize_on_start: app.maximize_on_start,
+            index_url: app.index_url,
+        });
     }
 
-    // Order output based on input!
-    let final_obj = [];
-    for (let index = 0; index < app_names.length; index++) {
-        const app_name = app_names[index];
-        for (let index = 0; index < retobj.length; index++) {
-            if(retobj[index].name === app_name)
-                final_obj.push(retobj[index]);
-        }
-    }
-
-    final_returned_obj.recommended = final_obj;
-
-    return res.send(final_returned_obj);
+    return res.send(result);
 })
+
 module.exports = router
