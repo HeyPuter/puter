@@ -364,9 +364,6 @@ const sv = {
         "This user already has access to this item":
         "Den här användaren har redan åtkomst till det här objektet", // In English: "This user already has access to this item"
 
-        // ----------------------------------------
-        // Missing translations:
-        // ----------------------------------------
         "plural_suffix": "", // In English: "s" (Plural suffix is context dependent in Swedish, it can be "or", "ar", "er", "en" or just no suffix)
         "billing.change_payment_method": "Ändra", // In English: "Change"
         "billing.cancel": "Avbryt", // In English: "Cancel"
