@@ -378,7 +378,7 @@ const ig = {
         "billing.resume_subscription": "Zọpụ Akụkọ", // In English: "Resume Subscription"
         "billing.subscription_cancelled": "Akụkọ gị e kpasịrị", // In English: "Your subscription has been canceled."
         "billing.subscription_cancelled_description": "Ọ ga-ekwe omume ka ị gaa na-ewebata ọtọ ọnụ ahịa gị ruo mgbe ịkpa ọnwa ahụ.", // In English: "You will still have access to your subscription until the end of this billing period."
-        "billing.offering.free": "Nfree", // In English: "Free"
+        "billing.offering.free": "N'efu", // In English: "Free"
         "billing.offering.pro": "Ukwu azụmaahịa", // In English: "Professional"
         "billing.offering.business": "ọrụ azụmaahịa", // In English: "Business"
         "billing.cloud_storage": "Ụlọ ọrụ data egwu", // In English: "Cloud Storage"
