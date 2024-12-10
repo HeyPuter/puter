@@ -22,7 +22,6 @@ const APIError = require("../../api/APIError");
 const { DriverError } = require("./DriverError");
 const { TypedValue } = require("./meta/Runtime");
 const BaseService = require("../BaseService");
-const { Driver } = require("../../definitions/Driver");
 const { PermissionUtil } = require("../auth/PermissionService");
 const { Invoker } = require("../../../../putility/src/libs/invoker");
 const { get_user } = require("../../helpers");
@@ -185,13 +184,6 @@ class DriverService extends BaseService {
             throw Error('actor not found in context');
         }
 
-        const services = Context.get('services');
-        const svc_permission = services.get('permission');
-
-
-        const svc_registry = this.services.get('registry');
-        const c_interfaces = svc_registry.get('interfaces');
-
         // There used to be only an 'interface' parameter but no 'driver'
         // parameter. To support outdated clients we use this hard-coded
         // table to map interfaces to default drivers.
@@ -243,89 +235,31 @@ class DriverService extends BaseService {
                 this.services.get(driver).list_traits()
                     .includes(iface);
         })();
-        if ( driver_service_exists ) {
-            const service = this.services.get(driver);
 
-            const caps = service.as('driver-capabilities');
-            if ( test_mode && caps && caps.supports_test_mode(iface, method) ) {
-                skip_usage = true;
-            }
-            
-            return await Context.sub({
-                client_driver_call,
-            }).arun(async () => {
-                const result = await this.call_new_({
-                    actor,
-                    service,
-                    service_name: driver,
-                    iface, method, args: processed_args,
-                    skip_usage,
-                });
-                result.metadata = client_driver_call.response_metadata;
-                return result;
-            });
-        }
-
-        const reading = await svc_permission.scan(actor, `driver:${iface}:${method}`);
-        const options = PermissionUtil.reading_to_options(reading);
-        if ( ! (options.length > 0) ) {
-            throw APIError.create('permission_denied');
-        }
-
-        const instance = this.get_default_implementation(iface);
-        if ( ! instance ) {
+        if ( ! driver_service_exists ) {
             throw APIError.create('no_implementation_available', null, { iface })
         }
-        /**
-        * This method is responsible for calling a driver method. It performs various checks and preparations before making the actual call.
-        * It first checks if the driver service exists for the given driver and interface. If it does, it checks if the driver supports the test mode. If it does, it skips the usage of the driver.
-        * If the driver service does not exist, it looks for a default implementation for the given interface and uses it if found.
-        * The method then calls the driver method with the processed arguments and returns the result. If an error occurs during the call, it is caught and handled accordingly.
-        *
-        * @param {Object} o - An object containing the driver name, interface name, method name, and arguments.
-        * @returns {Promise<Object>} - A promise that resolves to an object containing the result of the driver method call, or an error object if an error occurred.
-        */
-        const meta = await (async () => {
-            if ( instance instanceof Driver ) {
-                return await instance.get_response_meta();
-            }
-            if ( ! instance.instance.as('driver-metadata') ) return;
-            const t = instance.instance.as('driver-metadata');
-            return t.get_response_meta();
-        })();
-        try {
-            let result;
-            if ( instance instanceof Driver ) {
-                result = await instance.call(
-                    method, processed_args);
-            } else {
-                // TODO: SLA and monthly limits do not apply do drivers
-                //       from service traits (yet)
-                result = await instance.impl[method](processed_args);
-            }
-            if ( result instanceof TypedValue ) {
-                const interface_ = c_interfaces.get(iface);
-                let desired_type = interface_.methods[method]
-                    .result_choices[0].type;
-                const svc_coercion = services.get('coercion');
-                result = await svc_coercion.coerce(desired_type, result);
-                // meta.type = result.type.toString(),
-            }
-            return { success: true, ...meta, result };
-        } catch ( e ) {
-            let for_user = (e instanceof APIError) || (e instanceof DriverError);
-            if ( ! for_user ) this.errors.report(`driver:${iface}:${method}`, {
-                source: e,
-                trace: true,
-                // TODO: alarm will not be suitable for all errors.
-                alarm: true,
-                extra: {
-                    args,
-                }
-            });
-            this.log.error('Driver error response: ' + e.toString());
-            return this._driver_response_from_error(e, meta);
+
+        const service = this.services.get(driver);
+
+        const caps = service.as('driver-capabilities');
+        if ( test_mode && caps && caps.supports_test_mode(iface, method) ) {
+            skip_usage = true;
         }
+        
+        return await Context.sub({
+            client_driver_call,
+        }).arun(async () => {
+            const result = await this.call_new_({
+                actor,
+                service,
+                service_name: driver,
+                iface, method, args: processed_args,
+                skip_usage,
+            });
+            result.metadata = client_driver_call.response_metadata;
+            return result;
+        });
     }
     
 
