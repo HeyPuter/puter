@@ -17,16 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { DB_READ } = require("../../services/database/consts");
-const { abtest } = require("../../util/otelutil");
-const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector, NodeChildSelector, RootNodeSelector } = require("../node/selectors");
+const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector, NodeChildSelector, RootNodeSelector } = require("../../filesystem/node/selectors");
+const BaseService = require("../../services/BaseService");
 
-module.exports = class DatabaseFSEntryFetcher {
-    constructor ({ services }) {
-        this.services = services;
-        this.log = services.get('log-service').create('DatabaseFSEntryFetcher');
-
-        this.db = services.get('database').get(DB_READ, 'filesystem');
-
+module.exports = class DatabaseFSEntryFetcher extends BaseService {
+    _construct () {
         this.defaultProperties = [
             'id',
             'associated_app_id',
@@ -55,6 +50,10 @@ module.exports = class DatabaseFSEntryFetcher {
             'layout',
             'path',
         ]
+    }
+
+    _init () {
+        this.db = this.services.get('database').get(DB_READ, 'filesystem');
     }
 
     async find (selector, fetch_entry_options) {
