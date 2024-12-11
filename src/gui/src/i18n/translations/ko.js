@@ -388,9 +388,6 @@ const ko = {
     "This user already has access to this item":
       "이 사용자는 이미 접근 권한이 있습니다.",
 
-    // ----------------------------------------
-    // Missing translations:
-    // ----------------------------------------
     "billing.change_payment_method": "결제 수단 변경", // added "payment method"
     "billing.cancel": "취소",
     "billing.download_invoice": "청구서 다운로드", // added "invoice"
