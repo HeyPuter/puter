@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const opentelemetry = require("@opentelemetry/api");
 const { NodeSDK } = require('@opentelemetry/sdk-node');
 const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
 const { PeriodicExportingMetricReader, ConsoleMetricExporter } = require('@opentelemetry/sdk-metrics');
@@ -59,6 +60,31 @@ class TelemetryService extends BaseService {
         this.sdk = sdk;
 
         this.sdk.start();
+
+        this.tracer_ = opentelemetry.trace.getTracer(
+            'puter-tracer'
+        );
+    }
+    
+    _init () {
+        const svc_context = this.services.get('context');
+        svc_context.register_context_hook('pre_arun', ({ hints, trace_name, callback, replace_callback }) => {
+            if ( ! trace_name ) return;
+            if ( ! hints.trace ) return;
+            console.log('APPLYING TRACE NAME', trace_name);
+            replace_callback(async () => {
+                return await this.tracer_.startActiveSpan(trace_name, async span => {
+                    try {
+                        return await callback();
+                    } catch (error) {
+                        span.setStatus({ code: opentelemetry.SpanStatusCode.ERROR, message: error.message });
+                        throw error;
+                    } finally {
+                        span.end();
+                    }
+                });
+            });
+        });
     }
 
     getConfiguredExporter_() {
