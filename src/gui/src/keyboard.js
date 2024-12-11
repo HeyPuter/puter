@@ -327,6 +327,7 @@ $(document).bind('keydown', async function(e){
             $(selected_item).removeClass('search-result-active');
             $(new_selected_item).addClass('search-result-active');
             new_selected_item.scrollIntoView(false);
+            
         }
     }
     //-----------------------------------------------------------------------
@@ -760,4 +761,13 @@ $(document).bind("keyup keydown", async function(e){
         window.undo_last_action();
         return false;
     }
+    // When hovering over a search result element
+    $(document).on('mouseenter', '.search-result', function () {
+        $(this).addClass('search-result-active');  // Adds the 'hover' class on hover
+    });
+
+    // When leaving a search result element
+    $(document).on('mouseleave', '.search-result', function () {
+        $(this).removeClass('search-result-active');  // Removes the 'hover' class when leaving
+    });
 });
