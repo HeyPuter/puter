@@ -31,6 +31,7 @@ const { WebModule } = require("./src/modules/web/WebModule.js");
 const { Core2Module } = require("./src/modules/core/Core2Module.js");
 const { TemplateModule } = require("./src/modules/template/TemplateModule.js");
 const { PuterFSModule } = require("./src/modules/puterfs/PuterFSModule.js");
+const { PerfMonModule } = require("./src/modules/perfmon/PerfMonModule.js");
 
 
 module.exports = {
@@ -63,4 +64,7 @@ module.exports = {
     TestDriversModule,
     PuterAIModule,
     BroadcastModule,
+    
+    // Development modules
+    PerfMonModule,
 };

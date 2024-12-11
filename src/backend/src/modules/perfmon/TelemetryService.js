@@ -25,17 +25,13 @@ const { SemanticResourceAttributes } = require("@opentelemetry/semantic-conventi
 const { NodeTracerProvider } = require("@opentelemetry/sdk-trace-node");
 const { ConsoleSpanExporter, BatchSpanProcessor } = require("@opentelemetry/sdk-trace-base");
 const { JaegerExporter } = require('@opentelemetry/exporter-jaeger');
-const config = require('../config');
+const config = require('../../config');
 const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-grpc');
 
-class TelemetryService {
-    static instance_ = null;
-    static getInstance () {
-        if ( this.instance_ ) return this.instance_;
-        return this.instance_ = new TelemetryService();
-    }
+const BaseService = require('../../services/BaseService');
 
-    constructor () {
+class TelemetryService extends BaseService {
+    _construct () {
         const resource = Resource.default().merge(
             new Resource({
                 [SemanticResourceAttributes.SERVICE_NAME]: "puter-backend",
@@ -61,6 +57,8 @@ class TelemetryService {
         });
 
         this.sdk = sdk;
+
+        this.sdk.start();
     }
 
     getConfiguredExporter_() {
@@ -69,12 +67,6 @@ class TelemetryService {
         }
         const exporter = new ConsoleSpanExporter();
     }
-
-    start () {
-        // this.sdk.start();
-    }
 }
 
-module.exports = {
-    TelemetryService
-}
+module.exports = TelemetryService;
