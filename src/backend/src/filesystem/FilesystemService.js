@@ -63,27 +63,6 @@ class FilesystemService extends BaseService {
                     .obtain('fs.fsentry:path')
                     .exec(entry.uuid);
             });
-
-
-        // Decorate methods with otel span
-        // TODO: use putility class feature for method decorators
-        const span_methods = [
-            'write', 'mkdir', 'rm', 'mv', 'cp', 'read', 'stat',
-            'mkdir_2',
-            'update_child_paths',
-        ];
-        for ( const method of span_methods ) {
-            const original_method = this[method];
-            this[method] = async (...args) => {
-                const tracer = services.get('traceService').tracer;
-                let result;
-                await tracer.startActiveSpan(`fs-svc:${method}`, async span => {
-                    result = await original_method.call(this, ...args);
-                    span.end();
-                });
-                return result;
-            }
-        }
     }
 
     async _init () {
