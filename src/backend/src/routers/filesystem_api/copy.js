@@ -19,12 +19,8 @@
 "use strict"
 const eggspress = require('../../api/eggspress.js');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam.js');
-const _path = require('path');
-const { NodeUIDSelector } = require('../../filesystem/node/selectors.js');
 const { HLCopy } = require('../../filesystem/hl_operations/hl_copy.js');
 const { Context } = require('../../util/context.js');
-const { DatabaseFSEntryService } = require('../../modules/puterfs/DatabaseFSEntryService.js');
-const { ProxyContainer } = require('../../services/Container.js');
 
 // -----------------------------------------------------------------------//
 // POST /copy

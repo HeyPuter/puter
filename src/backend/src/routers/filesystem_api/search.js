@@ -1,7 +1,5 @@
 const eggspress = require("../../api/eggspress");
 const { HLNameSearch } = require("../../filesystem/hl_operations/hl_name_search");
-const { subdomain } = require("../../helpers");
-const verified = require("../../middleware/verified");
 
 module.exports = eggspress('/search', {
     subdomain: 'api',

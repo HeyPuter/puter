@@ -92,9 +92,9 @@ const hardcoded_user_group_permissions = {
             'service:hello-world:ii:hello-world': policy_perm('user.es'),
             'service:puter-kvstore:ii:puter-kvstore': policy_perm('user.kv'),
             'driver:puter-kvstore': policy_perm('user.kv'),
-            'service:puter-notifications:ii:crud-q': policy_perm('user.es'),
-            'service:puter-apps:ii:crud-q': policy_perm('user.es'),
-            'service:puter-subdomains:ii:crud-q': policy_perm('user.es'),
+            'service:es\\Cnotification:ii:crud-q': policy_perm('user.es'),
+            'service:es\\Capp:ii:crud-q': policy_perm('user.es'),
+            'service:es\\Csubdomain:ii:crud-q': policy_perm('user.es'),
         },
     },
 };
