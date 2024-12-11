@@ -3420,6 +3420,10 @@ $.fn.showWindow = async function(options) {
             });
             $(el_window).css('z-index', ++window.last_window_zindex);
 
+            $(el_window).attr({
+                'data-is_minimized': true, 
+            })
+
             setTimeout(() => {
                 $(this).focusWindow();
             }, 80);
