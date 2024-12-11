@@ -393,9 +393,6 @@ const ku = {
     "You can't share with yourself.": "ناتوانیت لەگەڵ خودی خۆت بڵاوی کەیتەوە", // In English: "You can't share with yourself."
     "This user already has access to this item": "ئەم بەکارهێنەرە پێشتر ڕێپێدراوە بۆ ئەم فایلە", // In English: "This user already has access to this item"
 
-    // ----------------------------------------
-    // Missing translations:
-    // ----------------------------------------
     "billing.change_payment_method": "گۆڕانکاری",
     "billing.cancel": "بڕینەوە",
     "billing.download_invoice": "داونلۆد بکە",
