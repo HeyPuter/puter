@@ -21,7 +21,6 @@ const { RESOURCE_STATUS_PENDING_CREATE } = require('../modules/puterfs/ResourceS
 const DatabaseFSEntryFetcher = require("./storage/DatabaseFSEntryFetcher");
 const { TraceService } = require('../services/TraceService.js');
 const FSAccessContext = require('./FSAccessContext.js');
-const SystemFSEntryService = require('./storage/SystemFSEntryService.js');
 const PerformanceMonitor = require('../monitor/PerformanceMonitor.js');
 const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector } = require('./node/selectors.js');
 const FSNodeContext = require('./FSNodeContext.js');
@@ -56,8 +55,6 @@ class FilesystemService extends BaseService {
         }));
 
         // The new fs entry service
-        services.registerService('systemFSEntryService', SystemFSEntryService);
-
         this.log = services.get('log-service').create('filesystem-service');
 
         // used by update_child_paths
@@ -252,7 +249,7 @@ class FilesystemService extends BaseService {
         await target.fetchEntry({ thumbnail: true });
 
         const { _path, uuidv4 } = this.modules;
-        const systemFSEntryService = this.services.get('systemFSEntryService');
+        const svc_fsEntry = this.services.get('fsEntryService');
 
         const ts = Math.round(Date.now() / 1000);
         const uid = uuidv4();
@@ -282,7 +279,7 @@ class FilesystemService extends BaseService {
 
         this.log.debug('creating fsentry', { fsentry: raw_fsentry })
 
-        const entryOp = await systemFSEntryService.insert(raw_fsentry);
+        const entryOp = await svc_fsEntry.insert(raw_fsentry);
 
         console.log('entry op', entryOp);
 
@@ -319,7 +316,7 @@ class FilesystemService extends BaseService {
 
         const { _path, uuidv4 } = this.modules;
         const resourceService = this.services.get('resourceService');
-        const systemFSEntryService = this.services.get('systemFSEntryService');
+        const svc_fsEntry = this.services.get('fsEntryService');
 
         const ts = Math.round(Date.now() / 1000);
         const uid = uuidv4();
@@ -346,7 +343,7 @@ class FilesystemService extends BaseService {
 
         this.log.debug('creating symlink', { fsentry: raw_fsentry })
 
-        const entryOp = await systemFSEntryService.insert(raw_fsentry);
+        const entryOp = await svc_fsEntry.insert(raw_fsentry);
 
         (async () => {
             await entryOp.awaitDone();

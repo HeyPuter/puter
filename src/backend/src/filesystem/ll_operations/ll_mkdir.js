@@ -60,7 +60,7 @@ class LLMkdir extends LLFilesystemOperation {
         const ts = Math.round(Date.now() / 1000);
         const uid = uuidv4();
         const resourceService = context.get('services').get('resourceService');
-        const systemFSEntryService = context.get('services').get('systemFSEntryService');
+        const svc_fsEntry = context.get('services').get('fsEntryService');
         const svc_event = context.get('services').get('event');
         const fs = context.get('services').get('filesystem');
 
@@ -109,7 +109,7 @@ class LLMkdir extends LLFilesystemOperation {
         this.log.debug('creating fsentry', { fsentry: raw_fsentry })
 
         this.checkpoint('about to enqueue insert');
-        const entryOp = await systemFSEntryService.insert(raw_fsentry);
+        const entryOp = await svc_fsEntry.insert(raw_fsentry);
 
         this.field('fsentry-created', false);
 
