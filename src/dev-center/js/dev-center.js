@@ -288,8 +288,6 @@ async function create_app(title, source_path = null, items = null) {
     
         })
         .then(async (app) => {
-            $('.new-app-modal').get(0).close();
-                window.location.reload();
             let app_dir;
             // ----------------------------------------------------
             // Create app directory in AppData
@@ -315,8 +313,6 @@ async function create_app(title, source_path = null, items = null) {
                 maximizeOnStart: false,
                 background: false,
             }).then(async (app) => {
-                $('.new-app-modal').get(0).close();
-                window.location.reload();
                 // refresh app list
                 puter.apps.list().then(async (resp) => {
                     apps = resp;
