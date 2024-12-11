@@ -393,55 +393,52 @@ const ku = {
     "You can't share with yourself.": "ناتوانیت لەگەڵ خودی خۆت بڵاوی کەیتەوە", // In English: "You can't share with yourself."
     "This user already has access to this item": "ئەم بەکارهێنەرە پێشتر ڕێپێدراوە بۆ ئەم فایلە", // In English: "This user already has access to this item"
 
-    // ----------------------------------------
-    // Missing translations:
-    // ----------------------------------------
-    "billing.change_payment_method": undefined, // In English: "Change"
-    "billing.cancel": undefined, // In English: "Cancel"
-    "billing.download_invoice": undefined, // In English: "Download"
-    "billing.payment_method": undefined, // In English: "Payment Method"
-    "billing.payment_method_updated": undefined, // In English: "Payment method updated!"
-    "billing.confirm_payment_method": undefined, // In English: "Confirm Payment Method"
-    "billing.payment_history": undefined, // In English: "Payment History"
-    "billing.refunded": undefined, // In English: "Refunded"
-    "billing.paid": undefined, // In English: "Paid"
-    "billing.ok": undefined, // In English: "OK"
-    "billing.resume_subscription": undefined, // In English: "Resume Subscription"
-    "billing.subscription_cancelled": undefined, // In English: "Your subscription has been canceled."
-    "billing.subscription_cancelled_description": undefined, // In English: "You will still have access to your subscription until the end of this billing period."
-    "billing.offering.free": undefined, // In English: "Free"
-    "billing.offering.pro": undefined, // In English: "Professional"
-    "billing.offering.business": undefined, // In English: "Business"
-    "billing.cloud_storage": undefined, // In English: "Cloud Storage"
-    "billing.ai_access": undefined, // In English: "AI Access"
-    "billing.bandwidth": undefined, // In English: "Bandwidth"
-    "billing.apps_and_games": undefined, // In English: "Apps & Games"
-    "billing.upgrade_to_pro": undefined, // In English: "Upgrade to %strong%"
-    "billing.switch_to": undefined, // In English: "Switch to %strong%"
-    "billing.payment_setup": undefined, // In English: "Payment Setup"
-    "billing.back": undefined, // In English: "Back"
-    "billing.you_are_now_subscribed_to": undefined, // In English: "You are now subscribed to %strong% tier."
-    "billing.you_are_now_subscribed_to_without_tier": undefined, // In English: "You are now subscribed"
-    "billing.subscription_cancellation_confirmation": undefined, // In English: "Are you sure you want to cancel your subscription?"
-    "billing.subscription_setup": undefined, // In English: "Subscription Setup"
-    "billing.cancel_it": undefined, // In English: "Cancel It"
-    "billing.keep_it": undefined, // In English: "Keep It"
-    "billing.subscription_resumed": undefined, // In English: "Your %strong% subscription has been resumed!"
-    "billing.upgrade_now": undefined, // In English: "Upgrade Now"
-    "billing.upgrade": undefined, // In English: "Upgrade"
-    "billing.currently_on_free_plan": undefined, // In English: "You are currently on the free plan."
-    "billing.download_receipt": undefined, // In English: "Download Receipt"
-    "billing.subscription_check_error": undefined, // In English: "A problem occurred while checking your subscription status."
-    "billing.email_confirmation_needed": undefined, // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-    "billing.sub_cancelled_but_valid_until": undefined, // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-    "billing.current_plan_until_end_of_period": undefined, // In English: "Your current plan until the end of this billing period."
-    "billing.current_plan": undefined, // In English: "Current plan"
-    "billing.cancelled_subscription_tier": undefined, // In English: "Cancelled Subscription (%%)"
-    "billing.manage": undefined, // In English: "Manage"
-    "billing.limited": undefined, // In English: "Limited"
-    "billing.expanded": undefined, // In English: "Expanded"
-    "billing.accelerated": undefined, // In English: "Accelerated"
-    "billing.enjoy_msg": undefined, // In English: "Enjoy %% of Cloud Storage plus other benefits."
+    "billing.change_payment_method": "گۆڕانکاری",
+    "billing.cancel": "بڕینەوە",
+    "billing.download_invoice": "داونلۆد بکە",
+    "billing.payment_method": "شێوازی پارەدان",
+    "billing.payment_method_updated": "شێوازی پارەدان نوێ کراوەتەوە!",
+    "billing.confirm_payment_method": "دروستکردنی شێوازی پارەدان",
+    "billing.payment_history": "مێژووی پارەدان",
+    "billing.refunded": "بەپێچەوانە کراوە",
+    "billing.paid": "پارەی دا",
+    "billing.ok": "باشە",
+    "billing.resume_subscription": "پاشەکەوتی بەردەوام بکە",
+    "billing.subscription_cancelled": "بەژداربوونەکەت هەڵوەشێنراوەتەوە",
+    "billing.subscription_cancelled_description": "تا کۆتایی ئەم ماوەیە تۆ هێشتا دەستت بە بەشداربوونەکەت هەیە",
+    "billing.offering.free": "بە خۆڕایی",
+    "billing.offering.pro": "پیشەیی",
+    "billing.offering.business": "بزنس",
+    "billing.cloud_storage": "خزێنەی هەور",
+    "billing.ai_access": "دەستڕاگەیشتن بە AI",
+    "billing.bandwidth": "باندفیدت",
+    "billing.apps_and_games": "ئەپەکان & یارییەکان",
+    "billing.upgrade_to_pro": "بە %strong% بەرز بکەرەوە",
+    "billing.switch_to": "گۆڕە بۆ %strong%",
+    "billing.payment_setup": "بەکارھێنانی پارەدان",
+    "billing.back": "باک",
+    "billing.you_are_now_subscribed_to": "ئێستا تۆ بەشداریت لە %strong% tier",
+    "billing.you_are_now_subscribed_to_without_tier": "ئێستا تۆ بەشداریت",
+    "billing.subscription_cancellation_confirmation": "ئایا دڵنیایت کە دەتەوێت بەشداربوونەکەت هەڵوەشێنیتەوە؟",
+    "billing.subscription_setup": "دەستکاریی بەشداربوون",
+    "billing.cancel_it": "داوایی لێ بکەوە",
+    "billing.keep_it": "هێشتەوە",
+    "billing.subscription_resumed": "بەژداربوونت %strong% دەستپێکرایەوە!",
+    "billing.upgrade_now": "ئێستا نوێکەرەوە",
+    "billing.upgrade": "Upgrade",
+    "billing.currently_on_free_plan": "ئێستا لە پلانی بێبەرامبەریت",
+    "billing.download_receipt": "دانەوەی وەرگیراو",
+    "billing.subscription_check_error": "کێشەیەک ڕوویدا لەکاتی پشکنینی دۆخی بەشداربوونەکەت",
+    "billing.email_confirmation_needed": " ئیمەیڵەکەت پشتڕاست نەکراوەتەوە. کۆدێکت بۆ دەنێرین بۆ پشتڕاستکردنەوەی ئێستا",
+    "billing.sub_cancelled_but_valid_until": "تۆ بەشداربوونەکەت هەڵوەشاندەوە و بە ئۆتۆماتیکی دەگۆڕێت بۆ پلەی خۆڕایی لە کۆتایی ماوەی فۆڕمی فۆرم. جارێكی دیكە هیچ پارەیەكتان لێناگیرێت مەگەر دووبارە بەشداربن",
+    "billing.current_plan_until_end_of_period": "پلانی ئێستای تۆ تا کۆتایی ئەم ماوەیە بۆ فۆڕمی فۆرم",
+    "billing.current_plan": "پلانی ئێستا",
+    "billing.cancelled_subscription_tier": "بەژمارەی هەڵوەشێندراو (%%) ",
+    "billing.manage": "بەڕێوەبەری",
+    "billing.limited": "Limited",
+    "billing.expanded": "بڵاوکراوەتەوە",
+    "billing.accelerated": "بە خێرایی",
+    "billing.enjoy_msg": "%% لە هەڵگرتنی هەور و سوودی تر وەربگرە"
   },
 };
 
