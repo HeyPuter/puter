@@ -50,6 +50,9 @@ class Core2Module extends AdvancedBase {
         
         const { ParameterService } = require("./ParameterService.js");
         services.registerService('params', ParameterService);
+        
+        const { ContextService } = require('./ContextService.js');
+        services.registerService('context', ContextService);
     }
 }
 
