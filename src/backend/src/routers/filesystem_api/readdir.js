@@ -17,16 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 "use strict"
-const express = require('express');
-const router = express.Router();
-const auth = require('../../middleware/auth.js');
-const config = require('../../config.js');
-const PerformanceMonitor = require('../../monitor/PerformanceMonitor.js');
 const { Context } = require('../../util/context.js');
 const eggspress = require('../../api/eggspress.js');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam.js');
 const FlagParam = require('../../api/filesystem/FlagParam.js');
-const { LLReadDir } = require('../../filesystem/ll_operations/ll_readdir.js');
 const { HLReadDir } = require('../../filesystem/hl_operations/hl_readdir.js');
 
 // -----------------------------------------------------------------------//

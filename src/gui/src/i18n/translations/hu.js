@@ -348,6 +348,7 @@ const hu = {
         "Owner": "Tulajdonos", // In English: "Owner"
         "You can't share with yourself.": "Nem oszthatod meg magaddal.", // In English: "You can't share with yourself."
         "This user already has access to this item": "Ez a felhasználó már hozzáfér ehhez az elemhez", // In English: "This user already has access to this item"
+
         "billing.change_payment_method": "Módosítás", // In English: "Change"
         "billing.cancel": "Lemondás", // In English: "Cancel"
         "billing.change_payment_method": "Fizetési mód megváltoztatása", // In English: "Change"
@@ -396,7 +397,6 @@ const hu = {
         "billing.expanded": "Bővített", // In English: "Expanded"
         "billing.accelerated": "Gyorsított", // In English: "Accelerated"
         "billing.enjoy_msg": "Élvezd a %% Felhőtárhelyet és további előnyöket.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
     }
 };
 
