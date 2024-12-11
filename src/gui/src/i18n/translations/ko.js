@@ -382,9 +382,6 @@ const ko = {
     "You can't share with yourself.": "자기 자신과는 공유할 수 없습니다.", 
     "This user already has access to this item": "이 사용자는 이미 접근 권한이 있습니다.", 
 
-    // ----------------------------------------
-    // Missing translations:
-    // ----------------------------------------
     "billing.change_payment_method": "결제 수단 변경", 
     "billing.cancel": "결제 취소",
     "billing.download_invoice": "결제 내역 다운로드",
