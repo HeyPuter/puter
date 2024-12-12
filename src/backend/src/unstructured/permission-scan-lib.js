@@ -10,11 +10,7 @@
 const remove_paths_through_user = ({ reading, user }) => {
     const no_cycle_reading = [];
 
-    for ( let i = 0 ; i < reading.length ; i++ ) {
-        const node = reading[i];
-
-        console.log('checking node...', node);
-
+    for ( const node of reading ) {
         if ( node.$ === 'path' ) {
             if (
                 node.issuer_username === user.username
@@ -33,14 +29,11 @@ const remove_paths_through_user = ({ reading, user }) => {
         no_cycle_reading.push(node);
     }
 
-    console.log('\x1B[36;1m ====', reading.length - no_cycle_reading.length, 'nodes filtered out ====\x1B[0m');
-
     return no_cycle_reading;
 };
 
 const reading_has_terminal = ({ reading }) => {
-    for ( let i = 0 ; i < reading.length ; i++ ) {
-        const node = reading[i];
+    for ( const node of reading ) {
         if ( node.has_terminal ) {
             return true;
         }

@@ -52,7 +52,6 @@ class Context {
                 );
             }
 
-            // x = globalThis.root_context ?? this.create({});
             x = this.root.sub({}, this.USE_NAME_FALLBACK);
         }
         if ( x && k ) return x.get(k);
@@ -180,7 +179,6 @@ class Context {
         });
     }
     abind (cb) {
-        const als = this.constructor.contextAsyncLocalStorage;
         return async (...args) => {
             return await this.arun(async () => {
                 return await cb(...args);
