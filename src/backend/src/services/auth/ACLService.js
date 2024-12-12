@@ -248,11 +248,6 @@ class ACLService extends BaseService {
 
         const stat = await this.stat_user_user(issuer, holder, resource);
 
-        // this.log.info('stat object', {
-        //     stat,
-        //     path: await resource.get('path')
-        // });
-
         const perms_on_this = stat[await resource.get('path')] ?? [];
 
         const mode_parts = perms_on_this.map(perm => PermissionUtil.split(perm)[2]);
@@ -463,7 +458,6 @@ class ACLService extends BaseService {
 
         const svc_permission = await context.get('services').get('permission');
 
-        // const modes = this._higher_modes(mode);
         const modes = [mode];
         let perm_fsNode = fsNode;
         while ( ! await perm_fsNode.get('is-root') ) {

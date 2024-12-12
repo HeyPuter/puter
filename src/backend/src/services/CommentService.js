@@ -66,9 +66,6 @@ class CommentService extends BaseService {
                     });
 
                     if ( req.body.version ) {
-                        // this.attach_comment_to_fsentry_version({
-                        //     node, comment, version,
-                        // });
                         res.status(400).send('not implemented yet');
                         return;
                     } else {
@@ -104,9 +101,6 @@ class CommentService extends BaseService {
                     });
 
                     if ( req.body.version ) {
-                        // this.attach_comment_to_fsentry_version({
-                        //     node, comment, version,
-                        // });
                         res.status(400).send('not implemented yet');
                         return;
                     } else {

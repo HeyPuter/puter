@@ -163,8 +163,6 @@ class PuterHomepageService extends BaseService {
     }) {
         const require = this.require;
         const {encode} = require('html-entities');
-        const path_ = require('path');
-        const fs_ = require('fs');
 
         const e = encode;
 
@@ -175,7 +173,6 @@ class PuterHomepageService extends BaseService {
             company,
             canonical_url,
             social_media_image,
-            icon,
         } = meta;
 
         gui_params = {
@@ -190,7 +187,6 @@ class PuterHomepageService extends BaseService {
 
         const asset_dir = env === 'dev'
             ? '/src' : '/dist' ;
-        // const asset_dir = '/dist';
 
         gui_params.asset_dir = asset_dir;
 
@@ -208,12 +204,6 @@ class PuterHomepageService extends BaseService {
 
         // set social media image to default if it is not valid
         const social_media_image_url = social_media_image || `${asset_dir}/images/screenshot.png`;
-
-        const writeScriptTag = path =>
-            `<script type="${
-                Array.isArray(path) ? 'text/javascirpt' : 'module'
-            }" src="${Array.isArray(path) ? path[0] : path}"></script>\n`
-            ;
 
         return `<!DOCTYPE html>
     <html lang="en">

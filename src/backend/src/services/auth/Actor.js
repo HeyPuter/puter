@@ -140,6 +140,13 @@ class Actor extends AdvancedBase {
     }
 }
 
+class ActorType {
+    constructor (o) {
+        for ( const k in o ) {
+            this[k] = o[k];
+        }
+    }
+}
 
 /**
 * Class representing the system actor type within the actor framework.
@@ -147,13 +154,7 @@ class Actor extends AdvancedBase {
 * represents a system-level entity and provides methods for UID retrieval 
 * and related type management.
 */
-class SystemActorType {
-    constructor (o, ...a) {
-        // super(o, ...a);
-        for ( const k in o ) {
-            this[k] = o[k];
-        }
-    }
+class SystemActorType extends ActorType {
     /**
      * Constructs a new instance of the actor type.
      * 
@@ -179,13 +180,7 @@ class SystemActorType {
 * specific to user actors. This class extends the base functionality to uniquely identify
 * user actors and define how they relate to other types of actors within the system.
 */
-class UserActorType {
-    constructor (o, ...a) {
-        // super(o, ...a);
-        for ( const k in o ) {
-            this[k] = o[k];
-        }
-    }
+class UserActorType extends ActorType {
     /**
     * Constructs a new UserActorType instance.
     * 
@@ -208,13 +203,7 @@ class UserActorType {
 * retrieving related actor types. It extends the base actor type functionality 
 * to cater to user-specific needs.
 */
-class AppUnderUserActorType {
-    constructor (o, ...a) {
-        // super(o, ...a);
-        for ( const k in o ) {
-            this[k] = o[k];
-        }
-    }
+class AppUnderUserActorType extends ActorType {
     /**
     * Create a new instance of the actor type, initializing it with the given parameters.
     * 
@@ -246,16 +235,11 @@ class AppUnderUserActorType {
 * An AccessTokenActorType associates an authorizer and an authorized actor 
 * with a string token, facilitating permission checks and identity management.
 */
-class AccessTokenActorType {
+class AccessTokenActorType extends ActorType {
     // authorizer: an Actor who authorized the token
     // authorized: an Actor who is authorized by the token
     // token: a string
-    constructor (o, ...a) {
-        // super(o, ...a);
-        for ( const k in o ) {
-            this[k] = o[k];
-        }
-    }
+
     /**
      * Constructs an instance of AccessTokenActorType.
      * This class represents an access token actor containing information 

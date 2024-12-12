@@ -90,11 +90,6 @@ class RateLimitService extends BaseService {
                 window_start = ts_fr_sql(row.window_start);
                 const count = row.count;
 
-                // console.log(
-                //     'set window_start and count from DATABASE',
-                //     { window_start, count }
-                // );
-
                 kv.set(`${kvkey}:window_start`, window_start);
                 kv.set(`${kvkey}:count`, count);
             }
@@ -116,20 +111,10 @@ class RateLimitService extends BaseService {
             );
         }
 
-        // console.log(
-        //     'DEBUGGING COMPARISON',
-        //     { window_start, period, now: Date.now() }
-        // );
-
         if ( window_start + period < Date.now() ) {
             window_start = Date.now();
             kv.set(`${kvkey}:window_start`, window_start);
             kv.set(`${kvkey}:count`, 0);
-
-            // console.log(
-            //     'REFRESH window_start and count',
-            //     { window_start, count: 0 }
-            // );
 
             await this.db.write(
                 'UPDATE `rl_usage_fixed_window` SET `window_start` = ?, `count` = ? WHERE `key` = ?',

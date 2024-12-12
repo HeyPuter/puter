@@ -191,7 +191,6 @@ class DevConsoleService extends BaseService {
     */
     async _init () {
         const services = this.services;
-        // await services.ready;
         const commands = services.get('commands');
 
         const readline = require('readline');
@@ -223,7 +222,6 @@ class DevConsoleService extends BaseService {
                 await commands.executeRawCommand(input, console);
             }
             this._after_cmd();
-            // rl.prompt();
         });
 
 
@@ -354,26 +352,9 @@ class DevConsoleService extends BaseService {
         consoleLogManager.post_all(() => {
             this._post_write();
         })
-        // logService.loggers.unshift({
-        //     onLogMessage: () => {
-        //         rl.pause();
-        //         rl.output.write('\x1b[2K\r');
-        //     }
-        // });
-        // logService.loggers.push({
-        //     onLogMessage: () => {
-        //         rl.resume();
-        //         rl._refreshLine();
-        //     }
-        // });
 
         // This prevents the promptline background from staying
         // when Ctrl+C is used to terminate the server
-        /**
-         * Handles the SIGINT signal to gracefully terminate the server.
-         * This method ensures that the console output is reset and the process exits cleanly.
-         * It is triggered when the user presses Ctrl+C in the terminal.
-         */
         rl.on('SIGINT', () => {
             process.stdout.write(`\x1b[0m\r`);
             process.exit(0);

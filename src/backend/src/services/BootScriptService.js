@@ -56,8 +56,7 @@ class BootScriptService extends BaseService {
             }
         };
 
-        for ( let i=0 ; i < boot_json.length ; i++ ) {
-            const statement = boot_json[i];
+        for ( const statement of boot_json ) {
             const [cmd, ...args] = statement;
             if ( ! scope[cmd] ) {
                 throw new Error(`Unknown command: ${cmd}`);
