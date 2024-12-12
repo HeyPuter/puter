@@ -479,13 +479,19 @@ function applink(app) {
  * $('#edit-app').html(appEditHTML);
  */
 
+// Modify generate_edit_app_section function for category display
 function generate_edit_app_section(app) {
     if(app.result)
         app = app.result;
 
     let maximize_on_start = app.maximize_on_start ? 'checked' : '';
 
-    let h = ``;
+    const selectedCategory = app.metadata?.category || "";
+    const categoryOptions = APP_CATEGORIES.map(category => 
+        `<option value="${html_encode(category.id)}" ${category.id === selectedCategory ? "selected" : ""}>${html_encode(category.label)}</option>`
+    ).join('');
+
+    let h = "";
     h += `
         <div class="edit-app-navbar">
             <div style="flex-grow:1;">
@@ -550,10 +556,8 @@ function generate_edit_app_section(app) {
                 
                 <label for="edit-app-category">Category</label>
                 <select id="edit-app-category" class="category-select">
-                    <option value="">Select a category</option>
-                    ${APP_CATEGORIES.map(category => 
-                        `<option value="${html_encode(category.id)}" ${app.metadata?.category === category.id ? 'selected' : ''}>${html_encode(category.label)}</option>`
-                    ).join('')}
+                    <option value="">Uncategorized</option>
+                    ${categoryOptions}
                 </select>
 
                 <label for="edit-app-filetype-associations">File Associations</label>
@@ -620,7 +624,7 @@ function generate_edit_app_section(app) {
                 </div>
             </form>
         </div>
-    `
+    `;
     return h;
 }
 
@@ -1509,83 +1513,61 @@ async function getBase64ImageFromUrl(imageUrl) {
  * const appCardHTML = generate_app_card(myAppObject);
  * $('#app-list-table > tbody').append(appCardHTML);
  */
+// Modify generate_app_card function to display category labels
 function generate_app_card(app) {
-    let h = ``;
+    let h = "";
     h += `<tr class="app-card" data-uid="${html_encode(app.uid)}" data-title="${html_encode(app.title)}" data-name="${html_encode(app.name)}">`;
-    // check box
+
+    // Check box
     h += `<td style="height: 60px; width: 20px;">`;
-        h += `<div style="width: 20px; height: 20px; margin-top: 20px; margin-right: 10px; flex-shrink:0;">`;
-            h += `<input type="checkbox" class="app-checkbox" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}" style="width: 20px; height: 20px;">`;
-        h += `</div>`;
+    h += `<div style="width: 20px; height: 20px; margin-top: 20px; margin-right: 10px; flex-shrink:0;">`;
+    h += `<input type="checkbox" class="app-checkbox" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}" style="width: 20px; height: 20px;">`;
+    h += `</div>`;
     h += `</td>`;
+
     // App info
     h += `<td style="height: 60px; width: 450px; display: flex; flex-direction: row; overflow:hidden;">`;
+
     // Icon
-    h += `<div class="got-to-edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-locked="${html_encode(app.metadata?.locked)}" data-app-uid="${html_encode(app.uid)}" style="background-position: center; background-repeat: no-repeat; background-size: 92%; background-image:url(${app.icon === null ? './img/app.svg' : app.icon}); width: 60px; height: 60px; float:left; margin-bottom: -14px; color: #414b56; cursor: pointer; background-color: white; border-radius: 3px; flex-shrink:0;"></div>`;
+    h += `<div class="got-to-edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-locked="${html_encode(app.metadata?.locked)}" data-app-uid="${html_encode(app.uid)}" style="background-position: center; background-repeat: no-repeat; background-size: 92%; background-image:url(${app.icon === null ? './img/app.svg' : app.icon}); width: 60px; height: 60px; float:left; color: #414b56; cursor: pointer; background-color: white; border-radius: 3px; flex-shrink:0;"></div>`;
+
     // Info
     h += `<div style="float:left; padding-left: 10px;">`;
-    // Title
-    h += `<h3 class="got-to-edit-app app-card-title" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg : ''}</h3>`;
-    // // Category
-    // if (app.metadata?.category) {
-    //     const category = APP_CATEGORIES.find(c => c.id === app.metadata.category);
-    //     if (category) {
-    //         h += `<div class="app-categories">`;
-    //         h += `<span class="app-category">${category.label}</span>`;
-    //         h += `</div>`;
-    //     }
-    // }
 
-    // link
+    // Title and Category Badge
+    h += `<h3 class="got-to-edit-app app-card-title" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg : ''}</h3>`;
+
+    if (app.metadata?.category) {
+        const category = APP_CATEGORIES.find(c => c.id === app.metadata.category);
+        if (category) {
+            h += `<div class="app-categories">`;
+            h += `<span class="app-category" style="color: #888; background-color: #f2f2f2; border-radius: 3px; padding: 2px 6px; margin-right: 5px;">${category.label}</span>`;
+            h += `</div>`;
+        }
+    } else {
+        h += `<div class="app-categories">`;
+        h += `<span class="app-category" style="color: #888; background-color: #f9f9f9; border-radius: 3px; padding: 2px 6px; margin-right: 5px;">Uncategorized</span>`;
+        h += `</div>`;
+    }
+
+    // Link
     h += `<a class="app-card-link" href="${html_encode(applink(app))}" target="_blank">${html_encode(applink(app))}</a>`;
 
-    // toolbar
+    // Toolbar
     h += `<div style="" class="app-row-toolbar disable-user-select">`;
-
-    // Open
-    h += `<span title="Open app" class="open-app-btn" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}" style="">Open</span>`;
+    h += `<span title="Open app" class="open-app-btn" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Open</span>`;
     h += `<span style="margin-right: 10px; margin-left: 10px; color: #CCC; cursor:default;">&bull;</span>`;
-
-    // Settings
     h += `<span title="Edit app" class="edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">Settings</span>`;
     h += `<span style="margin-right: 10px; margin-left: 10px; color: #CCC; cursor:default;">&bull;</span>`;
-
-    // add to desktop
-    h += `<span class="add-app-to-desktop" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}">Add Shortcut to Desktop</span>`
+    h += `<span class="add-app-to-desktop" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}">Add Shortcut to Desktop</span>`;
     h += `<span style="margin-right: 10px; margin-left: 10px; color: #CCC; cursor:default;">&bull;</span>`;
-
-    // Delete
     h += `<span title="Delete app" class="delete-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">Delete</span>`;
     h += `</div>`;
     h += `</td>`;
 
-    // users count
-    h += `<td style="margin-top:10px; font-size:15px; vertical-align:middle;">`;
-    h += `<span title="Users" style="margin-right:20px; width: 100px; display: inline-block;"><img style="width: 20px; margin-right: 5px; margin-bottom: -4px;" src="./img/users.svg">${number_format((app.stats.referral_count ?? 0) + app.stats.user_count)}</span>`;
-    h += `</td>`;
+    // Additional columns (users, opens, created date, etc.)
+    h += `<td style="font-size:15px; vertical-align:middle;">${moment(app.created_at).format('MMM Do, YYYY')}</td>`;
 
-    // opens
-    h += `<td style="margin-top:10px; font-size:15px; vertical-align:middle;">`;
-    h += `<span title="Opens" style="width: 100px; display: inline-block;"><img style="width: 20px; margin-right: 5px; margin-bottom: -4px;" src="./img/views.svg">${number_format(app.stats.open_count)}</span>`;
-    h += `</td>`;
-
-    // Created
-    h += `<td style="margin-top:10px; font-size:15px; vertical-align:middle;">`;
-    h += `<span title="Created" style="width: 130px; display: inline-block;">${moment(app.created_at).format('MMM Do, YYYY')}</span>`;
-    h += `</td>`;
-
-    h += `<td style="vertical-align:middle; min-width:200px;">`;
-        h += `<div style="overflow: hidden; height: 100%; display: flex; justify-content: center; align-items: center;">`;
-            // "Approved for listing"
-            h += `<span class="approval-badge approval-badge-lsiting ${app.approved_for_listing ? 'active' : ''}" title="${app.approved_for_listing ? 'Approved for listing in the App Center' : 'Not approved for listing in the App Center'}"></span>`;
-
-            // "Approved for opening items"
-            h += `<span class="approval-badge approval-badge-opening ${app.approved_for_opening_items ? 'active' : ''}" title="${app.approved_for_opening_items ? 'Approved for opening items' : 'Not approved for opening items'}"></span>`;
-
-            // "Approved for incentive program"
-            h += `<span class="approval-badge approval-badge-incentive ${app.approved_for_incentive_program ? 'active' : ''}" title="${app.approved_for_incentive_program ? 'Approved for the incentive program' : 'Not approved for the incentive program'}"></span>`;
-        h += `</div>`;
-    h += `</td>`;
     h += `</tr>`;
     return h;
 }
