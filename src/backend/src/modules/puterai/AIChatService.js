@@ -279,6 +279,7 @@ class AIChatService extends BaseService {
                     intended_service,
                     parameters
                 };
+                await svc_event.emit('ai.prompt.validate', event);
                 if ( ! event.allow ) {
                     test_mode = true;
                 }
