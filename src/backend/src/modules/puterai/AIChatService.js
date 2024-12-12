@@ -510,6 +510,7 @@ class AIChatService extends BaseService {
                 const svc_openai = this.services.get('openai-completion');
                 mod_result = await svc_openai.check_moderation(fulltext);
                 if ( mod_result.flagged ) return false;
+                continue;
             } catch (e) {
                 console.error(e);
                 mod_last_error = e;
@@ -525,6 +526,7 @@ class AIChatService extends BaseService {
                     return false;
                 }
                 mod_last_error = null;
+                continue;
             } catch (e) {
                 console.error(e);
                 mod_last_error = e;
