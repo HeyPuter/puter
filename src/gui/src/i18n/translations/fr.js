@@ -412,7 +412,6 @@ const fr = {
         "billing.expanded": "Étendu", // In English: "Expanded"
         "billing.accelerated": "Accéléré", // In English: "Accelerated"
         "billing.enjoy_msg": "Profitez de %% de stockage cloud et d'autres avantages.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
     }
 };
 
