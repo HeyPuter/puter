@@ -6,6 +6,7 @@ const { DB_WRITE } = require("../../services/database/consts");
 const { TypeSpec } = require("../../services/drivers/meta/Construct");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
+const { AsModeration } = require("./lib/AsModeration");
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -91,6 +92,17 @@ class AIChatService extends BaseService {
             }
 
             await this.db.insert('ai_usage', values);
+        });
+        
+        const svc_apiErrpr = this.services.get('api-error');
+        svc_apiErrpr.register({
+            max_tokens_exceeded: {
+                status: 400,
+                message: ({ input_tokens, max_tokens }) =>
+                    `Input exceeds maximum token count. ` +
+                    `Input has ${input_tokens} tokens, ` +
+                    `but the maximum is ${max_tokens}.`,
+            },
         });
     }
 
@@ -478,11 +490,6 @@ class AIChatService extends BaseService {
     * Returns true if OpenAI service is unavailable or all messages pass moderation.
     */
     async moderate ({ messages }) {
-        const svc_openai = this.services.get('openai-completion');
-
-        // We can't use moderation of openai service isn't available
-        if ( ! svc_openai ) return true;
-        
         for ( const msg of messages ) {
             const texts = [];
             if ( typeof msg.content === 'string' ) texts.push(msg.content);
@@ -497,8 +504,41 @@ class AIChatService extends BaseService {
             
             const fulltext = texts.join('\n');
             
-            const mod_result = await svc_openai.check_moderation(fulltext);
-            if ( mod_result.flagged ) return false;
+            let mod_last_error = null;
+            let mod_result = null;
+            try {
+                const svc_openai = this.services.get('openai-completion');
+                mod_result = await svc_openai.check_moderation(fulltext);
+                if ( mod_result.flagged ) return false;
+                continue;
+            } catch (e) {
+                console.error(e);
+                mod_last_error = e;
+            }
+            try {
+                const svc_claude = this.services.get('claude');
+                const chat = svc_claude.as('puter-chat-completion');       
+                const mod = new AsModeration({
+                    chat,
+                    model: 'claude-3-haiku-20240307',
+                })
+                if ( ! await mod.moderate(fulltext) ) {
+                    return false;
+                }
+                mod_last_error = null;
+                continue;
+            } catch (e) {
+                console.error(e);
+                mod_last_error = e;
+            }
+            
+            if ( mod_last_error ) {
+                this.log.error('moderation error', {
+                    fulltext,
+                    mod_last_error,
+                });
+                throw new Error('no working moderation service');
+            }
         }
         return true;
     }
@@ -606,10 +646,6 @@ class AIChatService extends BaseService {
         let model = parameters.model;
         if ( ! model ) {
             const service = this.services.get(intended_service);
-            console.log({
-                what: intended_service,
-                w: service.get_default_model
-            });
             if ( ! service.get_default_model ) {
                 throw new Error('could not infer model from service');
             }

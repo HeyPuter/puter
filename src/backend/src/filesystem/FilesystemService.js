@@ -18,10 +18,8 @@
  */
 // TODO: database access can be a service
 const { RESOURCE_STATUS_PENDING_CREATE } = require('../modules/puterfs/ResourceService.js');
-const DatabaseFSEntryFetcher = require("./storage/DatabaseFSEntryFetcher");
 const { TraceService } = require('../services/TraceService.js');
 const FSAccessContext = require('./FSAccessContext.js');
-const SystemFSEntryService = require('./storage/SystemFSEntryService.js');
 const PerformanceMonitor = require('../monitor/PerformanceMonitor.js');
 const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector } = require('./node/selectors.js');
 const FSNodeContext = require('./FSNodeContext.js');
@@ -50,14 +48,7 @@ class FilesystemService extends BaseService {
 
         services.registerService('traceService', TraceService);
 
-        // TODO: [fs:remove-separate-updater-and-fetcher]
-        services.set('fsEntryFetcher', new DatabaseFSEntryFetcher({
-            services: services,
-        }));
-
         // The new fs entry service
-        services.registerService('systemFSEntryService', SystemFSEntryService);
-
         this.log = services.get('log-service').create('filesystem-service');
 
         // used by update_child_paths
@@ -72,27 +63,6 @@ class FilesystemService extends BaseService {
                     .obtain('fs.fsentry:path')
                     .exec(entry.uuid);
             });
-
-
-        // Decorate methods with otel span
-        // TODO: use putility class feature for method decorators
-        const span_methods = [
-            'write', 'mkdir', 'rm', 'mv', 'cp', 'read', 'stat',
-            'mkdir_2',
-            'update_child_paths',
-        ];
-        for ( const method of span_methods ) {
-            const original_method = this[method];
-            this[method] = async (...args) => {
-                const tracer = services.get('traceService').tracer;
-                let result;
-                await tracer.startActiveSpan(`fs-svc:${method}`, async span => {
-                    result = await original_method.call(this, ...args);
-                    span.end();
-                });
-                return result;
-            }
-        }
     }
 
     async _init () {
@@ -252,7 +222,7 @@ class FilesystemService extends BaseService {
         await target.fetchEntry({ thumbnail: true });
 
         const { _path, uuidv4 } = this.modules;
-        const systemFSEntryService = this.services.get('systemFSEntryService');
+        const svc_fsEntry = this.services.get('fsEntryService');
 
         const ts = Math.round(Date.now() / 1000);
         const uid = uuidv4();
@@ -282,7 +252,7 @@ class FilesystemService extends BaseService {
 
         this.log.debug('creating fsentry', { fsentry: raw_fsentry })
 
-        const entryOp = await systemFSEntryService.insert(raw_fsentry);
+        const entryOp = await svc_fsEntry.insert(raw_fsentry);
 
         console.log('entry op', entryOp);
 
@@ -319,7 +289,7 @@ class FilesystemService extends BaseService {
 
         const { _path, uuidv4 } = this.modules;
         const resourceService = this.services.get('resourceService');
-        const systemFSEntryService = this.services.get('systemFSEntryService');
+        const svc_fsEntry = this.services.get('fsEntryService');
 
         const ts = Math.round(Date.now() / 1000);
         const uid = uuidv4();
@@ -346,7 +316,7 @@ class FilesystemService extends BaseService {
 
         this.log.debug('creating symlink', { fsentry: raw_fsentry })
 
-        const entryOp = await systemFSEntryService.insert(raw_fsentry);
+        const entryOp = await svc_fsEntry.insert(raw_fsentry);
 
         (async () => {
             await entryOp.awaitDone();

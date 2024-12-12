@@ -518,9 +518,11 @@ function generate_edit_app_section(app) {
         </div>
 
         <div class="section-tab" data-tab="info">
-            <form style="clear:both;">
+            <form style="clear:both; padding-bottom: 50px;">
                 <div class="error" id="edit-app-error"></div>
-                <div class="success" id="edit-app-success">App has been successfully updated.<span class="close-success-msg">&times;</span></div>
+                <div class="success" id="edit-app-success">App has been successfully updated.<span class="close-success-msg">&times;</span>
+                <p style="margin-bottom:0;"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
+                </div>
                 <input type="hidden" id="edit-app-uid" value="${html_encode(app.uid)}">
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 40px;">Basic</h3>
@@ -612,9 +614,10 @@ function generate_edit_app_section(app) {
                     <p><code>credentialless</code> attribute for the <code>iframe</code> tag.</p>
                 </div>
 
-                <hr style="margin-top: 40px;">
-                <button type="button" class="edit-app-save-btn button button-primary">Save</button>
-                <button type="button" class="edit-app-reset-btn button button-secondary">Reset</button>
+                <div style="box-shadow: 10px 10px 15px #8c8c8c; overflow: hidden; position: fixed; bottom: 0; background: white; padding: 10px; width: 100%; left: 0;">
+                    <button type="button" class="edit-app-save-btn button button-primary" style="margin-right: 40px;">Save</button>
+                    <button type="button" class="edit-app-reset-btn button button-secondary">Reset</button>
+                </div>
             </form>
         </div>
     `

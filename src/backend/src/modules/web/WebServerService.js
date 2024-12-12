@@ -68,6 +68,8 @@ class WebServerService extends BaseService {
             router_webhooks: this.router_webhooks,
         });
         await services.emit('install.routes-gui', { app });
+        
+        this.log.noticeme('web server setup done');
     }
 
 
@@ -233,6 +235,7 @@ class WebServerService extends BaseService {
                 try {
                     let auth_res = await jwt_auth(socket);
                     // successful auth
+                    socket.actor = auth_res.actor;
                     socket.user = auth_res.user;
                     socket.token = auth_res.token;
                     // join user room
@@ -249,6 +252,7 @@ class WebServerService extends BaseService {
             }
         });
 
+        const context = Context.get();
         socketio.on('connection', (socket) => {
             /**
             * Starts the web server and associated services.
@@ -266,10 +270,14 @@ class WebServerService extends BaseService {
             socket.on('trash.is_empty', (msg) => {
                 socket.broadcast.to(socket.user.id).emit('trash.is_empty', msg);
             });
-            socket.on('puter_is_actually_open', (msg) => {
+            socket.on('puter_is_actually_open', async (msg) => {
                 const svc_event = this.services.get('event');
-                svc_event.emit('web.socket.user-connected', {
-                    user: socket.user
+                await context.sub({
+                    actor: socket.actor,
+                }).arun(async () => {
+                    await svc_event.emit('web.socket.user-connected', {
+                        user: socket.user
+                    });
                 });
             });
         });
@@ -581,8 +589,6 @@ class WebServerService extends BaseService {
         app.options('/*', (_, res) => {
             return res.sendStatus(200);
         });
-        
-        console.log('WEB SERVER INIT DONE');
     }
 
     _register_commands (commands) {

@@ -157,15 +157,15 @@ class LLCopy extends LLFilesystemOperation {
             status: RESOURCE_STATUS_PENDING_CREATE,
         });
 
-        const svc_fsentry = svc.get('systemFSEntryService');
+        const svc_fsEntry = svc.get('fsEntryService');
         this.log.info(`inserting entry: ` + uuid);
-        const entryOp = await svc_fsentry.insert(raw_fsentry);
+        const entryOp = await svc_fsEntry.insert(raw_fsentry);
 
         let node;
 
         this.checkpoint('before parallel tasks');
         const tasks = new ParallelTasks({ tracer, max: 4 });
-        await tracer.startActiveSpan(`fs:cp:parallel-portion`, async span => {
+        await Context.arun(`fs:cp:parallel-portion`, async () => {
             this.checkpoint('starting parallel tasks');
             // Add child copy tasks if this is a directory
             if ( source.entry.is_dir ) {
@@ -216,8 +216,6 @@ class LLCopy extends LLFilesystemOperation {
             this.checkpoint('waiting for parallel tasks');
             await tasks.awaitAll();
             this.checkpoint('finishing up');
-
-            span.end();
         });
 
         node = node || await fs.node(new NodeUIDSelector(uuid));

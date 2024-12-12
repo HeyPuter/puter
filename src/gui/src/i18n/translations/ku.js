@@ -393,55 +393,52 @@ const ku = {
     "You can't share with yourself.": "ناتوانیت لەگەڵ خودی خۆت بڵاوی کەیتەوە", // In English: "You can't share with yourself."
     "This user already has access to this item": "ئەم بەکارهێنەرە پێشتر ڕێپێدراوە بۆ ئەم فایلە", // In English: "This user already has access to this item"
 
-    // ----------------------------------------
-    // Missing translations:
-    // ----------------------------------------
-    "billing.change_payment_method": "بیگۆڕە", // In English: "Change"
-    "billing.cancel": "پاشگەزبوونەوە", // In English: "Cancel"
-    "billing.download_invoice": "داگرتن", // In English: "Download"
-    "billing.payment_method": "شێوازی پارەدان", // In English: "Payment Method"
-    "billing.payment_method_updated": "شێوازی پارەدان نوێکراوە!", // In English: "Payment method updated!"
-    "billing.confirm_payment_method": "پشتڕاستکردنەوەی شێوازی پارەدان", // In English: "Confirm Payment Method"
-    "billing.payment_history": "مێژووی مامەڵەکان", // In English: "Payment History"
-    "billing.refunded": "گەڕێندراوە", // In English: "Refunded"
-    "billing.paid": "پارە درا", // In English: "Paid"
-    "billing.ok": "باشە", // In English: "OK"
-    "billing.resume_subscription": "بەشداریکردنەوە", // In English: "Resume Subscription"
-    "billing.subscription_cancelled": "بەشداریکردنت هەڵوەشێندراوە.", // In English: "Your subscription has been canceled."
-    "billing.subscription_cancelled_description": ".هێشتا بەشداریکردنت ماوە، تا کۆتایی ئەو ماوەیەی پارەت دابوو", // In English: "You will still have access to your subscription until the end of this billing period."
-    "billing.offering.free": "بەخۆڕایی", // In English: "Free"
-    "billing.offering.pro": "پڕۆ", // In English: "Professional"
-    "billing.offering.business": "بزنس", // In English: "Business"
-    "billing.cloud_storage": "بیرگەی کڵاود", // In English: "Cloud Storage"
-    "billing.ai_access": "دەستگەیشتن بە ژیریی دەستکرد", // In English: "AI Access"
-    "billing.bandwidth": "باندویدث", // In English: "Bandwidth"
-    "billing.apps_and_games": "بەرنامە و یاری", // In English: "Apps & Games"
-    "billing.upgrade_to_pro": "بەرزکردنەوە بۆ %strong%", // In English: "Upgrade to %strong%"
-    "billing.switch_to": "گۆڕین بۆ %strong%", // In English: "Switch to %strong%"
-    "billing.payment_setup": "ڕێکخستنی پارەدان", // In English: "Payment Setup"
-    "billing.back": "گەڕانەوە", // In English: "Back"
-    "billing.you_are_now_subscribed_to": "تۆ ئێستا بەشداربووی لە ئاستی %strong%.", // In English: "You are now subscribed to %strong% tier."
-    "billing.you_are_now_subscribed_to_without_tier": "تۆ ئێستا بەشداربووی", // In English: "You are now subscribed"
-    "billing.subscription_cancellation_confirmation": "دڵنیایت دەتەوێت بەشداربوونت هەڵبوەشێنیتەوە؟", // In English: "Are you sure you want to cancel your subscription?"
-    "billing.subscription_setup": "ڕێکخستنی بەشداریکردن", // In English: "Subscription Setup"
-    "billing.cancel_it": "هەڵیبوەشێنەوە", // In English: "Cancel It"
-    "billing.keep_it": "بیهێڵەوە", // In English: "Keep It"
-    "billing.subscription_resumed": "بەشداریکردنت لە %strong% دەستیپێکردەوە!", // In English: "Your %strong% subscription has been resumed!"
-    "billing.upgrade_now": "ئێستا بەرزی بکەوە", // In English: "Upgrade Now"
-    "billing.upgrade": "بەرزکردنەوە", // In English: "Upgrade"
-    "billing.currently_on_free_plan": "لە ئێستادا لەسەر پلانی بێ بەرامبەریت.", // In English: "You are currently on the free plan."
-    "billing.download_receipt": "داگرتنی پسووڵە", // In English: "Download Receipt"
-    "billing.subscription_check_error": "هەڵەیەک ڕوویدا لەکاتی پشکنینی دۆخی بەشداربوونت.", // In English: "A problem occurred while checking your subscription status."
-    "billing.email_confirmation_needed": "ئیمێڵەکەت هێشتا نەسەلمێندراوە، کۆدێکت بۆ دەنێرین بۆ ئەوەی ئێستا بیسەلمێنیت.", // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-    "billing.sub_cancelled_but_valid_until": "بەشداریکردنت هەڵوەشاندەوە، لە کۆتایی ئەو ماوەیەی پارەت داوە خودکارانە دەگوازرێیەوە بۆ ئاستی خۆڕایی، مەگەر دووبارە بەشداریبکەیەوە.", // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-    "billing.current_plan_until_end_of_period": "پلانی ئێستات تا کۆتایی ئەو ماوەیەی پارەت داوە.", // In English: "Your current plan until the end of this billing period."
-    "billing.current_plan": "پلانی ئێستا", // In English: "Current plan"
-    "billing.cancelled_subscription_tier": "بەشداریکردنی (%%) هەڵوەشێندراوە", // In English: "Cancelled Subscription (%%)"
-    "billing.manage": "بەڕێوەبردن", // In English: "Manage"
-    "billing.limited": "سنووردار", // In English: "Limited"
-    "billing.expanded": "کشاندراو", // In English: "Expanded"
-    "billing.accelerated": "تاودراو", // In English: "Accelerated"
-    "billing.enjoy_msg": "چێژوەرگرە لە بیرگەی کڵاود و چەندین خزمەتگوزاری تر.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
+    "billing.change_payment_method": "گۆڕانکاری",
+    "billing.cancel": "بڕینەوە",
+    "billing.download_invoice": "داونلۆد بکە",
+    "billing.payment_method": "شێوازی پارەدان",
+    "billing.payment_method_updated": "شێوازی پارەدان نوێ کراوەتەوە!",
+    "billing.confirm_payment_method": "دروستکردنی شێوازی پارەدان",
+    "billing.payment_history": "مێژووی پارەدان",
+    "billing.refunded": "بەپێچەوانە کراوە",
+    "billing.paid": "پارەی دا",
+    "billing.ok": "باشە",
+    "billing.resume_subscription": "پاشەکەوتی بەردەوام بکە",
+    "billing.subscription_cancelled": "بەژداربوونەکەت هەڵوەشێنراوەتەوە",
+    "billing.subscription_cancelled_description": "تا کۆتایی ئەم ماوەیە تۆ هێشتا دەستت بە بەشداربوونەکەت هەیە",
+    "billing.offering.free": "بە خۆڕایی",
+    "billing.offering.pro": "پیشەیی",
+    "billing.offering.business": "بزنس",
+    "billing.cloud_storage": "خزێنەی هەور",
+    "billing.ai_access": "دەستڕاگەیشتن بە AI",
+    "billing.bandwidth": "باندفیدت",
+    "billing.apps_and_games": "ئەپەکان & یارییەکان",
+    "billing.upgrade_to_pro": "بە %strong% بەرز بکەرەوە",
+    "billing.switch_to": "گۆڕە بۆ %strong%",
+    "billing.payment_setup": "بەکارھێنانی پارەدان",
+    "billing.back": "باک",
+    "billing.you_are_now_subscribed_to": "ئێستا تۆ بەشداریت لە %strong% tier",
+    "billing.you_are_now_subscribed_to_without_tier": "ئێستا تۆ بەشداریت",
+    "billing.subscription_cancellation_confirmation": "ئایا دڵنیایت کە دەتەوێت بەشداربوونەکەت هەڵوەشێنیتەوە؟",
+    "billing.subscription_setup": "دەستکاریی بەشداربوون",
+    "billing.cancel_it": "داوایی لێ بکەوە",
+    "billing.keep_it": "هێشتەوە",
+    "billing.subscription_resumed": "بەژداربوونت %strong% دەستپێکرایەوە!",
+    "billing.upgrade_now": "ئێستا نوێکەرەوە",
+    "billing.upgrade": "Upgrade",
+    "billing.currently_on_free_plan": "ئێستا لە پلانی بێبەرامبەریت",
+    "billing.download_receipt": "دانەوەی وەرگیراو",
+    "billing.subscription_check_error": "کێشەیەک ڕوویدا لەکاتی پشکنینی دۆخی بەشداربوونەکەت",
+    "billing.email_confirmation_needed": " ئیمەیڵەکەت پشتڕاست نەکراوەتەوە. کۆدێکت بۆ دەنێرین بۆ پشتڕاستکردنەوەی ئێستا",
+    "billing.sub_cancelled_but_valid_until": "تۆ بەشداربوونەکەت هەڵوەشاندەوە و بە ئۆتۆماتیکی دەگۆڕێت بۆ پلەی خۆڕایی لە کۆتایی ماوەی فۆڕمی فۆرم. جارێكی دیكە هیچ پارەیەكتان لێناگیرێت مەگەر دووبارە بەشداربن",
+    "billing.current_plan_until_end_of_period": "پلانی ئێستای تۆ تا کۆتایی ئەم ماوەیە بۆ فۆڕمی فۆرم",
+    "billing.current_plan": "پلانی ئێستا",
+    "billing.cancelled_subscription_tier": "بەژمارەی هەڵوەشێندراو (%%) ",
+    "billing.manage": "بەڕێوەبەری",
+    "billing.limited": "Limited",
+    "billing.expanded": "بڵاوکراوەتەوە",
+    "billing.accelerated": "بە خێرایی",
+    "billing.enjoy_msg": "%% لە هەڵگرتنی هەور و سوودی تر وەربگرە"
   },
 };
 

@@ -26,9 +26,6 @@ const APIError = require('../../../api/APIError.js');
  * Since Express 5 is not yet released, this function is used by
  * eggspress() to handle errors instead of as a middleware.
  * 
- * @todo remove this function and use express error handling
- * when Express 5 is released
- * 
  * @param {*} err 
  * @param {*} req 
  * @param {*} res 

@@ -88,16 +88,8 @@ function UITaskbarItem(options){
           );   
 
         if(options.onClick === undefined || options.onClick(el_taskbar_item) === false){
-            const clicked_window = $(`.window[data-app="${options.app}"]`)
-            
-            // hide window, unless there's more than one in app group
-            if (clicked_window.hasClass("window-active") && clicked_window.length < 2) {             
-                clicked_window.hideWindow();
-                return;
-            }
-            
             // re-show each window in this app group
-            clicked_window.showWindow();
+            $(`.window[data-app="${options.app}"]`).showWindow();
         }
     })
 
@@ -228,8 +220,7 @@ function UITaskbarItem(options){
             menu_items.push({
                 html: i18n('show_all_windows'),
                 onClick: function(){
-                    if(open_windows > 0)
-                        $(el_taskbar_item).trigger('click');
+                    $(`.window[data-app="${options.app}"]`).showWindow();
                 }
             })
             // -------------------------------------------

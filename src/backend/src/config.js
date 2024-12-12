@@ -140,15 +140,15 @@ if ( config.os.refined ) {
 module.exports = config;
 
 // NEW_CONFIG_LOADING
+const maybe_port = config =>
+    config.pub_port !== 80 && config.pub_port !== 443 ? ':' + config.pub_port : '';
 
 const computed_defaults = {
     pub_port: config => config.http_port,
-    origin: config => config.protocol + '://' + config.domain +
-        (config.pub_port !== 80 && config.pub_port !== 443 ? ':' + config.pub_port : ''),
+    origin: config => config.protocol + '://' + config.domain + maybe_port(config),
     api_base_url: config => config.experimental_no_subdomain
         ? config.origin
-        : config.protocol + '://api.' + config.domain +
-        (config.pub_port !== 80 && config.pub_port !== 443 ? ':' + config.pub_port : ''),
+        : config.protocol + '://api.' + config.domain + maybe_port(config),
     social_card: config => `${config.origin}/assets/img/screenshot.png`,
 };
 
