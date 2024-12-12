@@ -141,6 +141,10 @@ class Sequence {
                     this.thisArg, this,
                 );
                 
+                if ( this.last_return_ instanceof Sequence.SequenceState ) {
+                    this.scope_ = this.last_return_.scope_;
+                }
+                
                 if ( this.sequence_.options_.after_each ) {
                     await this.sequence_.options_.after_each(this, step);
                 }
