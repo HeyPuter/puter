@@ -346,68 +346,67 @@ const da = {
 		login2fa_recovery_back: 'Tilbage',
 		login2fa_recovery_placeholder: 'XXXXXXXX',
 
-		change: 'Ændre', // In English: "Change"
-		clock_visibility: 'Vis ur', // In English: "Clock Visibility"
-		reading: 'Læse %strong%', // In English: "Reading %strong%"
-		writing: 'Skrive %strong%', // In English: "Writing %strong%"
-		unzipping: 'Udpakke %strong%', // In English: "Unzipping %strong%"
-		sequencing: 'Sekvensering %strong%', // In English: "Sequencing %strong%"
-		zipping: 'Komprimer %strong%', // In English: "Zipping %strong%"
-		Editor: 'Redaktør', // In English: "Editor"
-		Viewer: 'Seer', // In English: "Viewer"
-		'People with access': 'Personer med adgang', // In English: "People with access"
-		'Share With…': 'Del med...', // In English: "Share With…"
-		Owner: 'Ejer', // In English: "Owner"
-		"You can't share with yourself.": 'Du kan ikke dele med dig selv.', // In English: "You can't share with yourself."
-		'This user already has access to this item': 'Denne bruger har allerede adgang til dette', // In English: "This user already has access to this item"
-		'billing.change_payment_method': 'Ændre', // In English: "Change"
-		'billing.cancel': 'Annuller', // In English: "Cancel"
-		'billing.download_invoice': 'Download', // In English: "Download"
-		'billing.payment_method': 'Betalingsmetode', // In English: "Payment Method"
-		'billing.payment_method_updated': 'Betalingsmetode opdateret!', // In English: "Payment method updated!"
-		'billing.confirm_payment_method': 'Bekræft betalingsmetode', // In English: "Confirm Payment Method"
-		'billing.payment_history': 'Betalings historik', // In English: "Payment History"
-		'billing.refunded': 'Refunderet', // In English: "Refunded"
-		'billing.paid': 'Betalt', // In English: "Paid"
-		'billing.ok': 'OK', // In English: "OK"
-		'billing.resume_subscription': 'Genoptag abonnement', // In English: "Resume Subscription"
-		'billing.subscription_cancelled': 'Dit abonnement er blevet annulleret.', // In English: "Your subscription has been canceled."
-		'billing.subscription_cancelled_description': 'Du vil stadigvæk have adgang til dit abonnement, indtil udgangen af denne betalingsperiode.', // In English: "You will still have access to your subscription until the end of this billing period."
-		'billing.offering.free': 'Gratis', // In English: "Free"
-		'billing.offering.pro': 'Professionel', // In English: "Professional"
-		'billing.offering.business': 'Virksomhed', // In English: "Business"
-		'billing.cloud_storage': 'Opbevaring i skyen', // In English: "Cloud Storage"
-		'billing.ai_access': 'AI Adgang', // In English: "AI Access"
-		'billing.bandwidth': 'Båndbredde', // In English: "Bandwidth"
-		'billing.apps_and_games': 'Apps & Spil', // In English: "Apps & Games"
-		'billing.upgrade_to_pro': 'Opgrader til %strong%', // In English: "Upgrade to %strong%"
-		'billing.switch_to': 'Skift til %strong%', // In English: "Switch to %strong%"
-		'billing.payment_setup': 'Betalingsopsætning', // In English: "Payment Setup"
-		'billing.back': 'Tilbage', // In English: "Back"
-		'billing.you_are_now_subscribed_to': 'Du abonnerer nu på niveauet %strong%.', // In English: "You are now subscribed to %strong% tier."
-		'billing.you_are_now_subscribed_to_without_tier': 'Du er nu tilmeldt', // In English: "You are now subscribed"
-		'billing.subscription_cancellation_confirmation': 'Er du sikker på at du vil opsige dit abonnement?', // In English: "Are you sure you want to cancel your subscription?"
-		'billing.subscription_setup': 'Abonnementsopsætning', // In English: "Subscription Setup"
-		'billing.cancel_it': 'Annuler det', // In English: "Cancel It"
-		'billing.keep_it': 'Behold det', // In English: "Keep It"
-		'billing.subscription_resumed': 'Dit %strong% abonnement er genoptaget!', // In English: "Your %strong% subscription has been resumed!"
-		'billing.upgrade_now': 'Opgrader nu', // In English: "Upgrade Now"
-		'billing.upgrade': 'Opgrader', // In English: "Upgrade"
-		'billing.currently_on_free_plan': 'Du er i øjeblikket på det gratis plan.', // In English: "You are currently on the free plan."
-		'billing.download_receipt': 'Download kvittering', // In English: "Download Receipt"
-		'billing.subscription_check_error': 'Der opstod et problem under kontrol af din abonnementsstatus', // In English: "A problem occurred while checking your subscription status."
-		'billing.email_confirmation_needed': 'Din e-mail er ikke blevet bekræftet. Vi sender dig en kode nu for at bekræfte den.', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-		'billing.sub_cancelled_but_valid_until':
-			'Du har opsagt dit abonnement og vil automatisk blive skiftet til den gratis plan i slutningen af denne betalingsperiode. Der vil ikke blive trukket flere penge fra din konto, medmindre du genoptager dit abonnement.', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-		'billing.current_plan_until_end_of_period': 'Din nuværende plan, indtil slutningen af denne betalingsperiode.', // In English: "Your current plan until the end of this billing period."
-		'billing.current_plan': 'Nuværende plan', // In English: "Current plan"
-		'billing.cancelled_subscription_tier': 'Opsagt abonnement (%%)', // In English: "Cancelled Subscription (%%)"
-		'billing.manage': 'Styre', // In English: "Manage"
-		'billing.limited': 'Begrænset', // In English: "Limited"
-		'billing.expanded': 'Udvidet', // In English: "Expanded"
-		'billing.accelerated': 'Accelereret', // In English: "Accelerated"
-		'billing.enjoy_msg': 'Nyd %% af lagringsplads i skyen og andre fordele. ', // In English: "Enjoy %% of Cloud Storage plus other benefits."
-	},
+        change: 'Skift', 
+        clock_visibility: 'Ur synlighed', 
+        reading: 'Læser %strong%', 
+        writing: 'Skriver %strong%', 
+        unzipping: 'Udpakker %strong%', 
+        sequencing: 'Sekventerer %strong%', 
+        zipping: 'Zipper %strong%', 
+        Editor: 'Redaktør', 
+        Viewer: 'Seer', 
+        People_with_access: 'Personer med adgang', 
+        Share_With: 'Del med…', 
+        Owner: 'Ejer', 
+        You_cant_share_with_yourself: 'Du kan ikke dele med dig selv.', 
+        This_user_already_has_access_to_this_item: 'Denne bruger har allerede adgang til dette element', 
+        billing_change_payment_method: 'Skift betalingsmetode', 
+        billing_cancel: 'Annuller', 
+        billing_download_invoice: 'Download faktura', 
+        billing_payment_method: 'Betalingsmetode', 
+        billing_payment_method_updated: 'Betalingsmetode opdateret!', 
+        billing_confirm_payment_method: 'Bekræft betalingsmetode', 
+        billing_payment_history: 'Betalingshistorik', 
+        billing_refunded: 'Refunderet', 
+        billing_paid: 'Betalt', 
+        billing_ok: 'OK', 
+        billing_resume_subscription: 'Genoptag abonnement', 
+        billing_subscription_cancelled: 'Dit abonnement er blevet annulleret.', 
+        billing_subscription_cancelled_description: 'Du vil stadig have adgang til dit abonnement indtil slutningen af denne faktureringsperiode.', 
+        billing_offering_free: 'Gratis', 
+        billing_offering_pro: 'Professionel', 
+        billing_offering_business: 'Forretning', 
+        billing_cloud_storage: 'Cloud-lager', 
+        billing_ai_access: 'AI-adgang', 
+        billing_bandwidth: 'Båndbredde', 
+        billing_apps_and_games: 'Apps & Spil', 
+        billing_upgrade_to_pro: 'Opgrader til %strong%', 
+        billing_switch_to: 'Skift til %strong%', 
+        billing_payment_setup: 'Betalingsopsætning', 
+        billing_back: 'Tilbage', 
+        billing_you_are_now_subscribed_to: 'Du er nu abonneret på %strong% niveau.', 
+        billing_you_are_now_subscribed_to_without_tier: 'Du er nu abonneret', 
+        billing_subscription_cancellation_confirmation: 'Er du sikker på, at du vil annullere dit abonnement?', 
+        billing_subscription_setup: 'Abonnementsopsætning', 
+        billing_cancel_it: 'Annuller det', 
+        billing_keep_it: 'Behold det', 
+        billing_subscription_resumed: 'Dit %strong% abonnement er blevet genoptaget!', 
+        billing_upgrade_now: 'Opgrader nu', 
+        billing_upgrade: 'Opgrader', 
+        billing_currently_on_free_plan: 'Du er i øjeblikket på den gratis plan.', 
+        billing_download_receipt: 'Download kvittering', 
+        billing_subscription_check_error: 'Der opstod et problem under kontrol af din abonnementsstatus.', 
+        billing_email_confirmation_needed: 'Din e-mail er ikke blevet bekræftet. Vi sender dig en kode for at bekræfte det nu.', 
+        billing_sub_cancelled_but_valid_until: 'Du har annulleret dit abonnement, og det vil automatisk skifte til den gratis plan ved slutningen af faktureringsperioden. Du vil ikke blive opkrævet igen, medmindre du genabonnerer.', 
+        billing_current_plan_until_end_of_period: 'Din nuværende plan indtil slutningen af denne faktureringsperiode.', 
+        billing_current_plan: 'Nuværende plan', 
+        billing_cancelled_subscription_tier: 'Annulleret abonnement (%%)', 
+        billing_manage: 'Administrer', 
+        billing_limited: 'Begrænset', 
+        billing_expanded: 'Udvidet', 
+        billing_accelerated: 'Accelereret', 
+        billing_enjoy_msg: 'Nyd %% af Cloud-lager plus andre fordele.', 
+    }
 };
 
 export default da;
