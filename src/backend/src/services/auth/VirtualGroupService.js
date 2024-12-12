@@ -21,6 +21,14 @@ class VirtualGroupService extends BaseService {
         this.membership_implicators_ = [];
     }
     
+    /**
+     * Registers a function that reports one or more groups that an actor
+     * should be considered a member of.
+     * 
+     * @note this only applies to virtual groups, not persistent groups.
+     * 
+     * @param {*} implicator 
+     */
     register_membership_implicator (implicator) {
         this.membership_implicators_.push(implicator);
     }
