@@ -294,6 +294,9 @@ class AIChatService extends BaseService {
 
                 if ( test_mode ) {
                     intended_service = 'fake-chat';
+                    if ( event.abuse ) {
+                        parameters.model = 'abuse';
+                    }
                 }
 
                 if ( intended_service === this.service_name ) {

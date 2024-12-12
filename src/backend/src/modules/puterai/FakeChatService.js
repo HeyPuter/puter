@@ -1,4 +1,5 @@
 // METADATA // {"ai-commented":{"service":"claude"}}
+const { default: dedent } = require("dedent");
 const BaseService = require("../../services/BaseService");
 
 
@@ -53,7 +54,13 @@ class FakeChatService extends BaseService {
                         "content": [
                             {
                                 "type": "text",
-                                "text": li.generateParagraphs(
+                                "text": model === 'abuse' ? dedent(`
+                                        This is a message from ${
+                                            this.global_config.origin}. We have detected abuse of our services.
+                                        
+                                        If you are seeing this on another website, please report it to ${
+                                            this.global_config.abuse_email ?? 'hi@puter.com'}
+                                    `) : li.generateParagraphs(
                                     Math.floor(Math.random() * 3) + 1
                                 )
                             }
