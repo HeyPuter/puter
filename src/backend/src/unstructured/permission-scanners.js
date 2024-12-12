@@ -14,9 +14,26 @@ const { reading_has_terminal } = require("./permission-scan-lib");
     "Ctrl+K, Ctrl+J" or "⌘K, ⌘J";
 */
 
+/**
+ * Permission Scanners
+ * @usedBy scan-permission.js
+ * 
+ * These are all the different ways an entity (user or app) can have a permission.
+ * This list of scanners is iterated over and invoked by scan-permission.js.
+ * 
+ * Each `scan` function is passed a sequence scope. The instance attached to the
+ * sequence scope is PermissionService itself, so any `a.iget('something')` is
+ * accessing the member 'something' of the PermissionService instance.
+ */
 const PERMISSION_SCANNERS = [
     {
         name: 'implied',
+        documentation: `
+            Scans for permissions that are implied by "permission implicators".
+            
+            Permission implicators are added by other services via
+            PermissionService's \`register_implicator\` method.
+        `,
         async scan (a) {
             const reading = a.get('reading');
             const { actor, permission_options } = a.values();
@@ -46,6 +63,9 @@ const PERMISSION_SCANNERS = [
     },
     {
         name: 'user-user',
+        documentation: `
+            User-to-User permissions are permission granted form one user to another.
+        `,
         async scan (a) {
             const { reading, actor, permission_options, state } = a.values();
             if ( !(actor.type instanceof UserActorType)  ) {
@@ -96,7 +116,6 @@ const PERMISSION_SCANNERS = [
 
                 if ( should_continue ) continue;
 
-                // const issuer_perm = await this.check(issuer_actor, row.permission);
                 const issuer_reading = await a.icall(
                     'scan', issuer_actor, row.permission, undefined, state);
 
@@ -117,6 +136,13 @@ const PERMISSION_SCANNERS = [
     },
     {
         name: 'hc-user-group-user',
+        documentation: `
+            These are user-to-group permissions that are defined in the
+            hardcoded_user_group_permissions section of "hardcoded-permissions.js".
+            
+            These are typically used to grant permissions from the system user to
+            the default groups: "admin", "user", and "temp".
+        `,
         async scan (a) {
             const { reading, actor, permission_options } = a.values();
             if ( !(actor.type instanceof UserActorType)  ) {
@@ -167,6 +193,11 @@ const PERMISSION_SCANNERS = [
     },
     {
         name: 'user-group-user',
+        documentation: `
+            This scans for permissions that are granted to the user because a
+            group they are a member of was granted this permission by another
+            user.
+        `,
         async scan (a) {
             const { reading, actor, permission_options } = a.values();
             if ( !(actor.type instanceof UserActorType)  ) {
@@ -223,6 +254,16 @@ const PERMISSION_SCANNERS = [
     },
     {
         name: 'user-virtual-group-user',
+        documentation: `
+            These are groups with computed membership. Permissions are not granted
+            to these groups; instead the groups are defined with a list of
+            permissions that are granted to the group members.
+            
+            Services can define "virtual groups" via the "virtual-group" service.
+            Services can also register membership implicators for virtual groups
+            which will compute on the fly whether or not an actor should be
+            considered a member of the group.
+        `,
         async scan (a) {
             const svc_virtualGroup = await a.iget('services').get('virtual-group');
             const { reading, actor, permission_options } = a.values();
@@ -248,6 +289,10 @@ const PERMISSION_SCANNERS = [
     },
     {
         name: 'user-app',
+        documentation: `
+            If the actor is an app, this scans for permissions granted to the app
+            because the user has the permission and granted it to the app.
+        `,
         async scan (a) {
             const { reading, actor, permission_options } = a.values();
             if ( !(actor.type instanceof AppUnderUserActorType)  ) {
