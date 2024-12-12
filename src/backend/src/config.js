@@ -160,7 +160,7 @@ let config_to_export;
 // load_config() may replace
 const config_pointer = {};
 {
-    config_pointer.__proto__ = config;
+    Object.setPrototypeOf(config_pointer, config);
     config_to_export = config_pointer;
 }
 
@@ -171,14 +171,14 @@ const config_pointer = {};
         let replacement_config = {
             ...o,
         };
-        replacement_config = deep_proto_merge(replacement_config, config_pointer.__proto__, {
+        replacement_config = deep_proto_merge(replacement_config, Object.getPrototypeOf(config_pointer), {
             preserve_flag: true,
         })
-        config_pointer.__proto__ = replacement_config;
+        Object.setPrototypeOf(config_pointer, replacement_config);
     };
 
     const config_api = { load_config };
-    config_api.__proto__ = config_to_export;
+    Object.setPrototypeOf(config_api, config_to_export);
     config_to_export = config_api;
 }
 
@@ -209,7 +209,7 @@ const config_pointer = {};
     const config_runtime_values = {
         $: 'runtime-values'
     };
-    config_runtime_values.__proto__ = config_to_export;
+    Object.setPrototypeOf(config_runtime_values, config_to_export);
     config_to_export = config_runtime_values
 
     // These can be difficult to find and cause painful

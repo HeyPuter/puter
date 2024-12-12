@@ -132,7 +132,7 @@ class Context {
         this.parent_ = opt_parent;
 
         if ( opt_parent ) {
-            values.__proto__ = opt_parent.values_;
+            Object.setPrototypeOf(values, opt_parent.values_);
             for ( const k in values ) {
                 const parent_val = opt_parent.values_[k];
                 if ( parent_val instanceof Context ) {
