@@ -435,6 +435,7 @@ const ko = {
     "billing.current_plan_until_end_of_period":
       "청구 기간이 끝날 때까지 유지되는 현재 플랜입니다.", // In English: "Your current plan until the end of this billing period."
     "billing.current_plan": "현재 플랜", // In English: "Current plan" ; depending on the context you could use: "구독 중인 플랜" (plan you are subscribed to)
+
     "billing.cancelled_subscription_tier": "취소된 구독 (%%)", // In English: "Cancelled Subscription (%%)"
     "billing.manage": "관리", // In English: "Manage"
     "billing.limited": "제한됨", // In English: "Limited"

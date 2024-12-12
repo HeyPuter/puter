@@ -65,6 +65,10 @@ class FakeChatService extends BaseService {
                             "output_tokens": 1
                         }
                     },
+                    "usage": {
+                        "input_tokens": 0,
+                        "output_tokens": 1
+                    },
                     "logprobs": null,
                     "finish_reason": "stop"
                 }
