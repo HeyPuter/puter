@@ -38,13 +38,7 @@ const { quot } = require('@heyputer/putility').libs.string;
 
 
 module.exports = new Sequence([
-    function testing_a_thing (a) {
-        a.set('thing', 'a thing');
-    },
     require('./share/validate.js'),
-    function testing_a_thing (a) {
-        console.log('ASDFASDFASDF', a.get('asdf'));
-    },
     function initialize_result_object (a) {
         a.set('result', {
             $: 'api:share',
