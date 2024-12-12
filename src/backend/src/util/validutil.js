@@ -21,7 +21,7 @@ const valid_file_size = v => {
     if ( ! Number.isInteger(v) ) {
         return { ok: false, v };
     }
-    if ( ! (v >= 0) ) {
+    if ( v < 0 ) {
         return { ok: false, v };
     }
     return { ok: true, v };

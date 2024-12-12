@@ -28,8 +28,7 @@ class WorkList {
     
     clear_invalid () {
         const new_items = [];
-        for ( let i=0 ; i < this.items.length ; i++ ) {
-            const item = this.items[i];
+        for ( const item of this.items ) {
             if ( item.invalid ) continue;
             new_items.push(item);
         }

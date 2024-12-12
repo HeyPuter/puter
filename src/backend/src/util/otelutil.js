@@ -100,7 +100,6 @@ class ParallelTasks {
             return;
         }
 
-        // const span = this.tracer.startSpan(name);
         this.promises.push(this.run_(name, fn));
     }
 
