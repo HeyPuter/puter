@@ -51,7 +51,6 @@ module.exports = eggspress('/delete', {
     // try to delete each path in the array one by one (if glob, resolve first)
     // TODO: remove this pseudo-batch
     for ( const item_path of paths ) {
-        let item_path = item_path;
         const target = await (new FSNodeParam('path')).consolidate({
             req: { fs: req.fs, user },
             getParam: () => item_path,
