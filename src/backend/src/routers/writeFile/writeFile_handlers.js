@@ -5,4 +5,5 @@ module.exports = {
     trash: require('./trash'),
     delete: require('./delete'),
     rename: require('./rename'),
+    write: require('./write'),
 };

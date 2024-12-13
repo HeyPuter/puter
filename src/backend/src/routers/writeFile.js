@@ -114,101 +114,28 @@ module.exports = eggspress('/writeFile', {
     };
 
     const writeFile_handlers = require('./writeFile/writeFile_handlers.js');
-    if ( writeFile_handlers.hasOwnProperty(req.query.operation) ) {
-        console.log('\x1B[36;1mwriteFile: ' + req.query.operation + '\x1B[0m');
-        const node = await (new FSNodeParam('uid')).consolidate({
-            req, getParam: () => req.query.uid
-        });
-        const user = await get_user({id: await node.get('user_id')});
-        const actor = Actor.adapt(user);
-
-        return await Context.get().sub({ actor: Actor.adapt(user) }).arun(async () => {
-            return await writeFile_handlers[req.query.operation]({
-                api: writeFile_handler_api,
-                req, res, actor,
-                node,
-            });
-        });
+    
+    let operation = req.query.operation ?? 'write';
+    // Responding with an error here would typically be better,
+    // but it would cause a regression for apps.
+    if ( ! writeFile_handlers.hasOwnProperty(operation) ) {
+        operation = 'write';
     }
 
-    // -----------------------------------------------------------------------//
-    // Write
-    // -----------------------------------------------------------------------//
-    else{
-        // modules
-        const {uuid2fsentry, id2path} = require('../helpers')
-        const _path = require('path');
+    console.log('\x1B[36;1mwriteFile: ' + req.query.operation + '\x1B[0m');
+    const node = await (new FSNodeParam('uid')).consolidate({
+        req, getParam: () => req.query.uid
+    });
+    const user = await get_user({id: await node.get('user_id')});
+    const actor = Actor.adapt(user);
 
-        // Check if files were uploaded
-        if(!req.files)
-            return res.status(400).send('No files uploaded');
-
-        // Get fsentry
-        let fsentry, dirname;
-        let node;
-
-        try{
-            node = await req.fs.node(new NodeUIDSelector(req.query.uid));
-            dirname = (await node.get('type') !== TYPE_DIRECTORY
-                ? _path.dirname.bind(_path) : a=>a)(await node.get('path'));
-        }catch(e){
-            console.log(e)
-            req.__error_source = e;
-            return res.status(500).send(e);
-        }
-
-        const user = await (async () => {
-            const { get_user } = require('../helpers');
-            const user_id = await node.get('user_id')
-            return await get_user({ id: user_id });
-        })();
-        Context.set('user', user);
-
-        const dirNode = await req.fs.node(new NodePathSelector(dirname));
-
-        const actor = Actor.adapt(user);
-
-        const context = Context.get().sub({
-            actor, user,
+    return await Context.get().sub({
+        actor: Actor.adapt(user), user,
+    }).arun(async () => {
+        return await writeFile_handlers[operation]({
+            api: writeFile_handler_api,
+            req, res, actor,
+            node,
         });
-
-        log.noticeme('writeFile: ' + context.describe());
-
-        // Upload files one by one
-        const returns = [];
-        for ( const uploaded_file of req.files ) {
-            try{
-                await context.arun(async () => {
-                    const hl_write = new HLWrite();
-                    const ret_obj = await hl_write.run({
-                        destination_or_parent: dirNode,
-                        specified_name: await node.get('type') === TYPE_DIRECTORY
-                            ? req.body.name : await node.get('name'),
-                        fallback_name: uploaded_file.originalname,
-                        overwrite: true,
-                        user: user,
-                        actor,
-
-                        file: uploaded_file,
-                    });
-
-                    // add signature to object
-                    ret_obj.signature = await sign_file(ret_obj, 'write');
-
-                    // send results back to app
-                    returns.push(ret_obj);
-                });
-            }catch(error){
-                req.__error_source = error;
-                console.log(error)
-                return res.contentType('application/json').status(500).send(error);
-            }
-        }
-
-        if ( returns.length === 1 ) {
-            return res.send(returns[0]);
-        }
-
-        return res.send(returns);
-    }
+    });
 });
