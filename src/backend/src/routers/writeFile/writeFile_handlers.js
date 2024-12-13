@@ -4,4 +4,5 @@ module.exports = {
     mkdir: require('./mkdir'),
     trash: require('./trash'),
     delete: require('./delete'),
+    rename: require('./rename'),
 };
