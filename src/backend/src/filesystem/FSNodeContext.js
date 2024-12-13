@@ -18,11 +18,13 @@
  */
 const { get_user, get_dir_size, id2path, id2uuid, is_empty, is_shared_with_anyone, suggest_app_for_fsentry, get_app } = require("../helpers");
 
+const putility = require('@heyputer/putility');
+const { MultiDetachable } = putility.libs.listener;
+const { TDetachable } = putility.traits;
 const config = require("../config");
 const _path = require('path');
 const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSelector, NodePathSelector } = require("./node/selectors");
 const { Context } = require("../util/context");
-const { MultiDetachable } = require("../util/listenerutil");
 const { NodeRawEntrySelector } = require("./node/selectors");
 const { DB_READ } = require("../services/database/consts");
 const { UserActorType } = require("../services/auth/Actor");
@@ -287,7 +289,7 @@ module.exports = class FSNodeContext {
             const detachables = new MultiDetachable();
 
             const callback = (resolver) => {
-                detachables.detach();
+                detachables.as(TDetachable).detach();
                 rslv();
             }
 

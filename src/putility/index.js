@@ -19,7 +19,7 @@
 const { AdvancedBase } = require('./src/AdvancedBase');
 const { Service } = require('./src/concepts/Service');
 const { ServiceManager } = require('./src/system/ServiceManager');
-const { TTopics } = require('./src/traits/traits');
+const traits = require('./src/traits/traits');
 
 module.exports = {
     AdvancedBase,
@@ -38,7 +38,5 @@ module.exports = {
     concepts: {
         Service,
     },
-    traits: {
-        TTopics,
-    },
+    traits,
 };
