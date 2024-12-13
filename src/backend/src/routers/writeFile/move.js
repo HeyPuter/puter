@@ -1,6 +1,4 @@
-const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 const { HLMove } = require("../../filesystem/hl_operations/hl_move");
-const { validate_signature_auth } = require("../../helpers");
 
 module.exports = async function writeFile_handle_move ({
     api,
