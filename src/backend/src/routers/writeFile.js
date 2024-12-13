@@ -222,8 +222,9 @@ module.exports = eggspress('/writeFile', {
         };
 
         // send realtime success msg to client
+        const user = await get_user({id: fsentry.user_id});
         const svc_socketio = req.services.get('socketio');
-        svc_socketio.send({ room: req.user.id }, 'item.renamed', return_obj);
+        svc_socketio.send({ room: user.id }, 'item.renamed', return_obj);
 
         return res.send(return_obj);
     }
