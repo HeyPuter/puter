@@ -3,6 +3,7 @@ const { HLMove } = require("../../filesystem/hl_operations/hl_move");
 const { validate_signature_auth } = require("../../helpers");
 
 module.exports = async function writeFile_handle_move ({
+    api,
     req, res, actor, node,
 }) {
     // check if destination_write_url provided
@@ -14,19 +15,10 @@ module.exports = async function writeFile_handle_move ({
         })
     }
 
-    // check if destination_write_url is valid
-    try{
-        validate_signature_auth(req.body.destination_write_url, 'write');
-    }catch(e){
-        return res.status(403).send(e);
-    }
+    const dest_node = await api.get_dest_node();
+    if ( ! dest_node ) return;
 
     const hl_move = new HLMove();
-
-    // TODO: [fs:operation:param-coercion]
-    const dest_node = await (new FSNodeParam('dest_path')).consolidate({
-        req, getParam: () => req.body.dest_path ?? req.body.destination_uid
-    });
 
     const opts = {
         user: actor.type.user,

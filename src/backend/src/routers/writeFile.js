@@ -85,7 +85,31 @@ module.exports = eggspress('/writeFile', {
     if(owner_user.suspended)
         return res.status(401).send({error: 'Account suspended'});
 
-    const db = req.services.get('database').get(DB_WRITE, 'filesystem');
+    const writeFile_handler_api = {
+        async get_dest_node () {
+            if(!req.body.destination_write_url){
+                res.status(400).send({
+                    error:{
+                        message: 'No destination specified.'
+                    }
+                });
+                return;
+            }
+            try{
+                validate_signature_auth(req.body.destination_write_url, 'write');
+            }catch(e){
+                res.status(403).send(e);
+                return;
+            }
+            try {
+                return await (new FSNodeParam('dest_path')).consolidate({
+                    req, getParam: () => req.body.dest_path ?? req.body.destination_uid
+                });
+            } catch (e) {
+                res.status(500).send('Internal Server Error');
+            }
+        }
+    };
 
     const writeFile_handlers = require('./writeFile/writeFile_handlers.js');
     if ( writeFile_handlers.hasOwnProperty(req.query.operation) ) {
@@ -98,6 +122,7 @@ module.exports = eggspress('/writeFile', {
 
         return await Context.get().sub({ actor: Actor.adapt(user) }).arun(async () => {
             return await writeFile_handlers[req.query.operation]({
+                api: writeFile_handler_api,
                 req, res, actor,
                 node,
             });
