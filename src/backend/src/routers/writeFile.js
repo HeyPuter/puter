@@ -17,9 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 "use strict"
-const express = require('express');
-const {uuid2fsentry, validate_signature_auth, get_url_from_req, sign_file} = require('../helpers');
-const fs = require('../middleware/fs.js');
+const {uuid2fsentry, validate_signature_auth, get_url_from_req, sign_file, get_user} = require('../helpers');
 const { NodePathSelector, NodeUIDSelector } = require('../filesystem/node/selectors');
 const eggspress = require('../api/eggspress');
 const { HLWrite } = require('../filesystem/hl_operations/hl_write');
@@ -58,11 +56,6 @@ module.exports = eggspress('/writeFile', {
         return res.status(403).send(e);
     }
 
-    log.info('writeFile context: ' + (
-        Context.get(undefined, { allow_fallback: true })
-    ).describe())
-    log.info('writeFile req context: ' + res.locals.ctx?.describe?.());
-
     // Get fsentry
     // todo this is done again in the following section, super inefficient
     let requested_item = await uuid2fsentry(req.query.uid);
@@ -94,146 +87,28 @@ module.exports = eggspress('/writeFile', {
 
     const db = req.services.get('database').get(DB_WRITE, 'filesystem');
 
-    // -----------------------------------------------------------------------//
-    // move
-    // -----------------------------------------------------------------------//
-    if(req.query.operation && req.query.operation === 'move'){
-        console.log(req.body)
-        const { get_user } = require('../helpers')
-        const _path = require('path');
-        const mime = require('mime-types');
-
-        // check if destination_write_url provided
-        if(!req.body.destination_write_url){
-            return res.status(400).send({
-                error:{
-                    message: 'No destination specified.'
-                }
-            })
-        }
-
-        // check if destination_write_url is valid
-        try{
-            validate_signature_auth(req.body.destination_write_url, 'write');
-        }catch(e){
-            return res.status(403).send(e);
-        }
-
-        try{
-            const hl_move = new HLMove();
-
-            // TODO: [fs:operation:param-coercion]
-            const source_node = await (new FSNodeParam('uid')).consolidate({
-                req, getParam: () => req.query.uid
-            });
-
-            // TODO: [fs:operation:param-coercion]
-            const dest_node = await (new FSNodeParam('dest_path')).consolidate({
-                req, getParam: () => req.body.dest_path ?? req.body.destination_uid
-            });
-
-            const user = await get_user({id: await source_node.get('user_id')});
-
-            const opts = {
-                // TODO: [fs:normalize-writeFile-user]
-                user,
-                source: source_node,
-                destination_or_parent: dest_node,
-                overwrite: req.body.overwrite ?? false,
-                new_name: req.body.new_name,
-                new_metadata: req.body.new_metadata,
-                create_missing_parents: req.body.create_missing_parents,
-            };
-
-            // TODO: [fs:DRY-writeFile-context]
-            const r = await Context.get().sub({ actor: Actor.adapt(user) }).arun(async () => {
-                return await hl_move.run({
-                    ...opts,
-                    actor: Context.get('actor'),
-                });
-            });
-
-            return res.send({
-                ...r.moved,
-                old_path: r.old_path,
-                new_path: r.moved.path,
-            });
-        }catch(e){
-            console.log(e)
-            return res.status(400).send(e)
-        }
-    }
-
-    // -----------------------------------------------------------------------//
-    // copy
-    // -----------------------------------------------------------------------//
-    else if(req.query.operation && req.query.operation === 'copy'){
-        const {is_shared_with_anyone, suggest_app_for_fsentry, cp, validate_fsentry_name, convert_path_to_fsentry, uuid2fsentry, get_user, id2path, id2uuid} = require('../helpers')
-        const _path = require('path');
-        const mime = require('mime-types');
-
-        // check if destination_write_url provided
-        if(!req.body.destination_write_url){
-            return res.status(400).send({
-                error:{
-                    message: 'No destination specified.'
-                }
-            })
-        }
-
-        // check if destination_write_url is valid
-        try{
-            validate_signature_auth(req.body.destination_write_url, 'write');
-        }catch(e){
-            return res.status(403).send(e);
-        }
-
-        const overwrite      = req.body.overwrite ?? false;
-        const change_name    = req.body.auto_rename ?? false;
-
-        // TODO: [fs:operation:param-coercion]
-        const source_node = await (new FSNodeParam('uid')).consolidate({
+    const writeFile_handlers = require('./writeFile/writeFile_handlers.js');
+    if ( writeFile_handlers.hasOwnProperty(req.query.operation) ) {
+        console.log('\x1B[36;1mwriteFile: ' + req.query.operation + '\x1B[0m');
+        const node = await (new FSNodeParam('uid')).consolidate({
             req, getParam: () => req.query.uid
         });
+        const user = await get_user({id: await node.get('user_id')});
+        const actor = Actor.adapt(user);
 
-        // TODO: [fs:operation:param-coercion]
-        const dest_node = await (new FSNodeParam('dest_path')).consolidate({
-            req, getParam: () => req.body.dest_path ?? req.body.destination_uid
-        });
-
-        // Get user
-        let user = await get_user({id: await source_node.get('user_id')});
-
-        const opts = {
-            source: source_node,
-            destination_or_parent: dest_node,
-            dedupe_name: change_name,
-            overwrite,
-            user,
-        };
-
-        let new_fsentries
-        try{
-            const hl_copy = new HLCopy();
-
-            const r = await Context.get().sub({ actor: Actor.adapt(user) }).arun(async () => {
-                return await hl_copy.run({
-                    ...opts,
-                    actor: Context.get('actor'),
-                });
+        return await Context.get().sub({ actor: Actor.adapt(user) }).arun(async () => {
+            return await writeFile_handlers[req.query.operation]({
+                req, res, actor,
+                node,
             });
-            return res.send([r]);
-        }catch(e){
-            console.log(e)
-            return res.status(400).send(e)
-        }
+        });
     }
 
     // -----------------------------------------------------------------------//
     // mkdir
     // -----------------------------------------------------------------------//
     else if(req.query.operation && req.query.operation === 'mkdir'){
-        const {mkdir, uuid2fsentry, get_user, id2path} = require('../helpers')
+        const {uuid2fsentry, get_user, id2path} = require('../helpers')
 
         // name is required
         if(!req.body.name){
@@ -280,7 +155,7 @@ module.exports = eggspress('/writeFile', {
     // Trash
     // -----------------------------------------------------------------------//
     if(req.query.operation && req.query.operation === 'trash'){
-        const {validate_fsentry_name, convert_path_to_fsentry, uuid2fsentry, get_user, id2path, id2uuid} = require('../helpers')
+        const {validate_fsentry_name, uuid2fsentry, get_user, id2path} = require('../helpers')
         const _path = require('path');
         const mime = require('mime-types');
 
