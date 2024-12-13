@@ -96,7 +96,9 @@ module.exports = eggspress('/writeFile', {
                 return;
             }
             try{
-                validate_signature_auth(req.body.destination_write_url, 'write');
+                validate_signature_auth(req.body.destination_write_url, 'write', {
+                    uid: req.body.destination_uid,
+                });
             }catch(e){
                 res.status(403).send(e);
                 return;

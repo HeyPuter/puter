@@ -1511,7 +1511,7 @@ async function get_taskbar_items(user) {
     return taskbar_items;
 }
 
-function validate_signature_auth(url, action) {
+function validate_signature_auth(url, action, options = {}) {
     const query = new URL(url).searchParams;
 
     if(!query.get('uid'))
@@ -1522,6 +1522,12 @@ function validate_signature_auth(url, action) {
         throw {message: '`expires` is required for signature-based authentication.'}
     else if(!query.get('signature'))
         throw {message: '`signature` is required for signature-based authentication.'}
+    
+    if ( options.uid ) {
+        if ( query.get('uid') !== options.uid ) {
+            throw {message: 'Authentication failed. `uid` does not match.'}
+        }
+    }
 
     const expired = query.get('expires') && (query.get('expires') < Date.now() / 1000);
 
