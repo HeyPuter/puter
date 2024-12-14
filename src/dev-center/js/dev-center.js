@@ -1166,30 +1166,29 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
     }
 
     // parse filetype_associations
+    if(filetype_associations !== ''){
+        filetype_associations = JSON.parse(filetype_associations);
+        filetype_associations = filetype_associations.map((type) => {
+            const fileType = type.value;
+            if (
+                !fileType ||
+                fileType === "." ||
+                fileType === "/"
+            ) {
+                error = `<strong>File Association Type</strong> must be valid.`;
+                return null; // Return null for invalid cases
+            }
+            const lower = fileType.toLocaleLowerCase();
 
-    filetype_associations = JSON.parse(filetype_associations);
-    filetype_associations = filetype_associations.map((type) => {
-        const fileType = type.value;
-
-
-       if (
-           !fileType ||
-           fileType === "." ||
-           fileType === "/"
-       ) {
-      error = `<strong>File Association Type</strong> must be valid.`;
-      return null; // Return null for invalid cases
+            if (fileType.includes("/")) {
+            return lower;
+            } else if (fileType.includes(".")) {
+            return "." + lower.split(".")[1];
+            } else {
+            return "." + lower;
+            }
+        }).filter(Boolean);
     }
-    const lower = fileType.toLocaleLowerCase();
-
-    if (fileType.includes("/")) {
-      return lower;
-    } else if (fileType.includes(".")) {
-      return "." + lower.split(".")[1];
-    } else {
-      return "." + lower;
-    }
-    }).filter(Boolean);
 
     // error?
     if (error) {
