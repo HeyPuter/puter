@@ -1098,10 +1098,8 @@ async function UIDesktop(options){
             ht += `<svg style="width: 17px; height: 17px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px" height="48px" viewBox="0 0 48 48"><g transform="translate(0, 0)"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"></path></g></svg>`;
         ht += `</div>`;
 
-        // 'show desktop'
-        if(window.is_fullpage_mode){
-            ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased" target="_blank" title="Show Desktop">Show Desktop <img src="${window.icons['launch-white.svg']}" style="width: 10px; height: 10px; margin-left: 5px;"></a>`;
-        }
+        // 'Show Desktop'
+        ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased hidden" target="_blank" title="Show Desktop">Show Desktop <img src="${window.icons['launch-white.svg']}" style="width: 10px; height: 10px; margin-left: 5px;"></a>`;
 
         // refer
         if(window.user.referral_code){
@@ -1155,7 +1153,12 @@ async function UIDesktop(options){
         // get app metadata
         try{
             window.app_launched_from_url = await puter.apps.get(window.url_paths[1])
-            window.is_fullpage_mode = window.app_launched_from_url.metadata?.fullpage_on_landing ?? false;
+            window.is_fullpage_mode = window.app_launched_from_url.metadata?.fullpage_on_landing ?? window.is_fullpage_mode ?? false;
+
+            // show 'Show Desktop' button
+            if(window.is_fullpage_mode){
+                $('.show-desktop-btn').removeClass('hidden');
+            }
         }catch(e){
             console.error(e);
         }
