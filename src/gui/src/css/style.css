@@ -2399,7 +2399,7 @@ label {
     color: white;
     text-shadow: 0px 0px 3px #00000082, 0px 0px 3px #00000082, 0px 0px 3px #00000082;
     font-size: 13px;
-    bottom:7px;
+    bottom: 5px;
 }
 
 .device-phone #clock {
