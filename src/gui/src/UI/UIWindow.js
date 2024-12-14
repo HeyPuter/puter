@@ -478,6 +478,7 @@ async function UIWindow(options) {
                 name: options.title,
                 app: options.app,
                 open_windows_count: 1,
+                before_trash: true,
                 onClick: function(){
                     let open_window_count = parseInt($(`.taskbar-item[data-app="${options.app}"]`).attr('data-open-windows'));
                     if(open_window_count === 0){

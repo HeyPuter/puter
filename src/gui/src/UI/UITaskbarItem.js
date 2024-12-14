@@ -30,6 +30,8 @@ function UITaskbarItem(options){
     options.open_windows_count = options.open_windows_count ?? 0;
     options.lock_keep_in_taskbar = options.lock_keep_in_taskbar ?? false;
     options.append_to_taskbar = options.append_to_taskbar ?? true;
+    options.before_trash = options.before_trash ?? false;
+
     const element_id = window.global_element_id++;
 
     h += `<div  class = "taskbar-item ${options.sortable ? 'taskbar-item-sortable' : ''} disable-user-select"
@@ -57,10 +59,15 @@ function UITaskbarItem(options){
             h += `<span class="active-taskbar-indicator"></span>`;
     h += `</div>`;
 
-    if(options.append_to_taskbar)
-        $('.taskbar').append(h);
-    else
+    if(options.append_to_taskbar) {
+        if (options.before_trash){
+            $('.taskbar-item[data-app="trash"]').before(h);
+        }else{
+            $('.taskbar').append(h);
+        }
+    }else{
         $('body').prepend(h);
+    }
 
     const el_taskbar_item = document.querySelector(`#taskbar-item-${tray_item_id}`);
 
