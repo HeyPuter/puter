@@ -554,7 +554,7 @@ async function UIWindow(options) {
             'top': window.toolbar_height + 'px',
             'left': '0',
             'width': '100%',
-            'height': `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)`,
+            'height': `calc(100% - ${window.taskbar_height + window.toolbar_height + 6}px)`,
             'transform': 'none',
         });
     }
@@ -3288,7 +3288,7 @@ window.scale_window = (el_window)=>{
             'top': window.toolbar_height+'px',
             'left': '0',
             'width': '100%',
-            'height': `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)`,
+            'height': `calc(100% - ${window.taskbar_height + window.toolbar_height + 6}px)`,
             'transform': 'none',
         });
     }
@@ -3535,7 +3535,10 @@ $.fn.hideWindow = async function(options) {
     $(this).each(async function() {
         if($(this).hasClass('window')){
             // get taskbar item location
-            const taskbar_item_pos = $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).position();
+            let taskbar_item_pos = $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).position();
+
+            // taskbar position is center of window minus half of taskbar item width
+            taskbar_item_pos.left = taskbar_item_pos.left + ($( window ).width()/ 2) - ($(`.taskbar`).width() / 2);
 
             $(this).attr({
                 'data-orig-width': $(this).width(), 
@@ -3550,7 +3553,7 @@ $.fn.hideWindow = async function(options) {
                 width: `0`,
                 height: `0`,
                 top: 'calc(100% - 60px)',
-                left: taskbar_item_pos.left + 29,
+                left: taskbar_item_pos.left + 14.5,
             });
 
             // remove transitions a good while after setting css to make sure 

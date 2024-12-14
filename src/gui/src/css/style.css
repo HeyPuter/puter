@@ -2299,8 +2299,17 @@ label {
     display: flex;
     justify-content: center;
     z-index: 99999;
-    box-shadow: 5px 5px 5px 3px #6e6e6e;
+    box-shadow: 0px 0px 4px 0px #7575757a;
     overflow: hidden !important;
+
+    height: 50px;
+    border-radius: 10px;
+    bottom: 5px;
+    padding-left: 7px;
+    padding-right: 7px;
+    width: auto;
+    left: 50%;
+    transform: translateX(-50%);
 }
 
 .taskbar .taskbar-item {
@@ -2367,6 +2376,10 @@ label {
     border-radius: 3px;
 }
 
+.device-phone .active-taskbar-indicator{
+    display: none !important; 
+}
+
 .taskbar .taskbar-icon img {
     width: 100%;
     height: 100%;
@@ -2382,7 +2395,15 @@ label {
 #clock {
     display: none;
     position: absolute;
-    right: 10px;
+    right: 15px;
+    color: white;
+    text-shadow: 0px 0px 3px #00000082, 0px 0px 3px #00000082, 0px 0px 3px #00000082;
+    font-size: 13px;
+    bottom:7px;
+}
+
+.device-phone #clock {
+    display: none !important;
 }
 
 .desktop-bg-settings-wrapper {
@@ -2429,7 +2450,6 @@ label {
         margin-right: 5px;
         overflow: visible !important;
         padding: 5px 5px 10px 5px;
-        position: absolute;
     }
     
     .taskbar-icon {

@@ -643,6 +643,8 @@ async function UIDesktop(options){
             >`;
     h += `</div>`;
 
+    h += `<span id='clock'></span></div>`;
+
     // Get window sidebar width
     puter.kv.get('window_sidebar_width').then(async (val) => {
         let value = parseInt(val);

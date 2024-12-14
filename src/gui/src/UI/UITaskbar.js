@@ -42,7 +42,7 @@ async function UITaskbar(options){
     });
 
     let h = '';
-    h += `<div id="ui-taskbar_${window.global_element_id}" class="taskbar" style="height:${window.taskbar_height}px;"><span id='clock'></span></div>`;
+    h += `<div id="ui-taskbar_${window.global_element_id}" class="taskbar" style="height:${window.taskbar_height}px;">`;
 
     $('.desktop').append(h);
 
@@ -186,8 +186,9 @@ async function UITaskbar(options){
 
     //---------------------------------------------
     // Add other useful apps to the taskbar
+    // only if not mobile
     //---------------------------------------------
-    if(window.user.taskbar_items && window.user.taskbar_items.length > 0){
+    if(window.user.taskbar_items && !isMobile.phone && window.user.taskbar_items.length > 0){
         for (let index = 0; index < window.user.taskbar_items.length; index++) {
             const app_info = window.user.taskbar_items[index];
             // add taskbar item for each app
