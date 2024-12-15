@@ -4454,6 +4454,12 @@ fieldset[name=number-code] {
     height: initial !important;
     max-width: calc(100% - 30px);
 }
+.device-phone .window.window-refer-friend{
+    left: 50% !important;
+    transform: translate(-50%) !important;
+    height: initial !important;
+    max-width: calc(100% - 30px);
+}
 
 .device-phone .window.window-task-manager {
     height: initial !important;
@@ -4465,8 +4471,8 @@ fieldset[name=number-code] {
 
 .device-phone .window.window-filedialog{
     transform: none;
-    width: 100%;
-    left: 0;
+    width: 100% !important;
+    left: 0 !important;
     min-height: 100dvh;
     height: 100dvh;
     top: 0 !important;
@@ -4504,7 +4510,7 @@ fieldset[name=number-code] {
 
 .device-phone .window-signup{
     transform: none;
-    width: 100%;
+    width: 100% ;
     left: 0;
     top: 50%;
     transform: translateY(-50%);

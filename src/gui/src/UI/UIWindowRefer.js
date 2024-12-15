@@ -37,6 +37,7 @@ async function UIWindowRefer(options){
 
     const el_window = await UIWindow({
         title: `Refer a friend!`,
+        window_class: 'window-refer-friend',
         icon: null,
         uid: null,
         is_dir: false,
