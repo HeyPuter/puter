@@ -4584,6 +4584,9 @@ fieldset[name=number-code] {
     /* Hide scrollbars while keeping functionality */
     scrollbar-width: none;
     -ms-overflow-style: none;
+
+    padding-left: 10px;
+    padding-right: 10px;
 }
 
 /* Hide scrollbar while keeping functionality */
