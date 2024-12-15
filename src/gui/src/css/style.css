@@ -2602,8 +2602,8 @@ label {
 }
 
 .device-phone .popover {
-    height: 100vh;
-    height: 100dvh;
+    height: calc(100vh - 65px);
+    height: calc(100dvh - 65px);
     top: 0 !important;
     left: 0 !important;
     width: 100%;
@@ -2740,9 +2740,8 @@ label {
 
 .close-launch-popover {
     position: absolute;
-    top: 5px;
-    right: 10px;
-    padding: 5px;
+    top: 2px;
+    right: 3px;
     display: none;
 }
 
@@ -4559,4 +4558,55 @@ fieldset[name=number-code] {
 }
 .device-phone .popover-launcher, .device-phone .launch-popover{
     border-radius: 0;
+}
+
+/* Main launcher container */
+.device-phone .launch-popover {
+    /* Enable smooth scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
+    /* Allow vertical touch scrolling while preventing horizontal */
+    touch-action: pan-y;
+    /* Base dimensions */
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    
+    /* Scrolling behavior */
+    overflow-y: scroll;
+    overflow-x: hidden;
+    /* Background and styling */
+    background-color: rgba(231, 238, 245);
+    padding: 0;
+    margin: 0;
+    /* Hide scrollbars while keeping functionality */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+/* Hide scrollbar while keeping functionality */
+.device-phone .launch-popover::-webkit-scrollbar {
+    display: none;
+}
+
+/* Ensure content can receive touch events */
+.device-phone .launch-popover * {
+    touch-action: pan-y;
+}
+
+/* Make sure the search wrapper doesn't interfere with scrolling */
+.device-phone .launch-search-wrapper {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: rgba(231, 238, 245);
+}
+
+.device-phone .popover-launcher{
+    left: 50% !important;
+    border-radius: 10px;
+    top: 5px !important;
+    transform: translateX(-50%);
+    width: calc(100% - 25px);
+    height: calc(100vh - 65px);
+    height: calc(100dvh - 65px);
 }

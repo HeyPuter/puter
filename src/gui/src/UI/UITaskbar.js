@@ -65,7 +65,7 @@ async function UITaskbar(options){
 
             // show popover
             let popover = UIPopover({
-                content: `<div class="launch-popover hide-scrollbar"><span class="close-launch-popover">✕</span></div>`,
+                content: `<div class="launch-popover hide-scrollbar"></div>`,
                 snapToElement: item,
                 parent_element: item,
                 width: 500,
