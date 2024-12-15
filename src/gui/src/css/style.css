@@ -4465,46 +4465,50 @@ fieldset[name=number-code] {
 
 .device-phone .window.window-filedialog{
     transform: none;
-    width: 100% !important;
-    left: 0 !important;
-    height: 100dvh !important;
+    width: 100%;
+    left: 0;
+    min-height: 100dvh;
+    height: 100dvh;
     top: 0 !important;
     border-radius: 0 !important;
 }
 
 .device-phone .window.window-app{
     transform: none;
-    width: 100% !important;
-    left: 0 !important;
-    height: 100dvh !important;
+    width: 100%;
+    left: 0;
+    height: 100dvh;
+    min-height: 100dvh;
     top: 0 !important;
-    border-radius: 0 !important;
+    border-radius: 0;
 }
 
 .device-phone .window.window-explorer{
     transform: none;
-    width: 100% !important;
-    left: 0 !important;
-    height: 100dvh !important;
+    width: 100%;
+    left: 0;
+    min-height: 100dvh;
+    height: 100dvh;
     top: 0 !important;
     border-radius: 0 !important;
 }
 
 .device-phone .window.window-settings{
     transform: none;
-    width: 100% !important;
-    left: 0 !important;
-    height: 100dvh !important;
+    width: 100%;
+    left: 0;
+    height: 100dvh;
     top: 0 !important;
-    border-radius: 0 !important;
+    border-radius: 0;
 }
+
 .device-phone .window-signup{
     transform: none;
-    width: 100% !important;
-    left: 0 !important;
+    width: 100%;
+    left: 0;
     top: 50%;
     transform: translateY(-50%);
-    border-radius: 0 !important;
+    border-radius: 0;
 }
 
 .device-phone .send-feedback-btn{

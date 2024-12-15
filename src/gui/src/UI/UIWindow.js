@@ -3550,7 +3550,9 @@ $.fn.hideWindow = async function(options) {
             })
 
             $(this).css({
-                'transition': `top 0.2s, left 0.2s, bottom 0.2s, right 0.2s, width 0.2s, height 0.2s`,
+                ...(!isMobile.phone ? { 
+                    'transition': `top 0.2s, left 0.2s, bottom 0.2s, right 0.2s, width 0.2s, height 0.2s`,
+                } : {}),
                 width: `0`,
                 height: `0`,
                 top: 'calc(100% - 60px)',

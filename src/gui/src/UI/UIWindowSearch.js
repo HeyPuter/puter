@@ -48,7 +48,6 @@ async function UIWindowSearch(options){
         init_center: true,
         allow_native_ctxmenu: true,
         allow_user_select: true,
-        show_in_taskbar: false,
         window_class: 'window-search',
         backdrop: isMobile.phone,
         center: isMobile.phone,
