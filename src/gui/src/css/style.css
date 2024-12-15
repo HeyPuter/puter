@@ -4564,20 +4564,23 @@ fieldset[name=number-code] {
 .device-phone .launch-popover {
     /* Enable smooth scrolling on iOS */
     -webkit-overflow-scrolling: touch;
+
     /* Allow vertical touch scrolling while preventing horizontal */
     touch-action: pan-y;
+
     /* Base dimensions */
     width: 100%;
-    height: 100vh;
-    height: 100dvh;
+    height: 100%;
     
     /* Scrolling behavior */
     overflow-y: scroll;
     overflow-x: hidden;
+
     /* Background and styling */
     background-color: rgba(231, 238, 245);
     padding: 0;
     margin: 0;
+
     /* Hide scrollbars while keeping functionality */
     scrollbar-width: none;
     -ms-overflow-style: none;
