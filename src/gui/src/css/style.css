@@ -4521,17 +4521,42 @@ fieldset[name=number-code] {
     width: 100%;
 }
 
+/* Taskbar container */
 .device-phone .taskbar {
-    justify-content: left;
-    /* Hide scrollbar for Chrome, Safari and Opera */
-    &::-webkit-scrollbar {
-        display: none;
-    }
-    /* Hide scrollbar for IE, Edge and Firefox */
-    -ms-overflow-style: none;
+    /* Enable smooth scrolling */
+    -webkit-overflow-scrolling: touch;
+    /* Allow horizontal touch scrolling */
+    touch-action: pan-x;
+    /* Enable horizontal scroll */
+    overflow-x: auto;
+    /* Hide scrollbars while keeping functionality */
     scrollbar-width: none;
+    -ms-overflow-style: none;
+    
+    /* Base styling */
+    display: flex;
+    justify-content: left;
 }
 
+/* Hide scrollbar while keeping functionality */
+.device-phone .taskbar::-webkit-scrollbar {
+    display: none;
+}
+
+/* Taskbar items */
+.device-phone .taskbar .taskbar-item {
+    /* Allow dragging while preventing unwanted touch actions */
+    touch-action: pan-x pinch-zoom;
+    /* Ensure items can be dragged */
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: grab;
+    
+    /* Base styling */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
 .device-phone .popover-launcher, .device-phone .launch-popover{
     border-radius: 0;
 }
