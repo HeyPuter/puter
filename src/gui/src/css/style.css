@@ -4495,8 +4495,8 @@ fieldset[name=number-code] {
 
 .device-phone .window.window-settings{
     transform: none;
-    width: 100%;
-    left: 0;
+    width: 100% !important;
+    left: 0 !important;
     height: 100dvh;
     top: 0 !important;
     border-radius: 0;
