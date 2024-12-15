@@ -325,6 +325,7 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
 
     const w = await UIComponentWindow({
         component: task_manager_table,
+        window_class: 'window-task-manager',
         title: i18n('task_manager'),
         icon: globalThis.icons['cog.svg'],
         uid: null,

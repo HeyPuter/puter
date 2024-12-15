@@ -67,8 +67,6 @@ async function UIWindowLogin(options){
                     h += `<button class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
                     // password recovery
                     h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>`;
-                    // server and version info
-                    h += `<div id="version-placeholder" class="version" style="text-align:center;"></div>`;
                 h += `</form>`;
             h += `</div>`;
             // create account link
@@ -78,16 +76,6 @@ async function UIWindowLogin(options){
                 h += `</div>`;
             }
         h += `</div>`;
-
-        // server and version infomration
-        puter.os.version()
-        .then(res => {
-            const deployed_date = new Date(res.deploy_timestamp).toLocaleString();
-            $("#version-placeholder").html(`Version: ${html_encode(res.version)} &bull; Server: ${html_encode(res.location)} &bull; Deployed: ${html_encode(deployed_date)}`);
-        })
-        .catch(() => {
-            $("#version-placeholder").html("Failed to load version or server information.");
-        });
         
         const el_window = await UIWindow({
             title: null,

@@ -151,7 +151,7 @@ async function UIWindow(options) {
     else if(isMobile.phone)
         options.top = 100;
     
-    if(isMobile.phone){
+    if(isMobile.phone && !options.center && !options.dominant){
         options.left = 0;
         options.top = window.toolbar_height + 'px';
         options.width = '100%';
@@ -186,6 +186,7 @@ async function UIWindow(options) {
             user_set_url_params = '?'+ user_set_url_params.join('&');
     }
     h += `<div class="window window-active 
+                        ${options.app === 'explorer' ? 'window-explorer' : ''}
                         ${options.cover_page ? 'window-cover-page' : ''}
                         ${options.uid !== undefined ? 'window-'+options.uid : ''} 
                         ${options.window_class} 
