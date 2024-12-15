@@ -397,10 +397,6 @@ function UITaskbarItem(options){
         }
     });
 
-    if(options.append_to_taskbar){
-        window.recalibrate_taskbar_item_positions();
-    }
-
     return el_taskbar_item;
 }
 

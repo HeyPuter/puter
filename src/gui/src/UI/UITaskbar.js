@@ -70,6 +70,7 @@ async function UITaskbar(options){
                 parent_element: item,
                 width: 500,
                 height: 500,
+                class: 'popover-launcher',
                 center_horizontally: true,
             });
 
@@ -186,9 +187,8 @@ async function UITaskbar(options){
 
     //---------------------------------------------
     // Add other useful apps to the taskbar
-    // only if not mobile
     //---------------------------------------------
-    if(window.user.taskbar_items && !isMobile.phone && window.user.taskbar_items.length > 0){
+    if(window.user.taskbar_items && window.user.taskbar_items.length > 0){
         for (let index = 0; index < window.user.taskbar_items.length; index++) {
             const app_info = window.user.taskbar_items[index];
             // add taskbar item for each app
@@ -239,7 +239,6 @@ async function UITaskbar(options){
         }
     })
 
-    window.recalibrate_taskbar_item_positions();
     window.make_taskbar_sortable();
 }
 
@@ -306,28 +305,4 @@ window.make_taskbar_sortable = function(){
     });
 }
 
-window.recalibrate_taskbar_item_positions = function(){
-    // if this is mobile rearrange taskbar item positions based on absolute position
-    // taskbar items must be centered unless there is overflow. If there is overflow, the taskbar items must be left aligned
-    if(isMobile.phone || window.desktop_width < 800){
-        let taskbar_items = $('.taskbar-item');
-        let taskbar_width = taskbar_items.length * 60;
-
-        if(taskbar_width > window.desktop_width){
-            // set taskbar items to absolute position
-            $('.taskbar-item').css('position', 'absolute');
-            $('.taskbar').css('display', 'block');
-            // set left position for each taskbar item
-            let left = 0;
-            for (let index = 0; index < taskbar_items.length; index++) {
-                const taskbar_item = taskbar_items[index];
-                $(taskbar_item).css('left', left);
-                left += 60;
-            }
-        }else{
-            $('.taskbar-item').css('position', 'unset');
-            $('.taskbar').css('justify-content', 'center');
-        }
-    }
-}
 export default UITaskbar;

@@ -1814,8 +1814,6 @@ window.remove_taskbar_item = function(item){
     $(item).animate({width: 0}, 200, function(){
         $(item).remove();
     })
-
-    window.recalibrate_taskbar_item_positions();
 }
 
 window.enter_fullpage_mode = (el_window)=>{
