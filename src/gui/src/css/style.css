@@ -351,6 +351,8 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 }
 
 .device-phone .desktop {
+    height: calc(100vh - 55px) !important;
+    height: calc(100dvh - 55px) !important;
     overflow-x: scroll;
 }
 
