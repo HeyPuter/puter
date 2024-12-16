@@ -1,4 +1,17 @@
+import { TeePromise } from '@heyputer/putility/src/libs/promise.js';
 import * as utils from '../lib/utils.js'
+
+const gui_cache_keys = [
+    'has_set_default_app_user_permissions',
+    'window_sidebar_width',
+    'sidebar_items',
+    'menubar_style',
+    'user_preferences.auto_arrange_desktop',
+    'user_preferences.show_hidden_files',
+    'user_preferences.language',
+    'user_preferences.clock_visible',
+    'has_seen_welcome_window',
+];
 
 class KV{
     MAX_KEY_SIZE = 1024;
@@ -16,6 +29,36 @@ class KV{
         this.authToken = context.authToken;
         this.APIOrigin = context.APIOrigin;
         this.appID = context.appID;
+
+        this.gui_cached = new TeePromise();
+        this.gui_cache_init = new TeePromise();
+        (async () => {
+            await this.gui_cache_init;
+            this.gui_cache_init = null;
+            const resp = await fetch(`${this.APIOrigin}/drivers/call`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${this.authToken}`,
+                },
+                body: JSON.stringify({
+                    interface: 'puter-kvstore',
+                    method: 'get',
+                    args: {
+                        key: gui_cache_keys,
+                    },
+                }),
+            });
+            const arr_values = await resp.json();
+            const obj = {};
+            for (let i = 0; i < gui_cache_keys.length; i++) {
+                obj[gui_cache_keys[i]] = arr_values.result[i];
+            }
+            this.gui_cached.resolve(obj);
+            setTimeout(() => {
+                this.gui_cached = null;
+            }, 4000);
+        })();
     }
 
     /**
@@ -68,7 +111,23 @@ class KV{
     /**
      * Resolves to the value if the key exists, or `undefined` if the key does not exist. Rejects with an error on failure.
      */
-    get = utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'get', {
+    async get (...args) {
+        // Condition for gui boot cache
+        if (
+            typeof args[0] === 'string' &&
+            gui_cache_keys.includes(args[0]) &&
+            this.gui_cached !== null
+        ) {
+            this.gui_cache_init && this.gui_cache_init.resolve();
+            const cache = await this.gui_cached;
+            return cache[args[0]];
+        }
+
+        // Normal get
+        return await this.get_(...args);
+    }
+
+    get_ = utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'get', {
         preprocess: (args)=>{
             // key size cannot be larger than MAX_KEY_SIZE
             if(args.key.length > this.MAX_KEY_SIZE){
