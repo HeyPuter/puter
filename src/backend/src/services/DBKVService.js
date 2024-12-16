@@ -39,7 +39,8 @@ class DBKVService extends BaseService {
                         `SELECT kkey, value FROM kv WHERE user_id=? AND app=? AND kkey_hash IN (?)`,
                         [ user.id, app.uid, key_hashes ]
                     ) : await this.db.read(
-                        `SELECT kkey, value FROM kv WHERE user_id=? AND (app IS NULL OR app = 'global') AND kkey_hash IN (?)`,
+                        `SELECT kkey, value FROM kv WHERE user_id=? AND (app IS NULL OR app = 'global') ` +
+                        `AND kkey_hash IN (${key_hashes.map(() => '?').join(',')})`,
                         [ user.id, key_hashes ]
                     );
 
