@@ -351,9 +351,8 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 }
 
 .device-phone .desktop {
-    height: calc(100vh - 55px) !important;
-    height: calc(100dvh - 55px) !important;
-    overflow-x: scroll;
+    height: calc(100vh - 90px) !important;
+    height: calc(100dvh - 90px) !important;
 }
 
 .item-container-list {
@@ -4656,7 +4655,7 @@ fieldset[name=number-code] {
     -ms-overflow-style: none;
 
     /* Scrolling behavior */
-    overflow-y: hidden;
+    overflow-y: visible !important;
     overflow-x: scroll;
 }
 
