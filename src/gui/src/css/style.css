@@ -4656,7 +4656,7 @@ fieldset[name=number-code] {
     -ms-overflow-style: none;
 
     /* Scrolling behavior */
-    /* overflow-y: hidden; */
+    overflow-y: hidden;
     overflow-x: scroll;
 }
 
