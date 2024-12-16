@@ -4659,6 +4659,8 @@ fieldset[name=number-code] {
     /* Scrolling behavior */
     overflow-y: visible !important;
     overflow-x: scroll;
+
+    padding-bottom: 60px;
 }
 
 .device-phone .desktop * {
