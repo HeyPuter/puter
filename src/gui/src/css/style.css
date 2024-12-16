@@ -351,8 +351,6 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 }
 
 .device-phone .desktop {
-    height: 100vh !important;
-    height: 100dvh !important;
     overflow-x: scroll;
 }
 
@@ -778,6 +776,10 @@ span.header-sort-icon img {
 
 .device-phone .item-container-list .item .item-name {
     line-height: 42px;
+    border-bottom: 1px solid #e3e3e3;
+    padding-bottom: 15px;
+    width: calc(100% - 75px);
+    text-align: left;
 }
 
 .window-body .item .item-name-editor {
