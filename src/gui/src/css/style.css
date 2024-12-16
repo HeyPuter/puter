@@ -127,13 +127,6 @@ body {
     overflow: hidden;
 }
 
-/* Only prevent pinch zoom while keeping other touch interactions */
-.device-phone, .device-tablet, .device-phone .desktop, .device-tablet .desktop{
-    touch-action: manipulation;
-    -webkit-touch-callout: none;
-    -webkit-user-select: none;
-}
-
 .embedded-in-3rd-party-website, .embedded-in-popup {
     background: none !important;
     background-color: #ccccccbe !important;
