@@ -1831,7 +1831,7 @@ async function UIWindow(options) {
                                 'top': window.toolbar_height,
                                 'left': 0,
                                 'width': '50%',
-                                'height': window.desktop_height,
+                                'height': window.desktop_height - 6,
                             })
                         }
                         // snap to nw
@@ -1876,7 +1876,7 @@ async function UIWindow(options) {
                                 'top': window.toolbar_height,
                                 'left': '50%',
                                 'width': '50%',
-                                'height': window.desktop_height,
+                                'height': window.desktop_height - 6,
                             })
                         }
                         // snap to n
@@ -2597,7 +2597,7 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function(e){
     let el_window = $(this).closest('.window');
     // bottom
     if($(this).hasClass('ui-resizable-s')){
-        let height = window.innerHeight - $(el_window).position().top - window.taskbar_height -1;
+        let height = window.innerHeight - $(el_window).position().top - window.taskbar_height - 6;
         $(el_window).height(height);
     }
 
@@ -2627,7 +2627,7 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function(e){
     // bottom left
     else if($(this).hasClass('ui-resizable-sw')){
         let width = $(el_window).width() +  $(el_window).position().left;
-        let height = window.innerHeight - $(el_window).position().top - window.taskbar_height -1;
+        let height = window.innerHeight - $(el_window).position().top - window.taskbar_height - 6;
         $(el_window).css({
             width: width,
             height: height,
@@ -2637,7 +2637,7 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function(e){
     // bottom right
     else if($(this).hasClass('ui-resizable-se')){
         let width = window.innerWidth - $(el_window).position().left;
-        let height = window.innerHeight - $(el_window).position().top - window.taskbar_height -1;
+        let height = window.innerHeight - $(el_window).position().top - window.taskbar_height - 6;
         $(el_window).css({
             width: width,
             height: height,
