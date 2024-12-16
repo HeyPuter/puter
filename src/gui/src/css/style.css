@@ -127,6 +127,13 @@ body {
     overflow: hidden;
 }
 
+/* Only prevent pinch zoom while keeping other touch interactions */
+.device-phone, .device-tablet {
+    touch-action: pan-x pan-y;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+}
+
 .embedded-in-3rd-party-website, .embedded-in-popup {
     background: none !important;
     background-color: #ccccccbe !important;
@@ -4630,4 +4637,16 @@ fieldset[name=number-code] {
     width: calc(100% - 25px);
     height: calc(100vh - 65px);
     height: calc(100dvh - 65px);
+}
+
+.device-phone .start-app-card{
+    width: 25%;
+}
+.device-phone .start-app-icon{
+    width: 50px;
+    height: 50px;
+}
+
+.device-phone .start-app-title{
+    margin-top: 5px;
 }
