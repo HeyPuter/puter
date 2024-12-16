@@ -111,7 +111,7 @@ module.exports = {
             get: {
                 description: 'Get a value by key.',
                 parameters: {
-                    key: { type: 'string', required: true },
+                    key: { type: 'json', required: true },
                     app_uid: { type: 'string', optional: true },
                 },
                 result: { type: 'json' },

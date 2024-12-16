@@ -32,6 +32,29 @@ class DBKVService extends BaseService {
                     app = await get_app({ uid: app_uid });
                 }
 
+                if ( Array.isArray(key) ) {
+                    const keys = key;
+                    const key_hashes = keys.map(key => this.modules.murmurhash.v3(key));
+                    const rows = app ? await this.db.read(
+                        `SELECT kkey, value FROM kv WHERE user_id=? AND app=? AND kkey_hash IN (?)`,
+                        [ user.id, app.uid, key_hashes ]
+                    ) : await this.db.read(
+                        `SELECT kkey, value FROM kv WHERE user_id=? AND (app IS NULL OR app = 'global') AND kkey_hash IN (?)`,
+                        [ user.id, key_hashes ]
+                    );
+
+                    const kv = {};
+                    rows.forEach(row => {
+                        row.value = this.db.case({
+                            mysql: () => row.value,
+                            otherwise: () => JSON.parse(row.value ?? 'null'),
+                        })();
+                        kv[row.kkey] = row.value;
+                    });
+
+                    return keys.map(key => kv[key]);
+                }
+
                 const key_hash = this.modules.murmurhash.v3(key);
                 const kv = app ? await this.db.read(
                     `SELECT * FROM kv WHERE user_id=? AND app=? AND kkey_hash=? LIMIT 1`,
