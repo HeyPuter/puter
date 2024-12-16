@@ -4613,9 +4613,10 @@ fieldset[name=number-code] {
 /* Make sure the search wrapper doesn't interfere with scrolling */
 .launch-search-wrapper {
     position: sticky;
-    top: -3px;
+    top: -20px;
     z-index: 1;
     background: rgba(231, 238, 245);
+    padding-top: 7px;
 }
 .device-phone .launch-search-wrapper {
     top: 0;
