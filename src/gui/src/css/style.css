@@ -128,7 +128,7 @@ body {
 }
 
 /* Only prevent pinch zoom while keeping other touch interactions */
-.device-phone, .device-tablet {
+.device-phone, .device-tablet, .device-phone .desktop, .device-tablet .desktop{
     touch-action: manipulation;
     -webkit-touch-callout: none;
     -webkit-user-select: none;
