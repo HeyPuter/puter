@@ -49,7 +49,7 @@ async function UIWindowSearch(options){
         allow_native_ctxmenu: true,
         allow_user_select: true,
         window_class: 'window-search',
-        backdrop: isMobile.phone,
+        backdrop: true,
         center: isMobile.phone,
         onAppend: function(el_window){
         },

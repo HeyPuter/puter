@@ -4611,11 +4611,14 @@ fieldset[name=number-code] {
 }
 
 /* Make sure the search wrapper doesn't interfere with scrolling */
-.device-phone .launch-search-wrapper {
+.launch-search-wrapper {
     position: sticky;
-    top: 0;
+    top: -3px;
     z-index: 1;
     background: rgba(231, 238, 245);
+}
+.device-phone .launch-search-wrapper {
+    top: 0;
 }
 
 .device-phone .popover-launcher{
