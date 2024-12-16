@@ -4644,6 +4644,8 @@ fieldset[name=number-code] {
 }
 
 .device-phone .desktop{
+    position: relative;
+
     /* Enable smooth scrolling on iOS */
     -webkit-overflow-scrolling: touch;
 
