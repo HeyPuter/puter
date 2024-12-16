@@ -4652,8 +4652,12 @@ fieldset[name=number-code] {
     touch-action: pan-x;
 
     /* Hide scrollbars while keeping functionality */
-    scrollbar-width: none;
-    -ms-overflow-style: none;   
+    /* scrollbar-width: none;
+    -ms-overflow-style: none;    */
+
+    /* Scrolling behavior */
+    overflow-y: hidden;
+    overflow-x: scroll;
 }
 
 .device-phone .desktop * {
