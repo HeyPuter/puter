@@ -4488,6 +4488,13 @@ fieldset[name=number-code] {
     border-radius: 0;
 }
 
+.device-phone .window.window-login-2fa{
+    left: 50% !important;
+    transform: translate(-50%) !important;
+    height: initial !important;
+    max-width: calc(100% - 30px);
+}
+
 .device-phone .window.window-explorer{
     transform: none;
     width: 100%;

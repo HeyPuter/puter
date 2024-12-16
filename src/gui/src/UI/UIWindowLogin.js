@@ -124,6 +124,7 @@ async function UIWindowLogin(options){
             UIWindowRecoverPassword({
                 window_options: {
                     backdrop: true,
+                    stay_on_top: isMobile.phone,
                     close_on_backdrop_click: false,
                 }
             });
@@ -308,6 +309,10 @@ async function UIWindowLogin(options){
                             height: 410,
                             backdrop: true,
                             is_resizable: false,
+                            is_draggable: true,
+                            stay_on_top: true,
+                            center: true,
+                            window_class: 'window-login-2fa',
                             body_css: {
                                 width: 'initial',
                                 height: '100%',

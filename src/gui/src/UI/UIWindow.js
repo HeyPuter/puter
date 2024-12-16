@@ -86,11 +86,14 @@ async function UIWindow(options) {
     options.is_maximized = options.is_maximized ?? false;
     options.is_openFileDialog = options.is_openFileDialog ?? false;
     options.is_resizable = options.is_resizable ?? true;
-    // if this is a fullpage window, it won't be resizable
-    if(options.is_fullpage)
-        options.is_resizable = false;
 
-    // in the embedded/fullpage mode every window is on top since there is no taskbar to switch between windows
+    // if this is a fullpage window, it won't be resizable
+    if(options.is_fullpage){
+        options.is_maximized = false;
+        options.is_resizable = false;
+    }
+
+    // In the embedded/fullpage mode every window is on top since there is no taskbar to switch between windows
     // if user has specifically asked for this window to NOT stay on top, honor it.
     if((window.is_embedded || window.is_fullpage_mode) && !options.parent_uuid && options.stay_on_top !== false)
         options.stay_on_top = true;
