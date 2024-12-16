@@ -312,6 +312,9 @@ class PuterHomepageService extends BaseService {
     <body>
         <script>window.puter_gui_enabled = true;</script>
         ${
+            custom_script_tags_str
+        }
+        ${
             use_bundled_gui
                 ? `<script>window.gui_env = 'prod';</script>`
                 : ''
