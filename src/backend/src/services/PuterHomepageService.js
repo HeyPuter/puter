@@ -205,6 +205,18 @@ class PuterHomepageService extends BaseService {
         // set social media image to default if it is not valid
         const social_media_image_url = social_media_image || `${asset_dir}/images/screenshot.png`;
 
+        // Custom script tags to be added to the homepage by extensions
+        // an event is emitted to allow extensions to add their own script tags
+        // the event is emitted with an object containing a custom_script_tags array
+        // which extensions can push their script tags to
+        let custom_script_tags = [];
+        let custom_script_tags_str = '';
+        process.emit('add_script_tags_to_homepage_html', { custom_script_tags });
+
+        for (const tag of custom_script_tags) {
+            custom_script_tags_str += tag;
+        }
+
         return `<!DOCTYPE html>
     <html lang="en">
 
