@@ -4643,3 +4643,19 @@ fieldset[name=number-code] {
 .device-phone .start-app-title{
     margin-top: 5px;
 }
+
+.device-phone .desktop{
+    /* Enable smooth scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
+
+    /* Allow vertical touch scrolling while preventing horizontal */
+    touch-action: pan-x;
+
+    /* Hide scrollbars while keeping functionality */
+    scrollbar-width: none;
+    -ms-overflow-style: none;   
+}
+
+.device-phone .desktop * {
+    touch-action: pan-x;
+}

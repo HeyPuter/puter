@@ -81,7 +81,6 @@ function UITaskbarItem(options){
         // if this is for the launcher popover, and it's mobile, and has-open-popover, close the popover
         if( $(el_taskbar_item).attr('data-name') === 'Start'
              && (isMobile.phone || isMobile.tablet) && $(el_taskbar_item).hasClass('has-open-popover')){
-            console.log('closing popover');
             $('.popover').remove();
             return;
         }
