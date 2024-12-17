@@ -92,41 +92,45 @@ class AppIconService extends BaseService {
             // });
 
             // Writing icons as the system user
-            await svc_su.sudo(async () => {
-                for ( const size of ICON_SIZES ) {
-                    const filename = `${data.app_uid}-${size}.png`;
-                    console.log('FILENAME', filename);
-                    const data_url = data.data_url;
-                    const base64 = data_url.split(',')[1];
-                    const input = Buffer.from(base64, 'base64');
-                    
-                    // NOTE: A stream would be more ideal than a buffer here
-                    //       but we have no way of knowing the output size
-                    //       before we finish processing the image.
-                    const output = await this.modules.sharp(input)
-                        .resize(size)
-                        .png()
-                        .toBuffer();
-                    
-                    const sys_actor = await svc_su.get_system_actor();
-                    const hl_write = new HLWrite();
-                    await hl_write.run({
-                        destination_or_parent: dir_app_icons,
-                        specified_name: filename,
-                        overwrite: true,
-                        actor: sys_actor,
-                        user: sys_actor.type.user,
-                        no_thumbnail: true,
-                        file: {
-                            size: output.length,
-                            name: filename,
-                            mimetype: 'image/png',
-                            type: 'image/png',
-                            stream: buffer_to_stream(output),
-                        },
-                    });
-                }
-            })
+            const icon_jobs = [];
+            for ( const size of ICON_SIZES ) {
+                icon_jobs.push((async () => {
+                    await svc_su.sudo(async () => {
+                        const filename = `${data.app_uid}-${size}.png`;
+                        console.log('FILENAME', filename);
+                        const data_url = data.data_url;
+                        const base64 = data_url.split(',')[1];
+                        const input = Buffer.from(base64, 'base64');
+                        
+                        // NOTE: A stream would be more ideal than a buffer here
+                        //       but we have no way of knowing the output size
+                        //       before we finish processing the image.
+                        const output = await this.modules.sharp(input)
+                            .resize(size)
+                            .png()
+                            .toBuffer();
+                        
+                        const sys_actor = await svc_su.get_system_actor();
+                        const hl_write = new HLWrite();
+                        await hl_write.run({
+                            destination_or_parent: dir_app_icons,
+                            specified_name: filename,
+                            overwrite: true,
+                            actor: sys_actor,
+                            user: sys_actor.type.user,
+                            no_thumbnail: true,
+                            file: {
+                                size: output.length,
+                                name: filename,
+                                mimetype: 'image/png',
+                                type: 'image/png',
+                                stream: buffer_to_stream(output),
+                            },
+                        });
+                    })
+                })());
+            }
+            await Promise.all(icon_jobs);
         });
     }
 
