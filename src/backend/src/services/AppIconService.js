@@ -1,18 +1,36 @@
 const { HLWrite } = require("../filesystem/hl_operations/hl_write");
 const { LLMkdir } = require("../filesystem/ll_operations/ll_mkdir");
 const { LLRead } = require("../filesystem/ll_operations/ll_read");
-const { NodePathSelector, NodeChildSelector, RootNodeSelector } = require("../filesystem/node/selectors");
+const { NodePathSelector } = require("../filesystem/node/selectors");
 const { Endpoint } = require("../util/expressutil");
 const { buffer_to_stream } = require("../util/streamutil");
 const BaseService = require("./BaseService");
 
 const ICON_SIZES = [16,32,64,128,256,512];
 
+/**
+ * AppIconService handles icon generation and serving for apps.
+ * 
+ * This is done by listening to the `app.new-icon` event which is
+ * dispatched by AppES. `sharp` is used to resize the images to
+ * pre-selected sizees in the `ICON_SIZES` constant defined above.
+ * 
+ * Icons are stored in and served from the `/system/app_icons`
+ * directory. If the system user does not have this directory,
+ * it will be created in the consolidation boot phase after
+ * UserService emits the `user.system-user-ready` event on the
+ * service container event bus.
+ */
 class AppIconService extends BaseService {
     static MODULES = {
         sharp: require('sharp'),
     }
 
+    /**
+     * AppIconService listens to this event to register the
+     * endpoint /app-icon/:app_uid/:size which serves the
+     * app icon at the requested size.
+     */
     async ['__on_install.routes'] (_, { app }) {
         Endpoint({
             route: '/app-icon/:app_uid/:size',
@@ -46,6 +64,10 @@ class AppIconService extends BaseService {
         }).attach(app);
     }
 
+    /**
+     * Returns an FSNodeContext instance for the app icons
+     * directory.
+     */
     async get_app_icons () {
         if ( this.dir_app_icons ) {
             return this.dir_app_icons;
@@ -59,6 +81,11 @@ class AppIconService extends BaseService {
         this.dir_app_icons = dir_app_icons;
     }
     
+    /**
+     * AppIconService listens to this event to create the
+     * `/system/app_icons` directory if it does not exist,
+     * and then to register the event listener for `app.new-icon`.
+     */
     async ['__on_user.system-user-ready'] () {
         const svc_su = this.services.get('su');
         const svc_fs = this.services.get('filesystem');
@@ -83,14 +110,6 @@ class AppIconService extends BaseService {
         // Listen for new app icons
         const svc_event = this.services.get('event');
         svc_event.on('app.new-icon', async (_, data) => {
-            // for ( let i=0; i < 10; i++ ) {
-            //     console.log('\x1B[36;1m--- app icon ---\x1B[0m');
-            // }
-            // console.log('INFO', {
-            //     event: 'app.new-icon',
-            //     uid: data.app_uid,
-            // });
-
             // Writing icons as the system user
             const icon_jobs = [];
             for ( const size of ICON_SIZES ) {
