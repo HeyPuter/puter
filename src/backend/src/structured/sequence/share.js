@@ -194,14 +194,16 @@ module.exports = new Sequence([
             // Working on notifications
             // Email should have a link to a shared file, right?
             //   .. how do I make those URLs? (gui feature)
-            await svc_email.send_email({
-                email: recipient_item.user.email,
-            }, 'share_by_username', {
-                // link: // TODO: create a link to the shared file
-                susername: actor.type.user.username,
-                rusername: username,
-                message: metadata.message,
-            });
+            if ( recipient_item.user.email && recipient_item.user.email_confirmed ) {
+                await svc_email.send_email({
+                    email: recipient_item.user.email,
+                }, 'share_by_username', {
+                    // link: // TODO: create a link to the shared file
+                    susername: actor.type.user.username,
+                    rusername: username,
+                    message: metadata.message,
+                });
+            }
             
             result.recipients[recipient_item.i] =
                 { $: 'api:status-report', status: 'success' };
