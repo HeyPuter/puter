@@ -1103,7 +1103,7 @@ async function UIDesktop(options){
     // User options
     // ----------------------------------------------------
     let ht = '';
-    ht += `<div class="toolbar"  style="height:${window.toolbar_height}px;">`;
+    ht += `<div class="toolbar" style="height:${window.toolbar_height}px; min-height:${window.toolbar_height}px; max-height:${window.toolbar_height}px;">`;
         // logo
         ht += `<div class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px; margin-right: auto;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
 
