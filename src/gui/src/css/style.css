@@ -4666,3 +4666,30 @@ fieldset[name=number-code] {
 .device-phone .desktop * {
     touch-action: pan-x;
 }
+
+.device-phone .desktop::-webkit-scrollbar {
+    display: none;
+}
+
+.device-phone .window-body.item-container{
+    /* Enable smooth scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
+
+    /* Allow vertical touch scrolling while preventing horizontal */
+    touch-action: pan-y;
+    
+    /* Base dimensions */
+    width: 100%;
+    height: 100%;
+    
+    /* Scrolling behavior */
+    overflow-y: scroll;
+    overflow-x: hidden;
+
+    /* Hide scrollbars while keeping functionality */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.device-phone .window-body.item-container * {
+    touch-action: pan-y;
+}
