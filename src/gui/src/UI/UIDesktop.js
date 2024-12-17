@@ -163,6 +163,10 @@ async function UIDesktop(options){
             $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.item-container').empty();
     })
     
+    /**
+     * This event is triggered if a user receives a notification during
+     * an active session.
+     */
     window.socket.on('notif.message', async ({ uid, notification }) => {
         let icon = window.icons[notification.icon];
         let round_icon = false;
@@ -207,6 +211,14 @@ async function UIDesktop(options){
         });
     });
 
+    /**
+     * This event is triggered at the beginning of the session, after a websocket
+     * connection is established, because the backend informs the frontend of all
+     * unread notifications.
+     * 
+     * It is not necessary to query unreads separately. If this stops working,
+     * then this event should be fixed rather than querying unreads separately.
+     */
     window.__already_got_unreads = false;
     window.socket.on('notif.unreads', async ({ unreads }) => {
         if ( window.__already_got_unreads ) return;
@@ -1292,55 +1304,6 @@ async function UIDesktop(options){
             }
         })
     }
-
-    // fetch notifications
-    fetch(puter.APIOrigin + "/drivers/call", {
-        "headers": {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${puter.authToken}`,
-        },
-        "body": JSON.stringify({
-            interface: 'puter-notifications',
-            method: 'select',
-            args: {}
-        }),
-        "method": "POST",
-    })
-    .then(response => response.json())
-    .then(data => {
-        if(data && data.result && data.result.length > 0){
-            data.data?.forEach(async notification => {
-                let icon = window.icons['puter-logo.svg'];
-                let round_icon = false;
-
-                if(notification.template === "file-shared-with-you" && notification.fields?.username){
-                    let profile_pic = await get_profile_picture(notification.fields?.username);
-                    if(profile_pic){
-                        icon = profile_pic;
-                        round_icon = true;
-                        notification.round_icon = round_icon;
-                    }
-                }
-                notification.icon = icon;
-
-                notification.click = async (notif) => {
-                    if(notification.template === "file-shared-with-you"){
-                        let item_path = '/' + notification.fields?.username;
-                        UIWindow({
-                            path: '/' + notification.fields?.username,
-                            title: path.basename(item_path),
-                            icon: await item_icon({is_dir: true, path: item_path}),
-                            is_dir: true,
-                            app: 'explorer',
-                        });
-                    }
-                }
-
-                UINotification(notification);
-            })
-        }
-    })
-
 
     //--------------------------------------------------------------------------------------
     // Trying to view a user's public folder?
