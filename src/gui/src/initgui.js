@@ -393,6 +393,8 @@ window.initgui = async function(options){
     else if(window.url_query_params.has('auth_token')){
         let query_param_auth_token = window.url_query_params.get('auth_token');
 
+        puter.setAuthToken(query_param_auth_token);
+
         try{
             whoami = await puter.os.user();
         }catch(e){

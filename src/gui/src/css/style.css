@@ -3187,7 +3187,6 @@ fieldset[name=number-code] {
 }
 
 .login-progress {
-    height: 200px;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -4455,7 +4454,7 @@ fieldset[name=number-code] {
 
 }
 
-.device-phone .window.window-qr, .device-phone .window.window-progress{
+.device-phone .window.window-qr, .device-phone .window.window-progress, .device-phone .window.window-login-progress{
     left: 50% !important;
     transform: translate(-50%) !important;
     height: initial !important;
