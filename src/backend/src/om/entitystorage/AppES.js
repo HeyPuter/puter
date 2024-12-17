@@ -129,6 +129,23 @@ class AppES extends BaseES {
                 await this.db.write(stmt, rows.flat());
             }
 
+            const has_new_icon =
+                ( ! extra.old_entity ) || (
+                    await entity.get('icon') !== await extra.old_entity.get('icon')
+                );
+
+            if ( has_new_icon ) {
+                const svc_event = this.context.get('services').get('event');
+                const event = {
+                    app_uid: await entity.get('uid'),
+                    data_url: await entity.get('icon'),
+                };
+                await svc_event.emit('app.new-icon', event);
+                if ( event.url ) {
+                    await entity.set('icon')
+                }
+            }
+
             // Associate app with subdomain (if applicable)
             if ( subdomain_id ) {
                 await this.db.write(

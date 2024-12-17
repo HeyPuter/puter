@@ -355,6 +355,9 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { WSPushService } = require('./services/WSPushService');
     services.registerService('__event-push-ws', WSPushService);
+
+    const { AppIconService } = require('./services/AppIconService');
+    services.registerService('app-icon', AppIconService);
 }
 
 const install_legacy = async ({ services }) => {

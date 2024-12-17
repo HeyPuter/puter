@@ -1,5 +1,5 @@
 const { LLMkdir } = require("../filesystem/ll_operations/ll_mkdir");
-const { RootNodeSelector } = require("../filesystem/node/selectors");
+const { RootNodeSelector, NodeChildSelector } = require("../filesystem/node/selectors");
 const { invalidate_cached_user } = require("../helpers");
 const BaseService = require("./BaseService");
 const { DB_WRITE } = require("./database/consts");
@@ -11,6 +11,33 @@ class UserService extends BaseService {
 
     async _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'user-service');
+        this.dir_system = null;
+    }
+
+    async ['__on_boot.consolidation'] () {
+        const svc_fs = this.services.get('filesystem');
+        // Ensure system user has a home directory
+        const dir_system = await svc_fs.node(
+            new NodeChildSelector(
+                new RootNodeSelector(),
+                'system'
+            )
+        );
+
+        if ( ! await dir_system.exists() ) {
+            const svc_getUser = this.services.get('get-user');
+            await this.generate_default_fsentries({
+                user: await svc_getUser.get_user({ username: 'system' })
+            });
+        }
+
+        this.dir_system = dir_system;
+
+        this.services.emit('user.system-user-ready');
+    }
+
+    get_system_dir () {
+        return this.dir_system;
     }
 
     // used to be called: generate_system_fsentries
