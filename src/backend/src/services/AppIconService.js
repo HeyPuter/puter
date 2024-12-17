@@ -108,12 +108,14 @@ class AppIconService extends BaseService {
                         .png()
                         .toBuffer();
                     
+                    const sys_actor = await svc_su.get_system_actor();
                     const hl_write = new HLWrite();
                     await hl_write.run({
                         destination_or_parent: dir_app_icons,
                         specified_name: filename,
                         overwrite: true,
-                        user: await svc_su.get_system_actor(),
+                        actor: sys_actor,
+                        user: sys_actor.type.user,
                         no_thumbnail: true,
                         file: {
                             size: output.length,
