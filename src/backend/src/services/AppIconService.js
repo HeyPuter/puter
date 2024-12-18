@@ -24,6 +24,7 @@ const ICON_SIZES = [16,32,64,128,256,512];
 class AppIconService extends BaseService {
     static MODULES = {
         sharp: require('sharp'),
+        bmp: require('sharp-bmp'),
     }
 
     /**
@@ -80,6 +81,16 @@ class AppIconService extends BaseService {
 
         this.dir_app_icons = dir_app_icons;
     }
+
+    get_sharp ({ metadata, input }) {
+        const type = metadata.split(';')[0].split(':')[1];
+
+        if ( type === 'image/bmp' ) {
+            return this.modules.bmp.sharpFromBmp(input);
+        }
+
+        return this.modules.sharp(input);
+    }
     
     /**
      * AppIconService listens to this event to create the
@@ -118,13 +129,18 @@ class AppIconService extends BaseService {
                         const filename = `${data.app_uid}-${size}.png`;
                         console.log('FILENAME', filename);
                         const data_url = data.data_url;
-                        const base64 = data_url.split(',')[1];
+                        const [metadata, base64] = data_url.split(',');
                         const input = Buffer.from(base64, 'base64');
+
+                        const sharp_instance = this.get_sharp({
+                            metadata,
+                            input,
+                        });
                         
                         // NOTE: A stream would be more ideal than a buffer here
                         //       but we have no way of knowing the output size
                         //       before we finish processing the image.
-                        const output = await this.modules.sharp(input)
+                        const output = await sharp_instance
                             .resize(size)
                             .png()
                             .toBuffer();
