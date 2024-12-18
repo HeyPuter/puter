@@ -25,6 +25,7 @@ class AppIconService extends BaseService {
     static MODULES = {
         sharp: require('sharp'),
         bmp: require('sharp-bmp'),
+        ico: require('sharp-ico'),
     }
 
     /**
@@ -87,6 +88,12 @@ class AppIconService extends BaseService {
 
         if ( type === 'image/bmp' ) {
             return this.modules.bmp.sharpFromBmp(input);
+        }
+
+        const icotypes = ['image/x-icon', 'image/vnd.microsoft.icon'];
+        if ( icotypes.includes(type) ) {
+            const sharps = this.modules.ico.sharpsFromIco(input);
+            return sharps[0];
         }
 
         return this.modules.sharp(input);
