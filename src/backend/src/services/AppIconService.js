@@ -2,11 +2,14 @@ const { HLWrite } = require("../filesystem/hl_operations/hl_write");
 const { LLMkdir } = require("../filesystem/ll_operations/ll_mkdir");
 const { LLRead } = require("../filesystem/ll_operations/ll_read");
 const { NodePathSelector } = require("../filesystem/node/selectors");
+const { get_app } = require("../helpers");
 const { Endpoint } = require("../util/expressutil");
 const { buffer_to_stream } = require("../util/streamutil");
 const BaseService = require("./BaseService");
 
 const ICON_SIZES = [16,32,64,128,256,512];
+
+const DEFAULT_APP_ICON = require('./default-app-icon.js');
 
 /**
  * AppIconService handles icon generation and serving for apps.
@@ -51,7 +54,20 @@ class AppIconService extends BaseService {
                 // Get icon file node
                 const dir_app_icons = await this.get_app_icons();
                 const node = await dir_app_icons.getChild(`${app_uid}-${size}.png`);
-                await node.fetchEntry();
+                if ( ! await node.exists() ) {
+                    // Use database-stored icon as a fallback
+                    const app = await get_app({ uid: app_uid });
+                    if ( ! app.icon ) {
+                        app.icon = DEFAULT_APP_ICON;
+                    }
+                    const [metadata, app_icon] = app.icon.split(',');
+                    console.log('METADATA', metadata);
+                    const mime = metadata.split(';')[0].split(':')[1];
+                    const img = Buffer.from(app_icon, 'base64');
+                    res.set('Content-Type', mime);
+                    res.send(img);
+                    return;
+                }
 
                 const svc_su = this.services.get('su');
                 const ll_read = new LLRead();
