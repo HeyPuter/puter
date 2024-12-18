@@ -30,6 +30,17 @@ let currently_editing_app;
 let dropped_items;
 let search_query;
 let originalValues = {};
+// CSS Styles for Category Badges
+const categoryBadgeStyles = `
+.app-category-badge {
+    background-color: #f2f4f7; /* Muted background */
+    color: #5a5a5a; /* Subtle text color */
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 12px;
+    margin-left: 5px;
+}
+`;
 
 const APP_CATEGORIES = [
     { id: 'games', label: 'Games' },
@@ -1433,25 +1444,25 @@ function generate_app_card(app) {
         h += `</div>`;
     h += `</td>`;
     // App info
-    h += `<td style="height: 60px; width: 450px; display: flex; flex-direction: row; overflow:hidden;">`;
+    h += `<td style="height:80px; width: 450px; display: flex; flex-direction: row; overflow:hidden;">`;
     // Icon
     h += `<div class="got-to-edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-locked="${html_encode(app.metadata?.locked)}" data-app-uid="${html_encode(app.uid)}" style="background-position: center; background-repeat: no-repeat; background-size: 92%; background-image:url(${app.icon === null ? './img/app.svg' : app.icon}); width: 60px; height: 60px; float:left; margin-bottom: -14px; color: #414b56; cursor: pointer; background-color: white; border-radius: 3px; flex-shrink:0;"></div>`;
     // Info
     h += `<div style="float:left; padding-left: 10px;">`;
     // Title
     h += `<h3 class="got-to-edit-app app-card-title" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg : ''}</h3>`;
-    // // Category
-    // if (app.metadata?.category) {
-    //     const category = APP_CATEGORIES.find(c => c.id === app.metadata.category);
-    //     if (category) {
-    //         h += `<div class="app-categories">`;
-    //         h += `<span class="app-category">${category.label}</span>`;
-    //         h += `</div>`;
-    //     }
-    // }
+    // Category
+    if (app.metadata?.category) {
+        const category = APP_CATEGORIES.find(c => c.id === app.metadata.category);
+        if (category) {
+            h += `<div class="app-categories">`;
+            h += `<span class="app-category">${category.label}</span>`;
+            h += `</div>`;
+        }
+    }
 
-    // link
-    h += `<a class="app-card-link" href="${html_encode(applink(app))}" target="_blank">${html_encode(applink(app))}</a>`;
+    // // link
+     h += `<a class="app-card-link" href="${html_encode(applink(app))}" target="_blank">${html_encode(applink(app))}</a>`;
 
     // toolbar
     h += `<div style="" class="app-row-toolbar disable-user-select">`;
