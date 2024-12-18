@@ -54,6 +54,7 @@ const loading_spinner = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="
 const drop_area_placeholder = `<p>Drop your app folder and files here to deploy.</p><p style="font-size: 16px; margin-top: 0px;">HTML, JS, CSS, ...</p>`;
 const index_missing_error = `Please upload an 'index.html' file or if you're uploading a directory, make sure it contains an 'index.html' file at its root.`;
 const lock_svg = '<svg style="width: 20px; height: 20px; margin-bottom: -5px; margin-left: 5px; opacity: 0.5;" width="59px" height="59px" stroke-width="1.9" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M16 12H17.4C17.7314 12 18 12.2686 18 12.6V19.4C18 19.7314 17.7314 20 17.4 20H6.6C6.26863 20 6 19.7314 6 19.4V12.6C6 12.2686 6.26863 12 6.6 12H8M16 12V8C16 6.66667 15.2 4 12 4C8.8 4 8 6.66667 8 8V12M16 12H8" stroke="#000000" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+const copy_svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/> </svg>`;
 
 // authUsername
 (async () => {
@@ -518,9 +519,11 @@ function generate_edit_app_section(app) {
         </div>
 
         <div class="section-tab" data-tab="info">
-            <form style="clear:both;">
+            <form style="clear:both; padding-bottom: 50px;">
                 <div class="error" id="edit-app-error"></div>
-                <div class="success" id="edit-app-success">App has been successfully updated.<span class="close-success-msg">&times;</span></div>
+                <div class="success" id="edit-app-success">App has been successfully updated.<span class="close-success-msg">&times;</span>
+                <p style="margin-bottom:0;"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
+                </div>
                 <input type="hidden" id="edit-app-uid" value="${html_encode(app.uid)}">
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 40px;">Basic</h3>
@@ -534,7 +537,9 @@ function generate_edit_app_section(app) {
                 <input type="text" id="edit-app-index-url" placeholder="https://example-app.com/index.html" value="${html_encode(app.index_url)}">
                 
                 <label for="edit-app-app-id">App ID</label>
-                <input type="text" style="width: 362px;" class="app-uid" value="${html_encode(app.uid)}" readonly>
+                <div style="overflow:hidden;">
+                    <input type="text" style="width: 362px; float:left;" class="app-uid" value="${html_encode(app.uid)}" readonly><span class="copy-app-uid" style="cursor: pointer; height: 35px; display: inline-block; width: 50px; text-align: center; line-height: 35px; margin-left:5px;">${copy_svg}</span>
+                </div>
 
                 <label for="edit-app-icon">Icon</label>
                 <div id="edit-app-icon" style="background-image:url(${!app.icon ? './img/app.svg' : html_encode(app.icon)});" ${app.icon ? 'data-url="' + html_encode(app.icon) + '"' : ''}  ${app.icon ? 'data-base64="' + html_encode(app.icon) + '"' : ''} >
@@ -555,8 +560,8 @@ function generate_edit_app_section(app) {
                 </select>
 
                 <label for="edit-app-filetype-associations">File Associations</label>
-                <p style="margin-top: 10px; font-size:13px;">A comma-separated list of file type specifiers. For example if you include <code>.txt</code>, your apps could be opened when a user clicks on a TXT file.</p>
-                <textarea id="edit-app-filetype-associations" placeholder=".txt, .jpg, application/json">${app.filetype_associations}</textarea>
+               <p style="margin-top: 10px; font-size:13px;">A list of file type specifiers. For example if you include <code>.txt</code> your apps could be opened when a user clicks on a TXT file.</p>
+               <textarea id="edit-app-filetype-associations"  placeholder=".txt  .jpg    application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length)}</textarea>
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window</h3>
                 <div>
@@ -612,9 +617,10 @@ function generate_edit_app_section(app) {
                     <p><code>credentialless</code> attribute for the <code>iframe</code> tag.</p>
                 </div>
 
-                <hr style="margin-top: 40px;">
-                <button type="button" class="edit-app-save-btn button button-primary">Save</button>
-                <button type="button" class="edit-app-reset-btn button button-secondary">Reset</button>
+                <div style="z-index: 999; box-shadow: 10px 10px 15px #8c8c8c; overflow: hidden; position: fixed; bottom: 0; background: white; padding: 10px; width: 100%; left: 0;">
+                    <button type="button" class="edit-app-save-btn button button-primary" style="margin-right: 40px;">Save</button>
+                    <button type="button" class="edit-app-reset-btn button button-secondary">Reset</button>
+                </div>
             </form>
         </div>
     `
@@ -761,6 +767,63 @@ async function edit_app_section(cur_app_name) {
     toggleSaveButton();  // Ensure Save button is initially disabled
     toggleResetButton();  // Ensure Reset button is initially disabled
     $('#edit-app').show();
+
+    const filetype_association_input = document.querySelector('textarea[id=edit-app-filetype-associations]');
+    let tagify = new Tagify(filetype_association_input, {
+        pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/(?:[a-z0-9.-]+|\*))/,
+        delimiters: ", ",
+        enforceWhitelist: false,
+        dropdown : {
+            // show the dropdown immediately on focus (0 character typed)
+            enabled: 0,
+        },
+        whitelist: [
+          // MIME type patterns
+          "text/*", "image/*", "audio/*", "video/*", "application/*",
+          
+          // Documents
+          ".doc", ".docx", ".pdf", ".txt", ".odt", ".rtf", ".tex", ".md", ".pages", ".epub", ".mobi", ".azw", ".azw3", ".djvu", ".xps", ".oxps", ".fb2", ".textile", ".markdown", ".asciidoc", ".rst", ".wpd", ".wps", ".abw", ".zabw",
+          
+          // Spreadsheets
+          ".xls", ".xlsx", ".csv", ".ods", ".numbers", ".tsv", ".gnumeric", ".xlt", ".xltx", ".xlsm", ".xltm", ".xlam", ".xlsb",
+          
+          // Presentations
+          ".ppt", ".pptx", ".key", ".odp", ".pps", ".ppsx", ".pptm", ".potx", ".potm", ".ppam",
+          
+          // Images
+          ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".svg", ".webp", ".ico", ".psd", ".ai", ".eps", ".raw", ".cr2", ".nef", ".orf", ".sr2", ".heic", ".heif", ".avif", ".jxr", ".hdp", ".wdp", ".jng", ".xcf", ".pgm", ".pbm", ".ppm", ".pnm",
+          
+          // Video
+          ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".flv", ".webm", ".m4v", ".mpeg", ".mpg", ".3gp", ".3g2", ".ogv", ".vob", ".drc", ".gifv", ".mng", ".qt", ".yuv", ".rm", ".rmvb", ".asf", ".amv", ".m2v", ".svi",
+          
+          // Audio
+          ".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a", ".wma", ".aiff", ".alac", ".ape", ".au", ".mid", ".midi", ".mka", ".pcm", ".ra", ".ram", ".snd", ".wv", ".opus",
+          
+          // Code/Development
+          ".js", ".ts", ".html", ".css", ".json", ".xml", ".php", ".py", ".java", ".cpp", ".c", ".cs", ".h", ".hpp", ".hxx", ".rs", ".go", ".rb", ".pl", ".swift", ".kt", ".kts", ".scala", ".coffee", ".sass", ".scss", ".less", ".jsx", ".tsx", ".vue", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd", ".sql", ".r", ".dart", ".f", ".f90", ".for", ".lua", ".m", ".mm", ".clj", ".erl", ".ex", ".exs", ".elm", ".hs", ".lhs", ".lisp", ".ml", ".mli", ".nim", ".pl", ".rkt", ".v", ".vhd",
+          
+          // Archives
+          ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".z", ".lz", ".lzma", ".tlz", ".txz", ".tgz", ".tbz2", ".bz", ".br", ".lzo", ".ar", ".cpio", ".shar", ".lrz", ".lz4", ".lz2", ".rz", ".sfark", ".sz", ".zoo",
+          
+          // Database
+          ".db", ".sql", ".sqlite", ".sqlite3", ".dbf", ".mdb", ".accdb", ".db3", ".s3db", ".dbx",
+          
+          // Fonts
+          ".ttf", ".otf", ".woff", ".woff2", ".eot", ".pfa", ".pfb", ".sfd",
+          
+          // CAD and 3D
+          ".dwg", ".dxf", ".stl", ".obj", ".fbx", ".dae", ".3ds", ".blend", ".max", ".ma", ".mb", ".c4d", ".skp", ".usd", ".usda", ".usdc", ".abc",
+          
+          // Scientific/Technical
+          ".mat", ".fig", ".nb", ".cdf", ".fits", ".fts", ".fit", ".gmsh", ".msh", ".fem", ".neu", ".hdf", ".h5", ".nx", ".unv",
+          
+          // System
+          ".exe", ".dll", ".so", ".dylib", ".app", ".dmg", ".iso", ".img", ".bin", ".msi", ".apk", ".ipa", ".deb", ".rpm",
+          
+          // Directory
+          ".directory"
+        ],
+    })
 
     // --------------------------------------------------------
     // Dragster
@@ -1102,6 +1165,31 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         }
     }
 
+    // parse filetype_associations
+    if(filetype_associations !== ''){
+        filetype_associations = JSON.parse(filetype_associations);
+        filetype_associations = filetype_associations.map((type) => {
+            const fileType = type.value;
+            if (
+                !fileType ||
+                fileType === "." ||
+                fileType === "/"
+            ) {
+                error = `<strong>File Association Type</strong> must be valid.`;
+                return null; // Return null for invalid cases
+            }
+            const lower = fileType.toLocaleLowerCase();
+
+            if (fileType.includes("/")) {
+            return lower;
+            } else if (fileType.includes(".")) {
+            return "." + lower.split(".")[1];
+            } else {
+            return "." + lower;
+            }
+        }).filter(Boolean);
+    }
+
     // error?
     if (error) {
         $('#edit-app-error').show();
@@ -1113,8 +1201,8 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
     // show working spinner
     puter.ui.showSpinner();
 
-    // parse filetype_associations
-    filetype_associations = filetype_associations.split(',').map(element => element.trim());
+    
+    
     // disable submit button
     $('.edit-app-save-btn').prop('disabled', true);
 
@@ -1638,7 +1726,123 @@ function sort_apps() {
     }
 }
 
+/**
+ * Checks if the items being deployed contain a .git directory
+ * @param {Array|string} items - Items to check (can be path string or array of items)
+ * @returns {Promise<boolean>} - True if .git directory is found
+ */
+async function hasGitDirectory(items) {
+    // Case 1: Single Puter path
+    if (typeof items === 'string' && (items.startsWith('/') || items.startsWith('~'))) {
+        const stat = await puter.fs.stat(items);
+        if (stat.is_dir) {
+            const files = await puter.fs.readdir(items);
+            return files.some(file => file.name === '.git' && file.is_dir);
+        }
+        return false;
+    }
+    
+    // Case 2: Array of Puter items
+    if (Array.isArray(items) && items[0]?.uid) {
+        return items.some(item => item.name === '.git' && item.is_dir);
+    }
+    
+    // Case 3: Local items (DataTransferItems)
+    if (Array.isArray(items)) {
+        for (let item of items) {
+            if (item.fullPath?.includes('/.git/') || 
+                item.path?.includes('/.git/') || 
+                item.filepath?.includes('/.git/')) {
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
+
+/**
+ * Shows a warning dialog about .git directory deployment
+ * @returns {Promise<boolean>} - True if the user wants to proceed with deployment
+ */
+async function showGitWarningDialog() {
+    try {
+        // Check if the user has chosen to skip the warning
+        const skipWarning = await puter.kv.get('skip-git-warning');
+
+        // Log retrieved value for debugging
+        console.log('Retrieved skip-git-warning:', skipWarning);
+
+        // If the user opted to skip the warning, proceed without showing it
+        if (skipWarning === true) {
+            return true;
+        }
+    } catch (error) {
+        console.error('Error accessing KV store:', error);
+        // If KV store access fails, fall back to showing the dialog
+    }
+
+    // Create the modal dialog
+    const modal = document.createElement('div');
+    modal.innerHTML = `
+        <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2); z-index: 10000;">
+            <h3 style="margin-top: 0;">Warning: Git Repository Detected</h3>
+            <p>A .git directory was found in your deployment files. Deploying .git directories may:</p>
+            <ul>
+                <li>Expose sensitive information like commit history and configuration</li>
+                <li>Significantly increase deployment size</li>
+            </ul>
+            <div style="margin-top: 15px; display: flex; align-items: center;">
+                <input type="checkbox" id="skip-git-warning" style="margin-right: 10px;">
+                <label for="skip-git-warning" style="margin-top:0;">Don't show this warning again</label>
+            </div>
+            <div style="margin-top: 15px; display: flex; justify-content: flex-end;">
+                <button id="cancel-deployment" style="margin-right: 10px; padding: 10px 15px; background: #f0f0f0; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+                <button id="continue-deployment" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Continue Deployment</button>
+            </div>
+        </div>
+        <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 9999;"></div>
+    `;
+    document.body.appendChild(modal);
+
+    return new Promise((resolve) => {
+        // Handle "Continue Deployment"
+        document.getElementById('continue-deployment').addEventListener('click', async () => {
+            try {
+                const skipChecked = document.getElementById('skip-git-warning')?.checked;
+                if (skipChecked) {
+                    console.log("Saving 'skip-git-warning' preference as true");
+                    await puter.kv.set('skip-git-warning', true);
+                }
+            } catch (error) {
+                console.error('Error saving user preference to KV store:', error);
+            } finally {
+                document.body.removeChild(modal);
+                resolve(true); // Continue deployment
+            }
+        });
+
+        // Handle "Cancel Deployment"
+        document.getElementById('cancel-deployment').addEventListener('click', () => {
+            document.body.removeChild(modal);
+            resolve(false); // Cancel deployment
+        });
+    });
+}
+
 window.deploy = async function (app, items) {
+    // Check for .git directory before proceeding
+    try {
+        if (await hasGitDirectory(items)) {
+            const shouldProceed = await showGitWarningDialog();
+            if (!shouldProceed) {
+                reset_drop_area();
+                return;
+            }
+        }
+    } catch (err) {
+        console.error('Error checking for .git directory:', err);
+    }
     let appdata_dir, current_app_dir;
 
     // disable deploy button
@@ -2564,3 +2768,13 @@ async function handleSocialImageUpload(app_name, socialImageData) {
         throw err;
     }
 }
+
+$(document).on('click', '.copy-app-uid', function(e) {
+    const appUID = $('#edit-app-uid').val();
+    navigator.clipboard.writeText(appUID);
+    // change to 'copied'
+    $(this).html('Copied');
+    setTimeout(() => {
+        $(this).html(copy_svg);
+    }, 2000);
+});

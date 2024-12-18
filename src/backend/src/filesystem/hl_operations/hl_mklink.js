@@ -36,11 +36,10 @@ class HLMkLink extends HLFilesystemOperation {
 
     async _run () {
         const { context, values } = this;
-        const { _path } = this.modules;
         const fs = context.get('services').get('filesystem');
 
         const { target, parent, user } = values;
-        let { name, dedupe_name } = values;
+        let { name } = values;
 
         if ( ! name ) {
             throw APIError.create('field_empty', null, { key: 'name' });

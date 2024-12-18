@@ -86,11 +86,14 @@ async function UIWindow(options) {
     options.is_maximized = options.is_maximized ?? false;
     options.is_openFileDialog = options.is_openFileDialog ?? false;
     options.is_resizable = options.is_resizable ?? true;
-    // if this is a fullpage window, it won't be resizable
-    if(options.is_fullpage)
-        options.is_resizable = false;
 
-    // in the embedded/fullpage mode every window is on top since there is no taskbar to switch between windows
+    // if this is a fullpage window, it won't be resizable
+    if(options.is_fullpage){
+        options.is_maximized = false;
+        options.is_resizable = false;
+    }
+
+    // In the embedded/fullpage mode every window is on top since there is no taskbar to switch between windows
     // if user has specifically asked for this window to NOT stay on top, honor it.
     if((window.is_embedded || window.is_fullpage_mode) && !options.parent_uuid && options.stay_on_top !== false)
         options.stay_on_top = true;
@@ -151,7 +154,7 @@ async function UIWindow(options) {
     else if(isMobile.phone)
         options.top = 100;
     
-    if(isMobile.phone){
+    if(isMobile.phone && !options.center && !options.dominant){
         options.left = 0;
         options.top = window.toolbar_height + 'px';
         options.width = '100%';
@@ -186,6 +189,7 @@ async function UIWindow(options) {
             user_set_url_params = '?'+ user_set_url_params.join('&');
     }
     h += `<div class="window window-active 
+                        ${options.app === 'explorer' ? 'window-explorer' : ''}
                         ${options.cover_page ? 'window-cover-page' : ''}
                         ${options.uid !== undefined ? 'window-'+options.uid : ''} 
                         ${options.window_class} 
@@ -337,7 +341,7 @@ async function UIWindow(options) {
                 style="${!options.has_head ? ' height: 100%;' : ''}">`;
             // iframe, for apps
             if(options.iframe_url || options.iframe_srcdoc){
-                let allow_str = `camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; fullscreen;`;
+                let allow_str = `camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; fullscreen; web-share;`;
                 if(window.co_isolation_enabled)
                     allow_str += ' cross-origin-isolated;';
                 // <iframe>
@@ -478,6 +482,7 @@ async function UIWindow(options) {
                 name: options.title,
                 app: options.app,
                 open_windows_count: 1,
+                before_trash: true,
                 onClick: function(){
                     let open_window_count = parseInt($(`.taskbar-item[data-app="${options.app}"]`).attr('data-open-windows'));
                     if(open_window_count === 0){
@@ -553,7 +558,7 @@ async function UIWindow(options) {
             'top': window.toolbar_height + 'px',
             'left': '0',
             'width': '100%',
-            'height': `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)`,
+            'height': `calc(100% - ${window.taskbar_height + window.toolbar_height + 6}px)`,
             'transform': 'none',
         });
     }
@@ -1826,7 +1831,7 @@ async function UIWindow(options) {
                                 'top': window.toolbar_height,
                                 'left': 0,
                                 'width': '50%',
-                                'height': window.desktop_height,
+                                'height': window.desktop_height - 6,
                             })
                         }
                         // snap to nw
@@ -1871,7 +1876,7 @@ async function UIWindow(options) {
                                 'top': window.toolbar_height,
                                 'left': '50%',
                                 'width': '50%',
-                                'height': window.desktop_height,
+                                'height': window.desktop_height - 6,
                             })
                         }
                         // snap to n
@@ -2592,7 +2597,7 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function(e){
     let el_window = $(this).closest('.window');
     // bottom
     if($(this).hasClass('ui-resizable-s')){
-        let height = window.innerHeight - $(el_window).position().top - window.taskbar_height -1;
+        let height = window.innerHeight - $(el_window).position().top - window.taskbar_height - 6;
         $(el_window).height(height);
     }
 
@@ -2622,7 +2627,7 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function(e){
     // bottom left
     else if($(this).hasClass('ui-resizable-sw')){
         let width = $(el_window).width() +  $(el_window).position().left;
-        let height = window.innerHeight - $(el_window).position().top - window.taskbar_height -1;
+        let height = window.innerHeight - $(el_window).position().top - window.taskbar_height - 6;
         $(el_window).css({
             width: width,
             height: height,
@@ -2632,7 +2637,7 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function(e){
     // bottom right
     else if($(this).hasClass('ui-resizable-se')){
         let width = window.innerWidth - $(el_window).position().left;
-        let height = window.innerHeight - $(el_window).position().top - window.taskbar_height -1;
+        let height = window.innerHeight - $(el_window).position().top - window.taskbar_height - 6;
         $(el_window).css({
             width: width,
             height: height,
@@ -3287,7 +3292,7 @@ window.scale_window = (el_window)=>{
             'top': window.toolbar_height+'px',
             'left': '0',
             'width': '100%',
-            'height': `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)`,
+            'height': `calc(100% - ${window.taskbar_height + window.toolbar_height + 6}px)`,
             'transform': 'none',
         });
     }
@@ -3420,6 +3425,10 @@ $.fn.showWindow = async function(options) {
             });
             $(el_window).css('z-index', ++window.last_window_zindex);
 
+            $(el_window).attr({
+                'data-is_minimized': true, 
+            })
+
             setTimeout(() => {
                 $(this).focusWindow();
             }, 80);
@@ -3530,7 +3539,10 @@ $.fn.hideWindow = async function(options) {
     $(this).each(async function() {
         if($(this).hasClass('window')){
             // get taskbar item location
-            const taskbar_item_pos = $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).position();
+            let taskbar_item_pos = $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).position();
+
+            // taskbar position is center of window minus half of taskbar item width
+            taskbar_item_pos.left = taskbar_item_pos.left + ($( window ).width()/ 2) - ($(`.taskbar`).width() / 2);
 
             $(this).attr({
                 'data-orig-width': $(this).width(), 
@@ -3541,11 +3553,13 @@ $.fn.hideWindow = async function(options) {
             })
 
             $(this).css({
-                'transition': `top 0.2s, left 0.2s, bottom 0.2s, right 0.2s, width 0.2s, height 0.2s`,
+                ...(!isMobile.phone ? { 
+                    'transition': `top 0.2s, left 0.2s, bottom 0.2s, right 0.2s, width 0.2s, height 0.2s`,
+                } : {}),
                 width: `0`,
                 height: `0`,
                 top: 'calc(100% - 60px)',
-                left: taskbar_item_pos.left + 29,
+                left: taskbar_item_pos.left + 14.5,
             });
 
             // remove transitions a good while after setting css to make sure 

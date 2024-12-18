@@ -22,7 +22,6 @@ const config = require('../config');
 const router = express.Router();
 const _path = require('path');
 const _fs = require('fs');
-const auth = require('../middleware/auth.js');
 const { Context } = require('../util/context');
 const { DB_READ } = require('../services/database/consts');
 const { PathBuilder } = require('../util/pathutil.js');
@@ -289,10 +288,8 @@ router.all('*', async function(req, res, next) {
                         invalidate_cached_user(user);
 
                         // send realtime success msg to client
-                        let socketio = require('../socketio.js').getio();
-                        if(socketio){
-                            socketio.to(user.id).emit('user.email_confirmed', {})
-                        }
+                        const svc_socketio = req.services.get('socketio');
+                        svc_socketio.send({ room: user.id }, 'user.email_confirmed', {});
 
                         // return results
                         h += `<p style="text-align:center; color:green;">Your email has been successfully confirmed.</p>`;

@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  * 
@@ -37,6 +38,10 @@ const BaseService = require("../BaseService");
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+/**
+* @class InformationProvider
+* @classdesc The InformationProvider class facilitates the registration of strategies for providing information based on given inputs. It allows services to register methods for obtaining information and optimizes the process by determining the most efficient methods for retrieving the required information.
+*/
 class InformationProvider {
     constructor (informationService, input) {
         this.informationService = informationService;
@@ -56,6 +61,15 @@ class InformationProvider {
 }
 
 
+
+/**
+* Class InformationObtainer
+*
+* This class is responsible for obtaining information from various services. It takes an
+* InformationService instance and an input, allowing it to obtain specific outputs based on
+* the input provided. The class provides methods to specify the desired output and execute
+* the information retrieval process.
+*/
 class InformationObtainer {
     constructor (informationService, input) {
         this.informationService = informationService;
@@ -67,9 +81,32 @@ class InformationObtainer {
         return this;
     }
 
+
+    /**
+    * Executes the information obtaining process asynchronously.
+    *
+    * This method wraps the process of obtaining information in a trace span for monitoring purposes.
+    * It retrieves the necessary services and traces, then delegates the actual obtaining process
+    * to the `obtain_` method of the `InformationService`.
+    *
+    * @async
+    * @function exec
+    * @param {...*} args - Variable number of arguments to be passed to the obtaining process.
+    * @returns {Promise<*>} - A promise that resolves to the obtained information.
+    */
     async exec (...args) {
         const services = this.informationService.services;
         const traces = services.get('traceService');
+        /**
+        * Executes the obtaining process for the specified output from the specified input.
+        * This method retrieves the relevant information service, traces, and spans the execution to
+        * obtain the information asynchronously. It uses the informationService.obtain_ method to perform the actual retrieval.
+        *
+        * @async
+        * @method exec
+        * @param {...*} args - The arguments required for the obtaining process.
+        * @returns {Promise<*>} - A promise that resolves to the obtained information.
+        */
         return await traces.spanify(`OBTAIN ${this.output} FROM ${this.input}`, async () => {
             return (await this.informationService.obtain_(
                 this.output, this.input, ...args)).result;
@@ -98,11 +135,51 @@ class InformationObtainer {
  *         // code to obtain fsentry from path
  *     });
  */
+/**
+* The `InformationService` class is a core component of the information management system.
+* It facilitates the registration and management of information providers and obtainers,
+* allowing various services to provide methods for obtaining information and other services
+* to retrieve that information efficiently. This class optimizes the process by determining
+* the most efficient strategies for obtaining the required information.
+*
+* @class InformationService
+* @extends BaseService
+*
+* @example Obtain an fsentry given a path:
+*
+*    const infosvc = services.get('information');
+*    const fsentry = await infosvc
+*      .with('fs.fsentry:path').obtain('fs.fsentry')
+*      .exec(path);
+*
+* @example Register a method for obtaining an fsentry given a path:
+*
+*    const infosvc = services.get('information');
+*    infosvc.given('fs.fsentry:path').provide('fs.fsentry')
+*      .addStrategy(async path => {
+*         // code to obtain fsentry from path
+*     });
+*/
 class InformationService extends BaseService {
+    /**
+    * @class
+    * @extends BaseService
+    * @description Provides a service for managing information providers and obtaining information efficiently.
+    * @notes This class extends BaseService and includes methods for registering providers, obtaining information,
+    * and managing command registrations.
+    */
     _construct () {
         this.providers_ = {};
     }
 
+
+    /**
+    * Initializes the service by registering commands.
+    *
+    * @private
+    * @method _init
+    * @returns {void}
+    */
     _init () {
         this._register_commands(this.services.get('commands'));
     }
@@ -122,6 +199,20 @@ class InformationService extends BaseService {
         this.providers_[output][input].push(provider);
     }
 
+
+    /**
+    * Asynchronously obtains information based on the provided output and input parameters.
+    * This method iterates through registered providers, sorts them for optimization,
+    * and attempts to fetch the desired information.
+    *
+    * @async
+    * @function obtain_
+    * @param {string} output - The type of information to obtain.
+    * @param {string} input - The input parameter required to obtain the information.
+    * @param {...*} args - Additional arguments to pass to the provider functions.
+    * @returns {Promise<Object>} An object containing the provider ID and the result.
+    * @throws {Error} If no providers are available for the given output and input.
+    */
     async obtain_ (output, input, ...args) {
         const providers = this.providers_[output][input];
         if ( ! providers ) {

@@ -77,9 +77,9 @@ const launch_app = async (options)=>{
     //-----------------------------------
     // maximize on start
     //-----------------------------------
-    if(app_info.maximize_on_start)
+    if(app_info.maximize_on_start){
         options.maximized = 1;
-
+    }
     //-----------------------------------
     // if opened a file, sign it
     //-----------------------------------

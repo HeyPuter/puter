@@ -19,7 +19,7 @@
 const { AdvancedBase } = require('./src/AdvancedBase');
 const { Service } = require('./src/concepts/Service');
 const { ServiceManager } = require('./src/system/ServiceManager');
-const { TTopics } = require('./src/traits/traits');
+const traits = require('./src/traits/traits');
 
 module.exports = {
     AdvancedBase,
@@ -31,11 +31,12 @@ module.exports = {
         context: require('./src/libs/context'),
         listener: require('./src/libs/listener'),
         log: require('./src/libs/log'),
+        string: require('./src/libs/string'),
+        time: require('./src/libs/time'),
+        smol: require('./src/libs/smol'),
     },
     concepts: {
         Service,
     },
-    traits: {
-        TTopics,
-    },
+    traits,
 };

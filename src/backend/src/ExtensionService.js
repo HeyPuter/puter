@@ -5,6 +5,11 @@ const configurable_auth = require("./middleware/configurable_auth");
 const { Context } = require("./util/context");
 const { DB_READ, DB_WRITE } = require("./services/database/consts");
 
+/**
+ * State shared with the default service and the `extension` global so that
+ * methods on `extension` can register routes (and make other changes in the
+ * future) to the default service.
+ */
 class ExtensionServiceState extends AdvancedBase {
     constructor (...a) {
         super(...a);
@@ -75,6 +80,7 @@ class ExtensionService extends BaseService {
     }
 
     ['__on_install.routes'] (_, { app }) {
+        if ( ! this.state ) debugger;
         for ( const endpoint of this.state.endpoints_ ) {
             endpoint.attach(app);
         }

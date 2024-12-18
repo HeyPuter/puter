@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -18,7 +19,25 @@
  */
 const BaseService = require("./BaseService");
 
+
+/**
+* @class PuterAPIService
+* @extends BaseService
+* 
+* The PuterAPIService class is responsible for integrating various routes 
+* into the web server for the Puter application. It acts as a middleware 
+* support layer, providing necessary API endpoints for handling various 
+* functionality such as authentication, user management, and application 
+* operations. This class is designed to extend the core functionalities 
+* of BaseService, ensuring that all routes are properly configured and 
+* available for use.
+*/
 class PuterAPIService extends BaseService {
+    /**
+    * Sets up the routes for the Puter API service.
+    * This method registers various API endpoints with the web server.
+    * It does not return a value as it configures the server directly.
+    */
     async ['__on_install.routes'] () {
         const { app } = this.services.get('web-server');
 

@@ -80,7 +80,7 @@ if ( ! import.meta.filename ) {
 const main = async () => {
     const {
         Kernel,
-        CoreModule,
+        EssentialModules,
         DatabaseModule,
         LocalDiskStorageModule,
         SelfHostedModule,
@@ -92,7 +92,9 @@ const main = async () => {
     const k = new Kernel({
         entry_path: import.meta.filename
     });
-    k.add_module(new CoreModule());
+    for ( const mod of EssentialModules ) {
+        k.add_module(new mod());
+    }
     k.add_module(new DatabaseModule());
     k.add_module(new LocalDiskStorageModule());
     k.add_module(new SelfHostedModule());

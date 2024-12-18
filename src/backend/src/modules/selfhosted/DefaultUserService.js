@@ -20,14 +20,14 @@ const { QuickMkdir } = require("../../filesystem/hl_operations/hl_mkdir");
 const { HLWrite } = require("../../filesystem/hl_operations/hl_write");
 const { NodePathSelector } = require("../../filesystem/node/selectors");
 const { surrounding_box } = require("../../fun/dev-console-ui-utils");
-const { get_user, generate_system_fsentries, invalidate_cached_user } = require("../../helpers");
+const { get_user, invalidate_cached_user } = require("../../helpers");
 const { Context } = require("../../util/context");
-const { asyncSafeSetInterval } = require("../../util/promise");
+const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
 const { buffer_to_stream } = require("../../util/streamutil");
 const BaseService = require("../../services/BaseService");
 const { Actor, UserActorType } = require("../../services/auth/Actor");
 const { DB_WRITE } = require("../../services/database/consts");
-const { quot } = require("../../util/strutil");
+const { quot } = require('@heyputer/putility').libs.string;
 
 const USERNAME = 'admin';
 
@@ -165,7 +165,8 @@ class DefaultUserService extends BaseService {
             ],
         );
         user.password = password_hashed;
-        await generate_system_fsentries(user);
+        const svc_user = this.services.get('user');
+        await svc_user.generate_default_fsentries({ user });
         // generate default files for admin user
         const svc_fs = this.services.get('filesystem');
         const make_tree_ = async ({ components, tree }) => {

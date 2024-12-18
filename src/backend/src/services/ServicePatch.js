@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -18,6 +19,17 @@
  */
 const { AdvancedBase } = require("@heyputer/putility");
 
+
+/**
+* Class ServicePatch
+* 
+* This class extends the AdvancedBase class and provides functionality 
+* to apply patches to service methods dynamically. The patching mechanism 
+* ensures that the methods defined in the PATCH_METHODS static object 
+* are replaced with their respective patch implementations while maintaining 
+* a reference to the original service methods for potential fallback or 
+* additional processing.
+*/
 class ServicePatch extends AdvancedBase {
     patch ({ original_service }) {
         const patch_methods = this._get_merged_static_object('PATCH_METHODS');

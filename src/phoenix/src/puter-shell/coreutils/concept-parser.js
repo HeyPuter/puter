@@ -16,9 +16,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { GrammarContext, standard_parsers } from '@heyputer/parsely/exports.js';
-import { Parser, UNRECOGNIZED, VALUE } from '@heyputer/parsely/parser.js';
-import { StringStream } from '@heyputer/parsely/streams.js';
+import { parsely } from '@heyputer/parsers';
+const { GrammarContext, standard_parsers } = parsely;
+const { Parser, UNRECOGNIZED, VALUE } = parsely;
+const { StringStream } = parsely.streams;
 
 class NumberParser extends Parser {
     static data = {

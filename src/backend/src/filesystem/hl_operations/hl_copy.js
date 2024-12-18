@@ -141,8 +141,8 @@ class HLCopy extends HLFilesystemOperation {
             const sizeService = svc.get('sizeService');
             let deset_usage = await sizeService.get_usage(dest_user.id);
 
-            const size = await source.fetchSize(values.user);
-            let capacity = config.is_storage_limited ? (dest_user.free_storage === undefined || dest_user.free_storage === null) ? config.storage_capacity : dest_user.free_storage : config.available_device_storage
+            const size = await source.fetchSize();
+            const capacity = await sizeService.get_storage_capacity(dest_user.id);
             if(capacity - deset_usage - size < 0){
                 throw APIError.create('storage_limit_reached');
             }

@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -18,12 +19,16 @@
  */
 const { AdvancedBase } = require("@heyputer/putility");
 const useapi = require("useapi");
-const { BaseService } = require("../exports");
+const { BaseService, EssentialModules } = require("../exports");
 const CoreModule = require("../src/CoreModule");
 const { Context } = require("../src/util/context");
 const { Kernel } = require("../src/Kernel");
 const { HTTPThumbnailService } = require("../src/services/thumbnails/HTTPThumbnailService");
 
+
+/**
+ * A simple implementation of the log interface for the test kernel.
+ */
 class TestLogger {
     constructor () {
         console.log(
@@ -44,6 +49,16 @@ class TestLogger {
     }
 }
 
+
+/**
+* TestKernel class extends AdvancedBase to provide a testing environment for Puter services
+* Implements a simplified version of the main Kernel for testing purposes, including:
+* - Module management and installation
+* - Service container initialization
+* - Custom logging functionality
+* - Context creation and management
+* Does not include full service initialization or legacy service support
+*/
 class TestKernel extends AdvancedBase {
     constructor () {
         super();
@@ -51,6 +66,12 @@ class TestKernel extends AdvancedBase {
         this.modules = [];
         this.useapi = useapi();
 
+
+        /**
+        * Initializes the useapi instance for the test kernel.
+        * Defines base Module and Service classes in the useapi context.
+        * @returns {void}
+        */
         this.useapi.withuse(() => {
             def('Module', AdvancedBase)
             def('Service', BaseService)
@@ -63,6 +84,12 @@ class TestKernel extends AdvancedBase {
         this.modules.push(module);
     }
 
+
+    /**
+    * Adds a module to the test kernel's module list
+    * @param {Module} module - The module instance to add
+    * @description Stores the provided module in the kernel's internal modules array for later installation
+    */
     boot () {
         const { consoleLogManager } = require('../src/util/consolelog');
         consoleLogManager.initialize_proxy_methods();
@@ -85,6 +112,7 @@ class TestKernel extends AdvancedBase {
         }, 'app');
         globalThis.root_context = root_context;
 
+
         root_context.arun(async () => {
             await this._install_modules();
             // await this._boot_services();
@@ -94,6 +122,10 @@ class TestKernel extends AdvancedBase {
         Error.stackTraceLimit = 200;
     }
 
+
+    /**
+    * Installs modules into the test kernel environment
+    */
     async _install_modules () {
         const { services } = this;
 
@@ -131,7 +163,9 @@ TestKernel.prototype._create_mod_context =
     Kernel.prototype._create_mod_context;
 
 const k = new TestKernel();
-k.add_module(new CoreModule());
+for ( const mod of EssentialModules ) {
+    k.add_module(new mod());
+}
 k.add_module({
     install: async (context) => {
         const services = context.get('services');
@@ -142,9 +176,15 @@ k.boot();
 
 const do_after_tests_ = [];
 
-// const do_after_tests = (fn) => {
-//     do_after_tests_.push(fn);
-// };
+
+/**
+* Executes a function immediately and adds it to the list of functions to be executed after tests
+*
+* This is used to log things inline with console output from tests, and then
+* again later without those console outputs.
+*
+* @param {Function} fn - The function to execute and store for later
+*/
 const repeat_after = (fn) => {
     fn();
     do_after_tests_.push(fn);
@@ -153,6 +193,12 @@ const repeat_after = (fn) => {
 let total_passed = 0;
 let total_failed = 0;
 
+
+/**
+* Tracks test results across all services
+* @type {number} total_passed - Count of all passed assertions
+* @type {number} total_failed - Count of all failed assertions
+*/
 const main = async () => {
     console.log('awaiting services readty');
     await k.services.ready;
@@ -175,6 +221,7 @@ const main = async () => {
         }
         let passed = 0;
         let failed = 0;
+
 
         repeat_after(() => {
             console.log(`\x1B[33;1m=== [ Service :: ${name} ] ===\x1B[0m`);

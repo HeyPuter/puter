@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { SyncLinesReader } from "../ioutil/SyncLinesReader.js";
-import { TOKENS } from "../readline/readtoken.js";
 import { ByteWriter } from "../ioutil/ByteWriter.js";
 import { Coupler } from "./Coupler.js";
 import { CommandStdinDecorator } from "./iowrappers.js";

@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const config = require('../config');
-const { TeePromise } = require('../util/promise');
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 const es_import_promise = new TeePromise();
 let stringLength;

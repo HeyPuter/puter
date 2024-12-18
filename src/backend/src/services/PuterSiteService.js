@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"xai"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -23,7 +24,23 @@ const { PermissionUtil, PermissionRewriter, PermissionImplicator } = require("./
 const BaseService = require("./BaseService");
 const { DB_WRITE } = require("./database/consts");
 
+
+/**
+* The `PuterSiteService` class manages site-related operations within the Puter platform. 
+* This service extends `BaseService` to provide functionalities like:
+* - Initializing database connections for site data.
+* - Handling subdomain permissions and rewriting them as necessary.
+* - Managing permissions for site files, ensuring that sites can access their own resources.
+* - Retrieving subdomain information by name or unique identifier (UID).
+* This class is crucial for controlling access and operations related to different sites hosted or managed by the Puter system.
+*/
 class PuterSiteService extends BaseService {
+    /**
+    * Initializes the PuterSiteService by setting up database connections, 
+    * registering permission rewriters and implicators, and preparing service dependencies.
+    * 
+    * @returns {Promise<void>} A promise that resolves when initialization is complete.
+    */
     async _init () {
         const services = this.services;
         this.db = services.get('database').get(DB_WRITE, 'sites');
@@ -89,6 +106,14 @@ class PuterSiteService extends BaseService {
         }));
     }
 
+
+    /**
+    * Retrieves subdomain information by its name.
+    * 
+    * @param {string} subdomain - The name of the subdomain to retrieve.
+    * @returns {Promise<Object|null>} Returns an object with subdomain details or null if not found.
+    * @note In development environment, 'devtest' subdomain returns hardcoded values.
+    */
     async get_subdomain (subdomain) {
         if ( subdomain === 'devtest' && this.global_config.env === 'dev' ) {
             return {
@@ -104,6 +129,13 @@ class PuterSiteService extends BaseService {
         return rows[0];
     }
 
+
+    /**
+    * Retrieves a subdomain by its unique identifier (UID).
+    * 
+    * @param {string} uid - The unique identifier of the subdomain to fetch.
+    * @returns {Promise<Object|null>} A promise that resolves to the subdomain object if found, or null if not found.
+    */
     async get_subdomain_by_uid (uid) {
         const rows = await this.db.read(
             `SELECT * FROM subdomains WHERE uuid = ? LIMIT 1`,

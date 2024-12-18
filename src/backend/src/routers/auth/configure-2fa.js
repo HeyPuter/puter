@@ -37,8 +37,6 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
         throw APIError.create('forbidden');
     }
 
-    const user = actor.type.user;
-
     const actions = {};
 
     const db = await x.get('services').get('database').get(DB_WRITE, '2fa');

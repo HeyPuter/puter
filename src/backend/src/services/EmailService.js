@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -162,6 +163,15 @@ If this was not you, please contact support@puter.com immediately.
     },
 }
 
+
+/**
+* @class EmailService
+* @extends BaseService
+* @description The EmailService class handles the sending of emails using predefined templates.
+* It utilizes the nodemailer library for sending emails and Handlebars for template rendering.
+* The class includes methods for constructing and initializing the service, getting the email transport,
+* and sending emails with provided templates and values.
+*/
 class Emailservice extends BaseService {
     static MODULES = {
         nodemailer: require('nodemailer'),
@@ -169,6 +179,16 @@ class Emailservice extends BaseService {
         dedent: require('dedent'),
     };
 
+
+    /**
+    * Initializes the EmailService by compiling email templates.
+    *
+    * This method compiles the email templates using Handlebars and dedent
+    * to ensure that they are ready for use. It stores the compiled templates
+    * in an object for quick access.
+    *
+    * @returns {void}
+    */
     _construct () {
         this.templates = TEMPLATES;
 
@@ -189,9 +209,26 @@ class Emailservice extends BaseService {
         }
     }
 
+
+    /**
+    * Initializes the email service.
+    * This method is called during the initialization phase of the service.
+    * It sets up any necessary configurations or resources needed for the service to function correctly.
+    *
+    * @returns {void}
+    */
     _init () {
     }
 
+
+    /**
+    * Configures and initializes the email transport using Nodemailer.
+    *
+    * This method sets up the email transport configuration based on the provided settings and
+    * returns a configured Nodemailer transport object.
+    *
+    * @returns {Object} The configured Nodemailer transport object.
+    */
     get_transport_ () {
         const nodemailer = this.modules.nodemailer;
 
@@ -203,6 +240,18 @@ class Emailservice extends BaseService {
         return transport;
     }
 
+
+    /**
+    * Sends an email using the configured transport and template.
+    *
+    * This method constructs an email message by applying the provided values to the specified template,
+    * then sends the email using the configured transport.
+    *
+    * @param {Object} user - The user object containing the email address.
+    * @param {string} template - The template key to use for constructing the email.
+    * @param {Object} values - The values to apply to the template.
+    * @returns {Promise<void>} - A promise that resolves when the email is sent.
+    */
     async send_email (user, template, values) {
         const email = user.email;
 

@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"xai"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -22,11 +23,27 @@ const { DENY_SERVICE_INSTRUCTION } = require("../AnomalyService");
 const BaseService = require("../BaseService");
 const { DB_WRITE } = require("../database/consts");
 
+
+/**
+* The GroupService class provides functionality for managing groups within the Puter application.
+* It extends the BaseService to handle group-related operations such as creation, retrieval,
+* listing members, adding or removing users from groups, and more. This service interacts with
+* the database to perform CRUD operations on group entities, ensuring proper management
+* of user permissions and group metadata.
+*/
 class GroupService extends BaseService {
     static MODULES = {
         uuidv4: require('uuid').v4,
     };
 
+
+    /**
+    * Initializes the GroupService by setting up the database connection and registering
+    * with the anomaly service for monitoring group creation rates.
+    * 
+    * @memberof GroupService
+    * @instance
+    */
     _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'permissions');
 
@@ -36,6 +53,20 @@ class GroupService extends BaseService {
         });
     }
     
+
+    /**
+    * Retrieves a group by its unique identifier (UID).
+    * 
+    * @param {Object} params - The parameters object.
+    * @param {string} params.uid - The unique identifier of the group.
+    * @returns {Promise<Object|undefined>} The group object if found, otherwise undefined.
+    * @throws {Error} If there's an issue with the database query.
+    * 
+    * This method fetches a group from the database using its UID. If the group 
+    * does not exist, it returns undefined. The 'extra' and 'metadata' fields are 
+    * parsed from JSON strings to objects if not using MySQL, otherwise they remain 
+    * as strings.
+    */
     async get({ uid }) {
         const [group] =
             await this.db.read('SELECT * FROM `group` WHERE uid=?', [uid]);
@@ -51,6 +82,19 @@ class GroupService extends BaseService {
         return group;
     }
     
+
+    /**
+    * Creates a new group with the provided owner, extra data, and metadata.
+    * This method performs rate limiting checks to prevent abuse, generates a unique identifier for the group,
+    * and handles the database insertion of the group details.
+    * 
+    * @param {Object} options - The options object for creating a group.
+    * @param {string} options.owner_user_id - The ID of the user who owns the group.
+    * @param {Object} [options.extra] - Additional data associated with the group.
+    * @param {Object} [options.metadata] - Metadata for the group, which can be used for various purposes.
+    * @returns {Promise<string>} - A promise that resolves to the unique identifier of the newly created group.
+    * @throws {APIError} If the rate limit is exceeded.
+    */
     async create ({ owner_user_id, extra, metadata }) {
         extra = extra ?? {};
         metadata = metadata ?? {};
@@ -88,6 +132,17 @@ class GroupService extends BaseService {
         return uid;
     }
 
+
+    /**
+    * Lists all groups where the specified user is a member.
+    * 
+    * This method queries the database to find groups associated with the given user_id through the junction table `jct_user_group`.
+    * Each group's `extra` and `metadata` fields are parsed based on the database type to ensure compatibility.
+    *
+    * @param {Object} params - Parameters for the query.
+    * @param {string} params.user_id - The ID of the user whose groups are to be listed.
+    * @returns {Promise<Array<Group>>} A promise that resolves to an array of Group objects representing groups the user is a member of.
+    */
     async list_groups_with_owner ({ owner_user_id }) {
         const groups = await this.db.read(
             'SELECT * FROM `group` WHERE owner_user_id=?',
@@ -106,6 +161,14 @@ class GroupService extends BaseService {
         return groups.map(g => Group(g));
     }
 
+
+    /**
+    * Lists all groups where the specified user is a member.
+    * 
+    * @param {Object} options - The options object.
+    * @param {string} options.user_id - The ID of the user whose group memberships are to be listed.
+    * @returns {Promise<Array>} A promise that resolves to an array of Group objects representing the groups the user is a member of.
+    */
     async list_groups_with_member ({ user_id }) {
         const groups = await this.db.read(
             'SELECT * FROM `group` WHERE id IN (' +
@@ -125,6 +188,14 @@ class GroupService extends BaseService {
         return groups.map(g => Group(g));
     }
 
+
+    /**
+    * Lists the members of a group by their username.
+    * 
+    * @param {Object} options - The options object.
+    * @param {string} options.uid - The unique identifier of the group.
+    * @returns {Promise<string[]>} A promise that resolves to an array of usernames of the group members.
+    */
     async list_members ({ uid }) {
         const users = await this.db.read(
             'SELECT u.username FROM user u ' +
@@ -136,6 +207,16 @@ class GroupService extends BaseService {
         return users.map(u => u.username);
     }
     
+
+    /**
+    * Adds specified users to a group.
+    * 
+    * @param {Object} options - The options object.
+    * @param {string} options.uid - The unique identifier of the group.
+    * @param {string[]} options.users - An array of usernames to add to the group.
+    * @returns {Promise<void>} A promise that resolves when the users have been added.
+    * @throws {APIError} If there's an issue with the database operation or if the group does not exist.
+    */
     async add_users ({ uid, users }) {
         const question_marks =
             '(' + Array(users.length).fill('?').join(', ') + ')';
@@ -150,6 +231,18 @@ class GroupService extends BaseService {
         );
     }
     
+
+    /**
+    * Removes specified users from a group.
+    * 
+    * This method deletes the association between users and a group from the junction table.
+    * It uses the group's uid to identify the group and an array of usernames to remove.
+    * 
+    * @param {Object} params - The parameters for the operation.
+    * @param {string} params.uid - The unique identifier of the group.
+    * @param {string[]} params.users - An array of usernames to be removed from the group.
+    * @returns {Promise<void>} A promise that resolves when the operation is complete.
+    */
     async remove_users ({ uid, users }) {
         const question_marks =
             '(' + Array(users.length).fill('?').join(', ') + ')';

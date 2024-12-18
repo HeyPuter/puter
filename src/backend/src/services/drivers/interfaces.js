@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"xai"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -110,7 +111,7 @@ module.exports = {
             get: {
                 description: 'Get a value by key.',
                 parameters: {
-                    key: { type: 'string', required: true },
+                    key: { type: 'json', required: true },
                     app_uid: { type: 'string', optional: true },
                 },
                 result: { type: 'json' },
@@ -289,5 +290,8 @@ module.exports = {
     'puter-notifications': {
         ...ENTITY_STORAGE_INTERFACE,
         description: 'Read notifications on Puter.',
+    },
+    'crud-q': {
+        ...ENTITY_STORAGE_INTERFACE,
     },
 };

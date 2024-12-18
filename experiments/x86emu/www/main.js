@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#!/usr/bin/env node
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *

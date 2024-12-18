@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require("@heyputer/putility");
-const { quot } = require("../util/strutil");
+const { quot } = require('@heyputer/putility').libs.string;
 const { TechnicalError } = require("../errors/TechnicalError");
 const { print_error_help } = require("../errors/error_help_details");
 const default_config = require("./default_config");
@@ -93,8 +93,7 @@ const path_checks = ({ logger }) => ({ fs, path_ }) => ({
         throw new Error(`No valid config file found in path: ${path}`);
     },
     env_not_set: name => () => {
-        if ( process.env[name] ) return false;
-        return true;
+        return ! process.env[name];
     }
 });
 
@@ -233,16 +232,12 @@ class RuntimeEnvironment extends AdvancedBase {
             ]
         );
 
+        // Note: there used to be a 'mods_path_entry' here too
+        //       but it was never used
         const pwd_path_entry = this.get_first_suitable_path_(
             { pathFor: 'working directory' },
             this.runtime_paths,
             [ this.path_checks.require_write_permission ]
-        );
-
-        const mods_path_entry = this.get_first_suitable_path_(
-            { pathFor: 'mods', optional: true },
-            this.mod_paths,
-            [ this.path_checks.require_read_permission ],
         );
 
         process.chdir(pwd_path_entry.path);
@@ -287,9 +282,8 @@ class RuntimeEnvironment extends AdvancedBase {
                     );
                     const config_values = JSON.parse(config_raw);
                     for ( const k in generated_values ) {
-                        if ( config_values[k] ) {
-                            generated_values[k] = config_values[k];
-                        }
+                        if ( ! config_values[k] ) continue;
+                        generated_values[k] = config_values[k];
                     }
                 }
             }
@@ -334,9 +328,6 @@ class RuntimeEnvironment extends AdvancedBase {
             throw new Error('config_name is required');
         }
         this.logger.info(hl(`config name`) + ` ${quot(config.config_name)}`);
-        // console.log(config.services);
-        // console.log(Object.keys(config.services));
-        // console.log({ ...config.services });
 
         const mod_paths = [];
         environment.mod_paths = mod_paths;
@@ -363,12 +354,13 @@ class RuntimeEnvironment extends AdvancedBase {
     }
 
     get_first_suitable_path_ (meta, paths, last_checks) {
-        iter_paths:
         for ( const entry of paths ) {
             const checks = [...(entry.checks ?? []), ...last_checks];
             this.logger.info(
                 `Checking path ${quot(entry.label ?? entry.path)} for ${meta.pathFor}...`
             );
+            
+            let checks_pass = true;
             for ( const check of checks ) {
                 this.logger.info(
                     `-> doing ${quot(check.name)} on path ${quot(entry.path)}...`
@@ -378,9 +370,12 @@ class RuntimeEnvironment extends AdvancedBase {
                     this.logger.info(
                         `-> ${quot(check.name)} doesn't like this path`
                     );
-                    continue iter_paths;
+                    checks_pass = false;
+                    break;
                 }
             }
+            
+            if ( ! checks_pass ) continue;
 
             this.logger.info(
                 `${hl('USING')} ${quot(entry.path)} for ${meta.pathFor}.`

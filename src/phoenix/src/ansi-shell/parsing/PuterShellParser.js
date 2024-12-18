@@ -16,7 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { StrataParser, StringPStratumImpl } from "strataparse";
+import { strataparse } from '@heyputer/parsers';
+const { StrataParser, StringPStratumImpl } = strataparse;
 import { buildParserFirstHalf } from "./buildParserFirstHalf.js";
 import { buildParserSecondHalf } from "./buildParserSecondHalf.js";
 

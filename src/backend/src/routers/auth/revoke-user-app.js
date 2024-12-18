@@ -50,7 +50,7 @@ module.exports = eggspress('/auth/revoke-user-app', {
         );
     }
 
-    const token = await svc_permission.revoke_user_app_permission(
+    await svc_permission.revoke_user_app_permission(
         actor, req.body.app_uid, req.body.permission,
         req.body.meta || {},
     );

@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -23,7 +24,23 @@ const BaseService = require("./BaseService")
  * detail providers. A detail provider is a function that takes an
  * input object and uses its values to populate another object.
  */
+/**
+* @class DetailProviderService
+* @extends BaseService
+* @description This class manages a collection of detail providers, 
+* which are functions that accept an input object to populate another object 
+* with relevant details. It provides methods to register new providers and 
+* retrieve details using all registered providers in sequence.
+*/
 class DetailProviderService extends BaseService {
+    /**
+    * Retrieves detailed information by invoking all registered detail providers with the given context.
+    * Each provider is expected to modify the out object directly.
+    * 
+    * @param {Object} context - The input context for the providers.
+    * @param {Object} [out={}] - An object to store the combined results from each provider.
+    * @returns {Object} The combined results populated by the detail providers.
+    */
     _construct () {
         this.providers_ = [];
     }
@@ -32,6 +49,20 @@ class DetailProviderService extends BaseService {
         this.providers_.push(fn);
     }
 
+
+    /**
+    * Asynchronously retrieves details by invoking registered detail providers
+    * in sequence. Populates the provided output object with the results of 
+    * each provider. If no output object is provided, a new one is created 
+    * by default.
+    *
+    * @param {Object} context - The context object containing input data for 
+    *                           the providers.
+    * @param {Object} [out={}] - An optional output object to populate with 
+    *                            the details.
+    * @returns {Promise<Object>} The populated output object after all 
+    *                            providers have been processed.
+    */
     async get_details (context, out) {
         out = out || {};
 

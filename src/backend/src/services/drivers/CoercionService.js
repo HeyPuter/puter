@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -20,15 +21,40 @@ const BaseService = require("../BaseService");
 const { TypeSpec } = require("./meta/Construct");
 const { TypedValue } = require("./meta/Runtime");
 
+
+/**
+* CoercionService class is responsible for handling coercion operations
+* between TypedValue instances and their target TypeSpec representations.
+* It provides functionality to construct and initialize coercions that 
+* can convert one type into another, based on specified produces and 
+* consumes specifications.
+*/
 class CoercionService extends BaseService {
     static MODULES = {
         axios: require('axios'),
     }
 
+
+    /**
+     * Attempt to coerce a TypedValue to a target TypeSpec.
+     * This method checks if the current TypedValue can be adapted to the specified target TypeSpec,
+     * using the available coercions defined in the service. It implements caching for previously calculated coercions.
+     * 
+     * @param {*} target - the target TypeSpec
+     * @param {*} typed_value - the TypedValue to coerce
+     * @returns {TypedValue|undefined} - the coerced TypedValue, or undefined if coercion cannot be performed
+     */
     async _construct () {
         this.coercions_ = [];
     }
 
+
+    /**
+     * Initializes the coercion service by populating the coercions_ array
+     * with predefined coercion rules that specify how TypedValues should 
+     * be processed. This method should be called before any coercion 
+     * operations are performed.
+     */
     async _init () {
         this.coercions_.push({
             produces: {
@@ -60,6 +86,17 @@ class CoercionService extends BaseService {
      * @param {*} target - the target TypeSpec
      * @param {*} typed_value - the TypedValue to coerce
      * @returns {TypedValue|undefined} - the coerced TypedValue, or undefined
+     */
+    /**
+     * Attempt to coerce a TypedValue to a target TypeSpec.
+     * This method first adapts the target and the current type of the 
+     * TypedValue. If they are equal, it returns the original TypedValue. 
+     * Otherwise, it checks if the coercion has been calculated before, 
+     * retrieves applicable coercions, and applies them to the TypedValue.
+     * 
+     * @param {*} target - the target TypeSpec to which the TypedValue should be coerced
+     * @param {*} typed_value - the TypedValue to coerce
+     * @returns {TypedValue|undefined} - the coerced TypedValue if successful, or undefined
      */
     async coerce (target, typed_value) {
         target = TypeSpec.adapt(target);

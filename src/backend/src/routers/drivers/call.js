@@ -23,7 +23,7 @@ const { TypeSpec } = require("../../services/drivers/meta/Construct");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
 const { whatis } = require("../../util/langutil");
-const { TeePromise } = require("../../util/promise");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 const { valid_file_size } = require("../../util/validutil");
 
 let _handle_multipart;

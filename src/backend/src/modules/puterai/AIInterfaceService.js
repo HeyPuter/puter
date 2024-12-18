@@ -1,6 +1,20 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 const BaseService = require("../../services/BaseService");
 
+
+/**
+* Service class that manages AI interface registrations and configurations.
+* Handles registration of various AI services including OCR, chat completion,
+* image generation, and text-to-speech interfaces. Each interface defines
+* its available methods, parameters, and expected results.
+* @extends BaseService
+*/
 class AIInterfaceService extends BaseService {
+    /**
+    * Service class for managing AI interface registrations and configurations.
+    * Extends the base service to provide AI-related interface management.
+    * Handles registration of OCR, chat completion, image generation, and TTS interfaces.
+    */
     async ['__on_driver.register.interfaces'] () {
         const svc_registry = this.services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');

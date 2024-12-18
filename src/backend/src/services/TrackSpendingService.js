@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -17,12 +18,28 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { TimeWindow } = require("../util/opmath");
-const SmolUtil = require("../util/smolutil");
-const { format_as_usd } = require("../util/strutil");
-const { MINUTE, SECOND } = require("../util/time");
+const smol = require('@heyputer/putility').libs.smol;
+const { format_as_usd } = require('@heyputer/putility').libs.string;
+const { MINUTE, SECOND } = require("@heyputer/putility").libs.time;
 const BaseService = require("./BaseService");
 
+
+/**
+* @class TrackSpendingService
+* @extends BaseService
+* @description Service for tracking and monitoring API spending across different vendors and strategies.
+* Implements cost tracking for various AI models (like GPT-4, DALL-E), manages spending windows,
+* and provides alerting functionality when spending thresholds are exceeded. Supports different
+* pricing strategies for chat completions and image generation services.
+*/
 class TrackSpendingService extends BaseService {
+    /**
+    * @class TrackSpendingService
+    * @extends BaseService
+    * @description Service for tracking and monitoring API spending across different vendors and strategies.
+    * Implements cost tracking for chat completions and image generations, with configurable spending alerts.
+    * Maintains time-windowed spending metrics and triggers alarms when spending thresholds are exceeded.
+    */
     static ChatCompletionStrategy = class ChatCompletionStrategy {
         static models = {
             'gpt-4-1106-preview': {
@@ -60,7 +77,7 @@ class TrackSpendingService extends BaseService {
             const input_tokens = data.count_tokens_input ?? 0;
             const output_tokens = data.count_tokens_output ?? 0;
 
-            const cost = SmolUtil.add(
+            const cost = smol.add(
                 this.multiply_by_ratio_(input_tokens, cost_per_input_token),
                 this.multiply_by_ratio_(output_tokens, cost_per_output_token),
             );
@@ -70,6 +87,13 @@ class TrackSpendingService extends BaseService {
             return cost;
         }
 
+
+        /**
+        * Validates pricing configurations for all models to prevent division by zero errors
+        * @async
+        * @throws {Error} If any model's pricing configuration would cause division by zero
+        * @returns {Promise<void>}
+        */
         async validate () {
             // Ensure no models will cause division by zero
             for ( const model in this.constructor.models ) {
@@ -83,6 +107,14 @@ class TrackSpendingService extends BaseService {
             }
         }
     }
+    /**
+    * @class ImageGenerationStrategy
+    * @description A strategy class for handling image generation cost calculations.
+    * Supports different models (DALL-E 2 and 3) with varying pricing based on image
+    * dimensions. Maintains a static pricing model configuration and provides methods
+    * to calculate costs for image generation requests. Part of the TrackSpendingService
+    * system for monitoring and tracking API usage costs.
+    */
     static ImageGenerationStrategy = class ImageGenerationStrategy {
         static models = {
             'dall-e-3': {
@@ -127,6 +159,21 @@ class TrackSpendingService extends BaseService {
         }
     }
 
+
+    /**
+    * Initializes the TrackSpendingService with spending tracking strategies and alarm monitoring
+    * 
+    * Sets up cost tracking strategies for different services (chat completion, image generation),
+    * initializes spending windows for monitoring, and configures periodic alarm checks for high spending.
+    * 
+    * Creates an interval that checks spending levels and triggers alarms when spending exceeds
+    * configured thresholds.
+    * 
+    * @private
+    * @async
+    * @throws {Error} If no logging service is configured
+    * @returns {Promise<void>}
+    */
     async _init () {
         const strategies = {
             'chat-completion': new this.constructor.ChatCompletionStrategy({
@@ -168,6 +215,14 @@ class TrackSpendingService extends BaseService {
 
         const svc_alarm = this.services.get('alarm');
 
+
+        /**
+        * Records spending data for a vendor using a specified strategy
+        * @param {string} vendor - The vendor name/identifier
+        * @param {string} strategy_key - Key identifying the pricing strategy to use
+        * @param {Object} data - Data needed to calculate cost based on the strategy
+        * @throws {Error} If strategy_key is invalid/unknown
+        */
         setInterval(() => {
             const spending = this.get_window_spending_();
 
@@ -212,6 +267,13 @@ class TrackSpendingService extends BaseService {
         });
     }
 
+
+    /**
+    * Gets the total spending across all tracked windows
+    * 
+    * @private
+    * @returns {number} The sum of all spending windows' current values
+    */
     get_window_spending_ () {
         const windows = Object.values(this.spend_windows);
         return windows.reduce((sum, win) => {

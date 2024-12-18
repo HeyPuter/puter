@@ -1,3 +1,4 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
  * Copyright (C) 2024 Puter Technologies Inc.
  *
@@ -19,9 +20,24 @@
 const { BasicBase } = require("../../../../../putility/src/bases/BasicBase");
 const { TypeSpec } = require("./Construct");
 
+
+/**
+* Represents an entity in the runtime environment that extends the BasicBase class.
+* This class serves as a foundational type for creating various runtime constructs 
+* within the Puter framework, enabling the implementation of specialized behaviors 
+* and properties.
+*/
 class RuntimeEntity extends BasicBase {
 }
 
+
+/**
+* Represents a base runtime entity that extends functionality 
+* from the BasicBase class. This entity can be used as a 
+* foundation for creating more specific runtime objects 
+* within the application, enabling consistent behavior across 
+* derived entities.
+*/
 class TypedValue extends RuntimeEntity {
     constructor (type, value) {
         super();

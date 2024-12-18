@@ -17,14 +17,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 "use strict"
-const express = require('express');
-const router = new express.Router();
-const {get_taskbar_items, generate_random_username, generate_system_fsentries, send_email_verification_code, send_email_verification_token, username_exists, invalidate_cached_user_by_id, get_user } = require('../helpers');
+const {get_taskbar_items, send_email_verification_code, send_email_verification_token, username_exists, invalidate_cached_user_by_id, get_user } = require('../helpers');
 const config = require('../config');
 const eggspress = require('../api/eggspress');
 const { Context } = require('../util/context');
 const { DB_WRITE } = require('../services/database/consts');
-const { can } = require('../util/langutil');
+const { generate_identifier } = require('../util/identifier');
+
+async function generate_random_username () {
+    let username;
+    do {
+        username = generate_identifier();
+    } while (await username_exists(username));
+    return username;
+}
 
 // -----------------------------------------------------------------------//
 // POST /signup
@@ -239,15 +245,15 @@ module.exports = eggspress(['/signup'], {
                 // audit_metadata
                 JSON.stringify(audit_metadata),
                 // signup_ip
-                req.connection.remoteAddress,
+                req.connection.remoteAddress ?? null,
                 // signup_ip_fwd
-                req.headers['x-forwarded-for'],
+                req.headers['x-forwarded-for'] ?? null,
                 // signup_user_agent
-                req.headers['user-agent'],
+                req.headers['user-agent'] ?? null,
                 // signup_origin
-                req.headers['origin'],
+                req.headers['origin'] ?? null,
                 // signup_server
-                config.server_id,
+                config.server_id ?? null,
             ]
         );
 
@@ -348,7 +354,8 @@ module.exports = eggspress(['/signup'], {
         }
     }
 
-    await generate_system_fsentries(user);
+    const svc_user = Context.get('services').get('user');
+    await svc_user.generate_default_fsentries({ user });
 
     //set cookie
     res.cookie(config.cookie_name, token, {

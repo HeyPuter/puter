@@ -106,7 +106,8 @@ class HLMove extends HLFilesystemOperation {
                 dest_user = source_user;
             await source.fetchSize();
             const item_size = source.entry.size;
-            let capacity = config.is_storage_limited ? (dest_user.free_storage === undefined || dest_user.free_storage === null) ? config.storage_capacity : dest_user.free_storage : config.available_device_storage;
+            const sizeService = svc.get('sizeService');
+            const capacity = await sizeService.get_storage_capacity(user.id);
             if(capacity - await df(dest_user.id) - item_size < 0){
                 throw APIError.create('storage_limit_reached');
             }

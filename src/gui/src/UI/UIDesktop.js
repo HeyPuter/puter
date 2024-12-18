@@ -163,6 +163,10 @@ async function UIDesktop(options){
             $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.item-container').empty();
     })
     
+    /**
+     * This event is triggered if a user receives a notification during
+     * an active session.
+     */
     window.socket.on('notif.message', async ({ uid, notification }) => {
         let icon = window.icons[notification.icon];
         let round_icon = false;
@@ -207,6 +211,14 @@ async function UIDesktop(options){
         });
     });
 
+    /**
+     * This event is triggered at the beginning of the session, after a websocket
+     * connection is established, because the backend informs the frontend of all
+     * unread notifications.
+     * 
+     * It is not necessary to query unreads separately. If this stops working,
+     * then this event should be fixed rather than querying unreads separately.
+     */
     window.__already_got_unreads = false;
     window.socket.on('notif.unreads', async ({ unreads }) => {
         if ( window.__already_got_unreads ) return;
@@ -642,6 +654,8 @@ async function UIDesktop(options){
                 data-path="${html_encode(window.desktop_path)}"
             >`;
     h += `</div>`;
+
+    h += `<span id='clock'></span></div>`;
 
     // Get window sidebar width
     puter.kv.get('window_sidebar_width').then(async (val) => {
@@ -1089,7 +1103,7 @@ async function UIDesktop(options){
     // User options
     // ----------------------------------------------------
     let ht = '';
-    ht += `<div class="toolbar"  style="height:${window.toolbar_height}px;">`;
+    ht += `<div class="toolbar" style="height:${window.toolbar_height}px; min-height:${window.toolbar_height}px; max-height:${window.toolbar_height}px;">`;
         // logo
         ht += `<div class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px; margin-right: auto;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
 
@@ -1098,10 +1112,8 @@ async function UIDesktop(options){
             ht += `<svg style="width: 17px; height: 17px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px" height="48px" viewBox="0 0 48 48"><g transform="translate(0, 0)"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"></path></g></svg>`;
         ht += `</div>`;
 
-        // 'show desktop'
-        if(window.is_fullpage_mode){
-            ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased" target="_blank" title="Show Desktop">Show Desktop <img src="${window.icons['launch-white.svg']}" style="width: 10px; height: 10px; margin-left: 5px;"></a>`;
-        }
+        // 'Show Desktop'
+        ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased hidden" target="_blank" title="Show Desktop">Show Desktop <img src="${window.icons['launch-white.svg']}" style="width: 10px; height: 10px; margin-left: 5px;"></a>`;
 
         // refer
         if(window.user.referral_code){
@@ -1155,7 +1167,12 @@ async function UIDesktop(options){
         // get app metadata
         try{
             window.app_launched_from_url = await puter.apps.get(window.url_paths[1])
-            window.is_fullpage_mode = window.app_launched_from_url.metadata?.fullpage_on_landing ?? false;
+            window.is_fullpage_mode = window.app_launched_from_url.metadata?.fullpage_on_landing ?? window.is_fullpage_mode ?? false;
+
+            // show 'Show Desktop' button
+            if(window.is_fullpage_mode){
+                $('.show-desktop-btn').removeClass('hidden');
+            }
         }catch(e){
             console.error(e);
         }
@@ -1287,55 +1304,6 @@ async function UIDesktop(options){
             }
         })
     }
-
-    // fetch notifications
-    fetch(puter.APIOrigin + "/drivers/call", {
-        "headers": {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${puter.authToken}`,
-        },
-        "body": JSON.stringify({
-            interface: 'puter-notifications',
-            method: 'select',
-            args: {}
-        }),
-        "method": "POST",
-    })
-    .then(response => response.json())
-    .then(data => {
-        if(data && data.result && data.result.length > 0){
-            data.data?.forEach(async notification => {
-                let icon = window.icons['puter-logo.svg'];
-                let round_icon = false;
-
-                if(notification.template === "file-shared-with-you" && notification.fields?.username){
-                    let profile_pic = await get_profile_picture(notification.fields?.username);
-                    if(profile_pic){
-                        icon = profile_pic;
-                        round_icon = true;
-                        notification.round_icon = round_icon;
-                    }
-                }
-                notification.icon = icon;
-
-                notification.click = async (notif) => {
-                    if(notification.template === "file-shared-with-you"){
-                        let item_path = '/' + notification.fields?.username;
-                        UIWindow({
-                            path: '/' + notification.fields?.username,
-                            title: path.basename(item_path),
-                            icon: await item_icon({is_dir: true, path: item_path}),
-                            is_dir: true,
-                            app: 'explorer',
-                        });
-                    }
-                }
-
-                UINotification(notification);
-            })
-        }
-    })
-
 
     //--------------------------------------------------------------------------------------
     // Trying to view a user's public folder?
@@ -1809,8 +1777,6 @@ window.remove_taskbar_item = function(item){
     $(item).animate({width: 0}, 200, function(){
         $(item).remove();
     })
-
-    window.recalibrate_taskbar_item_positions();
 }
 
 window.enter_fullpage_mode = (el_window)=>{

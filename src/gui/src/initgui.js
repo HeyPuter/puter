@@ -192,7 +192,7 @@ window.initgui = async function(options){
 
     // Appends a viewport meta tag to the head of the document, ensuring optimal display on mobile devices.
     // This tag sets the width of the viewport to the device width, and locks the zoom level to 1 (prevents user scaling).
-    $('head').append(`<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1">`);
+    $('head').append(`<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">`);
 
     // GET query params provided
     window.url_query_params = new URLSearchParams(window.location.search);
@@ -392,6 +392,8 @@ window.initgui = async function(options){
     // -------------------------------------------------------------------------------------
     else if(window.url_query_params.has('auth_token')){
         let query_param_auth_token = window.url_query_params.get('auth_token');
+
+        puter.setAuthToken(query_param_auth_token);
 
         try{
             whoami = await puter.os.user();
@@ -1245,33 +1247,6 @@ window.initgui = async function(options){
     // if an element has the .long-hover class, cancel the long-hover event if the mouse leaves
     $(document).on('mouseleave', '.long-hover', function(){
         clearTimeout(this.long_hover_timeout);
-    })
-
-    // if an element has the .long-hover class, cancel the long-hover event if the mouse leaves
-    $(document).on('paste', function(event){
-        event = event.originalEvent ?? event;
-
-        let clipboardData = event.clipboardData || window.clipboardData;
-        let items = clipboardData.items || clipboardData.files;
-
-        // return if paste is on input or textarea
-        if($(event.target).is('input') || $(event.target).is('textarea'))
-            return;
-
-        if(!(items instanceof DataTransferItemList))
-            return;
-
-        // upload files
-        if(items?.length>0){
-            let parent_container = determine_active_container_parent();
-            if(parent_container){
-                window.upload_items(items, $(parent_container).attr('data-path'));
-            }
-        }
-
-        event.stopPropagation();
-        event.preventDefault();
-        return false;
     })
 
     document.addEventListener("visibilitychange", (event) => {
