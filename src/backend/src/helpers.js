@@ -1214,6 +1214,10 @@ async function app_name_exists(name){
     let rows = await db.read(`SELECT EXISTS(SELECT 1 FROM apps WHERE apps.name=?) AS app_name_exists`, [name]);
     if(rows[0].app_name_exists)
         return true;
+
+    const svc_oldAppName = services.get('old-app-name');
+    const name_info = await svc_oldAppName.check_app_name(name);
+    if ( name_info ) return true;
 }
 
 function send_email_verification_code(email_confirm_code, email){
