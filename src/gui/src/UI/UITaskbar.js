@@ -148,7 +148,6 @@ async function UITaskbar(options){
                 appendTo: "body",
                 revert: "invalid",
                 connectToSortable: ".taskbar",
-                //containment: "document",
                 zIndex: parseInt($(popover).css('z-index')) + 1,
                 scroll: false,
                 distance: 5,
@@ -292,7 +291,6 @@ window.make_taskbar_sortable = function(){
                 });
                 let el = ($(item).detach())
                 $(el).insertAfter(ui.item);
-                // $(ui.item).insertBefore(`<h1>Hello!</h1>`);
                 $(el).show();
                 $(ui.item).removeItems();
                 window.update_taskbar();
