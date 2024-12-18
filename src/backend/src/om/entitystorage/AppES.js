@@ -22,6 +22,7 @@ const { app_name_exists, get_user, refresh_apps_cache } = require("../../helpers
 const { AppUnderUserActorType } = require("../../services/auth/Actor");
 const { DB_WRITE } = require("../../services/database/consts");
 const { Context } = require("../../util/context");
+const { stream_to_buffer } = require("../../util/streamutil");
 const { origin_from_url } = require("../../util/urlutil");
 const { Eq, Like, Or } = require("../query/query");
 const { BaseES } = require("./BaseES");
@@ -225,6 +226,27 @@ class AppES extends BaseES {
                 entity.del('approved_for_listing');
                 entity.del('approved_for_opening_items');
                 entity.del('approved_for_incentive_program');
+            }
+
+            // Replace icon if an icon size is specified
+            const icon_size = Context.get('es_params')?.icon_size;
+            if ( icon_size ) {
+                console.log('GOING TO');
+                const svc_appIcon = this.context.get('services').get('app-icon');
+                try {
+                    const stream = await svc_appIcon.get_icon_stream({
+                        app_uid: await entity.get('uid'),
+                        size: icon_size,
+                    });
+                    if ( ! stream ) throw Error('no stream');
+                    const buffer = await stream_to_buffer(stream);
+                    const data_url = `data:image/png;base64,${buffer.toString('base64')}`;
+                    await entity.set('icon', data_url);
+                    console.log('DID IT')
+                } catch (e) {
+                    const svc_error = this.context.get('services').get('error-service');
+                    svc_error.report('AppES:read_transform', { source: e });
+                }
             }
         },
         async maybe_insert_subdomain_ (entity) {

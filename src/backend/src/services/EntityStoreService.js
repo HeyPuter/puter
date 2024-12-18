@@ -91,28 +91,36 @@ class EntityStoreService extends BaseService {
                 const entity = await Entity.create({ om: this.om }, object);
                 return await this.upsert(entity, id, options);
             },
-            async read ({ uid, id }) {
-                if ( ! uid && ! id ) {
-                    throw APIError.create('xor_field_missing', null, {
-                        names: ['uid', 'id'],
-                    });
-                }
+            async read ({ uid, id, params = {} }) {
+                return await Context.sub({
+                    es_params: params,
+                }).arun(async () => {
+                    if ( ! uid && ! id ) {
+                        throw APIError.create('xor_field_missing', null, {
+                            names: ['uid', 'id'],
+                        });
+                    }
 
-                const entity = await this.fetch_based_on_either_id_(uid, id);
-                if ( ! entity ) {
-                    throw APIError.create('entity_not_found', null, {
-                        identifier: uid
-                    });
-                }
-                return await entity.get_client_safe();
+                    const entity = await this.fetch_based_on_either_id_(uid, id);
+                    if ( ! entity ) {
+                        throw APIError.create('entity_not_found', null, {
+                            identifier: uid
+                        });
+                    }
+                    return await entity.get_client_safe();
+                });
             },
             async select (options) {
-                const entities = await this.select(options);
-                const client_safe_entities = [];
-                for ( const entity of entities ) {
-                    client_safe_entities.push(await entity.get_client_safe());
-                }
-                return client_safe_entities;
+                return await Context.sub({
+                    es_params: options?.params ?? {},
+                }).arun(async () => {
+                    const entities = await this.select(options);
+                    const client_safe_entities = [];
+                    for ( const entity of entities ) {
+                        client_safe_entities.push(await entity.get_client_safe());
+                    }
+                    return client_safe_entities;
+                });
             },
             async delete ({ uid, id }) {
                 if ( ! uid && ! id ) {

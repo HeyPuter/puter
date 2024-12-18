@@ -51,35 +51,39 @@ class AppIconService extends BaseService {
                     app_uid = `app-${app_uid}`;
                 }
 
-                // Get icon file node
-                const dir_app_icons = await this.get_app_icons();
-                const node = await dir_app_icons.getChild(`${app_uid}-${size}.png`);
-                if ( ! await node.exists() ) {
-                    // Use database-stored icon as a fallback
-                    const app = await get_app({ uid: app_uid });
-                    if ( ! app.icon ) {
-                        app.icon = DEFAULT_APP_ICON;
-                    }
-                    const [metadata, app_icon] = app.icon.split(',');
-                    console.log('METADATA', metadata);
-                    const mime = metadata.split(';')[0].split(':')[1];
-                    const img = Buffer.from(app_icon, 'base64');
-                    res.set('Content-Type', mime);
-                    res.send(img);
-                    return;
-                }
-
-                const svc_su = this.services.get('su');
-                const ll_read = new LLRead();
-                const stream = await ll_read.run({
-                    fsNode: node,
-                    actor: await svc_su.get_system_actor(),
-                });
+                const stream = await this.get_icon_stream({ app_uid, size, })
 
                 res.set('Content-Type', 'image/png');
                 stream.pipe(res);
             },
         }).attach(app);
+    }
+
+    async get_icon_stream ({ app_uid, size }) {
+        // Get icon file node
+        const dir_app_icons = await this.get_app_icons();
+        const node = await dir_app_icons.getChild(`${app_uid}-${size}.png`);
+        if ( ! await node.exists() ) {
+            // Use database-stored icon as a fallback
+            const app = await get_app({ uid: app_uid });
+            if ( ! app.icon ) {
+                app.icon = DEFAULT_APP_ICON;
+            }
+            const [metadata, app_icon] = app.icon.split(',');
+            console.log('METADATA', metadata);
+            const mime = metadata.split(';')[0].split(':')[1];
+            const img = Buffer.from(app_icon, 'base64');
+            res.set('Content-Type', mime);
+            res.send(img);
+            return;
+        }
+
+        const svc_su = this.services.get('su');
+        const ll_read = new LLRead();
+        return await ll_read.run({
+            fsNode: node,
+            actor: await svc_su.get_system_actor(),
+        });
     }
 
     /**

@@ -33,6 +33,7 @@ const ENTITY_STORAGE_INTERFACE = {
             parameters: {
                 uid: { type: 'string' },
                 id: { type: 'json' },
+                params: { type: 'json' },
             }
         },
         select: {
@@ -40,6 +41,7 @@ const ENTITY_STORAGE_INTERFACE = {
                 predicate: { type: 'json' },
                 offset: { type: 'number' },
                 limit: { type: 'number' },
+                params: { type: 'json' },
             }
         },
         update: {
