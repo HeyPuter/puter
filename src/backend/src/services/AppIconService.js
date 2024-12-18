@@ -128,52 +128,59 @@ class AppIconService extends BaseService {
         // Listen for new app icons
         const svc_event = this.services.get('event');
         svc_event.on('app.new-icon', async (_, data) => {
-            // Writing icons as the system user
-            const icon_jobs = [];
-            for ( const size of ICON_SIZES ) {
-                icon_jobs.push((async () => {
-                    await svc_su.sudo(async () => {
-                        const filename = `${data.app_uid}-${size}.png`;
-                        console.log('FILENAME', filename);
-                        const data_url = data.data_url;
-                        const [metadata, base64] = data_url.split(',');
-                        const input = Buffer.from(base64, 'base64');
-
-                        const sharp_instance = this.get_sharp({
-                            metadata,
-                            input,
-                        });
-                        
-                        // NOTE: A stream would be more ideal than a buffer here
-                        //       but we have no way of knowing the output size
-                        //       before we finish processing the image.
-                        const output = await sharp_instance
-                            .resize(size)
-                            .png()
-                            .toBuffer();
-                        
-                        const sys_actor = await svc_su.get_system_actor();
-                        const hl_write = new HLWrite();
-                        await hl_write.run({
-                            destination_or_parent: dir_app_icons,
-                            specified_name: filename,
-                            overwrite: true,
-                            actor: sys_actor,
-                            user: sys_actor.type.user,
-                            no_thumbnail: true,
-                            file: {
-                                size: output.length,
-                                name: filename,
-                                mimetype: 'image/png',
-                                type: 'image/png',
-                                stream: buffer_to_stream(output),
-                            },
-                        });
-                    })
-                })());
-            }
-            await Promise.all(icon_jobs);
+            await this.create_app_icons({ data });
         });
+    }
+
+    async create_app_icons ({ data }) {
+        const svc_su = this.services.get('su');
+        const dir_app_icons = await this.get_app_icons();
+
+        // Writing icons as the system user
+        const icon_jobs = [];
+        for ( const size of ICON_SIZES ) {
+            icon_jobs.push((async () => {
+                await svc_su.sudo(async () => {
+                    const filename = `${data.app_uid}-${size}.png`;
+                    console.log('FILENAME', filename);
+                    const data_url = data.data_url;
+                    const [metadata, base64] = data_url.split(',');
+                    const input = Buffer.from(base64, 'base64');
+
+                    const sharp_instance = this.get_sharp({
+                        metadata,
+                        input,
+                    });
+                    
+                    // NOTE: A stream would be more ideal than a buffer here
+                    //       but we have no way of knowing the output size
+                    //       before we finish processing the image.
+                    const output = await sharp_instance
+                        .resize(size)
+                        .png()
+                        .toBuffer();
+                    
+                    const sys_actor = await svc_su.get_system_actor();
+                    const hl_write = new HLWrite();
+                    await hl_write.run({
+                        destination_or_parent: dir_app_icons,
+                        specified_name: filename,
+                        overwrite: true,
+                        actor: sys_actor,
+                        user: sys_actor.type.user,
+                        no_thumbnail: true,
+                        file: {
+                            size: output.length,
+                            name: filename,
+                            mimetype: 'image/png',
+                            type: 'image/png',
+                            stream: buffer_to_stream(output),
+                        },
+                    });
+                })
+            })());
+        }
+        await Promise.all(icon_jobs);
     }
 
     async _init () {
