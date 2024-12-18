@@ -358,6 +358,9 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { AppIconService } = require('./services/AppIconService');
     services.registerService('app-icon', AppIconService);
+
+    const { OldAppNameService } = require('./services/OldAppNameService');
+    services.registerService('old-app-name', OldAppNameService);
 }
 
 const install_legacy = async ({ services }) => {

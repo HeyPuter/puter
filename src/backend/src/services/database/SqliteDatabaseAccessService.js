@@ -152,6 +152,9 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [30, [
                 '0033_ai-usage.sql',
             ]],
+            [31, [
+                '0034_app-redirect.sql',
+            ]],
         ];
 
         // Database upgrade logic

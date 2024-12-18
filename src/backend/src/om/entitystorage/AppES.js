@@ -88,9 +88,9 @@ class AppES extends BaseES {
         async upsert (entity, extra) {
             if ( await app_name_exists(await entity.get('name')) ) {
                 const { old_entity } = extra;
-                const throw_it = ( ! old_entity ) ||
+                const is_name_change = ( ! old_entity ) ||
                     ( await old_entity.get('name') !== await entity.get('name') );
-                if ( throw_it && extra.options && extra.options.dedupe_name ) {
+                if ( is_name_change && extra?.options?.dedupe_name ) {
                     const base = await entity.get('name');
                     let number = 1;
                     while ( await app_name_exists(`${base}-${number}`) ) {
@@ -98,10 +98,21 @@ class AppES extends BaseES {
                     }
                     await entity.set('name', `${base}-${number}`)
                 }
-                else if ( throw_it ) {
-                    throw APIError.create('app_name_already_in_use', null, {
-                        name: await entity.get('name')
-                    });
+                else if ( is_name_change ) {
+                    // The name might be taken because it's the old name
+                    // of this same app. If it is, the app takes it back.
+                    const svc_oldAppName = this.context.get('services').get('old-app-name');
+                    const name_info = await svc_oldAppName.check_app_name(await entity.get('name'));
+                    if ( ! name_info || name_info.app_uid !== await entity.get('uid') ) {
+                        // Throw error because the name really is taken
+                        throw APIError.create('app_name_already_in_use', null, {
+                            name: await entity.get('name')
+                        });
+                    }
+
+                    console.log('REMOVING NAME', name_info.id);
+                    // Remove the old name from the old-app-name service
+                    await svc_oldAppName.remove_name(name_info.id);
                 } else {
                     entity.del('name');
                 }
@@ -145,6 +156,21 @@ class AppES extends BaseES {
                 if ( event.url ) {
                     await entity.set('icon')
                 }
+            }
+
+            const has_new_name =
+                extra.old_entity && (
+                    await entity.get('name') !== await extra.old_entity.get('name')
+                );
+
+            if ( has_new_name ) {
+                const svc_event = this.context.get('services').get('event');
+                const event = {
+                    app_uid: await entity.get('uid'),
+                    new_name: await entity.get('name'),
+                    old_name: await extra.old_entity.get('name'),
+                };
+                await svc_event.emit('app.rename', event);
             }
 
             // Associate app with subdomain (if applicable)
