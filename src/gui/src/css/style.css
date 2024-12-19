@@ -427,13 +427,15 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
     width: max-content;
     margin: 0;
     pointer-events: all;
-    width: 100vw;
+    width: 100%;
+    min-width: 795px;
     margin-bottom: 20px;
 }
 
 .explore-table-headers {
     display: none;
-    width: 100vw;
+    width: 100%;
+    min-width: 795px;
     height: 25px;
     border-bottom: 1px solid rgb(226, 226, 226);
     background-color: #fff;
