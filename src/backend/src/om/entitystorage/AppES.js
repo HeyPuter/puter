@@ -24,7 +24,7 @@ const { DB_WRITE } = require("../../services/database/consts");
 const { Context } = require("../../util/context");
 const { stream_to_buffer } = require("../../util/streamutil");
 const { origin_from_url } = require("../../util/urlutil");
-const { Eq, Like, Or } = require("../query/query");
+const { Eq, Like, Or, And } = require("../query/query");
 const { BaseES } = require("./BaseES");
 
 const uuidv4 = require('uuid').v4;
@@ -212,6 +212,35 @@ class AppES extends BaseES {
             }
 
             return result;
+        },
+        async retry_predicate_rewrite ({ predicate }) {
+            const recurse = async (predicate) => {
+                if ( predicate instanceof Or ) {
+                    return new Or({
+                        children: await Promise.all(
+                            predicate.children.map(recurse)
+                        ),
+                    });
+                }
+                if ( predicate instanceof And ) {
+                    return new And({
+                        children: await Promise.all(
+                            predicate.children.map(recurse)
+                        ),
+                    });
+                }
+                if ( predicate instanceof Eq ) {
+                    if ( predicate.key === 'name' ) {
+                        const svc_oldAppName = this.context.get('services').get('old-app-name');
+                        const name_info = await svc_oldAppName.check_app_name(predicate.value);
+                        return new Eq({
+                            key: 'uid',
+                            value: name_info?.app_uid,
+                        });
+                    }
+                }
+            };
+            return await recurse(predicate);
         },
         async read_transform (entity) {
             // Add file associations
