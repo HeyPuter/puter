@@ -36,8 +36,8 @@ class OldAppNameService extends BaseService {
 
         const age = Date.now() - timestamp.getTime();
 
-        const n_ms = 60 * 1000;
-        // const n_ms = N_MONTHS * 30 * 24 * 60 * 60 * 1000
+        // const n_ms = 60 * 1000;
+        const n_ms = N_MONTHS * 30 * 24 * 60 * 60 * 1000
         this.log.noticeme('AGE INFO', {
             input_time: row.timestamp,
             age,
