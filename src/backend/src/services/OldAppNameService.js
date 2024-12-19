@@ -29,11 +29,20 @@ class OldAppNameService extends BaseService {
 
         // Check if the app has been renamed in the last N months
         const [row] = rows;
-        const timestamp = new Date(row.timestamp);
+        const timestamp = new Date(
+            // Ensure timestamp ir processed as UTC
+            row.timestamp.endsWith('Z') ? row.timestamp : row.timestamp + 'Z'
+        );
 
         const age = Date.now() - timestamp.getTime();
 
-        const n_ms = N_MONTHS * 30 * 24 * 60 * 60 * 1000
+        const n_ms = 60 * 1000;
+        // const n_ms = N_MONTHS * 30 * 24 * 60 * 60 * 1000
+        this.log.noticeme('AGE INFO', {
+            input_time: row.timestamp,
+            age,
+            n_ms,
+        });
         if ( age > n_ms ) {
             // Remove record
             await this.db.write(
