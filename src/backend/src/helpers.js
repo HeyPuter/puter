@@ -299,6 +299,20 @@ async function refresh_associations_cache(){
 
     const log = services.get('log-service').create('get_app');
     let app = [];
+
+    // This condition should be updated if the code below is re-ordered.
+    if ( options.follow_old_names && ! options.uid && options.name ) {
+        const svc_oldAppName = services.get('old-app-name');
+        const old_name = await svc_oldAppName.check_app_name(options.name);
+        if ( old_name ) {
+            options.uid = old_name.app_uid;
+
+            // The following line is technically pointless, but may avoid a bug
+            // if the if...else chain below is re-ordered.
+            delete options.name;
+        }
+    }
+
     if(options.uid){
         // try cache first
         app[0] = kv.get(`apps:uid:${options.uid}`);
