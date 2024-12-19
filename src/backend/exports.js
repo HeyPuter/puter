@@ -21,7 +21,6 @@ const { Kernel } = require("./src/Kernel.js");
 const DatabaseModule = require("./src/DatabaseModule.js");
 const LocalDiskStorageModule = require("./src/LocalDiskStorageModule.js");
 const SelfHostedModule = require("./src/modules/selfhosted/SelfHostedModule.js");
-const PuterDriversModule = require("./src/PuterDriversModule.js");
 const { testlaunch } = require("./src/index.js");
 const BaseService = require("./src/services/BaseService.js");
 const { Context } = require("./src/util/context.js");
@@ -31,6 +30,8 @@ const { BroadcastModule } = require("./src/modules/broadcast/BroadcastModule.js"
 const { WebModule } = require("./src/modules/web/WebModule.js");
 const { Core2Module } = require("./src/modules/core/Core2Module.js");
 const { TemplateModule } = require("./src/modules/template/TemplateModule.js");
+const { PuterFSModule } = require("./src/modules/puterfs/PuterFSModule.js");
+const { PerfMonModule } = require("./src/modules/perfmon/PerfMonModule.js");
 
 
 module.exports = {
@@ -48,6 +49,7 @@ module.exports = {
     
     EssentialModules: [
         Core2Module,
+        PuterFSModule,
         CoreModule,
         WebModule,
         TemplateModule,
@@ -57,10 +59,12 @@ module.exports = {
     CoreModule,
     WebModule,
     DatabaseModule,
-    PuterDriversModule,
     LocalDiskStorageModule,
     SelfHostedModule,
     TestDriversModule,
     PuterAIModule,
     BroadcastModule,
+    
+    // Development modules
+    PerfMonModule,
 };

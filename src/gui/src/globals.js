@@ -169,7 +169,7 @@ $( window ).on( "resize", function() {
     if(window.is_fullpage_mode) return;
     if(window.a_window_is_resizing) return;
 
-    const new_desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
+    const new_desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height - 6;
     const new_desktop_width = window.innerWidth;
 
     $('.window').each((_, el) => {

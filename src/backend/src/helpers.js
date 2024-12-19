@@ -299,6 +299,20 @@ async function refresh_associations_cache(){
 
     const log = services.get('log-service').create('get_app');
     let app = [];
+
+    // This condition should be updated if the code below is re-ordered.
+    if ( options.follow_old_names && ! options.uid && options.name ) {
+        const svc_oldAppName = services.get('old-app-name');
+        const old_name = await svc_oldAppName.check_app_name(options.name);
+        if ( old_name ) {
+            options.uid = old_name.app_uid;
+
+            // The following line is technically pointless, but may avoid a bug
+            // if the if...else chain below is re-ordered.
+            delete options.name;
+        }
+    }
+
     if(options.uid){
         // try cache first
         app[0] = kv.get(`apps:uid:${options.uid}`);
@@ -1115,6 +1129,7 @@ async function jwt_auth(req){
         }
 
         return {
+            actor,
             user: actor.type.user,
             token: token,
         };
@@ -1213,6 +1228,10 @@ async function app_name_exists(name){
     let rows = await db.read(`SELECT EXISTS(SELECT 1 FROM apps WHERE apps.name=?) AS app_name_exists`, [name]);
     if(rows[0].app_name_exists)
         return true;
+
+    const svc_oldAppName = services.get('old-app-name');
+    const name_info = await svc_oldAppName.check_app_name(name);
+    if ( name_info ) return true;
 }
 
 function send_email_verification_code(email_confirm_code, email){
@@ -1510,7 +1529,7 @@ async function get_taskbar_items(user) {
     return taskbar_items;
 }
 
-function validate_signature_auth(url, action) {
+function validate_signature_auth(url, action, options = {}) {
     const query = new URL(url).searchParams;
 
     if(!query.get('uid'))
@@ -1521,6 +1540,12 @@ function validate_signature_auth(url, action) {
         throw {message: '`expires` is required for signature-based authentication.'}
     else if(!query.get('signature'))
         throw {message: '`signature` is required for signature-based authentication.'}
+    
+    if ( options.uid ) {
+        if ( query.get('uid') !== options.uid ) {
+            throw {message: 'Authentication failed. `uid` does not match.'}
+        }
+    }
 
     const expired = query.get('expires') && (query.get('expires') < Date.now() / 1000);
 

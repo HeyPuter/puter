@@ -19,6 +19,9 @@ class WebModule extends AdvancedBase {
         
         const WebServerService = require("./WebServerService");
         services.registerService('web-server', WebServerService);
+        
+        const APIErrorService = require("./APIErrorService");
+        services.registerService('api-error', APIErrorService);
     }
 }
 

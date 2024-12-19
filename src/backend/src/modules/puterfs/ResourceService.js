@@ -16,13 +16,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-let waiti = 0;
+const BaseService = require("../../services/BaseService");
 const {
     NodePathSelector,
     NodeUIDSelector,
     NodeInternalIDSelector,
     NodeChildSelector,
-} = require("../node/selectors");
+} = require("../../filesystem/node/selectors");
 
 const RESOURCE_STATUS_PENDING_CREATE = {};
 const RESOURCE_STATUS_PENDING_UPDATE = {};
@@ -41,13 +41,11 @@ const RS_DIRECTORY_PENDING_CHILD_INSERT = {};
  * At least for now; I'm sure we'll think of a smarter way to
  * handle this in the future.
  */
-class ResourceService {
-    constructor ({ services }) {
+class ResourceService extends BaseService {
+    _construct () {
         this.uidToEntry = {};
         this.uidToPath = {};
         this.pathToEntry = {};
-
-        this.log = services.get('log-service').create('resource-service');
     }
 
     register (entry) {

@@ -68,6 +68,7 @@ class BaseES extends AdvancedBase {
         const public_wrappers = [
             'upsert', 'read', 'delete', 'select',
             'read_transform',
+            'retry_predicate_rewrite',
         ];
 
         this.impl_methods = this._get_merged_static_object('METHODS');
@@ -99,7 +100,14 @@ class BaseES extends AdvancedBase {
             .create(`ES:${this.entity_name}:${this.constructor.name}`);
     }
     async read (uid) {
-        const entity = await this.call_on_impl_('read', uid);
+        let entity = await this.call_on_impl_('read', uid);
+        if ( ! entity ) {
+            const retry_predicate = await this.retry_predicate_rewrite(uid);
+            if ( retry_predicate ) {
+                entity = await this.call_on_impl_('read',
+                    { predicate: retry_predicate });
+            }
+        }
         if ( ! this.impl_methods.read_transform ) return entity;
         return await this.read_transform(entity);
     }
@@ -120,6 +128,12 @@ class BaseES extends AdvancedBase {
             return await this.read_transform(entity);
         }));
     }
+
+    async retry_predicate_rewrite ({ predicate }) {
+        if ( ! this.impl_methods.retry_predicate_rewrite ) return;
+        return await this.call_on_impl_('retry_predicate_rewrite', { predicate });
+    }
+
 
     async read_transform (entity) {
         if ( ! entity ) return entity;

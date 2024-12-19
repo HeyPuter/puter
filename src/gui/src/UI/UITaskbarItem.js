@@ -30,6 +30,8 @@ function UITaskbarItem(options){
     options.open_windows_count = options.open_windows_count ?? 0;
     options.lock_keep_in_taskbar = options.lock_keep_in_taskbar ?? false;
     options.append_to_taskbar = options.append_to_taskbar ?? true;
+    options.before_trash = options.before_trash ?? false;
+
     const element_id = window.global_element_id++;
 
     h += `<div  class = "taskbar-item ${options.sortable ? 'taskbar-item-sortable' : ''} disable-user-select"
@@ -57,10 +59,15 @@ function UITaskbarItem(options){
             h += `<span class="active-taskbar-indicator"></span>`;
     h += `</div>`;
 
-    if(options.append_to_taskbar)
-        $('.taskbar').append(h);
-    else
+    if(options.append_to_taskbar) {
+        if (options.before_trash){
+            $('.taskbar-item[data-app="trash"]').before(h);
+        }else{
+            $('.taskbar').append(h);
+        }
+    }else{
         $('body').prepend(h);
+    }
 
     const el_taskbar_item = document.querySelector(`#taskbar-item-${tray_item_id}`);
 
@@ -70,6 +77,13 @@ function UITaskbarItem(options){
     $(el_taskbar_item).on("click", function(e){
         e.preventDefault();
         e.stopPropagation();
+        
+        // if this is for the launcher popover, and it's mobile, and has-open-popover, close the popover
+        if( $(el_taskbar_item).attr('data-name') === 'Start'
+             && (isMobile.phone || isMobile.tablet) && $(el_taskbar_item).hasClass('has-open-popover')){
+            $('.popover').remove();
+            return;
+        }
 
         // If this item has an open context menu, don't do anything
         if($(el_taskbar_item).hasClass('has-open-contextmenu'))
@@ -88,16 +102,8 @@ function UITaskbarItem(options){
           );   
 
         if(options.onClick === undefined || options.onClick(el_taskbar_item) === false){
-            const clicked_window = $(`.window[data-app="${options.app}"]`)
-            
-            // hide window, unless there's more than one in app group
-            if (clicked_window.hasClass("window-active") && clicked_window.length < 2) {             
-                clicked_window.hideWindow();
-                return;
-            }
-            
             // re-show each window in this app group
-            clicked_window.showWindow();
+            $(`.window[data-app="${options.app}"]`).showWindow();
         }
     })
 
@@ -228,8 +234,7 @@ function UITaskbarItem(options){
             menu_items.push({
                 html: i18n('show_all_windows'),
                 onClick: function(){
-                    if(open_windows > 0)
-                        $(el_taskbar_item).trigger('click');
+                    $(`.window[data-app="${options.app}"]`).showWindow();
                 }
             })
             // -------------------------------------------
@@ -398,10 +403,6 @@ function UITaskbarItem(options){
             $('.item-container').droppable( 'enable' )    
         }
     });
-
-    if(options.append_to_taskbar){
-        window.recalibrate_taskbar_item_positions();
-    }
 
     return el_taskbar_item;
 }

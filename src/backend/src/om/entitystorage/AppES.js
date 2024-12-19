@@ -22,8 +22,9 @@ const { app_name_exists, get_user, refresh_apps_cache } = require("../../helpers
 const { AppUnderUserActorType } = require("../../services/auth/Actor");
 const { DB_WRITE } = require("../../services/database/consts");
 const { Context } = require("../../util/context");
+const { stream_to_buffer } = require("../../util/streamutil");
 const { origin_from_url } = require("../../util/urlutil");
-const { Eq, Like, Or } = require("../query/query");
+const { Eq, Like, Or, And } = require("../query/query");
 const { BaseES } = require("./BaseES");
 
 const uuidv4 = require('uuid').v4;
@@ -87,9 +88,9 @@ class AppES extends BaseES {
         async upsert (entity, extra) {
             if ( await app_name_exists(await entity.get('name')) ) {
                 const { old_entity } = extra;
-                const throw_it = ( ! old_entity ) ||
+                const is_name_change = ( ! old_entity ) ||
                     ( await old_entity.get('name') !== await entity.get('name') );
-                if ( throw_it && extra.options && extra.options.dedupe_name ) {
+                if ( is_name_change && extra?.options?.dedupe_name ) {
                     const base = await entity.get('name');
                     let number = 1;
                     while ( await app_name_exists(`${base}-${number}`) ) {
@@ -97,10 +98,21 @@ class AppES extends BaseES {
                     }
                     await entity.set('name', `${base}-${number}`)
                 }
-                else if ( throw_it ) {
-                    throw APIError.create('app_name_already_in_use', null, {
-                        name: await entity.get('name')
-                    });
+                else if ( is_name_change ) {
+                    // The name might be taken because it's the old name
+                    // of this same app. If it is, the app takes it back.
+                    const svc_oldAppName = this.context.get('services').get('old-app-name');
+                    const name_info = await svc_oldAppName.check_app_name(await entity.get('name'));
+                    if ( ! name_info || name_info.app_uid !== await entity.get('uid') ) {
+                        // Throw error because the name really is taken
+                        throw APIError.create('app_name_already_in_use', null, {
+                            name: await entity.get('name')
+                        });
+                    }
+
+                    console.log('REMOVING NAME', name_info.id);
+                    // Remove the old name from the old-app-name service
+                    await svc_oldAppName.remove_name(name_info.id);
                 } else {
                     entity.del('name');
                 }
@@ -127,6 +139,38 @@ class AppES extends BaseES {
                     filetype_associations.map(() => '(?, ?)').join(', ');
                 const rows = filetype_associations.map(a => [insert_id, a.toLowerCase()]);
                 await this.db.write(stmt, rows.flat());
+            }
+
+            const has_new_icon =
+                ( ! extra.old_entity ) || (
+                    await entity.get('icon') !== await extra.old_entity.get('icon')
+                );
+
+            if ( has_new_icon ) {
+                const svc_event = this.context.get('services').get('event');
+                const event = {
+                    app_uid: await entity.get('uid'),
+                    data_url: await entity.get('icon'),
+                };
+                await svc_event.emit('app.new-icon', event);
+                if ( event.url ) {
+                    await entity.set('icon')
+                }
+            }
+
+            const has_new_name =
+                extra.old_entity && (
+                    await entity.get('name') !== await extra.old_entity.get('name')
+                );
+
+            if ( has_new_name ) {
+                const svc_event = this.context.get('services').get('event');
+                const event = {
+                    app_uid: await entity.get('uid'),
+                    new_name: await entity.get('name'),
+                    old_name: await extra.old_entity.get('name'),
+                };
+                await svc_event.emit('app.rename', event);
             }
 
             // Associate app with subdomain (if applicable)
@@ -169,6 +213,35 @@ class AppES extends BaseES {
 
             return result;
         },
+        async retry_predicate_rewrite ({ predicate }) {
+            const recurse = async (predicate) => {
+                if ( predicate instanceof Or ) {
+                    return new Or({
+                        children: await Promise.all(
+                            predicate.children.map(recurse)
+                        ),
+                    });
+                }
+                if ( predicate instanceof And ) {
+                    return new And({
+                        children: await Promise.all(
+                            predicate.children.map(recurse)
+                        ),
+                    });
+                }
+                if ( predicate instanceof Eq ) {
+                    if ( predicate.key === 'name' ) {
+                        const svc_oldAppName = this.context.get('services').get('old-app-name');
+                        const name_info = await svc_oldAppName.check_app_name(predicate.value);
+                        return new Eq({
+                            key: 'uid',
+                            value: name_info?.app_uid,
+                        });
+                    }
+                }
+            };
+            return await recurse(predicate);
+        },
         async read_transform (entity) {
             // Add file associations
             const rows = await this.db.read(
@@ -208,6 +281,27 @@ class AppES extends BaseES {
                 entity.del('approved_for_listing');
                 entity.del('approved_for_opening_items');
                 entity.del('approved_for_incentive_program');
+            }
+
+            // Replace icon if an icon size is specified
+            const icon_size = Context.get('es_params')?.icon_size;
+            if ( icon_size ) {
+                console.log('GOING TO');
+                const svc_appIcon = this.context.get('services').get('app-icon');
+                try {
+                    const stream = await svc_appIcon.get_icon_stream({
+                        app_uid: await entity.get('uid'),
+                        size: icon_size,
+                    });
+                    if ( ! stream ) throw Error('no stream');
+                    const buffer = await stream_to_buffer(stream);
+                    const data_url = `data:image/png;base64,${buffer.toString('base64')}`;
+                    await entity.set('icon', data_url);
+                    console.log('DID IT')
+                } catch (e) {
+                    const svc_error = this.context.get('services').get('error-service');
+                    svc_error.report('AppES:read_transform', { source: e });
+                }
             }
         },
         async maybe_insert_subdomain_ (entity) {

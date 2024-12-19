@@ -22,10 +22,11 @@ const APIError = require("../../api/APIError");
 const { DriverError } = require("./DriverError");
 const { TypedValue } = require("./meta/Runtime");
 const BaseService = require("../BaseService");
-const { Driver } = require("../../definitions/Driver");
 const { PermissionUtil } = require("../auth/PermissionService");
 const { Invoker } = require("../../../../putility/src/libs/invoker");
 const { get_user } = require("../../helpers");
+
+const strutil = require('@heyputer/putility').libs.string;
 
 /**
  * DriverService provides the functionality of Puter drivers.
@@ -51,8 +52,52 @@ class DriverService extends BaseService {
         this.interface_to_test_service = {};
         this.service_aliases = {};
     }
-    
 
+    /**
+    * This method is responsible for calling a driver's method with provided arguments.
+    * It checks for permissions, selects the best option, and applies rate and monthly usage limits before invoking the driver.
+    *
+    * @param {Object} o - An object containing driver, interface, method, and arguments.
+    * @returns {Promise<{success: boolean, service: DriverService.Driver, result: any, metadata: any}>}
+    */
+    _init () {
+        const svc_registry = this.services.get('registry');
+        svc_registry.register_collection('');
+        
+        const { quot } = strutil;
+        const svc_apiError = this.services.get('api-error');
+        svc_apiError.register({
+            'missing_required_argument': {
+                status: 400,
+                message: ({ interface_name, method_name, arg_name }) =>
+                    `Missing required argument ${quot(arg_name)} for method ${quot(method_name)} on interface ${quot(interface_name)}`,
+            },
+            'argument_consolidation_failed': {
+                status: 400,
+                message: ({ interface_name, method_name, arg_name, message }) =>
+                    `Failed to parse or process argument ${quot(arg_name)} for method ${quot(method_name)} on interface ${quot(interface_name)}: ${message}`,
+            },
+            'interface_not_found': {
+                status: 404,
+                message: ({ interface_name }) => `Interface not found: ${quot(interface_name)}`,
+            },
+            'method_not_found': {
+                status: 404,
+                message: ({ interface_name, method_name }) => `Method not found: ${quot(method_name)} on interface ${quot(interface_name)}`,
+            },
+            'no_implementation_available': {
+                status: 502,
+                message: ({
+                    iface,
+                    interface_name,
+                    driver
+                }) => `No implementation available for ` +
+                    (iface ?? interface_name) ? 'interface' : 'driver' +
+                    ' ' + quot(iface ?? interface_name ?? driver) + '.',
+            },
+        });
+    }
+    
     /**
     * This method is responsible for registering collections in the service registry.
     * It registers 'interfaces', 'drivers', and 'types' collections.
@@ -92,19 +137,6 @@ class DriverService extends BaseService {
             { col_drivers });
     }
     
-
-    /**
-    * This method is responsible for calling a driver's method with provided arguments.
-    * It checks for permissions, selects the best option, and applies rate and monthly usage limits before invoking the driver.
-    *
-    * @param {Object} o - An object containing driver, interface, method, and arguments.
-    * @returns {Promise<{success: boolean, service: DriverService.Driver, result: any, metadata: any}>}
-    */
-    _init () {
-        const svc_registry = this.services.get('registry');
-        svc_registry.register_collection('');
-    }
-
     register_driver (interface_name, implementation) {
         this.interface_to_implementation[interface_name] = implementation;
     }
@@ -173,7 +205,6 @@ class DriverService extends BaseService {
     * It returns a promise that resolves to an object containing the result, metadata, and an error if one occurred.
     */
     async _call ({ driver, iface, method, args }) {
-        console.log('??', driver, iface, method, args);
         const processed_args = await this._process_args(iface, method, args);
         const test_mode = Context.get('test_mode');
         if ( test_mode ) {
@@ -185,13 +216,6 @@ class DriverService extends BaseService {
             throw Error('actor not found in context');
         }
 
-        const services = Context.get('services');
-        const svc_permission = services.get('permission');
-
-
-        const svc_registry = this.services.get('registry');
-        const c_interfaces = svc_registry.get('interfaces');
-
         // There used to be only an 'interface' parameter but no 'driver'
         // parameter. To support outdated clients we use this hard-coded
         // table to map interfaces to default drivers.
@@ -200,9 +224,21 @@ class DriverService extends BaseService {
             ['puter-tts']: 'aws-polly',
             ['puter-chat-completion']: 'openai-completion',
             ['puter-image-generation']: 'openai-image-generation',
+            'puter-apps': 'es:app',
+            'puter-subdomains': 'es:subdomain',
+            'puter-notifications': 'es:notification',
         }
         
         driver = driver ?? iface_to_driver[iface] ?? iface;
+        
+        // For these ones, the interface specified actually specifies the
+        // specificc driver to use.
+        const iface_to_iface = {
+            'puter-apps': 'crud-q',
+            'puter-subdomains': 'crud-q',
+            'puter-notifications': 'crud-q',
+        }
+        iface = iface_to_iface[iface] ?? iface;
 
         let skip_usage = false;
         if ( test_mode && this.interface_to_test_service[iface] ) {
@@ -226,94 +262,36 @@ class DriverService extends BaseService {
         * @returns {DriverService} The driver service instance for the provided interface.
         */
         const driver_service_exists = (() => {
-            console.log('CHECKING FOR THIS', driver, iface);
             return this.services.has(driver) &&
                 this.services.get(driver).list_traits()
                     .includes(iface);
         })();
-        if ( driver_service_exists ) {
-            const service = this.services.get(driver);
 
-            const caps = service.as('driver-capabilities');
-            if ( test_mode && caps && caps.supports_test_mode(iface, method) ) {
-                skip_usage = true;
-            }
-            
-            return await Context.sub({
-                client_driver_call,
-            }).arun(async () => {
-                const result = await this.call_new_({
-                    actor,
-                    service,
-                    service_name: driver,
-                    iface, method, args: processed_args,
-                    skip_usage,
-                });
-                result.metadata = client_driver_call.response_metadata;
-                return result;
+        if ( ! driver_service_exists ) {
+            const svc_apiError = this.services.get('api-error');
+            throw svc_apiError.create('no_implementation_available', { iface });
+        }
+
+        const service = this.services.get(driver);
+
+        const caps = service.as('driver-capabilities');
+        if ( test_mode && caps && caps.supports_test_mode(iface, method) ) {
+            skip_usage = true;
+        }
+        
+        return await Context.sub({
+            client_driver_call,
+        }).arun(async () => {
+            const result = await this.call_new_({
+                actor,
+                service,
+                service_name: driver,
+                iface, method, args: processed_args,
+                skip_usage,
             });
-        }
-
-        const reading = await svc_permission.scan(actor, `driver:${iface}:${method}`);
-        const options = PermissionUtil.reading_to_options(reading);
-        if ( ! (options.length > 0) ) {
-            throw APIError.create('permission_denied');
-        }
-
-        const instance = this.get_default_implementation(iface);
-        if ( ! instance ) {
-            throw APIError.create('no_implementation_available', null, { iface })
-        }
-        /**
-        * This method is responsible for calling a driver method. It performs various checks and preparations before making the actual call.
-        * It first checks if the driver service exists for the given driver and interface. If it does, it checks if the driver supports the test mode. If it does, it skips the usage of the driver.
-        * If the driver service does not exist, it looks for a default implementation for the given interface and uses it if found.
-        * The method then calls the driver method with the processed arguments and returns the result. If an error occurs during the call, it is caught and handled accordingly.
-        *
-        * @param {Object} o - An object containing the driver name, interface name, method name, and arguments.
-        * @returns {Promise<Object>} - A promise that resolves to an object containing the result of the driver method call, or an error object if an error occurred.
-        */
-        const meta = await (async () => {
-            if ( instance instanceof Driver ) {
-                return await instance.get_response_meta();
-            }
-            if ( ! instance.instance.as('driver-metadata') ) return;
-            const t = instance.instance.as('driver-metadata');
-            return t.get_response_meta();
-        })();
-        try {
-            let result;
-            if ( instance instanceof Driver ) {
-                result = await instance.call(
-                    method, processed_args);
-            } else {
-                // TODO: SLA and monthly limits do not apply do drivers
-                //       from service traits (yet)
-                result = await instance.impl[method](processed_args);
-            }
-            if ( result instanceof TypedValue ) {
-                const interface_ = c_interfaces.get(iface);
-                let desired_type = interface_.methods[method]
-                    .result_choices[0].type;
-                const svc_coercion = services.get('coercion');
-                result = await svc_coercion.coerce(desired_type, result);
-                // meta.type = result.type.toString(),
-            }
-            return { success: true, ...meta, result };
-        } catch ( e ) {
-            let for_user = (e instanceof APIError) || (e instanceof DriverError);
-            if ( ! for_user ) this.errors.report(`driver:${iface}:${method}`, {
-                source: e,
-                trace: true,
-                // TODO: alarm will not be suitable for all errors.
-                alarm: true,
-                extra: {
-                    args,
-                }
-            });
-            this.log.error('Driver error response: ' + e.toString());
-            return this._driver_response_from_error(e, meta);
-        }
+            result.metadata = client_driver_call.response_metadata;
+            return result;
+        });
     }
     
 
@@ -374,17 +352,12 @@ class DriverService extends BaseService {
             actor,
             PermissionUtil.join('service', service_name, 'ii', iface),
         );
-        console.log({
-            perm: PermissionUtil.join('service', service_name, 'ii', iface),
-            reading,
-        });
         const options = PermissionUtil.reading_to_options(reading);
         if ( options.length <= 0 ) {
             throw APIError.create('forbidden');
         }
         const option = await this.select_best_option_(options);
         const policies = await this.get_policies_for_option_(option);
-        console.log('SLA', JSON.stringify(policies, undefined, '  '));
         
         // NOT FINAL: For now we apply monthly usage logic
         // to the first holder of the permission. Later this
@@ -491,14 +464,12 @@ class DriverService extends BaseService {
                     on_return: async result => {
                         if ( skip_usage ) return result;
 
-                        console.log('monthly usage is returning');
                         const svc_monthlyUsage = services.get('monthly-usage');
                         const extra = {
                             'driver.interface': iface,
                             'driver.implementation': service_name,
                             'driver.method': method,
                         };
-                        console.log('calling the increment method')
                         await svc_monthlyUsage.increment(actor, method_key, extra);
                         return result;
                     },
@@ -527,9 +498,7 @@ class DriverService extends BaseService {
                             const svc_registry = this.services.get('registry');
                             const c_interfaces = svc_registry.get('interfaces');
 
-                            console.log('????--1', iface);
                             const interface_ = c_interfaces.get(iface);
-                            console.log('????--2', interface_);
                             const method_spec = interface_.methods[method];
                             let desired_type =
                                 method_spec.result_choices
@@ -595,17 +564,19 @@ class DriverService extends BaseService {
         const svc_registry = this.services.get('registry');
         const c_interfaces = svc_registry.get('interfaces');
         const c_types = svc_registry.get('types');
+        
+        const svc_apiError = this.services.get('api-error');
 
         // Note: 'interface' is a strict mode reserved word.
         const interface_ = c_interfaces.get(interface_name);
         if ( ! interface_ ) {
-            throw APIError.create('interface_not_found', null, { interface_name });
+            throw svc_apiError.create('interface_not_found', { interface_name });
         }
 
         const processed_args = {};
         const method = interface_.methods[method_name];
         if ( ! method ) {
-            throw APIError.create('method_not_found', null, { interface_name, method_name });
+            throw svc_apiError.create('method_not_found', { interface_name, method_name });
         }
         
         for ( const [arg_name, arg_descriptor] of Object.entries(method.parameters) ) {
@@ -616,7 +587,7 @@ class DriverService extends BaseService {
             // There's a particular way I want to do this that involves
             // a trait for extensible behaviour.
             if ( arg_value === undefined && arg_descriptor.required ) {
-                throw APIError.create('missing_required_argument', null, {
+                throw svc_apiError.create('missing_required_argument', {
                     interface_name,
                     method_name,
                     arg_name,
@@ -629,7 +600,7 @@ class DriverService extends BaseService {
                 processed_args[arg_name] = await arg_behaviour.consolidate(
                     ctx, arg_value, { arg_descriptor, arg_name });
             } catch ( e ) {
-                throw APIError.create('argument_consolidation_failed', null, {
+                throw svc_apiError.create('argument_consolidation_failed', {
                     interface_name,
                     method_name,
                     arg_name,

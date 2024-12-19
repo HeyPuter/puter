@@ -131,11 +131,6 @@ class GetUserService extends BaseService {
                     kv.set(`users:${prop}:${user[prop]}`, user);
                 }
             }
-            // kv.set('users:username:' + user.username, user);
-            // kv.set('users:email:' + user.email, user);
-            // kv.set('users:uuid:' + user.uuid, user);
-            // kv.set('users:id:' + user.id, user);
-            // kv.set('users:referral_code:' + user.referral_code, user);
         } catch (e) {
             console.error(e);
         }

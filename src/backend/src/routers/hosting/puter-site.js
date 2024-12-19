@@ -147,6 +147,14 @@ class PuterSiteMiddleware extends AdvancedBase {
                 res.status(502).send('subdomain is pointing to non-directory');
             }
 
+            // Verify subdomain owner permission
+            const subdomain_actor = Actor.adapt(subdomain_owner);
+            const svc_acl = services.get('acl');
+            if ( ! await svc_acl.check(subdomain_actor, node, 'read') ) {
+                res.status(502).send('subdomain owner does not have access to directory');
+                return;
+            }
+
             subdomain_root_path = await node.get('path');
         }
 

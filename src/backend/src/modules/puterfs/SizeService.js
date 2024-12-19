@@ -17,9 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { get_dir_size, id2path, get_user, invalidate_cached_user_by_id } = require("../../helpers");
+const BaseService = require("../../services/BaseService");
 
 const { DB_WRITE } = require("../../services/database/consts");
 const { Context } = require("../../util/context");
+const { nou } = require("../../util/langutil");
 
 // TODO: expose to a utility library
 class UserParameter {
@@ -32,15 +34,18 @@ class UserParameter {
     }
 }
 
-class SizeService {
-    constructor ({ services }) {
-        this.db = services.get('database').get(DB_WRITE, 'filesystem');
-        this.log = services.get('log-service').create('size-service');
-        this.errors = services.get('error-service').create(this.log);
-
+class SizeService extends BaseService {
+    _construct () {
         this.usages = {};
+    }
+    
+    _init () {
+        this.db = this.services.get('database').get(DB_WRITE, 'filesystem');
 
-        const svc_commands = services.get('commands');
+    }
+
+    ['__on_boot.consolidate'] () {
+        const svc_commands = this.services.get('commands');
         svc_commands.registerCommands('size', [
             {
                 id: 'get-usage',
@@ -118,6 +123,14 @@ class SizeService {
 
     async get_storage_capacity (user_or_id) {
         const user = await UserParameter.adapt(user_or_id);
+        if ( ! this.global_config.is_storage_limited ) {
+            return this.global_config.available_device_storage;
+        }
+        
+        if ( nou(user.free_storage) ) {
+            return this.global_config.storage_capacity;
+        }
+
         return user.free_storage;
     }
 

@@ -80,6 +80,7 @@ class ExtensionService extends BaseService {
     }
 
     ['__on_install.routes'] (_, { app }) {
+        if ( ! this.state ) debugger;
         for ( const endpoint of this.state.endpoints_ ) {
             endpoint.attach(app);
         }

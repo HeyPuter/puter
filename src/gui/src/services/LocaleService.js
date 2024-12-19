@@ -21,7 +21,6 @@ import i18n from "../i18n/i18n.js";
 
 export class LocaleService extends Service {
     format_duration (seconds) {
-        console.log('seconds?', typeof seconds, seconds);
         const hours = Math.floor(seconds / 3600);
         const minutes = Math.floor((seconds % 3600) / 60);
         const remainingSeconds = seconds % 60;

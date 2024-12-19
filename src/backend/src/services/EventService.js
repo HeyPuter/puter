@@ -74,22 +74,9 @@ class EventService extends BaseService {
             // actual emit
             const listeners = this.listeners_[part];
             if ( ! listeners ) continue;
-            for ( let i = 0; i < listeners.length; i++ ) {
-                const callback = listeners[i];
-
+            for ( const callback of listeners ) {
                 // IIAFE wrapper to catch errors without blocking
                 // event dispatch.
-                /**
-                * IIAFE wrapper to handle emitting events asynchronously while catching errors.
-                * This method ensures that any errors thrown in the event listeners do not block
-                * the dispatching of other events.
-                * 
-                * @param {string} key - The event key to emit.
-                * @param {any} data - The data to be sent with the event.
-                * @param {Object} [meta={}] - Additional metadata for the event.
-                * 
-                * @returns {void}
-                */
                 Context.arun(async () => {
                     try {
                         await callback(key, data, meta);

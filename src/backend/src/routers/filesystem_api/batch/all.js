@@ -19,17 +19,14 @@
 const APIError = require("../../../api/APIError");
 const eggspress = require("../../../api/eggspress");
 const config = require("../../../config");
-const PathResolver = require("./PathResolver");
 const { Context } = require("../../../util/context");
 const Busboy = require('busboy');
 const { BatchExecutor } = require("../../../filesystem/batch/BatchExecutor");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
-const { EWMA, MovingMode } = require("../../../util/opmath");
+const { MovingMode } = require("../../../util/opmath");
 const { get_app } = require('../../../helpers');
 const { valid_file_size } = require("../../../util/validutil");
 const { OnlyOnceFn } = require("../../../util/fnutil.js");
-
-const commands = require('../../../filesystem/batch/commands.js').commands;
 
 module.exports = eggspress('/batch', {
     subdomain: 'api',
@@ -137,8 +134,6 @@ module.exports = eggspress('/batch', {
     const pending_operations = [];
     const response_promises = [];
     const fileinfos = [];
-    let total = 0;
-    let total_tbd = true;
 
     const on_nonfile_data_end = OnlyOnceFn(() => {
         if ( request_error ) {
@@ -222,10 +217,6 @@ module.exports = eggspress('/batch', {
             res.sendStatus(400);
         }
     });
-
-    let i = 0;
-    let ended = [];
-    let ps = [];
 
     busboy.on('file', async (fieldname, stream, detais) => {
         if ( batch_exe.total_tbd ) {

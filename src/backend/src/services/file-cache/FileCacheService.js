@@ -17,7 +17,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const TeePromise = require("@heyputer/multest/src/util/TeePromise");
 const { AdvancedBase } = require("@heyputer/putility");
 const { FileTracker } = require("./FileTracker");
 const { pausing_tee } = require("../../util/streamutil");
@@ -129,7 +128,7 @@ class FileCacheService extends AdvancedBase {
     }
 
     _get_path (uid) {
-        const { path_, fs } = this.modules;
+        const { path_ } = this.modules;
         return path_.join(this.path, uid);
     }
 
@@ -351,9 +350,8 @@ class FileCacheService extends AdvancedBase {
 
         const { fs } = this.modules;
         const path = this._get_path(tracker.key);
-        console.log(`precache fetch key I guess?`, tracker.key);
+        console.log(`precache fetch key`, tracker.key);
         const data = this.precache.get(tracker.key);
-        // console.log(`path and data: ${path} ${data}`);
         await fs.promises.writeFile(path, data);
         this.precache.delete(tracker.key);
         tracker.phase = FileTracker.PHASE_DISK;
@@ -384,9 +382,6 @@ class FileCacheService extends AdvancedBase {
             {
                 id: 'status',
                 handler: async (args, log) => {
-                    const { fs } = this.modules;
-                    const path = this._get_path('status');
-
                     const status = {
                         precache: {
                             used: this._precache_used,

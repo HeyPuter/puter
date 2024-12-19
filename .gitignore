@@ -26,3 +26,7 @@ dist/
 # this is for jetbrain IDEs
 .idea/
 /puter
+
+# Local Netlify folder
+.netlify
+src/emulator/release/

@@ -42,7 +42,7 @@ async function UITaskbar(options){
     });
 
     let h = '';
-    h += `<div id="ui-taskbar_${window.global_element_id}" class="taskbar" style="height:${window.taskbar_height}px;"><span id='clock'></span></div>`;
+    h += `<div id="ui-taskbar_${window.global_element_id}" class="taskbar" style="height:${window.taskbar_height}px;">`;
 
     $('.desktop').append(h);
 
@@ -65,11 +65,12 @@ async function UITaskbar(options){
 
             // show popover
             let popover = UIPopover({
-                content: `<div class="launch-popover hide-scrollbar"><span class="close-launch-popover">✕</span></div>`,
+                content: `<div class="launch-popover hide-scrollbar"></div>`,
                 snapToElement: item,
                 parent_element: item,
                 width: 500,
                 height: 500,
+                class: 'popover-launcher',
                 center_horizontally: true,
             });
 
@@ -147,7 +148,6 @@ async function UITaskbar(options){
                 appendTo: "body",
                 revert: "invalid",
                 connectToSortable: ".taskbar",
-                //containment: "document",
                 zIndex: parseInt($(popover).css('z-index')) + 1,
                 scroll: false,
                 distance: 5,
@@ -238,7 +238,6 @@ async function UITaskbar(options){
         }
     })
 
-    window.recalibrate_taskbar_item_positions();
     window.make_taskbar_sortable();
 }
 
@@ -292,7 +291,6 @@ window.make_taskbar_sortable = function(){
                 });
                 let el = ($(item).detach())
                 $(el).insertAfter(ui.item);
-                // $(ui.item).insertBefore(`<h1>Hello!</h1>`);
                 $(el).show();
                 $(ui.item).removeItems();
                 window.update_taskbar();
@@ -305,28 +303,4 @@ window.make_taskbar_sortable = function(){
     });
 }
 
-window.recalibrate_taskbar_item_positions = function(){
-    // if this is mobile rearrange taskbar item positions based on absolute position
-    // taskbar items must be centered unless there is overflow. If there is overflow, the taskbar items must be left aligned
-    if(isMobile.phone || window.desktop_width < 800){
-        let taskbar_items = $('.taskbar-item');
-        let taskbar_width = taskbar_items.length * 60;
-
-        if(taskbar_width > window.desktop_width){
-            // set taskbar items to absolute position
-            $('.taskbar-item').css('position', 'absolute');
-            $('.taskbar').css('display', 'block');
-            // set left position for each taskbar item
-            let left = 0;
-            for (let index = 0; index < taskbar_items.length; index++) {
-                const taskbar_item = taskbar_items[index];
-                $(taskbar_item).css('left', left);
-                left += 60;
-            }
-        }else{
-            $('.taskbar-item').css('position', 'unset');
-            $('.taskbar').css('justify-content', 'center');
-        }
-    }
-}
 export default UITaskbar;

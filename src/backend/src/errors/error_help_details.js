@@ -50,7 +50,7 @@ const error_help_details = [
         apply (more) {
             more.references = [
                 ...reused.runtime_env_references,
-            ]
+            ];
         }
     },
     {
@@ -68,10 +68,10 @@ const error_help_details = [
                 {
                     title: 'Set CONFIG_PATH or RUNTIME_PATH environment variable',
                 },
-            ],
+            ];
             more.references = [
                 ...reused.runtime_env_references,
-            ]
+            ];
         }
     },
     {
@@ -83,7 +83,7 @@ const error_help_details = [
                 {
                     title: 'Create a valid config file',
                 },
-            ]
+            ];
         }
     },
     {
@@ -112,7 +112,7 @@ const error_help_details = [
                     use: 'describes why this error occurs',
                     url: 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Errors/Invalid_const_assignment'
                 },
-            ]
+            ];
         }
     },
     {
@@ -122,7 +122,7 @@ const error_help_details = [
         apply (more) {
             more.notes = [
                 'It looks like this might be our fault.',
-            ]
+            ];
             more.solutions = [
                 {
                     title: `Check for an issue on ` +
@@ -135,7 +135,7 @@ const error_help_details = [
                             'create one'
                         ) + '.'
                 }
-            ]
+            ];
         }
     },
     {

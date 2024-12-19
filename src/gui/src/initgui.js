@@ -34,7 +34,6 @@ import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import PuterDialog from './UI/PuterDialog.js';
-import determine_active_container_parent from './helpers/determine_active_container_parent.js';
 import { ThemeService } from './services/ThemeService.js';
 import { BroadcastService } from './services/BroadcastService.js';
 import { ProcessService } from './services/ProcessService.js';
@@ -192,7 +191,7 @@ window.initgui = async function(options){
 
     // Appends a viewport meta tag to the head of the document, ensuring optimal display on mobile devices.
     // This tag sets the width of the viewport to the device width, and locks the zoom level to 1 (prevents user scaling).
-    $('head').append(`<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1">`);
+    $('head').append(`<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">`);
 
     // GET query params provided
     window.url_query_params = new URLSearchParams(window.location.search);
@@ -392,6 +391,8 @@ window.initgui = async function(options){
     // -------------------------------------------------------------------------------------
     else if(window.url_query_params.has('auth_token')){
         let query_param_auth_token = window.url_query_params.get('auth_token');
+
+        puter.setAuthToken(query_param_auth_token);
 
         try{
             whoami = await puter.os.user();

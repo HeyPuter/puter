@@ -84,18 +84,12 @@ class DriverUsagePolicyService extends BaseService {
             actor,
             PermissionUtil.join('service', service_name, 'ii', trait_name),
         );
-        console.log({
-            perm: PermissionUtil.join('service', service_name, 'ii', trait_name),
-            reading: require('util').inspect(reading, { depth: null }),
-        });
         const options = PermissionUtil.reading_to_options(reading);
-        console.log('OPTIONS', JSON.stringify(options, undefined, '  '));
         if ( options.length <= 0 ) {
             return undefined;
         }
         const option = await this.select_best_option_(options);
         const policies = await this.get_policies_for_option_(option);
-        console.log('SLA', JSON.stringify(policies, undefined, '  '));
         
         // NOT FINAL: For now we apply monthly usage logic
         // to the first holder of the permission. Later this

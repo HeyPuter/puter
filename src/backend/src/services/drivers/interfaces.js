@@ -33,6 +33,7 @@ const ENTITY_STORAGE_INTERFACE = {
             parameters: {
                 uid: { type: 'string' },
                 id: { type: 'json' },
+                params: { type: 'json' },
             }
         },
         select: {
@@ -40,6 +41,7 @@ const ENTITY_STORAGE_INTERFACE = {
                 predicate: { type: 'json' },
                 offset: { type: 'number' },
                 limit: { type: 'number' },
+                params: { type: 'json' },
             }
         },
         update: {
@@ -111,7 +113,7 @@ module.exports = {
             get: {
                 description: 'Get a value by key.',
                 parameters: {
-                    key: { type: 'string', required: true },
+                    key: { type: 'json', required: true },
                     app_uid: { type: 'string', optional: true },
                 },
                 result: { type: 'json' },
@@ -290,5 +292,8 @@ module.exports = {
     'puter-notifications': {
         ...ENTITY_STORAGE_INTERFACE,
         description: 'Read notifications on Puter.',
+    },
+    'crud-q': {
+        ...ENTITY_STORAGE_INTERFACE,
     },
 };

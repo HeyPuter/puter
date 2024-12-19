@@ -19,7 +19,7 @@
  */
 // const Mountpoint = o => ({ ...o });
 
-const BaseService = require("./BaseService");
+const BaseService = require("../../services/BaseService");
 
 /**
  * This will eventually be a service which manages the storage

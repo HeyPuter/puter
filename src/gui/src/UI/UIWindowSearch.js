@@ -26,10 +26,10 @@ import item_icon from '../helpers/item_icon.js'
 async function UIWindowSearch(options){
     let h = '';
 
-        h += `<div class="search-input-wrapper">`;
-            h += `<input type="text" class="search-input" placeholder="Search" style="background-image:url('${window.icons['magnifier-outline.svg']}');">`;
-        h += `</div>`;
-        h += `<div class="search-results" style="overflow-y: auto; max-height: 300px;">`;
+    h += `<div class="search-input-wrapper">`;
+        h += `<input type="text" class="search-input" placeholder="Search" style="background-image:url('${window.icons['magnifier-outline.svg']}');">`;
+    h += `</div>`;
+    h += `<div class="search-results" style="overflow-y: auto; max-height: 300px;">`;
 
     const el_window = await UIWindow({
         icon: null,
@@ -49,10 +49,13 @@ async function UIWindowSearch(options){
         allow_native_ctxmenu: true,
         allow_user_select: true,
         window_class: 'window-search',
+        backdrop: true,
+        center: isMobile.phone,
         onAppend: function(el_window){
         },
         width: 500,
         dominant: true,
+
         window_css: {
             height: 'initial',
             padding: '0',

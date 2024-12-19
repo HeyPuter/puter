@@ -351,9 +351,8 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 }
 
 .device-phone .desktop {
-    height: 100vh !important;
-    height: 100dvh !important;
-    overflow-x: scroll;
+    height: calc(100vh - 90px) !important;
+    height: calc(100dvh - 90px) !important;
 }
 
 .item-container-list {
@@ -428,13 +427,15 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
     width: max-content;
     margin: 0;
     pointer-events: all;
-    width: 100vw;
+    width: 100%;
+    min-width: 795px;
     margin-bottom: 20px;
 }
 
 .explore-table-headers {
     display: none;
-    width: 100vw;
+    width: 100%;
+    min-width: 795px;
     height: 25px;
     border-bottom: 1px solid rgb(226, 226, 226);
     background-color: #fff;
@@ -778,6 +779,10 @@ span.header-sort-icon img {
 
 .device-phone .item-container-list .item .item-name {
     line-height: 42px;
+    border-bottom: 1px solid #e3e3e3;
+    padding-bottom: 15px;
+    width: calc(100% - 75px);
+    text-align: left;
 }
 
 .window-body .item .item-name-editor {
@@ -916,14 +921,6 @@ span.header-sort-icon img {
 }
 
 .device-phone .window[data-is_maximized="1"] {
-    top: 0 !important;
-}
-
-.device-phone .window:not(.window-alert), .device-tablet .window:not(.window-alert) {
-    border-radius: 0;
-    transform: none;
-    width: 100%;
-    height: 100dvh !important;
     top: 0 !important;
 }
 
@@ -2299,8 +2296,22 @@ label {
     display: flex;
     justify-content: center;
     z-index: 99999;
-    box-shadow: 5px 5px 5px 3px #6e6e6e;
     overflow: hidden !important;
+
+    height: 50px;
+    border-radius: 10px;
+    bottom: 5px;
+    padding-left: 7px;
+    padding-right: 7px;
+    width: auto;
+    left: 50%;
+    transform: translateX(-50%);
+
+    /* that sweet sweet subtle shadow */
+    box-shadow: 
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.2),
+    0 0 0 0.5px rgba(0, 0, 0, 0.2),
+    0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
 .taskbar .taskbar-item {
@@ -2367,6 +2378,10 @@ label {
     border-radius: 3px;
 }
 
+.device-phone .active-taskbar-indicator{
+    display: none !important; 
+}
+
 .taskbar .taskbar-icon img {
     width: 100%;
     height: 100%;
@@ -2382,7 +2397,15 @@ label {
 #clock {
     display: none;
     position: absolute;
-    right: 10px;
+    right: 15px;
+    color: white;
+    text-shadow: 0px 0px 3px #00000082, 0px 0px 3px #00000082, 0px 0px 3px #00000082;
+    font-size: 13px;
+    bottom: 5px;
+}
+
+.device-phone #clock {
+    display: none !important;
 }
 
 .desktop-bg-settings-wrapper {
@@ -2421,6 +2444,7 @@ label {
         overflow: visible !important;
         overflow-x: scroll !important;
         overflow-y: hidden !important;
+        max-width: calc(100% - 40px);
     }
     
     .taskbar .taskbar-item, .taskbar .taskbar-item-sortable-placeholder {
@@ -2429,7 +2453,6 @@ label {
         margin-right: 5px;
         overflow: visible !important;
         padding: 5px 5px 10px 5px;
-        position: absolute;
     }
     
     .taskbar-icon {
@@ -2589,8 +2612,8 @@ label {
 }
 
 .device-phone .popover {
-    height: 100vh;
-    height: 100dvh;
+    height: calc(100vh - 65px);
+    height: calc(100dvh - 65px);
     top: 0 !important;
     left: 0 !important;
     width: 100%;
@@ -2727,9 +2750,8 @@ label {
 
 .close-launch-popover {
     position: absolute;
-    top: 5px;
-    right: 10px;
-    padding: 5px;
+    top: 2px;
+    right: 3px;
     display: none;
 }
 
@@ -2785,8 +2807,8 @@ label {
     filter: drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
     display: block;
     margin: 0 auto;
-    width: 32px;
-    height: 32px;
+    width: 38px;
+    height: 38px;
     margin-top: 2px;
 }
 
@@ -3167,7 +3189,6 @@ fieldset[name=number-code] {
 }
 
 .login-progress {
-    height: 200px;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -4413,4 +4434,268 @@ fieldset[name=number-code] {
 
 .search-results .search-result:last-child {
     margin-bottom: 0;
+}
+
+.device-phone .window:not(.window-alert), .device-tablet .window:not(.window-alert) {
+    transform: none;
+    width: 100%;
+}
+
+.device-phone .window.window-explore{
+    border-radius: 0;
+    height: 100dvh !important;
+}
+
+.device-phone .window.window-search{
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: calc(100% - 40px);
+    max-width: calc(100% - 40px);
+    max-height: fit-content;
+    border-radius: 5px;
+
+}
+
+.device-phone .window.window-qr, .device-phone .window.window-progress, .device-phone .window.window-login-progress{
+    left: 50% !important;
+    transform: translate(-50%) !important;
+    height: initial !important;
+    max-width: calc(100% - 30px);
+}
+.device-phone .window.window-refer-friend{
+    left: 50% !important;
+    transform: translate(-50%) !important;
+    height: initial !important;
+    max-width: calc(100% - 30px);
+}
+
+.device-phone .window.window-task-manager {
+    height: initial !important;
+}
+
+.device-phone .window.window-feedback{
+    height: initial !important; 
+}
+
+.device-phone .window.window-filedialog{
+    transform: none;
+    width: 100% !important;
+    left: 0 !important;
+    min-height: 100dvh;
+    height: 100dvh;
+    top: 0 !important;
+    border-radius: 0 !important;
+}
+
+.device-phone .window.window-app{
+    transform: none;
+    width: 100%;
+    left: 0;
+    height: 100dvh;
+    min-height: 100dvh;
+    top: 0 !important;
+    border-radius: 0;
+}
+
+.device-phone .window.window-login-2fa{
+    left: 50% !important;
+    transform: translate(-50%) !important;
+    height: initial !important;
+    max-width: calc(100% - 30px);
+}
+
+.device-phone .window.window-explorer{
+    transform: none;
+    width: 100%;
+    left: 0;
+    min-height: 100dvh;
+    height: 100dvh;
+    top: 0 !important;
+    border-radius: 0 !important;
+}
+
+.device-phone .window.window-settings{
+    transform: none;
+    width: 100% !important;
+    left: 0 !important;
+    height: 100dvh;
+    top: 0 !important;
+    border-radius: 0;
+}
+
+.device-phone .window-signup{
+    transform: none;
+    width: 100% ;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    border-radius: 0;
+}
+
+.device-phone .send-feedback-btn{
+    width: 100%;
+}
+
+/* Taskbar container */
+.device-phone .taskbar {
+    /* Enable smooth scrolling */
+    -webkit-overflow-scrolling: touch;
+    /* Allow horizontal touch scrolling */
+    touch-action: pan-x;
+    /* Enable horizontal scroll */
+    overflow-x: auto;
+    /* Hide scrollbars while keeping functionality */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    
+    /* Base styling */
+    display: flex;
+    justify-content: left;
+}
+
+/* Hide scrollbar while keeping functionality */
+.device-phone .taskbar::-webkit-scrollbar {
+    display: none;
+}
+
+/* Taskbar items */
+.device-phone .taskbar .taskbar-item {
+    /* Allow dragging while preventing unwanted touch actions */
+    touch-action: pan-x pinch-zoom;
+    /* Ensure items can be dragged */
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: grab;
+    
+    /* Base styling */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.device-phone .popover-launcher, .device-phone .launch-popover{
+    border-radius: 0;
+}
+
+/* Main launcher container */
+.device-phone .launch-popover {
+    /* Enable smooth scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
+
+    /* Allow vertical touch scrolling while preventing horizontal */
+    touch-action: pan-y;
+
+    /* Base dimensions */
+    width: 100%;
+    height: 100%;
+    
+    /* Scrolling behavior */
+    overflow-y: scroll;
+    overflow-x: hidden;
+
+    /* Background and styling */
+    background-color: rgba(231, 238, 245);
+    padding: 0;
+    margin: 0;
+
+    /* Hide scrollbars while keeping functionality */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+/* Hide scrollbar while keeping functionality */
+.device-phone .launch-popover::-webkit-scrollbar {
+    display: none;
+}
+
+/* Ensure content can receive touch events */
+.device-phone .launch-popover * {
+    touch-action: pan-y;
+}
+
+/* Make sure the search wrapper doesn't interfere with scrolling */
+.launch-search-wrapper {
+    position: sticky;
+    top: -20px;
+    z-index: 1;
+    background: rgba(231, 238, 245);
+    padding-top: 7px;
+}
+.device-phone .launch-search-wrapper {
+    top: 0;
+}
+
+.device-phone .popover-launcher{
+    left: 50% !important;
+    border-radius: 10px;
+    top: 5px !important;
+    transform: translateX(-50%);
+    width: calc(100% - 25px);
+    height: calc(100vh - 65px);
+    height: calc(100dvh - 65px);
+}
+
+.device-phone .start-app-card{
+    width: 25%;
+}
+.device-phone .start-app-icon{
+    width: 50px;
+    height: 50px;
+}
+
+.device-phone .start-app-title{
+    margin-top: 5px;
+}
+
+.device-phone .desktop{
+    position: relative;
+
+    /* Enable smooth scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
+
+    /* Allow vertical touch scrolling while preventing horizontal */
+    touch-action: pan-x;
+
+    /* Hide scrollbars while keeping functionality */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+
+    /* Scrolling behavior */
+    overflow-y: visible !important;
+    overflow-x: scroll;
+
+    padding-bottom: 60px;
+}
+
+.device-phone .desktop * {
+    touch-action: pan-x;
+}
+
+.device-phone .desktop::-webkit-scrollbar {
+    display: none;
+}
+
+.device-phone .window-body.item-container{
+    /* Enable smooth scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
+
+    /* Allow vertical touch scrolling while preventing horizontal */
+    touch-action: pan-y;
+    
+    /* Base dimensions */
+    width: 100%;
+    height: 100%;
+    
+    /* Scrolling behavior */
+    overflow-y: scroll;
+    overflow-x: hidden;
+
+    /* Hide scrollbars while keeping functionality */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.device-phone .window-body.item-container * {
+    touch-action: pan-y;
 }

@@ -191,9 +191,6 @@ const install = async ({ services, app, useapi, modapi }) => {
         ]),
     });
 
-    const { ParameterService } = require('./services/ParameterService');
-    services.registerService('params', ParameterService);
-
     const { InformationService } = require('./services/information/InformationService');
     services.registerService('information', InformationService)
     
@@ -320,9 +317,6 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { PermissionAPIService } = require('./services/PermissionAPIService');
     services.registerService('__permission-api', PermissionAPIService);
 
-    const { MountpointService } = require('./services/MountpointService');
-    services.registerService('mountpoint', MountpointService);
-
     const { AnomalyService } = require('./services/AnomalyService');
     services.registerService('anomaly', AnomalyService);
     
@@ -361,6 +355,12 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { WSPushService } = require('./services/WSPushService');
     services.registerService('__event-push-ws', WSPushService);
+
+    const { AppIconService } = require('./services/AppIconService');
+    services.registerService('app-icon', AppIconService);
+
+    const { OldAppNameService } = require('./services/OldAppNameService');
+    services.registerService('old-app-name', OldAppNameService);
 }
 
 const install_legacy = async ({ services }) => {
@@ -378,7 +378,6 @@ const install_legacy = async ({ services }) => {
     services.registerService('client-operation', ClientOperationService);
     services.registerService('app-information', AppInformationService);
     services.registerService('engineering-portal', EngPortalService);
-    // TODO: add to here: ResourceService and DatabaseFSEntryService
 
     // This singleton was made before services existed,
     // so we have to pass that to it manually

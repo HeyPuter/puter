@@ -185,8 +185,7 @@ class AppInformationService {
         const db = this.services.get('database').get(DB_READ, 'apps');
 
         let apps = await db.read('SELECT * FROM apps');
-        for (let index = 0; index < apps.length; index++) {
-            const app = apps[index];
+        for ( const app of apps ) {
             kv.set('apps:name:' + app.name, app);
             kv.set('apps:id:' + app.id, app);
             kv.set('apps:uid:' + app.uid, app);
@@ -249,9 +248,6 @@ class AppInformationService {
         const apps = await db.read(`SELECT uid, index_url FROM apps`);
 
         for ( const app of apps ) {
-            const sql =
-                `SELECT COUNT(id) AS referral_count FROM user WHERE referrer = ?`;
-
             const origin = origin_from_url(app.index_url);
 
             // only count the referral if the origin hashes to the app's uid
@@ -286,7 +282,6 @@ class AppInformationService {
     */
     async _refresh_recent_cache () {
         const app_keys = kv.keys(`apps:uid:*`);
-        // console.log('APP KEYS', app_keys);
 
         let apps = [];
         for ( const key of app_keys ) {
@@ -314,7 +309,6 @@ class AppInformationService {
     */
     async _refresh_tags () {
         const app_keys = kv.keys(`apps:uid:*`);
-        // console.log('APP KEYS', app_keys);
 
         let apps = [];
         for ( const key of app_keys ) {

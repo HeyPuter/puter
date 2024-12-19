@@ -173,16 +173,6 @@ class MonthlyUsageService extends BaseService {
         // months are zero-indexed by getUTCMonth, which could be confusing
         const month = new Date().getUTCMonth() + 1;
 
-        // console.log(
-        //     'what check query?',
-        //     'SELECT SUM(`count`) AS sum FROM `service_usage_monthly` ' +
-        //     'WHERE `year` = ? AND `month` = ? AND `user_id` = ? ' +
-        //     'AND `key` = ?',
-        //     [
-        //         year, month, actor.type.user.id,
-        //         key,
-        //     ]
-        // );
         const rows = await this.db.read(
             'SELECT SUM(`count`) AS sum FROM `service_usage_monthly` ' +
             'WHERE `year` = ? AND `month` = ? AND `user_id` = ? ' +
@@ -210,8 +200,6 @@ class MonthlyUsageService extends BaseService {
         const year = new Date().getUTCFullYear();
         // months are zero-indexed by getUTCMonth, which could be confusing
         const month = new Date().getUTCMonth() + 1;
-
-        const specifier_entries = Object.entries(specifiers);
 
         // SELECT count
         const rows = await this.db.read(

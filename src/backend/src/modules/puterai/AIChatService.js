@@ -6,6 +6,7 @@ const { DB_WRITE } = require("../../services/database/consts");
 const { TypeSpec } = require("../../services/drivers/meta/Construct");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
+const { AsModeration } = require("./lib/AsModeration");
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -92,6 +93,17 @@ class AIChatService extends BaseService {
 
             await this.db.insert('ai_usage', values);
         });
+        
+        const svc_apiErrpr = this.services.get('api-error');
+        svc_apiErrpr.register({
+            max_tokens_exceeded: {
+                status: 400,
+                message: ({ input_tokens, max_tokens }) =>
+                    `Input exceeds maximum token count. ` +
+                    `Input has ${input_tokens} tokens, ` +
+                    `but the maximum is ${max_tokens}.`,
+            },
+        });
     }
 
 
@@ -116,7 +128,6 @@ class AIChatService extends BaseService {
             }
         }
 
-        // TODO: get models and pricing for each model
         for ( const provider of this.providers ) {
             const delegate = this.services.get(provider.service_name)
                 .as('puter-chat-completion');
@@ -268,6 +279,7 @@ class AIChatService extends BaseService {
                     intended_service,
                     parameters
                 };
+                await svc_event.emit('ai.prompt.validate', event);
                 if ( ! event.allow ) {
                     test_mode = true;
                 }
@@ -282,6 +294,9 @@ class AIChatService extends BaseService {
 
                 if ( test_mode ) {
                     intended_service = 'fake-chat';
+                    if ( event.abuse ) {
+                        parameters.model = 'abuse';
+                    }
                 }
 
                 if ( intended_service === this.service_name ) {
@@ -289,7 +304,7 @@ class AIChatService extends BaseService {
                 }
                 
                 const svc_driver = this.services.get('driver');
-                let ret, error, errors = [];
+                let ret, error;
                 let service_used = intended_service;
                 let model_used = this.get_model_from_request(parameters, {
                     intended_service
@@ -315,7 +330,6 @@ class AIChatService extends BaseService {
                     tried.push(model);
 
                     error = e;
-                    errors.push(e);
                     console.error(e);
                     this.log.error('error calling service', {
                         intended_service,
@@ -368,7 +382,6 @@ class AIChatService extends BaseService {
                             };
                         } catch (e) {
                             error = e;
-                            errors.push(e);
                             tried.push(fallback_model_name);
                             this.log.error('error calling fallback', {
                                 intended_service,
@@ -481,11 +494,6 @@ class AIChatService extends BaseService {
     * Returns true if OpenAI service is unavailable or all messages pass moderation.
     */
     async moderate ({ messages }) {
-        const svc_openai = this.services.get('openai-completion');
-
-        // We can't use moderation of openai service isn't available
-        if ( ! svc_openai ) return true;
-        
         for ( const msg of messages ) {
             const texts = [];
             if ( typeof msg.content === 'string' ) texts.push(msg.content);
@@ -500,8 +508,41 @@ class AIChatService extends BaseService {
             
             const fulltext = texts.join('\n');
             
-            const mod_result = await svc_openai.check_moderation(fulltext);
-            if ( mod_result.flagged ) return false;
+            let mod_last_error = null;
+            let mod_result = null;
+            try {
+                const svc_openai = this.services.get('openai-completion');
+                mod_result = await svc_openai.check_moderation(fulltext);
+                if ( mod_result.flagged ) return false;
+                continue;
+            } catch (e) {
+                console.error(e);
+                mod_last_error = e;
+            }
+            try {
+                const svc_claude = this.services.get('claude');
+                const chat = svc_claude.as('puter-chat-completion');       
+                const mod = new AsModeration({
+                    chat,
+                    model: 'claude-3-haiku-20240307',
+                })
+                if ( ! await mod.moderate(fulltext) ) {
+                    return false;
+                }
+                mod_last_error = null;
+                continue;
+            } catch (e) {
+                console.error(e);
+                mod_last_error = e;
+            }
+            
+            if ( mod_last_error ) {
+                this.log.error('moderation error', {
+                    fulltext,
+                    mod_last_error,
+                });
+                throw new Error('no working moderation service');
+            }
         }
         return true;
     }
@@ -566,7 +607,7 @@ class AIChatService extends BaseService {
             // Calculate the sorted list
             const models = this.detail_model_list;
 
-            sorted_models = models.sort((a, b) => {
+            sorted_models = models.toSorted((a, b) => {
                 return Math.sqrt(
                     Math.pow(a.cost.input - target_model.cost.input, 2) +
                     Math.pow(a.cost.output - target_model.cost.output, 2)
@@ -609,10 +650,6 @@ class AIChatService extends BaseService {
         let model = parameters.model;
         if ( ! model ) {
             const service = this.services.get(intended_service);
-            console.log({
-                what: intended_service,
-                w: service.get_default_model
-            });
             if ( ! service.get_default_model ) {
                 throw new Error('could not infer model from service');
             }

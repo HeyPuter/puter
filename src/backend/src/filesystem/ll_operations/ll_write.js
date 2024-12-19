@@ -18,7 +18,7 @@
  */
 const { Context } = require("../../util/context");
 const { LLFilesystemOperation } = require("./definitions");
-const { RESOURCE_STATUS_PENDING_CREATE } = require("../storage/ResourceService");
+const { RESOURCE_STATUS_PENDING_CREATE } = require("../../modules/puterfs/ResourceService.js");
 const { NodeUIDSelector } = require("../node/selectors");
 const { UploadProgressTracker } = require("../storage/UploadProgressTracker");
 const FSNodeContext = require("../FSNodeContext");
@@ -136,7 +136,7 @@ class LLOWrite extends LLWriteBase {
         const svc = Context.get('services');
         const sizeService = svc.get('sizeService');
         const resourceService = svc.get('resourceService');
-        const systemFSEntryService = svc.get('systemFSEntryService');
+        const svc_fsEntry = svc.get('fsEntryService');
         const svc_event = svc.get('event');
 
         // TODO: fs:decouple-versions
@@ -188,7 +188,7 @@ class LLOWrite extends LLWriteBase {
         const filesize = file.size;
         sizeService.change_usage(actor.type.user.id, filesize);
 
-        const entryOp = await systemFSEntryService.update(uid, raw_fsentry_delta);
+        const entryOp = await svc_fsEntry.update(uid, raw_fsentry_delta);
 
         // depends on fsentry, does not depend on S3
         (async () => {
@@ -235,7 +235,7 @@ class LLCWrite extends LLWriteBase {
         const svc = Context.get('services');
         const sizeService = svc.get('sizeService');
         const resourceService = svc.get('resourceService');
-        const systemFSEntryService = svc.get('systemFSEntryService');
+        const svc_fsEntry = svc.get('fsEntryService');
         const svc_event = svc.get('event');
         const fs = svc.get('filesystem');
 
@@ -317,7 +317,7 @@ class LLCWrite extends LLWriteBase {
 
         this.checkpoint('after change_usage');
 
-        const entryOp = await systemFSEntryService.insert(raw_fsentry);
+        const entryOp = await svc_fsEntry.insert(raw_fsentry);
 
         this.checkpoint('after fsentry insert enqueue');
 
