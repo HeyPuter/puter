@@ -17,6 +17,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const configurable_auth = require("../middleware/configurable_auth");
+const { Endpoint } = require("../util/expressutil");
 const BaseService = require("./BaseService");
 
 
@@ -64,7 +66,7 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/kvstore/setItem'))
         app.use(require('../routers/kvstore/listItems'))
         app.use(require('../routers/kvstore/clearItems'))
-        app.use(require('../routers/get-launch-apps'))
+        // app.use(require('../routers/get-launch-apps'))
         app.use(require('../routers/itemMetadata'))
         app.use(require('../routers/login'))
         app.use(require('../routers/logout'))
@@ -90,6 +92,14 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/test'))
         app.use(require('../routers/update-taskbar-items'))
         require('../routers/whoami')(app);
+
+
+        Endpoint({
+            route: '/get-launch-apps',
+            methods: ['GET'],
+            mw: [configurable_auth()],
+            handler: require('../routers/get-launch-apps'),
+        }).attach(app);
 
     }
 }

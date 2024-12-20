@@ -26,7 +26,7 @@ const { DB_READ } = require('../services/database/consts.js');
 // -----------------------------------------------------------------------//
 // GET /get-launch-apps
 // -----------------------------------------------------------------------//
-router.get('/get-launch-apps', auth, express.json(), async (req, res, next)=>{
+module.exports = async (req, res) => {
     let result = {};
 
     // -----------------------------------------------------------------------//
@@ -118,6 +118,4 @@ router.get('/get-launch-apps', auth, express.json(), async (req, res, next)=>{
     }
 
     return res.send(result);
-})
-
-module.exports = router
+};

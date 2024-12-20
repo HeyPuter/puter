@@ -1,0 +1,156 @@
+const sinon = require('sinon');
+const { expect } = require('chai');
+const proxyquire = require('proxyquire');
+const kvjs = require('@heyputer/kv.js');
+const uuid = require('uuid');
+
+const TEST_UUID_NAMESPACE = '5568ab95-229d-4d87-b98c-0b12680a9524';
+
+const apps_names_expected_to_exist = [
+    'app-center',
+    'dev-center',
+    'editor',
+];
+
+const data_mockapps = (() => {
+    const data_mockapps = [];
+    // List of app names that get-launch-apps expects to exist
+    for ( const name of apps_names_expected_to_exist ) {
+        data_mockapps.push({
+            uid: 'app-' + uuid.v5(name, TEST_UUID_NAMESPACE),
+            name,
+            title: 'App Name',
+            icon: 'icon-goes-here',
+            godmode: false,
+            maximize_on_start: false,
+            index_url: 'index-url'
+        });
+    }
+
+    // An additional app that won't show up in taskbar
+    data_mockapps.push({
+        uid: 'app-' + uuid.v5('hidden-app', TEST_UUID_NAMESPACE),
+        name: 'hidden-app',
+        title: 'Hidden App',
+        icon: 'icon-goes-here',
+        godmode: false,
+        maximize_on_start: false,
+        index_url: 'index-url'
+    });
+
+    // An additional app tha only shows up in recents
+    data_mockapps.push({
+        uid: 'app-' + uuid.v5('recent-app', TEST_UUID_NAMESPACE),
+        name: 'recent-app',
+        title: 'Recent App',
+        icon: 'icon-goes-here',
+        godmode: false,
+        maximize_on_start: false,
+        index_url: 'index-url'
+    });
+
+    return data_mockapps;
+})();
+
+const data_appopens = [
+    {
+        app_uid: 'app-' + uuid.v5('app-center', TEST_UUID_NAMESPACE),
+    },
+    {
+        app_uid: 'app-' + uuid.v5('editor', TEST_UUID_NAMESPACE),
+    },
+    {
+        app_uid: 'app-' + uuid.v5('recent-app', TEST_UUID_NAMESPACE),
+    },
+];
+
+describe('GET /launch-apps', () => {
+    it('should return expected format', async () => {
+        globalThis.kv = new kvjs();
+        const database_mock = {
+            read: async (query) => {
+                if ( query.includes('FROM app_opens') ) {
+                    return data_appopens;
+                }
+            }
+        };
+        const services_mock = {
+            get: (key) => {
+                if (key === 'database') {
+                    return {
+                        get: () => database_mock,
+                    }
+                }
+            }
+        };
+
+        const req_mock = {
+            user: {
+                id: 1 + Math.floor(Math.random() * 1000**3),
+            },
+            services: services_mock,
+            send: sinon.spy(),
+        };
+
+        const res_mock = {
+            send: sinon.spy(),
+        };
+
+        const get_launch_apps = proxyquire('./get-launch-apps', {
+            '../helpers.js': {
+                get_app: async ({ uid, name }) => {
+                    if ( uid ) {
+                        return data_mockapps.find(app => app.uid === uid);
+                    }
+                    if ( name ) {
+                        return data_mockapps.find(app => app.name === name);
+                    }
+                }
+            }
+        });
+
+        await get_launch_apps(req_mock, res_mock);
+
+        expect(res_mock.send.calledOnce).to.equal(true, 'res.send should be called once');
+
+        const call = res_mock.send.firstCall;
+        response = call.args[0];
+        console.log('response', response);
+    
+        expect(response).to.be.an('object');
+
+        expect(response).to.have.property('recommended');
+        expect(response.recommended).to.be.an('array');
+        expect(response.recommended).to.have.lengthOf(apps_names_expected_to_exist.length);
+        expect(response.recommended).to.deep.equal(
+            data_mockapps
+                .filter(app => apps_names_expected_to_exist.includes(app.name))
+                .map(app => ({
+                    uuid: app.uid,
+                    name: app.name,
+                    title: app.title,
+                    icon: app.icon,
+                    godmode: app.godmode,
+                    maximize_on_start: app.maximize_on_start,
+                    index_url: app.index_url,
+                }))
+        );
+
+        expect(response).to.have.property('recent');
+        expect(response.recent).to.be.an('array');
+        expect(response.recent).to.have.lengthOf(data_appopens.length);
+        expect(response.recent).to.deep.equal(
+            data_mockapps
+                .filter(app => data_appopens.map(app_open => app_open.app_uid).includes(app.uid))
+                .map(app => ({
+                    uuid: app.uid,
+                    name: app.name,
+                    title: app.title,
+                    icon: app.icon,
+                    godmode: app.godmode,
+                    maximize_on_start: app.maximize_on_start,
+                    index_url: app.index_url,
+                }))
+        );
+    })
+});
