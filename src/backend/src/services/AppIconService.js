@@ -51,9 +51,12 @@ class AppIconService extends BaseService {
                     app_uid = `app-${app_uid}`;
                 }
 
-                const stream = await this.get_icon_stream({ app_uid, size, })
+                const {
+                    stream,
+                    mime,
+                } = await this.get_icon_stream({ app_uid, size, })
 
-                res.set('Content-Type', 'image/png');
+                res.set('Content-Type', mime);
                 stream.pipe(res);
             },
         }).attach(app);
@@ -73,17 +76,20 @@ class AppIconService extends BaseService {
             console.log('METADATA', metadata);
             const mime = metadata.split(';')[0].split(':')[1];
             const img = Buffer.from(app_icon, 'base64');
-            res.set('Content-Type', mime);
-            res.send(img);
-            return;
+            return {
+                mime,
+                stream: buffer_to_stream(img),
+            };
         }
 
         const svc_su = this.services.get('su');
         const ll_read = new LLRead();
-        return await ll_read.run({
-            fsNode: node,
-            actor: await svc_su.get_system_actor(),
-        });
+        return {
+            stream: await ll_read.run({
+                fsNode: node,
+                actor: await svc_su.get_system_actor(),
+            })
+        };
     }
 
     /**
