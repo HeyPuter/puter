@@ -32,48 +32,53 @@ module.exports = async (req, res) => {
     // -----------------------------------------------------------------------//
     // Recommended apps
     // -----------------------------------------------------------------------//
-    let app_names = new Set([
-        'app-center',
-        'dev-center',
-        'editor',
-        'code',
-        'terminal',
-        'draw',
-        'silex',
-        'camera',
-        'recorder',
-        'shell-shockers-outpan',
-        'krunker',
-        'slash-frvr',
-        'viewer',
-        'solitaire-frvr',
-        'markus',
-        'player',
-        'pdf',
-        'polotno',
-        'basketball-frvr',
-        'gold-digger-frvr',
-        'plushie-connect',
-        'hex-frvr',
-        'spider-solitaire',
-    ]);
+    result.recommended = kv.get('global:recommended-apps');
+    if ( ! result.recommended ) {
+        let app_names = new Set([
+            'app-center',
+            'dev-center',
+            'editor',
+            'code',
+            'terminal',
+            'draw',
+            'silex',
+            'camera',
+            'recorder',
+            'shell-shockers-outpan',
+            'krunker',
+            'slash-frvr',
+            'viewer',
+            'solitaire-frvr',
+            'markus',
+            'player',
+            'pdf',
+            'polotno',
+            'basketball-frvr',
+            'gold-digger-frvr',
+            'plushie-connect',
+            'hex-frvr',
+            'spider-solitaire',
+        ]);
 
-    // Prepare each app for returning to user by only returning the necessary fields
-    // and adding them to the retobj array
-    result.recommended = [];
-    for ( const name of app_names ) {
-        const app = await get_app({ name });
-        if ( ! app ) continue;
+        // Prepare each app for returning to user by only returning the necessary fields
+        // and adding them to the retobj array
+        result.recommended = [];
+        for ( const name of app_names ) {
+            const app = await get_app({ name });
+            if ( ! app ) continue;
 
-        result.recommended.push({
-            uuid: app.uid,
-            name: app.name,
-            title: app.title,
-            icon: app.icon,
-            godmode: app.godmode,
-            maximize_on_start: app.maximize_on_start,
-            index_url: app.index_url,
-        });
+            result.recommended.push({
+                uuid: app.uid,
+                name: app.name,
+                title: app.title,
+                icon: app.icon,
+                godmode: app.godmode,
+                maximize_on_start: app.maximize_on_start,
+                index_url: app.index_url,
+            });
+        }
+
+        kv.set('global:recommended-apps', result.recommended);
     }
 
     // -----------------------------------------------------------------------//

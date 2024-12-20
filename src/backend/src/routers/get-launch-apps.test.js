@@ -64,93 +64,164 @@ const data_appopens = [
     },
 ];
 
+const get_mock_context = () => {
+    const database_mock = {
+        read: async (query) => {
+            if ( query.includes('FROM app_opens') ) {
+                return data_appopens;
+            }
+        }
+    };
+    const services_mock = {
+        get: (key) => {
+            if (key === 'database') {
+                return {
+                    get: () => database_mock,
+                }
+            }
+        }
+    };
+
+    const req_mock = {
+        user: {
+            id: 1 + Math.floor(Math.random() * 1000**3),
+        },
+        services: services_mock,
+        send: sinon.spy(),
+    };
+
+    const res_mock = {
+        send: sinon.spy(),
+    };
+
+    const get_app = sinon.spy(async ({ uid, name }) => {
+        if ( uid ) {
+            return data_mockapps.find(app => app.uid === uid);
+        }
+        if ( name ) {
+            return data_mockapps.find(app => app.name === name);
+        }
+    });
+
+    const get_launch_apps = proxyquire('./get-launch-apps', {
+        '../helpers.js': {
+            get_app,
+        }
+    });
+
+    return {
+        get_launch_apps, req_mock, res_mock,
+        spies: {
+            get_app,
+        }
+    };
+};
+
 describe('GET /launch-apps', () => {
+    globalThis.kv = new kvjs();
+
     it('should return expected format', async () => {
-        globalThis.kv = new kvjs();
-        const database_mock = {
-            read: async (query) => {
-                if ( query.includes('FROM app_opens') ) {
-                    return data_appopens;
-                }
-            }
-        };
-        const services_mock = {
-            get: (key) => {
-                if (key === 'database') {
-                    return {
-                        get: () => database_mock,
-                    }
-                }
-            }
-        };
+        // First call
+        {
+            const { get_launch_apps, req_mock, res_mock, spies } = get_mock_context();
+            await get_launch_apps(req_mock, res_mock);
 
-        const req_mock = {
-            user: {
-                id: 1 + Math.floor(Math.random() * 1000**3),
-            },
-            services: services_mock,
-            send: sinon.spy(),
-        };
+            expect(res_mock.send.calledOnce).to.equal(true, 'res.send should be called once');
 
-        const res_mock = {
-            send: sinon.spy(),
-        };
+            const call = res_mock.send.firstCall;
+            response = call.args[0];
+            console.log('response', response);
+        
+            expect(response).to.be.an('object');
 
-        const get_launch_apps = proxyquire('./get-launch-apps', {
-            '../helpers.js': {
-                get_app: async ({ uid, name }) => {
-                    if ( uid ) {
-                        return data_mockapps.find(app => app.uid === uid);
-                    }
-                    if ( name ) {
-                        return data_mockapps.find(app => app.name === name);
-                    }
-                }
-            }
-        });
+            expect(response).to.have.property('recommended');
+            expect(response.recommended).to.be.an('array');
+            expect(response.recommended).to.have.lengthOf(apps_names_expected_to_exist.length);
+            expect(response.recommended).to.deep.equal(
+                data_mockapps
+                    .filter(app => apps_names_expected_to_exist.includes(app.name))
+                    .map(app => ({
+                        uuid: app.uid,
+                        name: app.name,
+                        title: app.title,
+                        icon: app.icon,
+                        godmode: app.godmode,
+                        maximize_on_start: app.maximize_on_start,
+                        index_url: app.index_url,
+                    }))
+            );
 
-        await get_launch_apps(req_mock, res_mock);
+            expect(response).to.have.property('recent');
+            expect(response.recent).to.be.an('array');
+            expect(response.recent).to.have.lengthOf(data_appopens.length);
+            expect(response.recent).to.deep.equal(
+                data_mockapps
+                    .filter(app => data_appopens.map(app_open => app_open.app_uid).includes(app.uid))
+                    .map(app => ({
+                        uuid: app.uid,
+                        name: app.name,
+                        title: app.title,
+                        icon: app.icon,
+                        godmode: app.godmode,
+                        maximize_on_start: app.maximize_on_start,
+                        index_url: app.index_url,
+                    }))
+            );
 
-        expect(res_mock.send.calledOnce).to.equal(true, 'res.send should be called once');
+            // << HOW TO FIX >>
+            // If you updated the list of recommended apps,
+            // you can simply update this number to match the new length
+            expect(spies.get_app.callCount).to.equal(26);
+        }
+        
+        // Second call
+        {
+            const { get_launch_apps, req_mock, res_mock, spies } = get_mock_context();
+            await get_launch_apps(req_mock, res_mock);
 
-        const call = res_mock.send.firstCall;
-        response = call.args[0];
-        console.log('response', response);
-    
-        expect(response).to.be.an('object');
+            expect(res_mock.send.calledOnce).to.equal(true, 'res.send should be called once');
 
-        expect(response).to.have.property('recommended');
-        expect(response.recommended).to.be.an('array');
-        expect(response.recommended).to.have.lengthOf(apps_names_expected_to_exist.length);
-        expect(response.recommended).to.deep.equal(
-            data_mockapps
-                .filter(app => apps_names_expected_to_exist.includes(app.name))
-                .map(app => ({
-                    uuid: app.uid,
-                    name: app.name,
-                    title: app.title,
-                    icon: app.icon,
-                    godmode: app.godmode,
-                    maximize_on_start: app.maximize_on_start,
-                    index_url: app.index_url,
-                }))
-        );
+            const call = res_mock.send.firstCall;
+            response = call.args[0];
+        
+            expect(response).to.be.an('object');
 
-        expect(response).to.have.property('recent');
-        expect(response.recent).to.be.an('array');
-        expect(response.recent).to.have.lengthOf(data_appopens.length);
-        expect(response.recent).to.deep.equal(
-            data_mockapps
-                .filter(app => data_appopens.map(app_open => app_open.app_uid).includes(app.uid))
-                .map(app => ({
-                    uuid: app.uid,
-                    name: app.name,
-                    title: app.title,
-                    icon: app.icon,
-                    godmode: app.godmode,
-                    maximize_on_start: app.maximize_on_start,
-                    index_url: app.index_url,
-                }))
-        );
+            expect(response).to.have.property('recommended');
+            expect(response.recommended).to.be.an('array');
+            expect(response.recommended).to.have.lengthOf(apps_names_expected_to_exist.length);
+            expect(response.recommended).to.deep.equal(
+                data_mockapps
+                    .filter(app => apps_names_expected_to_exist.includes(app.name))
+                    .map(app => ({
+                        uuid: app.uid,
+                        name: app.name,
+                        title: app.title,
+                        icon: app.icon,
+                        godmode: app.godmode,
+                        maximize_on_start: app.maximize_on_start,
+                        index_url: app.index_url,
+                    }))
+            );
+
+            expect(response).to.have.property('recent');
+            expect(response.recent).to.be.an('array');
+            expect(response.recent).to.have.lengthOf(data_appopens.length);
+            expect(response.recent).to.deep.equal(
+                data_mockapps
+                    .filter(app => data_appopens.map(app_open => app_open.app_uid).includes(app.uid))
+                    .map(app => ({
+                        uuid: app.uid,
+                        name: app.name,
+                        title: app.title,
+                        icon: app.icon,
+                        godmode: app.godmode,
+                        maximize_on_start: app.maximize_on_start,
+                        index_url: app.index_url,
+                    }))
+            );
+            
+            expect(spies.get_app.callCount).to.equal(
+                data_appopens.length, 'get_app only called for recents on second call');
+        }
     })
 });
