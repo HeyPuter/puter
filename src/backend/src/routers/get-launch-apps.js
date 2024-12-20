@@ -30,47 +30,6 @@ router.get('/get-launch-apps', auth, express.json(), async (req, res, next)=>{
     let result = {};
 
     // -----------------------------------------------------------------------//
-    // Recent apps
-    // -----------------------------------------------------------------------//
-    let apps = [];
-
-    const db = req.services.get('database').get(DB_READ, 'apps');
-
-    // First try the cache to see if we have recent apps
-    apps = kv.get('app_opens:user:' + req.user.id);
-
-    // If cache is empty, query the db and update the cache
-    if(!apps || !Array.isArray(apps) || apps.length === 0){
-        apps = await db.read(
-            'SELECT DISTINCT app_uid FROM app_opens WHERE user_id = ? GROUP BY app_uid ORDER BY MAX(_id) DESC LIMIT 10',
-            [req.user.id]);
-        // Update cache with the results from the db (if any results were returned)
-        if(apps && Array.isArray(apps) && apps.length > 0) {
-            kv.set('app_opens:user:' + req.user.id, apps);
-        }
-    }
-
-    // prepare each app for returning to user by only returning the necessary fields
-    // and adding them to the retobj array
-    result.recent = [];
-    console.log('\x1B[36;1m -------- RECENT APPS -------- \x1B[0m', apps);
-    for ( const { app_uid: uid } of apps ) {
-        console.log('\x1B[36;1m -------- UID -------- \x1B[0m', uid);
-        const app = await get_app({ uid });
-        if ( ! app ) continue
-
-        result.recent.push({
-            uuid: app.uid,
-            name: app.name,
-            title: app.title,
-            icon: app.icon,
-            godmode: app.godmode,
-            maximize_on_start: app.maximize_on_start,
-            index_url: app.index_url,
-        });
-    }
-
-    // -----------------------------------------------------------------------//
     // Recommended apps
     // -----------------------------------------------------------------------//
     let app_names = new Set([
@@ -107,6 +66,47 @@ router.get('/get-launch-apps', auth, express.json(), async (req, res, next)=>{
         if ( ! app ) continue;
 
         result.recommended.push({
+            uuid: app.uid,
+            name: app.name,
+            title: app.title,
+            icon: app.icon,
+            godmode: app.godmode,
+            maximize_on_start: app.maximize_on_start,
+            index_url: app.index_url,
+        });
+    }
+
+    // -----------------------------------------------------------------------//
+    // Recent apps
+    // -----------------------------------------------------------------------//
+    let apps = [];
+
+    const db = req.services.get('database').get(DB_READ, 'apps');
+
+    // First try the cache to see if we have recent apps
+    apps = kv.get('app_opens:user:' + req.user.id);
+
+    // If cache is empty, query the db and update the cache
+    if(!apps || !Array.isArray(apps) || apps.length === 0){
+        apps = await db.read(
+            'SELECT DISTINCT app_uid FROM app_opens WHERE user_id = ? GROUP BY app_uid ORDER BY MAX(_id) DESC LIMIT 10',
+            [req.user.id]);
+        // Update cache with the results from the db (if any results were returned)
+        if(apps && Array.isArray(apps) && apps.length > 0) {
+            kv.set('app_opens:user:' + req.user.id, apps);
+        }
+    }
+
+    // prepare each app for returning to user by only returning the necessary fields
+    // and adding them to the retobj array
+    result.recent = [];
+    console.log('\x1B[36;1m -------- RECENT APPS -------- \x1B[0m', apps);
+    for ( const { app_uid: uid } of apps ) {
+        console.log('\x1B[36;1m -------- UID -------- \x1B[0m', uid);
+        const app = await get_app({ uid });
+        if ( ! app ) continue
+
+        result.recent.push({
             uuid: app.uid,
             name: app.name,
             title: app.title,
