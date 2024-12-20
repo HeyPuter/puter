@@ -85,6 +85,7 @@ class AppIconService extends BaseService {
         const svc_su = this.services.get('su');
         const ll_read = new LLRead();
         return {
+            mime: 'image/png',
             stream: await ll_read.run({
                 fsNode: node,
                 actor: await svc_su.get_system_actor(),
