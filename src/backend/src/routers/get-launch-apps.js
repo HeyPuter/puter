@@ -32,26 +32,20 @@ const get_apps = async ({ specifiers }) => {
 
 const iconify_apps = async (context, { apps, size }) => {
     return await Promise.all(apps.map(async app => {
-        const data_url = app.icon;
-        if ( ! data_url ) return app;
-
-        const metadata = data_url.split(',')[0];
-        const input_mime = metadata.split(';')[0].split(':')[1];
-
-        // svg icons will be sent as-is
-        if (input_mime === 'image/svg+xml') {
-            return app;
-        }
-
         const svc_appIcon = context.services.get('app-icon');
-        const { stream, mime } = await svc_appIcon.get_icon_stream({
+        const icon_result = await svc_appIcon.get_icon_stream({
             app_icon: app.icon,
             app_uid: app.uid ?? app.uuid,
             size: size,
         });
 
-        const buffer = await stream_to_buffer(stream);
-        const resp_data_url = `data:image/png;base64,${buffer.toString('base64')}`;
+        if ( icon_result.data_url ) {
+            app.icon = icon_result.data_url;
+            return app;
+        }
+
+        const buffer = await stream_to_buffer(icon_result.stream);
+        const resp_data_url = `data:${icon_result.mime};base64,${buffer.toString('base64')}`;
         
         app.icon = resp_data_url;
         return app;
