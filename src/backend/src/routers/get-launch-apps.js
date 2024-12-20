@@ -22,6 +22,41 @@ const router = express.Router();
 const auth = require('../middleware/auth.js');
 const { get_app } = require('../helpers.js');
 const { DB_READ } = require('../services/database/consts.js');
+const { stream_to_buffer } = require('../util/streamutil.js');
+
+const get_apps = async ({ specifiers }) => {
+    return await Promise.all(specifiers.map(async (specifier) => {
+        return await get_app(specifier);
+    }));
+};
+
+const iconify_apps = async (context, { apps, size }) => {
+    return await Promise.all(apps.map(async app => {
+        const data_url = app.icon;
+        if ( ! data_url ) return app;
+
+        const metadata = data_url.split(',')[0];
+        const input_mime = metadata.split(';')[0].split(':')[1];
+
+        // svg icons will be sent as-is
+        if (input_mime === 'image/svg+xml') {
+            return app;
+        }
+
+        const svc_appIcon = context.services.get('app-icon');
+        const { stream, mime } = await svc_appIcon.get_icon_stream({
+            app_icon: app.icon,
+            app_uid: app.uid ?? app.uuid,
+            size: size,
+        });
+
+        const buffer = await stream_to_buffer(stream);
+        const resp_data_url = `data:image/png;base64,${buffer.toString('base64')}`;
+        
+        app.icon = resp_data_url;
+        return app;
+    }));
+}
 
 // -----------------------------------------------------------------------//
 // GET /get-launch-apps
@@ -29,10 +64,22 @@ const { DB_READ } = require('../services/database/consts.js');
 module.exports = async (req, res) => {
     let result = {};
 
+    // Verify query params
+    if ( req.query.icon_size ) {
+        const ALLOWED_SIZES = ['16', '32', '64', '128', '256', '512'];
+    
+        if ( ! ALLOWED_SIZES.includes(req.query.icon_size) ) {
+            res.status(400).send({ error: 'Invalid icon_size' });
+        }
+    }
+
     // -----------------------------------------------------------------------//
     // Recommended apps
     // -----------------------------------------------------------------------//
-    result.recommended = kv.get('global:recommended-apps');
+    const recommended_cache_key = 'global:recommended-apps' + (
+        req.query.icon_size ? `:icon-size:${req.query.icon_size}` : ''
+    );
+    result.recommended = kv.get(recommended_cache_key);
     if ( ! result.recommended ) {
         let app_names = new Set([
             'app-center',
@@ -62,12 +109,10 @@ module.exports = async (req, res) => {
 
         // Prepare each app for returning to user by only returning the necessary fields
         // and adding them to the retobj array
-        result.recommended = [];
-        for ( const name of app_names ) {
-            const app = await get_app({ name });
-            if ( ! app ) continue;
-
-            result.recommended.push({
+        result.recommended = (await get_apps({
+            specifiers: Array.from(app_names).map(name => ({ name }))
+        })).filter(app => !! app).map(app => {
+            return {
                 uuid: app.uid,
                 name: app.name,
                 title: app.title,
@@ -75,10 +120,18 @@ module.exports = async (req, res) => {
                 godmode: app.godmode,
                 maximize_on_start: app.maximize_on_start,
                 index_url: app.index_url,
+            };
+        });
+
+        // Iconify apps
+        if ( req.query.icon_size ) {
+            result.recommended = await iconify_apps({ services: req.services }, {
+                apps: result.recommended,
+                size: req.query.icon_size,
             });
         }
 
-        kv.set('global:recommended-apps', result.recommended);
+        kv.set(recommended_cache_key, result.recommended);
     }
 
     // -----------------------------------------------------------------------//
@@ -119,6 +172,14 @@ module.exports = async (req, res) => {
             godmode: app.godmode,
             maximize_on_start: app.maximize_on_start,
             index_url: app.index_url,
+        });
+    }
+
+    // Iconify apps
+    if ( req.query.icon_size ) {
+        result.recent = await iconify_apps({ services: req.services }, {
+            apps: result.recent,
+            size: req.query.icon_size,
         });
     }
 

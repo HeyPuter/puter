@@ -62,20 +62,21 @@ class AppIconService extends BaseService {
         }).attach(app);
     }
 
-    async get_icon_stream ({ app_uid, size }) {
+    async get_icon_stream ({ app_icon, app_uid, size }) {
         // Get icon file node
         const dir_app_icons = await this.get_app_icons();
+        console.log('APP UID', app_uid);
         const node = await dir_app_icons.getChild(`${app_uid}-${size}.png`);
         if ( ! await node.exists() ) {
             // Use database-stored icon as a fallback
-            const app = await get_app({ uid: app_uid });
-            if ( ! app.icon ) {
-                app.icon = DEFAULT_APP_ICON;
-            }
-            const [metadata, app_icon] = app.icon.split(',');
+            app_icon = app_icon ?? await (async () => {
+                const app = await get_app({ uid: app_uid });
+                return app.icon ?? DEFAULT_APP_ICON;
+            })()
+            const [metadata, base64] = app_icon.split(',');
             console.log('METADATA', metadata);
             const mime = metadata.split(';')[0].split(':')[1];
-            const img = Buffer.from(app_icon, 'base64');
+            const img = Buffer.from(base64, 'base64');
             return {
                 mime,
                 stream: buffer_to_stream(img),

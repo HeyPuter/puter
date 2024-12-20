@@ -124,6 +124,7 @@ describe('GET /launch-apps', () => {
         // First call
         {
             const { get_launch_apps, req_mock, res_mock, spies } = get_mock_context();
+            req_mock.query = {};
             await get_launch_apps(req_mock, res_mock);
 
             expect(res_mock.send.calledOnce).to.equal(true, 'res.send should be called once');
@@ -177,6 +178,7 @@ describe('GET /launch-apps', () => {
         // Second call
         {
             const { get_launch_apps, req_mock, res_mock, spies } = get_mock_context();
+            req_mock.query = {};
             await get_launch_apps(req_mock, res_mock);
 
             expect(res_mock.send.calledOnce).to.equal(true, 'res.send should be called once');
