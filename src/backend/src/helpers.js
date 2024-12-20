@@ -31,6 +31,7 @@ const { LLRmNode } = require('./filesystem/ll_operations/ll_rmnode');
 const { Context } = require('./util/context');
 const { NodeUIDSelector } = require('./filesystem/node/selectors');
 const { PathBuilder } = require('./util/pathutil');
+const { stream_to_buffer } = require('./util/streamutil.js');
 
 let systemfs = null;
 let services = null;
@@ -1461,7 +1462,7 @@ async function suggest_app_for_fsentry(fsentry, options){
     });
 }
 
-async function get_taskbar_items(user) {
+async function get_taskbar_items(user, { icon_size } = {}) {
     /** @type BaseDatabaseAccessService */
     const db = services.get('database').get(DB_WRITE, 'filesystem');
 
@@ -1520,6 +1521,22 @@ async function get_taskbar_items(user) {
             // delete item.godmode;
             delete item.approved_for_listing;
             delete item.approved_for_opening_items;
+
+            const svc_appIcon = services.get('app-icon');
+            const icon_result = await svc_appIcon.get_icon_stream({
+                app_icon: item.icon,
+                app_uid: item.uid,
+                size: icon_size,
+            });
+
+            if ( icon_result.data_url ) {
+                item.icon = icon_result.data_url;
+            } else {
+                const buffer = await stream_to_buffer(icon_result.stream);
+                const resp_data_url = `data:${icon_result.mime};base64,${buffer.toString('base64')}`;
+                
+                item.icon = resp_data_url;
+            }
 
             // add to final object
             taskbar_items.push(item)

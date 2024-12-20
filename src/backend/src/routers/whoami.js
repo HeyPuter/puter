@@ -50,6 +50,14 @@ const WHOAMI_GET = eggspress('/whoami', {
 
     const is_user = actor.type instanceof UserActorType;
 
+    if ( req.query.icon_size ) {
+        const ALLOWED_SIZES = ['16', '32', '64', '128', '256', '512'];
+    
+        if ( ! ALLOWED_SIZES.includes(req.query.icon_size) ) {
+            res.status(400).send({ error: 'Invalid icon_size' });
+        }
+    }
+
     // send user object
     const details = {
         username: req.user.username,
@@ -63,7 +71,9 @@ const WHOAMI_GET = eggspress('/whoami', {
         desktop_bg_color: req.user.desktop_bg_color,
         desktop_bg_fit: req.user.desktop_bg_fit,
         is_temp: (req.user.password === null && req.user.email === null),
-        taskbar_items: await get_taskbar_items(req.user),
+        taskbar_items: await get_taskbar_items(req.user, {
+            ...(req.query.icon_size ? { icon_size: req.query.icon_size } : {})
+        }),
         referral_code: req.user.referral_code,
         otp: !! req.user.otp_enabled,
         human_readable_age: timeago.format(
