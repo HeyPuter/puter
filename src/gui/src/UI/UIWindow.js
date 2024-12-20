@@ -2008,6 +2008,7 @@ async function UIWindow(options) {
         start: function(){
             $(el_window_app_iframe).css('pointer-events', 'none');
             $('.window').css('pointer-events', 'none');
+            window.a_window_sidebar_is_resizing = true;
         },
         stop: function () {
             $(el_window_app_iframe).css('pointer-events', 'all');
@@ -2017,6 +2018,7 @@ async function UIWindow(options) {
             puter.kv.set({key: "window_sidebar_width", value: new_width});
             // save new width locally, to window object
             window.window_sidebar_width = new_width;
+            window.a_window_sidebar_is_resizing = false;
         }
     })
 
