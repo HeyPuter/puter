@@ -40,8 +40,13 @@ class Apps{
     list = async (...args) => {
         let options = {};
 
-        options = { "predicate": ['user-can-edit'] };
-        
+        // if args is a single object, assume it is the options object
+        if (typeof args[0] === 'object' && args[0] !== null) {
+            options = args[0];
+        }
+
+        options.predicate =  ['user-can-edit'];
+
         return utils.make_driver_method(['uid'], 'puter-apps', undefined, 'select').call(this, options);
     }
 
@@ -112,11 +117,23 @@ class Apps{
 
     get = async(...args) => {
         let options = {};
+
         // if there is one string argument, assume it is the app name
         // * allows for: puter.apps.get('example-app') *
         if (Array.isArray(args) && typeof args[0] === 'string') {
-            options = { id: {name: args[0]}};
+            // if second argument is an object, assume it is the options object
+            if (typeof args[1] === 'object' && args[1] !== null) {
+                options = args[1];
+            }
+            // name
+            options.id =  {name: args[0]};
         }
+
+        // if first argument is an object, assume it is the options object
+        if (typeof args[0] === 'object' && args[0] !== null) {
+            options = args[0];
+        }
+
         return utils.make_driver_method(['uid'], 'puter-apps', undefined, 'read').call(this, options);
     }
 

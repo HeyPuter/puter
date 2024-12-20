@@ -144,7 +144,7 @@ $(document).ready(function () {
             })
         }
         // Get apps
-        puter.apps.list().then((resp) => {
+        puter.apps.list({params:{ icon_size: 64}}).then((resp) => {
             apps = resp;
 
             // hide loading
@@ -184,7 +184,7 @@ function refresh_app_list(show_loading = false) {
         // uncheck the select all checkbox
         $('.select-all-apps').prop('checked', false);
 
-        puter.apps.list().then((apps_res) => {
+        puter.apps.list({params:{ icon_size: 64}}).then((apps_res) => {
             $('#loading').hide();
             apps = apps_res;
             if (apps.length > 0) {
@@ -315,7 +315,7 @@ async function create_app(title, source_path = null, items = null) {
                 background: false,
             }).then(async (app) => {
                 // refresh app list
-                puter.apps.list().then(async (resp) => {
+                puter.apps.list({params:{ icon_size: 64}}).then(async (resp) => {
                     apps = resp;
                     // Close the 'Creting new app...' modal
                     // but make sure it was shown for at least 2 seconds
@@ -375,7 +375,7 @@ $(document).on('click', '.delete-app', async function (e) {
     let app_name = $(this).attr('data-app-name');
 
     // get app
-    const app_data = await puter.apps.get(app_name);
+    const app_data = await puter.apps.get(app_name, {params:{ icon_size: 16}});
 
     if(app_data.metadata?.locked){
         puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
@@ -758,7 +758,7 @@ async function edit_app_section(cur_app_name) {
     $('.tab-btn').removeClass('active');
     $('.tab-btn[data-tab="apps"]').addClass('active');
 
-    let cur_app = await puter.apps.get(cur_app_name);
+    let cur_app = await puter.apps.get(cur_app_name, {params: {icon_size: 128}});
     currently_editing_app = cur_app;
 
     // generate edit app section
@@ -1309,7 +1309,7 @@ $(document).on('click', '.delete-app-settings', async function (e) {
     let app_title = $(this).attr('data-app-title');
 
     // check if app is locked
-    const app_data = await puter.apps.get(app_name);
+    const app_data = await puter.apps.get(app_name, {params: {icon_size: 16}});
 
     if(app_data.metadata?.locked){
         puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
@@ -1385,7 +1385,7 @@ $(document).on('click', '.back-to-main-btn', function (e) {
     // get apps
     $('#loading').show();
     setTimeout(function () {
-        puter.apps.list().then((apps_res) => {
+        puter.apps.list({params: {icon_size: 64}}).then((apps_res) => {
             // uncheck the select all checkbox
             $('.select-all-apps').prop('checked', false);
 
@@ -2174,7 +2174,7 @@ $(document).on('click', '.insta-deploy-to-existing-app', function (e) {
     $('.insta-deploy-modal').get(0).close();
     $('.insta-deploy-existing-app-select').get(0).showModal();
     $('.insta-deploy-existing-app-list').html(`<div style="margin: 100px auto 10px auto; width: 40px; height:40px;">${loading_spinner}</div>`);
-    puter.apps.list().then((apps) => {
+    puter.apps.list({params:{ icon_size: 64}}).then((apps) => {
         setTimeout(() => {
             $('.insta-deploy-existing-app-list').html('');
             if (apps.length === 0)
@@ -2367,7 +2367,7 @@ $('.insta-deploy-existing-app-select').on('close', function (e) {
 $('.refresh-app-list').on('click', function (e) {
     $('.loading-modal').get(0)?.showModal();
 
-    puter.apps.list().then((resp) => {
+    puter.apps.list({params:{ icon_size: 64}}).then((resp) => {
         setTimeout(() => {
             apps = resp;
 
@@ -2500,7 +2500,7 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
             const app_name = $(app).attr('data-app-name');
 
             // get app
-            const app_data = await puter.apps.get(app_name);
+            const app_data = await puter.apps.get(app_name, {params: {icon_size: 64}});
 
             if(app_data.metadata?.locked){
                 if(apps.length === 1){
