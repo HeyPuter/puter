@@ -29,7 +29,7 @@ async function UITaskbar(options){
 
     // get launch apps
     $.ajax({
-        url: window.api_origin + "/get-launch-apps",
+        url: window.api_origin + "/get-launch-apps?icon_size=64",
         type: 'GET',
         async: true,
         contentType: "application/json",
@@ -79,7 +79,7 @@ async function UITaskbar(options){
             if(!window.launch_apps || !window.launch_apps.recent || window.launch_apps.recent.length === 0){
                 // get launch apps
                 window.launch_apps = await $.ajax({
-                    url: window.api_origin + "/get-launch-apps",
+                    url: window.api_origin + "/get-launch-apps?icon_size=64",
                     type: 'GET',
                     async: true,
                     contentType: "application/json",
