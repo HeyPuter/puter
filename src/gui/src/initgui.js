@@ -395,7 +395,7 @@ window.initgui = async function(options){
         puter.setAuthToken(query_param_auth_token);
 
         try{
-            whoami = await puter.os.user();
+            whoami = await puter.os.user({query: 'icon_size=64'});
         }catch(e){
             if(e.status === 401){
                 window.logout();
@@ -456,7 +456,7 @@ window.initgui = async function(options){
         // try to get user data using /whoami, only if that data is missing
         if(!whoami){
             try{
-                whoami = await puter.os.user();
+                whoami = await puter.os.user({query: 'icon_size=64'});
             }catch(e){
                 if(e.status === 401){
                     bad_session_logout();

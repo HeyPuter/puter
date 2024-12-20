@@ -422,7 +422,7 @@ window.check_fsentry_against_allowed_file_types_string =function (fsentry, allow
 window.refresh_user_data = async (auth_token)=>{
     let whoami
     try{
-        whoami = await puter.os.user();
+        whoami = await puter.os.user({query: 'icon_size=64'});
     }catch(e){
         // Ignored
     }
