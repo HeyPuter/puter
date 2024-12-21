@@ -29,7 +29,7 @@ class OldAppNameService extends BaseService {
 
         // Check if the app has been renamed in the last N months
         const [row] = rows;
-        const timestamp = new Date(
+        const timestamp = row.timestamp instanceof Date ? row.timestamp : new Date(
             // Ensure timestamp ir processed as UTC
             row.timestamp.endsWith('Z') ? row.timestamp : row.timestamp + 'Z'
         );
