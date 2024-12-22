@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { v4: uuidv4 } = require('uuid');
 const _path = require('path');
 const micromatch = require('micromatch');
 const config = require('./config')
@@ -27,10 +26,8 @@ const { spanify } = require('./util/otelutil.js');
 const APIError = require('./api/APIError.js');
 const { DB_READ, DB_WRITE } = require('./services/database/consts.js');
 const { BaseDatabaseAccessService } = require('./services/database/BaseDatabaseAccessService.js');
-const { LLRmNode } = require('./filesystem/ll_operations/ll_rmnode');
 const { Context } = require('./util/context');
 const { NodeUIDSelector } = require('./filesystem/node/selectors');
-const { PathBuilder } = require('./util/pathutil');
 const { stream_to_buffer } = require('./util/streamutil.js');
 
 let systemfs = null;
