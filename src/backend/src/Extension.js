@@ -4,7 +4,7 @@ const { Context } = require("./util/context");
 const { ExtensionServiceState } = require("./ExtensionService");
 
 /**
- * This class creates the `extension` global that is seem by Puter backend
+ * This class creates the `extension` global that is seen by Puter backend
  * extensions.
  */
 class Extension extends AdvancedBase {

@@ -23,7 +23,6 @@ const { Context, ContextExpressMiddleware } = require("../../util/context.js");
 const BaseService = require("../../services/BaseService.js");
 
 const config = require('../../config.js');
-const https = require('https')
 var http = require('http');
 const fs = require('fs');
 const auth = require('../../middleware/auth.js');
@@ -607,7 +606,6 @@ class WebServerService extends BaseService {
             }
         ]);
     }
-
 
     /**
     * Starts the web server and sets up the necessary middleware and routes.
