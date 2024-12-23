@@ -98,6 +98,7 @@ function UIWindowEmailConfirmationRequired(options){
             e.stopPropagation();
 
             $(el_window).find('.email-confirm-btn').prop('disabled', true);
+            $(el_window).find(`.digit-input`).prop('disabled', true);
             $(el_window).find('.error').hide();
             
             // Check if already checking code to prevent multiple requests
@@ -137,6 +138,7 @@ function UIWindowEmailConfirmationRequired(options){
                             $(el_window).find('.digit-input').val('');
                             $(el_window).find('.digit-input').first().focus();
                             $(el_window).find('.email-confirm-btn').prop('disabled', false);
+                            $(el_window).find(`.digit-input`).prop('disabled', false);
                             $(el_window).find('.email-confirm-btn').html(submit_btn_txt);
                         }
                     },
@@ -146,6 +148,7 @@ function UIWindowEmailConfirmationRequired(options){
                         $(el_window).find('.digit-input').val('');
                         $(el_window).find('.digit-input').first().focus();
                         $(el_window).find('.email-confirm-btn').prop('disabled', false);
+                        $(el_window).find(`.digit-input`).prop('disabled', false);
                         $(el_window).find('.email-confirm-btn').html(submit_btn_txt);
                     },
                     complete: function(){
@@ -230,6 +233,7 @@ function UIWindowEmailConfirmationRequired(options){
             // Automatically submit if 6 digits entered
             if(final_code.length === 6){
                 $(el_window).find('.email-confirm-btn').prop('disabled', false);
+                $(el_window).find(`.digit-input`).prop('disabled', false);
                 $(el_window).find('.email-confirm-btn').trigger('click');
             }
         });
