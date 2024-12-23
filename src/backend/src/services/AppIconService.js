@@ -84,7 +84,8 @@ class AppIconService extends BaseService {
         const dir_app_icons = await this.get_app_icons();
         console.log('APP UID', app_uid);
         const node = await dir_app_icons.getChild(`${app_uid}-${size}.png`);
-        if ( ! await node.exists() ) {
+
+        const get_fallback_icon = async () => {
             // Use database-stored icon as a fallback
             app_icon = app_icon ?? await (async () => {
                 const app = await get_app({ uid: app_uid });
@@ -100,15 +101,26 @@ class AppIconService extends BaseService {
             };
         }
 
-        const svc_su = this.services.get('su');
-        const ll_read = new LLRead();
-        return {
-            mime: 'image/png',
-            stream: await ll_read.run({
-                fsNode: node,
-                actor: await svc_su.get_system_actor(),
-            })
-        };
+        if ( ! await node.exists() ) {
+            return await get_fallback_icon();
+        }
+
+        try {
+            const svc_su = this.services.get('su');
+            const ll_read = new LLRead();
+            return {
+                mime: 'image/png',
+                stream: await ll_read.run({
+                    fsNode: node,
+                    actor: await svc_su.get_system_actor(),
+                })
+            };
+        } catch (e) {
+            this.errors.report('AppIconService.get_icon_stream', {
+                source: e,
+            });
+            return await get_fallback_icon();
+        }
     }
 
     /**
