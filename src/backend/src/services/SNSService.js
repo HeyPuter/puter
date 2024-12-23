@@ -117,9 +117,9 @@ class SNSService extends BaseService {
                     }
                 }
 
-                await this.on_from_sns({
-                    message: { ...message }
-                });
+                const svc_event = this.services.get('event');
+                this.log.info('SNS message', { message });
+                svc_event.emit('sns', { message });
                 res.status(200).send('Thanks SNS');
             },
         }).attach(app);
@@ -127,12 +127,6 @@ class SNSService extends BaseService {
 
     _init () {
         this.sns = new this.modules.AWS.SNS();
-    }
-
-    async on_from_sns ({ message }) {
-        const svc_event = this.services.get('event');
-        this.log.info('SNS message', { message });
-        svc_event.emit('sns', { message });
     }
 
     async verify_message_ (message, options = {}) {
