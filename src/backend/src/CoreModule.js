@@ -361,6 +361,9 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { OldAppNameService } = require('./services/OldAppNameService');
     services.registerService('old-app-name', OldAppNameService);
+
+    const { SNSService } = require('./services/SNSService');
+    services.registerService('sns-service', SNSService);
 }
 
 const install_legacy = async ({ services }) => {

@@ -472,11 +472,13 @@ class WebServerService extends BaseService {
             };
             await svc_event.emit('ip.validate', event);
 
-            // check if no origin
-            if ( req.method === 'POST' && req.headers.origin === undefined ) {
-                event.allow = false;
+            // rules that don't apply to notification endpoints
+            if ( req.path !== '/sns' && req.path !== '/sns/' ) {
+                // check if no origin
+                if ( req.method === 'POST' && req.headers.origin === undefined ) {
+                    event.allow = false;
+                }
             }
-
             if ( ! event.allow ) {
                 return res.status(403).send('Forbidden');
             }
@@ -487,6 +489,13 @@ class WebServerService extends BaseService {
         // so that signatures of the raw JSON can be verified
         this.router_webhooks = express.Router();
         app.use(this.router_webhooks);
+
+        app.use((req, res, next) => {
+            if ( req.get('x-amz-sns-message-type') ) {
+                req.headers['content-type'] = 'application/json';
+            }
+            next();
+        });
 
         app.use(express.json({limit: '50mb'}));
 

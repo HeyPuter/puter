@@ -49,6 +49,7 @@
     "jsonwebtoken": "^9.0.0",
     "knex": "^3.1.0",
     "lorem-ipsum": "^2.0.8",
+    "lru-cache": "^11.0.2",
     "micromatch": "^4.0.5",
     "mime-types": "^2.1.35",
     "moment": "^2.29.4",

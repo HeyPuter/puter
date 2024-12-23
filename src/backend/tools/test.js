@@ -219,6 +219,7 @@ const main = async () => {
         if ( ! ins._test || typeof ins._test !== 'function' ) {
             continue;
         }
+        ins.log = k.testLogger;
         let passed = 0;
         let failed = 0;
 
