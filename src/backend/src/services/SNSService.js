@@ -89,6 +89,16 @@ class SNSService extends BaseService {
                     throw Error('Invalid certificate URL');
                 }
 
+                const topic_arns = this.config?.topic_arns ?? [];
+                if ( ! topic_arns.includes(message.TopicArn) ) {
+                    this.log.info('SES response', {
+                        status: 403, because: 'invalid TopicArn',
+                        value: message.TopicArn,
+                    });
+                    res.status(403).send('Invalid TopicArn');
+                    return;
+                }
+
                 if ( ! await this.verify_message_(message) ) {
                     this.log.info('SES response', {
                         status: 403, because: 'message signature validation',
@@ -118,7 +128,9 @@ class SNSService extends BaseService {
     }
 
     async on_from_sns ({ message }) {
-        console.log('SNS message', { message });
+        const svc_event = this.services.get('event');
+        this.log.info('SNS message', { message });
+        svc_event.emit('sns', { message });
     }
 
     async verify_message_ (message, options = {}) {
@@ -130,8 +142,6 @@ class SNSService extends BaseService {
         } catch (e) {
             throw e;
         }
-
-        console.log('WHAT IS THE CERT?', cert);
 
         const verify = crypto.createVerify('sha1WithRSAEncryption');
 
