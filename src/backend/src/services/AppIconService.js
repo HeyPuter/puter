@@ -62,7 +62,7 @@ class AppIconService extends BaseService {
         }).attach(app);
     }
 
-    async get_icon_stream ({ app_icon, app_uid, size }) {
+    async get_icon_stream ({ app_icon, app_uid, size, tries = 0 }) {
         // If there is an icon provided, and it's an SVG, we'll just return it
         if ( app_icon ) {
             const metadata = app_icon.split(',')[0];
@@ -119,6 +119,21 @@ class AppIconService extends BaseService {
             this.errors.report('AppIconService.get_icon_stream', {
                 source: e,
             });
+            if ( tries < 1 ) {
+                // We can choose the fallback icon in these two ways:
+
+                // Choose the next size up, or 256 if we're already at 512;
+                // this prioritizes icon quality over speed and bandwidth.
+                let second_size = size < 512 ? size * 2 : 256;
+
+                // Choose the next size down, or 32 if we're already at 16;
+                // this prioritizes speed and bandwidth over icon quality.
+                // let second_size = size > 16 ? size / 2 : 32;
+
+                return await this.get_icon_stream({
+                    app_uid, size: second_size, tries: tries + 1
+                });
+            }
             return await get_fallback_icon();
         }
     }
