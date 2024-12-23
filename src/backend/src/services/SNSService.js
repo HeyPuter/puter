@@ -117,7 +117,9 @@ class SNSService extends BaseService {
                     }
                 }
 
-                await this.on_from_sns({ message });
+                await this.on_from_sns({
+                    message: { ...message }
+                });
                 res.status(200).send('Thanks SNS');
             },
         }).attach(app);
