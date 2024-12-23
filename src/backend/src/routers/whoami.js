@@ -72,7 +72,9 @@ const WHOAMI_GET = eggspress('/whoami', {
         desktop_bg_fit: req.user.desktop_bg_fit,
         is_temp: (req.user.password === null && req.user.email === null),
         taskbar_items: await get_taskbar_items(req.user, {
-            ...(req.query.icon_size ? { icon_size: req.query.icon_size } : {})
+            ...(req.query.icon_size
+                ? { icon_size: req.query.icon_size }
+                : { no_icons: true }),
         }),
         referral_code: req.user.referral_code,
         otp: !! req.user.otp_enabled,

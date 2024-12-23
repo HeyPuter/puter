@@ -1459,7 +1459,7 @@ async function suggest_app_for_fsentry(fsentry, options){
     });
 }
 
-async function get_taskbar_items(user, { icon_size } = {}) {
+async function get_taskbar_items(user, { icon_size, no_icons } = {}) {
     /** @type BaseDatabaseAccessService */
     const db = services.get('database').get(DB_WRITE, 'filesystem');
 
@@ -1499,26 +1499,31 @@ async function get_taskbar_items(user, { icon_size } = {}) {
     let taskbar_items = [];
     for (let index = 0; index < taskbar_items_from_db.length; index++) {
         const taskbar_item_from_db = taskbar_items_from_db[index];
-        if(taskbar_item_from_db.type === 'app' && taskbar_item_from_db.name !== 'explorer'){
-            let item = {};
-            if(taskbar_item_from_db.name)
-                item = await get_app({name: taskbar_item_from_db.name});
-            else if(taskbar_item_from_db.id)
-                item = await get_app({id: taskbar_item_from_db.id});
-            else if(taskbar_item_from_db.uid)
-                item = await get_app({uid: taskbar_item_from_db.uid});
+        if ( taskbar_item_from_db.type !== 'app' ) continue;
+        if ( taskbar_item_from_db.name === 'explorer' ) continue;
 
-            // if item not found, skip it
-            if(!item) continue;
+        let item = {};
+        if(taskbar_item_from_db.name)
+            item = await get_app({name: taskbar_item_from_db.name});
+        else if(taskbar_item_from_db.id)
+            item = await get_app({id: taskbar_item_from_db.id});
+        else if(taskbar_item_from_db.uid)
+            item = await get_app({uid: taskbar_item_from_db.uid});
 
-            // delete sensitive attributes
-            delete item.id;
-            delete item.owner_user_id;
-            delete item.timestamp;
-            // delete item.godmode;
-            delete item.approved_for_listing;
-            delete item.approved_for_opening_items;
+        // if item not found, skip it
+        if(!item) continue;
 
+        // delete sensitive attributes
+        delete item.id;
+        delete item.owner_user_id;
+        delete item.timestamp;
+        // delete item.godmode;
+        delete item.approved_for_listing;
+        delete item.approved_for_opening_items;
+
+        if ( no_icons ) {
+            delete item.icon;
+        } else {
             const svc_appIcon = services.get('app-icon');
             const icon_result = await svc_appIcon.get_icon_stream({
                 app_icon: item.icon,
@@ -1534,10 +1539,10 @@ async function get_taskbar_items(user, { icon_size } = {}) {
                 
                 item.icon = resp_data_url;
             }
-
-            // add to final object
-            taskbar_items.push(item)
         }
+
+        // add to final object
+        taskbar_items.push(item)
     }
 
     return taskbar_items;
