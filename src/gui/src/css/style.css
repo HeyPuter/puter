@@ -4456,7 +4456,10 @@ fieldset[name=number-code] {
 
 }
 
-.device-phone .window.window-qr, .device-phone .window.window-progress, .device-phone .window.window-login-progress{
+.device-phone .window.window-qr, 
+.device-phone .window.window-progress, 
+.device-phone .window.window-login-progress,
+.device-phone .window-confirm-email-using-code{
     left: 50% !important;
     transform: translate(-50%) !important;
     height: initial !important;

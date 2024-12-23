@@ -78,7 +78,7 @@ function UIWindowEmailConfirmationRequired(options){
             onAppend: function(el_window){
                 $(el_window).find('.digit-input').first().focus();
             },
-            window_class: 'window-item-properties',
+            window_class: 'window-confirm-email-using-code',
             window_css:{
                 height: 'initial',
             },
