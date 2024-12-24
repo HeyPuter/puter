@@ -2,13 +2,7 @@
 
 Version 1.0 dated January 1, 2025
 
-[Company Logo]
-
-*This Document*
-
-These guidelines are based on the Model Trademark Guidelines, available at http://www.modeltrademarkguidelines.org., used under a Creative Commons Attribution 3.0 Unported license: https://creativecommons.org/licenses/by/3.0/deed.en_US.
-
-*If you post these guidelines, please preserve the above notice at the end of the file. These guidelines have been modified by Heather Meeker to adapt them to a corporate open source project. There is no need for any additional notice for those modifications. It is a best practice to register your trademarks as soon as possible. Managing your trademark rights is a combination of use of a policy such as this one, registration, and monitoring improper use.*
+<img src="https://puter.com/images/logo.png" alt="Puter Technologies Inc. Logo" width="200"/>
 
 This trademark policy was prepared to help you understand how to use the Puter trademarks, service marks and logos with Puter Technologies Inc.'s Puter software.
 
@@ -59,7 +53,7 @@ You may use the word marks, but not the logos, to truthfully describe the relati
 If you wish to describe your product with reference to the Puter software, here are the conditions under which you may do so. You may call your software XYZ (where XYZ is your product name) for Puter only if:
 
 * All versions of the Puter software you deliver with your product are the exact binaries provided by us.
-* Your product is fully compatible with the APIs for the Puter software described at [__________________].
+* Your product is fully compatible with the APIs for the Puter software described at https://developer.puter.com.
 * You use the following legend in marketing materials or product descriptions: "Puter is a trademark of Puter Technologies Inc. [add link to Puter]"
 
 ### User groups
@@ -108,3 +102,8 @@ Acceptable: This is a Puter software application.
 You may not change any logo except to scale it. This means you may not add decorative elements, change the colors, change the proportions, distort it, add elements, or combine it with other logos.
 
 However, when the context requires the use of black-and-white graphics and the logo is color, you may reproduce the logo in a manner that produces a black-and-white image.
+
+
+## This Document
+
+These guidelines are based on the Model Trademark Guidelines, available at http://www.modeltrademarkguidelines.org., used under a Creative Commons Attribution 3.0 Unported license: https://creativecommons.org/licenses/by/3.0/deed.en_US.
