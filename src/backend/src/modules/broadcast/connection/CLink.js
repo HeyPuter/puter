@@ -41,7 +41,10 @@ class CLink extends BaseLink {
     }
 
     connect () {
-        const address = this.config.address;
+        let address = this.config.address;
+        if ( ! address.startsWith('https://') ) {
+            address = `https://${address}`;
+        }
         const socket = this.modules.sioclient(address, {
             transports: ['websocket'],
             path: '/wssinternal',
@@ -54,7 +57,7 @@ class CLink extends BaseLink {
         });
         socket.on('connect', () => {
             this.log.info(`connected`, {
-                address: this.config.address
+                address,
             });
 
             const require = this.require;
@@ -76,12 +79,12 @@ class CLink extends BaseLink {
         });
         socket.on('disconnect', () => {
             this.log.info(`disconnected`, {
-                address: this.config.address
+                address,
             });
         });
         socket.on('connect_error', e => {
             this.log.info(`connection error`, {
-                address: this.config.address,
+                address,
                 message: e.message,
             });
         });
