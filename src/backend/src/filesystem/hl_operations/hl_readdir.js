@@ -18,6 +18,7 @@
  */
 const APIError = require("../../api/APIError");
 const { chkperm } = require("../../helpers");
+const { stream_to_buffer } = require("../../util/streamutil");
 const { TYPE_DIRECTORY, TYPE_SYMLINK } = require("../FSNodeContext");
 const { LLListUsers } = require("../ll_operations/ll_listusers");
 const { LLReadDir } = require("../ll_operations/ll_readdir");
@@ -81,7 +82,31 @@ class HLReadDir extends HLFilesystemOperation {
                 await child.fetchSuggestedApps(user);
                 await child.fetchSubdomains(user);
             }
-            return await child.getSafeEntry({ thumbnail: ! no_thumbs });
+            const entry = await child.getSafeEntry({ thumbnail: ! no_thumbs });
+            if ( ! no_thumbs && entry.associated_app ) {
+                const svc_appIcon = this.context.get('services').get('app-icon');
+                const icon_result = await svc_appIcon.get_icon_stream({
+                    app_icon: entry.associated_app.icon,
+                    app_uid: entry.associated_app.uid ?? entry.associated_app.uuid,
+                    size: 64,
+                });
+
+                if ( icon_result.data_url ) {
+                    entry.associated_app.icon = icon_result.data_url;
+                } else {
+                    try {
+                        const buffer = await stream_to_buffer(icon_result.stream);
+                        const resp_data_url = `data:${icon_result.mime};base64,${buffer.toString('base64')}`;
+                        entry.associated_app.icon = resp_data_url;
+                    } catch (e) {
+                        const svc_error = this.context.get('services').get('error-service');
+                        svc_error.report('hl_readdir:icon-stream', {
+                            source: e,
+                        });
+                    }
+                }
+            }
+            return entry;
         }));
     }
 }
