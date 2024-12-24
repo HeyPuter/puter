@@ -22,7 +22,7 @@ const commands = require('./commands').commands;
 const APIError = require('../../api/APIError');
 const { Context } = require('../../util/context');
 const config = require('../../config');
-const { TeePromise } = require('@heyputer/putility');
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 const { WorkUnit } = require('../../modules/core/lib/expect');
 
 class BatchExecutor extends AdvancedBase {

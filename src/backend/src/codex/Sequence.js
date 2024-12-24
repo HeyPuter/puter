@@ -109,7 +109,7 @@ class Sequence {
         async run (values) {
             // Initialize scope
             values = values || this.thisArg?.values || {};
-            this.scope_.__proto__ = values;
+            Object.setPrototypeOf(this.scope_, values);
 
             // Run sequence
             for ( ; this.i < this.steps.length ; this.i++ ) {
@@ -126,9 +126,8 @@ class Sequence {
                 const parent_scope = this.scope_;
                 this.scope_ = {};
                 // We could do Object.assign(this.scope_, parent_scope), but
-                // setting __proto__ is faster because it leverages the optimizations
-                // of the JS engine for the prototype chain.
-                this.scope_.__proto__ = parent_scope;
+                // setting the prototype should be faster (in theory)
+                Object.setPrototypeOf(this.scope_, parent_scope);
 
                 if ( this.sequence_.options_.record_history ) {
                     this.value_history_.push(this.scope_);
@@ -141,6 +140,10 @@ class Sequence {
                 this.last_return_ = await step.fn.call(
                     this.thisArg, this,
                 );
+                
+                if ( this.last_return_ instanceof Sequence.SequenceState ) {
+                    this.scope_ = this.last_return_.scope_;
+                }
                 
                 if ( this.sequence_.options_.after_each ) {
                     await this.sequence_.options_.after_each(this, step);

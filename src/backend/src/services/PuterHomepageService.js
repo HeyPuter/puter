@@ -163,8 +163,6 @@ class PuterHomepageService extends BaseService {
     }) {
         const require = this.require;
         const {encode} = require('html-entities');
-        const path_ = require('path');
-        const fs_ = require('fs');
 
         const e = encode;
 
@@ -175,7 +173,6 @@ class PuterHomepageService extends BaseService {
             company,
             canonical_url,
             social_media_image,
-            icon,
         } = meta;
 
         gui_params = {
@@ -190,7 +187,6 @@ class PuterHomepageService extends BaseService {
 
         const asset_dir = env === 'dev'
             ? '/src' : '/dist' ;
-        // const asset_dir = '/dist';
 
         gui_params.asset_dir = asset_dir;
 
@@ -209,11 +205,17 @@ class PuterHomepageService extends BaseService {
         // set social media image to default if it is not valid
         const social_media_image_url = social_media_image || `${asset_dir}/images/screenshot.png`;
 
-        const writeScriptTag = path =>
-            `<script type="${
-                Array.isArray(path) ? 'text/javascirpt' : 'module'
-            }" src="${Array.isArray(path) ? path[0] : path}"></script>\n`
-            ;
+        // Custom script tags to be added to the homepage by extensions
+        // an event is emitted to allow extensions to add their own script tags
+        // the event is emitted with an object containing a custom_script_tags array
+        // which extensions can push their script tags to
+        let custom_script_tags = [];
+        let custom_script_tags_str = '';
+        process.emit('add_script_tags_to_homepage_html', { custom_script_tags });
+
+        for (const tag of custom_script_tags) {
+            custom_script_tags_str += tag;
+        }
 
         return `<!DOCTYPE html>
     <html lang="en">
@@ -309,6 +311,9 @@ class PuterHomepageService extends BaseService {
 
     <body>
         <script>window.puter_gui_enabled = true;</script>
+        ${
+            custom_script_tags_str
+        }
         ${
             use_bundled_gui
                 ? `<script>window.gui_env = 'prod';</script>`

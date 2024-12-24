@@ -19,11 +19,12 @@
 const { AdvancedBase } = require("@heyputer/putility");
 const { id2path } = require("../../helpers");
 
-const { PuterPath } = require("../lib/PuterPath");
-const { NodeUIDSelector } = require("../node/selectors");
+const { PuterPath } = require("../../filesystem/lib/PuterPath");
+const { NodeUIDSelector } = require("../../filesystem/node/selectors");
 const { OtelFeature } = require("../../traits/OtelFeature");
 const { Context } = require("../../util/context");
 const { DB_WRITE } = require("../../services/database/consts");
+const BaseService = require("../../services/BaseService");
 
 class AbstractDatabaseFSEntryOperation {
     static STATUS_PENDING = {};
@@ -191,7 +192,7 @@ class DatabaseFSEntryDelete extends AbstractDatabaseFSEntryOperation {
 }
 
 
-class DatabaseFSEntryService extends AdvancedBase {
+class DatabaseFSEntryService extends BaseService {
     static STATUS_READY = {};
     static STATUS_RUNNING_JOB = {};
 
@@ -211,23 +212,7 @@ class DatabaseFSEntryService extends AdvancedBase {
         ]),
     ]
 
-    constructor ({ services, label }) {
-        super();
-        this.db = services.get('database').get(DB_WRITE, 'filesystem');
-
-        this.log = services.get('log-service').create('fsentry-service');
-
-        this.label = label || 'DatabaseFSEntryService';
-
-        const params = services.get('params');
-        params.createParameters('fsentry-service', [
-            {
-                id: 'max_queue',
-                description: 'Maximum queue size',
-                default: 50,
-            },
-        ], this);
-
+    _construct () {
         this.status = this.constructor.STATUS_READY;
 
         this.currentState = {
@@ -242,9 +227,22 @@ class DatabaseFSEntryService extends AdvancedBase {
         this.entryListeners_ = {};
 
         this.mkPromiseForQueueSize_();
+    }
+    
+    _init () {
+        const params = this.services.get('params');
+        params.createParameters('fsentry-service', [
+            {
+                id: 'max_queue',
+                description: 'Maximum queue size',
+                default: 50,
+            },
+        ], this);
+
+        this.db = this.services.get('database').get(DB_WRITE, 'filesystem');
 
         // Register information providers
-        const info = services.get('information');
+        const info = this.services.get('information');
 
         // uuid -> path via mysql
         info.given('fs.fsentry:uuid').provide('fs.fsentry:path')
@@ -256,13 +254,10 @@ class DatabaseFSEntryService extends AdvancedBase {
                     return '/-void/' + uuid;
                 }
             });
-
-        (async () => {
-            await services.ready;
-            if ( services.has('commands') ) {
-                this._registerCommands(services.get('commands'));
-            }
-        })();
+    }
+    
+    ['__on_boot.consolidation'] () {
+        this._registerCommands(this.services.get('commands'));
     }
 
     mkPromiseForQueueSize_ () {
@@ -462,7 +457,6 @@ class DatabaseFSEntryService extends AdvancedBase {
         const queue = this.currentState.queue;
 
         this.log.info(
-            `\x1B[36;1m[${this.label}]\x1B[0m ` +
             `Executing ${queue.length} operations...`
         );
 
@@ -502,7 +496,6 @@ class DatabaseFSEntryService extends AdvancedBase {
         this.status = this.constructor.STATUS_READY;
 
         this.log.info(
-            `\x1B[36;1m[${this.label}]\x1B[0m ` +
             `Finished ${queue.length} operations.`
         )
 

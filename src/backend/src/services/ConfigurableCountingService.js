@@ -23,8 +23,8 @@ const { Context } = require("../util/context");
 const { DB_WRITE } = require('./database/consts');
 
 const hash = v => {
-    var sum = crypto.createHash('sha1');
-    sum.update('foo');
+    const sum = crypto.createHash('sha1');
+    sum.update(v);
     return sum.digest();
 }
 

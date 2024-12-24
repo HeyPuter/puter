@@ -51,8 +51,13 @@ class OS{
             };
         }
 
+        let query = '';
+        if(options?.query){
+            query = '?' + new URLSearchParams(options.query).toString();
+        }
+
         return new Promise((resolve, reject) => {
-            const xhr = utils.initXhr('/whoami', this.APIOrigin, this.authToken, 'get');
+            const xhr = utils.initXhr('/whoami' + query, this.APIOrigin, this.authToken, 'get');
 
             // set up event handlers for load and error events
             utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);

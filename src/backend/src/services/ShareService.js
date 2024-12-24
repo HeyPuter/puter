@@ -93,7 +93,6 @@ class ShareService extends BaseService {
                     user: issuer_user,
                 });
 
-                // const svc_permission = this.services.get('permission');
                 const svc_acl = this.services.get('acl');
 
                 for ( const permission of share.data.permissions ) {

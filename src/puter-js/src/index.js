@@ -288,6 +288,7 @@ window.puter = (function() {
 
             // Add prefix logger (needed to happen after modules are initialized)
             (async () => {
+                await this.services.wait_for_init(['api-access']);
                 const whoami = await this.auth.whoami();
                 logger = new putility.libs.log.PrefixLogger({
                     delegate: logger,

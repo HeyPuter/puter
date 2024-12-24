@@ -18,6 +18,9 @@
  */
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
+/**
+ * RWLock is a read-write lock that allows multiple readers or a single writer.
+ */
 class RWLock {
     static TYPE_READ = Symbol('read');
     static TYPE_WRITE = Symbol('write');
@@ -45,11 +48,6 @@ class RWLock {
         this.check_queue_();
     }
     check_queue_ () {
-        // console.log('check_queue_', {
-        //     readers_: this.readers_,
-        //     writer_: this.writer_,
-        //     queue: this.queue.map(item => item.type),
-        // });
         if ( this.queue.length === 0 ) {
             if ( this.readers_ === 0 && ! this.writer_ ) {
                 this.on_empty_();

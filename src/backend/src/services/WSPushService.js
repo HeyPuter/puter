@@ -299,12 +299,6 @@ class WSPushService  extends BaseService {
 
         if ( ! socket_id ) {
             this.log.error('missing socket id', { metadata });
-
-            // TODO: this error is temporarily disabled for
-            // Puter V1 release, because it will cause a
-            // lot of redundant PagerDuty alerts.
-
-            // throw new Error('missing socket id');
         }
 
         this.log.info('socket id: ' + socket_id);

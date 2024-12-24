@@ -78,14 +78,11 @@ class KernelInfoService extends BaseService {
                 }
 
                 const services = [];
-                const modules = [];
                 for ( const k in this.services.modules_ ) {
                     const module_info = {
                         name: k,
                         services: []
                     };
-                    
-                    modules.push(module_info);
                     
                     for ( const s_k of this.services.modules_[k].services_l ) {
                         const service_info = {

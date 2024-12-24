@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require("../../api/APIError");
-const { CodeModel } = require("../../codex/CodeModel");
 const { Sequence } = require("../../codex/Sequence");
 
 const { DB_WRITE } = require("../../services/database/consts");

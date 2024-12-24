@@ -22,7 +22,6 @@ const config = require('../config');
 const router = express.Router();
 const _path = require('path');
 const _fs = require('fs');
-const auth = require('../middleware/auth.js');
 const { Context } = require('../util/context');
 const { DB_READ } = require('../services/database/consts');
 const { PathBuilder } = require('../util/pathutil.js');
@@ -342,7 +341,10 @@ router.all('*', async function(req, res, next) {
             // /app/
             else if(path.startsWith('/app/')){
                 app_name = path.replace('/app/', '');
-                const app = await get_app({name: app_name});
+                const app = await get_app({
+                    follow_old_names: true,
+                    name: app_name,
+                });
 
 
                 if(app){

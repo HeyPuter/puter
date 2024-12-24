@@ -103,7 +103,7 @@ module.exports = eggspress('/query/app', {
             uuid: app.uid,
             name: app.name,
             title: app.title,
-            icon: app.icon,
+            // icon: app.icon,
             description: app.description,
             metadata: app.metadata,
             tags: app.tags ? app.tags.split(',') : [],

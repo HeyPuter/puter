@@ -17,10 +17,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const TeePromise = require("@heyputer/multest/src/util/TeePromise");
 const { AdvancedBase } = require("@heyputer/putility");
 const { FileTracker } = require("./FileTracker");
 const { pausing_tee } = require("../../util/streamutil");
+const putility = require("@heyputer/putility");
+const { EWMA } = require("../../util/opmath");
 
 /**
  * FileCacheService
@@ -71,6 +72,11 @@ class FileCacheService extends AdvancedBase {
 
         this.precache = new Map();
         this.uid_to_tracker = new Map();
+
+        this.cache_hit_rate = new EWMA({
+            initial: 0.5,
+            alpha: 0.2,
+        });
 
         this.init();
 
@@ -129,7 +135,7 @@ class FileCacheService extends AdvancedBase {
     }
 
     _get_path (uid) {
-        const { path_, fs } = this.modules;
+        const { path_ } = this.modules;
         return path_.join(this.path, uid);
     }
 
@@ -140,7 +146,12 @@ class FileCacheService extends AdvancedBase {
     * @param {string} uid - The unique identifier of the file.
     * @returns {string} The full path where the file is stored on disk.
     */
-    async try_get (fsNode, opt_log) {
+    async try_get(fsNode, opt_log) {
+        const result = await this.try_get_(fsNode, opt_log);
+        this.cache_hit_rate.put(result ? 1 : 0);
+        return result;
+    }
+    async try_get_ (fsNode, opt_log) {
         const tracker = this.uid_to_tracker.get(await fsNode.get('uid'));
 
         if ( ! tracker ) {
@@ -153,6 +164,27 @@ class FileCacheService extends AdvancedBase {
         }
 
         tracker.touch();
+
+        // If the file is in pending, that means it's currenty being read
+        // for cache entry, so we wait for it to be ready.
+        if ( tracker.phase === FileTracker.PHASE_PENDING ) {
+            Promise.race([
+                tracker.p_ready,
+                new Promise(resolve => setTimeout(resolve, 2000))
+            ]);
+        }
+
+        // If the file is still in pending it means we waited too long;
+        // it's possible that reading the file failed is is delayed.
+        if ( tracker.phase === FileTracker.PHASE_PENDING ) {
+            return this._get_path(await fsNode.get('uid'));
+        }
+
+        // Since we waited for the file to be ready, it's not impossible
+        // that it was evicted in the meantime; just very unlikely.
+        if ( tracker.phase === FileTracker.PHASE_GONE ) {
+            return null;
+        }
 
         if ( tracker.phase === FileTracker.PHASE_PRECACHE ) {
             if ( opt_log ) opt_log.info('obtained from precache');
@@ -219,6 +251,7 @@ class FileCacheService extends AdvancedBase {
         // Add file tracker
         const tracker = new FileTracker({ key, size });
         this.uid_to_tracker.set(key, tracker);
+        tracker.p_ready = new putility.libs.promise.TeePromise();
         tracker.touch();
 
 
@@ -237,6 +270,7 @@ class FileCacheService extends AdvancedBase {
             await this._precache_make_room(size);
             this.precache.set(key, data);
             tracker.phase = FileTracker.PHASE_PRECACHE;
+            tracker.p_ready.resolve();
         })()
 
         return { cached: true, stream: replace_stream };
@@ -351,9 +385,8 @@ class FileCacheService extends AdvancedBase {
 
         const { fs } = this.modules;
         const path = this._get_path(tracker.key);
-        console.log(`precache fetch key I guess?`, tracker.key);
+        console.log(`precache fetch key`, tracker.key);
         const data = this.precache.get(tracker.key);
-        // console.log(`path and data: ${path} ${data}`);
         await fs.promises.writeFile(path, data);
         this.precache.delete(tracker.key);
         tracker.phase = FileTracker.PHASE_DISK;
@@ -384,9 +417,6 @@ class FileCacheService extends AdvancedBase {
             {
                 id: 'status',
                 handler: async (args, log) => {
-                    const { fs } = this.modules;
-                    const path = this._get_path('status');
-
                     const status = {
                         precache: {
                             used: this._precache_used,
@@ -399,6 +429,12 @@ class FileCacheService extends AdvancedBase {
                     };
 
                     log.log(JSON.stringify(status, null, 2));
+                }
+            },
+            {
+                id: 'hitrate',
+                handler: async (args, log) => {
+                    log.log(this.cache_hit_rate.get());
                 }
             }
         ]);

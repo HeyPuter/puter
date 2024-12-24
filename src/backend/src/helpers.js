@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { v4: uuidv4 } = require('uuid');
 const _path = require('path');
 const micromatch = require('micromatch');
 const config = require('./config')
@@ -27,10 +26,9 @@ const { spanify } = require('./util/otelutil.js');
 const APIError = require('./api/APIError.js');
 const { DB_READ, DB_WRITE } = require('./services/database/consts.js');
 const { BaseDatabaseAccessService } = require('./services/database/BaseDatabaseAccessService.js');
-const { LLRmNode } = require('./filesystem/ll_operations/ll_rmnode');
 const { Context } = require('./util/context');
 const { NodeUIDSelector } = require('./filesystem/node/selectors');
-const { PathBuilder } = require('./util/pathutil');
+const { stream_to_buffer } = require('./util/streamutil.js');
 
 let systemfs = null;
 let services = null;
@@ -299,6 +297,20 @@ async function refresh_associations_cache(){
 
     const log = services.get('log-service').create('get_app');
     let app = [];
+
+    // This condition should be updated if the code below is re-ordered.
+    if ( options.follow_old_names && ! options.uid && options.name ) {
+        const svc_oldAppName = services.get('old-app-name');
+        const old_name = await svc_oldAppName.check_app_name(options.name);
+        if ( old_name ) {
+            options.uid = old_name.app_uid;
+
+            // The following line is technically pointless, but may avoid a bug
+            // if the if...else chain below is re-ordered.
+            delete options.name;
+        }
+    }
+
     if(options.uid){
         // try cache first
         app[0] = kv.get(`apps:uid:${options.uid}`);
@@ -1115,6 +1127,7 @@ async function jwt_auth(req){
         }
 
         return {
+            actor,
             user: actor.type.user,
             token: token,
         };
@@ -1213,6 +1226,10 @@ async function app_name_exists(name){
     let rows = await db.read(`SELECT EXISTS(SELECT 1 FROM apps WHERE apps.name=?) AS app_name_exists`, [name]);
     if(rows[0].app_name_exists)
         return true;
+
+    const svc_oldAppName = services.get('old-app-name');
+    const name_info = await svc_oldAppName.check_app_name(name);
+    if ( name_info ) return true;
 }
 
 function send_email_verification_code(email_confirm_code, email){
@@ -1442,7 +1459,7 @@ async function suggest_app_for_fsentry(fsentry, options){
     });
 }
 
-async function get_taskbar_items(user) {
+async function get_taskbar_items(user, { icon_size, no_icons } = {}) {
     /** @type BaseDatabaseAccessService */
     const db = services.get('database').get(DB_WRITE, 'filesystem');
 
@@ -1482,35 +1499,56 @@ async function get_taskbar_items(user) {
     let taskbar_items = [];
     for (let index = 0; index < taskbar_items_from_db.length; index++) {
         const taskbar_item_from_db = taskbar_items_from_db[index];
-        if(taskbar_item_from_db.type === 'app' && taskbar_item_from_db.name !== 'explorer'){
-            let item = {};
-            if(taskbar_item_from_db.name)
-                item = await get_app({name: taskbar_item_from_db.name});
-            else if(taskbar_item_from_db.id)
-                item = await get_app({id: taskbar_item_from_db.id});
-            else if(taskbar_item_from_db.uid)
-                item = await get_app({uid: taskbar_item_from_db.uid});
+        if ( taskbar_item_from_db.type !== 'app' ) continue;
+        if ( taskbar_item_from_db.name === 'explorer' ) continue;
 
-            // if item not found, skip it
-            if(!item) continue;
+        let item = {};
+        if(taskbar_item_from_db.name)
+            item = await get_app({name: taskbar_item_from_db.name});
+        else if(taskbar_item_from_db.id)
+            item = await get_app({id: taskbar_item_from_db.id});
+        else if(taskbar_item_from_db.uid)
+            item = await get_app({uid: taskbar_item_from_db.uid});
 
-            // delete sensitive attributes
-            delete item.id;
-            delete item.owner_user_id;
-            delete item.timestamp;
-            // delete item.godmode;
-            delete item.approved_for_listing;
-            delete item.approved_for_opening_items;
+        // if item not found, skip it
+        if(!item) continue;
 
-            // add to final object
-            taskbar_items.push(item)
+        // delete sensitive attributes
+        delete item.id;
+        delete item.owner_user_id;
+        delete item.timestamp;
+        // delete item.godmode;
+        delete item.approved_for_listing;
+        delete item.approved_for_opening_items;
+
+        if ( no_icons ) {
+            delete item.icon;
+        } else {
+            const svc_appIcon = services.get('app-icon');
+            const icon_result = await svc_appIcon.get_icon_stream({
+                app_icon: item.icon,
+                app_uid: item.uid,
+                size: icon_size,
+            });
+
+            if ( icon_result.data_url ) {
+                item.icon = icon_result.data_url;
+            } else {
+                const buffer = await stream_to_buffer(icon_result.stream);
+                const resp_data_url = `data:${icon_result.mime};base64,${buffer.toString('base64')}`;
+                
+                item.icon = resp_data_url;
+            }
         }
+
+        // add to final object
+        taskbar_items.push(item)
     }
 
     return taskbar_items;
 }
 
-function validate_signature_auth(url, action) {
+function validate_signature_auth(url, action, options = {}) {
     const query = new URL(url).searchParams;
 
     if(!query.get('uid'))
@@ -1521,6 +1559,12 @@ function validate_signature_auth(url, action) {
         throw {message: '`expires` is required for signature-based authentication.'}
     else if(!query.get('signature'))
         throw {message: '`signature` is required for signature-based authentication.'}
+    
+    if ( options.uid ) {
+        if ( query.get('uid') !== options.uid ) {
+            throw {message: 'Authentication failed. `uid` does not match.'}
+        }
+    }
 
     const expired = query.get('expires') && (query.get('expires') < Date.now() / 1000);
 

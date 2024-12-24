@@ -21,7 +21,7 @@ const { Context } = require('../../util/context');
 const { ParallelTasks } = require('../../util/otelutil');
 const FSNodeContext = require('../FSNodeContext');
 const { NodeUIDSelector } = require('../node/selectors');
-const { RESOURCE_STATUS_PENDING_CREATE } = require('../storage/ResourceService');
+const { RESOURCE_STATUS_PENDING_CREATE } = require('../../modules/puterfs/ResourceService');
 const { UploadProgressTracker } = require('../storage/UploadProgressTracker');
 const { LLFilesystemOperation } = require('./definitions');
 
@@ -157,15 +157,15 @@ class LLCopy extends LLFilesystemOperation {
             status: RESOURCE_STATUS_PENDING_CREATE,
         });
 
-        const svc_fsentry = svc.get('systemFSEntryService');
+        const svc_fsEntry = svc.get('fsEntryService');
         this.log.info(`inserting entry: ` + uuid);
-        const entryOp = await svc_fsentry.insert(raw_fsentry);
+        const entryOp = await svc_fsEntry.insert(raw_fsentry);
 
         let node;
 
         this.checkpoint('before parallel tasks');
         const tasks = new ParallelTasks({ tracer, max: 4 });
-        await tracer.startActiveSpan(`fs:cp:parallel-portion`, async span => {
+        await Context.arun(`fs:cp:parallel-portion`, async () => {
             this.checkpoint('starting parallel tasks');
             // Add child copy tasks if this is a directory
             if ( source.entry.is_dir ) {
@@ -181,7 +181,6 @@ class LLCopy extends LLFilesystemOperation {
                         const child_name = await child_node.get('name');
                         // TODO: this should be LLCopy instead
                         const ll_copy = new LLCopy();
-                        console.log('LL Copy Start');
                         await ll_copy.run({
                             source: await fs.node(
                                 new NodeUIDSelector(child_uuid)
@@ -192,30 +191,6 @@ class LLCopy extends LLFilesystemOperation {
                             user,
                             target_name: child_name,
                         });
-                        console.log('LL Copy End');
-                        // const hl_copy = new HLCopy();
-                        // await hl_copy.run({
-                        //     destination_or_parent: await fs.node(
-                        //         new NodeUIDSelector(uuid)
-                        //     ),
-                        //     source: await fs.node(
-                        //         new NodeUIDSelector(child_uuid)
-                        //     ),
-                        //     user
-                        // });
-                        // await fs.cp(fs, {
-                        //     source: await fs.node(
-                        //         new NodeUIDSelector(child_uuid)
-                        //     ),
-                        //     // TODO: don't do this when cp supports uuids
-                        //     destinationOrParent: await fs.node(
-                        //         new NodeUIDSelector(uuid)
-                        //     ),
-                        //     user,
-                        //     overwrite: false,
-                        //     create_missing_parents: false,
-                        //     ancestor_check_not_needed: true,
-                        // });
                     });
                 }
             }
@@ -241,8 +216,6 @@ class LLCopy extends LLFilesystemOperation {
             this.checkpoint('waiting for parallel tasks');
             await tasks.awaitAll();
             this.checkpoint('finishing up');
-
-            span.end();
         });
 
         node = node || await fs.node(new NodeUIDSelector(uuid));

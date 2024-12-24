@@ -31,24 +31,24 @@ config.disable_temp_users = false;
 config.default_user_group = '78b1b1dd-c959-44d2-b02c-8735671f9997';
 config.default_temp_group = 'b7220104-7905-4985-b996-649fdcdb3c8f';
 
-config.max_file_size = 100_000_000_000,
-config.max_thumb_size = 1_000,
-config.max_fsentry_name_length = 767,
+config.max_file_size = 100_000_000_000;
+config.max_thumb_size = 1_000;
+config.max_fsentry_name_length = 767;
 
-config.username_regex = /^\w{1,}$/;
+config.username_regex = /^\w+$/;
 config.username_max_length = 45;
-config.subdomain_regex = /^[a-zA-Z0-9-_-]+$/;
+config.subdomain_regex = /^[a-zA-Z0-9_-]+$/;
 config.subdomain_max_length = 60;
-config.app_name_regex = /^[a-zA-Z0-9-_-]+$/;
+config.app_name_regex = /^[a-zA-Z0-9_-]+$/;
 config.app_name_max_length = 60;
 config.app_title_max_length = 60;
 config.min_pass_length = 6;
 
-config.strict_email_verification_required = false,
-config.require_email_verification_to_publish_website = false,
+config.strict_email_verification_required = false;
+config.require_email_verification_to_publish_website = false;
 
-config.kv_max_key_size = 1024,
-config.kv_max_value_size = 400 * 1024,
+config.kv_max_key_size = 1024;
+config.kv_max_value_size = 400 * 1024;
 
 config.monitor = {
     metricsInterval: 60000,
@@ -70,9 +70,6 @@ config.app_max_icon_size = 5*1024*1024;
 
 config.defaultjs_asset_path = '../../';
 
-// config.origin = config.protocol + '://' + config.domain;
-// config.api_base_url = config.protocol + '://api.' + config.domain;
-// config.social_card = `${config.origin}/assets/img/screenshot.png`;
 config.short_description = `Puter is a privacy-first personal cloud that houses all your files, apps, and games in one private and secure place, accessible from anywhere at any time.`;
 config.title = 'Puter';
 config.company = 'Puter Technologies Inc.';
@@ -96,11 +93,12 @@ config.reserved_words = [];
 // set default S3 settings for this server, if any
 if (config.server_id) {
 	// see if this server has a specific bucket
-	for (let index = 0; index < config.servers.length; index++) {
-		if (config.servers[index].id === config.server_id && config.servers[index].s3_bucket){
-			config.s3_bucket = config.servers[index].s3_bucket;
-            config.s3_region = config.servers[index].region;
-        }
+    for ( const server of config.servers ) {
+        if ( server.id !== config.server_id ) continue;
+        if ( ! server.s3_bucket ) continue;
+
+        config.s3_bucket = server.s3_bucket;
+        config.s3_region = server.region;
 	}
 }
 
@@ -142,15 +140,15 @@ if ( config.os.refined ) {
 module.exports = config;
 
 // NEW_CONFIG_LOADING
+const maybe_port = config =>
+    config.pub_port !== 80 && config.pub_port !== 443 ? ':' + config.pub_port : '';
 
 const computed_defaults = {
     pub_port: config => config.http_port,
-    origin: config => config.protocol + '://' + config.domain +
-        (config.pub_port !== 80 && config.pub_port !== 443 ? ':' + config.pub_port : ''),
+    origin: config => config.protocol + '://' + config.domain + maybe_port(config),
     api_base_url: config => config.experimental_no_subdomain
         ? config.origin
-        : config.protocol + '://api.' + config.domain +
-        (config.pub_port !== 80 && config.pub_port !== 443 ? ':' + config.pub_port : ''),
+        : config.protocol + '://api.' + config.domain + maybe_port(config),
     social_card: config => `${config.origin}/assets/img/screenshot.png`,
 };
 
@@ -162,7 +160,7 @@ let config_to_export;
 // load_config() may replace
 const config_pointer = {};
 {
-    config_pointer.__proto__ = config;
+    Object.setPrototypeOf(config_pointer, config);
     config_to_export = config_pointer;
 }
 
@@ -173,15 +171,14 @@ const config_pointer = {};
         let replacement_config = {
             ...o,
         };
-        // replacement_config.__proto__ = config_pointer.__proto__;
-        replacement_config = deep_proto_merge(replacement_config, config_pointer.__proto__, {
+        replacement_config = deep_proto_merge(replacement_config, Object.getPrototypeOf(config_pointer), {
             preserve_flag: true,
         })
-        config_pointer.__proto__ = replacement_config;
+        Object.setPrototypeOf(config_pointer, replacement_config);
     };
 
     const config_api = { load_config };
-    config_api.__proto__ = config_to_export;
+    Object.setPrototypeOf(config_api, config_to_export);
     config_to_export = config_api;
 }
 
@@ -212,7 +209,7 @@ const config_pointer = {};
     const config_runtime_values = {
         $: 'runtime-values'
     };
-    config_runtime_values.__proto__ = config_to_export;
+    Object.setPrototypeOf(config_runtime_values, config_to_export);
     config_to_export = config_runtime_values
 
     // These can be difficult to find and cause painful

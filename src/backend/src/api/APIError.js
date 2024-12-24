@@ -324,36 +324,6 @@ module.exports = class APIError {
             message: () => 'Invalid token.',
         },
 
-        // drivers
-        'interface_not_found': {
-            status: 404,
-            message: ({ interface_name }) => `Interface not found: ${quot(interface_name)}`,
-        },
-        'no_implementation_available': {
-            status: 502,
-            message: ({
-                iface,
-                interface_name,
-                driver
-            }) => `No implementation available for ` +
-                (iface ?? interface_name) ? 'interface' : 'driver' +
-                ' ' + quot(iface ?? interface_name ?? driver) + '.',
-        },
-        'method_not_found': {
-            status: 404,
-            message: ({ interface_name, method_name }) => `Method not found: ${quot(method_name)} on interface ${quot(interface_name)}`,
-        },
-        'missing_required_argument': {
-            status: 400,
-            message: ({ interface_name, method_name, arg_name }) =>
-                `Missing required argument ${quot(arg_name)} for method ${quot(method_name)} on interface ${quot(interface_name)}`,
-        },
-        'argument_consolidation_failed': {
-            status: 400,
-            message: ({ interface_name, method_name, arg_name, message }) =>
-                `Failed to parse or process argument ${quot(arg_name)} for method ${quot(method_name)} on interface ${quot(interface_name)}: ${message}`,
-        },
-
         // SLA
         'rate_limit_exceeded': {
             status: 429,
@@ -504,18 +474,6 @@ module.exports = class APIError {
         'anti-csrf-incorrect': {
             status: 400,
             message: 'Incorrect or missing anti-CSRF token.',
-        },
-
-        // Chat
-        // TODO: specifying these errors here might be a violation
-        // of separation of concerns. Services could register their
-        // own errors with an error registry.
-        'max_tokens_exceeded': {
-            status: 400,
-            message: ({ input_tokens, max_tokens }) =>
-                `Input exceeds maximum token count. ` +
-                `Input has ${input_tokens} tokens, ` +
-                `but the maximum is ${max_tokens}.`,
         },
     };
 

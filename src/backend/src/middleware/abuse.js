@@ -20,7 +20,6 @@ const APIError = require("../api/APIError");
 const { Context } = require("../util/context");
 
 const abuse = options => (req, res, next) => {
-    // const svc_abuse = x.get('services').get('abuse-prevention');
     const requester = Context.get('requester');
 
     if ( options.no_bots ) {

@@ -23,7 +23,7 @@ const { Context } = require('../util/context');
 const { get_user } = require('../helpers');
 const { DB_WRITE } = require('./database/consts');
 const BaseService = require('./BaseService');
-const { UsernameNotifSelector, UserIDNotifSelector } = require('./NotificationService');
+const { UserIDNotifSelector } = require('./NotificationService');
 
 
 /**
@@ -112,7 +112,7 @@ class ReferralCodeService extends BaseService {
                 referral_code = generate_random_code(8, { rng });
             }
             try {
-                const update_res = db.write(`
+                db.write(`
                     UPDATE user SET referral_code=? WHERE id=?
                 `, [referral_code, user.id]);
                 return referral_code;

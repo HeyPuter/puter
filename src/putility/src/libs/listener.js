@@ -29,6 +29,7 @@ class MultiDetachable extends FeatureBase {
     ];
 
     constructor() {
+        super();
         this.delegates = [];
         this.detached_ = false;
     }

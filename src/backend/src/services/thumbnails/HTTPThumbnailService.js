@@ -382,8 +382,6 @@ class HTTPThumbnailService extends BaseService {
     * generation or undefined if an error occurred.
     */
     async exec_0 (queue) {
-        const { axios } = this.modules;
-
         this.log.info('starting thumbnail request');
         const resp = await this.request_({ queue });
         this.log.info('done thumbnail request');
@@ -448,8 +446,7 @@ class HTTPThumbnailService extends BaseService {
         let expected = 0;
         for ( const job of queue ) {
             expected++;
-            // const blob = new Blob([job.file.buffer], { type: job.file.mimetype });
-            // form.append('file', blob, job.file.filename);
+
             /**
             * Prepares and sends a request to the thumbnail service for processing multiple files.
             * 
@@ -462,12 +459,7 @@ class HTTPThumbnailService extends BaseService {
                 job.file.size = job.file.buffer.length;
                 return buffer_to_stream(job.file.buffer);
             })() : job.file.stream;
-            // const file_data = job.file.buffer ?? job.file.stream;
-            console.log('INFORMATION ABOUT THIS FILE', {
-                file_has_a_buffer: !!job.file.buffer,
-                file_has_a_stream: !!job.file.stream,
-                file: job.file,
-            });
+
             form.append('file', file_data, {
                 filename: job.file.name ?? job.file.originalname,
                 contentType: job.file.type ?? job.file.mimetype,

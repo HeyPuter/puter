@@ -23,6 +23,13 @@ class Context {
     static USE_NAME_FALLBACK = {};
     static next_name_ = 0;
     static other_next_names_ = {};
+    
+    // Context hooks should be registered via service (ContextService.js)
+    static context_hooks_ = {
+        pre_create: [],
+        post_create: [],
+        pre_arun: [],
+    };
 
     static contextAsyncLocalStorage = new AsyncLocalStorage();
     static __last_context_key = 0;
@@ -45,7 +52,6 @@ class Context {
                 );
             }
 
-            // x = globalThis.root_context ?? this.create({});
             x = this.root.sub({}, this.USE_NAME_FALLBACK);
         }
         if ( x && k ) return x.get(k);
@@ -59,8 +65,8 @@ class Context {
     static describe () {
         return this.get().describe();
     }
-    static arun (cb) {
-        return this.get().arun(cb);
+    static arun (...a) {
+        return this.get().arun(...a);
     }
     static sub (values, opt_name) {
         return this.get().sub(values, opt_name);
@@ -72,6 +78,14 @@ class Context {
         this.values_[k] = v;
     }
     sub (values, opt_name) {
+        if ( typeof values === 'string' ) {
+            opt_name = values;
+            values = {};
+        }
+        const name = opt_name ?? this.name ?? this.get('name');
+        for ( const hook of this.constructor.context_hooks_.pre_create ) {
+            hook({ values, name });
+        }
         return new Context(values, this, opt_name);
     }
     get values () {
@@ -99,6 +113,7 @@ class Context {
 
         opt_parent = opt_parent || Context.root;
 
+        this.trace_name = opt_name ?? undefined;
         this.name = (() => {
             if ( opt_name === this.constructor.USE_NAME_FALLBACK ) {
                 opt_name = 'F';
@@ -116,7 +131,7 @@ class Context {
         this.parent_ = opt_parent;
 
         if ( opt_parent ) {
-            values.__proto__ = opt_parent.values_;
+            Object.setPrototypeOf(values, opt_parent.values_);
             for ( const k in values ) {
                 const parent_val = opt_parent.values_[k];
                 if ( parent_val instanceof Context ) {
@@ -129,7 +144,34 @@ class Context {
 
         this.values_ = values;
     }
-    async arun (cb) {
+    async arun (...args) {
+        let cb = args.shift();
+        
+        let hints = {};
+        if ( typeof cb === 'object' ) {
+            hints = cb;
+            cb = args.shift();
+        }
+
+        if ( typeof cb === 'string' ) {
+            const sub_context = this.sub(cb);
+            return await sub_context.arun({ trace: true }, ...args);
+        }
+        
+        const replace_callback = new_cb => {
+            cb = new_cb;
+        }
+        
+        for ( const hook of this.constructor.context_hooks_.pre_arun ) {
+            hook({
+                hints,
+                name: this.name ?? this.get('name'),
+                trace_name: this.trace_name,
+                replace_callback,
+                callback: cb,
+            });
+        }
+        
         const als = this.constructor.contextAsyncLocalStorage;
         return await als.run(new Map(), async () => {
             als.getStore().set('context', this);
@@ -137,7 +179,6 @@ class Context {
         });
     }
     abind (cb) {
-        const als = this.constructor.contextAsyncLocalStorage;
         return async (...args) => {
             return await this.arun(async () => {
                 return await cb(...args);

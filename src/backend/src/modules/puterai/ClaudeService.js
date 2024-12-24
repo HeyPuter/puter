@@ -16,8 +16,6 @@ const PUTER_PROMPT = `
     user of the driver interface (typically an app on Puter):
 `.replace('\n', ' ').trim();
 
-// Maximum number of input tokens allowed for Claude API requests
-const MAX_CLAUDE_INPUT_TOKENS = 10000;
 
 
 /**
@@ -97,7 +95,6 @@ class ClaudeService extends BaseService {
             * @param {boolean} options.stream - Whether to stream the response
             * @param {string} [options.model] - The Claude model to use, defaults to service default
             * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or a completion object
-            * @throws {APIError} If input token count exceeds maximum allowed
             */
             async complete ({ messages, stream, model }) {
                 const adapted_messages = [];
@@ -129,33 +126,11 @@ class ClaudeService extends BaseService {
                     adapted_messages.push(message);
                     if ( message.role === 'user' ) {
                         previous_was_user = true;
+                    } else {
+                        previous_was_user = false;
                     }
                 }
 
-
-                /**
-                * Calculates the approximate token count for the input messages
-                * @private
-                * @returns {number} Estimated token count based on character length divided by 4
-                * @description Uses a simple character length based heuristic to estimate tokens.
-                * While not perfectly accurate, this provides a reasonable approximation for
-                * checking against max token limits before sending to Claude API.
-                */
-                const token_count = (() => {
-                    const text = JSON.stringify(adapted_messages) +
-                        JSON.stringify(system_prompts);
-                    
-                    // This is the most accurate token counter available for Claude.
-                    return text.length / 4;
-                })();
-
-                if ( token_count > MAX_CLAUDE_INPUT_TOKENS ) {
-                    throw APIError.create('max_tokens_exceeded', null, {
-                        input_tokens: token_count,
-                        max_tokens: MAX_CLAUDE_INPUT_TOKENS,
-                    });
-                }
-                
                 if ( stream ) {
                     let usage_promise = new TeePromise();
 
@@ -168,7 +143,7 @@ class ClaudeService extends BaseService {
                     (async () => {
                         const completion = await this.anthropic.messages.stream({
                             model: model ?? this.get_default_model(),
-                            max_tokens: 1000,
+                            max_tokens: (model === 'claude-3-5-sonnet-20241022' || model === 'claude-3-5-sonnet-20240620') ? 8192 : 4096,
                             temperature: 0,
                             system: PUTER_PROMPT + JSON.stringify(system_prompts),
                             messages: adapted_messages,
@@ -205,7 +180,7 @@ class ClaudeService extends BaseService {
 
                 const msg = await this.anthropic.messages.create({
                     model: model ?? this.get_default_model(),
-                    max_tokens: 1000,
+                    max_tokens: (model === 'claude-3-5-sonnet-20241022' || model === 'claude-3-5-sonnet-20240620') ? 8192 : 4096,
                     temperature: 0,
                     system: PUTER_PROMPT + JSON.stringify(system_prompts),
                     messages: adapted_messages,

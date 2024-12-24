@@ -22,13 +22,119 @@ const router = express.Router();
 const auth = require('../middleware/auth.js');
 const { get_app } = require('../helpers.js');
 const { DB_READ } = require('../services/database/consts.js');
+const { stream_to_buffer } = require('../util/streamutil.js');
+
+const get_apps = async ({ specifiers }) => {
+    return await Promise.all(specifiers.map(async (specifier) => {
+        return await get_app(specifier);
+    }));
+};
+
+const iconify_apps = async (context, { apps, size }) => {
+    return await Promise.all(apps.map(async app => {
+        const svc_appIcon = context.services.get('app-icon');
+        const icon_result = await svc_appIcon.get_icon_stream({
+            app_icon: app.icon,
+            app_uid: app.uid ?? app.uuid,
+            size: size,
+        });
+
+        if ( icon_result.data_url ) {
+            app.icon = icon_result.data_url;
+            return app;
+        }
+
+        try {
+            const buffer = await stream_to_buffer(icon_result.stream);
+            const resp_data_url = `data:${icon_result.mime};base64,${buffer.toString('base64')}`;
+            
+            app.icon = resp_data_url;
+        } catch (e) {
+            const svc_error = context.services.get('error');
+            svc_error.report('get-launch-apps:icon-stream', {
+                source: e,
+            });
+        }
+        return app;
+    }));
+}
 
 // -----------------------------------------------------------------------//
 // GET /get-launch-apps
 // -----------------------------------------------------------------------//
-router.get('/get-launch-apps', auth, express.json(), async (req, res, next)=>{
-    let final_returned_obj = {};
-    let retobj = [];
+module.exports = async (req, res) => {
+    let result = {};
+
+    // Verify query params
+    if ( req.query.icon_size ) {
+        const ALLOWED_SIZES = ['16', '32', '64', '128', '256', '512'];
+    
+        if ( ! ALLOWED_SIZES.includes(req.query.icon_size) ) {
+            res.status(400).send({ error: 'Invalid icon_size' });
+        }
+    }
+
+    // -----------------------------------------------------------------------//
+    // Recommended apps
+    // -----------------------------------------------------------------------//
+    const recommended_cache_key = 'global:recommended-apps' + (
+        req.query.icon_size ? `:icon-size:${req.query.icon_size}` : ''
+    );
+    result.recommended = kv.get(recommended_cache_key);
+    if ( ! result.recommended ) {
+        let app_names = new Set([
+            'app-center',
+            'dev-center',
+            'editor',
+            'code',
+            'terminal',
+            'draw',
+            'silex',
+            'camera',
+            'recorder',
+            'shell-shockers-outpan',
+            'krunker',
+            'slash-frvr',
+            'viewer',
+            'solitaire-frvr',
+            'markus',
+            'player',
+            'pdf',
+            'polotno',
+            'basketball-frvr',
+            'gold-digger-frvr',
+            'plushie-connect',
+            'hex-frvr',
+            'spider-solitaire',
+        ]);
+
+        // Prepare each app for returning to user by only returning the necessary fields
+        // and adding them to the retobj array
+        result.recommended = (await get_apps({
+            specifiers: Array.from(app_names).map(name => ({ name }))
+        })).filter(app => !! app).map(app => {
+            return {
+                uuid: app.uid,
+                name: app.name,
+                title: app.title,
+                icon: app.icon,
+                godmode: app.godmode,
+                maximize_on_start: app.maximize_on_start,
+                index_url: app.index_url,
+            };
+        });
+
+        // Iconify apps
+        if ( req.query.icon_size ) {
+            result.recommended = await iconify_apps({ services: req.services }, {
+                apps: result.recommended,
+                size: req.query.icon_size,
+            });
+        }
+
+        kv.set(recommended_cache_key, result.recommended);
+    }
+
     // -----------------------------------------------------------------------//
     // Recent apps
     // -----------------------------------------------------------------------//
@@ -45,103 +151,38 @@ router.get('/get-launch-apps', auth, express.json(), async (req, res, next)=>{
             'SELECT DISTINCT app_uid FROM app_opens WHERE user_id = ? GROUP BY app_uid ORDER BY MAX(_id) DESC LIMIT 10',
             [req.user.id]);
         // Update cache with the results from the db (if any results were returned)
-        if(apps && Array.isArray(apps) && apps.length > 0)
+        if(apps && Array.isArray(apps) && apps.length > 0) {
             kv.set('app_opens:user:' + req.user.id, apps);
-    }
-
-    for (let index = 0; index < apps.length; index++) {
-        const app = await get_app({uid: apps[index].app_uid});
-        let final_obj = {};
-
-        // prepare each app for returning to user by only returning the necessary fields
-        // and adding them to the retobj array
-        if(app){
-            final_obj = {
-                uuid: app.uid,
-                name: app.name,
-                title: app.title,
-                icon: app.icon,
-                godmode: app.godmode,
-                maximize_on_start: app.maximize_on_start,
-                index_url: app.index_url,
-            };
         }
-        // add to object to be returned
-        retobj.push(final_obj)
     }
-    final_returned_obj.recent = retobj;
-    // -----------------------------------------------------------------------//
-    // Recommended apps
-    // -----------------------------------------------------------------------//
-    // reset retobj
-    retobj = [];
-    let app_names = [
-        'app-center',
-        'dev-center',
-        'editor',
-        'code',
-        'terminal',
-        'draw',
-        'silex',
-        'camera',
-        'recorder',
-        'shell-shockers-outpan',
-        'krunker',
-        'slash-frvr',
-        'viewer',
-        'solitaire-frvr',
-        'markus',
-        'player',
-        'pdf',
-        'polotno',
-        'basketball-frvr',
-        'gold-digger-frvr',
-        'plushie-connect',
-        'hex-frvr',
-        'spider-solitaire',
-    ]
 
-    // Prepare each app for returning to user by only returning the necessary fields
+    // prepare each app for returning to user by only returning the necessary fields
     // and adding them to the retobj array
-    if(app_names.length > 0){
-        for (let index = 0; index < app_names.length; index++) {
-            const app = await get_app({name: app_names[index]});
+    result.recent = [];
+    console.log('\x1B[36;1m -------- RECENT APPS -------- \x1B[0m', apps);
+    for ( const { app_uid: uid } of apps ) {
+        console.log('\x1B[36;1m -------- UID -------- \x1B[0m', uid);
+        const app = await get_app({ uid });
+        if ( ! app ) continue
 
-            let final_obj = {};
-            if(app){
-                final_obj = {
-                    uuid: app.uid,
-                    name: app.name,
-                    title: app.title,
-                    icon: app.icon,
-                    godmode: app.godmode,
-                    maximize_on_start: app.maximize_on_start,
-                    index_url: app.index_url,
-                };
-            }
-            // add to object to be returned
-            retobj.push(final_obj)
-        }
-
-        // remove duplicates from retobj
-        if(retobj.length > 0)
-            retobj = retobj.filter((obj, pos, arr) => {
-                return arr.map(mapObj => mapObj['name']).indexOf(obj['name']) === pos;
-            })
+        result.recent.push({
+            uuid: app.uid,
+            name: app.name,
+            title: app.title,
+            icon: app.icon,
+            godmode: app.godmode,
+            maximize_on_start: app.maximize_on_start,
+            index_url: app.index_url,
+        });
     }
 
-    // Order output based on input!
-    let final_obj = [];
-    for (let index = 0; index < app_names.length; index++) {
-        const app_name = app_names[index];
-        for (let index = 0; index < retobj.length; index++) {
-            if(retobj[index].name === app_name)
-                final_obj.push(retobj[index]);
-        }
+    // Iconify apps
+    if ( req.query.icon_size ) {
+        result.recent = await iconify_apps({ services: req.services }, {
+            apps: result.recent,
+            size: req.query.icon_size,
+        });
     }
 
-    final_returned_obj.recommended = final_obj;
-
-    return res.send(final_returned_obj);
-})
-module.exports = router
+    return res.send(result);
+};

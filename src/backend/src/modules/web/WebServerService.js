@@ -23,7 +23,6 @@ const { Context, ContextExpressMiddleware } = require("../../util/context.js");
 const BaseService = require("../../services/BaseService.js");
 
 const config = require('../../config.js');
-const https = require('https')
 var http = require('http');
 const fs = require('fs');
 const auth = require('../../middleware/auth.js');
@@ -68,6 +67,8 @@ class WebServerService extends BaseService {
             router_webhooks: this.router_webhooks,
         });
         await services.emit('install.routes-gui', { app });
+        
+        this.log.noticeme('web server setup done');
     }
 
 
@@ -233,6 +234,7 @@ class WebServerService extends BaseService {
                 try {
                     let auth_res = await jwt_auth(socket);
                     // successful auth
+                    socket.actor = auth_res.actor;
                     socket.user = auth_res.user;
                     socket.token = auth_res.token;
                     // join user room
@@ -249,6 +251,7 @@ class WebServerService extends BaseService {
             }
         });
 
+        const context = Context.get();
         socketio.on('connection', (socket) => {
             /**
             * Starts the web server and associated services.
@@ -266,10 +269,14 @@ class WebServerService extends BaseService {
             socket.on('trash.is_empty', (msg) => {
                 socket.broadcast.to(socket.user.id).emit('trash.is_empty', msg);
             });
-            socket.on('puter_is_actually_open', (msg) => {
+            socket.on('puter_is_actually_open', async (msg) => {
                 const svc_event = this.services.get('event');
-                svc_event.emit('web.socket.user-connected', {
-                    user: socket.user
+                await context.sub({
+                    actor: socket.actor,
+                }).arun(async () => {
+                    await svc_event.emit('web.socket.user-connected', {
+                        user: socket.user
+                    });
                 });
             });
         });
@@ -465,11 +472,13 @@ class WebServerService extends BaseService {
             };
             await svc_event.emit('ip.validate', event);
 
-            // check if no origin
-            if ( req.method === 'POST' && req.headers.origin === undefined ) {
-                event.allow = false;
+            // rules that don't apply to notification endpoints
+            if ( req.path !== '/sns' && req.path !== '/sns/' ) {
+                // check if no origin
+                if ( req.method === 'POST' && req.headers.origin === undefined ) {
+                    event.allow = false;
+                }
             }
-
             if ( ! event.allow ) {
                 return res.status(403).send('Forbidden');
             }
@@ -480,6 +489,13 @@ class WebServerService extends BaseService {
         // so that signatures of the raw JSON can be verified
         this.router_webhooks = express.Router();
         app.use(this.router_webhooks);
+
+        app.use((req, res, next) => {
+            if ( req.get('x-amz-sns-message-type') ) {
+                req.headers['content-type'] = 'application/json';
+            }
+            next();
+        });
 
         app.use(express.json({limit: '50mb'}));
 
@@ -581,8 +597,6 @@ class WebServerService extends BaseService {
         app.options('/*', (_, res) => {
             return res.sendStatus(200);
         });
-        
-        console.log('WEB SERVER INIT DONE');
     }
 
     _register_commands (commands) {
@@ -601,7 +615,6 @@ class WebServerService extends BaseService {
             }
         ]);
     }
-
 
     /**
     * Starts the web server and sets up the necessary middleware and routes.

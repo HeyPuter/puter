@@ -18,11 +18,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require("../api/APIError");
+const { Entity } = require("../om/entitystorage/Entity");
 const { IdentifierUtil } = require("../om/IdentifierUtil");
-const { Null } = require("../om/query/query");
+const { Null, And, Eq } = require("../om/query/query");
 const { Context } = require("../util/context");
 const BaseService = require("./BaseService");
-
 
 /**
 * EntityStoreService - A service class that manages entity-related operations in the backend of Puter.
@@ -71,6 +71,78 @@ class EntityStoreService extends BaseService {
             entity_name: args.entity,
         });
     }
+    
+    static IMPLEMENTS = {
+        ['crud-q']: {
+            async create ({ object, options }) {
+                if ( object.hasOwnProperty(this.om.primary_identifier) ) {
+                    throw APIError.create('field_not_allowed_for_create', null, {
+                        key: this.om.primary_identifier
+                    });
+                }
+                const entity = await Entity.create({ om: this.om }, object);
+                return await this.create(entity, options);
+            },
+            async update ({ object, id, options }) {
+                const entity = await Entity.create({ om: this.om }, object);
+                return await this.update(entity, id, options);
+            },
+            async upsert ({ object, id, options }) {
+                const entity = await Entity.create({ om: this.om }, object);
+                return await this.upsert(entity, id, options);
+            },
+            async read ({ uid, id, params = {} }) {
+                return await Context.sub({
+                    es_params: params,
+                }).arun(async () => {
+                    if ( ! uid && ! id ) {
+                        throw APIError.create('xor_field_missing', null, {
+                            names: ['uid', 'id'],
+                        });
+                    }
+
+                    const entity = await this.fetch_based_on_either_id_(uid, id);
+                    if ( ! entity ) {
+                        throw APIError.create('entity_not_found', null, {
+                            identifier: uid
+                        });
+                    }
+                    return await entity.get_client_safe();
+                });
+            },
+            async select (options) {
+                return await Context.sub({
+                    es_params: options?.params ?? {},
+                }).arun(async () => {
+                    const entities = await this.select(options);
+                    const client_safe_entities = [];
+                    for ( const entity of entities ) {
+                        client_safe_entities.push(await entity.get_client_safe());
+                    }
+                    return client_safe_entities;
+                });
+            },
+            async delete ({ uid, id }) {
+                if ( ! uid && ! id ) {
+                    throw APIError.create('xor_field_missing', null, {
+                        names: ['uid', 'id'],
+                    });
+                }
+
+                if ( id && ! uid ) {
+                    const entity = await this.fetch_based_on_complex_id_(id);
+                    if ( ! entity ) {
+                        throw APIError.create('entity_not_found', null, {
+                            identifier: id
+                        });
+                    }
+                    uid = await entity.get(this.om.primary_identifier);
+                }
+
+                return await this.delete(uid);
+            }
+        }
+    };
 
     // TODO: can replace these with MethodProxyFeature
     /**
@@ -213,6 +285,68 @@ class EntityStoreService extends BaseService {
             });
         }
         return await this.upstream.delete(uid, { old_entity });
+    }
+    
+    async fetch_based_on_complex_id_ (id) {
+        // Ensure `id` is an object and get its keys
+        if ( ! id || typeof id !== 'object' || Array.isArray(id) ) {
+            throw APIError.create('invalid_id', null, { id });
+        }
+
+        const id_keys = Object.keys(id);
+        // sort keys alphabetically
+        id_keys.sort();
+
+        // Ensure key set is valid based on redundant keys listing
+        const redundant_identifiers = this.om.redundant_identifiers ?? [];
+
+        let match_found = false;
+        for ( let key of redundant_identifiers ) {
+            // Either a single key or a list
+            key = Array.isArray(key) ? key : [key];
+
+            // All keys in the list must be present in the id
+            for ( let i=0 ; i < key.length ; i++ ) {
+                if ( ! id_keys.includes(key[i]) ) {
+                    break;
+                }
+                if ( i === key.length - 1 ) {
+                    match_found = true;
+                    break;
+                }
+            }
+        }
+
+        if ( ! match_found ) {
+            throw APIError.create('invalid_id', null, { id });
+        }
+
+        // Construct a query predicate based on the keys
+        const key_eqs = [];
+        for ( const key of id_keys ) {
+            key_eqs.push(new Eq({
+                key,
+                value: id[key],
+            }));
+        }
+        let predicate = new And({ children: key_eqs });
+
+        // Perform a select
+        const entity = await this.read({ predicate });
+        if ( ! entity ) {
+            return null;
+        }
+
+        // Ensure there is only one result
+        return entity;
+    }
+
+    async fetch_based_on_either_id_ (uid, id) {
+        if ( uid ) {
+            return await this.read(uid);
+        }
+
+        return await this.fetch_based_on_complex_id_(id);
     }
 }
 

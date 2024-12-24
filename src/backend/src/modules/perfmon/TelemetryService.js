@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const opentelemetry = require("@opentelemetry/api");
 const { NodeSDK } = require('@opentelemetry/sdk-node');
 const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
 const { PeriodicExportingMetricReader, ConsoleMetricExporter } = require('@opentelemetry/sdk-metrics');
@@ -25,17 +26,13 @@ const { SemanticResourceAttributes } = require("@opentelemetry/semantic-conventi
 const { NodeTracerProvider } = require("@opentelemetry/sdk-trace-node");
 const { ConsoleSpanExporter, BatchSpanProcessor } = require("@opentelemetry/sdk-trace-base");
 const { JaegerExporter } = require('@opentelemetry/exporter-jaeger');
-const config = require('../config');
+const config = require('../../config');
 const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-grpc');
 
-class TelemetryService {
-    static instance_ = null;
-    static getInstance () {
-        if ( this.instance_ ) return this.instance_;
-        return this.instance_ = new TelemetryService();
-    }
+const BaseService = require('../../services/BaseService');
 
-    constructor () {
+class TelemetryService extends BaseService {
+    _construct () {
         const resource = Resource.default().merge(
             new Resource({
                 [SemanticResourceAttributes.SERVICE_NAME]: "puter-backend",
@@ -61,6 +58,33 @@ class TelemetryService {
         });
 
         this.sdk = sdk;
+
+        this.sdk.start();
+
+        this.tracer_ = opentelemetry.trace.getTracer(
+            'puter-tracer'
+        );
+    }
+    
+    _init () {
+        const svc_context = this.services.get('context');
+        svc_context.register_context_hook('pre_arun', ({ hints, trace_name, callback, replace_callback }) => {
+            if ( ! trace_name ) return;
+            if ( ! hints.trace ) return;
+            console.log('APPLYING TRACE NAME', trace_name);
+            replace_callback(async () => {
+                return await this.tracer_.startActiveSpan(trace_name, async span => {
+                    try {
+                        return await callback();
+                    } catch (error) {
+                        span.setStatus({ code: opentelemetry.SpanStatusCode.ERROR, message: error.message });
+                        throw error;
+                    } finally {
+                        span.end();
+                    }
+                });
+            });
+        });
     }
 
     getConfiguredExporter_() {
@@ -69,12 +93,6 @@ class TelemetryService {
         }
         const exporter = new ConsoleSpanExporter();
     }
-
-    start () {
-        // this.sdk.start();
-    }
 }
 
-module.exports = {
-    TelemetryService
-}
+module.exports = TelemetryService;

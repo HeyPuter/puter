@@ -54,6 +54,7 @@ const loading_spinner = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="
 const drop_area_placeholder = `<p>Drop your app folder and files here to deploy.</p><p style="font-size: 16px; margin-top: 0px;">HTML, JS, CSS, ...</p>`;
 const index_missing_error = `Please upload an 'index.html' file or if you're uploading a directory, make sure it contains an 'index.html' file at its root.`;
 const lock_svg = '<svg style="width: 20px; height: 20px; margin-bottom: -5px; margin-left: 5px; opacity: 0.5;" width="59px" height="59px" stroke-width="1.9" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M16 12H17.4C17.7314 12 18 12.2686 18 12.6V19.4C18 19.7314 17.7314 20 17.4 20H6.6C6.26863 20 6 19.7314 6 19.4V12.6C6 12.2686 6.26863 12 6.6 12H8M16 12V8C16 6.66667 15.2 4 12 4C8.8 4 8 6.66667 8 8V12M16 12H8" stroke="#000000" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+const copy_svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/> </svg>`;
 
 // authUsername
 (async () => {
@@ -143,7 +144,7 @@ $(document).ready(function () {
             })
         }
         // Get apps
-        puter.apps.list().then((resp) => {
+        puter.apps.list({params:{ icon_size: 64}}).then((resp) => {
             apps = resp;
 
             // hide loading
@@ -183,7 +184,7 @@ function refresh_app_list(show_loading = false) {
         // uncheck the select all checkbox
         $('.select-all-apps').prop('checked', false);
 
-        puter.apps.list().then((apps_res) => {
+        puter.apps.list({params:{ icon_size: 64}}).then((apps_res) => {
             $('#loading').hide();
             apps = apps_res;
             if (apps.length > 0) {
@@ -318,7 +319,7 @@ async function create_app(title, source_path = null, items = null) {
                 $('.new-app-modal').get(0).close();
                 window.location.reload();
                 // refresh app list
-                puter.apps.list().then(async (resp) => {
+                puter.apps.list({params:{ icon_size: 64}}).then(async (resp) => {
                     apps = resp;
                     // Close the 'Creting new app...' modal
                     // but make sure it was shown for at least 2 seconds
@@ -378,7 +379,7 @@ $(document).on('click', '.delete-app', async function (e) {
     let app_name = $(this).attr('data-app-name');
 
     // get app
-    const app_data = await puter.apps.get(app_name);
+    const app_data = await puter.apps.get(app_name, {params:{ icon_size: 16}});
 
     if(app_data.metadata?.locked){
         puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
@@ -522,9 +523,11 @@ function generate_edit_app_section(app) {
         </div>
 
         <div class="section-tab" data-tab="info">
-            <form style="clear:both;">
+            <form style="clear:both; padding-bottom: 50px;">
                 <div class="error" id="edit-app-error"></div>
-                <div class="success" id="edit-app-success">App has been successfully updated.<span class="close-success-msg">&times;</span></div>
+                <div class="success" id="edit-app-success">App has been successfully updated.<span class="close-success-msg">&times;</span>
+                <p style="margin-bottom:0;"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
+                </div>
                 <input type="hidden" id="edit-app-uid" value="${html_encode(app.uid)}">
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 40px;">Basic</h3>
@@ -538,7 +541,9 @@ function generate_edit_app_section(app) {
                 <input type="text" id="edit-app-index-url" placeholder="https://example-app.com/index.html" value="${html_encode(app.index_url)}">
                 
                 <label for="edit-app-app-id">App ID</label>
-                <input type="text" style="width: 362px;" class="app-uid" value="${html_encode(app.uid)}" readonly>
+                <div style="overflow:hidden;">
+                    <input type="text" style="width: 362px; float:left;" class="app-uid" value="${html_encode(app.uid)}" readonly><span class="copy-app-uid" style="cursor: pointer; height: 35px; display: inline-block; width: 50px; text-align: center; line-height: 35px; margin-left:5px;">${copy_svg}</span>
+                </div>
 
                 <label for="edit-app-icon">Icon</label>
                 <div id="edit-app-icon" style="background-image:url(${!app.icon ? './img/app.svg' : html_encode(app.icon)});" ${app.icon ? 'data-url="' + html_encode(app.icon) + '"' : ''}  ${app.icon ? 'data-base64="' + html_encode(app.icon) + '"' : ''} >
@@ -616,9 +621,10 @@ function generate_edit_app_section(app) {
                     <p><code>credentialless</code> attribute for the <code>iframe</code> tag.</p>
                 </div>
 
-                <hr style="margin-top: 40px;">
-                <button type="button" class="edit-app-save-btn button button-primary">Save</button>
-                <button type="button" class="edit-app-reset-btn button button-secondary">Reset</button>
+                <div style="z-index: 999; box-shadow: 10px 10px 15px #8c8c8c; overflow: hidden; position: fixed; bottom: 0; background: white; padding: 10px; width: 100%; left: 0;">
+                    <button type="button" class="edit-app-save-btn button button-primary" style="margin-right: 40px;">Save</button>
+                    <button type="button" class="edit-app-reset-btn button button-secondary">Reset</button>
+                </div>
             </form>
         </div>
     `
@@ -756,7 +762,7 @@ async function edit_app_section(cur_app_name) {
     $('.tab-btn').removeClass('active');
     $('.tab-btn[data-tab="apps"]').addClass('active');
 
-    let cur_app = await puter.apps.get(cur_app_name);
+    let cur_app = await puter.apps.get(cur_app_name, {params: {icon_size: 128}});
     currently_editing_app = cur_app;
 
     // generate edit app section
@@ -1105,7 +1111,30 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
             icon = null;
         }
     }
+    // parse filetype_associations
+    if(filetype_associations !== ''){
+        filetype_associations = JSON.parse(filetype_associations);
+        filetype_associations = filetype_associations.map((type) => {
+            const fileType = type.value;
+            if (
+                !fileType ||
+                fileType === "." ||
+                fileType === "/"
+            ) {
+                error = `<strong>File Association Type</strong> must be valid.`;
+                return null; // Return null for invalid cases
+            }
+            const lower = fileType.toLocaleLowerCase();
 
+            if (fileType.includes("/")) {
+            return lower;
+            } else if (fileType.includes(".")) {
+            return "." + lower.split(".")[1];
+            } else {
+            return "." + lower;
+            }
+        }).filter(Boolean);
+    }
     // error?
     if (error) {
         $('#edit-app-error').show();
@@ -1225,7 +1254,7 @@ $(document).on('click', '.delete-app-settings', async function (e) {
     let app_title = $(this).attr('data-app-title');
 
     // check if app is locked
-    const app_data = await puter.apps.get(app_name);
+    const app_data = await puter.apps.get(app_name, {params: {icon_size: 16}});
 
     if(app_data.metadata?.locked){
         puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
@@ -1301,7 +1330,7 @@ $(document).on('click', '.back-to-main-btn', function (e) {
     // get apps
     $('#loading').show();
     setTimeout(function () {
-        puter.apps.list().then((apps_res) => {
+        puter.apps.list({params: {icon_size: 64}}).then((apps_res) => {
             // uncheck the select all checkbox
             $('.select-all-apps').prop('checked', false);
 
@@ -1974,7 +2003,7 @@ $(document).on('click', '.insta-deploy-to-existing-app', function (e) {
     $('.insta-deploy-modal').get(0).close();
     $('.insta-deploy-existing-app-select').get(0).showModal();
     $('.insta-deploy-existing-app-list').html(`<div style="margin: 100px auto 10px auto; width: 40px; height:40px;">${loading_spinner}</div>`);
-    puter.apps.list().then((apps) => {
+    puter.apps.list({params:{ icon_size: 64}}).then((apps) => {
         setTimeout(() => {
             $('.insta-deploy-existing-app-list').html('');
             if (apps.length === 0)
@@ -2167,7 +2196,7 @@ $('.insta-deploy-existing-app-select').on('close', function (e) {
 $('.refresh-app-list').on('click', function (e) {
     $('.loading-modal').get(0)?.showModal();
 
-    puter.apps.list().then((resp) => {
+    puter.apps.list({params:{ icon_size: 64}}).then((resp) => {
         setTimeout(() => {
             apps = resp;
 
@@ -2300,7 +2329,7 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
             const app_name = $(app).attr('data-app-name');
 
             // get app
-            const app_data = await puter.apps.get(app_name);
+            const app_data = await puter.apps.get(app_name, {params: {icon_size: 64}});
 
             if(app_data.metadata?.locked){
                 if(apps.length === 1){
@@ -2591,3 +2620,13 @@ async function handleSocialImageUpload(app_name, socialImageData) {
         throw err;
     }
 }
+
+$(document).on('click', '.copy-app-uid', function(e) {
+    const appUID = $('#edit-app-uid').val();
+    navigator.clipboard.writeText(appUID);
+    // change to 'copied'
+    $(this).html('Copied');
+    setTimeout(() => {
+        $(this).html(copy_svg);
+    }, 2000);
+});

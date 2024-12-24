@@ -37,10 +37,16 @@ const implicit_user_permissions = {
 
 
 /**
-* The PermissionService class manages the core functionality for handling permissions within the Puter ecosystem.
-* It provides methods for granting, revoking, and checking permissions for various entities such as users and applications.
-* This service interacts with the database to store, retrieve, and audit permission changes, and also handles complex permission logic like rewriting, implication, and explosion of permissions.
-*/
+ * Permission rewriters are used to map one set of permission strings to another.
+ * These are invoked during permission scanning and when permissions are granted or revoked.
+ * 
+ * For example, Puter's filesystem uses this to map 'fs:/some/path:mode' to
+ * 'fs:SOME-UUID:mode'.
+ * 
+ * A rewriter is constructed using the static method PermissionRewriter.create({ matcher, rewriter }).
+ * The matcher is a function that takes a permission string and returns true if the rewriter should be applied.
+ * The rewriter is a function that takes a permission string and returns the rewritten permission string.
+ */
 class PermissionRewriter {
     static create ({ id, matcher, rewriter }) {
         return new PermissionRewriter({ id, matcher, rewriter });
@@ -70,11 +76,17 @@ class PermissionRewriter {
 
 
 /**
-* The PermissionImplicator class is used to manage implicit permissions.
-* It defines methods to match and check if a given permission is implicitly granted to an actor.
-* @class
-* @name PermissionImplicator
-*/
+ * Permission implicators are used to manage implicit permissions.
+ * It defines a method to check if a given permission is implicitly granted to an actor.
+ * 
+ * For example, Puter's filesystem uses this to grant permission to a file if the specified
+ * 'actor' is the owner of the file.
+ * 
+ * An implicator is constructed using the static method PermissionImplicator.create({ matcher, checker }).
+ * `matcher  is a function that takes a permission string and returns true if the implicator should be applied.
+ * `checker` is a function that takes an actor and a permission string and returns true if the permission is implied.
+ * The actor and permission are passed to checker({ actor, permission }) as an object.
+ */
 class PermissionImplicator {
     static create ({ id, matcher, checker }) {
         return new PermissionImplicator({ id, matcher, checker });
@@ -108,12 +120,17 @@ class PermissionImplicator {
 
 
 /**
-* The PermissionExploder class is responsible for expanding permissions into a set of more granular permissions.
-* It uses a matcher function to determine if a permission should be exploded and an exploder function to perform the expansion.
-* This class is part of the permission management system, allowing for dynamic and complex permission structures.
-* 
-* @class PermissionExploder
-*/
+ * Permission exploders are used to map any permission to a list of permissions
+ * which are considered to imply the specified permission.
+ * 
+ * It uses a matcher function to determine if a permission should be exploded
+ * and an exploder function to perform the expansion.
+ * 
+ * The exploder is constructed using the static method PermissionExploder.create({ matcher, explode }).
+ * The `matcher` is a function that takes a permission string and returns true if the exploder should be applied.
+ * The `explode` is a function that takes an actor and a permission string and returns a list of implied permissions.
+ * The actor and permission are passed to explode({ actor, permission }) as an object.
+ */
 class PermissionExploder {
     static create ({ id, matcher, exploder }) {
         return new PermissionExploder({ id, matcher, exploder });
@@ -952,14 +969,26 @@ class PermissionService extends BaseService {
     }
 
 
-    register_rewriter (translator) {
-        if ( ! (translator instanceof PermissionRewriter) ) {
-            throw new Error('translator must be a PermissionRewriter');
+    /**
+     * Register a permission rewriter. For details see the documentation on the
+     * PermissionRewriter class.
+     * 
+     * @param {PermissionRewriter} rewriter - The permission rewriter to register
+     */
+    register_rewriter (rewriter) {
+        if ( ! (rewriter instanceof PermissionRewriter) ) {
+            throw new Error('rewriter must be a PermissionRewriter');
         }
 
-        this._permission_rewriters.push(translator);
+        this._permission_rewriters.push(rewriter);
     }
 
+    /**
+     * Register a permission implicator. For details see the documentation on the
+     * PermissionImplicator class.
+     * 
+     * @param {PermissionImplicator} implicator - The permission implicator to register
+     */
     register_implicator (implicator) {
         if ( ! (implicator instanceof PermissionImplicator) ) {
             throw new Error('implicator must be a PermissionImplicator');
@@ -968,6 +997,12 @@ class PermissionService extends BaseService {
         this._permission_implicators.push(implicator);
     }
 
+    /**
+     * Register a permission exploder. For details see the documentation on the
+     * PermissionExploder class.
+     * 
+     * @param {PermissionExploder} exploder - The permission exploder to register
+     */
     register_exploder (exploder) {
         if ( ! (exploder instanceof PermissionExploder) ) {
             throw new Error('exploder must be a PermissionExploder');

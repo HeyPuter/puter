@@ -112,7 +112,7 @@ class DevTODService extends BaseService {
                 ...random_tip,
             ];
             if ( ! this.global_config.minimal_console ) {
-                lines.unshift("\x1B[1mTip of the Day\x1B[0m"),
+                lines.unshift("\x1B[1mTip of the Day\x1B[0m");
                 lines.push("Type tod:dismiss to un-stick this message");
             }
             surrounding_box('33;1', lines);
