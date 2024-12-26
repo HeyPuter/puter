@@ -537,12 +537,13 @@ function UIContextMenu(options){
     let x_pos;
     if( start_x + menu_width > window.innerWidth){
         x_pos = start_x - menu_width;
-        // if this is a child menu, the width of parent must be also considered
-        if(options.parent_id){
+        // if this is a child menu, the width of parent must also be considered
+        if(options.parent_id && $(`.context-menu[data-element-id="${options.parent_id}"]`).length > 0){
             x_pos -= $(`.context-menu[data-element-id="${options.parent_id}"]`).width() + 30;
         }
-    }else
+    }else{
         x_pos = start_x
+    }
 
     // Y position
     let y_pos;
