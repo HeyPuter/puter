@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require("../../api/APIError");
-const { app_name_exists, get_user, refresh_apps_cache } = require("../../helpers");
+const { app_name_exists, refresh_apps_cache } = require("../../helpers");
 
 const { AppUnderUserActorType } = require("../../services/auth/Actor");
 const { DB_WRITE } = require("../../services/database/consts");
@@ -35,6 +35,13 @@ class AppES extends BaseES {
             const services = this.context.get('services');
             this.db = services.get('database').get(DB_WRITE, 'apps');
         },
+
+        /**
+         * Creates query predicates for filtering apps
+         * @param {string} id - Predicate identifier
+         * @param {...any} args - Additional arguments for predicate creation
+         * @returns {Promise<Eq|Like>} Query predicate object
+         */
         async create_predicate (id, ...args) {
             if ( id === 'user-can-edit' ) {
                 return new Eq({
@@ -53,6 +60,12 @@ class AppES extends BaseES {
             const svc_appInformation = this.context.get('services').get('app-information');
             await svc_appInformation.delete_app(uid);
         },
+
+        /**
+         * Filters app selection based on user permissions and visibility settings
+         * @param {Object} options - Selection options including predicates
+         * @returns {Promise<Object>} Filtered selection results
+         */
         async select (options) {
             const actor = Context.get('actor');
             const user = actor.type.user;
@@ -85,6 +98,13 @@ class AppES extends BaseES {
 
             return await this.upstream.select(options);
         },
+        
+        /**
+         * Creates or updates an application with proper name handling and associations
+         * @param {Object} entity - Application entity to upsert
+         * @param {Object} extra - Additional upsert parameters
+         * @returns {Promise<Object>} Upsert operation results
+         */
         async upsert (entity, extra) {
             if ( await app_name_exists(await entity.get('name')) ) {
                 const { old_entity } = extra;
@@ -242,6 +262,11 @@ class AppES extends BaseES {
             };
             return await recurse(predicate);
         },
+
+        /**
+         * Transforms app data before reading by adding associations and handling permissions
+         * @param {Object} entity - App entity to transform
+         */
         async read_transform (entity) {
             // Add file associations
             const rows = await this.db.read(
@@ -264,6 +289,7 @@ class AppES extends BaseES {
                     ? origin : null ;
             })());
 
+            // Check if the user is the owner
             const is_owner = await (async () => {
                 let owner = await entity.get('owner');
                 
@@ -277,6 +303,7 @@ class AppES extends BaseES {
                 return actor.type.user.id === owner.id;
             })();
 
+            // Remove fields that are not allowed for non-owners
             if ( ! is_owner ) {
                 entity.del('approved_for_listing');
                 entity.del('approved_for_opening_items');
@@ -304,6 +331,13 @@ class AppES extends BaseES {
                 }
             }
         },
+
+        /**
+         * Creates a subdomain entry for the app if required
+         * @param {Object} entity - App entity
+         * @returns {Promise<number|undefined>} Subdomain ID if created
+         * @private
+         */
         async maybe_insert_subdomain_ (entity) {
             // Create and update is a situation where we might create a subdomain
 

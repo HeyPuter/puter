@@ -136,20 +136,39 @@ class AppInformationService {
         const key_open_count = `apps:open_count:uid:${app_uid}`;
         let open_count = kv.get(key_open_count);
         if ( ! open_count ) {
-            open_count = (await db.read(
-                `SELECT COUNT(_id) AS open_count FROM app_opens WHERE app_uid = ?`,
-                [app_uid]
-            ))[0].open_count;
+            if(global.clickhouseClient) {
+                const result = await global.clickhouseClient.query({
+                    query: `SELECT COUNT(_id) AS open_count FROM app_opens WHERE app_uid = '${app_uid}'`,
+                    format: 'JSONEachRow'
+                });
+                const rows = await result.json();
+                open_count = rows[0].open_count;
+            }else{
+                open_count = (await db.read(
+                    `SELECT COUNT(_id) AS open_count FROM app_opens WHERE app_uid = ?`,
+                    [app_uid]
+                ))[0].open_count;
+            }
         }
 
         // TODO: cache
         const key_user_count = `apps:user_count:uid:${app_uid}`;
         let user_count = kv.get(key_user_count);
         if ( ! user_count ) {
-            user_count = (await db.read(
-                `SELECT COUNT(DISTINCT user_id) AS user_count FROM app_opens WHERE app_uid = ?`,
-                [app_uid]
-            ))[0].user_count;
+            if(global.clickhouseClient) {
+                const result = await global.clickhouseClient.query({
+                    query: `SELECT COUNT(DISTINCT user_id) AS uniqueUsers FROM app_opens WHERE app_uid = '${app_uid}'`,
+                    format: 'JSONEachRow'
+                });
+                const rows = await result.json();
+                user_count = rows[0].uniqueUsers;
+            }else{
+                user_count = (await db.read(
+                    `SELECT COUNT(DISTINCT user_id) AS user_count FROM app_opens WHERE app_uid = ?`,
+                    [app_uid]
+                ))[0].user_count;                
+            }
+
         }
 
         const key_referral_count = `apps:referral_count:uid:${app_uid}`;
