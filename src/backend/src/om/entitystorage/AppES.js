@@ -130,7 +130,6 @@ class AppES extends BaseES {
                         });
                     }
 
-                    console.log('REMOVING NAME', name_info.id);
                     // Remove the old name from the old-app-name service
                     await svc_oldAppName.remove_name(name_info.id);
                 } else {
@@ -276,7 +275,7 @@ class AppES extends BaseES {
             entity.set('filetype_associations', rows.map(row => row.type));
 
             const svc_appInformation = this.context.get('services').get('app-information');
-            const stats = await svc_appInformation.get_stats(await entity.get('uid'));
+            const stats = await svc_appInformation.get_stats(await entity.get('uid'), {period: Context.get('es_params')?.stats_period});
             entity.set('stats', stats);
 
             entity.set('created_from_origin', await (async () => {
@@ -313,7 +312,6 @@ class AppES extends BaseES {
             // Replace icon if an icon size is specified
             const icon_size = Context.get('es_params')?.icon_size;
             if ( icon_size ) {
-                console.log('GOING TO');
                 const svc_appIcon = this.context.get('services').get('app-icon');
                 try {
                     const { stream, mime } = await svc_appIcon.get_icon_stream({
@@ -324,7 +322,6 @@ class AppES extends BaseES {
                     const buffer = await stream_to_buffer(stream);
                     const data_url = `data:${mime};base64,${buffer.toString('base64')}`;
                     await entity.set('icon', data_url);
-                    console.log('DID IT')
                 } catch (e) {
                     const svc_error = this.context.get('services').get('error-service');
                     svc_error.report('AppES:read_transform', { source: e });

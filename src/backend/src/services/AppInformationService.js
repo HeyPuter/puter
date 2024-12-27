@@ -118,73 +118,181 @@ class AppInformationService {
 
 
     /**
-    * Retrieves and returns statistical data for a specific application.
+    * Retrieves and returns statistical data for a specific application over different time periods.
     * 
     * This method fetches various metrics such as the number of times the app has been opened,
     * the count of unique users who have opened the app, and the number of referrals attributed to the app.
-    * It uses cached data where available to improve performance.
+    * It supports different time periods: today, yesterday, past 7 days, past 30 days, and all time.
     *
     * @param {string} app_uid - The unique identifier for the application.
+    * @param {Object} [options] - Optional parameters to customize the query
+    * @param {string} [options.period='all'] - Time period for stats: 'today', 'yesterday', '7d', '30d', 'this_month', 'last_month', 'this_year', 'last_year', 'all'
     * @returns {Promise<Object>} An object containing:
-    *   - {number} open_count - The total number of times the app has been opened.
-    *   - {number} user_count - The count of unique users who have opened the app.
-    *   - {number|null} referral_count - The number of referrals, or null if the data is not available or too expensive to retrieve.
+    *   - {Object} open_count - Open counts for different time periods
+    *   - {Object} user_count - Unique user counts for different time periods
+    *   - {number|null} referral_count - The number of referrals (all-time only)
     */
-    async get_stats (app_uid) {
+    async get_stats(app_uid, options = {}) {
+        let period = options.period ?? 'all';
+
         const db = this.services.get('database').get(DB_READ, 'apps');
-
-        const key_open_count = `apps:open_count:uid:${app_uid}`;
-        let open_count = kv.get(key_open_count);
-        if ( ! open_count ) {
-            if(global.clickhouseClient) {
-                const result = await global.clickhouseClient.query({
-                    query: `SELECT COUNT(_id) AS open_count FROM app_opens WHERE app_uid = '${app_uid}'`,
-                    format: 'JSONEachRow'
-                });
-                const rows = await result.json();
-                open_count = rows[0].open_count;
-            }else{
-                open_count = (await db.read(
-                    `SELECT COUNT(_id) AS open_count FROM app_opens WHERE app_uid = ?`,
-                    [app_uid]
-                ))[0].open_count;
+        
+        console.log('get_stats', app_uid, options);
+        // Helper function to get timestamp for different periods
+        const getTimeRange = (period) => {
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            
+            switch(period) {
+                case 'today':
+                    return {
+                        start: today.getTime(),
+                        end: now.getTime()
+                    };
+                case 'yesterday': {
+                    const yesterday = new Date(today);
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    return {
+                        start: yesterday.getTime(),
+                        end: today.getTime() - 1
+                    };
+                }
+                case '7d': {
+                    const weekAgo = new Date(now);
+                    weekAgo.setDate(weekAgo.getDate() - 7);
+                    return {
+                        start: weekAgo.getTime(),
+                        end: now.getTime()
+                    };
+                }
+                case '30d': {
+                    const monthAgo = new Date(now);
+                    monthAgo.setDate(monthAgo.getDate() - 30);
+                    return {
+                        start: monthAgo.getTime(),
+                        end: now.getTime()
+                    };
+                }
+                case 'this_month': {
+                    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                    return {
+                        start: firstDayOfMonth.getTime(),
+                        end: now.getTime()
+                    };
+                }
+                case 'last_month': {
+                    const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                    const firstDayOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                    return {
+                        start: firstDayOfLastMonth.getTime(),
+                        end: firstDayOfThisMonth.getTime() - 1
+                    };
+                }
+                case 'this_year': {
+                    const firstDayOfYear = new Date(now.getFullYear(), 0, 1);
+                    return {
+                        start: firstDayOfYear.getTime(),
+                        end: now.getTime()
+                    };
+                }
+                case 'last_year': {
+                    const firstDayOfLastYear = new Date(now.getFullYear() - 1, 0, 1);
+                    const firstDayOfThisYear = new Date(now.getFullYear(), 0, 1);
+                    return {
+                        start: firstDayOfLastYear.getTime(),
+                        end: firstDayOfThisYear.getTime() - 1
+                    };
+                }
+                default:
+                    return null;
             }
+        };
+
+        // Function to generate SQL query with time conditions
+        const generateQuery = (baseQuery, timeRange) => {
+            if (!timeRange) return baseQuery;
+            return `${baseQuery} AND timestamp >= ${timeRange.start} AND timestamp < ${timeRange.end}`;
+        };
+
+        // Get stats for the requested period
+        const timeRange = getTimeRange(period);
+        let open_count, user_count;
+
+        // Handle ClickHouse queries
+        if (global.clickhouseClient) {
+            const openCountQuery = timeRange
+                ? `SELECT COUNT(_id) AS open_count FROM app_opens 
+                WHERE app_uid = '${app_uid}' 
+                AND ts >= ${Math.floor(timeRange.start/ 1000)} 
+                AND ts < ${Math.floor(timeRange.end/ 1000)}`
+                : `SELECT COUNT(_id) AS open_count FROM app_opens 
+                WHERE app_uid = '${app_uid}'`;
+
+            const userCountQuery = timeRange
+                ? `SELECT COUNT(DISTINCT user_id) AS uniqueUsers FROM app_opens 
+                WHERE app_uid = '${app_uid}' 
+                AND ts >= ${Math.floor(timeRange.start/ 1000)} 
+                AND ts < ${Math.floor(timeRange.end/ 1000)}`
+                : `SELECT COUNT(DISTINCT user_id) AS uniqueUsers FROM app_opens 
+                WHERE app_uid = '${app_uid}'`;
+
+            const [openResult, userResult] = await Promise.all([
+                global.clickhouseClient.query({
+                    query: openCountQuery,
+                    format: 'JSONEachRow'
+                }),
+                global.clickhouseClient.query({
+                    query: userCountQuery,
+                    format: 'JSONEachRow'
+                })
+            ]);
+
+            const openRows = await openResult.json();
+            const userRows = await userResult.json();
+
+            open_count = openRows[0].open_count;
+            user_count = userRows[0].uniqueUsers;
+        } else {
+            // Regular MySQL queries
+            const baseOpenQuery = 'SELECT COUNT(_id) AS open_count FROM app_opens WHERE app_uid = ?';
+            const baseUserQuery = 'SELECT COUNT(DISTINCT user_id) AS user_count FROM app_opens WHERE app_uid = ?';
+
+            const [openResult, userResult] = await Promise.all([
+                db.read(
+                    generateQuery(baseOpenQuery, timeRange),
+                    [app_uid]
+                ),
+                db.read(
+                    generateQuery(baseUserQuery, timeRange),
+                    [app_uid]
+                )
+            ]);
+
+            console.log('openResult', openResult);
+            console.log('userResult', userResult);
+
+            open_count = openResult[0].open_count;
+            user_count = userResult[0].user_count;
         }
 
-        // TODO: cache
-        const key_user_count = `apps:user_count:uid:${app_uid}`;
-        let user_count = kv.get(key_user_count);
-        if ( ! user_count ) {
-            if(global.clickhouseClient) {
-                const result = await global.clickhouseClient.query({
-                    query: `SELECT COUNT(DISTINCT user_id) AS uniqueUsers FROM app_opens WHERE app_uid = '${app_uid}'`,
-                    format: 'JSONEachRow'
-                });
-                const rows = await result.json();
-                user_count = rows[0].uniqueUsers;
-            }else{
-                user_count = (await db.read(
-                    `SELECT COUNT(DISTINCT user_id) AS user_count FROM app_opens WHERE app_uid = ?`,
-                    [app_uid]
-                ))[0].user_count;
-            }
-
-        }
-
+        // Get referral count (all-time only, as it's expensive)
         const key_referral_count = `apps:referral_count:uid:${app_uid}`;
-        let referral_count = kv.get(key_referral_count);
-        if ( ! referral_count ) {
-            // NOOP: this operation is expensive so if it's not cached
-            // we simply won't report it
+        const referral_count = kv.get(key_referral_count);
+
+        // Cache the results for the specific period
+        if (period === 'all') {
+            const key_open_count = `apps:open_count:uid:${app_uid}`;
+            const key_user_count = `apps:user_count:uid:${app_uid}`;
+            kv.set(key_open_count, open_count);
+            kv.set(key_user_count, user_count);
         }
 
         return {
             open_count,
             user_count,
-            referral_count,
+            referral_count: period === 'all' ? referral_count : null
         };
     }
-
 
     /**
     * Retrieves various statistics for a given app.
