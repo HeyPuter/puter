@@ -188,6 +188,13 @@ class TimeWindow {
     }
 }
 
+const normalize = ({
+    high_value,
+}, value) => {
+    const k = -1 * (1 / high_value);
+    return 1 - Math.pow(Math.E, k * value);
+};
+
 module.exports = {
     Getter,
     LinearByCountGetter,
@@ -198,4 +205,5 @@ module.exports = {
     EWMA,
     MovingMode,
     TimeWindow,
+    normalize,
 }
