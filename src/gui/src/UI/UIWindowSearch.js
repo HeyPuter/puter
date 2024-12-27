@@ -1,10 +1,26 @@
 /**
- * Gestion du double-clic et du clic droit
- * - Double-clic ouvre les fichiers et les dossiers.
- * - Clic droit affiche un menu contextuel avec "Open Dir" pour les dossiers et "Open File" pour les fichiers.
- * - Le menu contextuel disparaît et le cache est effacé après l'exécution de l'action.
+ * Copyright (C) 2024 Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-
+import UIWindow from './UIWindow.js'
+import path from "../lib/path.js"
+import UIAlert from './UIAlert.js'
+import launch_app from '../helpers/launch_app.js'
+import item_icon from '../helpers/item_icon.js'
 import UIWindow from './UIWindow.js';
 import path from "../lib/path.js";
 import UIAlert from './UIAlert.js';
@@ -19,9 +35,6 @@ async function UIWindowSearch(options) {
     h += `<input type="text" class="search-input" placeholder="Search" style="background-image:url('${window.icons['magnifier-outline.svg']}');">`;
     h += `</div>`;
     h += `<div class="search-results" style="overflow-y: auto; max-height: 300px;"></div>`;
-        h += `<input type="text" class="search-input" placeholder="Search" style="background-image:url('${window.icons['magnifier-outline.svg']}');">`;
-    h += `</div>`;
-    h += `<div class="search-results" style="overflow-y: auto; max-height: 300px;">`;
 
     const el_window = await UIWindow({
         icon: null,
@@ -41,14 +54,8 @@ async function UIWindowSearch(options) {
         allow_native_ctxmenu: true,
         allow_user_select: true,
         window_class: 'window-search',
-        backdrop: true,
-        center: isMobile.phone,
-        onAppend: function(el_window){
-        },
-
         width: 500,
         dominant: true,
-
         window_css: {
             height: 'initial',
             padding: '0',
