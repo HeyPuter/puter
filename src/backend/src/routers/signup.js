@@ -78,6 +78,33 @@ module.exports = eggspress(['/signup'], {
     if(!req.body.is_temp && req.body.p102xyzname !== '')
         return res.send();
 
+
+    // send event
+    async function emitAsync(eventName, data) {
+        const listeners = process.listeners(eventName);
+        
+        if (listeners.length === 0) {
+            return data;
+        }
+        
+        await Promise.all(listeners.map(listener => listener(data)));
+        return data;
+    }
+
+    let event = {
+        allow: true,
+        ip: req.headers?.['x-forwarded-for'] ||
+            req.connection?.remoteAddress,
+        user_agent: req.headers?.['user-agent'],
+        body: req.body,
+    };
+
+    await emitAsync('puter.signup', event);
+
+    if ( ! event.allow ) {
+        return res.status(400).send('You are not allowed to sign up.');
+    }
+
     // check if user is already logged in
     if ( req.body.is_temp && req.cookies[config.cookie_name] ) {
         const { user, token } = await svc_auth.check_session(
