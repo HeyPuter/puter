@@ -687,7 +687,9 @@ $(document).bind("keyup keydown", async function(e){
                 launch_app({
                     name: $('.launch-app-selected').attr('data-name'),
                 })
-                $(".launch-popover").remove();
+                $(".popover-launcher").remove();
+                // taskbar item inactive
+                $('.taskbar-item[data-name="Start"]').removeClass('has-open-popover');
             });
 
             return false;
