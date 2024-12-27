@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const config = require("../config");
+const BaseService = require("../services/BaseService");
 
 class Metric {
     constructor (windowSize) {
@@ -121,15 +122,15 @@ class PerformanceMonitorContext {
     }
 }
 
-module.exports = class PerformanceMonitor {
-    static instance_ = null;
-
-    constructor () {
+class PerformanceMonitor extends BaseService {
+    _construct () {
         this.performanceMetrics = {};
 
         this.operationCounts = {};
         this.lastCountPollTS = Date.now();
+    }
 
+    _init () {
         if ( config.cloudwatch ) {
             const AWS = require('aws-sdk');
             this.cw = new AWS.CloudWatch(config.cloudwatch);
@@ -144,26 +145,6 @@ module.exports = class PerformanceMonitor {
                 await this.recordMetrics_();
             }, this.config.metricsInterval);
         }
-    }
-
-    /*
-        PerformanceMonitor was written before the services container
-        existed, so we have to provide the services to it manually.
-    */
-    static provideServices (services) {
-        this.services = services;
-    }
-
-    static getInstance () {
-        if ( PerformanceMonitor.instance_ ) {
-            return PerformanceMonitor.instance_;
-        }
-
-        return PerformanceMonitor.instance_ = new PerformanceMonitor();
-    }
-
-    static createContext (...a) {
-        return this.getInstance().createContext(...a);
     }
 
     createContext (name) {
@@ -228,6 +209,7 @@ module.exports = class PerformanceMonitor {
     }
 
     async recordMetrics_ () {
+        this.log.info('recording metrics');
         // Only record metrics of CloudWatch is enabled
         if ( ! this.cw ) return;
 
@@ -268,6 +250,11 @@ module.exports = class PerformanceMonitor {
         }
         this.lastCountPollTS = ts;
 
+        if ( MetricData.length === 0 ) {
+            this.log.info('no metrics to record');
+            return;
+        }
+
         const params = {
             Namespace: 'heyputer',
             MetricData,
@@ -287,48 +274,8 @@ module.exports = class PerformanceMonitor {
             )
         }
     }
-    async recordSingleMetric_ (name, value) {
-        if ( Number.isNaN(value) ) {
-            // occurs for averages of zero items
-            return;
-        }
-
-        // Make names easier to read
-        name = name.replace(/\s+/g, '-');
-
-        const params = {
-            Namespace: "heyputer",
-            MetricData: [
-                {
-                    MetricName: name,
-                    Value: value,
-                    Timestamp: Math.floor(Date.now() / 1000),
-                    Unit: "Milliseconds",
-                    Dimensions: {
-                        'server-id': config.server_id,
-                        'environment': config.env,
-                    }
-                },
-            ],
-        }
-        try {
-            await this.cw.putMetricData(params).promise();
-        } catch (e) {
-            if ( ! this.services ) {
-                console.error(
-                    'PerformanceMonitor had an error before services were available',
-                    e,
-                );
-                return;
-            }
-
-            const log = this.services.get('log').create('PM');
-            const errors = this.services.get('error-service').create(log);
-            errors.report('CloudWatch.putMetricData', {
-                source: e,
-                trace: true,
-                alarm: true,
-            });
-        }
-    }
 }
+
+module.exports = {
+    PerformanceMonitor,
+};

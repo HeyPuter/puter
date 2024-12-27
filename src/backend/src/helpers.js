@@ -1279,7 +1279,8 @@ function seconds_to_string(seconds) {
  * @param {*} options
  */
 async function suggest_app_for_fsentry(fsentry, options){
-    const monitor = PerformanceMonitor.createContext("suggest_app_for_fsentry");
+    const svc_performanceMonitor = services.get('performance-monitor');
+    const monitor = svc_performanceMonitor.createContext("suggest_app_for_fsentry");
     const suggested_apps = [];
 
     let content_type = mime.contentType(fsentry.name);
