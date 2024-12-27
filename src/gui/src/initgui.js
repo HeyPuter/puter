@@ -857,10 +857,9 @@ window.initgui = async function(options){
                 document.dispatchEvent(new Event("login", { bubbles: true}));
             },
             error: function (err){
-                $('#signup-error-msg').html(html_encode(err.responseText));
-                $('#signup-error-msg').fadeIn();
-                // re-enable 'Create Account' button
-                $('.signup-btn').prop('disabled', false);
+                UIAlert({
+                    message: html_encode(err.responseText),
+                });
             }
         });
     }

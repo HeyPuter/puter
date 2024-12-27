@@ -102,7 +102,7 @@ module.exports = eggspress(['/signup'], {
     await emitAsync('puter.signup', event);
 
     if ( ! event.allow ) {
-        return res.status(400).send('You are not allowed to sign up.');
+        return res.status(400).send(event.error ?? 'You are not allowed to sign up.');
     }
 
     // check if user is already logged in
