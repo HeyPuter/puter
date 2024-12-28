@@ -42,7 +42,7 @@ class Apps{
 
         // if args is a single object, assume it is the options object
         if (typeof args[0] === 'object' && args[0] !== null) {
-            options = args[0];
+            options.params = args[0];
         }
 
         options.predicate =  ['user-can-edit'];
@@ -65,6 +65,7 @@ class Apps{
                 }
             };
         }
+
         // * allows for: puter.apps.new({name: 'example-app', indexURL: 'https://example.com'}) *
         else if (typeof args[0] === 'object' && args[0] !== null) {
             let options_raw = args[0];
@@ -123,7 +124,7 @@ class Apps{
         if (Array.isArray(args) && typeof args[0] === 'string') {
             // if second argument is an object, assume it is the options object
             if (typeof args[1] === 'object' && args[1] !== null) {
-                options = args[1];
+                options.params = args[1];
             }
             // name
             options.id =  {name: args[0]};
@@ -131,7 +132,7 @@ class Apps{
 
         // if first argument is an object, assume it is the options object
         if (typeof args[0] === 'object' && args[0] !== null) {
-            options = args[0];
+            options.params = args[0];
         }
 
         return utils.make_driver_method(['uid'], 'puter-apps', undefined, 'read').call(this, options);

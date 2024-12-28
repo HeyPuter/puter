@@ -140,7 +140,7 @@ class AppInformationService {
             const key_open_count = `apps:open_count:uid:${app_uid}`;
             const key_user_count = `apps:user_count:uid:${app_uid}`;
             const key_referral_count = `apps:referral_count:uid:${app_uid}`;
-            
+
             const [cached_open_count, cached_user_count, cached_referral_count] = await Promise.all([
                 kv.get(key_open_count),
                 kv.get(key_user_count),
@@ -158,12 +158,12 @@ class AppInformationService {
         }
 
         const db = this.services.get('database').get(DB_READ, 'apps');
-        
+
         // Helper function to get timestamp for different periods
         const getTimeRange = (period) => {
             const now = new Date();
             const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            
+
             switch(period) {
                 case 'today':
                     return {
