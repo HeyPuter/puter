@@ -18,23 +18,62 @@
  */
 
 function fuzz_number(num) {
-    // If the number is 0, then return 0
+    // If the number is 0, return 0
     if (num === 0) return 0;
 
-    const magnitude = Math.floor(Math.log10(Math.abs(num)));
-
-    let significantFigures;
-
-    if (magnitude < 2) {             // Numbers < 100
-        significantFigures = magnitude + 1;
-    } else if (magnitude < 5) {      // Numbers < 100,000
-        significantFigures = 2;
-    } else {                        // Numbers >= 100,000
-        significantFigures = 3;
-    }
-
-    const factor = Math.pow(10, magnitude - significantFigures + 1);
-    return Math.round(num / factor) * factor;
+    // For 1-9
+    if (num < 10) return 1;
+    
+    // For 10-49
+    if (num < 50) return 10;
+    
+    // For 50-99
+    if (num < 100) return 50;
+    
+    // For 100-499
+    if (num < 500) return 100;
+    
+    // For 500-999
+    if (num < 1000) return 500;
+    
+    // For 1K-4.99K
+    if (num < 5000) return 1000;
+    
+    // For 5K-9.99K
+    if (num < 10000) return 5000;
+    
+    // For 10K-49.99K
+    if (num < 50000) return 10000;
+    
+    // For 50K-99.99K
+    if (num < 100000) return 50000;
+    
+    // For 100K-499.99K
+    if (num < 500000) return 100000;
+    
+    // For 500K-999.99K
+    if (num < 1000000) return 500000;
+    
+    // For 1M-4.99M
+    if (num < 5000000) return 1000000;
+    
+    // For 5M-9.99M
+    if (num < 10000000) return 5000000;
+    
+    // For 10M-49.99M
+    if (num < 50000000) return 10000000;
+    
+    // For 50M-99.99M
+    if (num < 100000000) return 50000000;
+    
+    // For 100M-499.99M
+    if (num < 500000000) return 100000000;
+    
+    // For 500M-999.99M
+    if (num < 1000000000) return 500000000;
+    
+    // For 1B+
+    return 1000000000;
 }
 
 module.exports = {
