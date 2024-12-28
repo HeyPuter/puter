@@ -384,18 +384,40 @@ class AppInformationService {
         const apps = await db.read(`SELECT uid FROM apps`);
 
         for ( const app of apps ) {
+            // open count
             const key_open_count = `apps:open_count:uid:${app.uid}`;
-            const { open_count } = (await db.read(
-                `SELECT COUNT(_id) AS open_count FROM app_opens WHERE app_uid = ?`,
-                [app.uid]
-            ))[0];
+            let open_count;
+
+            if(global.clickhouseClient) {
+                const result = await global.clickhouseClient.query({
+                    query: `SELECT COUNT(_id) AS open_count FROM app_opens WHERE app_uid = '${app_uid}'`,
+                    format: 'JSONEachRow'
+                });
+                const rows = await result.json();
+                open_count = rows[0]?.open_count ?? 0;
+            }else{
+                open_count = (await db.read(
+                    `SELECT COUNT(_id) AS open_count FROM app_opens WHERE app_uid = ?`,
+                    [app_uid]
+                ))[0].open_count;
+            }
             kv.set(key_open_count, open_count);
 
+            // user count
             const key_user_count = `apps:user_count:uid:${app.uid}`;
-            const { user_count } = (await db.read(
-                `SELECT COUNT(DISTINCT user_id) AS user_count FROM app_opens WHERE app_uid = ?`,
-                [app.uid]
-            ))[0];
+            let user_count;
+
+            if(global.clickhouseClient) {
+                const result = await global.clickhouseClient.query({
+                    query: `SELECT COUNT(DISTINCT user_id) AS uniqueUsers FROM app_opens WHERE app_uid = '${app_uid}'`,
+                    format: 'JSONEachRow'
+                });
+                const rows = await result.json();
+                user_count = rows[0]?.uniqueUsers ?? 0;
+            }else{
+                user_count = (await db.read(`SELECT COUNT(DISTINCT user_id) AS user_count FROM app_opens WHERE app_uid = ?`, [app_uid]))[0].user_count;
+            }
+
             kv.set(key_user_count, user_count);
         }
     }
