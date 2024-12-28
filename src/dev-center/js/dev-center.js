@@ -633,13 +633,11 @@ function generate_edit_app_section(app) {
                 <option value="7d">Last 7 days</option>
                 <option value="30d">Last 30 days</option>
                 <optgroup label="──────"></optgroup>
-                <option value="month_to_date">Month to date</option>
                 <option value="this_month">This month</option>
                 <option value="last_month">Last month</option>
                 <optgroup label="──────"></optgroup>
                 <option value="this_year">This year</option>
                 <option value="last_year">Last year</option>
-                <option value="year_to_date">Year to date</option>
                 <optgroup label="──────"></optgroup>
                 <option value="last_12_months">Last 12 months</option>
                 <option value="all_time">All time</option>
