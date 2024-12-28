@@ -644,14 +644,19 @@ function generate_edit_app_section(app) {
                 <option value="last_12_months">Last 12 months</option>
                 <option value="all_time">All time</option>
             </select>
-            <div id="analytics-users">
-                <h3>Users</h3>
-                <div class="count"></div>
+            <div style="overflow:hidden;">
+                <div class="analytics-card" id="analytics-users">
+                    <h3 style="margin-top:0;">Users</h3>
+                    <div class="count" style="font-size: 35px;"></div>
+                </div>
+                <div class="analytics-card" id="analytics-opens">
+                    <h3 style="margin-top:0;">Opens</h3>
+                    <div class="count" style="font-size: 35px;"></div>
+                </div>
             </div>
-            <div id="analytics-opens">
-                <h3>Opens</h3>
-                <div class="count"></div>
-            </div>
+            <hr style="margin-top: 50px;">
+            <p>Timezone: UTC</p>
+            <p>More analytics features coming soon...</p>
         </div>
     `
     return h;
@@ -1237,8 +1242,6 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
     // show working spinner
     puter.ui.showSpinner();
 
-    
-    
     // disable submit button
     $('.edit-app-save-btn').prop('disabled', true);
 
@@ -2816,8 +2819,11 @@ $(document).on('click', '.copy-app-uid', function(e) {
 });
 
 $(document).on('change', '#analytics-period', async function(e) {
+    puter.ui.showSpinner();
     const app = await puter.apps.get(currently_editing_app.name, { icon_size: 64, stats_period: $(this).val() });
 
     $('#analytics-users .count').html(number_format(app.stats.user_count));
     $('#analytics-opens .count').html(number_format(app.stats.open_count));
+
+    puter.ui.hideSpinner();
 })
