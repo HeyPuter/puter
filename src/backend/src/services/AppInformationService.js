@@ -203,6 +203,28 @@ class AppInformationService {
                         end: firstDayOfThisYear.getTime() - 1
                     };
                 }
+                case 'month_to_date': {
+                    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                    return {
+                        start: firstDayOfMonth.getTime(),
+                        end: now.getTime()
+                    };
+                }
+                case 'year_to_date': {
+                    const firstDayOfYear = new Date(now.getFullYear(), 0, 1);
+                    return {
+                        start: firstDayOfYear.getTime(),
+                        end: now.getTime()
+                    };
+                }
+                case 'last_12_months': {
+                    const last12Months = new Date(now);
+                    last12Months.setMonth(last12Months.getMonth() - 12);
+                    return {
+                        start: last12Months.getTime(),
+                        end: now.getTime()
+                    };
+                }
                 default:
                     return null;
             }
@@ -268,9 +290,6 @@ class AppInformationService {
                 )
             ]);
 
-            console.log('openResult', openResult);
-            console.log('userResult', userResult);
-
             open_count = openResult[0].open_count;
             user_count = userResult[0].user_count;
         }
@@ -288,8 +307,8 @@ class AppInformationService {
         }
 
         return {
-            open_count,
-            user_count,
+            open_count: parseInt(open_count ?? 0),
+            user_count: parseInt(user_count ?? 0),
             referral_count: period === 'all' ? referral_count : null
         };
     }
