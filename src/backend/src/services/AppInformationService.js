@@ -122,7 +122,7 @@ class AppInformationService {
     * 
     * This method fetches various metrics such as the number of times the app has been opened,
     * the count of unique users who have opened the app, and the number of referrals attributed to the app.
-    * It supports different time periods: today, yesterday, past 7 days, past 30 days, and all time.
+    * It supports different time periods such as today, yesterday, past 7 days, past 30 days, and all time.
     *
     * @param {string} app_uid - The unique identifier for the application.
     * @param {Object} [options] - Optional parameters to customize the query
@@ -135,9 +135,30 @@ class AppInformationService {
     async get_stats(app_uid, options = {}) {
         let period = options.period ?? 'all';
 
+        // Check cache first if period is 'all'
+        if (period === 'all') {
+            const key_open_count = `apps:open_count:uid:${app_uid}`;
+            const key_user_count = `apps:user_count:uid:${app_uid}`;
+            const key_referral_count = `apps:referral_count:uid:${app_uid}`;
+            
+            const [cached_open_count, cached_user_count, cached_referral_count] = await Promise.all([
+                kv.get(key_open_count),
+                kv.get(key_user_count),
+                kv.get(key_referral_count)
+            ]);
+
+            // If all cache values exist, return them
+            if (cached_open_count !== null && cached_user_count !== null) {
+                return {
+                    open_count: parseInt(cached_open_count),
+                    user_count: parseInt(cached_user_count),
+                    referral_count: cached_referral_count
+                };
+            }
+        }
+
         const db = this.services.get('database').get(DB_READ, 'apps');
         
-        console.log('get_stats', app_uid, options);
         // Helper function to get timestamp for different periods
         const getTimeRange = (period) => {
             const now = new Date();
