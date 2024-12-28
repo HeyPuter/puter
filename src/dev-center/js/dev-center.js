@@ -507,6 +507,7 @@ function generate_edit_app_section(app) {
         <ul class="section-tab-buttons disable-user-select">
             <li class="section-tab-btn active" data-tab="deploy"><span>Deploy</span></li>
             <li class="section-tab-btn" data-tab="info"><span>Settings</span></li>
+            <li class="section-tab-btn" data-tab="analytics"><span>Analytics</span></li>
         </ul>
 
         <div class="section-tab active" data-tab="deploy">
@@ -622,6 +623,35 @@ function generate_edit_app_section(app) {
                     <button type="button" class="edit-app-reset-btn button button-secondary">Reset</button>
                 </div>
             </form>
+        </div>
+        <div class="section-tab" data-tab="analytics">
+            <label for="analytics-period">Period</label>
+            <select id="analytics-period" class="category-select">
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <optgroup label="──────"></optgroup>
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+                <optgroup label="──────"></optgroup>
+                <option value="month_to_date">Month to date</option>
+                <option value="this_month">This month</option>
+                <option value="last_month">Last month</option>
+                <optgroup label="──────"></optgroup>
+                <option value="this_year">This year</option>
+                <option value="last_year">Last year</option>
+                <option value="year_to_date">Year to date</option>
+                <optgroup label="──────"></optgroup>
+                <option value="last_12_months">Last 12 months</option>
+                <option value="all_time">All time</option>
+            </select>
+            <div id="analytics-users">
+                <h3>Users</h3>
+                <div class="count"></div>
+            </div>
+            <div id="analytics-opens">
+                <h3>Opens</h3>
+                <div class="count"></div>
+            </div>
         </div>
     `
     return h;
@@ -758,7 +788,8 @@ async function edit_app_section(cur_app_name) {
     $('.tab-btn').removeClass('active');
     $('.tab-btn[data-tab="apps"]').addClass('active');
 
-    let cur_app = await puter.apps.get(cur_app_name, {icon_size: 128});
+    let cur_app = await puter.apps.get(cur_app_name, {icon_size: 128, stats_period: 'today'});
+    
     currently_editing_app = cur_app;
 
     // generate edit app section
@@ -768,6 +799,11 @@ async function edit_app_section(cur_app_name) {
     toggleResetButton();  // Ensure Reset button is initially disabled
     $('#edit-app').show();
 
+    // analytics
+    $('#analytics-users .count').html(cur_app.stats.user_count);
+    $('#analytics-opens .count').html(cur_app.stats.open_count);
+    
+    // get analytics
     const filetype_association_input = document.querySelector('textarea[id=edit-app-filetype-associations]');
     let tagify = new Tagify(filetype_association_input, {
         pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/(?:[a-z0-9.-]+|\*))/,
@@ -2778,3 +2814,10 @@ $(document).on('click', '.copy-app-uid', function(e) {
         $(this).html(copy_svg);
     }, 2000);
 });
+
+$(document).on('change', '#analytics-period', async function(e) {
+    const app = await puter.apps.get(currently_editing_app.name, { icon_size: 64, stats_period: $(this).val() });
+
+    $('#analytics-users .count').html(number_format(app.stats.user_count));
+    $('#analytics-opens .count').html(number_format(app.stats.open_count));
+})
