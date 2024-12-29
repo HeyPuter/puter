@@ -17,6 +17,30 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+* Rounds numbers to human-friendly thresholds commonly used for displaying metrics.
+* 
+* This function implements a stepwise rounding system:
+* - For small numbers (1-99): Uses specific thresholds (1+, 10+, 50+) to avoid showing exact small counts
+* - For hundreds (100-999): Rounds to 100+ or 500+
+* - For thousands (1K-999K): Uses K+ notation with 1K, 5K, 10K, 50K, 100K, 500K thresholds
+* - For millions (1M-999M): Uses M+ notation with 1M, 5M, 10M, 50M, 100M, 500M thresholds
+* - For billions: Shows as 1B+
+* 
+* The rounding is always down to the nearest threshold to ensure the "+" symbol
+* accurately indicates there are at least that many items.
+* 
+* @param {number} num - The number to be rounded
+* @returns {number} The rounded number according to the threshold rules
+*                  (without the "+" symbol, which should be added by display logic)
+* 
+* @example
+* fuzz_number(7)         // returns 1      (displays as "1+")
+* fuzz_number(45)        // returns 10     (displays as "10+")
+* fuzz_number(2500)      // returns 1000   (displays as "1K+")
+* fuzz_number(7500000)   // returns 5000000 (displays as "5M+")
+*/
+
 function fuzz_number(num) {
     // If the number is 0, return 0
     if (num === 0) return 0;
