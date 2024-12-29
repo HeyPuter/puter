@@ -639,8 +639,8 @@ function generate_edit_app_section(app) {
                 <option value="this_year">This year</option>
                 <option value="last_year">Last year</option>
                 <optgroup label="──────"></optgroup>
-                <option value="last_12_months">Last 12 months</option>
-                <option value="all_time">All time</option>
+                <option value="12m">Last 12 months</option>
+                <option value="all">All time</option>
             </select>
             <div style="overflow:hidden;">
                 <div class="analytics-card" id="analytics-users">
@@ -2818,10 +2818,92 @@ $(document).on('click', '.copy-app-uid', function(e) {
 
 $(document).on('change', '#analytics-period', async function(e) {
     puter.ui.showSpinner();
-    const app = await puter.apps.get(currently_editing_app.name, { icon_size: 64, stats_period: $(this).val() });
+
+    // set a sensible stats_grouping based on the selected period
+    let stats_grouping;
+
+    if ($(this).val() === 'today' || $(this).val() === 'yesterday') {
+        stats_grouping = 'hour';
+    }
+    else if ($(this).val() === 'this_week' || $(this).val() === 'last_week' || $(this).val() === 'this_month' || $(this).val() === 'last_month' || $(this).val() === '7d' || $(this).val() === '30d') {
+        stats_grouping = 'day';
+    }
+    else if ($(this).val() === 'this_year' || $(this).val() === 'last_year' || $(this).val() === '12m' || $(this).val() === 'all') {
+        stats_grouping = 'month';
+    }
+
+    const app = await puter.apps.get(
+        currently_editing_app.name, 
+        { 
+            icon_size: 16, 
+            stats_period: $(this).val(),
+            stats_grouping: stats_grouping,
+        }
+    );
 
     $('#analytics-users .count').html(number_format(app.stats.user_count));
     $('#analytics-opens .count').html(number_format(app.stats.open_count));
 
+    // Clear existing chart if any
+    $('#analytics-chart').remove();
+    $('.analytics-container').remove();
+
+    // Create new canvas
+    const container = $('<div class="analytics-container" style="width:100%; height:400px; margin-top:30px;"></div>');
+    const canvas = $('<canvas id="analytics-chart"></canvas>');
+    container.append(canvas);
+    $('#analytics-opens').parent().after(container);
+
+    // Format the data
+    const labels = app.stats.grouped_stats.open_count.map(item => item.period);
+    const openData = app.stats.grouped_stats.open_count.map(item => item.count);
+    const userData = app.stats.grouped_stats.user_count.map(item => item.count);
+
+    // Create chart
+    const ctx = document.getElementById('analytics-chart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Opens',
+                    data: openData,
+                    borderColor: '#8884d8',
+                    tension: 0.1,
+                    fill: false
+                },
+                {
+                    label: 'Users',
+                    data: userData,
+                    borderColor: '#82ca9d',
+                    tension: 0.1,
+                    fill: false
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: 'Period'
+                    }
+                },
+                y: {
+                    display: true,
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Count'
+                    }
+                }
+            }
+        }
+    });
+
     puter.ui.hideSpinner();
-})
+});

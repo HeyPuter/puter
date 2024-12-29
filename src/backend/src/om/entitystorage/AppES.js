@@ -275,7 +275,7 @@ class AppES extends BaseES {
             entity.set('filetype_associations', rows.map(row => row.type));
 
             const svc_appInformation = this.context.get('services').get('app-information');
-            const stats = await svc_appInformation.get_stats(await entity.get('uid'), {period: Context.get('es_params')?.stats_period});
+            const stats = await svc_appInformation.get_stats(await entity.get('uid'), {period: Context.get('es_params')?.stats_period, grouping: Context.get('es_params')?.stats_grouping, created_at: await entity.get('created_at')});
             entity.set('stats', stats);
 
             entity.set('created_from_origin', await (async () => {

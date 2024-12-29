@@ -45,6 +45,24 @@ class AppInformationService {
 
         this.tags = {};
 
+        // MySQL date format mapping for different groupings
+        this.mysqlDateFormats = {
+            'hour': '%Y-%m-%d %H:00:00',
+            'day': '%Y-%m-%d',
+            'week': '%Y-%U',
+            'month': '%Y-%m',
+            'year': '%Y'
+        };
+
+        // ClickHouse date format mapping for different groupings
+        this.clickhouseGroupByFormats = {
+            'hour': "toStartOfHour(fromUnixTimestamp(ts))",
+            'day': "toStartOfDay(fromUnixTimestamp(ts))",
+            'week': "toStartOfWeek(fromUnixTimestamp(ts))",
+            'month': "toStartOfMonth(fromUnixTimestamp(ts))",
+            'year': "toStartOfYear(fromUnixTimestamp(ts))"
+        };
+
         (async () => {
             // await new Promise(rslv => setTimeout(rslv, 500))
 
@@ -126,7 +144,8 @@ class AppInformationService {
     *
     * @param {string} app_uid - The unique identifier for the application.
     * @param {Object} [options] - Optional parameters to customize the query
-    * @param {string} [options.period='all'] - Time period for stats: 'today', 'yesterday', '7d', '30d', 'this_month', 'last_month', 'this_year', 'last_year', 'all'
+    * @param {string} [options.period='all'] - Time period for stats: 'today', 'yesterday', '7d', '30d', 'this_month', 'last_month', 'this_year', 'last_year', '12m', 'all'
+    * @param {string} [options.grouping=undefined] - Time grouping for stats: 'hour', 'day', 'week', 'month', 'year'
     * @returns {Promise<Object>} An object containing:
     *   - {Object} open_count - Open counts for different time periods
     *   - {Object} user_count - Unique user counts for different time periods
@@ -134,9 +153,11 @@ class AppInformationService {
     */
     async get_stats(app_uid, options = {}) {
         let period = options.period ?? 'all';
+        let stats_grouping = options.grouping;
+        let app_creation_ts = options.created_at;
 
-        // Check cache first if period is 'all'
-        if (period === 'all') {
+        // Check cache first if period is 'all' and no grouping is requested
+        if (period === 'all' && !stats_grouping) {
             const key_open_count = `apps:open_count:uid:${app_uid}`;
             const key_user_count = `apps:user_count:uid:${app_uid}`;
             const key_referral_count = `apps:referral_count:uid:${app_uid}`;
@@ -147,7 +168,6 @@ class AppInformationService {
                 kv.get(key_referral_count)
             ]);
 
-            // If all cache values exist, return them
             if (cached_open_count !== null && cached_user_count !== null) {
                 return {
                     open_count: parseInt(cached_open_count),
@@ -159,7 +179,6 @@ class AppInformationService {
 
         const db = this.services.get('database').get(DB_READ, 'apps');
 
-        // Helper function to get timestamp for different periods
         const getTimeRange = (period) => {
             const now = new Date();
             const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -194,6 +213,21 @@ class AppInformationService {
                         end: now.getTime()
                     };
                 }
+                case 'this_week': {
+                    const firstDayOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+                    return {
+                        start: firstDayOfWeek.getTime(),
+                        end: now.getTime()
+                    };
+                }
+                case 'last_week': {
+                    const firstDayOfLastWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay() - 7);
+                    const firstDayOfThisWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+                    return {
+                        start: firstDayOfLastWeek.getTime(),
+                        end: firstDayOfThisWeek.getTime() - 1
+                    };
+                }
                 case 'this_month': {
                     const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
                     return {
@@ -224,25 +258,19 @@ class AppInformationService {
                         end: firstDayOfThisYear.getTime() - 1
                     };
                 }
-                case 'month_to_date': {
-                    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                case '12m': {
+                    const twelveMonthsAgo = new Date(now);
+                    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
                     return {
-                        start: firstDayOfMonth.getTime(),
+                        start: twelveMonthsAgo.getTime(),
                         end: now.getTime()
                     };
                 }
-                case 'year_to_date': {
-                    const firstDayOfYear = new Date(now.getFullYear(), 0, 1);
+                case 'all':{
+                    const start = new Date(app_creation_ts);
+                    console.log('NARIMAN', start.getTime(), now.getTime());
                     return {
-                        start: firstDayOfYear.getTime(),
-                        end: now.getTime()
-                    };
-                }
-                case 'last_12_months': {
-                    const last12Months = new Date(now);
-                    last12Months.setMonth(last12Months.getMonth() - 12);
-                    return {
-                        start: last12Months.getTime(),
+                        start: start.getTime(),
                         end: now.getTime()
                     };
                 }
@@ -251,31 +279,169 @@ class AppInformationService {
             }
         };
 
-        // Function to generate SQL query with time conditions
-        const generateQuery = (baseQuery, timeRange) => {
-            if (!timeRange) return baseQuery;
-            return `${baseQuery} AND timestamp >= ${timeRange.start} AND timestamp < ${timeRange.end}`;
-        };
-
-        // Get stats for the requested period
         const timeRange = getTimeRange(period);
-        let open_count, user_count;
 
-        // Handle ClickHouse queries
+        // Handle time-based grouping if stats_grouping is specified
+        if (stats_grouping) {
+            const timeFormat = this.mysqlDateFormats[stats_grouping];
+            if (!timeFormat) {
+                throw new Error(`Invalid stats_grouping: ${stats_grouping}. Supported values are: hour, day, week, month, year`);
+            }
+
+            // Generate all periods for the time range
+            const allPeriods = this.generateAllPeriods(
+                new Date(timeRange.start),
+                new Date(timeRange.end),
+                stats_grouping
+            );
+
+            if (global.clickhouseClient) {
+                const groupByFormat = this.clickhouseGroupByFormats[stats_grouping];
+                const timeCondition = timeRange ? 
+                    `AND ts >= ${Math.floor(timeRange.start/1000)} AND ts < ${Math.floor(timeRange.end/1000)}` : '';
+            
+                const [openResult, userResult] = await Promise.all([
+                    global.clickhouseClient.query({
+                        query: `
+                            SELECT 
+                                ${groupByFormat} as period,
+                                COUNT(_id) as count
+                            FROM app_opens 
+                            WHERE app_uid = '${app_uid}' 
+                            ${timeCondition}
+                            GROUP BY period
+                            ORDER BY period
+                        `,
+                        format: 'JSONEachRow'
+                    }),
+                    global.clickhouseClient.query({
+                        query: `
+                            SELECT 
+                                ${groupByFormat} as period,
+                                COUNT(DISTINCT user_id) as count
+                            FROM app_opens 
+                            WHERE app_uid = '${app_uid}' 
+                            ${timeCondition}
+                            GROUP BY period
+                            ORDER BY period
+                        `,
+                        format: 'JSONEachRow'
+                    })
+                ]);
+            
+                const openRows = await openResult.json();
+                const userRows = await userResult.json();
+            
+                // Ensure counts are properly parsed as integers
+                const processedOpenRows = openRows.map(row => ({
+                    period: new Date(row.period),
+                    count: parseInt(row.count)
+                }));
+            
+                const processedUserRows = userRows.map(row => ({
+                    period: new Date(row.period),
+                    count: parseInt(row.count)
+                }));
+            
+                // Calculate totals from the processed rows
+                const totalOpenCount = processedOpenRows.reduce((sum, row) => sum + row.count, 0);
+                const totalUserCount = processedUserRows.reduce((sum, row) => sum + row.count, 0);
+            
+                // Generate all periods and merge with actual data
+                const allPeriods = this.generateAllPeriods(
+                    new Date(timeRange.start),
+                    new Date(timeRange.end),
+                    stats_grouping
+                );
+            
+                const completeOpenStats = this.mergeWithGeneratedPeriods(processedOpenRows, allPeriods, stats_grouping);
+                const completeUserStats = this.mergeWithGeneratedPeriods(processedUserRows, allPeriods, stats_grouping);
+            
+                return {
+                    open_count: totalOpenCount,
+                    user_count: totalUserCount,
+                    grouped_stats: {
+                        open_count: completeOpenStats,
+                        user_count: completeUserStats
+                    },
+                    referral_count: period === 'all' ? await kv.get(`apps:referral_count:uid:${app_uid}`) : null
+                };
+            }
+            
+            else {
+                // MySQL queries for grouped stats
+                const queryParams = timeRange ? 
+                    [app_uid, timeRange.start, timeRange.end] : 
+                    [app_uid];
+
+                const [openResult, userResult] = await Promise.all([
+                    db.read(`
+                        SELECT 
+                            DATE_FORMAT(FROM_UNIXTIME(timestamp/1000), '${timeFormat}') as period,
+                            COUNT(_id) as count
+                        FROM app_opens 
+                        WHERE app_uid = ?
+                        ${timeRange ? 'AND timestamp >= ? AND timestamp < ?' : ''}
+                        GROUP BY period
+                        ORDER BY period
+                    `, queryParams),
+                    db.read(`
+                        SELECT 
+                            DATE_FORMAT(FROM_UNIXTIME(timestamp/1000), '${timeFormat}') as period,
+                            COUNT(DISTINCT user_id) as count
+                        FROM app_opens 
+                        WHERE app_uid = ?
+                        ${timeRange ? 'AND timestamp >= ? AND timestamp < ?' : ''}
+                        GROUP BY period
+                        ORDER BY period
+                    `, queryParams)
+                ]);
+
+                // Calculate totals
+                const totalOpenCount = openResult.reduce((sum, row) => sum + parseInt(row.count), 0);
+                const totalUserCount = userResult.reduce((sum, row) => sum + parseInt(row.count), 0);
+
+                // Convert MySQL results to the same format as needed
+                const openRows = openResult.map(row => ({
+                    period: row.period,
+                    count: parseInt(row.count)
+                }));
+                const userRows = userResult.map(row => ({
+                    period: row.period,
+                    count: parseInt(row.count)
+                }));
+
+                // Merge with generated periods to include zero-value periods
+                const completeOpenStats = this.mergeWithGeneratedPeriods(openRows, allPeriods, stats_grouping);
+                const completeUserStats = this.mergeWithGeneratedPeriods(userRows, allPeriods, stats_grouping);
+
+                return {
+                    open_count: totalOpenCount,
+                    user_count: totalUserCount,
+                    grouped_stats: {
+                        open_count: completeOpenStats,
+                        user_count: completeUserStats
+                    },
+                    referral_count: period === 'all' ? await kv.get(`apps:referral_count:uid:${app_uid}`) : null
+                };
+            }
+        }
+
+        // Handle non-grouped stats
         if (global.clickhouseClient) {
             const openCountQuery = timeRange
                 ? `SELECT COUNT(_id) AS open_count FROM app_opens 
                 WHERE app_uid = '${app_uid}' 
-                AND ts >= ${Math.floor(timeRange.start/ 1000)} 
-                AND ts < ${Math.floor(timeRange.end/ 1000)}`
+                AND ts >= ${Math.floor(timeRange.start/1000)} 
+                AND ts < ${Math.floor(timeRange.end/1000)}`
                 : `SELECT COUNT(_id) AS open_count FROM app_opens 
                 WHERE app_uid = '${app_uid}'`;
 
             const userCountQuery = timeRange
                 ? `SELECT COUNT(DISTINCT user_id) AS uniqueUsers FROM app_opens 
                 WHERE app_uid = '${app_uid}' 
-                AND ts >= ${Math.floor(timeRange.start/ 1000)} 
-                AND ts < ${Math.floor(timeRange.end/ 1000)}`
+                AND ts >= ${Math.floor(timeRange.start/1000)} 
+                AND ts < ${Math.floor(timeRange.end/1000)}`
                 : `SELECT COUNT(DISTINCT user_id) AS uniqueUsers FROM app_opens 
                 WHERE app_uid = '${app_uid}'`;
 
@@ -293,45 +459,60 @@ class AppInformationService {
             const openRows = await openResult.json();
             const userRows = await userResult.json();
 
-            open_count = openRows[0].open_count;
-            user_count = userRows[0].uniqueUsers;
+            const results = {
+                open_count: parseInt(openRows[0].open_count),
+                user_count: parseInt(userRows[0].uniqueUsers),
+                referral_count: period === 'all' ? await kv.get(`apps:referral_count:uid:${app_uid}`) : null
+            };
+
+            // Cache the results if period is 'all'
+            if (period === 'all') {
+                const key_open_count = `apps:open_count:uid:${app_uid}`;
+                const key_user_count = `apps:user_count:uid:${app_uid}`;
+                await Promise.all([
+                    kv.set(key_open_count, results.open_count),
+                    kv.set(key_user_count, results.user_count)
+                ]);
+            }
+
+            return results;
         } else {
-            // Regular MySQL queries
+            // Regular MySQL queries for non-grouped stats
             const baseOpenQuery = 'SELECT COUNT(_id) AS open_count FROM app_opens WHERE app_uid = ?';
             const baseUserQuery = 'SELECT COUNT(DISTINCT user_id) AS user_count FROM app_opens WHERE app_uid = ?';
 
+            const generateQuery = (baseQuery, timeRange) => {
+                if (!timeRange) return baseQuery;
+                return `${baseQuery} AND timestamp >= ? AND timestamp < ?`;
+            };
+
+            const openQuery = generateQuery(baseOpenQuery, timeRange);
+            const userQuery = generateQuery(baseUserQuery, timeRange);
+            const queryParams = timeRange ? [app_uid, timeRange.start, timeRange.end] : [app_uid];
+
             const [openResult, userResult] = await Promise.all([
-                db.read(
-                    generateQuery(baseOpenQuery, timeRange),
-                    [app_uid]
-                ),
-                db.read(
-                    generateQuery(baseUserQuery, timeRange),
-                    [app_uid]
-                )
+                db.read(openQuery, queryParams),
+                db.read(userQuery, queryParams)
             ]);
 
-            open_count = openResult[0].open_count;
-            user_count = userResult[0].user_count;
+            const results = {
+                open_count: parseInt(openResult[0].open_count),
+                user_count: parseInt(userResult[0].user_count),
+                referral_count: period === 'all' ? await kv.get(`apps:referral_count:uid:${app_uid}`) : null
+            };
+
+            // Cache the results if period is 'all'
+            if (period === 'all') {
+                const key_open_count = `apps:open_count:uid:${app_uid}`;
+                const key_user_count = `apps:user_count:uid:${app_uid}`;
+                await Promise.all([
+                    kv.set(key_open_count, results.open_count),
+                    kv.set(key_user_count, results.user_count)
+                ]);
+            }
+
+            return results;
         }
-
-        // Get referral count (all-time only, as it's expensive)
-        const key_referral_count = `apps:referral_count:uid:${app_uid}`;
-        const referral_count = kv.get(key_referral_count);
-
-        // Cache the results for the specific period
-        if (period === 'all') {
-            const key_open_count = `apps:open_count:uid:${app_uid}`;
-            const key_user_count = `apps:user_count:uid:${app_uid}`;
-            kv.set(key_open_count, open_count);
-            kv.set(key_user_count, user_count);
-        }
-
-        return {
-            open_count: parseInt(open_count ?? 0),
-            user_count: parseInt(user_count ?? 0),
-            referral_count: period === 'all' ? referral_count : null
-        };
     }
 
     /**
@@ -568,6 +749,96 @@ class AppInformationService {
         }
 
     }
+
+    // Helper function to generate array of all periods between start and end dates
+    generateAllPeriods(startDate, endDate, grouping) {
+        const periods = [];
+        let currentDate = new Date(startDate);
+        
+        while (currentDate <= endDate) {
+            let period;
+            switch(grouping) {
+                case 'hour':
+                    period = currentDate.toISOString().slice(0, 13) + ':00:00';
+                    currentDate.setHours(currentDate.getHours() + 1);
+                    break;
+                case 'day':
+                    period = currentDate.toISOString().slice(0, 10);
+                    currentDate.setDate(currentDate.getDate() + 1);
+                    break;
+                case 'week':
+                    // Get the ISO week number
+                    const weekNum = String(getWeekNumber(currentDate)).padStart(2, '0');
+                    period = `${currentDate.getFullYear()}-${weekNum}`;
+                    currentDate.setDate(currentDate.getDate() + 7);
+                    break;
+                case 'month':
+                    period = currentDate.toISOString().slice(0, 7);
+                    currentDate.setMonth(currentDate.getMonth() + 1);
+                    break;
+                case 'year':
+                    period = currentDate.getFullYear().toString();
+                    currentDate.setFullYear(currentDate.getFullYear() + 1);
+                    break;
+            }
+            periods.push({ period, count: 0 });
+        }
+        return periods;
+    }
+
+    // Helper function to get ISO week number
+    getWeekNumber(date) {
+        const target = new Date(date.valueOf());
+        const dayNumber = (date.getDay() + 6) % 7;
+        target.setDate(target.getDate() - dayNumber + 3);
+        const firstThursday = target.valueOf();
+        target.setMonth(0, 1);
+        if (target.getDay() !== 4) {
+            target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
+        }
+        return 1 + Math.ceil((firstThursday - target) / 604800000);
+    }
+
+    // Helper function to merge actual data with generated periods
+    mergeWithGeneratedPeriods(actualData, allPeriods, stats_grouping) {
+        // Create a map of period to count from actual data
+        // First normalize the period format from both MySQL and ClickHouse
+        const dataMap = new Map(actualData.map(item => {
+            let period = item.period;
+            // For ClickHouse results, convert the timestamp to match the expected format
+            if (item.period instanceof Date) {
+                switch(stats_grouping) {
+                    case 'hour':
+                        period = item.period.toISOString().slice(0, 13) + ':00:00';
+                        break;
+                    case 'day':
+                        period = item.period.toISOString().slice(0, 10);
+                        break;
+                    case 'week':
+                        const weekNum = String(this.getWeekNumber(item.period)).padStart(2, '0');
+                        period = `${item.period.getFullYear()}-${weekNum}`;
+                        break;
+                    case 'month':
+                        period = item.period.toISOString().slice(0, 7);
+                        break;
+                    case 'year':
+                        period = item.period.getFullYear().toString();
+                        break;
+                }
+            }
+            return [period, parseInt(item.count)];
+        }));
+
+        // Map the generated periods to include actual counts where they exist
+        return allPeriods.map(periodObj => {
+            const count = dataMap.get(periodObj.period);
+            return {
+                period: periodObj.period,
+                count: count !== undefined ? count : 0
+            };
+        });
+    }
+
 }
 
 module.exports = {
