@@ -23,10 +23,12 @@ const { NodeUIDSelector } = require("../node/selectors");
 const { UploadProgressTracker } = require("../storage/UploadProgressTracker");
 const FSNodeContext = require("../FSNodeContext");
 const APIError = require("../../api/APIError");
-const { progress_stream, stuck_detector_stream } = require("../../util/streamutil");
+const { progress_stream, stuck_detector_stream, hashing_stream } = require("../../util/streamutil");
 const { OperationFrame } = require("../../services/OperationTraceService");
 const { Actor } = require("../../services/auth/Actor");
 const { DB_WRITE } = require("../../services/database/consts");
+
+const crypto = require('crypto');
 
 const STUCK_STATUS_TIMEOUT = 10 * 1000;
 const STUCK_ALARM_TIMEOUT = 20 * 1000;
@@ -97,6 +99,25 @@ class LLWriteBase extends LLFilesystemOperation {
             });
             file = { ...file, stream, };
         }
+
+        let hashPromise;
+        if ( file.buffer ) {
+            const hash = crypto.createHash('sha256');
+            hash.update(file.buffer);
+            hashPromise = Promise.resolve(hash.digest('hex'));
+        } else {
+            const hs = hashing_stream(file.stream);
+            file.stream = hs.stream;
+            hashPromise = hs.hashPromise;
+        }
+
+        hashPromise.then(hash => {
+            const svc_event = Context.get('services').get('event');
+            console.log('\x1B[36;1m[fs.write]', uuid, hash);
+            svc_event.emit('outer.fs.write-hash', {
+                hash, uuid,
+            });
+        });
 
         const state_upload = storage.create_upload();
 

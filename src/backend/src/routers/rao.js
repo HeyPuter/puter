@@ -55,14 +55,16 @@ router.post('/rao', auth, express.json(), async (req, res, next)=>{
         [req.body.app_uid, req.user.id, Math.floor(new Date().getTime() / 1000)]
     )
 
-    // send process even puter.app_open
+    // get app
+    const opened_app = await get_app({uid: req.body.app_uid});
+
+    // send process event `puter.app_open`
     process.emit('puter.app_open', {
         app_uid: req.body.app_uid,
         user_id: req.user.id,
+        app_owner_user_id: opened_app.owner_user_id,
         ts: Math.floor(new Date().getTime() / 1000)
     });
-
-    const opened_app = await get_app({uid: req.body.app_uid});
 
     // -----------------------------------------------------------------------//
     // Update the 'app opens' cache

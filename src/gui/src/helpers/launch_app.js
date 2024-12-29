@@ -45,7 +45,7 @@ const launch_app = async (options)=>{
     else if(options.app_obj)
         app_info = options.app_obj;
     else
-        app_info = await puter.apps.get(options.name, {params: {icon_size: 64}});
+        app_info = await puter.apps.get(options.name, {icon_size: 64});
 
     // For backward compatibility reasons we need to make sure that both `uuid` and `uid` are set
     app_info.uuid = app_info.uuid ?? app_info.uid;

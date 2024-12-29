@@ -364,10 +364,12 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { SNSService } = require('./services/SNSService');
     services.registerService('sns', SNSService);
+
+    const { PerformanceMonitor } = require('./monitor/PerformanceMonitor');
+    services.registerService('performance-monitor', PerformanceMonitor);
 }
 
 const install_legacy = async ({ services }) => {
-    const PerformanceMonitor = require('./monitor/PerformanceMonitor');
     const { OperationTraceService } = require('./services/OperationTraceService');
     const { ClientOperationService } = require('./services/ClientOperationService');
     const { EngPortalService } = require('./services/EngPortalService');
@@ -381,9 +383,5 @@ const install_legacy = async ({ services }) => {
     services.registerService('client-operation', ClientOperationService);
     services.registerService('app-information', AppInformationService);
     services.registerService('engineering-portal', EngPortalService);
-
-    // This singleton was made before services existed,
-    // so we have to pass that to it manually
-    PerformanceMonitor.provideServices(services);
 
 };

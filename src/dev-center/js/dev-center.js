@@ -144,7 +144,7 @@ $(document).ready(function () {
             })
         }
         // Get apps
-        puter.apps.list({params:{ icon_size: 64}}).then((resp) => {
+        puter.apps.list({ icon_size: 64 }).then((resp) => {
             apps = resp;
 
             // hide loading
@@ -184,7 +184,7 @@ function refresh_app_list(show_loading = false) {
         // uncheck the select all checkbox
         $('.select-all-apps').prop('checked', false);
 
-        puter.apps.list({params:{ icon_size: 64}}).then((apps_res) => {
+        puter.apps.list({ icon_size: 64 }).then((apps_res) => {
             $('#loading').hide();
             apps = apps_res;
             if (apps.length > 0) {
@@ -319,7 +319,7 @@ async function create_app(title, source_path = null, items = null) {
                 $('.new-app-modal').get(0).close();
                 window.location.reload();
                 // refresh app list
-                puter.apps.list({params:{ icon_size: 64}}).then(async (resp) => {
+                puter.apps.list({ icon_size: 64 }).then(async (resp) => {
                     apps = resp;
                     // Close the 'Creting new app...' modal
                     // but make sure it was shown for at least 2 seconds
@@ -379,7 +379,7 @@ $(document).on('click', '.delete-app', async function (e) {
     let app_name = $(this).attr('data-app-name');
 
     // get app
-    const app_data = await puter.apps.get(app_name, {params:{ icon_size: 16}});
+    const app_data = await puter.apps.get(app_name, { icon_size: 16 });
 
     if(app_data.metadata?.locked){
         puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
@@ -511,6 +511,7 @@ function generate_edit_app_section(app) {
         <ul class="section-tab-buttons disable-user-select">
             <li class="section-tab-btn active" data-tab="deploy"><span>Deploy</span></li>
             <li class="section-tab-btn" data-tab="info"><span>Settings</span></li>
+            <li class="section-tab-btn" data-tab="analytics"><span>Analytics</span></li>
         </ul>
 
         <div class="section-tab active" data-tab="deploy">
@@ -626,6 +627,38 @@ function generate_edit_app_section(app) {
                     <button type="button" class="edit-app-reset-btn button button-secondary">Reset</button>
                 </div>
             </form>
+        </div>
+        <div class="section-tab" data-tab="analytics">
+            <label for="analytics-period">Period</label>
+            <select id="analytics-period" class="category-select">
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <optgroup label="──────"></optgroup>
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+                <optgroup label="──────"></optgroup>
+                <option value="this_month">This month</option>
+                <option value="last_month">Last month</option>
+                <optgroup label="──────"></optgroup>
+                <option value="this_year">This year</option>
+                <option value="last_year">Last year</option>
+                <optgroup label="──────"></optgroup>
+                <option value="12m">Last 12 months</option>
+                <option value="all">All time</option>
+            </select>
+            <div style="overflow:hidden;">
+                <div class="analytics-card" id="analytics-users">
+                    <h3 style="margin-top:0;">Users</h3>
+                    <div class="count" style="font-size: 35px;"></div>
+                </div>
+                <div class="analytics-card" id="analytics-opens">
+                    <h3 style="margin-top:0;">Opens</h3>
+                    <div class="count" style="font-size: 35px;"></div>
+                </div>
+            </div>
+            <hr style="margin-top: 50px;">
+            <p>Timezone: UTC</p>
+            <p>More analytics features coming soon...</p>
         </div>
     `
     return h;
@@ -762,7 +795,8 @@ async function edit_app_section(cur_app_name) {
     $('.tab-btn').removeClass('active');
     $('.tab-btn[data-tab="apps"]').addClass('active');
 
-    let cur_app = await puter.apps.get(cur_app_name, {params: {icon_size: 128}});
+    let cur_app = await puter.apps.get(cur_app_name, {icon_size: 128, stats_period: 'today'});
+    
     currently_editing_app = cur_app;
 
     // generate edit app section
@@ -771,6 +805,68 @@ async function edit_app_section(cur_app_name) {
     toggleSaveButton();  // Ensure Save button is initially disabled
     toggleResetButton();  // Ensure Reset button is initially disabled
     $('#edit-app').show();
+
+    // analytics
+    $('#analytics-users .count').html(cur_app.stats.user_count);
+    $('#analytics-opens .count').html(cur_app.stats.open_count);
+    
+    // get analytics
+    const filetype_association_input = document.querySelector('textarea[id=edit-app-filetype-associations]');
+    let tagify = new Tagify(filetype_association_input, {
+        pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/(?:[a-z0-9.-]+|\*))/,
+        delimiters: ", ",
+        enforceWhitelist: false,
+        dropdown : {
+            // show the dropdown immediately on focus (0 character typed)
+            enabled: 0,
+        },
+        whitelist: [
+          // MIME type patterns
+          "text/*", "image/*", "audio/*", "video/*", "application/*",
+          
+          // Documents
+          ".doc", ".docx", ".pdf", ".txt", ".odt", ".rtf", ".tex", ".md", ".pages", ".epub", ".mobi", ".azw", ".azw3", ".djvu", ".xps", ".oxps", ".fb2", ".textile", ".markdown", ".asciidoc", ".rst", ".wpd", ".wps", ".abw", ".zabw",
+          
+          // Spreadsheets
+          ".xls", ".xlsx", ".csv", ".ods", ".numbers", ".tsv", ".gnumeric", ".xlt", ".xltx", ".xlsm", ".xltm", ".xlam", ".xlsb",
+          
+          // Presentations
+          ".ppt", ".pptx", ".key", ".odp", ".pps", ".ppsx", ".pptm", ".potx", ".potm", ".ppam",
+          
+          // Images
+          ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".svg", ".webp", ".ico", ".psd", ".ai", ".eps", ".raw", ".cr2", ".nef", ".orf", ".sr2", ".heic", ".heif", ".avif", ".jxr", ".hdp", ".wdp", ".jng", ".xcf", ".pgm", ".pbm", ".ppm", ".pnm",
+          
+          // Video
+          ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".flv", ".webm", ".m4v", ".mpeg", ".mpg", ".3gp", ".3g2", ".ogv", ".vob", ".drc", ".gifv", ".mng", ".qt", ".yuv", ".rm", ".rmvb", ".asf", ".amv", ".m2v", ".svi",
+          
+          // Audio
+          ".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a", ".wma", ".aiff", ".alac", ".ape", ".au", ".mid", ".midi", ".mka", ".pcm", ".ra", ".ram", ".snd", ".wv", ".opus",
+          
+          // Code/Development
+          ".js", ".ts", ".html", ".css", ".json", ".xml", ".php", ".py", ".java", ".cpp", ".c", ".cs", ".h", ".hpp", ".hxx", ".rs", ".go", ".rb", ".pl", ".swift", ".kt", ".kts", ".scala", ".coffee", ".sass", ".scss", ".less", ".jsx", ".tsx", ".vue", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd", ".sql", ".r", ".dart", ".f", ".f90", ".for", ".lua", ".m", ".mm", ".clj", ".erl", ".ex", ".exs", ".elm", ".hs", ".lhs", ".lisp", ".ml", ".mli", ".nim", ".pl", ".rkt", ".v", ".vhd",
+          
+          // Archives
+          ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".z", ".lz", ".lzma", ".tlz", ".txz", ".tgz", ".tbz2", ".bz", ".br", ".lzo", ".ar", ".cpio", ".shar", ".lrz", ".lz4", ".lz2", ".rz", ".sfark", ".sz", ".zoo",
+          
+          // Database
+          ".db", ".sql", ".sqlite", ".sqlite3", ".dbf", ".mdb", ".accdb", ".db3", ".s3db", ".dbx",
+          
+          // Fonts
+          ".ttf", ".otf", ".woff", ".woff2", ".eot", ".pfa", ".pfb", ".sfd",
+          
+          // CAD and 3D
+          ".dwg", ".dxf", ".stl", ".obj", ".fbx", ".dae", ".3ds", ".blend", ".max", ".ma", ".mb", ".c4d", ".skp", ".usd", ".usda", ".usdc", ".abc",
+          
+          // Scientific/Technical
+          ".mat", ".fig", ".nb", ".cdf", ".fits", ".fts", ".fit", ".gmsh", ".msh", ".fem", ".neu", ".hdf", ".h5", ".nx", ".unv",
+          
+          // System
+          ".exe", ".dll", ".so", ".dylib", ".app", ".dmg", ".iso", ".img", ".bin", ".msi", ".apk", ".ipa", ".deb", ".rpm",
+          
+          // Directory
+          ".directory"
+        ],
+    })
 
     // --------------------------------------------------------
     // Dragster
@@ -1145,9 +1241,10 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
 
     // show working spinner
     puter.ui.showSpinner();
-
+  
     // parse filetype_associations
     filetype_associations = filetype_associations.split(',').map(element => element.trim());
+
     // disable submit button
     $('.edit-app-save-btn').prop('disabled', true);
 
@@ -1254,7 +1351,7 @@ $(document).on('click', '.delete-app-settings', async function (e) {
     let app_title = $(this).attr('data-app-title');
 
     // check if app is locked
-    const app_data = await puter.apps.get(app_name, {params: {icon_size: 16}});
+    const app_data = await puter.apps.get(app_name, {icon_size: 16});
 
     if(app_data.metadata?.locked){
         puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
@@ -1330,7 +1427,7 @@ $(document).on('click', '.back-to-main-btn', function (e) {
     // get apps
     $('#loading').show();
     setTimeout(function () {
-        puter.apps.list({params: {icon_size: 64}}).then((apps_res) => {
+        puter.apps.list({icon_size: 64}).then((apps_res) => {
             // uncheck the select all checkbox
             $('.select-all-apps').prop('checked', false);
 
@@ -2003,7 +2100,7 @@ $(document).on('click', '.insta-deploy-to-existing-app', function (e) {
     $('.insta-deploy-modal').get(0).close();
     $('.insta-deploy-existing-app-select').get(0).showModal();
     $('.insta-deploy-existing-app-list').html(`<div style="margin: 100px auto 10px auto; width: 40px; height:40px;">${loading_spinner}</div>`);
-    puter.apps.list({params:{ icon_size: 64}}).then((apps) => {
+    puter.apps.list({ icon_size: 64 }).then((apps) => {
         setTimeout(() => {
             $('.insta-deploy-existing-app-list').html('');
             if (apps.length === 0)
@@ -2196,7 +2293,7 @@ $('.insta-deploy-existing-app-select').on('close', function (e) {
 $('.refresh-app-list').on('click', function (e) {
     $('.loading-modal').get(0)?.showModal();
 
-    puter.apps.list({params:{ icon_size: 64}}).then((resp) => {
+    puter.apps.list({ icon_size: 64 }).then((resp) => {
         setTimeout(() => {
             apps = resp;
 
@@ -2329,7 +2426,7 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
             const app_name = $(app).attr('data-app-name');
 
             // get app
-            const app_data = await puter.apps.get(app_name, {params: {icon_size: 64}});
+            const app_data = await puter.apps.get(app_name, {icon_size: 64 });
 
             if(app_data.metadata?.locked){
                 if(apps.length === 1){
@@ -2629,4 +2726,96 @@ $(document).on('click', '.copy-app-uid', function(e) {
     setTimeout(() => {
         $(this).html(copy_svg);
     }, 2000);
+});
+
+$(document).on('change', '#analytics-period', async function(e) {
+    puter.ui.showSpinner();
+
+    // set a sensible stats_grouping based on the selected period
+    let stats_grouping;
+
+    if ($(this).val() === 'today' || $(this).val() === 'yesterday') {
+        stats_grouping = 'hour';
+    }
+    else if ($(this).val() === 'this_week' || $(this).val() === 'last_week' || $(this).val() === 'this_month' || $(this).val() === 'last_month' || $(this).val() === '7d' || $(this).val() === '30d') {
+        stats_grouping = 'day';
+    }
+    else if ($(this).val() === 'this_year' || $(this).val() === 'last_year' || $(this).val() === '12m' || $(this).val() === 'all') {
+        stats_grouping = 'month';
+    }
+
+    const app = await puter.apps.get(
+        currently_editing_app.name, 
+        { 
+            icon_size: 16, 
+            stats_period: $(this).val(),
+            stats_grouping: stats_grouping,
+        }
+    );
+
+    $('#analytics-users .count').html(number_format(app.stats.user_count));
+    $('#analytics-opens .count').html(number_format(app.stats.open_count));
+
+    // Clear existing chart if any
+    $('#analytics-chart').remove();
+    $('.analytics-container').remove();
+
+    // Create new canvas
+    const container = $('<div class="analytics-container" style="width:100%; height:400px; margin-top:30px;"></div>');
+    const canvas = $('<canvas id="analytics-chart"></canvas>');
+    container.append(canvas);
+    $('#analytics-opens').parent().after(container);
+
+    // Format the data
+    const labels = app.stats.grouped_stats.open_count.map(item => item.period);
+    const openData = app.stats.grouped_stats.open_count.map(item => item.count);
+    const userData = app.stats.grouped_stats.user_count.map(item => item.count);
+
+    // Create chart
+    const ctx = document.getElementById('analytics-chart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Opens',
+                    data: openData,
+                    borderColor: '#8884d8',
+                    tension: 0.1,
+                    fill: false
+                },
+                {
+                    label: 'Users',
+                    data: userData,
+                    borderColor: '#82ca9d',
+                    tension: 0.1,
+                    fill: false
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: 'Period'
+                    }
+                },
+                y: {
+                    display: true,
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Count'
+                    }
+                }
+            }
+        }
+    });
+
+    puter.ui.hideSpinner();
 });

@@ -1279,7 +1279,8 @@ function seconds_to_string(seconds) {
  * @param {*} options
  */
 async function suggest_app_for_fsentry(fsentry, options){
-    const monitor = PerformanceMonitor.createContext("suggest_app_for_fsentry");
+    const svc_performanceMonitor = services.get('performance-monitor');
+    const monitor = svc_performanceMonitor.createContext("suggest_app_for_fsentry");
     const suggested_apps = [];
 
     let content_type = mime.contentType(fsentry.name);
@@ -1469,13 +1470,11 @@ async function get_taskbar_items(user, { icon_size, no_icons } = {}) {
     if(!user.taskbar_items){
         taskbar_items_from_db = [
             {name: 'app-center', type: 'app'},
-            {name: 'editor', type: 'app'},
             {name: 'dev-center', type: 'app'},
-            {name: 'draw', type: 'app'},
+            {name: 'editor', type: 'app'},
             {name: 'code', type: 'app'},
             {name: 'camera', type: 'app'},
             {name: 'recorder', type: 'app'},
-            {name: 'terminal', type: 'app'},
         ];
         await db.write(
             `UPDATE user SET taskbar_items = ? WHERE id = ?`,

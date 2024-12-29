@@ -1166,7 +1166,7 @@ async function UIDesktop(options){
         window.app_launched_from_url = window.url_paths[1];
         // get app metadata
         try{
-            window.app_launched_from_url = await puter.apps.get(window.url_paths[1], {params: {icon_size: 64}})
+            window.app_launched_from_url = await puter.apps.get(window.url_paths[1], {icon_size: 64})
             window.is_fullpage_mode = window.app_launched_from_url.metadata?.fullpage_on_landing ?? window.is_fullpage_mode ?? false;
 
             // show 'Show Desktop' button

@@ -341,7 +341,8 @@ class FilesystemService extends BaseService {
     }
 
     async update_child_paths (old_path, new_path, user_id) {
-        const monitor = PerformanceMonitor.createContext('update_child_paths');
+        const svc_performanceMonitor = this.services.get('performance-monitor');
+        const monitor = svc_performanceMonitor.createContext('update_child_paths');
 
         if ( ! old_path.endsWith('/') ) old_path += '/';
         if ( ! new_path.endsWith('/') ) new_path += '/';

@@ -23,6 +23,8 @@ const { pausing_tee } = require("../../util/streamutil");
 const putility = require("@heyputer/putility");
 const { EWMA } = require("../../util/opmath");
 
+const crypto = require('crypto');
+
 /**
  * FileCacheService
  *
@@ -62,13 +64,14 @@ class FileCacheService extends AdvancedBase {
 
         this.log = services.get('log-service').create(this.constructor.name);
         this.errors = services.get('error-service').create(this.log);
+        this.services = services;
 
         this.disk_limit = my_config.disk_limit;
         this.disk_max_size = my_config.disk_max_size;
         this.precache_size = my_config.precache_size;
         this.path = my_config.path;
 
-        this.ttl = my_config.ttl || (5 * 1000);
+        this.ttl = my_config.ttl || (60 * 1000);
 
         this.precache = new Map();
         this.uid_to_tracker = new Map();
@@ -132,6 +135,17 @@ class FileCacheService extends AdvancedBase {
         const { fs } = this.modules;
         // Ensure storage path exists
         await fs.promises.mkdir(this.path, { recursive: true });
+
+        // Distributed cache invalidation
+        const svc_event = this.services.get('event');
+        svc_event.on('outer.fs.write-hash', async (_, { uuid, hash }) => {
+            const tracker = this.uid_to_tracker.get(uuid);
+            if ( ! tracker ) return;
+
+            if ( tracker.hash !== hash ) {
+                await this.invalidate(uuid);
+            }
+        });
     }
 
     _get_path (uid) {
@@ -262,13 +276,16 @@ class FileCacheService extends AdvancedBase {
 
         (async () => {
             let offset = 0;
+            const hash = crypto.createHash('sha256');
             for await (const chunk of store_stream) {
                 chunk.copy(data, offset);
+                hash.update(chunk);
                 offset += chunk.length;
             }
 
             await this._precache_make_room(size);
             this.precache.set(key, data);
+            tracker.hash = hash.digest('hex');
             tracker.phase = FileTracker.PHASE_PRECACHE;
             tracker.p_ready.resolve();
         })()
@@ -288,8 +305,11 @@ class FileCacheService extends AdvancedBase {
     * the precache and disk storage, ensuring that any references to this file are cleaned up.
     * If the file is not found in the cache, the method does nothing.
     */
-    async invalidate (fsNode) {
-        const key = await fsNode.get('uid');
+    async invalidate (fsNode_or_uid) {
+        const key = (typeof fsNode_or_uid === 'string')
+            ? fsNode_or_uid
+            : await fsNode_or_uid.get('uid');
+
         if ( ! this.uid_to_tracker.has(key) ) return;
         const tracker = this.uid_to_tracker.get(key);
         if ( tracker.phase === FileTracker.PHASE_PRECACHE ) {

@@ -22,6 +22,9 @@
  *
  * Tracks information about cached files for LRU and LFU eviction.
  */
+
+const { EWMA, normalize } = require("../../util/opmath");
+
 /**
 * @class FileTracker
 * @description A class that manages and tracks metadata for cached files, including their lifecycle phases,
@@ -37,6 +40,11 @@ class FileTracker {
 
     constructor ({ key, size }) {
         this.phase = this.constructor.PHASE_PENDING;
+        
+        this.avg_access_delta = new EWMA({
+            initial: 1000,
+            alpha: 0.2,
+        });
         this.access_count = 0;
         this.last_access = 0;
         this.size = size;
@@ -53,14 +61,24 @@ class FileTracker {
     * @returns {number} Eviction score - higher values mean higher priority to keep
     */
     get score () {
-        const weight_recency = 0.5;
-        const weight_access_count = 0.5;
+        const weight_LFU = 0.5;
+        const weight_LRU = 0.5;
+
+        const access_freq = 1 / this.avg_access_delta.get();
+        const n_access_freq = normalize({
+            // "once a second" is a high value
+            high_value: 0.001,
+        }, access_freq)
 
         const recency = Date.now() - this.last_access;
-        const access_count = this.access_count;
+        const n_recency = normalize({
+            // "20 seconds ago" is pretty recent
+            high_value: 0.00005,
+        }, 1 / recency);
 
-        return (weight_access_count * access_count) /
-            (weight_recency * recency);
+        return 0 +
+            (weight_LFU * n_access_freq) +
+            (weight_LRU * n_recency);
     }
 
 
@@ -80,8 +98,11 @@ class FileTracker {
     * Used to track file usage for cache eviction scoring
     */
     touch () {
+        const last_last_access = this.last_access;
         this.access_count++;
         this.last_access = Date.now();
+        const access_delta = this.last_access - last_last_access;
+        this.avg_access_delta.put(access_delta);
     }
 }
 
