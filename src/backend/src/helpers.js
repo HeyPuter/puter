@@ -277,8 +277,8 @@ async function refresh_associations_cache(){
     /** @type BaseDatabaseAccessService */
     const db = services.get('database').get(DB_READ, 'apps');
 
-    const log = services.get('log-service').create('refresh_apps_cache');
-    log.tick('refresh associations cache');
+    const log = services.get('log-service').create('helpers.js');
+    log.tick('refresh file associations');
     const associations = await db.read('SELECT * FROM app_filetype_association');
     const lists = {};
     for ( const association of associations ) {
