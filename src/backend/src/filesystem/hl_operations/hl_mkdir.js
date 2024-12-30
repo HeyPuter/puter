@@ -31,6 +31,7 @@ const { OtelFeature } = require('../../traits/OtelFeature');
 const { HLFilesystemOperation } = require('./definitions');
 const { is_valid_path } = require('../validation');
 const { HLRemove } = require('./hl_remove');
+const { LLMkdir } = require('../ll_operations/ll_mkdir');
 
 class MkTree extends HLFilesystemOperation {
     static DESCRIPTION = `
@@ -142,7 +143,8 @@ class MkTree extends HLFilesystemOperation {
             const currentParent = current;
             current = new NodeChildSelector(current, dir);
 
-            const node = await fs.mkdir_2({
+            const ll_mkdir = new LLMkdir();
+            const node = await ll_mkdir.run({
                 parent: await fs.node(currentParent),
                 name: current.name,
                 actor,
@@ -201,7 +203,8 @@ class QuickMkdir extends HLFilesystemOperation {
             const currentParent = current;
             current = new NodeChildSelector(current, dir);
 
-            const node = await fs.mkdir_2({
+            const ll_mkdir = new LLMkdir();
+            const node = await ll_mkdir.run({
                 parent: await fs.node(currentParent),
                 name: current.name,
                 actor,
@@ -358,7 +361,8 @@ class HLMkdir extends HLFilesystemOperation {
             return await this.created.getSafeEntry();
         }
 
-        this.created = await fs.mkdir_2({
+        const ll_mkdir = new LLMkdir();
+        this.created = await ll_mkdir.run({
             parent: parent_node,
             name: target_basename,
             actor: values.actor,

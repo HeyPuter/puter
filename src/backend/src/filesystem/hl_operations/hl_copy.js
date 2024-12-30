@@ -206,7 +206,8 @@ class HLCopy extends HLFilesystemOperation {
             }
         }
 
-        this.copied = await fs.copy_2({
+        const ll_copy = new LLCopy();
+        this.copied = await ll_copy.run({
             source,
             parent,
             user: values.user,

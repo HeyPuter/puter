@@ -174,32 +174,6 @@ class FilesystemService extends BaseService {
         return this.systemfs_;
     }
 
-    // NOTE: these are the parameters being passed
-    // (assuming this comment is up-to-date)
-    // {
-    // node, actor, immutable,
-    // file, tmp, fsentry_tmp,
-    // message,
-    // }
-    async owrite (parameters) {
-        const ll_owrite = new LLOWrite();
-        return await ll_owrite.run(parameters);
-    }
-
-    // REMINDER: There was an idea that FilesystemService implements
-    // an interface, and if that ever happens these arguments are
-    // important:
-    // parent, name, user, immutable, file, message
-    async cwrite (parameters) {
-        const ll_cwrite = new LLCWrite();
-        return await ll_cwrite.run(parameters);
-    }
-
-    async mkdir_2 ({parent, name, actor, immutable}) {
-        const ll_mkdir = new LLMkdir();
-        return await ll_mkdir.run({ parent, name, actor, immutable });
-    }
-
     async mkshortcut ({ parent, name, user, target }) {
 
         // Access Control
@@ -333,11 +307,6 @@ class FilesystemService extends BaseService {
         });
 
         return node;
-    }
-
-    async copy_2 (...a) {
-        const ll_copy = new LLCopy();
-        return await ll_copy.run(...a);
     }
 
     async update_child_paths (old_path, new_path, user_id) {
