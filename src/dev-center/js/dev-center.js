@@ -2870,8 +2870,15 @@ async function render_analytics(period){
 
     // Format the data
     const labels = app.stats.grouped_stats.open_count.map(item => {
-        const date = new Date(item.period);
-        // Different format based on grouping
+        let date;
+        if (stats_grouping === 'month') {
+            // Handle YYYY-MM format explicitly
+            const [year, month] = item.period.split('-');
+            date = new Date(parseInt(year), parseInt(month) - 1); // month is 0-based in JS
+        } else {
+            date = new Date(item.period);
+        }
+        
         if (stats_grouping === 'hour') {
             return date.toLocaleString('en-US', { hour: 'numeric', hour12: true }).toLowerCase();
         } else if (stats_grouping === 'day') {
