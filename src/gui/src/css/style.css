@@ -271,7 +271,7 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 .button-danger {
     border-color: #f00808;
     background: -webkit-gradient(linear, left top, left bottom, from(#f83434), to(#f00808));
-    background: linear-gradient(#f83434, #f00808);
+    background: linear-gradient(#ff4e4e, #ff4c4c);
     color: white;
 }
 
