@@ -1,11 +1,11 @@
-const { HLWrite } = require("../filesystem/hl_operations/hl_write");
-const { LLMkdir } = require("../filesystem/ll_operations/ll_mkdir");
-const { LLRead } = require("../filesystem/ll_operations/ll_read");
-const { NodePathSelector } = require("../filesystem/node/selectors");
-const { get_app } = require("../helpers");
-const { Endpoint } = require("../util/expressutil");
-const { buffer_to_stream } = require("../util/streamutil");
-const BaseService = require("./BaseService");
+// const { HLWrite } = require("../filesystem/hl_operations/hl_write");
+const { LLMkdir } = require("../../filesystem/ll_operations/ll_mkdir");
+const { LLRead } = require("../../filesystem/ll_operations/ll_read");
+const { NodePathSelector } = require("../../filesystem/node/selectors");
+const { get_app } = require("../../helpers");
+const { Endpoint } = require("../../util/expressutil");
+const { buffer_to_stream } = require("../../util/streamutil");
+const BaseService = require("../../services/BaseService.js");
 
 const ICON_SIZES = [16,32,64,128,256,512];
 

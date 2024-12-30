@@ -302,9 +302,6 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { NotificationService } = require('./services/NotificationService');
     services.registerService('notification', NotificationService);
 
-    const { ProtectedAppService } = require('./services/ProtectedAppService');
-    services.registerService('__protected-app', ProtectedAppService);
-
     const { ShareService } = require('./services/ShareService');
     services.registerService('share', ShareService);
     
@@ -355,12 +352,6 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { WSPushService } = require('./services/WSPushService');
     services.registerService('__event-push-ws', WSPushService);
-
-    const { AppIconService } = require('./services/AppIconService');
-    services.registerService('app-icon', AppIconService);
-
-    const { OldAppNameService } = require('./services/OldAppNameService');
-    services.registerService('old-app-name', OldAppNameService);
 
     const { SNSService } = require('./services/SNSService');
     services.registerService('sns', SNSService);

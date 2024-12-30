@@ -17,10 +17,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { get_app } = require("../helpers");
-const { UserActorType } = require("./auth/Actor");
-const { PermissionImplicator, PermissionUtil, PermissionRewriter } = require("./auth/PermissionService");
-const BaseService = require("./BaseService");
+const { get_app } = require("../../helpers");
+const { UserActorType } = require("../../services/auth/Actor");
+const { PermissionImplicator, PermissionUtil, PermissionRewriter } =
+    require("../../services/auth/PermissionService");
+const BaseService = require("../../services/BaseService");
 
 
 /**

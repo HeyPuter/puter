@@ -1,5 +1,5 @@
-const BaseService = require("./BaseService");
-const { DB_READ } = require("./database/consts");
+const BaseService = require("../../services/BaseService");
+const { DB_READ } = require("../../services/database/consts");
 
 const N_MONTHS = 4;
 

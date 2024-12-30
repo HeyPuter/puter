@@ -6,6 +6,15 @@ class AppsModule extends AdvancedBase {
 
         const { AppInformationService } = require('./AppInformationService');
         services.registerService('app-information', AppInformationService);
+
+        const { AppIconService } = require('./AppIconService');
+        services.registerService('app-icon', AppIconService);
+
+        const { OldAppNameService } = require('./OldAppNameService');
+        services.registerService('old-app-name', OldAppNameService);
+
+        const { ProtectedAppService } = require('./ProtectedAppService');
+        services.registerService('__protected-app', ProtectedAppService);
     }
 }
 
