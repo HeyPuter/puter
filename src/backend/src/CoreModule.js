@@ -373,7 +373,6 @@ const install_legacy = async ({ services }) => {
     const { OperationTraceService } = require('./services/OperationTraceService');
     const { ClientOperationService } = require('./services/ClientOperationService');
     const { EngPortalService } = require('./services/EngPortalService');
-    const { AppInformationService } = require('./services/AppInformationService');
     const { FileCacheService } = require('./services/file-cache/FileCacheService');
 
     // === Services which do not yet extend BaseService ===
@@ -381,7 +380,6 @@ const install_legacy = async ({ services }) => {
     services.registerService('operationTrace', OperationTraceService);
     services.registerService('file-cache', FileCacheService);
     services.registerService('client-operation', ClientOperationService);
-    services.registerService('app-information', AppInformationService);
     services.registerService('engineering-portal', EngPortalService);
 
 };

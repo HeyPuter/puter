@@ -19,10 +19,9 @@
  */
 const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
 const { MINUTE, SECOND } = require("@heyputer/putility").libs.time;
-const { origin_from_url } = require("../util/urlutil");
-const { DB_READ } = require("./database/consts");
-
-const uuidv4 = require('uuid').v4;
+const { origin_from_url } = require("../../util/urlutil");
+const { DB_READ } = require("../../services/database/consts");
+const BaseService = require('../../services/BaseService');
 
 
 /**
@@ -35,15 +34,15 @@ const uuidv4 = require('uuid').v4;
 * up-to-date information about applications, facilitating features like app listings,
 * recent apps, and tag-based app discovery.
 */
-class AppInformationService {
-    constructor ({ services }) {
-        this.services = services;
-        this.log = services.get('log-service').create('app-info');
-
+class AppInformationService extends BaseService {
+    _construct () {
         this.collections = {};
         this.collections.recent = [];
 
         this.tags = {};
+    }
+    
+    ['on_boot.consolidation'] () {
 
         // MySQL date format mapping for different groupings
         this.mysqlDateFormats = {

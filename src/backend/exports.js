@@ -32,6 +32,7 @@ const { Core2Module } = require("./src/modules/core/Core2Module.js");
 const { TemplateModule } = require("./src/modules/template/TemplateModule.js");
 const { PuterFSModule } = require("./src/modules/puterfs/PuterFSModule.js");
 const { PerfMonModule } = require("./src/modules/perfmon/PerfMonModule.js");
+const { AppsModule } = require("./src/modules/apps/AppsModule.js");
 
 
 module.exports = {
@@ -53,6 +54,7 @@ module.exports = {
         CoreModule,
         WebModule,
         TemplateModule,
+        AppsModule,
     ],
 
     // Pre-built modules
