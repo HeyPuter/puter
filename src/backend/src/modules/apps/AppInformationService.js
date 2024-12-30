@@ -40,9 +40,6 @@ class AppInformationService extends BaseService {
         this.collections.recent = [];
 
         this.tags = {};
-    }
-    
-    ['on_boot.consolidation'] () {
 
         // MySQL date format mapping for different groupings
         this.mysqlDateFormats = {
@@ -61,7 +58,9 @@ class AppInformationService extends BaseService {
             'month': "toStartOfMonth(fromUnixTimestamp(ts))",
             'year': "toStartOfYear(fromUnixTimestamp(ts))"
         };
-
+    }
+    
+    ['__on_boot.consolidation'] () {
         (async () => {
             // await new Promise(rslv => setTimeout(rslv, 500))
 
