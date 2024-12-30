@@ -98,7 +98,7 @@ class AppIconService extends BaseService {
     async get_icon_stream ({ app_icon, app_uid, size, tries = 0 }) {
         // If there is an icon provided, and it's an SVG, we'll just return it
         if ( app_icon ) {
-            const metadata = app_icon.split(',')[0];
+            const [metadata, data] = app_icon.split(',');
             const input_mime = metadata.split(';')[0].split(':')[1];
 
             // svg icons will be sent as-is
@@ -106,7 +106,7 @@ class AppIconService extends BaseService {
                 return {
                     mime: 'image/svg+xml',
                     get stream () {
-                        return buffer_to_stream(Buffer.from(app_icon));
+                        return buffer_to_stream(Buffer.from(data, 'base64'));
                     },
                     data_url: app_icon,
                 }
