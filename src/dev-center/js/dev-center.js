@@ -805,8 +805,9 @@ async function edit_app_section(cur_app_name) {
     // analytics
     $('#analytics-users .count').html(cur_app.stats.user_count);
     $('#analytics-opens .count').html(cur_app.stats.open_count);
+
+    render_analytics('today')
     
-    // get analytics
     const filetype_association_input = document.querySelector('textarea[id=edit-app-filetype-associations]');
     let tagify = new Tagify(filetype_association_input, {
         pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/(?:[a-z0-9.-]+|\*))/,
@@ -2817,18 +2818,23 @@ $(document).on('click', '.copy-app-uid', function(e) {
 });
 
 $(document).on('change', '#analytics-period', async function(e) {
+    let period = $(this).val();
+    render_analytics(period);
+});
+
+async function render_analytics(period){
     puter.ui.showSpinner();
 
     // set a sensible stats_grouping based on the selected period
     let stats_grouping;
 
-    if ($(this).val() === 'today' || $(this).val() === 'yesterday') {
+    if (period === 'today' || period === 'yesterday') {
         stats_grouping = 'hour';
     }
-    else if ($(this).val() === 'this_week' || $(this).val() === 'last_week' || $(this).val() === 'this_month' || $(this).val() === 'last_month' || $(this).val() === '7d' || $(this).val() === '30d') {
+    else if (period === 'this_week' || period === 'last_week' || period === 'this_month' || period === 'last_month' || period === '7d' || period === '30d') {
         stats_grouping = 'day';
     }
-    else if ($(this).val() === 'this_year' || $(this).val() === 'last_year' || $(this).val() === '12m' || $(this).val() === 'all') {
+    else if (period === 'this_year' || period === 'last_year' || period === '12m' || period === 'all') {
         stats_grouping = 'month';
     }
 
@@ -2836,7 +2842,7 @@ $(document).on('change', '#analytics-period', async function(e) {
         currently_editing_app.name, 
         { 
             icon_size: 16, 
-            stats_period: $(this).val(),
+            stats_period: period,
             stats_grouping: stats_grouping,
         }
     );
@@ -2855,7 +2861,17 @@ $(document).on('change', '#analytics-period', async function(e) {
     $('#analytics-opens').parent().after(container);
 
     // Format the data
-    const labels = app.stats.grouped_stats.open_count.map(item => item.period);
+    const labels = app.stats.grouped_stats.open_count.map(item => {
+        const date = new Date(item.period);
+        // Different format based on grouping
+        if (stats_grouping === 'hour') {
+            return date.toLocaleString('en-US', { hour: 'numeric', hour12: true }).toLowerCase();
+        } else if (stats_grouping === 'day') {
+            return date.toLocaleString('en-US', { month: 'short', day: 'numeric' });
+        } else {
+            return date.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+        }
+    });
     const openData = app.stats.grouped_stats.open_count.map(item => item.count);
     const userData = app.stats.grouped_stats.user_count.map(item => item.count);
 
@@ -2891,6 +2907,10 @@ $(document).on('change', '#analytics-period', async function(e) {
                     title: {
                         display: true,
                         text: 'Period'
+                    },
+                    ticks: {
+                        maxRotation: 45,
+                        minRotation: 45
                     }
                 },
                 y: {
@@ -2899,11 +2919,15 @@ $(document).on('change', '#analytics-period', async function(e) {
                     title: {
                         display: true,
                         text: 'Count'
+                    },
+                    ticks: {
+                        precision: 0,  // Show whole numbers only
+                        stepSize: 1    // Increment by 1
                     }
                 }
-            }
+            },
         }
     });
 
     puter.ui.hideSpinner();
-});
+}
