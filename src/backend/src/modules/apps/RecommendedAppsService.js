@@ -113,6 +113,8 @@ class RecommendedAppsService extends BaseService {
         }
 
         kv.set(recommended_cache_key, recommended);
+        
+        return recommended;
     }
 }
 
