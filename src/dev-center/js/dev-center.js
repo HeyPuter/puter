@@ -630,6 +630,8 @@ function generate_edit_app_section(app) {
                 <option value="today">Today</option>
                 <option value="yesterday">Yesterday</option>
                 <optgroup label="──────"></optgroup>
+                <option value="this_week">This week</option>
+                <option value="last_week">Last week</option>
                 <option value="7d">Last 7 days</option>
                 <option value="30d">Last 30 days</option>
                 <optgroup label="──────"></optgroup>
