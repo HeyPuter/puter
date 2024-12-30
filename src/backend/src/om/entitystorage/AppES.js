@@ -316,6 +316,7 @@ class AppES extends BaseES {
                 try {
                     const { stream, mime } = await svc_appIcon.get_icon_stream({
                         app_uid: await entity.get('uid'),
+                        app_icon: await entity.get('icon'),
                         size: icon_size,
                     });
                     if ( ! stream ) throw Error('no stream');
