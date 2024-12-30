@@ -812,7 +812,7 @@ ol li:before {
     position: relative;
     display: block;
     padding: 10px 15px;
-    margin-right: 5px;
+    margin-right: 8px;
     line-height: 1.42857143;
     border: 1px solid transparent;
     border-radius: 4px 4px 0 0;
@@ -1199,4 +1199,17 @@ dialog{
     border: 1px solid #ddd;
     border-radius: 4px;
     font-size: 14px;
+}
+.stats-cell{
+    width: 100px; 
+    display: inline-block; 
+    font-size: 14px;
+    opacity: 0.7; 
+}
+.stats-cell:hover{
+    cursor: pointer;
+    opacity: 1 !important;
+}
+.stats-cell img{
+    width: 18px; margin-right: 5px; margin-bottom: -4px;
 }
