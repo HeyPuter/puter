@@ -1601,17 +1601,17 @@ function generate_app_card(app) {
 
     // users count
     h += `<td style="margin-top:10px; font-size:15px; vertical-align:middle;">`;
-    h += `<span title="Users" style="margin-right:20px; width: 100px; display: inline-block;"><img style="width: 20px; margin-right: 5px; margin-bottom: -4px;" src="./img/users.svg">${number_format((app.stats.referral_count ?? 0) + app.stats.user_count)}</span>`;
+    h += `<span title="Users" style="margin-right:20px; width: 100px; display: inline-block; font-size: 14px;"><img style="width: 18px; margin-right: 5px; margin-bottom: -4px;" src="./img/users.svg">${number_format((app.stats.referral_count ?? 0) + app.stats.user_count)}</span>`;
     h += `</td>`;
 
     // opens
     h += `<td style="margin-top:10px; font-size:15px; vertical-align:middle;">`;
-    h += `<span title="Opens" style="width: 100px; display: inline-block;"><img style="width: 20px; margin-right: 5px; margin-bottom: -4px;" src="./img/views.svg">${number_format(app.stats.open_count)}</span>`;
+    h += `<span title="Opens" style="width: 100px; display: inline-block; font-size: 14px;"><img style="width: 18px; margin-right: 5px; margin-bottom: -4px;" src="./img/views.svg">${number_format(app.stats.open_count)}</span>`;
     h += `</td>`;
 
     // Created
     h += `<td style="margin-top:10px; font-size:15px; vertical-align:middle;">`;
-    h += `<span title="Created" style="width: 130px; display: inline-block;">${moment(app.created_at).format('MMM Do, YYYY')}</span>`;
+    h += `<span title="Created" style="width: 130px; display: inline-block; font-size: 14px;">${moment(app.created_at).format('MMM Do, YYYY')}</span>`;
     h += `</td>`;
 
     h += `<td style="vertical-align:middle; min-width:200px;">`;
