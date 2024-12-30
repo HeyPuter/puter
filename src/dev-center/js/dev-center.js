@@ -2894,14 +2894,14 @@ async function render_analytics(period){
                     label: 'Opens',
                     data: openData,
                     borderColor: '#8884d8',
-                    tension: 0.1,
+                    tension: 0,
                     fill: false
                 },
                 {
                     label: 'Users',
                     data: userData,
                     borderColor: '#82ca9d',
-                    tension: 0.1,
+                    tension: 0,
                     fill: false
                 }
             ]
