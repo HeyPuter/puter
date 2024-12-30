@@ -15,6 +15,9 @@ class AppsModule extends AdvancedBase {
 
         const { ProtectedAppService } = require('./ProtectedAppService');
         services.registerService('__protected-app', ProtectedAppService);
+
+        const RecommendedAppsService = require('./RecommendedAppsService');
+        services.registerService('recommended-apps', RecommendedAppsService);
     }
 }
 

@@ -4,7 +4,7 @@ const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { NodePathSelector } = require("../../filesystem/node/selectors");
 const { get_app } = require("../../helpers");
 const { Endpoint } = require("../../util/expressutil");
-const { buffer_to_stream } = require("../../util/streamutil");
+const { buffer_to_stream, stream_to_buffer } = require("../../util/streamutil");
 const BaseService = require("../../services/BaseService.js");
 
 const ICON_SIZES = [16,32,64,128,256,512];
@@ -30,6 +30,8 @@ class AppIconService extends BaseService {
         bmp: require('sharp-bmp'),
         ico: require('sharp-ico'),
     }
+    
+    static ICON_SIZES = ICON_SIZES;
 
     /**
      * AppIconService listens to this event to register the
@@ -60,6 +62,37 @@ class AppIconService extends BaseService {
                 stream.pipe(res);
             },
         }).attach(app);
+    }
+    
+    get_sizes () {
+        return this.constructor.ICON_SIZES;
+    }
+    
+    async iconify_apps ({ apps, size }) {
+        return await Promise.all(apps.map(async app => {
+            const icon_result = await this.get_icon_stream({
+                app_icon: app.icon,
+                app_uid: app.uid ?? app.uuid,
+                size: size,
+            });
+
+            if ( icon_result.data_url ) {
+                app.icon = icon_result.data_url;
+                return app;
+            }
+
+            try {
+                const buffer = await stream_to_buffer(icon_result.stream);
+                const resp_data_url = `data:${icon_result.mime};base64,${buffer.toString('base64')}`;
+                
+                app.icon = resp_data_url;
+            } catch (e) {
+                this.errors.report('get-launch-apps:icon-stream', {
+                    source: e,
+                });
+            }
+            return app;
+        }));
     }
 
     async get_icon_stream ({ app_icon, app_uid, size, tries = 0 }) {

@@ -209,6 +209,7 @@ function invalidate_cached_user_by_id (id) {
 async function refresh_apps_cache(options, override){
     /** @type BaseDatabaseAccessService */
     const db = services.get('database').get(DB_READ, 'apps');
+    const svc_event = services.get('event');
 
     const log = services.get('log-service').create('refresh_apps_cache');
     log.tick('refresh apps cache');
@@ -221,6 +222,9 @@ async function refresh_apps_cache(options, override){
             kv.set('apps:id:' + app.id, app);
             kv.set('apps:uid:' + app.uid, app);
         }
+        svc_event.emit('apps.invalidate', {
+            options, apps,
+        });
     }
     // refresh only apps that are approved for listing
     else if(options.only_approved_for_listing){
@@ -231,6 +235,9 @@ async function refresh_apps_cache(options, override){
             kv.set('apps:id:' + app.id, app);
             kv.set('apps:uid:' + app.uid, app);
         }
+        svc_event.emit('apps.invalidate', {
+            options, apps,
+        });
     }
     // if options is provided, refresh only the app specified
     else{
@@ -259,6 +266,10 @@ async function refresh_apps_cache(options, override){
             kv.set('apps:id:' + app.id, app);
             kv.set('apps:uid:' + app.uid, app);
         }
+
+        svc_event.emit('apps.invalidate', {
+            options, app,
+        });
     }
 }
 

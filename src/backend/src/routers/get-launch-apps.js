@@ -24,12 +24,6 @@ const { get_app } = require('../helpers.js');
 const { DB_READ } = require('../services/database/consts.js');
 const { stream_to_buffer } = require('../util/streamutil.js');
 
-const get_apps = async ({ specifiers }) => {
-    return await Promise.all(specifiers.map(async (specifier) => {
-        return await get_app(specifier);
-    }));
-};
-
 const iconify_apps = async (context, { apps, size }) => {
     return await Promise.all(apps.map(async app => {
         const svc_appIcon = context.services.get('app-icon');
@@ -77,80 +71,10 @@ module.exports = async (req, res) => {
     // -----------------------------------------------------------------------//
     // Recommended apps
     // -----------------------------------------------------------------------//
-    const recommended_cache_key = 'global:recommended-apps' + (
-        req.query.icon_size ? `:icon-size:${req.query.icon_size}` : ''
-    );
-    result.recommended = kv.get(recommended_cache_key);
-    if ( ! result.recommended ) {
-        let app_names = new Set([
-            'app-center',
-            'dev-center',
-            'editor',
-            'code',
-            'camera',
-            'recorder',
-            'shell-shockers-outpan',
-            'krunker',
-            'slash-frvr',
-            'viewer',
-            'solitaire-frvr',
-            'terminal',
-            'tiles-beat',
-            'draw',
-            'silex',
-            'markus',
-            'puterjs-playground',
-            'player',
-            'pdf',
-            'photopea',
-            'polotno',
-            'basketball-frvr',
-            'gold-digger-frvr',
-            'plushie-connect',
-            'hex-frvr',
-            'spider-solitaire',
-            'danger-cross',
-            'doodle-jump-extra',
-            'endless-lake',
-            'sword-and-jewel',
-            'reversi-2',
-            'in-orbit',
-            'bowling-king',
-            'calc-hklocykcpts',
-            'virtu-piano',
-            'battleship-war',
-            'turbo-racing',
-            'guns-and-bottles',
-            'tronix',
-            'jewel-classic',
-        ]);
-
-        // Prepare each app for returning to user by only returning the necessary fields
-        // and adding them to the retobj array
-        result.recommended = (await get_apps({
-            specifiers: Array.from(app_names).map(name => ({ name }))
-        })).filter(app => !! app).map(app => {
-            return {
-                uuid: app.uid,
-                name: app.name,
-                title: app.title,
-                icon: app.icon,
-                godmode: app.godmode,
-                maximize_on_start: app.maximize_on_start,
-                index_url: app.index_url,
-            };
-        });
-
-        // Iconify apps
-        if ( req.query.icon_size ) {
-            result.recommended = await iconify_apps({ services: req.services }, {
-                apps: result.recommended,
-                size: req.query.icon_size,
-            });
-        }
-
-        kv.set(recommended_cache_key, result.recommended);
-    }
+    const svc_recommendedApps = req.services.get('recommended-apps');
+    result.recommended = await svc_recommendedApps.get_recommended_apps({
+        icon_size: req.query.icon_size
+    });
 
     // -----------------------------------------------------------------------//
     // Recent apps
