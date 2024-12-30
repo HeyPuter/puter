@@ -284,7 +284,6 @@ async function create_app(title, source_path = null, items = null) {
             dedupeName: true,
             metadata: {
                 window_resizable: true,
-                credentialless: true,
             },
     
         })
@@ -611,13 +610,6 @@ function generate_edit_app_section(app) {
                     <p>When locked, the app cannot be deleted. This is useful to prevent accidental deletion of important apps.</p>
                 </div>
 
-                <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Advanced</h3>
-                <div style="margin-top:30px;">
-                    <input type="checkbox" id="edit-app-credentialless" name="edit-app-credentialless" value="true" ${(app.metadata?.credentialless === true || app.metadata === undefined || app.metadata?.credentialless === undefined) ? 'checked' : ''}>
-                    <label for="edit-app-credentialless" style="display: inline;">Credentialless</label>
-                    <p><code>credentialless</code> attribute for the <code>iframe</code> tag.</p>
-                </div>
-
                 <div style="z-index: 999; box-shadow: 10px 10px 15px #8c8c8c; overflow: hidden; position: fixed; bottom: 0; background: white; padding: 10px; width: 100%; left: 0;">
                     <button type="button" class="edit-app-save-btn button button-primary" style="margin-right: 40px;">Save</button>
                     <button type="button" class="edit-app-reset-btn button button-secondary">Reset</button>
@@ -685,7 +677,6 @@ function trackOriginalValues(){
             resizableWindow: $('#edit-app-window-resizable').is(':checked'),
             hideTitleBar: $('#edit-app-hide-titlebar').is(':checked'),
             locked: $('#edit-app-locked').is(':checked'),
-            credentialless: $('#edit-app-credentialless').is(':checked'),
             fullPageOnLanding: $('#edit-app-fullpage-on-landing').is(':checked')
         }
     };
@@ -722,7 +713,6 @@ function hasChanges() {
         $('#edit-app-window-resizable').is(':checked') !== originalValues.checkboxes.resizableWindow ||
         $('#edit-app-hide-titlebar').is(':checked') !== originalValues.checkboxes.hideTitleBar ||
         $('#edit-app-locked').is(':checked') !== originalValues.checkboxes.locked ||
-        $('#edit-app-credentialless').is(':checked') !== originalValues.checkboxes.credentialless ||
         $('#edit-app-fullpage-on-landing').is(':checked') !== originalValues.checkboxes.fullPageOnLanding
     );
 }
@@ -762,7 +752,6 @@ function resetToOriginalValues() {
     $('#edit-app-window-resizable').prop('checked', originalValues.checkboxes.resizableWindow);
     $('#edit-app-hide-titlebar').prop('checked', originalValues.checkboxes.hideTitleBar);
     $('#edit-app-locked').prop('checked', originalValues.checkboxes.locked);
-    $('#edit-app-credentialless').prop('checked', originalValues.checkboxes.credentialless);
     $('#edit-app-fullpage-on-landing').prop('checked', originalValues.checkboxes.fullPageOnLanding);
 
     if (originalValues.icon) {
@@ -1282,8 +1271,6 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
             window_resizable: $('#edit-app-window-resizable').is(":checked"),
             hide_titlebar: $('#edit-app-hide-titlebar').is(":checked"),
             locked: $(`#edit-app-locked`).is(":checked") ?? false,
-            credentialless: $(`#edit-app-credentialless`).is(":checked") ?? true,
-
         },
         filetypeAssociations: filetype_associations,
     }).then(async (app) => {
@@ -2900,14 +2887,14 @@ async function render_analytics(period){
                 {
                     label: 'Opens',
                     data: openData,
-                    borderColor: '#8884d8',
+                    borderColor: '#346beb',
                     tension: 0,
                     fill: false
                 },
                 {
                     label: 'Users',
                     data: userData,
-                    borderColor: '#82ca9d',
+                    borderColor: '#27cc32',
                     tension: 0,
                     fill: false
                 }

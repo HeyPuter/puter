@@ -1320,6 +1320,10 @@ class UI extends EventListener {
                     flex-direction: column;
                     align-items: center;
                     justify-content: center;
+                    width: 120px; 
+                    height: 120px; 
+                    background: #ffffff; 
+                    border-radius: 10px;
                 }
             `;
             document.head.appendChild(styleSheet);
