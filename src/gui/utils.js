@@ -20,7 +20,6 @@ import { encode } from 'html-entities';
 import fs from 'fs';
 import path from 'path';
 import webpack from 'webpack';
-import webpack_config from './webpack.config.cjs';
 import CleanCSS from 'clean-css';
 import uglifyjs from 'uglify-js';
 import { lib_paths, css_paths, js_paths } from './src/static-assets.js';
