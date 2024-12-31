@@ -374,8 +374,12 @@ class AppInformationService extends BaseService {
 
                 const [openResult, userResult] = await Promise.all([
                     db.read(`
-                        SELECT 
-                            DATE_FORMAT(FROM_UNIXTIME(ts/1000), '${timeFormat}') as period,
+                        SELECT ` + 
+                            db.case({
+                                mysql: `DATE_FORMAT(FROM_UNIXTIME(ts/1000), '${timeFormat}') as period, `,
+                                sqlite: `STRFTIME('%Y-%m-%d %H', datetime(ts/1000, 'unixepoch'), '${timeFormat}') as period, `,
+                            }) +
+                            `
                             COUNT(_id) as count
                         FROM app_opens 
                         WHERE app_uid = ?
@@ -384,8 +388,12 @@ class AppInformationService extends BaseService {
                         ORDER BY period
                     `, queryParams),
                     db.read(`
-                        SELECT 
-                            DATE_FORMAT(FROM_UNIXTIME(ts/1000), '${timeFormat}') as period,
+                        SELECT ` +
+                            db.case({
+                                mysql: `DATE_FORMAT(FROM_UNIXTIME(ts/1000), '${timeFormat}') as period, `,
+                                sqlite: `STRFTIME('%Y-%m-%d %H', datetime(ts/1000, 'unixepoch'), '${timeFormat}') as period, `,
+                            }) +
+                            `
                             COUNT(DISTINCT user_id) as count
                         FROM app_opens 
                         WHERE app_uid = ?
