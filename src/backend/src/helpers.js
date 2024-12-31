@@ -30,12 +30,10 @@ const { Context } = require('./util/context');
 const { NodeUIDSelector } = require('./filesystem/node/selectors');
 const { stream_to_buffer } = require('./util/streamutil.js');
 
-let systemfs = null;
 let services = null;
 const tmp_provide_services = async ss => {
     services = ss;
     await services.ready;
-    systemfs = services.get('filesystem').get_systemfs();
 }
 
 async function is_empty(dir_uuid){

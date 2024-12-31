@@ -20,7 +20,9 @@ module.exports = async function writeFile_handle_mkdir ({
         user: actor.type.user,
         actor,
     });
+
+    const svc_fs = req.services.get('filesystem');
     
-    const newdir_node = await req.fs.node(new NodeUIDSelector(r.uid));
+    const newdir_node = await svc_fs.node(new NodeUIDSelector(r.uid));
     return res.send(await sign_file(await newdir_node.get('entry'), 'write'));
 };

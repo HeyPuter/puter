@@ -29,7 +29,6 @@ const timeago = (() => {
 
 const { get_taskbar_items, is_shared_with_anyone, suggest_app_for_fsentry, get_app, get_descendants, id2uuid } = require('../helpers');
 const auth = require('../middleware/auth.js');
-const fs = require('../middleware/fs.js');
 const _path = require('path');
 const eggspress = require('../api/eggspress');
 const { Context } = require('../util/context');
@@ -122,7 +121,7 @@ const WHOAMI_GET = eggspress('/whoami', {
 // POST /whoami
 // -----------------------------------------------------------------------//
 const WHOAMI_POST = new express.Router();
-WHOAMI_POST.post('/whoami', auth, fs, express.json(), async (req, response, next)=>{
+WHOAMI_POST.post('/whoami', auth, express.json(), async (req, response, next)=>{
     // check subdomain
     if(require('../helpers').subdomain(req) !== 'api') {
         return;

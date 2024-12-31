@@ -37,7 +37,6 @@ const { HLRemove } = require('../filesystem/hl_operations/hl_remove');
 // POST /writeFile
 // -----------------------------------------------------------------------//
 module.exports = eggspress('/writeFile', {
-    fs: true,
     files: ['file'],
     allowedMethods: ['POST'],
 }, async (req, res, next) => {

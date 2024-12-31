@@ -32,7 +32,7 @@ module.exports = class FSNodeParam {
 
     async consolidate ({ req, getParam }) {
         const log = globalThis.services.get('log-service').create('fsnode-param');
-        const fs = req.fs ?? Context.get('services').get('filesystem');
+        const fs = Context.get('services').get('filesystem');
 
         let uidOrPath = getParam(this.srckey);
         if ( uidOrPath === undefined ) {

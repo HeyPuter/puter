@@ -32,7 +32,6 @@ module.exports = eggspress('/batch', {
     subdomain: 'api',
     verified: true,
     auth2: true,
-    fs: true,
     // json: true,
     // files: ['file'],
     // multest: true,
@@ -85,7 +84,8 @@ module.exports = eggspress('/batch', {
     }
 
     // Make sure usage is cached
-    await req.fs.sizeService.get_usage(req.user.id);
+    const sizeService = x.get('services').get('sizeService');
+    await sizeService.get_usage(req.user.id);
 
     globalThis.average_chunk_size = new MovingMode({
         alpha: 0.7,

@@ -21,7 +21,6 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth.js');
 const config = require('../config.js');
-const fs = require('../middleware/fs.js');
 const { DB_WRITE } = require('../services/database/consts.js');
 const { NodePathSelector } = require('../filesystem/node/selectors.js');
 const { HLRead } = require('../filesystem/hl_operations/hl_read.js');
@@ -30,7 +29,7 @@ const { UserActorType } = require('../services/auth/Actor.js');
 // -----------------------------------------------------------------------//
 // GET /down
 // -----------------------------------------------------------------------//
-router.post('/down', auth, fs, express.json(), express.urlencoded({ extended: true }), async (req, res, next)=>{
+router.post('/down', auth, express.json(), express.urlencoded({ extended: true }), async (req, res, next)=>{
     // check subdomain
     const actor = req.actor;
 
@@ -70,7 +69,8 @@ router.post('/down', auth, fs, express.json(), express.urlencoded({ extended: tr
         return res.status(400).send('Cannot download a directory.');
 
     // resolve path to its FSEntry
-    const fsnode = await req.fs.node(new NodePathSelector(path));
+    const svc_fs = req.services.get('filesystem');
+    const fsnode = await svc_fs.node(new NodePathSelector(path));
 
     // not found
     if( ! fsnode.exists() ) {

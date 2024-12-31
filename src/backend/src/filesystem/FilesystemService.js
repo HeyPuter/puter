@@ -19,7 +19,6 @@
 // TODO: database access can be a service
 const { RESOURCE_STATUS_PENDING_CREATE } = require('../modules/puterfs/ResourceService.js');
 const { TraceService } = require('../services/TraceService.js');
-const FSAccessContext = require('./FSAccessContext.js');
 const PerformanceMonitor = require('../monitor/PerformanceMonitor.js');
 const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector } = require('./node/selectors.js');
 const FSNodeContext = require('./FSNodeContext.js');
@@ -156,22 +155,6 @@ class FilesystemService extends BaseService {
                 return permissions;
             },
         }));
-    }
-
-    /**
-     * @deprecated - temporary migration method
-     */
-    get_systemfs () {
-        if ( ! this.systemfs_ ) {
-            this.systemfs_ = new FSAccessContext();
-            this.systemfs_.fsEntryFetcher = this.services.get('fsEntryFetcher');
-            this.systemfs_.fsEntryService = this.services.get('fsEntryService');
-            this.systemfs_.resourceService = this.services.get('resourceService');
-            this.systemfs_.sizeService = this.services.get('sizeService');
-            this.systemfs_.traceService = this.services.get('traceService');
-            this.systemfs_.services = this.services;
-        }
-        return this.systemfs_;
     }
 
     async mkshortcut ({ parent, name, user, target }) {

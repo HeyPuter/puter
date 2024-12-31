@@ -21,7 +21,6 @@ const multer = require('multer');
 const multest = require('@heyputer/multest');
 const api_error_handler = require('./api_error_handler.js');
 
-const fsBeforeMW = require('../../../middleware/fs.js');
 const APIError = require('../../../api/APIError.js');
 const { Context } = require('../../../util/context.js');
 const { subdomain } = require('../../../helpers.js');
@@ -49,9 +48,6 @@ module.exports = function eggspress (route, settings, handler) {
   if ( settings.abuse ) mw.push(require('../../../middleware/abuse')(settings.abuse));
   if ( settings.auth ) mw.push(require('../../../middleware/auth'));
   if ( settings.auth2 ) mw.push(require('../../../middleware/auth2'));
-  if ( settings.fs ) {
-    mw.push(fsBeforeMW);
-  }
   if ( settings.verified ) mw.push(require('../../../middleware/verified'));
   if ( settings.json ) mw.push(express.json());
 

@@ -25,7 +25,8 @@ module.exports = async function writeFile_handle_write ({
         return res.status(500).send(e);
     }
 
-    const dirNode = await req.fs.node(new NodePathSelector(dirname));
+    const svc_fs = req.services.get('filesystem');
+    const dirNode = await svc_fs.node(new NodePathSelector(dirname));
 
     // Upload files one by one
     const returns = [];
