@@ -2,9 +2,9 @@ const putility = require('@heyputer/putility');
 const { MultiDetachable } = putility.libs.listener;
 const { TDetachable } = putility.traits;
 
-const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSelector, NodePathSelector } = require("../node/selectors");
-const { Context } = require("../../util/context");
-const fsCapabilities = require('../definitions/capabilities');
+const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSelector, NodePathSelector } = require("../../../filesystem/node/selectors");
+const { Context } = require("../../../util/context");
+const fsCapabilities = require('../../../filesystem/definitions/capabilities');
 
 class PuterFSProvider {
     get_capabilities () {

@@ -19,6 +19,7 @@
  */
 // const Mountpoint = o => ({ ...o });
 
+const { RootNodeSelector, NodeUIDSelector } = require("../../filesystem/node/selectors");
 const BaseService = require("../../services/BaseService");
 
 /**
@@ -38,6 +39,15 @@ const BaseService = require("../../services/BaseService");
 * and their associated storage backends in future implementations.
 */
 class MountpointService extends BaseService {
+    _construct () {
+        this.mounters_ = {};
+        this.mountpoints_ = {};
+    }
+
+    register_mounter (name, mounter) {
+        this.mounters_[name] = mounter;
+    }
+
     /**
     * Initializes the MountpointService instance
     * Sets up initial state with null storage backend
@@ -46,10 +56,64 @@ class MountpointService extends BaseService {
     * @returns {Promise<void>}
     */
     async _init () {
-        // this.mountpoints_ = {};
-        
         // Temporary solution - we'll develop this incrementally
         this.storage_ = null;
+    }
+
+    async ['__on_boot.consolidation'] () {
+        const mountpoints = this.config.mountpoints ?? {
+            '/': {
+                mounter: 'puterfs',
+            },
+        };
+
+        for ( const path of Object.keys(mountpoints) ) {
+            const { mounter: mounter_name, options } =
+                mountpoints[path];
+            const mounter = this.mounters_[mounter_name];
+            const provider = await mounter.mount({
+                path,
+                options
+            });
+            this.mountpoints_[path] = {
+                provider,
+            };
+        }
+
+        this.services.emit('filesystem.ready', {
+            mountpoints: Object.keys(this.mountpoints_),
+        });
+    }
+    
+    async get_provider (selector) {
+        if ( selector instanceof RootNodeSelector ) {
+            return this.mountpoints_['/'].provider;
+        }
+
+        if ( selector instanceof NodeUIDSelector ) {
+            return this.mountpoints_['/'].provider;
+        }
+
+        const probe = {};
+        selector.setPropertiesKnownBySelector(probe);
+        if ( probe.path ) {
+            let longest_mount_path = '';
+            for ( const path of Object.keys(this.mountpoints_) ) {
+                if ( ! probe.path.startsWith(path) ) {
+                    continue;
+                }
+                if ( path.length > longest_mount_path.length ) {
+                    longest_mount_path = path;
+                }
+            }
+
+            if ( longest_mount_path ) {
+                return this.mountpoints_[longest_mount_path].provider;
+            }
+        }
+
+        // Use root mountpoint as fallback
+        return this.mountpoints_['/'].provider;
     }
     
     // Temporary solution - we'll develop this incrementally

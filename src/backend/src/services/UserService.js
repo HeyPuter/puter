@@ -14,7 +14,7 @@ class UserService extends BaseService {
         this.dir_system = null;
     }
 
-    async ['__on_boot.consolidation'] () {
+    async ['__on_filesystem.ready'] () {
         const svc_fs = this.services.get('filesystem');
         // Ensure system user has a home directory
         const dir_system = await svc_fs.node(

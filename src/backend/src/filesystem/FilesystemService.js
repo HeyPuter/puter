@@ -34,7 +34,7 @@ const { DB_WRITE } = require("../services/database/consts");
 const { UserActorType } = require('../services/auth/Actor');
 const { get_user } = require('../helpers');
 const BaseService = require('../services/BaseService');
-const { PuterFSProvider } = require('./puterfs/PuterFSProvider.js');
+const { PuterFSProvider } = require('../modules/puterfs/lib/PuterFSProvider.js');
 
 class FilesystemService extends BaseService {
     static MODULES = {
@@ -344,8 +344,11 @@ class FilesystemService extends BaseService {
             }
         }
 
+        const svc_mountpoint = this.services.get('mountpoint');
+        const provider = await svc_mountpoint.get_provider(selector);
+
         let fsNode = new FSNodeContext({
-            provider: new PuterFSProvider(),
+            provider,
             services: this.services,
             selector,
             fs: this
