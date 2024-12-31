@@ -141,7 +141,11 @@ module.exports = {
     url: {
         from: 'string',
         validate (value) {
-            return validator.isURL(value);
+            let valid = validator.isURL(value);
+            if ( ! valid ) {
+                valid = validator.isURL(value, { host_whitelist: ['localhost'] });
+            }
+            return valid;
         }
     },
     reference: {
