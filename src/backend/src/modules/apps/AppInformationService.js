@@ -375,21 +375,21 @@ class AppInformationService extends BaseService {
                 const [openResult, userResult] = await Promise.all([
                     db.read(`
                         SELECT 
-                            DATE_FORMAT(FROM_UNIXTIME(timestamp/1000), '${timeFormat}') as period,
+                            DATE_FORMAT(FROM_UNIXTIME(ts/1000), '${timeFormat}') as period,
                             COUNT(_id) as count
                         FROM app_opens 
                         WHERE app_uid = ?
-                        ${timeRange ? 'AND timestamp >= ? AND timestamp < ?' : ''}
+                        ${timeRange ? 'AND ts >= ? AND ts < ?' : ''}
                         GROUP BY period
                         ORDER BY period
                     `, queryParams),
                     db.read(`
                         SELECT 
-                            DATE_FORMAT(FROM_UNIXTIME(timestamp/1000), '${timeFormat}') as period,
+                            DATE_FORMAT(FROM_UNIXTIME(ts/1000), '${timeFormat}') as period,
                             COUNT(DISTINCT user_id) as count
                         FROM app_opens 
                         WHERE app_uid = ?
-                        ${timeRange ? 'AND timestamp >= ? AND timestamp < ?' : ''}
+                        ${timeRange ? 'AND ts >= ? AND ts < ?' : ''}
                         GROUP BY period
                         ORDER BY period
                     `, queryParams)
@@ -481,7 +481,7 @@ class AppInformationService extends BaseService {
 
             const generateQuery = (baseQuery, timeRange) => {
                 if (!timeRange) return baseQuery;
-                return `${baseQuery} AND timestamp >= ? AND timestamp < ?`;
+                return `${baseQuery} AND ts >= ? AND ts < ?`;
             };
 
             const openQuery = generateQuery(baseOpenQuery, timeRange);
