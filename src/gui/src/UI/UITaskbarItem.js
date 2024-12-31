@@ -61,9 +61,17 @@ function UITaskbarItem(options){
 
     if(options.append_to_taskbar) {
         if (options.before_trash){
-            $('.taskbar-item[data-app="trash"]').before(h);
+            $('.taskbar-sortable').append(h);
         }else{
-            $('.taskbar').append(h);
+            if(options.sortable)
+                $('.taskbar-sortable').append(h);
+            else{
+                // if taskbar-sortable is empty then append before it
+                if($('.taskbar-sortable').children().length === 0)
+                    $('.taskbar').find('.taskbar-sortable').before(h);
+                else
+                    $('.taskbar').find('.taskbar-sortable').after(h);
+            }
         }
     }else{
         $('body').prepend(h);

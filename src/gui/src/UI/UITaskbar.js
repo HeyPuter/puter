@@ -43,6 +43,9 @@ async function UITaskbar(options){
 
     let h = '';
     h += `<div id="ui-taskbar_${window.global_element_id}" class="taskbar" style="height:${window.taskbar_height}px;">`;
+        h += `<div class="taskbar-sortable" style="display: flex; justify-content: center; z-index: 99999;"></div>`;
+    h += `</div>`;
+
 
     $('.desktop').append(h);
 
@@ -147,7 +150,7 @@ async function UITaskbar(options){
             $(popover).find('.start-app').draggable({
                 appendTo: "body",
                 revert: "invalid",
-                connectToSortable: ".taskbar",
+                connectToSortable: ".taskbar-sortable",
                 zIndex: parseInt($(popover).css('z-index')) + 1,
                 scroll: false,
                 distance: 5,
@@ -245,7 +248,7 @@ window.make_taskbar_sortable = function(){
     //-------------------------------------------
     // Taskbar is sortable
     //-------------------------------------------
-    $('.taskbar').sortable({
+    $('.taskbar-sortable').sortable({
         axis: "x",
         items: '.taskbar-item-sortable:not(.has-open-contextmenu)',
         cancel: '.has-open-contextmenu',
