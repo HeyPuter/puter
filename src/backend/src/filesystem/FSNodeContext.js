@@ -71,11 +71,17 @@ module.exports = class FSNodeContext {
      * @param {*} opt_identifier.id please pass mysql_id instead
      * @param {*} opt_identifier.mysql_id a MySQL ID of the filesystem entry
      */
-    constructor ({ services, selector, fs }) {
+    constructor ({
+        services,
+        selector,
+        provider,
+        fs
+    }) {
         this.log = services.get('log-service').create('fsnode-context');
         this.selector_ = null;
         this.selectors_ = [];
         this.selector = selector;
+        this.provider = provider;
         this.entry = {};
         this.found = undefined;
         this.found_thumbnail = undefined;
@@ -264,106 +270,46 @@ module.exports = class FSNodeContext {
             return;
         }
 
+        const controls = {
+            log: this.log,
+            provide_selector: selector => {
+                this.selector = selector;
+            },
+        };
+
         this.log.info('fetching entry: ' + this.selector.describe());
-        // All services at the top (DEVLOG-401)
-        const {
-            traceService,
-            fsEntryService,
-            fsEntryFetcher,
-            resourceService,
-        } = Context.get('services').values;
 
-        if ( fetch_entry_options.tracer == null ) {
-            fetch_entry_options.tracer = traceService.tracer;
-        }
-
-        if ( fetch_entry_options.op ) {
-            fetch_entry_options.trace_options = {
-                parent: fetch_entry_options.op.span,
-            };
-        }
-
-        let entry;
-
-        await new Promise (rslv => {
-            const detachables = new MultiDetachable();
-
-            const callback = (resolver) => {
-                detachables.as(TDetachable).detach();
-                rslv();
-            }
-
-            // either the resource is free
-            {
-                // no detachale because waitForResource returns a
-                // Promise that will be resolved when the resource
-                // is free no matter what, and then it will be
-                // garbage collected.
-                resourceService.waitForResource(
-                    this.selector
-                ).then(callback.bind(null, 'resourceService'));
-            }
-
-            // or pending information about the resource
-            // becomes available
-            {
-                // detachable is needed here because waitForEntry keeps
-                // a map of listeners in memory, and this event may
-                // never occur. If this never occurs, waitForResource
-                // is guaranteed to resolve eventually, and then this
-                // detachable will be detached by `callback` so the
-                // listener can be garbage collected.
-                const det = fsEntryService.waitForEntry(
-                    this, callback.bind(null, 'fsEntryService'));
-                if ( det ) detachables.add(det);
-            }
+        const entry = await this.provider.stat({
+            selector: this.selector,
+            options: fetch_entry_options,
+            node: this,
+            controls,
         });
 
-        if ( resourceService.getResourceInfo(this.uid) ) {
-            entry = await fsEntryService.get(this.uid, fetch_entry_options);
-            this.log.debug('got an entry from the future');
-        } else {
-            entry = await fsEntryFetcher.find(
-                this.selector, fetch_entry_options);
-        }
-
-        if ( ! entry ) {
-            this.log.info(`entry not found: ${this.selector.describe(true)}`);
-        }
-
-        if ( entry === null || typeof entry !== 'object' ) {
-            // TODO: this property shouldn't be set to false -
-            //   this is set to false to avoid regressions with
-            //   existing code.
-            this.entry = false;
-
+        if ( entry === null ) {
             this.found = false;
-            return;
+            this.entry = false;
+        } else {
+            this.found = true;
+
+            if ( ! this.uid && entry.uuid ) {
+                this.uid = entry.uuid;
+            }
+
+            if ( ! this.mysql_id && entry.id ) {
+                this.mysql_id = entry.id;
+            }
+
+            if ( ! this.path && entry.path ) {
+                this.path = entry.path;
+            }
+
+            if ( ! this.name && entry.name ) {
+                this.name = entry.name;
+            }
+
+            Object.assign(this.entry, entry);
         }
-
-        this.found = true;
-
-        if ( entry.id ) {
-            this.selector = new NodeInternalIDSelector('mysql', entry.id, {
-                source: 'FSNodeContext optimization'
-            });
-        }
-
-        if ( ! this.uid && entry.uuid ) {
-            this.uid = entry.uuid;
-        }
-
-        if ( ! this.mysql_id && entry.id ) {
-            this.mysql_id = entry.id;
-        }
-
-        if ( ! this.path && entry.path ) {
-            this.path = entry.path;
-        }
-
-        if ( ! this.name && entry.name ) this.name = entry.name;
-
-        Object.assign(this.entry, entry);
     }
 
     /**
