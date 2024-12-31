@@ -12,6 +12,7 @@ class PuterFSProvider {
             fsCapabilities.THUMBNAIL,
             fsCapabilities.UUID,
             fsCapabilities.OPERATION_TRACE,
+            fsCapabilities.READDIR_UUID_MODE,
 
             fsCapabilities.READ,
             fsCapabilities.WRITE,
@@ -109,6 +110,15 @@ class PuterFSProvider {
         }
 
         return entry;
+    }
+
+    async readdir ({ context, node }) {
+        const uuid = await node.get('uid');
+        const services = context.get('services');
+        const svc_fsentry = services.get('fsEntryService');
+        const child_uuids = await svc_fsentry
+            .fast_get_direct_descendants(uuid);
+        return child_uuids;
     }
 }
 

@@ -1,14 +1,22 @@
 const capabilityNames = [
+    // PuterFS Capabilities
     'thumbnail',
     'uuid',
     'operation-trace',
+    'readdir-uuid-mode',
 
+    // Standard Capabilities
     'read',
     'write',
-    'case-sensitive',
     'symlink',
-    'unix-perms',
     'trash',
+
+    // Behavior Capabilities
+    'case-sensitive',
+
+    // POSIX Capabilities
+    'readdir-inode-numbers',
+    'unix-perms',
 ];
 
 const fsCapabilities = {};
