@@ -103,7 +103,7 @@ $(document).ready(function () {
     // initialize assets directory
     initializeAssetsDirectory();
 
-    $('#loading').show();
+    puter.ui.showSpinner();
 
     setTimeout(async function () {
         puter.ui.onLaunchedWithItems(async function (items) {
@@ -148,7 +148,7 @@ $(document).ready(function () {
             apps = resp;
 
             // hide loading
-            $('#loading').hide();
+            puter.ui.hideSpinner();
 
             // set apps
             if (apps.length > 0) {
@@ -178,14 +178,14 @@ $(document).ready(function () {
 
 function refresh_app_list(show_loading = false) {
     if (show_loading)
-        $('#loading').show();
+        puter.ui.showSpinner();
     // get apps
     setTimeout(function () {
         // uncheck the select all checkbox
         $('.select-all-apps').prop('checked', false);
 
         puter.apps.list({ icon_size: 64 }).then((apps_res) => {
-            $('#loading').hide();
+            puter.ui.hideSpinner();
             apps = apps_res;
             if (apps.length > 0) {
                 if (activeTab === 'apps') {
@@ -207,6 +207,7 @@ function refresh_app_list(show_loading = false) {
 }
 
 $(document).on('click', '.tab-btn', function (e) {
+    puter.ui.showSpinner();
     $('section:not(.sidebar)').hide();
     $('.tab-btn').removeClass('active');
     $(this).addClass('active');
@@ -224,19 +225,21 @@ $(document).on('click', '.tab-btn', function (e) {
     // ---------------------------------------------------------------
     else if ($(this).attr('data-tab') === 'payout-method') {
         activeTab = 'payout-method';
-        $('#loading').show();
+        puter.ui.showSpinner();
         setTimeout(function () {
             puter.apps.getDeveloperProfile(function (dev_profile) {
                 // show payout method tab if dev has joined incentive program
                 if (dev_profile.joined_incentive_program) {
                     $('#payout-method-email').html(dev_profile.paypal);
                 }
-                $('#loading').hide();
+                puter.ui.hideSpinner();
                 if (activeTab === 'payout-method')
                     $('#tab-payout-method').show();
             })
         }, 1000);
     }
+
+    puter.ui.hideSpinner();
 })
 
 $(document).on('click', '.create-an-app-btn', async function (e) {
@@ -268,7 +271,8 @@ async function create_app(title, source_path = null, items = null) {
 
     // open the 'Creting new app...' modal
     let start_ts = Date.now();
-    $('.new-app-modal').get(0).showModal();
+    
+    puter.ui.showSpinner();
 
     //----------------------------------------------------
     // Create app
@@ -326,7 +330,7 @@ async function create_app(title, source_path = null, items = null) {
                             $('.drop-area').removeClass('drop-area-hover');
                             $('.drop-area').addClass('drop-area-ready-to-deploy');
                         }
-                        $('.new-app-modal').get(0).close();
+                        puter.ui.hideSpinner();
                         // deploy app if source_path was provided
                         if (source_path) {
                             deploy(app, source_path);
@@ -403,10 +407,10 @@ $(document).on('click', '.delete-app', async function (e) {
 
     if (alert_resp === 'delete') {
         let init_ts = Date.now();
-        $('.deleting-app-modal')?.get(0)?.showModal();
+        puter.ui.showSpinner();
         puter.apps.delete(app_name).then(async (app) => {
                 setTimeout(() => {
-                    $('.deleting-app-modal')?.get(0)?.close();
+                    puter.ui.hideSpinner();
                     $(`.app-card[data-uid="${app_uid}"]`).fadeOut(200, function name(params) {
                         $(this).remove();
                         if ($(`.app-card`).length === 0) {
@@ -437,8 +441,7 @@ $(document).on('click', '.delete-app', async function (e) {
                 })
             }).catch(async (err) => {
                 setTimeout(() => {
-
-                    $('.deleting-app-modal')?.get(0)?.close();
+                    puter.ui.hideSpinner();
                     puter.ui.alert(err?.message, [
                         {
                             label: 'Ok',
@@ -1371,10 +1374,10 @@ $(document).on('click', '.delete-app-settings', async function (e) {
 
     if (alert_resp === 'delete') {
         let init_ts = Date.now();
-        $('.deleting-app-modal')?.get(0)?.showModal();
+        puter.ui.showSpinner();
         puter.apps.delete(app_name).then(async (app) => {
                 setTimeout(() => {
-                    $('.deleting-app-modal')?.get(0)?.close();
+                    puter.ui.hideSpinner();
                     $('.back-to-main-btn').trigger('click');
                 },
                     // make sure the modal was shown for at least 2 seconds
@@ -1394,7 +1397,7 @@ $(document).on('click', '.delete-app-settings', async function (e) {
                 })
             }).catch(async (err) => {
                 setTimeout(() => {
-                    $('.deleting-app-modal')?.get(0)?.close();
+                    puter.ui.hideSpinner();
                     puter.ui.alert(err?.message, [
                         {
                             label: 'Ok',
@@ -1416,13 +1419,13 @@ $(document).on('click', '.back-to-main-btn', function (e) {
     $('.tab-btn[data-tab="apps"]').addClass('active');
 
     // get apps
-    $('#loading').show();
+    puter.ui.showSpinner();
     setTimeout(function () {
         puter.apps.list({icon_size: 64}).then((apps_res) => {
             // uncheck the select all checkbox
             $('.select-all-apps').prop('checked', false);
 
-            $('#loading').hide();
+            puter.ui.hideSpinner();
             apps = apps_res;
             if (apps.length > 0) {
                 if (activeTab === 'apps') {
@@ -2398,7 +2401,7 @@ $('.insta-deploy-existing-app-select').on('close', function (e) {
 })
 
 $('.refresh-app-list').on('click', function (e) {
-    $('.loading-modal').get(0)?.showModal();
+    puter.ui.showSpinner();
 
     puter.apps.list({ icon_size: 64 }).then((resp) => {
         setTimeout(() => {
@@ -2426,7 +2429,7 @@ $('.refresh-app-list').on('click', function (e) {
             // preserve sort
             sort_apps();
 
-            $('.loading-modal').get(0).close();
+            puter.ui.hideSpinner();
         }, 1000);
     })
 })
@@ -2521,7 +2524,7 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
         // $('.delete-apps-btn').addClass('disabled');
 
         // show 'deleting' modal
-        $('.deleting-app-modal')?.get(0)?.showModal();
+        puter.ui.showSpinner();
 
         let start_ts = Date.now();
         const apps = $('.app-checkbox:checked').toArray();
@@ -2608,7 +2611,7 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
 
         // close 'deleting' modal
         setTimeout(() => {
-            $('.deleting-app-modal')?.get(0)?.close();
+            puter.ui.hideSpinner();
             if($('.app-checkbox:checked').length === 0){
                 // disable delete button
                 $('.delete-apps-btn').addClass('disabled');
