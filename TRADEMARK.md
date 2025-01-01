@@ -2,7 +2,10 @@
 
 Version 1.0 dated January 1, 2025
 
-<img src="https://puter.com/images/logo.png" alt="Puter Technologies Inc. Logo" width="200"/>
+<img src="https://puter.com/images/logo.png" alt="Puter Technologies Inc. Logo" width="150"/>
+
+<br>
+
 
 This trademark policy was prepared to help you understand how to use the Puter trademarks, service marks and logos with Puter Technologies Inc.'s Puter software.
 
@@ -15,6 +18,7 @@ This Policy covers:
 
 This policy encompasses all trademarks and service marks, whether they are registered or not.
 
+<br>
 <br>
 
 ## 1. GENERAL GUIDELINES
@@ -33,28 +37,38 @@ Trademark law does not allow your use of names or trademarks that are too simila
 - PuterFooBar
 
 <br>
+<br>
 
 ## 2. ACCEPTABLE USES
+
+<br>
 
 ### Unmodified code
 
 When you redistribute an unmodified copy of our software -- the exact form in which we make it available -- you must **retain** the marks we have placed on the software to identify your redistribution.
 
+<br>
+
 ### Modified code
 
 If you distribute a modified version of our software, you must **remove** all of our logos from it. To assist you with this, we have removed our logos from our source trees, and include them only in our binaries. You may use our word marks, but not our logos, to truthfully describe the origin of the software that you are providing. For example, if the code you are distributing is a modification of our software, you may say, "This software is derived from the source code for Puter software."
+
+<br>
 
 ### Statements about compatibility
 
 You may use the word marks, but not the logos, to truthfully describe the relationship between your software and ours. Any other use may imply that we have certified or approved your software. If you wish to use our logos, please contact us to discuss license terms.
 
-### Naming Compatible Products **[Note: This portion should only be used after careful review and not as a "template."]**
+<br>
+
+### Naming Compatible Products
 
 If you wish to describe your product with reference to the Puter software, here are the conditions under which you may do so. You may call your software XYZ (where XYZ is your product name) for Puter only if:
 
-* All versions of the Puter software you deliver with your product are the exact binaries provided by us.
-* Your product is fully compatible with the APIs for the Puter software described at https://developer.puter.com.
-* You use the following legend in marketing materials or product descriptions: "Puter is a trademark of Puter Technologies Inc. [add link to Puter]"
+* Your product is fully compatible with the APIs for Puter described at https://developer.puter.com.
+* You use the following legend in marketing materials or product descriptions: "Puter is a trademark of Puter Technologies Inc. (https://puter.com)"
+
+<br>
 
 ### User groups
 
@@ -66,21 +80,28 @@ You can use the Word Marks as part of your user group name provided that:
 
 You are not authorized to conduct a conference using our marks.
 
+<br>
+
 ### No Domain Names
 
 You must not register any domain that includes our word marks or any variant or combination of them.
 
+<br>
 <br>
 
 ## 3. HOW TO DISPLAY OUR MARKS
 
 When you have the right to use our mark, here is how to display it.
 
+<br>
+
 ### Trademark marking and legends
 
 The first or most prominent mention of a mark on a webpage, document, or documentation should be accompanied by a symbol indicating whether the mark is a registered trademark ("®") or an unregistered trademark ("™"). If you don't know which applies, contact us.
 
 Place the following notice at the foot of the page where you have used the mark: "Puter is trademark of Puter Technologies Inc."
+
+<br>
 
 ### Use of trademarks in text
 
@@ -97,12 +118,16 @@ Unacceptable: I have seventeen Puters running in my lab.
 Unacceptable: This is a Puter.  
 Acceptable: This is a Puter software application.
 
+<br>
+
 ### Use of Logos
 
 You may not change any logo except to scale it. This means you may not add decorative elements, change the colors, change the proportions, distort it, add elements, or combine it with other logos.
 
 However, when the context requires the use of black-and-white graphics and the logo is color, you may reproduce the logo in a manner that produces a black-and-white image.
 
+<br>
+<br>
 
 ## This Document
 
