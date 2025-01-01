@@ -1842,7 +1842,6 @@ window.upload_items = async function(items, dest_path){
                 })
                 // remove from active_uploads
                 delete window.active_uploads[opid];
-                window.location.reload();
             },
             // error
             error: async function(err){
