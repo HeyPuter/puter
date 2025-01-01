@@ -369,7 +369,7 @@ class AppInformationService extends BaseService {
             else {
                 // MySQL queries for grouped stats
                 const queryParams = timeRange ? 
-                    [app_uid, timeRange.start, timeRange.end] : 
+                    [app_uid, timeRange.start/1000, timeRange.end/1000] : 
                     [app_uid];
 
                 const [openResult, userResult] = await Promise.all([
