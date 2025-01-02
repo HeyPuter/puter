@@ -1161,7 +1161,6 @@ span.header-sort-icon img {
     border-color: #bcedff !important;
 }
 
-
 .device-phone .window-body.item-container {
     padding-left: 0;
 }
@@ -4680,6 +4679,11 @@ fieldset[name=number-code] {
     display: none;
 }
 
+/* height of 100% should not be applied to file dialogs */
+.device-phone .window:not(.window-filedialog) .window-body.item-container{
+    height: 100%;
+}
+
 .device-phone .window-body.item-container{
     /* Enable smooth scrolling on iOS */
     -webkit-overflow-scrolling: touch;
@@ -4689,7 +4693,6 @@ fieldset[name=number-code] {
     
     /* Base dimensions */
     width: 100%;
-    height: 100%;
     
     /* Scrolling behavior */
     overflow-y: scroll;
