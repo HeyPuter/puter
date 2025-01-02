@@ -85,8 +85,9 @@ class PuterFSProvider {
             }
         });
 
-        if ( resourceService.getResourceInfo(this.uid) ) {
-            entry = await fsEntryService.get(this.uid, options);
+        const maybe_uid = node.uid;
+        if ( resourceService.getResourceInfo(maybe_uid) ) {
+            entry = await fsEntryService.get(maybe_uid, options);
             controls.log.debug('got an entry from the future');
         } else {
             entry = await fsEntryFetcher.find(
