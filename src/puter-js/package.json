@@ -5,9 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start-server": "npx http-server --cors -c-1",
-    "start-webpack": "webpack ./src/index.js --output-filename puter.js && webpack ./src/index.js --output-filename puter.dev.js --watch --devtool source-map",
+    "start-webpack": "webpack && webpack --output-filename puter.dev.js --watch --devtool source-map",
     "start": "concurrently \"npm run start-server\" \"npm run start-webpack\"",
-    "build": "webpack ./src/index.js --output-filename puter.js && { echo \"// Copyright 2024 Puter Technologies Inc. All rights reserved.\"; echo \"// Generated on $(date '+%Y-%m-%d %H:%M')\n\"; cat ./dist/puter.js; } > temp && mv temp ./dist/puter.js"
+    "build": "webpack && { echo \"// Copyright 2024 Puter Technologies Inc. All rights reserved.\"; echo \"// Generated on $(date '+%Y-%m-%d %H:%M')\n\"; cat ./dist/puter.js; } > temp && mv temp ./dist/puter.js"
   },
   "keywords": [],
   "author": "",

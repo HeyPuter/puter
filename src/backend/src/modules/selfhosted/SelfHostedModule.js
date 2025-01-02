@@ -50,6 +50,10 @@ class SelfHostedModule extends AdvancedBase {
                     directory: 'src/puter-js',
                     command: 'npm',
                     args: ['run', 'start-webpack'],
+                    env: {
+                        PUTER_ORIGIN: ({ global_config: config }) => config.origin,
+                        PUTER_API_ORIGIN: ({ global_config: config }) => config.api_base_url,
+                    },
                 },
                 {
                     name: 'gui:webpack-watch',
