@@ -299,7 +299,55 @@ window.puter = (function() {
 
                 this.log.impl = logger;
             })();
+            
+            // Lock to prevent multiple requests to `/rao`
+            this.lock_rao_ = new putility.libs.promise.Lock();
+            // Promise that resolves when it's okay to request `/rao`
+            this.p_can_request_rao_ = new putility.libs.promise.TeePromise();
+            // Flag that indicates if a request to `/rao` has been made
+            this.rao_requested_ = false;
 
+            // In case we're already auth'd, request `/rao`
+            (async () => {
+                await this.services.wait_for_init(['api-access']);
+                this.p_can_request_rao_.resolve();
+            })();
+        }
+
+        /**
+         * @internal
+         * Makes a request to `/rao`. This method aquires a lock to prevent
+         * multiple requests, and is effectively idempotent.
+         */
+        async request_rao_ () {
+            await this.p_can_request_rao_;
+            
+            // setAuthToken is called more than once when auth completes, which
+            // causes multiple requests to /rao. This lock prevents that.
+            await this.lock_rao_.acquire();
+            if ( this.rao_requested_ ) {
+                this.lock_rao_.release();
+                return;
+            }
+
+            let had_error = false;
+            try {
+                const resp = await fetch(this.APIOrigin + '/rao', {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${this.authToken}`
+                    }
+                });
+                return await resp.json();
+            } catch (e) {
+                had_error = true;
+                console.error(e);
+            } finally {
+                this.lock_rao_.release();
+            }
+            if ( ! had_error ) {
+                this.rao_requested_ = true;
+            }
         }
         
         registerModule (name, cls, parameters = {}) {
@@ -341,6 +389,8 @@ window.puter = (function() {
             }
             // reinitialize submodules
             this.updateSubmodules();
+            // rao
+            this.request_rao_();
         }
 
         setAPIOrigin = function (APIOrigin) {
