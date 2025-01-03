@@ -2803,7 +2803,7 @@ label {
 }
 
 .start-app-icon {
-    filter: drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
+    filter: drop-shadow(0px 0px .3px rgb(51, 51, 51));
     display: block;
     margin: 0 auto;
     width: 38px;
