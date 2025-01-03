@@ -118,7 +118,7 @@ function UITaskbarItem(options){
     $(el_taskbar_item).on('contextmenu taphold', function(e){
         // seems like the only way to stop sortable is to destroy it
         if(options.sortable) {
-            $('.taskbar').sortable('destroy');
+            $('.taskbar-sortable').sortable('destroy');
         }
 
         e.preventDefault();
