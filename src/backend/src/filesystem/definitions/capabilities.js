@@ -11,6 +11,11 @@ const capabilityNames = [
     'symlink',
     'trash',
 
+    // Macro Capabilities
+    'copy-tree',
+    'move-tree',
+    'remove-tree',
+
     // Behavior Capabilities
     'case-sensitive',
 
