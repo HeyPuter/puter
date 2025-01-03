@@ -1539,14 +1539,7 @@ async function get_taskbar_items(user, { icon_size, no_icons } = {}) {
                 size: icon_size,
             });
 
-            if ( icon_result.data_url ) {
-                item.icon = icon_result.data_url;
-            } else {
-                const buffer = await stream_to_buffer(icon_result.stream);
-                const resp_data_url = `data:${icon_result.mime};base64,${buffer.toString('base64')}`;
-                
-                item.icon = resp_data_url;
-            }
+            item.icon = await icon_result.get_data_url();
         }
 
         // add to final object

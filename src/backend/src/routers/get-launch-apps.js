@@ -33,22 +33,7 @@ const iconify_apps = async (context, { apps, size }) => {
             size: size,
         });
 
-        if ( icon_result.data_url ) {
-            app.icon = icon_result.data_url;
-            return app;
-        }
-
-        try {
-            const buffer = await stream_to_buffer(icon_result.stream);
-            const resp_data_url = `data:${icon_result.mime};base64,${buffer.toString('base64')}`;
-            
-            app.icon = resp_data_url;
-        } catch (e) {
-            const svc_error = context.services.get('error');
-            svc_error.report('get-launch-apps:icon-stream', {
-                source: e,
-            });
-        }
+        app.icon = await icon_result.get_data_url();
         return app;
     }));
 }

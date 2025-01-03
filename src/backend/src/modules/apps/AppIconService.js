@@ -10,6 +10,7 @@ const BaseService = require("../../services/BaseService.js");
 const ICON_SIZES = [16,32,64,128,256,512];
 
 const DEFAULT_APP_ICON = require('./default-app-icon.js');
+const IconResult = require("./lib/IconResult.js");
 
 /**
  * AppIconService handles icon generation and serving for apps.
@@ -95,7 +96,12 @@ class AppIconService extends BaseService {
         }));
     }
 
-    async get_icon_stream ({ app_icon, app_uid, size, tries = 0 }) {
+    async get_icon_stream (params) {
+        const result = await this.get_icon_stream_(params);
+        return new IconResult(result);
+    }
+
+    async get_icon_stream_ ({ app_icon, app_uid, size, tries = 0 }) {
         // If there is an icon provided, and it's an SVG, we'll just return it
         if ( app_icon ) {
             const [metadata, data] = app_icon.split(',');

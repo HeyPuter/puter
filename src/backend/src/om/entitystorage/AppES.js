@@ -314,15 +314,12 @@ class AppES extends BaseES {
             if ( icon_size ) {
                 const svc_appIcon = this.context.get('services').get('app-icon');
                 try {
-                    const { stream, mime } = await svc_appIcon.get_icon_stream({
+                    const icon_result = await svc_appIcon.get_icon_stream({
                         app_uid: await entity.get('uid'),
                         app_icon: await entity.get('icon'),
                         size: icon_size,
                     });
-                    if ( ! stream ) throw Error('no stream');
-                    const buffer = await stream_to_buffer(stream);
-                    const data_url = `data:${mime};base64,${buffer.toString('base64')}`;
-                    await entity.set('icon', data_url);
+                    await entity.set('icon', await icon_result.get_data_url());
                 } catch (e) {
                     const svc_error = this.context.get('services').get('error-service');
                     svc_error.report('AppES:read_transform', { source: e });
