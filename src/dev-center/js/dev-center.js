@@ -53,7 +53,9 @@ const deploying_spinner = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns
 const loading_spinner = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><style>.spinner_P7sC{transform-origin:center;animation:spinner_svv2 .75s infinite linear}@keyframes spinner_svv2{100%{transform:rotate(360deg)}}</style><path d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z" class="spinner_P7sC"/></svg>`;
 const drop_area_placeholder = `<p>Drop your app folder and files here to deploy.</p><p style="font-size: 16px; margin-top: 0px;">HTML, JS, CSS, ...</p>`;
 const index_missing_error = `Please upload an 'index.html' file or if you're uploading a directory, make sure it contains an 'index.html' file at its root.`;
-const lock_svg = '<svg style="width: 20px; height: 20px; margin-bottom: -5px; margin-left: 5px; opacity: 0.5;" width="59px" height="59px" stroke-width="1.9" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M16 12H17.4C17.7314 12 18 12.2686 18 12.6V19.4C18 19.7314 17.7314 20 17.4 20H6.6C6.26863 20 6 19.7314 6 19.4V12.6C6 12.2686 6.26863 12 6.6 12H8M16 12V8C16 6.66667 15.2 4 12 4C8.8 4 8 6.66667 8 8V12M16 12H8" stroke="#000000" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+const lock_svg = `<svg style="opacity: 0.8; margin-bottom: -3px; margin-left: 5px; width: 15px;" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-shield-shaded" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M8 14.933a1 1 0 0 0 .1-.025q.114-.034.294-.118c.24-.113.547-.29.893-.533a10.7 10.7 0 0 0 2.287-2.233c1.527-1.997 2.807-5.031 2.253-9.188a.48.48 0 0 0-.328-.39c-.651-.213-1.75-.56-2.837-.855C9.552 1.29 8.531 1.067 8 1.067zM5.072.56C6.157.265 7.31 0 8 0s1.843.265 2.928.56c1.11.3 2.229.655 2.887.87a1.54 1.54 0 0 1 1.044 1.262c.596 4.477-.787 7.795-2.465 9.99a11.8 11.8 0 0 1-2.517 2.453 7 7 0 0 1-1.048.625c-.28.132-.581.24-.829.24s-.548-.108-.829-.24a7 7 0 0 1-1.048-.625 11.8 11.8 0 0 1-2.517-2.453C1.928 10.487.545 7.169 1.141 2.692A1.54 1.54 0 0 1 2.185 1.43 63 63 0 0 1 5.072.56"/> </svg>`;
+const lock_svg_tippy = `<svg title="Delete Protection enabled." style="opacity: 0.8; margin-bottom: -3px; margin-left: 5px; width: 15px;" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-shield-shaded tippy" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M8 14.933a1 1 0 0 0 .1-.025q.114-.034.294-.118c.24-.113.547-.29.893-.533a10.7 10.7 0 0 0 2.287-2.233c1.527-1.997 2.807-5.031 2.253-9.188a.48.48 0 0 0-.328-.39c-.651-.213-1.75-.56-2.837-.855C9.552 1.29 8.531 1.067 8 1.067zM5.072.56C6.157.265 7.31 0 8 0s1.843.265 2.928.56c1.11.3 2.229.655 2.887.87a1.54 1.54 0 0 1 1.044 1.262c.596 4.477-.787 7.795-2.465 9.99a11.8 11.8 0 0 1-2.517 2.453 7 7 0 0 1-1.048.625c-.28.132-.581.24-.829.24s-.548-.108-.829-.24a7 7 0 0 1-1.048-.625 11.8 11.8 0 0 1-2.517-2.453C1.928 10.487.545 7.169 1.141 2.692A1.54 1.54 0 0 1 2.185 1.43 63 63 0 0 1 5.072.56"/> </svg>`;
+
 const copy_svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/> </svg>`;
 
 // authUsername
@@ -162,6 +164,7 @@ $(document).ready(function () {
                 });
                 count_apps();
                 sort_apps();
+                activate_tippy();
             } else {
                 $('#no-apps-notice').show();
             }
@@ -202,6 +205,7 @@ function refresh_app_list(show_loading = false) {
                 $('#no-apps-notice').show();
                 $('#app-list').hide()
             }
+            activate_tippy();
         })
     }, show_loading ? 1000 : 0);
 }
@@ -337,6 +341,7 @@ async function create_app(title, source_path = null, items = null) {
                         } else if (items) {
                             deploy(app, items);
                         }
+                        activate_tippy();
                     }, (Date.now() - start_ts) > 2000 ? 1 : 2000 - (Date.now() - start_ts));
                 })
             }).catch(async (err) => {
@@ -493,7 +498,7 @@ function generate_edit_app_section(app) {
         <div class="edit-app-navbar">
             <div style="flex-grow:1;">
                 <img class="app-icon" data-uid="${html_encode(app.uid)}" src="${html_encode(!app.icon ? './img/app.svg' : app.icon)}">
-                <h3 class="app-title" data-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg : ''}</h3>
+                <h3 class="app-title" data-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg_tippy : ''}</h3>
                 <div style="margin-top: 4px; margin-bottom: 4px;">
                     <span class="open-app-btn" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Open</span>
                     <span style="margin: 5px; opacity: 0.3;">&bull;</span>
@@ -609,8 +614,8 @@ function generate_edit_app_section(app) {
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Misc</h3>
                 <div style="margin-top:30px;">
                     <input type="checkbox" id="edit-app-locked" name="edit-app-locked" value="true" ${app.metadata?.locked ? 'checked' : ''}>
-                    <label for="edit-app-locked" style="display: inline;">Locked</label>
-                    <p>When locked, the app cannot be deleted. This is useful to prevent accidental deletion of important apps.</p>
+                    <label for="edit-app-locked" style="display: inline;">Delete Protection${lock_svg}</label>
+                    <p>When enabled, the app cannot be deleted. This is useful for preventing accidental deletion of important apps.</p>
                 </div>
 
                 <div style="z-index: 999; box-shadow: 10px 10px 15px #8c8c8c; overflow: hidden; position: fixed; bottom: 0; background: white; padding: 10px; width: 100%; left: 0;">
@@ -1066,6 +1071,8 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
 
     // Focus on the first input
     $('#edit-app-title').focus();
+
+    activate_tippy();
 }
 
 $('.jip-submit-btn').on('click', async function (e) {
@@ -1438,6 +1445,7 @@ $(document).on('click', '.back-to-main-btn', function (e) {
                 });
                 count_apps();
                 sort_apps();
+                activate_tippy();
             } else
                 $('#no-apps-notice').show();
         })
@@ -1563,7 +1571,7 @@ function generate_app_card(app) {
     // Info
     h += `<div style="float:left; padding-left: 10px;">`;
     // Title
-    h += `<h3 class="got-to-edit-app app-card-title" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg : ''}</h3>`;
+    h += `<h3 class="got-to-edit-app app-card-title" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg_tippy : ''}</h3>`;
     // // Category
     // if (app.metadata?.category) {
     //     const category = APP_CATEGORIES.find(c => c.id === app.metadata.category);
@@ -1615,13 +1623,13 @@ function generate_app_card(app) {
     h += `<td style="vertical-align:middle; min-width:200px;">`;
         h += `<div style="overflow: hidden; height: 100%; display: flex; justify-content: center; align-items: center;">`;
             // "Approved for listing"
-            h += `<span class="approval-badge approval-badge-lsiting ${app.approved_for_listing ? 'active' : ''}" title="${app.approved_for_listing ? 'Approved for listing in the App Center' : 'Not approved for listing in the App Center'}"></span>`;
+            h += `<span class="tippy approval-badge approval-badge-lsiting ${app.approved_for_listing ? 'active' : ''}" title="${app.approved_for_listing ? 'Approved for listing in the App Center' : 'Not approved for listing in the App Center'}"></span>`;
 
             // "Approved for opening items"
-            h += `<span class="approval-badge approval-badge-opening ${app.approved_for_opening_items ? 'active' : ''}" title="${app.approved_for_opening_items ? 'Approved for opening items' : 'Not approved for opening items'}"></span>`;
+            h += `<span class="tippy approval-badge approval-badge-opening ${app.approved_for_opening_items ? 'active' : ''}" title="${app.approved_for_opening_items ? 'Approved for opening items' : 'Not approved for opening items'}"></span>`;
 
             // "Approved for incentive program"
-            h += `<span class="approval-badge approval-badge-incentive ${app.approved_for_incentive_program ? 'active' : ''}" title="${app.approved_for_incentive_program ? 'Approved for the incentive program' : 'Not approved for the incentive program'}"></span>`;
+            h += `<span class="tippy approval-badge approval-badge-incentive ${app.approved_for_incentive_program ? 'active' : ''}" title="${app.approved_for_incentive_program ? 'Approved for the incentive program' : 'Not approved for the incentive program'}"></span>`;
         h += `</div>`;
     h += `</td>`;
     h += `</tr>`;
@@ -2428,6 +2436,7 @@ $('.refresh-app-list').on('click', function (e) {
 
             // preserve sort
             sort_apps();
+            activate_tippy();
 
             puter.ui.hideSpinner();
         }, 1000);
@@ -2940,3 +2949,17 @@ async function render_analytics(period){
 $(document).on('click', '.stats-cell', function(e) {
     edit_app_section($(this).attr('data-app-name'), 'analytics');
 })
+
+function activate_tippy(){
+    tippy('.tippy', {
+        content(reference) {
+            return reference.getAttribute('title');
+        },
+        onMount(instance) {
+            // Remove the default title to prevent double tooltips
+            instance.reference.removeAttribute('title');
+        },
+        placement: 'top',
+        arrow: true,
+    });  
+}
