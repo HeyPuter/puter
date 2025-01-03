@@ -341,7 +341,7 @@ async function UIWindow(options) {
                 style="${!options.has_head ? ' height: 100%;' : ''}">`;
             // iframe, for apps
             if(options.iframe_url || options.iframe_srcdoc){
-                let allow_str = `camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; fullscreen; web-share;`;
+                let allow_str = `camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; fullscreen; web-share; file-system-handle; local-storage; downloads;`;
                 if(window.co_isolation_enabled)
                     allow_str += ' cross-origin-isolated;';
                 // <iframe>
@@ -363,7 +363,7 @@ async function UIWindow(options) {
                         allowfullscreen="true"
                         webkitallowfullscreen="webkitallowfullscreen" 
                         mozallowfullscreen="mozallowfullscreen"
-                        sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox ${options.iframe_srcdoc ? '' : 'allow-same-origin'} allow-scripts allow-top-navigation-by-user-activation allow-downloads allow-presentation allow-storage-access-by-user-activation"></iframe>`;
+                        sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox ${options.iframe_srcdoc ? '' : 'allow-same-origin'} allow-scripts allow-top-navigation-by-user-activation allow-downloads allow-presentation allow-storage-access-by-user-activation allow-downloads-without-user-activation allow-file-system-write"></iframe>`;
             }
             // custom body
             else if(options.body_content !== undefined){
