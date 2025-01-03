@@ -24,6 +24,7 @@ const { HLFilesystemOperation } = require("./definitions");
 const { MkTree } = require("./hl_mkdir");
 const { HLRemove } = require("./hl_remove");
 const config = require("../../config");
+const { LLCopy } = require("../ll_operations/ll_copy");
 
 class HLCopy extends HLFilesystemOperation {
     static DESCRIPTION = `
