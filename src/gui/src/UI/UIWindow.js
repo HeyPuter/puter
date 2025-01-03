@@ -363,7 +363,7 @@ async function UIWindow(options) {
                         allowfullscreen="true"
                         webkitallowfullscreen="webkitallowfullscreen" 
                         mozallowfullscreen="mozallowfullscreen"
-                        sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox ${options.iframe_srcdoc ? '' : 'allow-same-origin'} allow-scripts allow-top-navigation-by-user-activation allow-downloads allow-presentation allow-storage-access-by-user-activation allow-downloads-without-user-activation allow-file-system-write"></iframe>`;
+                        sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox ${options.iframe_srcdoc ? '' : 'allow-same-origin'} allow-scripts allow-top-navigation-by-user-activation allow-downloads allow-presentation allow-storage-access-by-user-activation"></iframe>`;
             }
             // custom body
             else if(options.body_content !== undefined){
