@@ -19,7 +19,6 @@ const implicit_user_app_permissions = [
             'app-0bef044f-918f-4cbf-a0c0-b4a17ee81085', // about
             'app-838dfbc4-bf8b-48c2-b47b-c4adc77fab58', // editor
             'app-58282b08-990a-4906-95f7-fa37ff92452b', // draw
-            'app-0087b701-da09-4f49-a37d-2d6bcabc81ee', // minipaint
             'app-3fea7529-266e-47d9-8776-31649cd06557', // terminal
             'app-5584fbf7-ed69-41fc-99cd-85da21b1ef51', // camera
             'app-7bdca1a4-6373-4c98-ad97-03ff2d608ca1', // recorder
