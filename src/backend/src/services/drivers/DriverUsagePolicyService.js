@@ -1,5 +1,4 @@
 // METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
-const APIError = require("../../api/APIError");
 const { PermissionUtil } = require("../auth/PermissionService");
 const BaseService = require("../BaseService");
 
