@@ -522,16 +522,14 @@ class AppInformationService extends BaseService {
     }
 
     /**
-    * Retrieves various statistics for a given app.
+    * Refreshes the application cache by querying the database for all apps and updating the key-value store.
     * 
-    * This method fetches the open count, user count, and referral count for an app identified by its UID.
-    * It uses cached values where available to improve performance, but will query the database if necessary.
+    * @async
+    * @returns {Promise<void>} A promise that resolves when the cache refresh operation is complete.
     * 
-    * @param {string} app_uid - The unique identifier of the app for which to retrieve stats.
-    * @returns {Promise<Object>} An object containing:
-    *   - {number} open_count - Total number of times the app was opened.
-    *   - {number} user_count - Number of unique users who opened the app.
-    *   - {number|null} referral_count - Number of referrals attributed to the app. This value might not be reported if not cached.
+    * @notes
+    * - This method logs a tick event for performance monitoring.
+    * - It populates the cache with app data indexed by name, id, and uid.
     */
     async _refresh_app_cache () {
         this.log.tick('refresh app cache');
@@ -548,14 +546,13 @@ class AppInformationService extends BaseService {
 
 
     /**
-    * Refreshes the application cache by querying the database for all apps and updating the key-value store.
-    * 
-    * @async
-    * @returns {Promise<void>} A promise that resolves when the cache refresh operation is complete.
-    * 
+    * Refreshes the cache of app statistics including open and user counts.
+    *
     * @notes
     * - This method logs a tick event for performance monitoring.
-    * - It populates the cache with app data indexed by name, id, and uid.
+    *
+    * @async
+    * @returns {Promise<void>} A promise that resolves when the cache refresh operation is complete.
     */
     async _refresh_app_stats () {
         this.log.tick('refresh app stats');
@@ -589,11 +586,17 @@ class AppInformationService extends BaseService {
 
 
     /**
-    * Refreshes the cache of app statistics including open and user counts.
-    * This method updates the cache every 120 seconds to ensure data freshness.
-    *
-    * @async
-    */
+     * Refreshes the cache of app referral statistics.
+     * 
+     * This method queries the database for user counts referred by each app's origin URL
+     * and updates the cache with the referral counts for each app.
+     * 
+     * @notes
+     * - This method logs a tick event for performance monitoring.
+     * 
+     * @async
+     * @returns {Promise<void>} A promise that resolves when the cache refresh operation is complete.
+     */
     async _refresh_app_stat_referrals () {
         this.log.tick('refresh app stat referrals');
 
@@ -653,12 +656,15 @@ class AppInformationService extends BaseService {
 
 
     /**
-    * Refreshes the cache of recently added or updated apps.
+    * Refreshes the cache of tags associated with apps.
     * 
-    * This method retrieves all apps from the cache, filters for approved listings,
-    * sorts them by timestamp in descending order, and updates the `recent` collection
-    * with the UIDs of the most recent 50 apps.
-    *
+    * This method iterates through all approved apps, extracts their tags,
+    * and organizes them into a structured format for quick lookups.
+    * 
+    * This data is used by the `/query/app` router to facilitate tag-based
+    * app discovery and categorization.
+    * 
+    * @async
     * @returns {Promise<void>}
     */
     async _refresh_tags () {

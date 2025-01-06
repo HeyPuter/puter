@@ -140,13 +140,6 @@ class RequesterIdentificationExpressMiddleware extends AdvancedBase {
     install (app) {
         app.use(this.run.bind(this));
     }
-    /**
-    * Installs the middleware into the Express application.
-    * This method binds the `run` method to the current instance
-    * and uses it as a middleware function in the Express app.
-    *
-    * @param {object} app - The Express application instance.
-    */
     async run (req, res, next) {
         const x = Context.get();
 

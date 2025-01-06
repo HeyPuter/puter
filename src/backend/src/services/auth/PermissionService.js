@@ -135,12 +135,6 @@ class PermissionExploder {
     }
 
     /**
-     * Check if the permission is implied by this implicator
-     * @param  {Actor} actor
-     * @param  {string} permission
-     * @returns 
-     */
-    /**
     * Explodes a permission into a set of implied permissions.
     * 
     * This method takes a permission string and an actor object, 
@@ -785,15 +779,10 @@ class PermissionService extends BaseService {
      * - This was written for use in ll_listusers to display
      *   home directories of users that shared files with the
      *   current user.
+     *
+     * @param {Object} user - The user whose permission issuers are to be listed.
+     * @returns {Promise<Array>} A promise that resolves to an array of user objects.
      */
-    /**
-    * Lists users who have granted any permissions to the specified user.
-    * 
-    * This method provides a flat, non-recursive view of permission issuers.
-    * 
-    * @param {Object} user - The user whose permission issuers are to be listed.
-    * @returns {Promise<Array>} A promise that resolves to an array of user objects.
-    */
     async list_user_permission_issuers (user) {
         const rows = await this.db.read(
             'SELECT DISTINCT issuer_user_id FROM `user_to_user_permissions` ' +
@@ -822,17 +811,14 @@ class PermissionService extends BaseService {
      * Use History:
      * - This was written for FSNodeContext.fetchShares to query
      *   all the "shares" associated with a file.
+     * 
+     * This method retrieves permissions from the database where the permission key starts with a specified prefix.
+     * It is designed for "flat" (non-cascading) queries.
+     * 
+     * @param {Object} issuer - The actor granting the permissions.
+     * @param {string} prefix - The prefix to match in the permission key.
+     * @returns {Object} An object containing arrays of user and app permissions matching the prefix.
      */
-    /**
-    * Queries permissions granted by an issuer to various users and apps based on a permission prefix.
-    * 
-    * This method retrieves permissions from the database where the permission key starts with a specified prefix.
-    * It is designed for "flat" (non-cascading) queries.
-    * 
-    * @param {Object} issuer - The actor granting the permissions.
-    * @param {string} prefix - The prefix to match in the permission key.
-    * @returns {Object} An object containing arrays of user and app permissions matching the prefix.
-    */
     async query_issuer_permissions_by_prefix (issuer, prefix) {
         const user_perms = await this.db.read(
             'SELECT DISTINCT holder_user_id, permission ' +
@@ -881,22 +867,11 @@ class PermissionService extends BaseService {
      * 
      * This is a "flat" (non-cascading) view.
      *
-     * @param {*} issuer 
-     * @param {*} holder 
-     * @param {*} prefix 
-     * @returns 
+     * @param {Object} issuer - The actor granting the permissions.
+     * @param {Object} holder - The actor receiving the permissions.
+     * @param {string} prefix - The prefix of the permission keys to match.
+     * @returns {Promise<Array<string>>} An array of permission strings matching the prefix.
      */
-    /**
-    * Queries the permissions granted by an issuer to a holder with a specific prefix.
-    * 
-    * This method retrieves permissions that match a given prefix from the database.
-    * It's a flat view, meaning it does not include cascading permissions.
-    * 
-    * @param {Object} issuer - The actor granting the permissions.
-    * @param {Object} holder - The actor receiving the permissions.
-    * @param {string} prefix - The prefix of the permission keys to match.
-    * @returns {Promise<Array<string>>} An array of permission strings matching the prefix.
-    */
     async query_issuer_holder_permissions_by_prefix (issuer, holder, prefix) {
         const user_perms = await this.db.read(
             'SELECT permission ' +

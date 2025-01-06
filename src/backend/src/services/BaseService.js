@@ -57,11 +57,10 @@ class BaseService extends concepts.Service {
 
 
     /**
-    * Initializes the service with configuration and dependencies.
-    * This method sets up logging and error handling, and calls a custom `_init` method if defined.
+    * Creates the service's data structures and initial values.
+    * This method sets up logging and error handling, and calls a custom `_construct` method if defined.
     * 
-    * @param {Object} args - Arguments passed to the service for initialization.
-    * @returns {Promise<void>} A promise that resolves when initialization is complete.
+    * @returns {Promise<void>} A promise that resolves when construction is complete.
     */
     async construct () {
         console.log('CLASS', this.constructor.name);

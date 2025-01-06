@@ -89,12 +89,11 @@ class SessionService extends BaseService {
 
 
     /**
-    * Initializes the session service by setting up the database connection and scheduling periodic session updates.
+    * Creates a new session for the specified user and records metadata about
+    * the requestor.
     * 
     * @async
-    * @private
-    * @returns {Promise<void>} A promise that resolves when initialization is complete.
-    * @note This method is called internally during the service setup. It does not need to be invoked manually.
+    * @returns {Promise<Session>} A new session object
     */
     async create_session (user, meta) {
         const unix_ts = Math.floor(Date.now() / 1000);

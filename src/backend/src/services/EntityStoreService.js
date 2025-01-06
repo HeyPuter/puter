@@ -39,6 +39,10 @@ class EntityStoreService extends BaseService {
     * @param {Object} args.upstream - The upstream service to handle operations.
     * 
     * @throws {Error} If `args.entity` is not provided.
+    *
+    * @returns {Promise<void>} A promise that resolves when initialization is complete.
+    * 
+    * @note This method sets up the context for the entity operations and provides it to the upstream service.
     */
     async _init (args) {
         if ( ! args.entity ) {
@@ -48,20 +52,6 @@ class EntityStoreService extends BaseService {
         this.upstream = args.upstream;
 
 
-        /**
-        * Initializes the EntityStoreService with the provided arguments.
-        * 
-        * @param {Object} args - Initialization arguments.
-        * @param {string} args.entity - The name of the entity this service will manage. 
-        *                              If not provided, an error is thrown.
-        * @param {Object} args.upstream - The upstream service or data source.
-        * 
-        * @throws {Error} If the entity name is not provided in the arguments.
-        * 
-        * @returns {Promise<void>} A promise that resolves when initialization is complete.
-        * 
-        * @note This method sets up the context for the entity operations and provides it to the upstream service.
-        */
         const context = Context.get().sub({ services: this.services });
         const om = this.services.get('registry').get('om:mapping').get(args.entity);
         this.om = om;
@@ -181,18 +171,19 @@ class EntityStoreService extends BaseService {
         if ( ! predicate) predicate = new Null();
         return await this.upstream.select({ predicate, ...rest });
     }
-    /**
-    * Retrieves entities matching a given predicate.
+    /* Updates an existing entity in the store.
     * 
-    * This method performs a selection query on the upstream data source.
-    * If no predicate is provided, it defaults to selecting all entities.
+    * @param {Object} entity - The entity to update with new values.
+    * @param {string|number} id - The identifier of the entity to update. Can be a string or number.
+    * @param {Object} options - Additional options for the update operation.
+    * @returns {Promise<Object>} The updated entity after the operation.
+    * @throws {APIError} If the entity to be updated is not found.
     * 
-    * @param {Object} options - The selection options.
-    * @param {Array|Function} options.predicate - The predicate for filtering entities. 
-    *      If an array, it's expected to be in the format [operator, ...args].
-    *      If not provided, it defaults to a Null predicate, effectively selecting all entities.
-    * @param {Object} [options.rest] - Additional options for the selection query.
-    * @returns {Promise<Array>} A promise that resolves to an array of entities matching the predicate.
+    * @note This method first attempts to fetch the entity by its primary identifier. If not found, 
+    *       it uses `IdentifierUtil` to detect and fetch by other identifiers if provided. 
+    *       If the entity still isn't found, an error is thrown. The method ensures that the 
+    *       entity's primary identifier is updated to match the existing entity before performing 
+    *       the actual update through `this.upstream.update`.
     */
     async update (entity, id, options) {
         let old_entity = await this.read(
@@ -225,7 +216,7 @@ class EntityStoreService extends BaseService {
         return await this.upstream.upsert(entity, { old_entity, options });
     }
     /**
-    * Updates an existing entity in the store.
+    * Updates an existing entity in the store or creates a new one.
     * 
     * @param {Object} entity - The entity to update with new values.
     * @param {string|number} id - The identifier of the entity to update. Can be a string or number.

@@ -282,12 +282,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
 
     /**
-    * Method to perform database upgrade if necessary.
-    *
-    * This method checks if the current database version is outdated and applies any necessary migration scripts to bring it up to date.
-    *
-    * @param {none}
-    * @returns {void}
+    * Implementation for prepared statements for READ operations.
     */
     async _read (query, params = []) {
         query = this.sqlite_transform_query_(query);
@@ -297,10 +292,9 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
 
     /**
-    * @description This method initializes the SQLite database connection and performs any necessary upgrades to the database schema.
-    * @notes This method is responsible for creating a new instance of the SQLite database connection, registering commands for the SQLite CLI, and upgrading the database schema if necessary.
-    * @param {none}
-    * @return {Promise} A promise that resolves when the database connection is initialized and any necessary upgrades are completed.
+    * Implementation for prepared statements for READ operations.
+    * This method may perform additional steps to obtain the data, which
+    * is not applicable to the SQLite implementation.
     */
     async _requireRead (query, params) {
         return this._read(query, params);
@@ -308,11 +302,8 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
 
     /**
-    * This method is responsible for performing database upgrades. It checks the current version of the database, compares it to the desired version, and applies any necessary migration scripts.
-    *
-    * It accepts no parameters and returns nothing.
-    */
-    // line 261, method begins here.
+     * Implementation for prepared statements for WRITE operations.
+     */
     async _write (query, params) {
         query = this.sqlite_transform_query_(query);
         params = this.sqlite_transform_params_(params);

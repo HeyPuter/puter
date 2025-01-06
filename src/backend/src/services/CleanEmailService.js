@@ -76,17 +76,17 @@ class CleanEmailService extends BaseService {
         this.domain_nondistinct = this.constructor.DOMAIN_NONDISTINCT;
     }
 
+    /**
+    * Cleans an email address by applying provider-specific rules and standardizations
+    * @param {string} email - The email address to clean
+    * @returns {string} The cleaned email address with applied rules and standardizations
+    * 
+    * Splits email into local and domain parts, applies provider-specific rules like:
+    * - Removing dots for certain providers (Gmail, iCloud)
+    * - Handling subaddressing (removing +suffix)
+    * - Normalizing domains (e.g. googlemail.com -> gmail.com)
+    */
     clean (email) {
-        /**
-        * Cleans an email address by applying provider-specific rules and standardizations
-        * @param {string} email - The email address to clean
-        * @returns {string} The cleaned email address with applied rules and standardizations
-        * 
-        * Splits email into local and domain parts, applies provider-specific rules like:
-        * - Removing dots for certain providers (Gmail, iCloud)
-        * - Handling subaddressing (removing +suffix)
-        * - Normalizing domains (e.g. googlemail.com -> gmail.com)
-        */
         const eml = (() => {
             const [local, domain] = email.split('@');
             return { local, domain };

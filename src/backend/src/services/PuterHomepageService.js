@@ -78,9 +78,7 @@ class PuterHomepageService extends BaseService {
 
 
     /**
-    * @description This method sets a GUI parameter. It allows you to assign a value to a key within the `gui_params` object.
-    * @param {string} key - The key for the parameter.
-    * @param {any} val - The value for the parameter.
+    * This method sends the initial HTML page that loads the Puter GUI and its assets.
     */
     async send ({ req, res }, meta, launch_options) {
         const config = this.global_config;

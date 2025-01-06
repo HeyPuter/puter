@@ -617,12 +617,13 @@ class WebServerService extends BaseService {
     }
 
     /**
-    * Starts the web server and sets up the necessary middleware and routes.
-    * This method is responsible for initializing the Express app, handling authentication,
-    * setting up routes, and starting the HTTP server. It also sets up error handling and
-    * socket.io for real-time communication.
-    *
-    * @param {Object} services - The services object containing all necessary services.
+    * Prints the Puter logo seen in the console after the server is started.
+    * 
+    * Depending on the size of the terminal, a different version of the
+    * logo is displayed. The logo is displayed in blue text.
+    * 
+    * @returns {void}
+    * @private
     */
     // comment above line 497
     print_puter_logo_() {

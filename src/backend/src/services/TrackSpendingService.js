@@ -33,13 +33,6 @@ const BaseService = require("./BaseService");
 * pricing strategies for chat completions and image generation services.
 */
 class TrackSpendingService extends BaseService {
-    /**
-    * @class TrackSpendingService
-    * @extends BaseService
-    * @description Service for tracking and monitoring API spending across different vendors and strategies.
-    * Implements cost tracking for chat completions and image generations, with configurable spending alerts.
-    * Maintains time-windowed spending metrics and triggers alarms when spending thresholds are exceeded.
-    */
     static ChatCompletionStrategy = class ChatCompletionStrategy {
         static models = {
             'gpt-4-1106-preview': {
@@ -217,11 +210,12 @@ class TrackSpendingService extends BaseService {
 
 
         /**
-        * Records spending data for a vendor using a specified strategy
-        * @param {string} vendor - The vendor name/identifier
-        * @param {string} strategy_key - Key identifying the pricing strategy to use
-        * @param {Object} data - Data needed to calculate cost based on the strategy
-        * @throws {Error} If strategy_key is invalid/unknown
+        * Generates alarms when spending exceeds configured thresholds
+        * 
+        * Periodically checks the current spending levels across all spending windows
+        * and triggers alarms when spending exceeds configured thresholds. Alarms are
+        * triggered based on the total spending across all windows and the configured
+        * alarm thresholds.
         */
         setInterval(() => {
             const spending = this.get_window_spending_();
@@ -281,6 +275,14 @@ class TrackSpendingService extends BaseService {
         }, 0);
     }
 
+    /**
+     * Records spending for a given vendor using the specified strategy
+     * 
+     * @param {string} vendor - The vendor name/identifier
+     * @param {string} strategy_key - Key identifying the pricing strategy to use
+     * @param {Object} data - Data needed to calculate cost based on the strategy
+     * @throws {Error} If strategy_key is invalid/unknown
+     */
     record_spending (vendor, strategy_key, data) {
         const strategy = this.strategies[strategy_key];
         if ( ! strategy ) {

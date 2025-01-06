@@ -42,6 +42,16 @@ class AnomalyService extends BaseService {
     _construct () {
         this.types = {};
     }
+    /**
+     * Registers a new type with the service, including its configuration and handler.
+     * 
+     * @param {string} type - The name of the type to register.
+     * @param {Object} config - The configuration object for the type.
+     * @param {Function} [config.handler] - An optional handler function for the type.
+     * @param {number} [config.high] - An optional threshold value; triggers the handler if exceeded.
+     * 
+     * @returns {void}
+     */
     register (type, config) {
         const type_instance = {
             config,
@@ -58,14 +68,12 @@ class AnomalyService extends BaseService {
         this.types[type] = type_instance;
     }
     /**
-     * Registers a new type with the service, including its configuration and handler.
+     * Creates a note of the specified type with the provided data.
+     * See `groups_user_hour` in GroupService for an example.
      * 
-     * @param {string} type - The name of the type to register.
-     * @param {Object} config - The configuration object for the type.
-     * @param {Function} [config.handler] - An optional handler function for the type.
-     * @param {number} [config.high] - An optional threshold value; triggers the handler if exceeded.
-     * 
-     * @returns {void}
+     * @param {*} id - The identifier of the type to create a note for.
+     * @param {*} data - The data to process with the type's handler.
+     * @returns 
      */
     async note (id, data) {
         const type = this.types[id];
