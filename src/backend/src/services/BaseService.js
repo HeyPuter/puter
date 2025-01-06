@@ -1,6 +1,6 @@
 // METADATA // {"ai-params":{"service":"xai"},"ai-refs":["../../doc/contributors/boot-sequence.md"],"ai-commented":{"service":"xai"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
