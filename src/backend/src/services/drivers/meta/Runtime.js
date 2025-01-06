@@ -24,7 +24,7 @@ const { TypeSpec } = require("./Construct");
 /**
 * Represents an entity in the runtime environment that extends the BasicBase class.
 * This class serves as a foundational type for creating various runtime constructs 
-* within the Puter framework, enabling the implementation of specialized behaviors 
+* within the drivers subsystem, enabling the implementation of specialized behaviors 
 * and properties.
 */
 class RuntimeEntity extends BasicBase {

@@ -25,19 +25,13 @@ const { PassThrough } = require("stream");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 
 /**
- * FileFacade
- *
- * This class is used to provide a unified interface for
- * passing files through the Puter Driver API, and avoiding
- * unnecessary work such as downloading the file from S3
- * (when a Puter file is specified) in case the underlying
- * implementation can accept S3 bucket information instead
- * of the file's contents.
- *
- *
- */
-/**
 * @class FileFacade
+* This class is used to provide a unified interface for
+* passing files through the Puter Driver API, and avoiding
+* unnecessary work such as downloading the file from S3
+* (when a Puter file is specified) in case the underlying
+* implementation can accept S3 bucket information instead
+* of the file's contents.
 * @extends AdvancedBase
 * @description This class provides a unified interface for passing files through the Puter Driver API. It aims to avoid unnecessary operations such as downloading files from S3 when a Puter file is specified, especially if the underlying implementation can accept S3 bucket information instead of the file's contents.
 */

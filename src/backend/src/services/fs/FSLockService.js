@@ -32,15 +32,6 @@ const MODE_WRITE = Symbol('write');
 * allowing concurrent read and exclusive write operations.
 */
 class FSLockService extends BaseService {
-    /**
-    * FSLockService handles file system locking mechanisms,
-    * providing methods to acquire read and write locks on paths.
-    * @param {string} path - The path to lock.
-    * @param {string} name - The name of the resource to lock.
-    * @param {symbol} mode - The mode of the lock (read or write).
-    * @returns {Promise} A promise that resolves when the lock is acquired.
-    * @throws {Error} Throws an error if an invalid mode is provided.
-    */
     async _construct () {
         this.locks = {};
     }
@@ -87,24 +78,29 @@ class FSLockService extends BaseService {
             }
         ]);
     }
+    
     /**
-    * Initializes the filesystem lock service by registering the 'fslock' commands.
-    * This method sets up the necessary command handlers and prepares the service 
-    * for use. It does not return any value.
-    */
+     * Lock a file by parent path and child node name.
+     * 
+     * @param {string} path - The path to lock.
+     * @param {string} name - The name of the resource to lock.
+     * @param {symbol} mode - The mode of the lock (read or write).
+     * @returns {Promise} A promise that resolves when the lock is acquired.
+     * @throws {Error} Throws an error if an invalid mode is provided.
+     */
     async lock_child (path, name, mode) {
         if ( path.endsWith('/') ) path = path.slice(0, -1);
         return await this.lock_path(path + '/' + name, mode);
     }
+
     /**
-    * Acquires a lock on a child resource, given a path and name.
-    * This method modifies the path to ensure it ends with the correct formatting. 
-    * 
-    * @param {string} path - The base path of the resource to lock.
-    * @param {string} name - The name of the child resource to lock.
-    * @param {Symbol} mode - The mode of the lock (either MODE_READ or MODE_WRITE).
-    * @returns {Promise} Resolves when the lock has been successfully acquired.
-    */
+     * Lock a file by path.
+     * 
+     * @param {string} path - The path to lock.
+     * @param {symbol} mode - The mode of the lock (read or write).
+     * @returns {Promise} A promise that resolves when the lock is acquired.
+     * @throws {Error} Throws an error if an invalid mode is provided.
+     */
     async lock_path (path, mode) {
         // TODO: Why???
         // if ( this.locks === undefined ) this.locks = {};

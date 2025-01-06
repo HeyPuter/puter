@@ -29,15 +29,8 @@ const BaseService = require("../../services/BaseService");
 * Parameters can have constraints, default values, and change listeners.
 */
 class ParameterService extends BaseService {
-    /**
-    * Parameter service for managing system-wide parameters
-    * @extends BaseService
-    * @class
-    * @description Handles registration, storage, and access of parameters across services.
-    * Parameters can be bound to instances, subscribed to for changes, and accessed via commands.
-    * Each parameter has a unique service-scoped ID and optional constraints.
-    */
     _construct () {
+        /** @type {Array<Parameter>} */
         this.parameters_ = [];
     }
     
@@ -99,11 +92,11 @@ class ParameterService extends BaseService {
         return parameter;
     }
 
+    /**
+    * Registers parameter-related commands with the command service
+    * @param {Object} commands - The command service instance to register with
+    */
     _registerCommands (commands) {
-        /**
-        * Registers parameter-related commands with the command service
-        * @param {Object} commands - The command service instance to register with
-        */
         const completeParameterName = (args) => {
             // The parameter name is the first argument, so return no results if we're on the second or later.
             if (args.length > 1)

@@ -24,11 +24,11 @@ const BaseService = require("../BaseService");
 
 
 /**
-* Class representing the AntiCSRFService, which extends BaseService.
-* This service is responsible for issuing and managing anti-CSRF tokens
-* to enhance security for web requests by validating session-based tokens
-* and preventing cross-site request forgery attacks.
-*/
+ * A utility class used by AntiCSRFService to manage a circular queue of
+ * CSRF tokens (or, as we like to call them, "anti-CSRF" tokens).
+ *
+ * A token expires when it is evicted from the queue.
+ */
 class CircularQueue {
     constructor (size) {
         this.size = size;

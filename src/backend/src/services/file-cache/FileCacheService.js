@@ -26,16 +26,10 @@ const { EWMA } = require("../../util/opmath");
 const crypto = require('crypto');
 
 /**
- * FileCacheService
- *
- * Initial naive cache implementation which stores whole files on disk.
- * It is assumed that files are only accessed by one server at a given time,
- * so this will need to be revised when ACL and sharing is implemented.
- */
-/**
 * @class FileCacheService
 * @extends AdvancedBase
 * @description
+
 * The FileCacheService class manages a cache for file storage and retrieval in the Puter system. 
 * This service provides functionalities to:
 * - Cache files either in memory (precache) or on disk.
@@ -148,17 +142,28 @@ class FileCacheService extends AdvancedBase {
         });
     }
 
-    _get_path (uid) {
-        const { path_ } = this.modules;
-        return path_.join(this.path, uid);
-    }
-
-
     /**
     * Get the file path for a given file UID.
     * 
     * @param {string} uid - The unique identifier of the file.
     * @returns {string} The full path where the file is stored on disk.
+    */
+    _get_path (uid) {
+        const { path_ } = this.modules;
+        return path_.join(this.path, uid);
+    }
+
+    /**
+    * Attempts to retrieve a cached file.
+    * 
+    * This method first checks if the file exists in the cache by its UID.
+    * If found, it verifies the file's age against the TTL (time-to-live).
+    * If the file is expired, it invalidates the cache entry. Otherwise,
+    * it returns the cached data or null if not found or invalidated.
+    *
+    * @param {Object} fsNode - The file system node representing the file.
+    * @param {Object} [opt_log] - Optional logging service to log cache hits.
+    * @returns {Promise<Buffer|null>} - The file data if found, or null.
     */
     async try_get(fsNode, opt_log) {
         const result = await this.try_get_(fsNode, opt_log);
@@ -234,19 +239,13 @@ class FileCacheService extends AdvancedBase {
         return null;
     }
 
-
     /**
-    * Attempts to retrieve a cached file.
-    * 
-    * This method first checks if the file exists in the cache by its UID.
-    * If found, it verifies the file's age against the TTL (time-to-live).
-    * If the file is expired, it invalidates the cache entry. Otherwise,
-    * it returns the cached data or null if not found or invalidated.
-    *
-    * @param {Object} fsNode - The file system node representing the file.
-    * @param {Object} [opt_log] - Optional logging service to log cache hits.
-    * @returns {Promise<Buffer|null>} - The file data if found, or null.
-    */
+     * Stores a file in the cache if it's "important enough"
+     * to be in the cache (i.e. wouldn't get immediately evicted).
+     * @param {*} fsNode 
+     * @param {*} stream 
+     * @returns 
+     */
     async maybe_store (fsNode, stream) {
         const size = await fsNode.get('size');
 
@@ -323,14 +322,9 @@ class FileCacheService extends AdvancedBase {
 
 
     /**
-    * Invalidates a file from the cache.
-    * 
-    * @param {Object} fsNode - The file system node representing the file to invalidate.
-    * @returns {Promise<void>} A promise that resolves when the file has been invalidated from both precache and disk.
-    * 
-    * @note This method removes the file's tracker from the cache, deletes the file from precache if present,
-    * and ensures the file is evicted from disk storage if it exists there.
-    */
+     * Evicts files from precache until there's enough room for a new file.
+     * @param {*} size - The size of the file to be stored.
+     */
     async _precache_make_room (size) {
         if (this._precache_used + size > this.precache_size) {
             await this._precache_evict(
@@ -363,15 +357,17 @@ class FileCacheService extends AdvancedBase {
 
 
     /**
-    * Evicts files from the precache to make room for new files.
-    * 
-    * @param {number} capacity_needed - The amount of space needed to be freed in bytes.
-    * 
-    * @description
-    * This method sorts all cached files by their score in descending order,
-    * then iterates through them to evict files from the precache to disk
-    * until the required capacity is met. If a file is already on disk, it is skipped.
-    */
+     * Promotes a file from precache to disk if it has a higher score than the files that would be evicted.
+     *
+     * It may seem unintuitive that going from memory to disk is called a
+     * "promotion". However, the in-memory cache used here is considered a
+     * "precache"; the idea is as soon as we prepare to write a file to disk cache
+     * we're very likely to access it again soon, so we keep it in memory for a
+     * while before writing it to disk.
+     *
+     * @param {*} tracker - The FileTracker instance representing the file to be promoted.
+     * @returns 
+     */
     async _maybe_promote_to_disk (tracker) {
         if (tracker.phase !== FileTracker.PHASE_PRECACHE) return;
 

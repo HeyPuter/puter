@@ -39,13 +39,6 @@ class DriverService extends BaseService {
     }
 
 
-    /**
-    * @description This method is responsible for registering collections in the registry service.
-    * It registers 'interfaces', 'drivers', and 'types' collections.
-    * It also populates the 'interfaces' and 'types' collections with default interfaces and types.
-    * @returns {void}
-    */
-    // Add this comment above line 37, before the method definition.
     _construct () {
         this.drivers = {};
         this.interface_to_implementation = {};
@@ -53,19 +46,18 @@ class DriverService extends BaseService {
         this.service_aliases = {};
     }
 
-    /**
-    * This method is responsible for calling a driver's method with provided arguments.
-    * It checks for permissions, selects the best option, and applies rate and monthly usage limits before invoking the driver.
-    *
-    * @param {Object} o - An object containing driver, interface, method, and arguments.
-    * @returns {Promise<{success: boolean, service: DriverService.Driver, result: any, metadata: any}>}
-    */
     _init () {
         const svc_registry = this.services.get('registry');
         svc_registry.register_collection('');
         
         const { quot } = strutil;
         const svc_apiError = this.services.get('api-error');
+        
+        /**
+         * There are registered into the new APIErrorService which allows for
+         * better sepration of concerns between APIError and the services which.
+         * depend on it.
+         */
         svc_apiError.register({
             'missing_required_argument': {
                 status: 400,
@@ -256,7 +248,7 @@ class DriverService extends BaseService {
         /**
         * This method retrieves the driver service for the provided interface name.
         * It first checks if the driver service already exists in the registry,
-        * and if not, it creates a new instance of the driver service and registers it.
+        * and if not, it throws an error.
         *
         * @param {string} interfaceName - The name of the interface for which to retrieve the driver service.
         * @returns {DriverService} The driver service instance for the provided interface.
@@ -296,12 +288,9 @@ class DriverService extends BaseService {
     
 
     /**
-    * This method is used to call a specific method on a driver implementation.
-    * It takes in an object containing the driver name, interface name, method name, and arguments, and returns the result of the call.
-    * It also handles error cases, such as missing required arguments, and returns appropriate error messages.
-    * @param {object} o - An object containing the driver name, interface name, method name, and arguments.
-    * @return {Promise<object>} - A promise that resolves to an object containing the result of the call, or an error object if an error occurred.
-    */
+     * Reserved for future implementation of "best policy" selection.
+     * For now, it just returns the first root option's path.
+     */
     async get_policies_for_option_ (option) {
         // NOT FINAL: before implementing cascading monthly usage,
         // this return will be removed and the code below it will
@@ -326,16 +315,25 @@ class DriverService extends BaseService {
     
 
     /**
-    * Description: This method is responsible for handling driver calls. It takes an object containing the driver name, interface name, method name, and arguments, and calls the corresponding method in the driver implementation.
-    * Behavior: The method first checks if the driver service exists for the given driver name and interface name. If it does, it calls the method in the driver implementation with the provided arguments. If the method is not found, it throws an error. If the driver service does not exist, it throws an error.
-    * Parameters: The method takes an object containing the driver name, interface name, method name, and arguments.
-    * Return Value: The method returns a promise that resolves with an object containing the result of the method call, the metadata of the driver call, and a boolean indicating whether the call was successful.
-    */
-    // Add this comment above line 276 in DriverService.js
+     * Reserved for future implementation of "best policy" selection.
+     * For now, this just returns the first option of a list of options.
+     * 
+     * @param {*} options 
+     * @returns 
+     */
     async select_best_option_ (options) {
         return options[0];
     }
     
+    /**
+    * This method is used to call a driver method with provided arguments.
+    * It first processes the arguments to ensure they are of the correct type and format.
+    * Then it checks if the method exists in the interface and if the driver service for that interface is available.
+    * If the method exists and the driver service is available, it calls the method using the driver service.
+    * If the method does not exist or the driver service is not available, it throws an error.
+    * @param {object} o - Object containing driver, interface, method and arguments
+    * @returns {Promise<object>} - Promise that resolves to an object containing the result of the driver method call
+    */
     async call_new_ ({
         actor,
         service,
@@ -389,15 +387,6 @@ class DriverService extends BaseService {
         // when cascading monthly usage is implemented.
         const svc_systemData = this.services.get('system-data');
         const svc_su = this.services.get('su');
-        /**
-        * This method is used to call a driver method with provided arguments.
-        * It first processes the arguments to ensure they are of the correct type and format.
-        * Then it checks if the method exists in the interface and if the driver service for that interface is available.
-        * If the method exists and the driver service is available, it calls the method using the driver service.
-        * If the method does not exist or the driver service is not available, it throws an error.
-        * @param {object} o - Object containing driver, interface, method and arguments
-        * @returns {Promise<object>} - Promise that resolves to an object containing the result of the driver method call
-        */
         effective_policy = await svc_su.sudo(async () => {
             return await svc_systemData.interpret(effective_policy.data);
         });
@@ -421,13 +410,7 @@ class DriverService extends BaseService {
                         if ( ! effective_policy?.['rate-limit'] ) return args;
                         const svc_su = this.services.get('su');
                         const svc_rateLimit = this.services.get('rate-limit');
-                        /**
-                        * This method is used to initialize a driver instance with the provided options.
-                        * It sets up the necessary dependencies and configurations for the driver to function correctly.
-                        *
-                        * @param {DriverService} driverService - The instance of the driver service.
-                        * @param {Object} options - An object containing the options for the driver instance, such as the driver's implementation, test service, and service aliases.
-                        */
+
                         await svc_su.sudo(policy_holder, async () => {
                             await svc_rateLimit.check_and_increment(
                                 `V1:${service_name}:${iface}:${method}`,
@@ -521,18 +504,8 @@ class DriverService extends BaseService {
     
 
     /**
-    * This method is responsible for handling driver calls and returns the result or an error message.
-    * It takes a call object with the driver name, interface name, method name, and arguments as input.
-    * The method first checks if the driver and interface exist, then it checks if the user has the required permissions.
-    * If the user has the required permissions, it calls the method on the driver and returns the result.
-    * If the user does not have the required permissions, it throws an APIError with the 'forbidden' message.
-    * If there's an error while calling the method, it throws the error.
-    * If the method returns a TypedValue, it coerces the result to the desired type.
-    * If the method returns an error, it serializes the error and returns it with the original metadata.
-    * @param {Object} call - The call object with driver name, interface name, method name, and arguments.
-    * @returns {Object} The result of the method call or an error object.
-    */
-    // Add this comment above line 456.
+     * This method converts an error into an appropriate driver response.
+     */
     async _driver_response_from_error (e, meta) {
         let serializable = (e instanceof APIError) || (e instanceof DriverError);
         return {
@@ -542,24 +515,15 @@ class DriverService extends BaseService {
         };
     }
 
-
     /**
-    * This method is responsible for registering collections in the service registry.
-    * It registers 'interfaces', 'drivers', and 'types' collections.
-    */
-    // Above line 465
-    async list_interfaces () {
-        return this.interfaces;
-    }
-
-
-    /**
-    * This method is responsible for registering collections in the service registry.
-    * It registers 'interfaces', 'drivers', and 'types' collections.
-    *
-    * @returns {void}
-    */
-    // line 469
+     * Processes arguments according to the argument types specified
+     * on the interface (in interfaces.js). The behavior of types is
+     * defined in types.js
+     * @param {*} interface_name - the name of the interface
+     * @param {*} method_name - the name of the method
+     * @param {*} args - raw argument values from request body
+     * @returns 
+     */
     async _process_args (interface_name, method_name, args) {
         const svc_registry = this.services.get('registry');
         const c_interfaces = svc_registry.get('interfaces');

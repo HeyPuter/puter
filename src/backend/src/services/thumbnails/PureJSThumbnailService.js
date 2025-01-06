@@ -28,6 +28,8 @@ const { stream_to_buffer } = require('../../util/streamutil');
 * @description This class represents a thumbnail service that operates entirely in JavaScript without relying on any low-level compiled libraries.
 * It is designed for development and testing environments due to its CPU-intensive nature, making it less suitable for production deployments.
 * The service supports various image formats and provides methods to check supported MIME types and file sizes, as well as to generate thumbnails.
+*
+* @deprecated as 'sharp' module is now required for app icons anyway
 */
 class PureJSThumbnailService extends BaseService {
     static DESCRIPTION = `

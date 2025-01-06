@@ -388,6 +388,7 @@ class PermissionService extends BaseService {
     * Grants a user permission to interact with another user.
     * 
     * @param {Actor} actor - The actor granting the permission (must be a user).
+    * @param {string} app_uid - The unique identifier or name of the app.
     * @param {string} username - The username of the user receiving the permission.
     * @param {string} permission - The permission string to grant.
     * @param {Object} [extra={}] - Additional metadata or conditions for the permission.

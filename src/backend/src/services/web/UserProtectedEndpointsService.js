@@ -41,16 +41,16 @@ class UserProtectedEndpointsService extends BaseService {
         express: require('express'),
     };
 
+    /**
+    * Sets up and configures routes for user-protected endpoints.
+    * This method initializes an Express router, applies middleware for authentication,
+    * rate limiting, and session validation, and attaches user-specific endpoints.
+    * 
+    * @memberof UserProtectedEndpointsService
+    * @instance
+    * @method __on_install.routes
+    */
     ['__on_install.routes'] () {
-        /**
-        * Sets up and configures routes for user-protected endpoints.
-        * This method initializes an Express router, applies middleware for authentication,
-        * rate limiting, and session validation, and attaches user-specific endpoints.
-        * 
-        * @memberof UserProtectedEndpointsService
-        * @instance
-        * @method __on_install.routes
-        */
         const router = (() => {
             const require = this.require;
             const express = require('express');
@@ -96,23 +96,21 @@ class UserProtectedEndpointsService extends BaseService {
             next();
         });
 
-        // Require password in request
+        /**
+        * Middleware to validate the provided password against the stored user password.
+        * 
+        * This method ensures that the user has entered their current password correctly before 
+        * allowing changes to critical account settings. It uses bcrypt for password comparison.
+        * 
+        * @param {Object} req - Express request object, containing user and password in body.
+        * @param {Object} res - Express response object for sending back the response.
+        * @param {Function} next - Callback to pass control to the next middleware or route handler.
+        */
         router.use(async (req, res, next) => {
             if ( ! req.body.password ) {
                 return (APIError.create('password_required')).write(res);
             }
-
-
-            /**
-            * Middleware to validate the provided password against the stored user password.
-            * 
-            * This method ensures that the user has entered their current password correctly before 
-            * allowing changes to critical account settings. It uses bcrypt for password comparison.
-            * 
-            * @param {Object} req - Express request object, containing user and password in body.
-            * @param {Object} res - Express response object for sending back the response.
-            * @param {Function} next - Callback to pass control to the next middleware or route handler.
-            */
+            
             const bcrypt = (() => {
                 const require = this.require;
                 return require('bcrypt');

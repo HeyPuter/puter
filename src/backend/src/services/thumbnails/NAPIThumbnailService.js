@@ -48,14 +48,15 @@ class NAPIThumbnailService extends BaseService {
     is_supported_mimetype (mimetype) {
         return this.constructor.SUPPORTED_MIMETYPES.includes(mimetype);
     }
-    is_supported_size (size) {
-        return size <= this.constructor.LIMIT;
-    }
+
     /**
     * Checks if a file size is within the supported limit for thumbnail generation
     * @param {number} size - The file size in bytes to check
     * @returns {boolean} True if size is less than or equal to the limit, false otherwise
     */
+    is_supported_size (size) {
+        return size <= this.constructor.LIMIT;
+    }
     async thumbify (file) {
         const transformer = await this.modules.sharp()()
             .resize(128)

@@ -117,31 +117,6 @@ class InformationObtainer {
  *         // code to obtain fsentry from path
  *     });
  */
-/**
-* The `InformationService` class is a core component of the information management system.
-* It facilitates the registration and management of information providers and obtainers,
-* allowing various services to provide methods for obtaining information and other services
-* to retrieve that information efficiently. This class optimizes the process by determining
-* the most efficient strategies for obtaining the required information.
-*
-* @class InformationService
-* @extends BaseService
-*
-* @example Obtain an fsentry given a path:
-*
-*    const infosvc = services.get('information');
-*    const fsentry = await infosvc
-*      .with('fs.fsentry:path').obtain('fs.fsentry')
-*      .exec(path);
-*
-* @example Register a method for obtaining an fsentry given a path:
-*
-*    const infosvc = services.get('information');
-*    infosvc.given('fs.fsentry:path').provide('fs.fsentry')
-*      .addStrategy(async path => {
-*         // code to obtain fsentry from path
-*     });
-*/
 class InformationService extends BaseService {
     /**
     * @class

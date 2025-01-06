@@ -30,16 +30,16 @@ const APIError = require("../../api/APIError");
 * @description Base class for all type validators in the Puter type system.
 * Extends AdvancedBase to provide core functionality for type checking and validation.
 * Serves as the foundation for specialized type classes like String, Flag, NumberType, etc.
+* Each type has a consolidate method that takes an input value and
+* returns a sanitized or coerced value appropriate for that input.
 */
 class BaseType extends AdvancedBase {}
 
 
 /**
-* @class BaseType
+* @class String
 * @extends AdvancedBase
-* @description Base class for all type validators in the Puter type system.
-* Extends AdvancedBase to provide core functionality for type checking and validation.
-* Serves as the foundation for specialized type classes that implement specific validation logic.
+* @description A class that handles string values in the type system.
 */
 class String extends BaseType {
     /**
@@ -71,7 +71,7 @@ class String extends BaseType {
 * @description A class that handles boolean flag values in the type system. 
 * Converts any input value to a boolean using double negation, 
 * making it useful for command line flags and boolean parameters.
-* Extends BaseType to integrate with the type validation framework.
+* Extends BaseType to integrate with the type validation system.
 */
 class Flag extends BaseType {
     /**

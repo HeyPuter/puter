@@ -37,25 +37,27 @@ class ServerHealthService extends BaseService {
         linuxutil: 'core.util.linuxutil'
     };
     
-    static MODULES = {
-        fs: require('fs'),
-    }
     /**
     * Defines the modules used by ServerHealthService.
     * This static property is used to initialize and access system modules required for health checks.
     * @type {Object}
     * @property {fs} fs - The file system module for reading system information.
     */
-    _construct () {
-        this.checks_ = [];
-        this.failures_ = [];
+    static MODULES = {
+        fs: require('fs'),
     }
+
     /**
     * Initializes the internal checks and failure tracking for the service.
     * This method sets up empty arrays to store health checks and their failure statuses.
     * 
     * @private
     */
+    _construct () {
+        this.checks_ = [];
+        this.failures_ = [];
+    }
+
     async _init () {
         this.init_service_checks_();
 

@@ -37,12 +37,6 @@ class MonthlyUsageService extends BaseService {
     /**
     * Initializes the MonthlyUsageService by setting up the database connection.
     * 
-    * @memberof MonthlyUsageService
-    * @method
-    * @instance
-    * @async
-    * @returns {Promise<void>} A promise that resolves when the initialization is complete.
-    * 
     * @note This method sets the `db` property to a write-enabled database connection for usage data.
     */
     async _init () {

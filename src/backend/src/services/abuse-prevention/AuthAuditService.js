@@ -34,11 +34,7 @@ class AuthAuditService extends BaseService {
     static MODULES = {
         uuidv4: require('uuid').v4,
     }
-    /**
-    * Generates a unique identifier for the AuthAuditService module.
-    *
-    * @returns {Object} An object containing a method to generate a UUID v4.
-    */
+
     async _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'auth:audit');
     }

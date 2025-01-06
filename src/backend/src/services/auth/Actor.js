@@ -74,12 +74,6 @@ class Actor extends AdvancedBase {
         });
     }
 
-    constructor (o, ...a) {
-        super(o, ...a);
-        for ( const k in o ) {
-            this[k] = o[k];
-        }
-    }
     /**
     * Initializes the Actor instance with the provided parameters.
     * This constructor assigns object properties from the input object to the instance.
@@ -87,14 +81,17 @@ class Actor extends AdvancedBase {
     * @param {Object} o - The object containing actor parameters.
     * @param {...any} a - Additional arguments passed to the parent class constructor.
     */
+    constructor (o, ...a) {
+        super(o, ...a);
+        for ( const k in o ) {
+            this[k] = o[k];
+        }
+    }
+
     get uid () {
         return this.type.uid;
     }
 
-    /**
-     * Generate a cryptographically-secure deterministic UUID
-     * from an actor's UID.
-     */
     /**
     * Generates a cryptographically-secure deterministic UUID
     * from an actor's UID. The generated UUID is derived by 
@@ -155,14 +152,6 @@ class ActorType {
 * and related type management.
 */
 class SystemActorType extends ActorType {
-    /**
-     * Constructs a new instance of the actor type.
-     * 
-     * @param {Object} o - The initial properties for the actor type.
-     * @param {...*} a - Additional arguments to pass to the super class constructor.
-     * 
-     * @throws {Error} If there is an issue in initializing the actor type.
-     */
     get uid () {
         return 'system';
     }
@@ -181,12 +170,6 @@ class SystemActorType extends ActorType {
 * user actors and define how they relate to other types of actors within the system.
 */
 class UserActorType extends ActorType {
-    /**
-    * Constructs a new UserActorType instance.
-    * 
-    * @param {Object} o - The initial properties to set on the instance.
-    * @param {...any} a - Additional arguments to pass to the constructor.
-    */
     get uid () {
         return 'user:' + this.user.uuid;
     }
@@ -204,17 +187,6 @@ class UserActorType extends ActorType {
 * to cater to user-specific needs.
 */
 class AppUnderUserActorType extends ActorType {
-    /**
-    * Create a new instance of the actor type, initializing it with the given parameters.
-    * 
-    * This method first checks for associated user and app UIDs in the params, 
-    * fetching their respective data asynchronously if present. It then 
-    * constructs a new Actor with the provided type.
-    * 
-    * @param {Function} type - The class constructor for the actor type.
-    * @param {Object} params - Initialization parameters for the actor (optional).
-    * @returns {Actor} A new instance of the Actor type.
-    */
     get uid () {
         return 'app-under-user:' + this.user.uuid + ':' + this.app.uid;
     }
@@ -240,14 +212,6 @@ class AccessTokenActorType extends ActorType {
     // authorized: an Actor who is authorized by the token
     // token: a string
 
-    /**
-     * Constructs an instance of AccessTokenActorType.
-     * This class represents an access token actor containing information 
-     * about the authorizer and authorized actors, as well as the token string.
-     * 
-     * @param {Object} o - The object containing properties to initialize the access token actor.
-     * @param {...*} a - Additional arguments for further initialization.
-     */
     get uid () {
         return 'access-token:' + this.authorizer.uid +
             ':' + ( this.authorized?.uid ?? '<none>' ) +
@@ -274,11 +238,6 @@ class AccessTokenActorType extends ActorType {
 * pertinent to site-level operations and interactions in the actor framework.
 */
 class SiteActorType {
-    constructor (o, ...a) {
-        for ( const k in o ) {
-            this[k] = o[k];
-        }
-    }
     /**
     * Constructor for the SiteActorType class.
     * Initializes a new instance of SiteActorType with the provided properties.
@@ -286,6 +245,12 @@ class SiteActorType {
     * @param {Object} o - The properties to initialize the SiteActorType with.
     * @param {...*} a - Additional arguments.
     */
+    constructor (o, ...a) {
+        for ( const k in o ) {
+            this[k] = o[k];
+        }
+    }
+
     get uid () {
         return `site:` + this.site.name
     }

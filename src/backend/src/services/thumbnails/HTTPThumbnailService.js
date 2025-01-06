@@ -28,19 +28,6 @@ const { stream_to_the_void, buffer_to_stream } = require('../../util/streamutil'
 const BaseService = require('../BaseService');
 
 
-/**
-* @class HTTPThumbnailService
-* @extends BaseService
-* @description
-* The `HTTPThumbnailService` class manages the creation and retrieval of thumbnails for various file types
-* over HTTP. It handles queueing thumbnail generation requests, executing them, and interfacing with 
-* a thumbnail generation server. This service supports:
-* - Queuing and batch processing of thumbnail requests
-* - Size and MIME type validation for supported files
-* - Integration with an external thumbnail service via HTTP requests
-* - Periodic updates of supported MIME types
-* - Health checks and status reporting for the thumbnail generation process
-*/
 class ThumbnailOperation extends TeePromise {
     // static MAX_RECYCLE_COUNT = 5*3;
     static MAX_RECYCLE_COUNT = 3;
@@ -236,17 +223,6 @@ class HTTPThumbnailService extends BaseService {
     }
 
 
-    /**
-    * Initializes the service by adding a health check for the thumbnail service.
-    * 
-    * @private
-    * @method _init
-    * @returns {Promise<void>} A promise that resolves when initialization is complete.
-    * @throws {Error} If there's an error during the initialization process.
-    * 
-    * @note This method is called internally during the service setup to ensure
-    *       the thumbnail service is operational by pinging it.
-    */
     get host_ () {
         return this.config.host || 'http://127.0.0.1:3101';
     }
@@ -260,20 +236,15 @@ class HTTPThumbnailService extends BaseService {
     }
 
     /**
+     * Thumbifies a given file by creating a thumbnail.
      *
      * @param {object} file - An object describing the file in the same format
      * as the file object created by multer. The necessary properties are
      * `buffer`, `filename`, and `mimetype`.
+     * @returns {Promise<string|undefined>} A Promise that resolves to the base64 encoded thumbnail data URL,
+     *                                       or `undefined` if thumbification fails or is not possible.
+     * @throws Will log errors if thumbification process encounters issues.
      */
-    /**
-    * Thumbifies a given file by creating a thumbnail.
-    * 
-    * @param {Object} file - An object describing the file in the same format as the file object created by multer.
-    *                          The necessary properties are `buffer`, `filename`, and `mimetype`.
-    * @returns {Promise<string|undefined>} A Promise that resolves to the base64 encoded thumbnail data URL,
-    *                                       or `undefined` if thumbification fails or is not possible.
-    * @throws Will log errors if thumbification process encounters issues.
-    */
     async thumbify(file) {
         const job = new ThumbnailOperation(file);
         this.queue.push(job);
@@ -482,12 +453,10 @@ class HTTPThumbnailService extends BaseService {
 
 
     /**
-    * Sends a request to the thumbnail service to generate thumbnails for the given queue of files.
-    * 
-    * @param {Object} options - The options object.
-    * @param {Array} options.queue - An array of ThumbnailOperation jobs to be processed.
-    * @returns {Promise<Object>} - The response from the thumbnail service.
-    * @throws {Error} - If the thumbnail service is not in test mode and fails to respond correctly.
+    * Queries the thumbnail services to check what mime types
+    * are supported for thumbnail generation.
+    * Updates internal state to reflect that.
+    * @returns {Promise<void>} A promise that resolves when the MIME types are updated.
     */
     async query_supported_mime_types_() {
         const resp = await axios.request(
@@ -516,12 +485,6 @@ class HTTPThumbnailService extends BaseService {
         this.constructor.SUPPORTED_MIMETYPES = Object.keys(mime_set);
     }
 
-
-    /**
-    * Queries the supported MIME types from the thumbnail service.
-    * This method is called periodically to update the list of supported MIME types.
-    * @returns {Promise<void>} A promise that resolves when the MIME types are updated.
-    */
     async _test ({ assert }) {
         /**
         * Runs unit tests for the HTTPThumbnailService.
@@ -537,43 +500,12 @@ class HTTPThumbnailService extends BaseService {
         *       - Executing thumbnailing jobs in various scenarios to ensure correct behavior.
         */
         this.errors.report = () => {};
+        
+        // Pseudo-logger to prevent errors from being thrown when this service
+        // is running under the test kernel.
         this.log = {
-            /**
-            * Runs a test suite for the HTTPThumbnailService.
-            * 
-            * This method sets up a controlled environment for testing,
-            * including stubbing out error reporting and logging methods,
-            * and verifies the behavior of thumbnail operations, queue management,
-            * and error handling in both success and failure scenarios.
-            * 
-            * @param {Object} options - Test configuration options.
-            * @param {Function} options.assert - Assertion function for test cases.
-            */
             info: () => {},
-            /**
-            * Tests the HTTPThumbnailService class, ensuring:
-            * - Thumbnail operations recycle correctly.
-            * - Thumbnailing requests are processed and the queue is managed properly.
-            * - Errors are handled appropriately in test mode.
-            *
-            * @param {Object} options - An object containing the assert function for testing.
-            * @param {Function} options.assert - Assertion function to validate test conditions.
-            */
             error: () => {},
-            /**
-            * Runs the thumbnail service in test mode, allowing for the
-            * verification of thumbnail creation and error handling.
-            * 
-            * @param {Object} options - Options for the test.
-            * @param {Function} options.assert - Assertion function to verify test results.
-            * 
-            * @description
-            * This method sets up a test environment by:
-            * - Overriding error reporting and logging to suppress output.
-            * - Testing the recycling behavior of ThumbnailOperation.
-            * - Simulating thumbnail requests in test mode to check both successful and failed scenarios.
-            * - Verifying that the queue is properly managed and execution checks are performed.
-            */
             noticeme: () => {},
         };
         // Thumbnail operation eventually recycles

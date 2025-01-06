@@ -82,21 +82,16 @@ class CoercionService extends BaseService {
 
     /**
      * Attempt to coerce a TypedValue to a target TypeSpec.
-     * Note: this is implemented similarly to MultiValue.get.
-     * @param {*} target - the target TypeSpec
-     * @param {*} typed_value - the TypedValue to coerce
-     * @returns {TypedValue|undefined} - the coerced TypedValue, or undefined
-     */
-    /**
-     * Attempt to coerce a TypedValue to a target TypeSpec.
+     * 
      * This method first adapts the target and the current type of the 
      * TypedValue. If they are equal, it returns the original TypedValue. 
      * Otherwise, it checks if the coercion has been calculated before, 
      * retrieves applicable coercions, and applies them to the TypedValue.
      * 
-     * @param {*} target - the target TypeSpec to which the TypedValue should be coerced
+     * DRY: this is implemented similarly to MultiValue.get.
+     * @param {*} target - the target TypeSpec
      * @param {*} typed_value - the TypedValue to coerce
-     * @returns {TypedValue|undefined} - the coerced TypedValue if successful, or undefined
+     * @returns {TypedValue|undefined} - the coerced TypedValue, or undefined
      */
     async coerce (target, typed_value) {
         target = TypeSpec.adapt(target);

@@ -33,11 +33,6 @@ const BaseService = require("../../services/BaseService");
 */
 class ProtectedAppService extends BaseService {
     /**
-    * Class representing a service for protected applications.
-    * Extends the BaseService class to provide additional functionality specific to protected apps.
-    */
-    
-    /**
     * Initializes the ProtectedAppService.
     * Registers a permission rewriter and implicator to handle application-specific permissions.
     * @async

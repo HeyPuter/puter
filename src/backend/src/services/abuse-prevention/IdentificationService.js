@@ -179,13 +179,6 @@ class IdentificationService extends BaseService {
         this.mw = new RequesterIdentificationExpressMiddleware();
     }
     /**
-    * Constructor for the IdentificationService class.
-    * Initializes the middleware for requester identification.
-    */
-    _init () {
-        this.mw.log = this.log;
-    }
-    /**
     * Initializes the middleware logger.
     *
     * This method sets the logger for the `RequesterIdentificationExpressMiddleware` instance.
@@ -193,6 +186,12 @@ class IdentificationService extends BaseService {
     *
     * @method
     * @name _init
+    */
+    _init () {
+        this.mw.log = this.log;
+    }
+    /**
+    * We need to listen to this event to install a context-aware middleware
     */
     async ['__on_install.middlewares.context-aware'] (_, { app }) {
         this.mw.install(app);

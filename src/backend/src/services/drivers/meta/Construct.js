@@ -83,7 +83,8 @@ class Construct extends BasicBase {
 * @class Parameter
 * @extends Construct
 * @description The Parameter class extends the Construct class and is used to define a parameter in a method.
-* It includes properties such as type, optional status, and a description. The class processes raw data to initialize these properties.
+* It includes properties such as type, whether it's optional, and a description.
+* The class processes raw data to initialize these properties.
 */
 class Parameter extends Construct {
     static PROPERTIES = {
