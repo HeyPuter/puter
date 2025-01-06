@@ -19,7 +19,6 @@
  */
 const APIError = require("../api/APIError");
 const auth2 = require("../middleware/auth2");
-const { Context } = require("../util/context");
 const { Endpoint } = require("../util/expressutil");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 const BaseService = require("./BaseService");

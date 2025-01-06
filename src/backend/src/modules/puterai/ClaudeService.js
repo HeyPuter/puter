@@ -4,7 +4,6 @@ const BaseService = require("../../services/BaseService");
 const { whatis } = require("../../util/langutil");
 const { PassThrough } = require("stream");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
-const APIError = require("../../api/APIError");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 const PUTER_PROMPT = `

@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
 const BaseService = require("../../services/BaseService");
 const { CLink } = require("./connection/CLink");
 const { SLink } = require("./connection/SLink");

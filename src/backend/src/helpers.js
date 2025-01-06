@@ -20,7 +20,6 @@ const _path = require('path');
 const micromatch = require('micromatch');
 const config = require('./config')
 const mime = require('mime-types');
-const PerformanceMonitor = require('./monitor/PerformanceMonitor.js');
 const { ManagedError } = require('./util/errorutil.js');
 const { spanify } = require('./util/otelutil.js');
 const APIError = require('./api/APIError.js');
@@ -28,7 +27,6 @@ const { DB_READ, DB_WRITE } = require('./services/database/consts.js');
 const { BaseDatabaseAccessService } = require('./services/database/BaseDatabaseAccessService.js');
 const { Context } = require('./util/context');
 const { NodeUIDSelector } = require('./filesystem/node/selectors');
-const { stream_to_buffer } = require('./util/streamutil.js');
 
 let services = null;
 const tmp_provide_services = async ss => {

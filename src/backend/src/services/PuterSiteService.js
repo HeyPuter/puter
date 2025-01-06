@@ -18,7 +18,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { NodeInternalIDSelector, NodeUIDSelector } = require("../filesystem/node/selectors");
-const { Context } = require("../util/context");
 const { SiteActorType } = require("./auth/Actor");
 const { PermissionUtil, PermissionRewriter, PermissionImplicator } = require("./auth/PermissionService");
 const BaseService = require("./BaseService");

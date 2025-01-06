@@ -1,6 +1,5 @@
 // METADATA // {"ai-commented":{"service":"claude"}}
 const { PassThrough } = require('stream');
-const APIError = require('../../api/APIError');
 const BaseService = require('../../services/BaseService');
 const { TypedValue } = require('../../services/drivers/meta/Runtime');
 const { Context } = require('../../util/context');

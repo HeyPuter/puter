@@ -17,23 +17,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const {
-    implicit_user_app_permissions,
-    default_implicit_user_app_permissions
-} = require("../../data/hardcoded-permissions");
 
 const { get_user, get_app } = require("../../helpers");
-const { AssignableMethodsFeature } = require("../../traits/AssignableMethodsFeature");
-const { remove_paths_through_user } = require("../../unstructured/permission-scan-lib");
-const { Context } = require("../../util/context");
-const { get_a_letter, cylog } = require("../../util/debugutil");
 const BaseService = require("../BaseService");
 const { DB_WRITE } = require("../database/consts");
-const { UserActorType, Actor, AppUnderUserActorType, AccessTokenActorType, SiteActorType } = require("./Actor");
-
-const implicit_user_permissions = {
-    // 'driver': {},
-};
+const { UserActorType, Actor, AppUnderUserActorType } = require("./Actor");
 
 
 /**

@@ -20,15 +20,6 @@
 const { surrounding_box } = require("../fun/dev-console-ui-utils");
 const BaseService = require("./BaseService");
 
-const SOURCE_CODE_TIPS = `
-    Most services are registered in CoreModule.js
-    Boot sequence events are different from service events
-    ExpectationService exists to ensure Puter doesn't miss a step
-    Services are composable; StrategyService is a good example
-    API endpoints should be on a separate origin in production
-    There is some limited query-building in packages/backend/src/om
-`;
-
 const tips = (
     // CLI tips
     `

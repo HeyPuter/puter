@@ -17,7 +17,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("../../../../putility");
 const BaseService = require("../BaseService");
 const { DB_WRITE, DB_READ } = require("./consts");
 

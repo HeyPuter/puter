@@ -33,15 +33,6 @@ const BaseService = require("./BaseService");
 */
 class SystemValidationService extends BaseService {
     /**
-     * Marks the server is being in an invalid state.
-     *
-     * This is a very serious error. The server will do whatever it can to get
-     * our attention, and then it will shut down after 25 minutes.
-     *
-     * @param {*} message - why mark_invalid was called
-     * @param {*} source - the error that caused the invalid state, if any
-     */
-    /**
     * Marks the server as being in an invalid state.
     *
     * This method is used to indicate that the server is in a serious error state. It will attempt

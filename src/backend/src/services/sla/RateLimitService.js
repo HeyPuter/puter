@@ -17,7 +17,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
 const APIError = require("../../api/APIError");
 const { Context } = require("../../util/context");
 const BaseService = require("../BaseService");
