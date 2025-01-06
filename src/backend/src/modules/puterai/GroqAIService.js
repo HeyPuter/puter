@@ -51,21 +51,19 @@ class GroqAIService extends BaseService {
     static IMPLEMENTS = {
         'puter-chat-completion': {
             /**
-            * Defines the interface implementations for the puter-chat-completion service
-            * Contains methods for listing models and handling chat completions
-            * @property {Object} models - Returns available AI models
-            * @property {Object} list - Lists raw model data from the Groq API
-            * @property {Object} complete - Handles chat completion requests with optional streaming
-            * @returns {Object} Interface implementation object
-            */
+             * Returns a list of available models and their details.
+             * See AIChatService for more information.
+             * 
+             * @returns Promise<Array<Object>> Array of model details
+             */
             async models () {
                 return await this.models_();
             },
             /**
-            * Lists available AI models from the Groq API
-            * @returns {Promise<Array>} Array of model objects from the API's data field
-            * @description Unwraps and returns the model list from the Groq API response,
-            * which comes wrapped in an object with {object: "list", data: [...]}
+            * Returns a list of available model names including their aliases
+            * @returns {Promise<string[]>} Array of model identifiers and their aliases
+            * @description Retrieves all available model IDs and their aliases,
+            * flattening them into a single array of strings that can be used for model selection
             */
             async list () {
                 // They send: { "object": "list", data }

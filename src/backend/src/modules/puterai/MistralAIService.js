@@ -173,27 +173,29 @@ class MistralAIService extends BaseService {
     static IMPLEMENTS = {
         'puter-chat-completion': {
             /**
-            * Implements the puter-chat-completion interface for MistralAI service
-            * Provides methods for listing models and generating chat completions
-            * @interface
-            * @property {Function} models - Returns array of available model details
-            * @property {Function} list - Returns array of model IDs
-            * @property {Function} complete - Generates chat completion with optional streaming
-            */
+             * Returns a list of available models and their details.
+             * See AIChatService for more information.
+             * 
+             * @returns Promise<Array<Object>> Array of model details
+             */
             async models () {
                 return this.models_array_;
             },
+
             /**
-            * Returns an array of available AI models with their details
-            * @returns {Promise<Array>} Array of model objects containing id, name, aliases, context window size, capabilities, and cost information
+            * Returns a list of available model names including their aliases
+            * @returns {Promise<string[]>} Array of model identifiers and their aliases
+            * @description Retrieves all available model IDs and their aliases,
+            * flattening them into a single array of strings that can be used for model selection
             */
             async list () {
                 return this.models_array_.map(m => m.id);
             },
+
             /**
-            * Returns an array of model IDs supported by the MistralAI service
-            * @returns {Promise<string[]>} Array of model identifier strings
-            */
+             * AI Chat completion method.
+             * See AIChatService for more details.
+             */
             async complete ({ messages, stream, model }) {
 
                 for ( let i = 0; i < messages.length; i++ ) {

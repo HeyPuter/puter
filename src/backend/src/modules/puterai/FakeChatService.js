@@ -16,14 +16,15 @@ class FakeChatService extends BaseService {
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
             /**
-            * Implementation interface for the puter-chat-completion service.
-            * Provides fake chat completion functionality for testing purposes.
-            * Contains methods for listing available models and generating mock responses.
-            * @interface
+            * Returns a list of available model names including their aliases
+            * @returns {Promise<string[]>} Array of model identifiers and their aliases
+            * @description Retrieves all available model IDs and their aliases,
+            * flattening them into a single array of strings that can be used for model selection
             */
             async list () {
                 return ['fake'];
             },
+
             /**
             * Simulates a chat completion request by generating random Lorem Ipsum text
             * @param {Object} params - The completion parameters

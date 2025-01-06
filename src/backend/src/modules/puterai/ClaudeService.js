@@ -60,20 +60,19 @@ class ClaudeService extends BaseService {
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
             /**
-            * Implements the puter-chat-completion interface for Claude AI models
-            * @param {Object} options - Configuration options for the chat completion
-            * @param {Array} options.messages - Array of message objects containing the conversation history
-            * @param {boolean} options.stream - Whether to stream the response
-            * @param {string} [options.model] - The Claude model to use, defaults to claude-3-5-sonnet-latest
-            * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or a completion object
-            */
+             * Returns a list of available models and their details.
+             * See AIChatService for more information.
+             * 
+             * @returns Promise<Array<Object>> Array of model details
+             */
             async models () {
                 return await this.models_();
             },
+
             /**
             * Returns a list of available model names including their aliases
             * @returns {Promise<string[]>} Array of model identifiers and their aliases
-            * @description Retrieves all available Claude model IDs and their aliases,
+            * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
             async list () {
@@ -87,6 +86,7 @@ class ClaudeService extends BaseService {
                 }
                 return model_names;
             },
+
             /**
             * Completes a chat interaction with the Claude AI model
             * @param {Object} options - The completion options

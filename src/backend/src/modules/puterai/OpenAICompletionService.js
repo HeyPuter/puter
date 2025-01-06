@@ -102,23 +102,20 @@ class OpenAICompletionService extends BaseService {
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
             /**
-            * Implements the puter-chat-completion interface methods for model listing and chat completion
-            * @property {Object} models - Returns available AI models and their pricing
-            * @property {Function} list - Returns list of available model names/aliases
-            * @property {Function} complete - Handles chat completion requests with optional streaming
-            * @param {Object} params - Parameters for completion
-            * @param {Array} params.messages - Array of chat messages
-            * @param {boolean} params.test_mode - Whether to use test mode
-            * @param {boolean} params.stream - Whether to stream responses
-            * @param {string} params.model - Model ID to use
-            */
+             * Returns a list of available models and their details.
+             * See AIChatService for more information.
+             * 
+             * @returns Promise<Array<Object>> Array of model details
+             */
             async models () {
                 return await this.models_();
             },
+
             /**
-            * Retrieves a list of available AI models with their cost information
-            * @returns {Promise<Array>} Array of model objects containing id and cost details
-            * @private
+            * Returns a list of available model names including their aliases
+            * @returns {Promise<string[]>} Array of model identifiers and their aliases
+            * @description Retrieves all available model IDs and their aliases,
+            * flattening them into a single array of strings that can be used for model selection
             */
             async list () {
                 const models = await this.models_();
@@ -131,10 +128,11 @@ class OpenAICompletionService extends BaseService {
                 }
                 return model_names;
             },
+
             /**
-            * Lists all available model names including aliases
-            * @returns {Promise<string[]>} Array of model IDs and their aliases
-            */
+             * AI Chat completion method.
+             * See AIChatService for more details.
+             */
             async complete ({ messages, test_mode, stream, model }) {
 
                 // for now this code (also in AIChatService.js) needs to be

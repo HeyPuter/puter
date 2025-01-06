@@ -227,25 +227,20 @@ class AIChatService extends BaseService {
                     method_name === 'complete';
             }
         },
+        /**
+        * Implements the 'puter-chat-completion' interface methods for AI chat functionality.
+        * Handles model selection, fallbacks, usage tracking, and moderation.
+        * Contains methods for listing available models, completing chat prompts,
+        * and managing provider interactions.
+        * 
+        * @property {Object} models - Available AI models with details like costs
+        * @property {Object} list - Simplified list of available models
+        * @property {Object} complete - Main method for chat completion requests
+        * @param {Object} parameters - Chat completion parameters including model and messages
+        * @returns {Promise<Object>} Chat completion response with usage stats
+        * @throws {Error} If service is called directly or no fallback models available
+        */
         ['puter-chat-completion']: {
-            /**
-            * Implements the 'puter-chat-completion' interface methods for AI chat functionality.
-            * Handles model selection, fallbacks, usage tracking, and moderation.
-            * Contains methods for listing available models, completing chat prompts,
-            * and managing provider interactions.
-            * 
-            * @property {Object} models - Available AI models with details like costs
-            * @property {Object} list - Simplified list of available models
-            * @property {Object} complete - Main method for chat completion requests
-            * @param {Object} parameters - Chat completion parameters including model and messages
-            * @returns {Promise<Object>} Chat completion response with usage stats
-            * @throws {Error} If service is called directly or no fallback models available
-            */
-            async models () {
-                const delegate = this.get_delegate();
-                if ( ! delegate ) return await this.models_();
-                return await delegate.models();
-            },
             /**
             * Returns list of available AI models with detailed information
             * 
@@ -253,20 +248,61 @@ class AIChatService extends BaseService {
             * otherwise returns the internal detail_model_list containing all available models
             * across providers with their capabilities and pricing information.
             * 
-            * @returns {Promise<Array>} Array of model objects with details like id, provider, cost, etc.
+            * For an example of the expected model object structure, see the `async models_`
+            * private method at the bottom of any service with hard-coded model details such
+            * as ClaudeService or GroqAIService.
+            * 
+            * @returns {Promise<Array<Object>>} Array of model objects with details like id, provider, cost, etc.
             */
+            async models () {
+                const delegate = this.get_delegate();
+                if ( ! delegate ) return await this.models_();
+                return await delegate.models();
+            },
+
+            /**
+             * Reports model names (including aliased names) only with no additional
+             * detail.
+             * @returns {Promise<Array<string>} Array of model objects with basic details
+             */
             async list () {
                 const delegate = this.get_delegate();
                 if ( ! delegate ) return await this.list_();
                 return await delegate.list();
             },
+
             /**
-            * Lists available AI models in a simplified format
+            * Completes a chat interaction using one of the available AI models
             * 
-            * Returns a list of basic model information from all registered providers.
-            * This is a simpler version compared to models() that returns less detailed info.
+            * This service registers itself under an alias for each other AI
+            * chat service, which results in DriverService always calling this
+            * `complete` implementaiton first, which delegates to the intended
+            * service.
             * 
-            * @returns {Promise<Array>} Array of simplified model objects
+            * The return value may be anything that DriverService knows how to
+            * coerce to the intended result. When `options.stream` is FALSE,
+            * this is typically a raw object for the JSON response. When
+            * `options.stream` is TRUE, the result is a TypedValue with this
+            * structure:
+            * 
+            *   ai-chat-intermediate {
+            *     usage_promise: Promise,
+            *     stream: true,
+            *     response: stream {
+            *       content_type: 'application/x-ndjson',
+            *     }
+            *   }
+            * 
+            * The `usage_promise` is a promise that resolves to the usage
+            * information for the completion. This is used to report usage
+            * as soon as possible regardless of when it is reported in the
+            * stream. 
+            *
+            * @param {Object} options - The completion options
+            * @param {Array} options.messages - Array of chat messages to process
+            * @param {boolean} options.stream - Whether to stream the response
+            * @param {string} options.model   - The name of a model to use
+            * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or a completion object
             */
             async complete (parameters) {
                 const client_driver_call = Context.get('client_driver_call');

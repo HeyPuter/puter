@@ -72,17 +72,19 @@ class XAIService extends BaseService {
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
             /**
-            * Implements the interface for the puter-chat-completion driver
-            * Contains methods for listing models, getting model details,
-            * and handling chat completions with streaming support
-            * @type {Object}
-            */
+             * Returns a list of available models and their details.
+             * See AIChatService for more information.
+             * 
+             * @returns Promise<Array<Object>> Array of model details
+             */
             async models () {
                 return await this.models_();
             },
             /**
-            * Returns a list of available AI models with their capabilities and pricing details
-            * @returns {Promise<Array>} Array of model objects containing id, name, context window size, and cost information
+            * Returns a list of available model names including their aliases
+            * @returns {Promise<string[]>} Array of model identifiers and their aliases
+            * @description Retrieves all available model IDs and their aliases,
+            * flattening them into a single array of strings that can be used for model selection
             */
             async list () {
                 const models = await this.models_();
@@ -95,10 +97,11 @@ class XAIService extends BaseService {
                 }
                 return model_names;
             },
+
             /**
-            * Returns a list of all available model names including their aliases
-            * @returns {Promise<string[]>} Array of model names and their aliases
-            */
+             * AI Chat completion method.
+             * See AIChatService for more details.
+             */
             async complete ({ messages, stream, model }) {
                 model = this.adapt_model(model);
                 const adapted_messages = [];

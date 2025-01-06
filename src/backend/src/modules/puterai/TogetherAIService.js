@@ -55,19 +55,20 @@ class TogetherAIService extends BaseService {
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
             /**
-            * Implements the puter-chat-completion interface for TogetherAI service
-            * Contains methods for listing models and generating chat completions
-            * @property {Object} models - Method to get available models
-            * @property {Object} list - Method to get list of model IDs
-            * @property {Object} complete - Method to generate chat completions
-            */
+             * Returns a list of available models and their details.
+             * See AIChatService for more information.
+             * 
+             * @returns Promise<Array<Object>> Array of model details
+             */
             async models () {
                 return await this.models_();
             },
+
             /**
-            * Retrieves available AI models from the Together API
-            * @returns {Promise<Array>} Array of model objects with their properties
-            * @implements {puter-chat-completion.models}
+            * Returns a list of available model names including their aliases
+            * @returns {Promise<string[]>} Array of model identifiers and their aliases
+            * @description Retrieves all available model IDs and their aliases,
+            * flattening them into a single array of strings that can be used for model selection
             */
             async list () {
                 let models = this.modules.kv.get(`${this.kvkey}:models`);
@@ -75,9 +76,9 @@ class TogetherAIService extends BaseService {
                 return models.map(model => model.id);
             },
             /**
-            * Lists available AI model IDs from the cache or fetches them if not cached
-            * @returns {Promise<string[]>} Array of model ID strings
-            */
+             * AI Chat completion method.
+             * See AIChatService for more details.
+             */
             async complete ({ messages, stream, model }) {
                 if ( model === 'model-fallback-test-1' ) {
                     throw new Error('Model Fallback Test 1');
