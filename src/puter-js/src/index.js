@@ -20,6 +20,11 @@ import { XDIncomingService } from './services/XDIncoming.js';
 import { NoPuterYetService } from './services/NoPuterYet.js';
 import { Debug } from './modules/Debug.js';
 
+// TODO: This is for a safe-guard below; we should check if we can
+//       generalize this behavior rather than hard-coding it.
+//       (using defaultGUIOrigin breaks locally-hosted apps)
+const PROD_ORIGIN = 'https://puter.com';
+
 window.puter = (function() {
     'use strict';
 
@@ -132,7 +137,7 @@ window.puter = (function() {
                 let hostname = location.hostname.replace(/\.$/, '');
 
                 // Create a new URL object with the URL string
-                const url = new URL(this.defaultGUIOrigin);
+                const url = new URL(PROD_ORIGIN);
 
                 // Extract hostname from the URL object
                 const gui_hostname = url.hostname;
