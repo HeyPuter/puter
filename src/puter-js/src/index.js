@@ -321,6 +321,10 @@ window.puter = (function() {
          */
         async request_rao_ () {
             await this.p_can_request_rao_;
+                        
+            if ( this.env === 'gui' ) {
+                return;
+            }
             
             // setAuthToken is called more than once when auth completes, which
             // causes multiple requests to /rao. This lock prevents that.
