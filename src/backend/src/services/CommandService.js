@@ -78,20 +78,16 @@ class Command {
 */
 class CommandService extends BaseService {
     /**
-    * Service for managing and executing commands in the system.
-    * Extends BaseService to provide command registration, execution and lookup functionality.
-    * Commands are stored internally with unique IDs and can be executed with arguments.
-    * Built-in 'help' command is registered during initialization.
+    * Initializes the command service's internal state
+    * Called during service construction to set up the empty commands array
     */
     async _construct () {
         this.commands_ = [];
     }
+    
     /**
-    * Initializes the command service's internal state
-    * Called during service construction to set up the empty commands array
-    * @private
-    * @returns {Promise<void>}
-    */
+     * Add the help command to the list of commands on init
+     */
     async _init () {
         this.commands_.push(new Command({
             id: 'help',

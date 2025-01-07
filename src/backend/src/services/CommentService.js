@@ -36,13 +36,13 @@ const { DB_WRITE } = require("./database/consts");
 * @extends BaseService
 */
 class CommentService extends BaseService {
-    static MODULES = {
-        uuidv4: require('uuid').v4,
-    }
     /**
     * Static module dependencies used by the CommentService class
     * @property {Function} uuidv4 - UUID v4 generator function from the uuid package
     */
+    static MODULES = {
+        uuidv4: require('uuid').v4,
+    }
     _init () {
         const svc_database = this.services.get('database');
         this.db = svc_database.get(DB_WRITE, 'notification');

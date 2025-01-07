@@ -25,7 +25,7 @@ const BaseService = require("./BaseService");
 * @class MapCollection
 * @extends AdvancedBase
 *
-* The `MapCollection` class extends the `AdvancedBase` class and is responsible for managing a collection of key-value pairs in a distributed system.
+* The `MapCollection` class extends the `AdvancedBase` class and is responsible for managing a collection of key-value pairs.
 * It leverages the `kvjs` library for key-value storage and the `uuid` library for generating unique identifiers for each key-value pair.
 * This class provides methods for basic CRUD operations (create, read, update, delete) on the key-value pairs, as well as methods for checking the existence of a key and retrieving all keys in the collection.
 */

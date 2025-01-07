@@ -226,14 +226,9 @@ class DevConsoleService extends BaseService {
 
 
         /**
-        * Handles the initialization of the DevConsole service, setting up
-        * command line interface and managing input/output operations.
+        * _before_cmd - Handles operations needed before a command is executed.
         * 
-        * This method creates a readline interface for user input, processes
-        * commands, and manages the display of command output in the console.
-        * 
-        * @async
-        * @returns {Promise<void>} A promise that resolves when the initialization is complete.
+        * (resets cursor to correct position, if I recall correctly)
         */
         this._before_cmd = () => {
             rl.pause();
@@ -279,10 +274,8 @@ class DevConsoleService extends BaseService {
 
 
         /**
-        * Prepares the console for output by performing necessary actions 
-        * such as clearing previous lines and setting up the environment 
-        * for rendering new output. This method is called before new
-        * data is written to the console.
+        * Re-draws static lines and the input prompt (everything at the bottom of
+        * the dev console) when something is written.
         */
         this._post_write = () => {
             this.update_();
@@ -337,9 +330,6 @@ class DevConsoleService extends BaseService {
             }
         }, 2000);
 
-        consoleLogManager.decorate_all(({ replace }, ...args) => {
-            this._pre_write();
-        });
         /**
         * Decorates all console log messages with the specified pre-write actions.
         * 
@@ -349,6 +339,10 @@ class DevConsoleService extends BaseService {
         * 
         * It does not accept any parameters and does not return any value.
         */
+        consoleLogManager.decorate_all(({ replace }, ...args) => {
+            this._pre_write();
+        });
+
         consoleLogManager.post_all(() => {
             this._post_write();
         })

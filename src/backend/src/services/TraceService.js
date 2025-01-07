@@ -28,12 +28,6 @@ const opentelemetry = require("@opentelemetry/api");
 * operations and measuring performance within the application.
 */
 class TraceService {
-    /**
-     * Retrieves the tracer instance used for creating spans.
-     * This method is a getter that returns the current tracer object.
-     * 
-     * @returns {Tracer} The tracer instance for the TraceService.
-     */
     constructor () {
         this.tracer_ = opentelemetry.trace.getTracer(
             'puter-filesystem-tracer'
@@ -42,7 +36,8 @@ class TraceService {
 
 
     /**
-     * Returns the tracer instance used by the TraceService.
+     * Retrieves the tracer instance used for creating spans.
+     * This method is a getter that returns the current tracer object.
      * 
      * @returns {import("@opentelemetry/api").Tracer} The tracer instance for this service.
      */

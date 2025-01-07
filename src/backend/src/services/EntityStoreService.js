@@ -136,11 +136,11 @@ class EntityStoreService extends BaseService {
 
     // TODO: can replace these with MethodProxyFeature
     /**
-    * Retrieves an entity by its unique identifier.
+    * Create a new entity in the store.
     * 
-    * @param {string} uid - The unique identifier of the entity to read.
-    * @returns {Promise<Object>} The entity object if found, otherwise null or throws an error.
-    * @throws {APIError} If the entity with the given uid does not exist.
+    * @param {Object} entity - The entity to add.
+    * @param {Object} options - Additional options for the update operation.
+    * @returns {Promise<Object>} The updated entity after the operation.
     */
     async create (entity, options) {
         return await this.upstream.upsert(entity, { old_entity: null, options });

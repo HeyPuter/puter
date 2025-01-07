@@ -131,19 +131,19 @@ class HostDiskUsageService extends BaseService {
         // TODO: Implement for windows systems
     }
 
-    // Get the free space on the mountpoint/drive in mac os
+    // Get the total drive capacity on the mountpoint/drive in mac os
     get_disk_capacity_darwin(mountpoint) {
         const disk_info = execSync(`df -P "${mountpoint}" | awk 'NR==2 {print $2}'`, { encoding: 'utf-8' }).trim().split(' ');
         return parseInt(disk_info) * 512;
     }
 
-    // Get the free space on the mountpoint/drive in linux
+    // Get the total drive capacity on the mountpoint/drive in linux
     get_disk_capacity_linux(mountpoint) {
         const disk_info = execSync(`df -P "${mountpoint}" | awk 'NR==2 {print $2}'`, { encoding: 'utf-8' }).trim().split(' ');
         return parseInt(disk_info) * 1024;
     }
 
-    // Get the free space on the drive in windows
+    // Get the total drive capacity on the drive in windows
     get_disk_capacity_windows(drive) {
         // TODO: Implement for windows systems
     }

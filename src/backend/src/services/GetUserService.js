@@ -32,12 +32,6 @@ const { DB_READ } = require("./database/consts");
  * 
  * The original `get_user` function now uses this service.
  */
-/**
-* Class representing a service to retrieve user information by various identifying properties.
-* The GetUserService provides an interface for accessing user data while facilitating caching
-* mechanisms to optimize database interactions, allowing for read operations against different 
-* identifiers such as username, email, UUID, and referral codes.
-*/
 class GetUserService extends BaseService {
     /**
     * Constructor for GetUserService.
@@ -52,12 +46,7 @@ class GetUserService extends BaseService {
         this.id_properties.add('email');
         this.id_properties.add('referral_code');
     }
-    /**
-    * Initializes the GetUserService instance, setting up the 
-    * identifying properties used for user retrieval.
-    */
-    async _init () {
-    }
+
     /**
     * Initializes the GetUserService instance.
     * This method prepares any necessary internal structures or states.
@@ -65,14 +54,9 @@ class GetUserService extends BaseService {
     * 
     * @returns {Promise<void>} A promise that resolves when the initialization is complete.
     */
-    async get_user (options) {
-        const user = await this.get_user_(options);
-        if ( ! user ) return null;
-        
-        const svc_whoami = this.services.get('whoami');
-        await svc_whoami.get_details({ user }, user);
-        return user;
+    async _init () {
     }
+
     /**
      * Retrieves a user object based on the provided options.
      * 
@@ -86,6 +70,15 @@ class GetUserService extends BaseService {
      * @param {boolean} [options.force=false] - Forces a read from the database regardless of cache.
      * @returns {Promise<Object|null>} The user object if found, else null.
      */
+    async get_user (options) {
+        const user = await this.get_user_(options);
+        if ( ! user ) return null;
+        
+        const svc_whoami = this.services.get('whoami');
+        await svc_whoami.get_details({ user }, user);
+        return user;
+    }
+
     async get_user_ (options) {
         const services = this.services;
 

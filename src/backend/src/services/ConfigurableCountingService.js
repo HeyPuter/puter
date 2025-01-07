@@ -33,8 +33,8 @@ const hash = v => {
 * @class ConfigurableCountingService
 * @extends BaseService
 * @description The ConfigurableCountingService class extends BaseService and is responsible for managing and incrementing
-*              configurable counting types for different services. It handles the initialization of the database connection,
-*              defines counting types and SQL columns, and provides a method to increment counts based on specific service
+*              configurable counting types for different services.
+*              It defines counting types and SQL columns, and provides a method to increment counts based on specific service
 *              types and values. This class is used to manage usage counts for various services, ensuring accurate tracking
 *              and updating of counts in the database.
 */
@@ -86,7 +86,7 @@ class ConfigurableCountingService extends BaseService {
 
 
     /**
-    * Initializes the database connection for the ConfigurableCountingService.
+    * Initializes the database accessor for the ConfigurableCountingService.
     * This method sets up the database service for writing counting data.
     *
     * @async

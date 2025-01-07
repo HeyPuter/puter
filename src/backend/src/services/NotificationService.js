@@ -73,7 +73,7 @@ class NotificationService extends BaseService {
 
 
     /**
-    * Initializes the NotificationService instance.
+    * Constructs the NotificationService instance.
     * This method sets up the initial state of the service, including any necessary
     * data structures or configurations.
     *
@@ -185,10 +185,6 @@ class NotificationService extends BaseService {
             *
             * This method sets a timer to call `do_on_user_connected` after 2000 milliseconds.
             * If a timer already exists for the user, it clears the existing timer before setting a new one.
-            *
-            * @param {Object} params - The parameters object.
-            * @param {Object} params.user - The user object containing the user's UUID.
-            * @returns {Promise<void>} A promise that resolves when the timer is set.
             */
             setTimeout(() => this.do_on_user_connected({ user }), 2000);
     }

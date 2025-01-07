@@ -25,23 +25,12 @@ const {is_valid_url} = require('../helpers');
  * PuterHomepageService serves the initial HTML page that loads the Puter GUI
  * and all of its assets.
  */
-/**
-* This class serves the initial HTML page that loads the Puter GUI and all of its assets.
-* It extends the BaseService class to provide common functionality.
-*/
 class PuterHomepageService extends BaseService {
     static MODULES = {
         fs: require('node:fs'),
     }
 
 
-    /**
-    * This method sets a parameter for the GUI.
-    * It takes a key and value as arguments and adds them to the `gui_params` object.
-    *
-    * @param {string} key - The key for the parameter.
-    * @param {any} val - The value for the parameter.
-    */
     _construct () {
         this.service_scripts = [];
         this.gui_params = {};

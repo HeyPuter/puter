@@ -36,19 +36,6 @@ const { UserIDNotifSelector } = require('./NotificationService');
 * unique and properly assigned during user interactions.
 */
 class ReferralCodeService extends BaseService {
-    /**
-    * Generates a unique referral code for the specified user.
-    * The method attempts to create a referral code and store it 
-    * in the database. It will retry up to a maximum number of 
-    * attempts if a collision occurs. If the user is missing or 
-    * not properly defined, an error is reported.
-    * 
-    * @param {Object} user - The user object for whom the referral 
-    *                        code is being generated.
-    * @returns {Promise<string>} The generated referral code.
-    * @throws {Error} If the user is not defined or if an error 
-    *                 occurs while writing to the database.
-    */
     _construct () {
         this.REFERRAL_INCREASE_LEFT = 1 * 1024 * 1024 * 1024; // 1 GB
         this.REFERRAL_INCREASE_RIGHT = 1 * 1024 * 1024 * 1024; // 1 GB

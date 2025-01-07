@@ -31,11 +31,8 @@ const BaseService = require("./BaseService");
 */
 class RegistrantService extends BaseService {
     /**
-    * Service class responsible for registering and managing property types and object mappings
-    * in the system registry. Extends BaseService to provide core functionality.
-    * 
-    * @extends BaseService
-    */
+     * If population fails, marks the system as invalid through system validation.
+     */
     async _init () {
         const svc_systemValidation = this.services.get('system-validation');
         try {
@@ -50,8 +47,8 @@ class RegistrantService extends BaseService {
     /**
     * Initializes the registrant service by populating the registry.
     * Attempts to populate the registry with property types and mappings.
-    * If population fails, marks the system as invalid through system validation.
-    * @throws {Error} Propagates any errors from registry population to system validation
+    * If population fails, an error is thrown
+    * @throws {Error} Propagates any errors from registry population for system validation
     * @returns {Promise<void>}
     */
     async _populate_registry () {

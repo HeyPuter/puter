@@ -335,17 +335,7 @@ class BaseOperation extends AdvancedBase {
 
         // Run operation in new context
         try {
-            /**
-            * Runs an operation within a new context.
-            *
-            * This method sets up a new operation frame, updates the context, and runs the
-            * operation. It handles the operation's lifecycle, logging, and error handling.
-            *
-            * @async
-            * @function run
-            * @param {Object} values - The values to be passed to the operation.
-            * @returns {Promise<*>} The result of the operation.
-            */
+            // Actual delegate call (this._run) with context and checkpoints
             return await x.arun(async () => {
                 const x = Context.get();
                 const operationTraceSvc = x.get('services').get('operationTrace');
@@ -384,11 +374,12 @@ class BaseOperation extends AdvancedBase {
 
 
     /**
-    * Updates the checkpoint for the current operation frame.
-    *
-    * @param {string} name - The name of the checkpoint to set.
-    * @returns {void}
-    */
+     * Actions to perform after running.
+     * 
+     * If child operation frames think they're still pending, mark them as stuck;
+     * all child frames at least reach working state before the parent operation
+     * completes. 
+     */
     _post_run () {
         let any_async = false;
         for ( const child of this.frame.children ) {

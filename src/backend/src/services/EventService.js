@@ -22,11 +22,10 @@ const BaseService = require("./BaseService");
 
 
 /**
-* EventService class extends BaseService to provide a mechanism for 
-* emitting and listening to events within the application. It manages
-* event listeners scoped to specific keys and allows global listeners
-* for broader event handling.
-*/
+ * A proxy to EventService or another scoped event bus, allowing for
+ * emitting or listening on a prefix (ex: `a.b.c`) without the user
+ * of the scoped bus needed to know what the prefix is.
+ */
 class ScopedEventBus {
     constructor (event_bus, scope) {
         this.event_bus = event_bus;
@@ -119,6 +118,17 @@ class EventService extends BaseService {
 
     }
 
+    /**
+    * Registers a callback function for the specified event selector.
+    * 
+    * This method will push the provided callback onto the list of listeners
+    * for the event specified by the selector. It returns an object containing
+    * a detach method, which can be used to remove the listener.
+    *
+    * @param {string} selector - The event selector to listen for.
+    * @param {Function} callback - The function to be invoked when the event is emitted.
+    * @returns {Object} An object with a detach method to unsubscribe the listener.
+    */
     on (selector, callback) {
         const listeners = this.listeners_[selector] ||
             (this.listeners_[selector] = []);
@@ -126,17 +136,6 @@ class EventService extends BaseService {
         listeners.push(callback);
 
         const det = {
-            /**
-            * Registers a callback function for the specified event selector.
-            * 
-            * This method will push the provided callback onto the list of listeners
-            * for the event specified by the selector. It returns an object containing
-            * a detach method, which can be used to remove the listener.
-            *
-            * @param {string} selector - The event selector to listen for.
-            * @param {Function} callback - The function to be invoked when the event is emitted.
-            * @returns {Object} An object with a detach method to unsubscribe the listener.
-            */
             detach: () => {
                 const idx = listeners.indexOf(callback);
                 if ( idx !== -1 ) {

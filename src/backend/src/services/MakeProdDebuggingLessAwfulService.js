@@ -27,15 +27,6 @@ const BaseService = require("./BaseService");
  * Consequentially, the value of X-PUTER-DEBUG will included in all
  * log messages produced by the request.
  */
-/**
-* @class MakeProdDebuggingLessAwfulService
-* @extends BaseService
-* @description Service that improves production debugging by capturing and processing debug headers.
-* Extends the base service to provide middleware functionality that captures the X-PUTER-DEBUG header
-* value and incorporates it into the request's Context object. This enables detailed logging and
-* debugging capabilities in production environments while maintaining system security. The service
-* also handles the creation and management of debug-specific log files for better traceability.
-*/
 class MakeProdDebuggingLessAwfulService extends BaseService {
     static USE = {
         logutil: 'core.util.logutil',
@@ -66,7 +57,9 @@ class MakeProdDebuggingLessAwfulService extends BaseService {
         /**
         * Installs the middleware into the Express application
         * 
-        * @param {Express} app - The Express application instance
+        * @param {Object} req - Express request object containing headers
+        * @param {Object} res - Express response object
+        * @param {Function} next - Express next middleware function
         * @returns {void}
         */
         async run (req, res, next) {
@@ -75,13 +68,7 @@ class MakeProdDebuggingLessAwfulService extends BaseService {
             next();
         }
     }
-    /**
-    * Handles the actual middleware execution for production debugging
-    * @param {Object} req - Express request object containing headers
-    * @param {Object} res - Express response object
-    * @param {Function} next - Express next middleware function
-    * @returns {Promise<void>} 
-    */
+    
     async _init () {
         // Initialize express middleware
         this.mw = new this.constructor.ProdDebuggingMiddleware();

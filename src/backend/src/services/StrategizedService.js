@@ -22,11 +22,10 @@ const { quot } = require('@heyputer/putility').libs.string;
 
 
 /**
-* Represents a service that applies strategies based on provided configuration 
-* and specified keys. The StrategizedService class initializes and manages 
-* strategies for a given service, ensuring that the necessary configurations 
-* and arguments are provided before attempting to execute any strategy logic.
-*/
+ * An abstract service used to strategize services in confirguration,
+ * primarily used for thumbnail service selection, but it could be used
+ * to strategize any service.
+ */
 class StrategizedService {
     constructor (service_resources, ...a) {
         const { my_config, args, name } = service_resources;
@@ -63,23 +62,13 @@ class StrategizedService {
 
 
     /**
-     * Initializes the service and throws an error if initialization fails.
-     * This method utilizes the initError property to determine if an error
-     * occurred during the setup process in the constructor.
-     * 
-     * @throws {TechnicalError} Throws a TechnicalError if initError is set.
+     * This method must be implemented by the delegate or an error will be thrown
      */
     async init () {
         throw this.initError;
     }
 
 
-    /**
-     * Constructs a new instance of the service.
-     * 
-     * This method initializes any necessary resources or settings for the service instance.
-     * It does not accept any parameters and does not return any value.
-     */
     async construct () {}
 }
 

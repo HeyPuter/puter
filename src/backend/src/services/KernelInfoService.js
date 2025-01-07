@@ -38,24 +38,16 @@ const PERM_SEE_DRIVERS = 'kernel-info:see-all-drivers';
 * @extends BaseService
 */
 class KernelInfoService extends BaseService {
-    /**
-    * Service for providing kernel and service information
-    * Extends BaseService to provide system-level information about services, interfaces and drivers
-    * Handles permissions and access control for viewing service information
-    * Exposes endpoints for listing modules and service information
-    */
-    async _init () {
-        //
-    }
+    async _init () {}
 
+    /**
+    * Installs routes for the kernel info service
+    * @param {*} _ Unused parameter
+    * @param {Object} param1 Object containing Express app instance
+    * @param {Express} param1.app Express application instance
+    * @private
+    */
     ['__on_install.routes'] (_, { app }) {
-        /**
-        * Installs routes for the kernel info service
-        * @param {*} _ Unused parameter
-        * @param {Object} param1 Object containing Express app instance
-        * @param {Express} param1.app Express application instance
-        * @private
-        */
         const router = (() => {
             const require = this.require;
             const express = require('express');

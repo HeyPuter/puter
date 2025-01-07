@@ -36,8 +36,6 @@ class ContextInitExpressMiddleware {
     * Manages a list of value initializers that populate the Context with
     * either static values or async-generated values when handling requests.
     * Part of DRY pattern with src/util/context.js.
-    * 
-    * @class
     */
     constructor () {
         this.value_initializers_ = [];
@@ -91,16 +89,16 @@ class ContextInitService extends BaseService {
             key, value,
         });
     }
-    register_async_factory (key, async_factory) {
-        this.mw.register_initializer({
-            key, async_factory,
-        });
-    }
     /**
     * Registers an asynchronous factory function to initialize a context value
     * @param {string} key - The key to store the value under in the context
     * @param {Function} async_factory - Async function that returns the value to store
     */
+    register_async_factory (key, async_factory) {
+        this.mw.register_initializer({
+            key, async_factory,
+        });
+    }
     async ['__on_install.middlewares.context-aware'] (_, { app }) {
         this.mw.install(app);
         await this.services.emit('install.context-initializers');

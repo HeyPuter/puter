@@ -21,12 +21,6 @@ const { RWLock } = require("../util/lockutil");
 const BaseService = require("./BaseService");
 
 /**
- * LockService implements robust critical sections when the behavior
- * might return early or throw an error.
- * 
- * This serivces uses RWLock but always locks in write mode.
- */
-/**
 * Represents the LockService class responsible for managing locks
 * using reader-writer locks (RWLock). This service ensures that 
 * critical sections are properly handled by enforcing write locks 
@@ -111,17 +105,6 @@ class LockService extends BaseService {
             // TODO: verbose log option by service
             // console.log('LOCKING NAMES', names)
             const section = names.reduce((current_callback, name) => {
-                /**
-                 * Acquires a lock for the specified name or names.
-                 * 
-                 * If the name is an array, it locks each specified name in sequence.
-                 * The method ensures that all specified locks are acquired before executing the callback.
-                 * 
-                 * @param {string|string[]} name - The name(s) of the lock(s) to acquire.
-                 * @param {Object} [opt_options={}] - Optional configuration for the lock operation.
-                 * @param {Function} callback - Function to be executed once the lock is acquired.
-                 * @returns {Promise} Resolves when the callback execution is complete.
-                 */
                 return async () => {
                     return await this.lock(name, opt_options, current_callback);
                 };
@@ -142,17 +125,6 @@ class LockService extends BaseService {
 
         let timeout, timed_out;
         if ( opt_options.timeout ) {
-            /**
-             * Attempts to acquire a write lock on the specified name, executes the provided callback,
-             * and ensures the lock is released afterward. Supports options for timeout and handles
-             * multiple locks if the name parameter is an array.
-             *
-             * @param {string|string[]} name - The lock name(s) to acquire.
-             * @param {Object} [opt_options={}] - Optional configuration for the lock.
-             * @param {function} callback - The function to execute while holding the lock.
-             * @returns {Promise<any>} The result of the callback execution.
-             * @throws {Error} If the lock acquisition times out.
-             */
             timeout = setTimeout(() => {
                 handle.unlock();
                 // TODO: verbose log option by service

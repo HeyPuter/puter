@@ -34,25 +34,16 @@ const BaseService = require("./BaseService");
 * - Manage different data types encountered during operations, ensuring proper handling or throwing errors for unrecognized types.
 */
 class SystemDataService extends BaseService {
+    async _init () {}
+    
     /**
-    * Recursively interprets the structure of the given data object.
-    * This method handles dereferencing and deep interpretation of nested structures.
+    * Interprets data, dereferencing JSON-address pointers if necessary.
     * 
     * @param {Object|Array|string|number|boolean|null} data - The data to interpret. 
     *   Can be an object, array, or primitive value.
     * @returns {Promise<Object|Array|string|number|boolean|null>} The interpreted data.
     *   For objects and arrays, this method recursively interprets each element.
     *   For special objects with a '$' property, it performs dereferencing.
-    */
-    async _init () {}
-    
-
-    /**
-    * Initializes the SystemDataService.
-    * This method is called when the service is instantiated to set up any necessary state or resources.
-    * 
-    * @async
-    * @returns {Promise<void>} A promise that resolves when initialization is complete.
     */
     async interpret (data) {
         if ( whatis(data) === 'object' && data.$ ) {
@@ -77,11 +68,8 @@ class SystemDataService extends BaseService {
     
 
     /**
-    * Recursively interprets and potentially dereferences complex data structures.
-    * 
-    * This method handles:
-    * - Objects with special dereferencing syntax (indicated by the `$` property).
-    * - Nested objects and arrays by recursively calling itself on each element.
+    * De-references a JSON address by reading the respective file and parsing
+    * the JSON contents.
     * 
     * @param {Object|Array|*} data - The data to interpret, which can be of any type.
     * @returns {Promise<*>} The interpreted result, which could be a primitive, object, or array.

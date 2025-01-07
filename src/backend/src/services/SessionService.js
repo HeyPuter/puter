@@ -45,13 +45,6 @@ class SessionService extends BaseService {
     }
 
 
-    /**
-    * Initializes the SessionService by setting up the database connection and scheduling periodic session updates.
-    * @async
-    * @memberof SessionService
-    * @instance
-    * @returns {Promise<void>}
-    */
     _construct () {
         this.sessions = {};
     }
@@ -194,6 +187,12 @@ class SessionService extends BaseService {
         return sessions.map(this.remove_internal_values_.bind(this));
     }
 
+    /**
+    * Removes a session from the in-memory cache and the database.
+    * 
+    * @param {string} uuid - The UUID of the session to remove.
+    * @returns {Promise} A promise that resolves to the result of the database write operation.
+    */
     remove_session (uuid) {
         delete this.sessions[uuid];
         return this.db.write(
@@ -203,12 +202,6 @@ class SessionService extends BaseService {
     }
 
 
-    /**
-    * Removes a session from the in-memory cache and the database.
-    * 
-    * @param {string} uuid - The UUID of the session to remove.
-    * @returns {Promise} A promise that resolves to the result of the database write operation.
-    */
     async _update_sessions () {
         this.log.tick('UPDATING SESSIONS');
         const now = Date.now();
