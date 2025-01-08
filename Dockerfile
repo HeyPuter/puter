@@ -71,4 +71,8 @@ HEALTHCHECK --interval=30s --timeout=3s \
 
 ENV NO_VAR_RUNTUME=1
 
+# Attempt to fix `lru-cache@11.0.2` missing after build stage
+# by doing a redundant `npm install` at this stage
+RUN npm install
+
 CMD ["npm", "start"]
