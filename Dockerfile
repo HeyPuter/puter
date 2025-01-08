@@ -41,7 +41,7 @@ RUN npm cache clean --force && \
 RUN cd src/gui && npm run build && cd -
 
 # Production stage
-FROM node:21-alpine
+FROM node:22-alpine
 
 # Set labels
 LABEL repo="https://github.com/HeyPuter/puter"
