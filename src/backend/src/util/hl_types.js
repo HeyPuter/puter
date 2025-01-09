@@ -44,6 +44,12 @@ const hl_type_definitions = {
                 return v;
             }
 
+            if ( v === 1 ) return true;
+            if ( v === 0 ) return false
+            if ( typeof v === 'object' ) {
+                return v !== null;
+            }
+
             throw new Error(`could not adapt value to boolean: ${quot(v)}`);
         }
     }
