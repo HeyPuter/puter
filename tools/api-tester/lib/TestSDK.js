@@ -9,8 +9,9 @@ const Assert = require('./Assert');
 const log_error = require('./log_error');
 
 module.exports = class TestSDK {
-    constructor (conf) {
+    constructor (conf, context) {
         this.conf = conf;
+        this.context = context;
         this.cwd = `/${conf.username}`;
         this.httpsAgent = new https.Agent({
             rejectUnauthorized: false
@@ -100,7 +101,7 @@ module.exports = class TestSDK {
         process.stdout.write(strid + ' ... \n');
 
         try {
-            await fn();
+            await fn(this.context);
         } catch (e) {
             process.stdout.write(`${tabs}...\x1B[31;1m[FAIL]\x1B[0m\n`);
             this.recordResult({

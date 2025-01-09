@@ -12,12 +12,7 @@ const args = process.argv.slice(2);
 let config, report;
 
 try {
-    ({ values: {
-        config,
-        report,
-        bench,
-        unit,
-    }, positionals: [id] } = parseArgs({
+    const parsed = parseArgs({
         options: {
             config: {
                 type: 'string',
@@ -25,31 +20,45 @@ try {
             report: {
                 type: 'string',
             },
+            onlycase: { type: 'string' },
             bench: { type: 'boolean' },
             unit: { type: 'boolean' },
         },
         allowPositionals: true,
-    }));
-} catch (e) {
-    if ( args.length < 1 ) {
-        console.error(
-            'Usage: apitest [OPTIONS]\n' +
-            '\n' +
-            'Options:\n' +
-            '  --config=<path>  (required)  Path to configuration file\n' +
-            '  --report=<path>  (optional)  Output file for full test results\n' +
-            ''
-        );
-        process.exit(1);
-    }
-}
+    });
 
+    ({ values: {
+        config,
+        report,
+        onlycase,
+        bench,
+        unit,
+    }, positionals: [id] } = parsed);
+
+    onlycase = Number.parseInt(onlycase);
+} catch (e) {
+    console.error(e);
+    console.error(
+        'Usage: apitest [OPTIONS]\n' +
+        '\n' +
+        'Options:\n' +
+        '  --config=<path>  (required)  Path to configuration file\n' +
+        '  --report=<path>  (optional)  Output file for full test results\n' +
+        ''
+    );
+    process.exit(1);
+}
 
 const conf = YAML.parse(fs.readFileSync(config).toString());
 
 
 const main = async () => {
-    const ts = new TestSDK(conf);
+    const context = {
+        options: {
+            onlycase,
+        }
+    };
+    const ts = new TestSDK(conf, context);
     try {
         await ts.delete('api_test', { recursive: true });
     } catch (e) {
