@@ -134,7 +134,6 @@ export function createWispPacket(instructions) {
             }
 
             if (instructions.puterAuth) {
-                console.log("Puter auth " + instructions.puterAuth)
                 // PASSWORD AUTH REQUIRED
                 view.setUint8(7, 0x02); // Protocol ID (Password)
                 view.setUint32(8, 5 + instructions.passwordEncoded.length, true);
