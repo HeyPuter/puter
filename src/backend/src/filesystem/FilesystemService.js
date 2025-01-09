@@ -181,6 +181,7 @@ class FilesystemService extends BaseService {
 
         const { _path, uuidv4 } = this.modules;
         const svc_fsEntry = this.services.get('fsEntryService');
+        const resourceService = this.services.get('resourceService');
 
         const ts = Math.round(Date.now() / 1000);
         const uid = uuidv4();

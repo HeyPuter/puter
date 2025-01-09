@@ -317,6 +317,9 @@ class BaseOperation extends AdvancedBase {
     async run (values) {
         this.values = values;
 
+        values.user = values.user ??
+            (values.actor ? values.actor.type.user : undefined);
+
         // getting context with a new operation frame
         let x, frame; {
             x = Context.get();
