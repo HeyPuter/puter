@@ -17,12 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 "use strict"
-const express = require('express');
-const router = express.Router();
-const auth = require('../middleware/auth.js');
 const { get_app } = require('../helpers.js');
 const { DB_READ } = require('../services/database/consts.js');
-const { stream_to_buffer } = require('../util/streamutil.js');
 
 const iconify_apps = async (context, { apps, size }) => {
     return await Promise.all(apps.map(async app => {
