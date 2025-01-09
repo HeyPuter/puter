@@ -336,6 +336,9 @@ class Kernel extends AdvancedBase {
                     if ( ! item.endsWith('.js') ) {
                         continue;
                     }
+                    if ( item.endsWith('.test.js') ) {
+                        continue;
+                    }
                     const stat = fs.statSync(path_.join(fullpath, item));
                     if ( ! stat.isFile() ) {
                         continue;
