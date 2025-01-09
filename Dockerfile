@@ -29,7 +29,7 @@ RUN npm install -g mocha
 # Install node modules
 RUN npm cache clean --force && \
     for i in 1 2 3; do \
-        npm ci --registry=https://registry.npmjs.org/ && break || \
+        npm ci && break || \
         if [ $i -lt 3 ]; then \
             sleep 15; \
         else \
