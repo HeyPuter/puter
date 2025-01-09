@@ -19,6 +19,8 @@ import { APIAccessService } from './services/APIAccess.js';
 import { XDIncomingService } from './services/XDIncoming.js';
 import { NoPuterYetService } from './services/NoPuterYet.js';
 import { Debug } from './modules/Debug.js';
+import { PSocket, wispInfo } from './modules/networking/PSocket.js';
+import { PWispHandler } from './modules/networking/PWispHandler.js';
 
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
@@ -317,6 +319,22 @@ window.puter = (function() {
                 await this.services.wait_for_init(['api-access']);
                 this.p_can_request_rao_.resolve();
             })();
+            (async () => {
+                const wispToken = (await (await fetch('https://api.puter.com/wisp/relay-token/create', {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${this.authToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({}),
+                })).json())["token"];
+                wispInfo.handler = new PWispHandler(wispInfo.server, wispToken);
+                this.net = {
+                    Socket: PSocket
+                }
+            })();
+
+
         }
 
         /**
