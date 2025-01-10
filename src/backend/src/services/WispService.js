@@ -57,10 +57,17 @@ class WispService extends BaseService {
                 const svc_apiError = this.services.get('api-error');
                 const svc_event = this.services.get('event');
 
-                const decoded = svc_token.verify('wisp', req.body.token);
-                if ( decoded.$ !== 'token:wisp' ) {
-                    throw svc_apiError.create('invalid_token');
-                }
+                const decoded = (() => {
+                    try {
+                        const decoded = svc_token.verify('wisp', req.body.token);
+                        if ( decoded.$ !== 'token:wisp' ) {
+                            throw svc_apiError.create('invalid_token');
+                        }
+                        return decoded;
+                    } catch (e) {
+                        throw svc_apiError.create('forbidden');
+                    }
+                })();
                 
                 const svc_getUser = this.services.get('get-user');
 
