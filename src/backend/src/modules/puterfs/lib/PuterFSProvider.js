@@ -152,6 +152,49 @@ class PuterFSProvider extends putility.AdvancedBase {
         return child_uuids;
     }
 
+    async move ({ context, node, new_parent, new_name, metadata }) {
+        const { _path } = this.modules;
+
+        const services = context.get('services');
+        const old_path = await node.get('path');
+        const new_path = _path.join(await new_parent.get('path'), new_name);
+
+        const svc_fsEntry = services.get('fsEntryService');
+        const op_update = await svc_fsEntry.update(node.uid, {
+            ...(
+                await node.get('parent_uid') !== await new_parent.get('uid')
+                ? { parent_uid: await new_parent.get('uid') }
+                : {}
+            ),
+            path: new_path,
+            name: new_name,
+            ...(metadata ? { metadata } : {}),
+        });
+
+        node.entry.name = new_name;
+        node.entry.path = new_path;
+
+        // NOTE: this is a safeguard passed to update_child_paths to isolate
+        //       changes to the owner's directory tree, ut this may need to be
+        //       removed in the future.
+        const user_id = await node.get('user_id');
+
+        await op_update.awaitDone();
+
+        const svc_fs = services.get('filesystem');
+        await svc_fs.update_child_paths(old_path, node.entry.path, user_id);
+
+        const svc_event = services.get('event');
+
+        await svc_event.emit('fs.move.file', {
+            context,
+            moved: node,
+            old_path,
+        });
+
+        return node;
+    }
+
     async copy_tree ({ context, source, parent, target_name }) {
         return await this.copy_tree_(
             { context, source, parent, target_name });

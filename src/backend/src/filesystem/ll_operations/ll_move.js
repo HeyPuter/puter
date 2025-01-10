@@ -24,10 +24,8 @@ class LLMove extends LLFilesystemOperation {
     }
 
     async _run () {
-        const { _path } = this.modules;
         const { context } = this;
-        const { source, parent, user, actor, target_name, metadata } = this.values;
-        const svc = context.get('services');
+        const { source, parent, actor, target_name, metadata } = this.values;
 
         // Access Control
         {
@@ -45,36 +43,13 @@ class LLMove extends LLFilesystemOperation {
             }
         }
 
-        const old_path = await source.get('path');
-
-        const svc_fsEntry = svc.get('fsEntryService');
-        const op_update = await svc_fsEntry.update(source.uid, {
-            ...(
-                await source.get('parent_uid') !== await parent.get('uid')
-                ? { parent_uid: await parent.get('uid') }
-                : {}
-            ),
-            path: _path.join(await parent.get('path'), target_name),
-            name: target_name,
-            ...(metadata ? { metadata } : {}),
-        });
-
-        source.entry.name = target_name;
-        source.entry.path = _path.join(await parent.get('path'), target_name);
-
-        await op_update.awaitDone();
-
-        const svc_fs = svc.get('filesystem');
-        await svc_fs.update_child_paths(old_path, source.entry.path, user.id);
-
-        const svc_event = svc.get('event');
-
-        await svc_event.emit('fs.move.file', {
+        await source.provider.move({
             context: this.context,
-            moved: source,
-            old_path,
+            node: source,
+            new_parent: parent,
+            new_name: target_name,
+            metadata,
         });
-
         return source;
     }
 }
