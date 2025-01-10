@@ -17,6 +17,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const APIError = require("../../api/APIError");
 const BaseService = require("../BaseService");
 const { TypeSpec } = require("./meta/Construct");
 const { TypedValue } = require("./meta/Runtime");
@@ -67,9 +68,20 @@ class CoercionService extends BaseService {
             },
             coerce: async typed_value => {
                 this.log.noticeme('coercion is running!');
-                const response = await CoercionService.MODULES.axios.get(typed_value.value, {
-                    responseType: 'stream',
-                });
+                
+                const response = await(async () => {
+                    try {
+                        return await CoercionService.MODULES.axios.get(typed_value.value, {
+                            responseType: 'stream',
+                        });
+                    } catch (e) {
+                        APIError.create('field_invalid', null, {
+                            key: 'url',
+                            expected: 'web URL',
+                            got: 'error during request: ' + e.message,
+                        });
+                    }
+                })();
 
 
                 return new TypedValue({
