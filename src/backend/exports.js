@@ -33,6 +33,7 @@ const { TemplateModule } = require("./src/modules/template/TemplateModule.js");
 const { PuterFSModule } = require("./src/modules/puterfs/PuterFSModule.js");
 const { PerfMonModule } = require("./src/modules/perfmon/PerfMonModule.js");
 const { AppsModule } = require("./src/modules/apps/AppsModule.js");
+const { DevelopmentModule } = require("./src/modules/development/DevelopmentModule.js");
 
 
 module.exports = {
@@ -69,4 +70,5 @@ module.exports = {
     
     // Development modules
     PerfMonModule,
+    DevelopmentModule,
 };

@@ -275,6 +275,7 @@ class WebServerService extends BaseService {
                     actor: socket.actor,
                 }).arun(async () => {
                     await svc_event.emit('web.socket.user-connected', {
+                        socket,
                         user: socket.user
                     });
                 });
