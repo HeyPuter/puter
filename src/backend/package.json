@@ -1,6 +1,6 @@
 {
   "name": "@heyputer/backend",
-  "version": "2.4.1",
+  "version": "2.5.0",
   "description": "Backend/Kernel for Puter",
   "main": "exports.js",
   "scripts": {
