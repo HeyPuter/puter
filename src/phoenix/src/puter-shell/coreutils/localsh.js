@@ -1,4 +1,4 @@
-import { TeePromise } from "@heyputer/putility/src/libs/promise";
+import { TeePromise } from "@heyputer/putility/src/libs/promise.js";
 
 export default {
     name: 'localsh',
