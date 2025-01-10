@@ -42,7 +42,11 @@ class LocalTerminalService extends BaseService {
                     '../../../../../',
                     'tools/api-tester',
                 ),
-                shell: ['/usr/bin/env', 'node', 'apitest.js'],
+                shell: [
+                    '/usr/bin/env', 'node',
+                    'apitest.js',
+                    '--config=config.yml'
+                ],
                 allow_args: true,
             },
         };
@@ -83,7 +87,7 @@ class LocalTerminalService extends BaseService {
                 const profile = profiles[req.body.profile];
 
                 const args = profile.shell.slice(1);
-                if ( ! profile.allow_args && req.body.args ) {
+                if ( profile.allow_args && req.body.args ) {
                     args.push(...req.body.args);
                 }
                 const proc = spawn(profile.shell[0], args, {
@@ -129,6 +133,15 @@ class LocalTerminalService extends BaseService {
                 proc.on('exit', () => {
                     this.log.noticeme(`[${term_uuid}] Process exited (${proc.exitCode})`);
                     delete this.sessions_[term_uuid];
+
+                    const svc_socketio = req.services.get('socketio');
+                    svc_socketio.send(
+                        { room: req.user.id },
+                        'local-terminal.exit',
+                        {
+                            term_uuid,
+                        },
+                    );
                 });
 
                 this.sessions_[term_uuid] = {

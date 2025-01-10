@@ -60,6 +60,7 @@ import module_txt2img from './txt2img.js'
 import module_usages from './usages.js'
 import module_wc from './wc.js'
 import module_which from './which.js'
+import module_localsh from './localsh.js'
 
 export default {
     "ai": module_ai,
@@ -105,4 +106,5 @@ export default {
     "usages": module_usages,
     "wc": module_wc,
     "which": module_which,
+    "localsh": module_localsh,
 };
