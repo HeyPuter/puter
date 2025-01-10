@@ -187,6 +187,7 @@ module.exports = eggspress(['/up', '/write'], {
             req.body.create_missing_parents
         ),
 
+        actor: req.actor,
         user: req.user,
         file: uploaded_file,
 
