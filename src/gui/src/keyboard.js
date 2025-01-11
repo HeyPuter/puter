@@ -153,7 +153,7 @@ $(document).bind('keydown', async function(e){
                 let selected_item_index = $('.context-menu-active .context-menu-item').index(selected_item);
                 let new_selected_item_index = selected_item_index + 1;
                 let new_selected_item = $('.context-menu-active .context-menu-item').get(new_selected_item_index);
-                while($(new_selected_item).hasClass('context-menu-item-disabled')){
+                while($(new_selected_item).hasClass('context-menu-item-disabled') || $(new_selected_item).hasClass('context-menu-divider')){
                     new_selected_item_index = new_selected_item_index + 1;
                     new_selected_item = $('.context-menu-active .context-menu-item').get(new_selected_item_index);
                 }
@@ -166,7 +166,7 @@ $(document).bind('keydown', async function(e){
                 let selected_item_index = $('.context-menu-active .context-menu-item').index(selected_item);
                 let new_selected_item_index = selected_item_index - 1;
                 let new_selected_item = $('.context-menu-active .context-menu-item').get(new_selected_item_index);
-                while($(new_selected_item).hasClass('context-menu-item-disabled')){
+                while($(new_selected_item).hasClass('context-menu-item-disabled') || $(new_selected_item).hasClass('context-menu-divider')){
                     new_selected_item_index = new_selected_item_index - 1;
                     new_selected_item = $('.context-menu-active .context-menu-item').get(new_selected_item_index);
                 }
