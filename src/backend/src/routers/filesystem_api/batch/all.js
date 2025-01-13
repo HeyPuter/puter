@@ -147,16 +147,14 @@ module.exports = eggspress('/batch', {
             if ( ! operation_requires_file(op_spec) ) {
                 indexes_to_remove.push(i);
                 log.info(`executing ${op_spec.op}`);
-                response_promises.push(
-                    batch_exe.exec_op(req, op_spec)
-                );
+                response_promises[i] = batch_exe.exec_op(req, op_spec);
+            } else {
             }
         }
 
         for ( let i=indexes_to_remove.length-1 ; i >= 0 ; i-- ) {
             const index = indexes_to_remove[i];
             pending_operations.splice(index, 1)[0];
-            response_promises.splice(index, 1);
         }
     });
 
