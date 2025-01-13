@@ -331,7 +331,7 @@ class HLMkdir extends HLFilesystemOperation {
                 }
                 this.created = existing;
                 this.used_existing = true;
-                return {};
+                return await this.created.getSafeEntry();
             } else {
                 throw APIError.create('item_with_same_name_exists', null, {
                     entry_name: target_basename,
