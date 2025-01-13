@@ -386,13 +386,35 @@ class HLMkdir extends HLFilesystemOperation {
     }
 
     async _create_parents ({ parent_node }) {
-        const { values } = this;
+        const { context, values } = this;
         const { _path } = this.modules;
+
+        const fs = context.get('services').get('filesystem');
+
+        // Determine the deepest existing node
+        let deepest_existing = parent_node;
+        let remaining_path  = _path.dirname(values.path).split('/').filter(Boolean);
+        {
+            const parts = remaining_path.slice();
+            for (;;) {
+                if ( remaining_path.length === 0 ) {
+                    return deepest_existing;
+                }
+                const component = remaining_path[0];
+                const next_selector = new NodeChildSelector(deepest_existing.selector, component);
+                const next_node = await fs.node(next_selector);
+                if ( ! await next_node.exists() ) {
+                    break;
+                }
+                deepest_existing = next_node;
+                remaining_path.shift();
+            }
+        }
 
         const tree_op = new MkTree();
         await tree_op.run({
-            parent: parent_node,
-            tree: [_path.dirname(values.path)],
+            parent: deepest_existing,
+            tree: [remaining_path.join('/')],
         });
 
         this.parent_directories_created = tree_op.directories_created;
