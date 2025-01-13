@@ -60,7 +60,10 @@ module.exports = {
                 await t.read('i-do-not-exist.txt');
             } catch (e) {
                 expect(e.response.status).equal(404);
-                expect(e.response.data).deep.equal({ message: 'Path not found.' });
+                expect(e.response.data).deep.equal({
+                    message: 'File or directory not found.',
+                    code: 'subject_does_not_exist',
+                });
                 threw = true;
             }
             expect(threw).true;

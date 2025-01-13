@@ -41,6 +41,12 @@ const verify_fsentry = async (t, o) => {
             expect(typeof o.uid).equal('string');
         });
         for ( const k of _bitBooleans ) {
+            if ( k === 'is_dir' ) {
+                await t.case(`is_dir is true or false`, () => {
+                    expect(o[k]).oneOf([true, false], `${k} should be true or false`);
+                });
+                continue;
+            }
             await t.case(`${k} is 0 or 1`, () => {
                 expect(o[k]).oneOf([0, 1], `${k} should be 0 or 1`);
             });

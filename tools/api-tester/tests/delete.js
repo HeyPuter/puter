@@ -45,7 +45,7 @@ module.exports = {
             try {
                 await t.delete('test_delete_dir');
             } catch (e) {
-                expect(e.response.status).equal(400);
+                expect(e.response.status).equal(422);
                 threw = true;
             }
             expect(threw).true;
