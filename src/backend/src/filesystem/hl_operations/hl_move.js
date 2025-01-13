@@ -30,6 +30,11 @@ class HLMove extends HLFilesystemOperation {
     static MODULES = {
         _path: require('path'),
     }
+
+    static PROPERTIES = {
+        parent_directories_created: () => [],
+    }
+
     async _run () {
         const { _path } = this.modules;
 
@@ -81,6 +86,8 @@ class HLMove extends HLFilesystemOperation {
                 parent: await fs.node(new RootNodeSelector()),
                 tree: [parent.path],
             });
+
+            this.parent_directories_created = tree_op.directories_created;
 
             parent = tree_op.leaves[0];
         }
@@ -187,11 +194,19 @@ class HLMove extends HLFilesystemOperation {
         await source_new.awaitStableEntry();
         await source_new.fetchSuggestedApps();
         await source_new.fetchOwner();
-        return {
+
+        const response = {
             moved: await source_new.getSafeEntry({ thumbnail: true }),
             overwritten,
             old_path,
         }
+
+        response.parent_dirs_created = [];
+        for ( const node of this.parent_directories_created ) {
+            response.parent_dirs_created.push(await node.getSafeEntry());
+        }
+
+        return response;
     }
 }
 
