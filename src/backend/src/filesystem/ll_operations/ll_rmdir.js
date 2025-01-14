@@ -98,17 +98,10 @@ class LLRmDir extends LLFilesystemOperation {
             });
         }
 
-        if ( ! descendants_only ) {
-            tasks.add(`fs:rm:rm-self`, async () => {
-                const ll_rm = new LLRmNode();
-                await ll_rm.run({
-                    target,
-                    user,
-                });
-            });
-        }
-
         await tasks.awaitAll();
+        if ( ! descendants_only ) {
+            await target.provider.rmdir({ context, node: target });
+        }
     }
 }
 

@@ -40,37 +40,7 @@ class LLRmNode extends LLFilesystemOperation {
             }
         }
 
-        if ( await target.get('immutable') ) {
-            throw new APIError(403, 'File is immutable.');
-        }
-
-        const svc_size = svc.get('sizeService');
-        const svc_fsEntry = svc.get('fsEntryService');
-
-        svc_size.change_usage(
-            await target.get('user_id'),
-            -1 * await target.get('size')
-        );
-
-        const tracer = svc.get('traceService').tracer;
-        const tasks = new ParallelTasks({ tracer, max: 4 });
-
-        tasks.add(`remove-fsentry`, async () => {
-            await svc_fsEntry.delete(await target.get('uid'));
-        });
-
-        if ( await target.get('has-s3') ) {
-            tasks.add(`remove-from-s3`, async () => {
-                // const storage = new PuterS3StorageStrategy({ services: svc });
-                const storage = Context.get('storage');
-                const state_delete = storage.create_delete();
-                await state_delete.run({
-                    node: target,
-                });
-            });
-        }
-
-        await tasks.awaitAll();
+        await target.provider.unlink({ context, node: target });
     }
 }
 

@@ -29,6 +29,9 @@ const FSNodeContext = require('../../../filesystem/FSNodeContext');
 const { RESOURCE_STATUS_PENDING_CREATE } = require('../ResourceService');
 const { ParallelTasks } = require('../../../util/otelutil');
 
+const { TYPE_DIRECTORY } = require('../../../filesystem/FSNodeContext');
+const APIError = require('../../../api/APIError');
+
 class PuterFSProvider extends putility.AdvancedBase {
     static MODULES = {
         _path: require('path'),
@@ -353,6 +356,78 @@ class PuterFSProvider extends putility.AdvancedBase {
 
         // TODO: What event do we emit? How do we know if we're overwriting?
         return node;
+    }
+
+    async unlink ({ context, node }) {
+        if ( await node.get('type') === TYPE_DIRECTORY ) {
+            console.log(`\x1B[31;1m===N=====${await node.get('path')}=========\x1B[0m`)
+            throw new APIError(409, 'Cannot unlink a directory.');
+        }
+
+        await this.rmnode_({ context, node });
+    }
+
+    async rmdir ({ context, node }) {
+        if ( await node.get('type') !== TYPE_DIRECTORY ) {
+            console.log(`\x1B[31;1m===D1====${await node.get('path')}=========\x1B[0m`)
+            throw new APIError(409, 'Cannot rmdir a file.');
+        }
+
+        if ( await node.get('immutable') ) {
+            console.log(`\x1B[31;1m===D2====${await node.get('path')}=========\x1B[0m`)
+            throw APIError.create('immutable');
+        }
+
+        // Services
+        const services = context.get('services');
+        const svc_fsEntry = services.get('fsEntryService');
+
+        const children = await svc_fsEntry.fast_get_direct_descendants(
+            await node.get('uid')
+        );
+
+        if ( children.length > 0 ) {
+            console.log(`\x1B[31;1m===D3====${await node.get('path')}=========\x1B[0m`)
+            throw APIError.create('not_empty');
+        }
+
+        await this.rmnode_({ context, node });
+    }
+
+    async rmnode_ ({ context, node }) {
+        // Services
+        const services = context.get('services');
+        const svc_size = services.get('sizeService');
+        const svc_fsEntry = services.get('fsEntryService');
+
+        if ( await node.get('immutable') ) {
+            throw new APIError(403, 'File is immutable.');
+        }
+
+        svc_size.change_usage(
+            await node.get('user_id'),
+            -1 * await node.get('size')
+        );
+
+        const tracer = services.get('traceService').tracer;
+        const tasks = new ParallelTasks({ tracer, max: 4 });
+
+        tasks.add(`remove-fsentry`, async () => {
+            await svc_fsEntry.delete(await node.get('uid'));
+        });
+
+        if ( await node.get('has-s3') ) {
+            tasks.add(`remove-from-s3`, async () => {
+                // const storage = new PuterS3StorageStrategy({ services: svc });
+                const storage = Context.get('storage');
+                const state_delete = storage.create_delete();
+                await state_delete.run({
+                    node: node,
+                });
+            });
+        }
+
+        await tasks.awaitAll();
     }
 }
 
