@@ -296,6 +296,8 @@ async function create_app(title, source_path = null, items = null) {
     
         })
         .then(async (app) => {
+            $('.new-app-modal').get(0).close();
+            window.location.reload();
             let app_dir;
             // ----------------------------------------------------
             // Create app directory in AppData
@@ -321,6 +323,8 @@ async function create_app(title, source_path = null, items = null) {
                 maximizeOnStart: false,
                 background: false,
             }).then(async (app) => {
+                $('.new-app-modal').get(0).close();
+                window.location.reload();
                 // refresh app list
                 puter.apps.list({ icon_size: 64 }).then(async (resp) => {
                     apps = resp;
@@ -518,7 +522,7 @@ function generate_edit_app_section(app) {
         </ul>
 
         <div class="section-tab active" data-tab="deploy">
-            <div class="success deploy-success-msg">
+            <div id="deploy-success-msg" class="success deploy-success-msg">
                 New version deployed successfully 🎉<span class="close-success-msg">&times;</span>
                 <p style="margin-bottom:0;"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
             </div>
@@ -910,7 +914,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                         dropped_items = items[0].path;
                         $('.drop-area').removeClass('drop-area-hover');
                         $('.drop-area').addClass('drop-area-ready-to-deploy');
-                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">index.html</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">index.html</p><p>Ready to deploy 🚀</p>`;
                         $('.drop-area').html(drop_area_content);
 
                         // enable deploy button
@@ -944,7 +948,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                         dropped_items = items;
                         $('.drop-area').removeClass('drop-area-hover');
                         $('.drop-area').addClass('drop-area-ready-to-deploy');
-                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${items.length} items</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${items.length} items</p><p>Ready to deploy 🚀</p>`;
                         $('.drop-area').html(drop_area_content);
 
                         // enable deploy button
@@ -985,7 +989,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
 
                             $('.drop-area').removeClass('drop-area-hover');
                             $('.drop-area').addClass('drop-area-ready-to-deploy');
-                            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+                            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p>`;
                             $('.drop-area').html(drop_area_content);
 
                             // enable deploy button
@@ -1059,7 +1063,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
             rootItems = html_encode(rootItems);
             $('.drop-area').removeClass('drop-area-hover');
             $('.drop-area').addClass('drop-area-ready-to-deploy');
-            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p>`;
             $('.drop-area').html(drop_area_content);
 
             // enable deploy button
@@ -1893,7 +1897,7 @@ window.deploy = async function (app, items) {
     $('.deploy-btn').addClass('disabled');
 
     // change drop area text
-    $('.drop-area').html(deploying_spinner + ' <div>Deploying <span class="deploy-percent">(0%)</span></div>');
+    $('.drop-area').html(deploying_spinner + ' <div>Deploying <span class="deploy-percent">(0%)</span></div><p class="reset-deploy button button-secondary"><span>Cancel</span></p>');
 
     if (typeof items === 'string' && (items.startsWith('/') || items.startsWith('~'))) {
         $('.drop-area').removeClass('drop-area-hover');
@@ -1973,6 +1977,7 @@ window.deploy = async function (app, items) {
                     // update progress
                     $('.deploy-percent').text(`(${Math.round((files.indexOf(file) / files.length) * 100)}%)`);
                 }
+                
             }
         }
         // --------------------------------------------------------------------
@@ -2009,7 +2014,7 @@ window.deploy = async function (app, items) {
             // set the 'Index URL' field for the 'Settings' tab
             $('#edit-app-index-url').val(protocol + `://${hostname}.` + static_hosting_domain);
             // show success message
-            $('.deploy-success-msg').show();
+            $('#deploy-success-msg').show();
             // reset drop area
             reset_drop_area();
         })
@@ -2077,8 +2082,13 @@ window.deploy = async function (app, items) {
                 createMissingAncestors: true,
                 progress: function (operation_id, op_progress) {
                     $('.deploy-percent').text(`(${op_progress}%)`);
+                    
                 },
             }).then(async (uploaded) => {
+                // show success message
+                $('#deploy-success-msg').show();
+                // reset drop area
+                reset_drop_area()
                 // new hostname
                 let hostname = `${currently_editing_app.name}-${(Math.random() + 1).toString(36).substring(7)}`;
 
@@ -2101,7 +2111,7 @@ window.deploy = async function (app, items) {
                     // set the 'Index URL' field for the 'Settings' tab
                     $('#edit-app-index-url').val(protocol + `://${hostname}.` + static_hosting_domain);
                     // show success message
-                    $('.deploy-success-msg').show();
+                    $('#deploy-success-msg').show();
                     // reset drop area
                     reset_drop_area()
                 })
@@ -2264,7 +2274,7 @@ $(document).on('click', '.insta-deploy-existing-app-deploy-btn', function (e) {
 
     $('.drop-area').removeClass('drop-area-hover');
     $('.drop-area').addClass('drop-area-ready-to-deploy');
-    let drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+    let drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">Ready to deploy 🚀</p><p class="reset-deploy button button-secondary"><span>Cancel</span></p>`;
     $('.drop-area').html(drop_area_content);
 
     // deploy
@@ -2707,9 +2717,32 @@ function enable_window_settings(){
     $('#edit-app-hide-titlebar').prop('disabled', false);
 }
 
-$(document).on('click', '.reset-deploy', function (e) {
-    reset_drop_area();
-})
+$(document).on('click', '.reset-deploy', async function (e) {
+    // Display a confirmation dialog to ask the user
+    const alert_resp = await puter.ui.alert(
+        'Are you sure you want to cancel the deployment?', 
+        [
+            {
+                label: 'Yes, cancel deployment',
+                value: 'cancel',
+                type: 'danger', // This can style the button as red/danger
+            },
+            {
+                label: 'No, keep it',
+                value: 'keep'
+            }
+        ]
+    );
+
+    if (alert_resp === 'cancel') {
+        // If the user clicks "Yes, cancel deployment", reset the drop area
+        reset_drop_area();
+    } else {
+        // If the user clicks "No, keep it", do nothing or log it
+        console.log('Deployment is not canceled.');
+    }
+});
+
 
 $(document).on('click', '.sidebar-toggle', function (e) {
     $('.sidebar').toggleClass('open');
