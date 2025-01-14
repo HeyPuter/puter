@@ -45,7 +45,7 @@ class ShareService extends BaseService {
         svc_featureFlag.register('share', {
             $: 'function-flag',
             fn: async ({ actor }) => {
-                const user = actor.type.user;
+                const user = actor.type.user ?? null;
                 if ( ! user ) {
                     throw new Error('expected user');
                 }
