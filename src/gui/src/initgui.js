@@ -153,8 +153,10 @@ if(jQuery){
 }
 
 window.initgui = async function(options){
-    let url = new URL(window.location);
-    url = url.href;
+    const url = new URL(window.location).href;
+    window.url = url;
+    const url_paths = window.location.pathname.split('/').filter(element => element);
+    window.url_paths = url_paths
 
     let picked_a_user_for_sdk_login = false;
 
@@ -199,16 +201,14 @@ window.initgui = async function(options){
     // will hold the result of the whoami API call
     let whoami;
 
-    window.url_paths = window.location.pathname.split('/').filter(element => element);
-
     //--------------------------------------------------------------------------------------
     // Extract 'action' from URL
     //--------------------------------------------------------------------------------------
     let action;
-    if(url_paths[0]?.toLocaleLowerCase() === 'action' && url_paths[1]){
-        action = url_paths[1].toLowerCase();
+    if (window.url_paths[0]?.toLocaleLowerCase() === 'action' && window.url_paths[1]) {
+        action = window.url_paths[1].toLowerCase();
     }
-
+    
     //--------------------------------------------------------------------------------------
     // Determine if we are in full-page mode
     // i.e. https://puter.com/app/<app_name>/?puter.fullpage=true
@@ -789,6 +789,7 @@ window.initgui = async function(options){
             console.error('Error:', error);
         })
     }
+
     // -------------------------------------------------------------------------------------
     // Desktop Background
     // If we're in fullpage/emebedded/Auth Popup mode, we don't want to load the custom background
