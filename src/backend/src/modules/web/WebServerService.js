@@ -26,6 +26,7 @@ const config = require('../../config.js');
 var http = require('http');
 const fs = require('fs');
 const auth = require('../../middleware/auth.js');
+const measure = require('../../middleware/measure.js');
 const { surrounding_box, es_import_promise } = require('../../fun/dev-console-ui-utils.js');
 
 const relative_require = require;
@@ -329,6 +330,9 @@ class WebServerService extends BaseService {
             req.services = this.services;
             next();
         });
+
+        // Measure data transfer amounts
+        app.use(measure());
 
         // Instrument logging to use our log service
         {
