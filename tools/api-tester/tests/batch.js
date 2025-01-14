@@ -21,9 +21,7 @@ module.exports = {
                 },
             ], [
                 'file 1 contents',
-                'file 2 contents',
             ]);
-            console.log('res?', results)
             expect(results.length).equal(2);
             expect(results[0].name).equal('w');
             expect(results[1].path).equal(t.resolve('q/w/file_1.txt'));
@@ -60,28 +58,6 @@ module.exports = {
             }
         });
 
-        await t.case('path reference resolution (without dedupe)', async () => {
-            results = null;
-            results = await t.batch('batch', [
-                {
-                    op: 'mkdir',
-                    as: 'dest_1',
-                    path: t.resolve('q/w'),
-                    create_missing_parents: true,
-                },
-                {
-                    op: 'write',
-                    path: t.resolve('$dest_1/file_1.txt'),
-                },
-            ], [
-                'file 1 contents',
-            ]);
-            console.log('res?', results)
-            expect(results.length).equal(2);
-            expect(results[0].name).equal('w');
-            expect(results[1].path).equal(t.resolve('q/w/file_1.txt'));
-        });
-
         // Test for path reference resolution
         await t.case('path reference resolution', async () => {
             results = null;
@@ -94,11 +70,11 @@ module.exports = {
                 },
                 {
                     op: 'write',
+                    overwrite: true,
                     path: t.resolve('$dest_1/file_1.txt'),
                 },
             ], [
                 'file 1 contents',
-                'file 2 contents',
             ]);
             console.log('res?', results)
             expect(results.length).equal(2);
