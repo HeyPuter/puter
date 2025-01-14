@@ -23,6 +23,8 @@ const eggspress = require('../api/eggspress');
 const { Context } = require('../util/context');
 const { DB_WRITE } = require('../services/database/consts');
 const { generate_identifier } = require('../util/identifier');
+const { is_temp_users_disabled: lazy_temp_users, 
+        is_user_signup_disabled: lazy_user_signup } = require("../helpers")
 
 async function generate_random_username () {
     let username;
@@ -137,15 +139,26 @@ module.exports = eggspress(['/signup'], {
         }
     }
 
-    // temporary user
-    if(req.body.is_temp && !config.disable_temp_users){
-        req.body.username = await generate_random_username();
-        req.body.email = req.body.username + '@gmail.com';
-        req.body.password = 'sadasdfasdfsadfsa';
-    }else if(config.disable_temp_users){
-        return res.status(400).send('Temp users are disabled.');
+    const is_temp_users_disabled = await lazy_temp_users();
+    const is_user_signup_disabled = await lazy_user_signup();
+
+    if (is_temp_users_disabled && is_user_signup_disabled) {
+        return res.status(403).send('User signup and Temporary users are disabled.');
     }
 
+    if (!req.body.is_temp && is_user_signup_disabled) {
+        return res.status(403).send('User signup is disabled.');
+    } 
+
+    if (req.body.is_temp && is_temp_users_disabled) {
+        return res.status(403).send('Temporary users are disabled.');
+    }
+
+    // Create temp user data
+    req.body.username = req.body.username ?? await generate_random_username();
+    req.body.email = req.body.email ?? req.body.username + '@gmail.com';
+    req.body.password = req.body.password ?? 'sadasdfasdfsadfsa';
+    
     // send_confirmation_code
     req.body.send_confirmation_code = req.body.send_confirmation_code ?? true;
 

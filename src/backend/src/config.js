@@ -25,10 +25,11 @@ let config = {};
 // Static defaults
 config.servers = [];
 
+config.disable_user_signup = false;
+config.default_user_group = '78b1b1dd-c959-44d2-b02c-8735671f9997';
+
 // Will disable the auto-generated temp users. If a user lands on the site, they will be required to sign up or log in.
 config.disable_temp_users = false;
-
-config.default_user_group = '78b1b1dd-c959-44d2-b02c-8735671f9997';
 config.default_temp_group = 'b7220104-7905-4985-b996-649fdcdb3c8f';
 
 config.max_file_size = 100_000_000_000;

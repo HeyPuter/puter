@@ -78,6 +78,24 @@ async function is_shared_with(fsentry_id, recipient_user_id){
     return false;
 }
 
+/**
+ * Checks to see if temp_users is disabled and return a boolean
+ * @returns {boolean}
+ */
+async function is_temp_users_disabled() {
+    const svc_feature_flag = await services.get("feature-flag");
+    return await svc_feature_flag.check("temp-users-disabled");
+}
+
+/**
+ * Checks to see if user_signup is disabled and return a boolean
+ * @returns {boolean}
+ */
+async function is_user_signup_disabled() {
+    const svc_feature_flag = await services.get("feature-flag");
+    return await svc_feature_flag.check("user-signup-disabled");
+}
+
 const chkperm = spanify('chkperm', async (target_fsentry, requester_user_id, action) => {
     // basic cases where false is the default response
     if(!target_fsentry)
@@ -1661,6 +1679,8 @@ module.exports = {
     is_valid_uuid4,
     is_valid_uuid,
     is_specifically_uuidv4,
+    is_temp_users_disabled,
+    is_user_signup_disabled,
     is_valid_url,
     jwt_auth,
     mv,

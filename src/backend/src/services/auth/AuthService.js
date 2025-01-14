@@ -48,6 +48,17 @@ class AuthService extends BaseService {
         this.db = await this.services.get('database').get(DB_WRITE, 'auth');
         this.svc_session = await this.services.get('session');
         
+        const svc_feature_flag = await this.services.get("feature-flag");
+        svc_feature_flag.register("temp-users-disabled", {
+            $: "config-flag",
+            value: this.global_config.disable_temp_users ?? false
+        });
+
+        svc_feature_flag.register("user-signup-disabled", {
+            $: "config-flag",
+            value: this.global_config.disable_user_signup ?? false
+        })
+        
         // "FPE" stands for "Format Preserving Encryption"
         // The `uuid_fpe_key` is a key for creating encrypted alternatives
         // to UUIDs and decrypting them back to the original UUIDs
@@ -67,6 +78,7 @@ class AuthService extends BaseService {
         };
     }
 
+    
 
     /**
     * This method authenticates a user or app using a token.
