@@ -19,7 +19,10 @@
 "use strict"
 const express = require('express');
 const router = new express.Router();
-const {get_taskbar_items, username_exists, send_email_verification_code, send_email_verification_token, invalidate_cached_user, get_user } = require('../helpers');
+const {
+    get_taskbar_items, username_exists, send_email_verification_code, send_email_verification_token, invalidate_cached_user, get_user,
+    is_user_signup_disabled: lazy_user_signup,
+} = require('../helpers');
 const auth = require('../middleware/auth.js');
 const config = require('../config');
 const { DB_WRITE } = require('../services/database/consts');
@@ -31,6 +34,11 @@ router.post('/save_account', auth, express.json(), async (req, res, next)=>{
     // either api. subdomain or no subdomain
     if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
         next();
+
+    const is_user_signup_disabled = await lazy_user_signup();
+    if ( is_user_signup_disabled ) {
+        return res.status(403).send('User signup is disabled.');
+    }
 
     // modules
     const db = req.services.get('database').get(DB_WRITE, 'auth');
