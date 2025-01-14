@@ -41,4 +41,7 @@ export class PSocket extends EventListener {
             
         }
     }
+    close() {
+        wispInfo.handler.close(this._streamID);
+    }
 }
