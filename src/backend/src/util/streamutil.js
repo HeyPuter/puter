@@ -341,6 +341,27 @@ const size_limit_stream = (source, { limit }) => {
     return stream;
 }
 
+class SizeMeasuringStream extends Transform {
+    constructor(options, probe) {
+        super(options);
+        this.probe = probe;
+        this.loaded = 0;
+    }
+
+    _transform(chunk, encoding, callback) {
+        this.loaded += chunk.length;
+        probe.amount = this.loaded;
+        this.push(chunk);
+        callback();
+    }
+}
+
+const size_measure_stream = (source, probe = {}) => {
+    const stream = new SizeMeasuringStream({}, probe);
+    source.pipe(stream);
+    return stream;
+}
+
 class StuckDetectorStream extends Transform {
     constructor(options, {
         timeout,
