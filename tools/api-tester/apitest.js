@@ -35,7 +35,7 @@ try {
         unit,
     }, positionals: [id] } = parsed);
 
-    onlycase = Number.parseInt(onlycase);
+    onlycase = onlycase !== undefined ? Number.parseInt(onlycase) : undefined;
 } catch (e) {
     console.error(e);
     console.error(
