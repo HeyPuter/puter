@@ -99,7 +99,11 @@ module.exports = eggspress(['/signup'], {
         body: req.body,
     };
 
-    await emitAsync('puter.signup', event);
+    const MAX_WAIT = 5 * 1000;
+    await Promise.race([
+        emitAsync('puter.signup', event),
+        new Promise(resolve => setTimeout(() => resolve(), MAX_WAIT)),
+    ])
 
     if ( ! event.allow ) {
         return res.status(400).send(event.error ?? 'You are not allowed to sign up.');
