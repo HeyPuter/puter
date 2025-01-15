@@ -62,18 +62,18 @@ export class PTLSSocket extends PSocket {
             let reader = read.getReader();
             let done = false;
             this.emit("tlsopen", undefined);
-
-            while (!done) {
-                try {
+            try {   
+                while (!done) {    
                     const {done: readerDone, value} = await reader.read();
                     done = readerDone;
                     if (!done) {
                         this.emit("tlsdata", value);
                     }
-                } catch (e) {
-                    this.emit("error", e)
                 }
+            } catch (e) {
+                this.emit("error", e)
             }
+            this.emit("close", undefined);
         })();
     }
     on(event, callback) {
