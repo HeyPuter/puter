@@ -76,6 +76,10 @@ class Mapping extends AdvancedBase {
             }
 
             if ( value instanceof FSNodeContext ) {
+                if ( ! await value.exists() ) {
+                    value = undefined;
+                    continue;
+                }
                 value = await value.getSafeEntry();
                 sanitized = true;
             }
