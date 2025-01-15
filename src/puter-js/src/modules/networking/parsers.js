@@ -15,7 +15,9 @@ export const UDP = 0x02;
 export const textde = new TextDecoder();
 const texten = new TextEncoder();
 export const errors = {
-     0x41: "Stream creation failed due to invalid information. This could be sent if the destination was a reserved address or the port is invalid."
+     0x01: "Reason unspecified or unknown. Returning a more specific reason should be preferred."
+    ,0x03: "Unexpected stream closure due to a network error."
+    ,0x41: "Stream creation failed due to invalid information. This could be sent if the destination was a reserved address or the port is invalid."
     ,0x42: "Stream creation failed due to an unreachable destination host. This could be sent if the destination is an domain which does not resolve to anything."
     ,0x43: "Stream creation timed out due to the destination server not responding."
     ,0x44: "Stream creation failed due to the destination server refusing the connection."
