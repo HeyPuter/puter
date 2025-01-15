@@ -145,12 +145,11 @@ class AppIconService extends BaseService {
 
         const get_fallback_icon = async () => {
             // Use database-stored icon as a fallback
-            app_icon = app_icon ?? await (async () => {
+            app_icon = app_icon || await (async () => {
                 const app = await get_app({ uid: app_uid });
-                return app.icon ?? DEFAULT_APP_ICON;
+                return app.icon || DEFAULT_APP_ICON;
             })()
             const [metadata, base64] = app_icon.split(',');
-            console.log('METADATA', metadata);
             const mime = metadata.split(';')[0].split(':')[1];
             const img = Buffer.from(base64, 'base64');
             return {
