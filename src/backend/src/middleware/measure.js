@@ -1,6 +1,7 @@
 const express = require('express');
 const { PassThrough } = require('stream');
 const { pausing_tee } = require('../util/streamutil');
+const putility = require('@heyputer/putility');
 
 const _intercept_req = ({ data, req }) => {
     if ( ! req.readable ) {
@@ -79,10 +80,13 @@ function measure () {
         _intercept_req({ data, req });
         _intercept_res({ data, res });
 
+        req.measurements = new putility.libs.promise.TeePromise();
+
         // Wait for the request to finish processing
         res.on('finish', () => {
-            console.log(`Incoming Data: ${data.sz_incoming} bytes`);
-            console.log(`Outgoing Data: ${data.sz_outgoing} bytes`); // future
+            req.measurements.resolve(data);
+            // console.log(`Incoming Data: ${data.sz_incoming} bytes`);
+            // console.log(`Outgoing Data: ${data.sz_outgoing} bytes`); // future
         });
 
         next();

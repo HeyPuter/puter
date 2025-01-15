@@ -360,7 +360,10 @@ const install = async ({ services, app, useapi, modapi }) => {
     services.registerService('performance-monitor', PerformanceMonitor);
     
     const { WispService } = require('./services/WispService');
-    services.registerService('wisp', WispService);    
+    services.registerService('wisp', WispService);
+
+    const { RequestMeasureService } = require('./services/RequestMeasureService');
+    services.registerService('request-measure', RequestMeasureService);
 }
 
 const install_legacy = async ({ services }) => {
