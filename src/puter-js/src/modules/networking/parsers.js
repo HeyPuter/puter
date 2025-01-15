@@ -14,6 +14,15 @@ export const UDP = 0x02;
 // Frequently used objects
 export const textde = new TextDecoder();
 const texten = new TextEncoder();
+export const errors = {
+     0x41: "Stream creation failed due to invalid information. This could be sent if the destination was a reserved address or the port is invalid."
+    ,0x42: "Stream creation failed due to an unreachable destination host. This could be sent if the destination is an domain which does not resolve to anything."
+    ,0x43: "Stream creation timed out due to the destination server not responding."
+    ,0x44: "Stream creation failed due to the destination server refusing the connection."
+    ,0x47: "TCP data transfer timed out."
+    ,0x48: "Stream destination address/domain is intentionally blocked by the proxy server."
+    ,0x49: "Connection throttled by the server."
+}
 
 /**
  * @typedef {{packetType: number, streamID: number, streamType?: number, port?: number, hostname?: string, payload?: Uint8Array, reason?: number, remainingBuffer?: number}} ParsedWispPacket

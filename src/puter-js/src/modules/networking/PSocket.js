@@ -1,4 +1,5 @@
 import EventListener from "../../lib/EventListener.js";
+import { errors } from "./parsers.js";
 const texten = new TextEncoder();
 
 export let wispInfo = {
@@ -10,13 +11,18 @@ export class PSocket extends EventListener {
     _events = new Map();
     _streamID;
     constructor(host, port) {
-        super(["data", "drain", "open", "close", "tlsdata", "tlsopen"]);
+        super(["data", "drain", "open", "error", "close", "tlsdata", "tlsopen"]);
         const callbacks = {
             dataCallBack: (data) => {
                 this.emit("data", data);
             },
             closeCallBack: (reason) => {
-                this.emit("close", false); // TODO, report errors
+                if (reason !== 0x02) {
+                    this.emit("error", new Error(errors[reason]));
+                    this.emit("close", true);
+                    return;    
+                }
+                this.emit("close", false);
             }
         }
 

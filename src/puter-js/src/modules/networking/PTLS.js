@@ -12,29 +12,51 @@ export class PTLSSocket extends PSocket {
         (async() => {
             if (!rustls) {
                 rustls = (await import( /* webpackIgnore: true */ "https://puter-net.b-cdn.net/rustls.js"))
-                // await rustls.default("https://puter-net.b-cdn.net/rustls.wasm")
-                await rustls.default("https://alicesworld.tech/fun/rustls.wasm")
+                await rustls.default("https://puter-net.b-cdn.net/rustls.wasm")
             }
-            // const socket = new puter.net.Socket("google.com", 443)
+
+            let cancelled = false;
             const readable = new ReadableStream({
+                /**
+                 * 
+                 * @param {ReadableStreamDefaultController} controller 
+                 */
                 start: (controller) => {
                     super.on("data", (data) => {
                         controller.enqueue(data.buffer)
                     })
                     super.on("close", () => {
-                        controller.close()
+                        if (!cancelled)
+                            controller.close()
                     })
+                    
+                },
+                pull: (controller) => {
+
+                },
+                cancel: () => {
+                    cancelled = true;
                 }
+
             })
     
             const writable = new WritableStream({
                 write: (chunk) => { super.write(chunk); },
-                abort: () => { super.close(); },
+                abort: () => { console.log("hello"); super.close(); },
                 close: () => { super.close(); },
             })
-    
-            const {read, write} = await rustls.connect_tls(readable, writable, args[0]);
-    
+
+            let read, write;
+            try {
+                const TLSConnnection = await rustls.connect_tls(readable, writable, args[0])
+                read = TLSConnnection.read;
+                write = TLSConnnection.write;
+            } catch (e) {
+                this.emit("error", new Error("TLS Handshake failed: " + e));
+                return;
+            }
+            
+            
             this.writer = write.getWriter();
             // writer.write("GET / HTTP/1.1\r\nHost: google.com\r\n\r\n");
             let reader = read.getReader();
@@ -42,10 +64,14 @@ export class PTLSSocket extends PSocket {
             this.emit("tlsopen", undefined);
 
             while (!done) {
-                const {done: readerDone, value} = await reader.read();
-                done = readerDone;
-                if (!done) {
-                    this.emit("tlsdata", value);
+                try {
+                    const {done: readerDone, value} = await reader.read();
+                    done = readerDone;
+                    if (!done) {
+                        this.emit("tlsdata", value);
+                    }
+                } catch (e) {
+                    this.emit("error", e)
                 }
             }
         })();
