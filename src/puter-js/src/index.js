@@ -20,6 +20,7 @@ import { XDIncomingService } from './services/XDIncoming.js';
 import { NoPuterYetService } from './services/NoPuterYet.js';
 import { Debug } from './modules/Debug.js';
 import { PSocket, wispInfo } from './modules/networking/PSocket.js';
+import { PTLSSocket } from "./modules/networking/PTLS.js"
 import { PWispHandler } from './modules/networking/PWispHandler.js';
 
 // TODO: This is for a safe-guard below; we should check if we can
@@ -330,7 +331,10 @@ window.puter = (function() {
                 })).json())["token"];
                 wispInfo.handler = new PWispHandler(wispInfo.server, wispToken);
                 this.net = {
-                    Socket: PSocket
+                    Socket: PSocket,
+                    tls: {
+                        TLSSocket: PTLSSocket
+                    }
                 }
             })();
 

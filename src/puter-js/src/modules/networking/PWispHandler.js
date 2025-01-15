@@ -43,7 +43,7 @@ export class PWispHandler {
     }
     register(host, port, callbacks) {
         const streamID = this._nextStreamID++;
-        this.streamMap.set(streamID, {queue: [], streamID, buffer: this._bufferMax, dataCallBack: callbacks.dataCallBack, closeCallBack: callbacks.closeCallBack, openCallBack: callbacks.openCallBack});
+        this.streamMap.set(streamID, {queue: [], streamID, buffer: this._bufferMax, dataCallBack: callbacks.dataCallBack, closeCallBack: callbacks.closeCallBack});
         this._ws.send(createWispPacket({
             packetType: CONNECT,
             streamType: TCP,
@@ -51,7 +51,6 @@ export class PWispHandler {
             hostname: host,
             port: port
         }))
-        
         return streamID;
     }
 
