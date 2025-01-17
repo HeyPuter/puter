@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// const { HLWrite } = require("../filesystem/hl_operations/hl_write");
+const { HLWrite } = require("../../filesystem/hl_operations/hl_write");
 const { LLMkdir } = require("../../filesystem/ll_operations/ll_mkdir");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { NodePathSelector } = require("../../filesystem/node/selectors");
