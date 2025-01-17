@@ -321,7 +321,7 @@ window.puter = (function() {
                 this.p_can_request_rao_.resolve();
             })();
             (async () => {
-                const wispToken = (await (await fetch('https://api.puter.com/wisp/relay-token/create', {
+                const wispToken = (await (await fetch(this.APIOrigin + '/wisp/relay-token/create', {
                     method: 'POST',
                     headers: {
                         Authorization: `Bearer ${this.authToken}`,
