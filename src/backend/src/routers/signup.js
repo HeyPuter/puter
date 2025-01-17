@@ -154,6 +154,10 @@ module.exports = eggspress(['/signup'], {
         return res.status(403).send('Temporary users are disabled.');
     }
 
+    if (req.body.is_temp && event.no_temp_user) {
+        return res.status(403).send('You must login or signup.');
+    }
+
     // Create temp user data
     req.body.username = req.body.username ?? await generate_random_username();
     req.body.email = req.body.email ?? req.body.username + '@gmail.com';
