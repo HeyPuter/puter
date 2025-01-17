@@ -181,11 +181,6 @@ const nb = {
         yes: 'ja',
         you_have_been_referred_to_puter_by_a_friend: "Du har blitt henvist til Puter av en venn!",
         zip: "Zip",
-
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        
         about: "Om",
         account: "Konto",
         account_password: "Bekreft kontopassord",
