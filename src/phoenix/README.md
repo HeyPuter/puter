@@ -20,6 +20,12 @@ The shell is a work in progress. The following improvements are considered in-sc
 
 ## Running Phoenix
 
+You can use [Codeanywhere](https://codeanywhere.com) to run Phoenix in a browser.
+
+<br />
+     <a href="https://app.codeanywhere.com/#https://github.com/HeyPuter/puter"><img src="https://codeanywhere.com/img/open-in-codeanywhere-btn.svg" alt=""></a>
+     <br />
+
 ### In a Browser
 
 You can use the [terminal on Puter](https://puter.com/app/terminal), including self-hosted installations.
