@@ -520,6 +520,22 @@ class WebServerService extends BaseService {
         app.use(helmet.xssFilter());
         // app.use(helmet.referrerPolicy());
         app.disable('x-powered-by');
+
+        // remove object and array query parameters
+        app.use(function (req, res, next) {
+            for ( let k in req.query ) {
+                if ( req.query[k] === undefined || req.query[k] === null ) {
+                    continue;
+                }
+
+                const allowed_types = ['string', 'number', 'boolean'];
+                if ( ! allowed_types.includes(typeof req.query[k]) ) {
+                    req.query[k] = undefined;
+                }
+            }
+            console.log('\x1B[36;1m======= ok???', req.query);
+            next();
+        });
         
         const uaParser = require('ua-parser-js');
         app.use(function (req, res, next) {
