@@ -588,6 +588,15 @@ class UI extends EventListener {
         this.#onItemsOpened = callback;
     }
 
+    // Check if the app was launched with items
+    // This is useful for apps that are launched with items (e.g. when a file is opened with the app)
+    wasLaunchedWithItems = function() {
+        const URLParams = new URLSearchParams(window.location.search);
+        return URLParams.has('puter.item.name') && 
+               URLParams.has('puter.item.uid') && 
+               URLParams.has('puter.item.read_url');
+    }
+
     onLaunchedWithItems = function(callback) {
         // Check if a file was opened with this app, i.e. check URL parameters of window/iframe
         // Even though the file has been opened when the app is launched, we need to wait for the onLaunchedWithItems callback to be set
