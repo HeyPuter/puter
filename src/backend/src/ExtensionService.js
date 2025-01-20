@@ -23,6 +23,7 @@ const { Endpoint } = require("./util/expressutil");
 const configurable_auth = require("./middleware/configurable_auth");
 const { Context } = require("./util/context");
 const { DB_READ, DB_WRITE } = require("./services/database/consts");
+const { Actor } = require("./services/auth/Actor");
 
 /**
  * State shared with the default service and the `extension` global so that
@@ -96,6 +97,39 @@ class ExtensionService extends BaseService {
 
             svc_event.emit(key, data, meta);
         });
+        
+        this.state.extension.kv = (() => {
+            const impls = this.services.get_implementors('puter-kvstore');
+            const impl_kv = impls[0].impl;
+            
+            return new Proxy(impl_kv, {
+                get: (target, prop) => {
+                    if ( typeof target[prop] !== 'function' ) {
+                        return target[prop];
+                    }
+                    
+                    return (...args) => {
+                        if ( typeof args[0] !== 'object' ) {
+                            // Luckily named parameters don't have positional
+                            // overlaps between the different kv methods, so
+                            // we can just set them all.
+                            args[0] = {
+                                key: args[0],
+                                as: args[0],
+                                value: args[1],
+                                amount: args[2],
+                                timestamp: args[2],
+                                ttl: args[2],
+                            };
+                        }
+                        return Context.sub({
+                            actor: Actor.get_system_actor(),
+                        }).arun(() => target[prop](...args));
+                    };
+                },
+            });
+        })();
+        console.log('set kv on', this.state.extension);
     }
 
     ['__on_install.routes'] (_, { app }) {
