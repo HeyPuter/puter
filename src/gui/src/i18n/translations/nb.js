@@ -181,230 +181,226 @@ const nb = {
         yes: 'ja',
         you_have_been_referred_to_puter_by_a_friend: "Du har blitt henvist til Puter av en venn!",
         zip: "Zip",
+        about: "Om",
+        account: "Konto",
+        account_password: "Bekreft kontopassord",
+        allow: "Tillat",
+        associated_websites: "Tilknyttede nettsteder",
+        auto_arrange: "Automatisk organisering",
+        change: "Endre",
+        change_email: "Endre e-post",
+        change_ui_colors: "Endre UI-farger",
+        clock_visibility: "Klokkesynlighet",
+        close: "Lukk",
+        close_all_windows_confirm: "Er du sikker på at du vil lukke alle vinduer?",
+        confirm: "Bekreft",
+        confirm_2fa_setup: "Jeg har lagt til koden i min autentiseringsapp",
+        confirm_2fa_recovery: "Jeg har lagret gjenopprettingskodene mine på et sikkert sted",
+        confirm_code_generic_incorrect: "Feil kode.",
+        confirm_code_generic_too_many_requests: "For mange forsøk. Vennligst vent noen minutter.",
+        confirm_code_generic_submit: "Send kode",
+        confirm_code_generic_try_again: "Prøv igjen",
+        confirm_code_generic_title: "Skriv inn bekreftelseskode",
+        confirm_code_2fa_instruction: "Skriv inn den 6-sifrede koden fra autentiseringsappen din.",
+        confirm_code_2fa_submit_btn: "Send",
+        confirm_code_2fa_title: "Skriv inn 2FA-kode",
+        confirm_delete_user: "Er du sikker på at du vil slette kontoen din? Alle filene og dataene dine vil bli permanent slettet. Denne handlingen kan ikke angres.",
+        confirm_delete_user_title: "Slette konto?",
+        confirm_session_revoke: "Er du sikker på at du vil tilbakekalle denne økten?",
+        confirm_your_email_address: "Bekreft e-postadressen din",
+        contact_us_verification_required: "Du må ha en bekreftet e-postadresse for å bruke dette.",
+        copying_file: "Kopierer %%",
+        credits: "Krediteringer",
+        clock: "Klokke",
+        clock_visible_hide: "Skjul - Alltid skjult",
+        clock_visible_show: "Vis - Alltid synlig",
+        clock_visible_auto: "Auto - Standard, bare synlig i fullskjermmodus.",
+        close_all: "Lukk alle",
+        created: "Opprettet",
+        default: "Standard",
+        delete_account: "Slett konto",
+        deleting_file: "Sletter %%",
+        desktop: "Skrivebord",
+        developers: "Utviklere",
+        disable_2fa: "Deaktiver 2FA",
+        disable_2fa_confirm: "Er du sikker på at du vil deaktivere 2FA?",
+        disable_2fa_instructions: "Skriv inn passordet ditt for å deaktivere 2FA.",
+        documents: "Dokumenter",
+        dont_allow: "Ikke tillat",
+        email_change_confirmation_sent: "En bekreftelsese-post har blitt sendt til din nye e-postadresse. Vennligst sjekk innboksen din og følg instruksjonene for å fullføre prosessen.",
+        email_invalid: "E-postadressen er ugyldig.",
+        email_required: "E-postadresse er påkrevd.",
+        enable_2fa: "Aktiver 2FA",
+        end_hard: "Avslutt hardt",
+        end_process_force_confirm: "Er du sikker på at du vil tvinge prosessen til å avslutte?",
+        end_soft: "Avslutt mykt",
+        enlarged_qr_code: "Forstørret QR-kode",
+        enter_password_to_confirm_delete_user: "Skriv inn passordet ditt for å bekrefte sletting av konto",
+        error_message_is_missing: "Feilmelding mangler.",
+        error_unknown_cause: "En ukjent feil oppstod.",
+        error_uploading_files: "Kunne ikke laste opp filer",
+        favorites: "Favoritter",
+        fit: "Tilpass",
+        folder: "Mappe",
+        force_quit: "Tving avslutt",
+        home: "Hjem",
+        hue: "Fargetone",
+        incorrect_password: "Feil passord",
+        language: "Språk",
+        license: "Lisens",
+        lightness: "Lyshet",
+        link_copied: "Lenke kopiert",
+        looks_good: "Ser bra ut!",
+        manage_sessions: "Administrer økter",
+        menubar_style: "Menylinjesstil",
+        menubar_style_desktop: "Skrivebord",
+        menubar_style_system: "System",
+        menubar_style_window: "Vindu",
+        modified: "Endret",
+        new_email: "Ny e-post",
+        original_name: "Opprinnelig navn",
+        original_path: "Opprinnelig sti",
+        oss_code_and_content: "Åpen kildekode-programvare og innhold",
+        password_recovery_rate_limit: "Du har nådd vår hastighetsgrense; vennligst vent noen minutter. For å unngå dette i fremtiden, unngå å laste siden på nytt for mange ganger.",
+        password_recovery_token_invalid: "Denne passordgjenopprettingskoden er ikke lenger gyldig.",
+        password_recovery_unknown_error: "En ukjent feil oppstod. Vennligst prøv igjen senere.",
+        password_required: "Passord er påkrevd.",
+        password_strength_error: "Passordet må være minst 8 tegn langt og inneholde minst én stor bokstav, én liten bokstav, ett tall og ett spesialtegn.",
+        path: "Sti",
+        personalization: "Personalisering",
+        pictures: "Bilder",
+        print: "Skriv ut",
+        privacy: "Personvern",
+        proceed_with_account_deletion: "Fortsett med sletting av konto",
+        process_status_initializing: "Initialiserer",
+        process_status_running: "Kjører",
+        process_type_app: "App",
+        process_type_init: "Init",
+        process_type_ui: "UI",
+        public: "Offentlig",
+        puter_description: "Puter er en personvernsikker personlig sky for å oppbevare alle dine filer, apper og spill på ett sikkert sted, tilgjengelig hvor som helst og når som helst.",
+        reading: "Leser %strong%",
+        writing: "Skriver %strong%",
+        recommended: "Anbefalt",
+        reset_colors: "Tilbakestill farger",
+        restart_puter_confirm: "Er du sikker på at du vil starte Puter på nytt?",
+        save: "Lagre",
+        saturation: "Metning",
+        scan_qr_2fa: "Skann QR-koden med autentiseringsappen din",
+        scan_qr_generic: "Skann denne QR-koden med telefonen din eller en annen enhet",
+        search: "Søk",
+        seconds: "sekunder",
+        security: "Sikkerhet",
+        sessions: "Økter",
+        settings: "Innstillinger",
+        share: "Del",
+        share_with: "Del med:",
+        shortcut_to: "Snarvei til",
+        something_went_wrong: "Noe gikk galt.",
+        status: "Status",
+        storage_usage: "Lagringsbruk",
+        storage_puter_used: "brukt av Puter",
+        task_manager: "Oppgavebehandling",
+        taskmgr_header_name: "Navn",
+        taskmgr_header_status: "Status",
+        taskmgr_header_type: "Type",
+        terms: "Vilkår",
+        transparency: "Gjennomsiktighet",
+        two_factor: "Tofaktorautentisering",
+        two_factor_disabled: "2FA deaktivert",
+        two_factor_enabled: "2FA aktivert",
+        type_confirm_to_delete_account: "Skriv 'bekreft' for å slette kontoen din.",
+        ui_colors: "UI-farger",
+        ui_manage_sessions: "Økthåndtering",
+        ui_revoke: "Tilbakekall",
+        unlimited: "Ubegrenset",
+        unzipping: "Pakker ut %strong%",
+        usage: "Bruk",
+        username_required: "Brukernavn er påkrevd.",
+        videos: "Videoer",
+        visibility: "Synlighet",
+        sequencing: "Sekvenserer %strong%",
+        zipping: "Komprimerer %strong%",
+        setup2fa_1_step_heading: "Åpne autentiseringsappen din",
+        setup2fa_1_instructions: `
+            Du kan bruke hvilken som helst autentiseringsapp som støtter Time-based One-Time Password (TOTP)-protokollen.
+            Det finnes mange å velge mellom, men hvis du er usikker er
+            <a target="_blank" href="https://authy.com/download">Authy</a>
+            et solid valg for Android og iOS.
+        `,
+        setup2fa_2_step_heading: "Skann QR-koden",
+        setup2fa_3_step_heading: "Skriv inn den 6-sifrede koden",
+        setup2fa_4_step_heading: "Kopier gjenopprettingskodene dine",
+        setup2fa_4_instructions: `
+            Disse gjenopprettingskodene er den eneste måten å få tilgang til kontoen din på hvis du mister telefonen eller ikke kan bruke autentiseringsappen din.
+            Sørg for å lagre dem på et trygt sted.
+        `,
+        setup2fa_5_step_heading: "Bekreft 2FA-oppsett",
+        setup2fa_5_confirmation_1: "Jeg har lagret gjenopprettingskodene mine på et sikkert sted",
+        setup2fa_5_confirmation_2: "Jeg er klar til å aktivere 2FA",
+        setup2fa_5_button: "Aktiver 2FA",
+        login2fa_otp_title: "Skriv inn 2FA-kode",
+        login2fa_otp_instructions: "Skriv inn den 6-sifrede koden fra autentiseringsappen din.",
+        login2fa_recovery_title: "Skriv inn en gjenopprettingskode",
+        login2fa_recovery_instructions: "Skriv inn en av gjenopprettingskodene dine for å få tilgang til kontoen din.",
+        login2fa_use_recovery_code: "Bruk en gjenopprettingskode",
+        login2fa_recovery_back: "Tilbake",
+        login2fa_recovery_placeholder: "XXXXXXXX",
+        'Editor': "Redaktør",
+        'Viewer': "Visning",
+        'People with access': "Personer med tilgang",
+        "Share With…": "Del med…",
+        "Owner": "Eier",
+        "You cant share with yourself": "Du kan ikke dele med deg selv.",
+        "This user already has access to this item": "Denne brukeren har allerede tilgang til dette elementet",
 
-		// ***********************************
-		// Missing translations
-		// ***********************************
-        "about": undefined, // In English: "About"
-        "account": undefined, // In English: "Account"
-        "account_password": undefined, // In English: "Verify Account Password"
-        "allow": undefined, // In English: "Allow"
-        "associated_websites": undefined, // In English: "Associated Websites"
-        "auto_arrange": undefined, // In English: "Auto Arrange"
-        "change": undefined, // In English: "Change"
-        "change_email": undefined, // In English: "Change Email"
-        "change_ui_colors": undefined, // In English: "Change UI Colors"
-        "clock_visibility": undefined, // In English: "Clock Visibility"
-        "close": undefined, // In English: "Close"
-        "close_all_windows_confirm": undefined, // In English: "Are you sure you want to close all windows?"
-        "confirm": undefined, // In English: "Confirm"
-        "confirm_2fa_setup": undefined, // In English: "I have added the code to my authenticator app"
-        "confirm_2fa_recovery": undefined, // In English: "I have saved my recovery codes in a secure location"
-        "confirm_code_generic_incorrect": undefined, // In English: "Incorrect Code."
-        "confirm_code_generic_too_many_requests": undefined, // In English: "Too many requests. Please wait a few minutes."
-        "confirm_code_generic_submit": undefined, // In English: "Submit Code"
-        "confirm_code_generic_try_again": undefined, // In English: "Try Again"
-        "confirm_code_generic_title": undefined, // In English: "Enter Confirmation Code"
-        "confirm_code_2fa_instruction": undefined, // In English: "Enter the 6-digit code from your authenticator app."
-        "confirm_code_2fa_submit_btn": undefined, // In English: "Submit"
-        "confirm_code_2fa_title": undefined, // In English: "Enter 2FA Code"
-        "confirm_delete_user": undefined, // In English: "Are you sure you want to delete your account? All your files and data will be permanently deleted. This action cannot be undone."
-        "confirm_delete_user_title": undefined, // In English: "Delete Account?"
-        "confirm_session_revoke": undefined, // In English: "Are you sure you want to revoke this session?"
-        "confirm_your_email_address": undefined, // In English: "Confirm Your Email Address"
-        "contact_us_verification_required": undefined, // In English: "You must have a verified email address to use this."
-        "copying_file": undefined, // In English: "Copying %%"
-        "credits": undefined, // In English: "Credits"
-        "clock": undefined, // In English: "Clock"
-        "clock_visible_hide": undefined, // In English: "Hide - Always hidden"
-        "clock_visible_show": undefined, // In English: "Show - Always visible"
-        "clock_visible_auto": undefined, // In English: "Auto - Default, visible only in full-screen mode."
-        "close_all": undefined, // In English: "Close All"
-        "created": undefined, // In English: "Created"
-        "default": undefined, // In English: "Default"
-        "delete_account": undefined, // In English: "Delete Account"
-        "deleting_file": undefined, // In English: "Deleting %%"
-        "desktop": undefined, // In English: "Desktop"
-        "developers": undefined, // In English: "Developers"
-        "disable_2fa": undefined, // In English: "Disable 2FA"
-        "disable_2fa_confirm": undefined, // In English: "Are you sure you want to disable 2FA?"
-        "disable_2fa_instructions": undefined, // In English: "Enter your password to disable 2FA."
-        "documents": undefined, // In English: "Documents"
-        "dont_allow": undefined, // In English: "Don't Allow"
-        "email_change_confirmation_sent": undefined, // In English: "A confirmation email has been sent to your new email address. Please check your inbox and follow the instructions to complete the process."
-        "email_invalid": undefined, // In English: "Email is invalid."
-        "email_required": undefined, // In English: "Email is required."
-        "enable_2fa": undefined, // In English: "Enable 2FA"
-        "end_hard": undefined, // In English: "End Hard"
-        "end_process_force_confirm": undefined, // In English: "Are you sure you want to force-quit this process?"
-        "end_soft": undefined, // In English: "End Soft"
-        "enlarged_qr_code": undefined, // In English: "Enlarged QR Code"
-        "enter_password_to_confirm_delete_user": undefined, // In English: "Enter your password to confirm account deletion"
-        "error_message_is_missing": undefined, // In English: "Error message is missing."
-        "error_unknown_cause": undefined, // In English: "An unknown error occurred."
-        "error_uploading_files": undefined, // In English: "Failed to upload files"
-        "favorites": undefined, // In English: "Favorites"
-        "fit": undefined, // In English: "Fit"
-        "folder": undefined, // In English: "Folder"
-        "force_quit": undefined, // In English: "Force Quit"
-        "home": undefined, // In English: "Home"
-        "hue": undefined, // In English: "Hue"
-        "incorrect_password": undefined, // In English: "Incorrect password"
-        "language": undefined, // In English: "Language"
-        "license": undefined, // In English: "License"
-        "lightness": undefined, // In English: "Lightness"
-        "link_copied": undefined, // In English: "Link copied"
-        "looks_good": undefined, // In English: "Looks good!"
-        "manage_sessions": undefined, // In English: "Manage Sessions"
-        "menubar_style": undefined, // In English: "Menubar Style"
-        "menubar_style_desktop": undefined, // In English: "Desktop"
-        "menubar_style_system": undefined, // In English: "System"
-        "menubar_style_window": undefined, // In English: "Window"
-        "modified": undefined, // In English: "Modified"
-        "new_email": undefined, // In English: "New Email"
-        "original_name": undefined, // In English: "Original Name"
-        "original_path": undefined, // In English: "Original Path"
-        "oss_code_and_content": undefined, // In English: "Open Source Software and Content"
-        "password_recovery_rate_limit": undefined, // In English: "You've reached our rate-limit; please wait a few minutes. To prevent this in the future, avoid reloading the page too many times."
-        "password_recovery_token_invalid": undefined, // In English: "This password recovery token is no longer valid."
-        "password_recovery_unknown_error": undefined, // In English: "An unknown error occurred. Please try again later."
-        "password_required": undefined, // In English: "Password is required."
-        "password_strength_error": undefined, // In English: "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character."
-        "path": undefined, // In English: "Path"
-        "personalization": undefined, // In English: "Personalization"
-        "pictures": undefined, // In English: "Pictures"
-        "print": undefined, // In English: "Print"
-        "privacy": undefined, // In English: "Privacy"
-        "proceed_with_account_deletion": undefined, // In English: "Proceed with Account Deletion"
-        "process_status_initializing": undefined, // In English: "Initializing"
-        "process_status_running": undefined, // In English: "Running"
-        "process_type_app": undefined, // In English: "App"
-        "process_type_init": undefined, // In English: "Init"
-        "process_type_ui": undefined, // In English: "UI"
-        "public": undefined, // In English: "Public"
-        "puter_description": undefined, // In English: "Puter is a privacy-first personal cloud to keep all your files, apps, and games in one secure place, accessible from anywhere at any time."
-        "reading": undefined, // In English: "Reading %strong%"
-        "writing": undefined, // In English: "Writing %strong%"
-        "recommended": undefined, // In English: "Recommended"
-        "reset_colors": undefined, // In English: "Reset Colors"
-        "restart_puter_confirm": undefined, // In English: "Are you sure you want to restart Puter?"
-        "save": undefined, // In English: "Save"
-        "saturation": undefined, // In English: "Saturation"
-        "scan_qr_2fa": undefined, // In English: "Scan the QR code with your authenticator app"
-        "scan_qr_generic": undefined, // In English: "Scan this QR code using your phone or another device"
-        "search": undefined, // In English: "Search"
-        "seconds": undefined, // In English: "seconds"
-        "security": undefined, // In English: "Security"
-        "sessions": undefined, // In English: "Sessions"
-        "settings": undefined, // In English: "Settings"
-        "share": undefined, // In English: "Share"
-        "share_with": undefined, // In English: "Share with:"
-        "shortcut_to": undefined, // In English: "Shortcut to"
-        "something_went_wrong": undefined, // In English: "Something went wrong."
-        "status": undefined, // In English: "Status"
-        "storage_usage": undefined, // In English: "Storage Usage"
-        "storage_puter_used": undefined, // In English: "used by Puter"
-        "task_manager": undefined, // In English: "Task Manager"
-        "taskmgr_header_name": undefined, // In English: "Name"
-        "taskmgr_header_status": undefined, // In English: "Status"
-        "taskmgr_header_type": undefined, // In English: "Type"
-        "terms": undefined, // In English: "Terms"
-        "transparency": undefined, // In English: "Transparency"
-        "two_factor": undefined, // In English: "Two Factor Authentication"
-        "two_factor_disabled": undefined, // In English: "2FA Disabled"
-        "two_factor_enabled": undefined, // In English: "2FA Enabled"
-        "type_confirm_to_delete_account": undefined, // In English: "Type 'confirm' to delete your account."
-        "ui_colors": undefined, // In English: "UI Colors"
-        "ui_manage_sessions": undefined, // In English: "Session Manager"
-        "ui_revoke": undefined, // In English: "Revoke"
-        "unlimited": undefined, // In English: "Unlimited"
-        "unzipping": undefined, // In English: "Unzipping %strong%"
-        "usage": undefined, // In English: "Usage"
-        "username_required": undefined, // In English: "Username is required."
-        "videos": undefined, // In English: "Videos"
-        "visibility": undefined, // In English: "Visibility"
-        "sequencing": undefined, // In English: "Sequencing %strong%"
-        "zipping": undefined, // In English: "Zipping %strong%"
-        "setup2fa_1_step_heading": undefined, // In English: "Open your authenticator app"
-        "setup2fa_1_instructions": undefined, // In English: "
-                //     You can use any authenticator app that supports the Time-based One-Time Password (TOTP) protocol.
-                //     There are many to choose from, but if you're unsure
-                //     <a target="_blank" href="https://authy.com/download">Authy</a>
-                //     is a solid choice for Android and iOS.
-                // "
-        "setup2fa_2_step_heading": undefined, // In English: "Scan the QR code"
-        "setup2fa_3_step_heading": undefined, // In English: "Enter the 6-digit code"
-        "setup2fa_4_step_heading": undefined, // In English: "Copy your recovery codes"
-        "setup2fa_4_instructions": undefined, // In English: "
-                //     These recovery codes are the only way to access your account if you lose your phone or can't use your authenticator app.
-                //     Make sure to store them in a safe place.
-                // "
-        "setup2fa_5_step_heading": undefined, // In English: "Confirm 2FA setup"
-        "setup2fa_5_confirmation_1": undefined, // In English: "I have saved my recovery codes in a secure location"
-        "setup2fa_5_confirmation_2": undefined, // In English: "I am ready to enable 2FA"
-        "setup2fa_5_button": undefined, // In English: "Enable 2FA"
-        "login2fa_otp_title": undefined, // In English: "Enter 2FA Code"
-        "login2fa_otp_instructions": undefined, // In English: "Enter the 6-digit code from your authenticator app."
-        "login2fa_recovery_title": undefined, // In English: "Enter a recovery code"
-        "login2fa_recovery_instructions": undefined, // In English: "Enter one of your recovery codes to access your account."
-        "login2fa_use_recovery_code": undefined, // In English: "Use a recovery code"
-        "login2fa_recovery_back": undefined, // In English: "Back"
-        "login2fa_recovery_placeholder": undefined, // In English: "XXXXXXXX"
-        "Editor": undefined, // In English: "Editor"
-        "Viewer": undefined, // In English: "Viewer"
-        "People with access": undefined, // In English: "People with access"
-        "Share With…": undefined, // In English: "Share With…"
-        "Owner": undefined, // In English: "Owner"
-        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
-        "This user already has access to this item": undefined, // In English: "This user already has access to this item"
-
-        "billing.change_payment_method": undefined, // In English: "Change"
-        "billing.cancel": undefined, // In English: "Cancel"
-        "billing.download_invoice": undefined, // In English: "Download"
-        "billing.payment_method": undefined, // In English: "Payment Method"
-        "billing.payment_method_updated": undefined, // In English: "Payment method updated!"
-        "billing.confirm_payment_method": undefined, // In English: "Confirm Payment Method"
-        "billing.payment_history": undefined, // In English: "Payment History"
-        "billing.refunded": undefined, // In English: "Refunded"
-        "billing.paid": undefined, // In English: "Paid"
-        "billing.ok": undefined, // In English: "OK"
-        "billing.resume_subscription": undefined, // In English: "Resume Subscription"
-        "billing.subscription_cancelled": undefined, // In English: "Your subscription has been canceled."
-        "billing.subscription_cancelled_description": undefined, // In English: "You will still have access to your subscription until the end of this billing period."
-        "billing.offering.free": undefined, // In English: "Free"
-        "billing.offering.pro": undefined, // In English: "Professional"
-        "billing.offering.business": undefined, // In English: "Business"
-        "billing.cloud_storage": undefined, // In English: "Cloud Storage"
-        "billing.ai_access": undefined, // In English: "AI Access"
-        "billing.bandwidth": undefined, // In English: "Bandwidth"
-        "billing.apps_and_games": undefined, // In English: "Apps & Games"
-        "billing.upgrade_to_pro": undefined, // In English: "Upgrade to %strong%"
-        "billing.switch_to": undefined, // In English: "Switch to %strong%"
-        "billing.payment_setup": undefined, // In English: "Payment Setup"
-        "billing.back": undefined, // In English: "Back"
-        "billing.you_are_now_subscribed_to": undefined, // In English: "You are now subscribed to %strong% tier."
-        "billing.you_are_now_subscribed_to_without_tier": undefined, // In English: "You are now subscribed"
-        "billing.subscription_cancellation_confirmation": undefined, // In English: "Are you sure you want to cancel your subscription?"
-        "billing.subscription_setup": undefined, // In English: "Subscription Setup"
-        "billing.cancel_it": undefined, // In English: "Cancel It"
-        "billing.keep_it": undefined, // In English: "Keep It"
-        "billing.subscription_resumed": undefined, // In English: "Your %strong% subscription has been resumed!"
-        "billing.upgrade_now": undefined, // In English: "Upgrade Now"
-        "billing.upgrade": undefined, // In English: "Upgrade"
-        "billing.currently_on_free_plan": undefined, // In English: "You are currently on the free plan."
-        "billing.download_receipt": undefined, // In English: "Download Receipt"
-        "billing.subscription_check_error": undefined, // In English: "A problem occurred while checking your subscription status."
-        "billing.email_confirmation_needed": undefined, // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-        "billing.sub_cancelled_but_valid_until": undefined, // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-        "billing.current_plan_until_end_of_period": undefined, // In English: "Your current plan until the end of this billing period."
-        "billing.current_plan": undefined, // In English: "Current plan"
-        "billing.cancelled_subscription_tier": undefined, // In English: "Cancelled Subscription (%%)"
-        "billing.manage": undefined, // In English: "Manage"
-        "billing.limited": undefined, // In English: "Limited"
-        "billing.expanded": undefined, // In English: "Expanded"
-        "billing.accelerated": undefined, // In English: "Accelerated"
-        "billing.enjoy_msg": undefined, // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
+        
+        "billing.change_payment_method": "Endre",
+        "billing.cancel": "Avbryt",
+        "billing.download_invoice": "Last ned",
+        "billing.payment_method": "Betalingsmåte",
+        "billing.payment_method_updated": "Betalingsmåte oppdatert!",
+        "billing.confirm_payment_method": "Bekreft betalingsmåte",
+        "billing.payment_history": "Betalingshistorikk",
+        "billing.refunded": "Refundert",
+        "billing.paid": "Betalt",
+        "billing.ok": "OK",
+        "billing.resume_subscription": "Gjenoppta abonnement",
+        "billing.subscription_cancelled": "Abonnementet ditt har blitt kansellert.",
+        "billing.subscription_cancelled_description": "Du vil fortsatt ha tilgang til abonnementet ditt ut denne fakturaperioden.",
+        "billing.offering.free": "Gratis", 
+        "billing.offering.pro": "Professional",
+        "billing.offering.business": "Business",
+        "billing.cloud_storage": "Skylagring",
+        "billing.ai_access": "AI-tilgang",
+        "billing.bandwidth": "Båndbredde",
+        "billing.apps_and_games": "Apper og spill",
+        "billing.upgrade_to_pro": "Oppgrader til %strong%",
+        "billing.switch_to": "Bytt til %strong%",
+        "billing.payment_setup": "Betalingsoppsett",
+        "billing.back": "Tilbake",
+        "billing.you_are_now_subscribed_to": "Du abonnerer nå på %strong%-nivået.",
+        "billing.you_are_now_subscribed_to_without_tier": "Du abonnerer nå",
+        "billing.subscription_cancellation_confirmation": "Er du sikker på at du vil kansellere abonnementet ditt?",            
+        "billing.subscription_setup": "Abonnementsoppsett",
+        "billing.cancel_it": "Kanseller",
+        "billing.keep_it": "Behold",
+        "billing.subscription_resumed": "Ditt %strong%-abonnement har blitt gjenopptatt!",
+        "billing.upgrade_now": "Oppgrader nå",
+        "billing.upgrade": "Oppgrader",
+        "billing.currently_on_free_plan": "Du bruker for tiden gratisversjonen.",
+        "billing.download_receipt": "Last ned kvittering",
+        "billing.subscription_check_error": "Det oppstod et problem ved sjekk av abonnementsstatusen din.",
+        "billing.email_confirmation_needed": "E-postadressen din har ikke blitt bekreftet. Vi sender deg nå en kode for å bekrefte den.",
+        "billing.sub_cancelled_but_valid_until": "Du har kansellert abonnementet ditt og det vil automatisk bytte til gratisversjonen ved slutten av fakturaperioden. Du vil ikke bli belastet igjen med mindre du fornyer abonnementet.",
+        "billing.current_plan_until_end_of_period": "Din nåværende plan ut denne fakturaperioden.",
+        "billing.current_plan": "Nåværende plan",
+        "billing.cancelled_subscription_tier": "Kansellert abonnement (%%)",
+        "billing.manage": "Administrer",
+        "billing.limited": "Begrenset",
+        "billing.expanded": "Utvidet",
+        "billing.accelerated": "Akselerert",
+        "billing.enjoy_msg": "Nyt %% skylagring pluss andre fordeler.",
     }
 };
 
