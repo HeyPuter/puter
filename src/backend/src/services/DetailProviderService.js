@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -32,6 +33,20 @@ class DetailProviderService extends BaseService {
         this.providers_.push(fn);
     }
 
+
+    /**
+    * Asynchronously retrieves details by invoking registered detail providers
+    * in list. Populates the provided output object with the results of 
+    * each provider. If no output object is provided, a new one is created 
+    * by default.
+    *
+    * @param {Object} context - The context object containing input data for 
+    *                           the providers.
+    * @param {Object} [out={}] - An optional output object to populate with 
+    *                            the details.
+    * @returns {Promise<Object>} The populated output object after all 
+    *                            providers have been processed.
+    */
     async get_details (context, out) {
         out = out || {};
 

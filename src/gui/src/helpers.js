@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -422,7 +422,7 @@ window.check_fsentry_against_allowed_file_types_string =function (fsentry, allow
 window.refresh_user_data = async (auth_token)=>{
     let whoami
     try{
-        whoami = await puter.os.user();
+        whoami = await puter.os.user({query: 'icon_size=64'});
     }catch(e){
         // Ignored
     }
@@ -563,7 +563,6 @@ window.sendWindowWillCloseMsg = function(iframe_element) {
 }
 
 window.logout = ()=>{
-    console.log('DISP LOGOUT EVENT');
     $(document).trigger('logout');
     // document.dispatchEvent(new Event("logout", { bubbles: true}));    
 }
@@ -1226,6 +1225,36 @@ window.move_clipboard_items = function (el_target_container, target_path){
     window.clipboard = [];
 }
 
+function downloadFile(url, postData = {}) {
+    // Create a hidden iframe to trigger the download
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    document.body.appendChild(iframe);
+
+    // Create a form in the iframe for the POST request
+    const form = document.createElement('form');
+    form.action = url;
+    form.method = 'POST';
+    iframe.contentDocument.body.appendChild(form);
+
+    // Add POST data to the form
+    Object.entries(postData).forEach(([key, value]) => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = value;
+        form.appendChild(input);
+    });
+
+    // Submit the form to trigger the download
+    form.submit();
+
+    // Cleanup after a short delay (to ensure download starts)
+    setTimeout(() => {
+        document.body.removeChild(iframe);
+    }, 1000);
+}
+
 /**
  * Initiates a download for multiple files provided as an array of paths.
  *
@@ -1251,7 +1280,7 @@ window.trigger_download = (paths)=>{
     let urls = [];
     for (let index = 0; index < paths.length; index++) {
         urls.push({
-            download: window.api_origin + "/down?path=" + paths[index],
+            download: window.origin + "/down?path=" + paths[index],
             filename: path.basename(paths[index]),
         });
     }
@@ -1268,6 +1297,10 @@ window.trigger_download = (paths)=>{
             const { token } = await resp.json();
             return token;
         })();
+
+        downloadFile(e.download, { anti_csrf });
+        return;
+
         fetch(e.download, {
             method: 'POST',
             headers: {
@@ -1282,6 +1315,7 @@ window.trigger_download = (paths)=>{
             .then(blob => {
                 saveAs(blob, e.filename);
             });
+            
     });
 }
 
@@ -1624,7 +1658,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
 
     // log stats to console
     let move_duration = (Date.now() - move_init_ts);
-    console.log(`moved ${el_items.length} item${el_items.length > 1 ? 's':''} in ${move_duration}ms`);
+    // console.log(`moved ${el_items.length} item${el_items.length > 1 ? 's':''} in ${move_duration}ms`);
 
     // -----------------------------------------------------------------------
     // DONE! close progress window with delay to allow user to see 100% progress

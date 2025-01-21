@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -56,7 +56,7 @@ module.exports = eggspress('/rename', {
     // modules
     const db = req.services.get('database').get(DB_WRITE, 'filesystem');
     const mime = require('mime-types');
-    const {get_app, validate_fsentry_name, uuid2fsentry, chkperm, id2path} = require('../../helpers.js');
+    const {get_app, validate_fsentry_name, id2path} = require('../../helpers.js');
     const _path = require('path');
 
     // new_name validation
@@ -168,16 +168,14 @@ module.exports = eggspress('/rename', {
         is_dir: fsentry.is_dir,
         path: new_path,
         old_path: old_path,
-        type: contentType ? contentType : null,
+        type: contentType || null,
         associated_app: associated_app,
         original_client_socket_id: req.body.original_client_socket_id,
     };
 
     // send realtime success msg to client
-    let socketio = require('../../socketio.js').getio();
-    if(socketio){
-        socketio.to(req.user.id).emit('item.renamed', return_obj)
-    }
+    const svc_socketio = req.services.get('socketio');
+    svc_socketio.send({ room: req.user.id }, 'item.renamed', return_obj);
 
     return res.send(return_obj);
 });

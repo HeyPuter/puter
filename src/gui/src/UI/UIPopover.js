@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -30,7 +30,7 @@ function UIPopover(options){
     options.content = options.content ?? '';
 
     let h = '';
-    h += `<div id="popover-${window.global_element_id}" class="popover" ${options.parent_id && 'data-parent_id="'+html_encode(options.parent_id)+'"'}>`;
+    h += `<div id="popover-${window.global_element_id}" class="popover ${options.class ?? ''}" ${options.parent_id && 'data-parent_id="'+html_encode(options.parent_id)+'"'}>`;
         h += options.content;
     h += `</div>`;
 

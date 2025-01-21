@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -19,11 +19,11 @@
 const { AdvancedBase } = require('@heyputer/putility');
 const PathResolver = require('../../routers/filesystem_api/batch/PathResolver');
 const commands = require('./commands').commands;
-const { WorkUnit } = require('../../services/runtime-analysis/ExpectationService');
 const APIError = require('../../api/APIError');
 const { Context } = require('../../util/context');
 const config = require('../../config');
-const { TeePromise } = require('../../util/promise');
+const { TeePromise } = require('@heyputer/putility').libs.promise;
+const { WorkUnit } = require('../../modules/core/lib/expect');
 
 class BatchExecutor extends AdvancedBase {
     constructor (x, { actor, log, errors }) {

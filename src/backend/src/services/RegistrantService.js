@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -21,7 +22,17 @@ const { PropType } = require("../om/definitions/PropType");
 const { Context } = require("../util/context");
 const BaseService = require("./BaseService");
 
+
+/**
+* RegistrantService class handles the registration and initialization of property types and object mappings
+* in the system registry. It extends BaseService and provides functionality to populate the registry with
+* property types and their mappings, ensuring type validation and proper inheritance relationships.
+* @extends BaseService
+*/
 class RegistrantService extends BaseService {
+    /**
+     * If population fails, marks the system as invalid through system validation.
+     */
     async _init () {
         const svc_systemValidation = this.services.get('system-validation');
         try {
@@ -33,11 +44,28 @@ class RegistrantService extends BaseService {
             );
         }
     }
+    /**
+    * Initializes the registrant service by populating the registry.
+    * Attempts to populate the registry with property types and mappings.
+    * If population fails, an error is thrown
+    * @throws {Error} Propagates any errors from registry population for system validation
+    * @returns {Promise<void>}
+    */
     async _populate_registry () {
         const svc_registry = this.services.get('registry');
 
         // This context will be provided to the `create` methods
         // that transform the raw data into objects.
+        /**
+        * Populates the registry with property types and object mappings.
+        * Loads property type definitions and mappings from configuration files,
+        * validates them for duplicates and dependencies, and registers them
+        * in the registry service.
+        * 
+        * @throws {Error} If duplicate property types are found or if a property type
+        *                 references an undefined super type
+        * @private
+        */
         const ctx = Context.get().sub({
             registry: svc_registry,
         });

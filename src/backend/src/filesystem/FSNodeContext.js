@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -18,11 +18,13 @@
  */
 const { get_user, get_dir_size, id2path, id2uuid, is_empty, is_shared_with_anyone, suggest_app_for_fsentry, get_app } = require("../helpers");
 
+const putility = require('@heyputer/putility');
+const { MultiDetachable } = putility.libs.listener;
+const { TDetachable } = putility.traits;
 const config = require("../config");
 const _path = require('path');
 const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSelector, NodePathSelector } = require("./node/selectors");
 const { Context } = require("../util/context");
-const { MultiDetachable } = require("../util/listenerutil");
 const { NodeRawEntrySelector } = require("./node/selectors");
 const { DB_READ } = require("../services/database/consts");
 const { UserActorType } = require("../services/auth/Actor");
@@ -69,11 +71,17 @@ module.exports = class FSNodeContext {
      * @param {*} opt_identifier.id please pass mysql_id instead
      * @param {*} opt_identifier.mysql_id a MySQL ID of the filesystem entry
      */
-    constructor ({ services, selector, fs }) {
+    constructor ({
+        services,
+        selector,
+        provider,
+        fs
+    }) {
         this.log = services.get('log-service').create('fsnode-context');
         this.selector_ = null;
         this.selectors_ = [];
         this.selector = selector;
+        this.provider = provider;
         this.entry = {};
         this.found = undefined;
         this.found_thumbnail = undefined;
@@ -87,7 +95,7 @@ module.exports = class FSNodeContext {
         this.fs = fs;
 
         // Decorate all fetch methods with otel span
-        // TODO: language tool for traits; this is a trait
+        // TODO: Apply method decorators using a putility class feature
         const fetch_methods = [
             'fetchEntry',
             'fetchPath',
@@ -262,112 +270,46 @@ module.exports = class FSNodeContext {
             return;
         }
 
+        const controls = {
+            log: this.log,
+            provide_selector: selector => {
+                this.selector = selector;
+            },
+        };
+
         this.log.info('fetching entry: ' + this.selector.describe());
-        // All services at the top (DEVLOG-401)
-        const {
-            traceService,
-            fsEntryService,
-            fsEntryFetcher,
-            resourceService,
-        } = Context.get('services').values;
 
-        // await this.fs.resourceService
-        //     .waitForResource(this.selector);
-        if ( fetch_entry_options.tracer == null ) {
-            fetch_entry_options.tracer = traceService.tracer;
-        }
-
-        if ( fetch_entry_options.op ) {
-            fetch_entry_options.trace_options = {
-                parent: fetch_entry_options.op.span,
-            };
-        }
-
-        let entry;
-
-        await new Promise (rslv => {
-            const detachables = new MultiDetachable();
-
-            let resolved = false;
-
-            const callback = (resolver) => {
-                // NOTE: commented out for now because it's too verbose
-                resolved = true;
-                detachables.detach();
-                rslv();
-            }
-
-            // either the resource is free
-            {
-                // no detachale because waitForResource returns a
-                // Promise that will be resolved when the resource
-                // is free no matter what, and then it will be
-                // garbage collected.
-                resourceService.waitForResource(
-                    this.selector
-                ).then(callback.bind(null, 'resourceService'));
-            }
-
-            // or pending information about the resource
-            // becomes available
-            {
-                // detachable is needed here because waitForEntry keeps
-                // a map of listeners in memory, and this event may
-                // never occur. If this never occurs, waitForResource
-                // is guaranteed to resolve eventually, and then this
-                // detachable will be detached by `callback` so the
-                // listener can be garbage collected.
-                const det = fsEntryService.waitForEntry(
-                    this, callback.bind(null, 'fsEntryService'));
-                if ( det ) detachables.add(det);
-            }
+        const entry = await this.provider.stat({
+            selector: this.selector,
+            options: fetch_entry_options,
+            node: this,
+            controls,
         });
 
-        if ( resourceService.getResourceInfo(this.uid) ) {
-            entry = await fsEntryService.get(this.uid, fetch_entry_options);
-            this.log.debug('got an entry from the future');
-        } else {
-            entry = await fsEntryFetcher.find(
-                this.selector, fetch_entry_options);
-        }
-
-        if ( ! entry ) {
-            this.log.info(`entry not found: ${this.selector.describe(true)}`);
-        }
-
-        if ( entry === null || typeof entry !== 'object' ) {
-            // TODO: this property shouldn't be set to false -
-            //   this is set to false to avoid regressions with
-            //   existing code.
-            this.entry = false;
-
+        if ( entry === null ) {
             this.found = false;
-            return;
+            this.entry = false;
+        } else {
+            this.found = true;
+
+            if ( ! this.uid && entry.uuid ) {
+                this.uid = entry.uuid;
+            }
+
+            if ( ! this.mysql_id && entry.id ) {
+                this.mysql_id = entry.id;
+            }
+
+            if ( ! this.path && entry.path ) {
+                this.path = entry.path;
+            }
+
+            if ( ! this.name && entry.name ) {
+                this.name = entry.name;
+            }
+
+            Object.assign(this.entry, entry);
         }
-
-        this.found = true;
-
-        if ( entry.id ) {
-            this.selector = new NodeInternalIDSelector('mysql', entry.id, {
-                source: 'FSNodeContext optimization'
-            });
-        }
-
-        if ( ! this.uid && entry.uuid ) {
-            this.uid = entry.uuid;
-        }
-
-        if ( ! this.mysql_id && entry.id ) {
-            this.mysql_id = entry.id;
-        }
-
-        if ( ! this.path && entry.path ) {
-            this.path = entry.path;
-        }
-
-        if ( ! this.name && entry.name ) this.name = entry.name;
-
-        Object.assign(this.entry, entry);
     }
 
     /**
@@ -499,8 +441,7 @@ module.exports = class FSNodeContext {
             [this.entry.id]
         );
         const versions_tidy = [];
-        for (let index = 0; index < versions.length; index++) {
-            const version = versions[index];
+        for ( const version of versions ) {
             let username = version.user_id ? (await get_user({id: version.user_id})).username : null;
             versions_tidy.push({
                 id: version.version_id,
@@ -518,13 +459,15 @@ module.exports = class FSNodeContext {
     /**
      * Fetches the size of a file or directory if it was not
      * already fetched.
-     * @param {object} user the user is needed to fetch the size
      */
-    async fetchSize (user) {
+    async fetchSize () {
         const { fsEntryService } = Context.get('services').values;
 
         // we already have the size for files
-        if ( ! this.entry.is_dir ) return;
+        if ( ! this.entry.is_dir ) {
+            await this.fetchEntry();
+            return this.entry.size;
+        }
 
         this.entry.size = await fsEntryService.get_recursive_size(
             this.entry.uuid,
@@ -549,14 +492,6 @@ module.exports = class FSNodeContext {
         if ( ! this.uid ) return;
 
         this.entry.is_empty = await is_empty(this.uid);
-    }
-
-    // TODO: this is currently not called anywhere; for now it
-    //   will never be fetched since sharing is not a priority.
-    async fetchIsShared () {
-        if ( ! this.mysql_id ) return;
-
-        this.entry.is_shared = await is_shared_with_anyone(this.mysql_id);
     }
 
     async fetchAll(fsEntryFetcher, user, force) {
@@ -610,7 +545,6 @@ module.exports = class FSNodeContext {
                 );
             }
             if ( ! this.path ) {
-                // console.log('PATH WAS NOT ON ENTRY', this);
                 await this.fetchPath();
             }
             if ( ! this.path ) {

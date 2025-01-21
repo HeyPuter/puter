@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require("@heyputer/putility");
-const api_error_handler = require("../../api/api_error_handler");
+const api_error_handler = require("../../modules/web/lib/api_error_handler");
 const config = require("../../config");
 const { get_user, get_app, id2path } = require("../../helpers");
 const { Context } = require("../../util/context");
@@ -145,6 +145,14 @@ class PuterSiteMiddleware extends AdvancedBase {
             }
             if ( await node.get('type') !== TYPE_DIRECTORY ) {
                 res.status(502).send('subdomain is pointing to non-directory');
+            }
+
+            // Verify subdomain owner permission
+            const subdomain_actor = Actor.adapt(subdomain_owner);
+            const svc_acl = services.get('acl');
+            if ( ! await svc_acl.check(subdomain_actor, node, 'read') ) {
+                res.status(502).send('subdomain owner does not have access to directory');
+                return;
             }
 
             subdomain_root_path = await node.get('path');

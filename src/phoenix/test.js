@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -16,11 +16,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import {
+import { strataparse } from '@heyputer/parsers'
+const {
     StringPStratumImpl,
     StrataParser,
     ParserFactory,
-} from 'strataparse';
+} = strataparse;
 import { buildParserFirstHalf } from './src/ansi-shell/parsing/buildParserFirstHalf.js';
 import { buildParserSecondHalf } from './src/ansi-shell/parsing/buildParserSecondHalf.js';
 

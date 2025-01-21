@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -22,19 +23,19 @@ const { MultiValue } = require("../../util/multivalue");
 const { stream_to_buffer } = require("../../util/streamutil");
 const { PassThrough } = require("stream");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
+const APIError = require("../../api/APIError");
 
 /**
- * FileFacade
- *
- * This class is used to provide a unified interface for
- * passing files through the Puter Driver API, and avoiding
- * unnecessary work such as downloading the file from S3
- * (when a Puter file is specified) in case the underlying
- * implementation can accept S3 bucket information instead
- * of the file's contents.
- *
- *
- */
+* @class FileFacade
+* This class is used to provide a unified interface for
+* passing files through the Puter Driver API, and avoiding
+* unnecessary work such as downloading the file from S3
+* (when a Puter file is specified) in case the underlying
+* implementation can accept S3 bucket information instead
+* of the file's contents.
+* @extends AdvancedBase
+* @description This class provides a unified interface for passing files through the Puter Driver API. It aims to avoid unnecessary operations such as downloading files from S3 when a Puter file is specified, especially if the underlying implementation can accept S3 bucket information instead of the file's contents.
+*/
 class FileFacade extends AdvancedBase {
     static OUT_TYPES = {
         S3_INFO: { key: 's3-info' },
@@ -89,9 +90,19 @@ class FileFacade extends AdvancedBase {
         });
 
         this.values.add_factory('stream', 'web_url', async web_url => {
-            const response = await FileFacade.MODULES.axios.get(web_url, {
-                responseType: 'stream',
-            });
+            const response = await(async () => {
+                try {
+                    return await FileFacade.MODULES.axios.get(web_url, {
+                        responseType: 'stream',
+                    });
+                } catch (e) {
+                    throw APIError.create('field_invalid', null, {
+                        key: 'url',
+                        expected: 'web URL',
+                        got: 'error during request: ' + e.message,
+                    });
+                }
+            })();
 
             return response.data;
         });

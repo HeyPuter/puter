@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -16,7 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { Context } from 'contextlink';
+import { libs } from '@heyputer/putility';
+const { Context } = libs.context;
 import { launchPuterShell } from './puter-shell/main.js';
 import { CreateFilesystemProvider } from './platform/puter/filesystem.js';
 import { CreateDriversProvider } from './platform/puter/drivers.js';

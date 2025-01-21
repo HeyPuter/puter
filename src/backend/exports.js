@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -21,13 +21,19 @@ const { Kernel } = require("./src/Kernel.js");
 const DatabaseModule = require("./src/DatabaseModule.js");
 const LocalDiskStorageModule = require("./src/LocalDiskStorageModule.js");
 const SelfHostedModule = require("./src/modules/selfhosted/SelfHostedModule.js");
-const PuterDriversModule = require("./src/PuterDriversModule.js");
 const { testlaunch } = require("./src/index.js");
 const BaseService = require("./src/services/BaseService.js");
 const { Context } = require("./src/util/context.js");
 const { TestDriversModule } = require("./src/modules/test-drivers/TestDriversModule.js");
 const { PuterAIModule } = require("./src/modules/puterai/PuterAIModule.js");
 const { BroadcastModule } = require("./src/modules/broadcast/BroadcastModule.js");
+const { WebModule } = require("./src/modules/web/WebModule.js");
+const { Core2Module } = require("./src/modules/core/Core2Module.js");
+const { TemplateModule } = require("./src/modules/template/TemplateModule.js");
+const { PuterFSModule } = require("./src/modules/puterfs/PuterFSModule.js");
+const { PerfMonModule } = require("./src/modules/perfmon/PerfMonModule.js");
+const { AppsModule } = require("./src/modules/apps/AppsModule.js");
+const { DevelopmentModule } = require("./src/modules/development/DevelopmentModule.js");
 
 
 module.exports = {
@@ -42,14 +48,27 @@ module.exports = {
     Context,
 
     Kernel,
+    
+    EssentialModules: [
+        Core2Module,
+        PuterFSModule,
+        CoreModule,
+        WebModule,
+        TemplateModule,
+        AppsModule,
+    ],
 
     // Pre-built modules
     CoreModule,
+    WebModule,
     DatabaseModule,
-    PuterDriversModule,
     LocalDiskStorageModule,
     SelfHostedModule,
     TestDriversModule,
     PuterAIModule,
     BroadcastModule,
+    
+    // Development modules
+    PerfMonModule,
+    DevelopmentModule,
 };

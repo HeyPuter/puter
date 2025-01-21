@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -40,7 +40,6 @@ class HLMkShortcut extends HLFilesystemOperation {
     async _run () {
         console.log('HLMKSHORTCUT IS HAPPENING')
         const { context, values } = this;
-        const { _path, socketio } = this.modules;
         const fs = context.get('services').get('filesystem');
 
         const { target, parent, user } = values;

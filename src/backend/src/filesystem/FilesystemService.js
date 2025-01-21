@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -17,13 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 // TODO: database access can be a service
-const { ResourceService, RESOURCE_STATUS_PENDING_CREATE } = require('./storage/ResourceService');
-const DatabaseFSEntryFetcher = require("./storage/DatabaseFSEntryFetcher");
-const { DatabaseFSEntryService } = require('./storage/DatabaseFSEntryService');
-const { SizeService } = require('./storage/SizeService');
+const { RESOURCE_STATUS_PENDING_CREATE } = require('../modules/puterfs/ResourceService.js');
 const { TraceService } = require('../services/TraceService.js');
-const FSAccessContext = require('./FSAccessContext.js');
-const SystemFSEntryService = require('./storage/SystemFSEntryService.js');
 const PerformanceMonitor = require('../monitor/PerformanceMonitor.js');
 const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector } = require('./node/selectors.js');
 const FSNodeContext = require('./FSNodeContext.js');
@@ -39,34 +34,21 @@ const { DB_WRITE } = require("../services/database/consts");
 const { UserActorType } = require('../services/auth/Actor');
 const { get_user } = require('../helpers');
 const BaseService = require('../services/BaseService');
+const { PuterFSProvider } = require('../modules/puterfs/lib/PuterFSProvider.js');
 
 class FilesystemService extends BaseService {
     static MODULES = {
         _path: require('path'),
         uuidv4: require('uuid').v4,
-        socketio: require('../socketio.js'),
         config: require('../config.js'),
     }
 
     old_constructor (args) {
-        // super(args);
         const { services } = args;
 
-        // this.services = services;
-
-        services.registerService('resourceService', ResourceService);
-        services.registerService('sizeService', SizeService);
         services.registerService('traceService', TraceService);
 
-        // TODO: [fs:remove-separate-updater-and-fetcher]
-        services.set('fsEntryFetcher', new DatabaseFSEntryFetcher({
-            services: services,
-        }));
-        services.registerService('fsEntryService', DatabaseFSEntryService);
-
         // The new fs entry service
-        services.registerService('systemFSEntryService', SystemFSEntryService);
-
         this.log = services.get('log-service').create('filesystem-service');
 
         // used by update_child_paths
@@ -81,27 +63,6 @@ class FilesystemService extends BaseService {
                     .obtain('fs.fsentry:path')
                     .exec(entry.uuid);
             });
-
-
-        // Decorate methods with otel span
-        // TODO: language tool for traits; this is a trait
-        const span_methods = [
-            'write', 'mkdir', 'rm', 'mv', 'cp', 'read', 'stat',
-            'mkdir_2',
-            'update_child_paths',
-        ];
-        for ( const method of span_methods ) {
-            const original_method = this[method];
-            this[method] = async (...args) => {
-                const tracer = services.get('traceService').tracer;
-                let result;
-                await tracer.startActiveSpan(`fs-svc:${method}`, async span => {
-                    result = await original_method.call(this, ...args);
-                    span.end();
-                });
-                return result;
-            }
-        }
     }
 
     async _init () {
@@ -197,48 +158,6 @@ class FilesystemService extends BaseService {
         }));
     }
 
-    /**
-     * @deprecated - temporary migration method
-     */
-    get_systemfs () {
-        if ( ! this.systemfs_ ) {
-            this.systemfs_ = new FSAccessContext();
-            this.systemfs_.fsEntryFetcher = this.services.get('fsEntryFetcher');
-            this.systemfs_.fsEntryService = this.services.get('fsEntryService');
-            this.systemfs_.resourceService = this.services.get('resourceService');
-            this.systemfs_.sizeService = this.services.get('sizeService');
-            this.systemfs_.traceService = this.services.get('traceService');
-            this.systemfs_.services = this.services;
-        }
-        return this.systemfs_;
-    }
-
-    // NOTE: these are the parameters being passed
-    // (assuming this comment is up-to-date)
-    // {
-    // node, actor, immutable,
-    // file, tmp, fsentry_tmp,
-    // message,
-    // }
-    async owrite (parameters) {
-        const ll_owrite = new LLOWrite();
-        return await ll_owrite.run(parameters);
-    }
-
-    // REMINDER: There was an idea that FilesystemService implements
-    // an interface, and if that ever happens these arguments are
-    // important:
-    // parent, name, user, immutable, file, message
-    async cwrite (parameters) {
-        const ll_cwrite = new LLCWrite();
-        return await ll_cwrite.run(parameters);
-    }
-
-    async mkdir_2 ({parent, name, actor, immutable}) {
-        const ll_mkdir = new LLMkdir();
-        return await ll_mkdir.run({ parent, name, actor, immutable });
-    }
-
     async mkshortcut ({ parent, name, user, target }) {
 
         // Access Control
@@ -261,8 +180,8 @@ class FilesystemService extends BaseService {
         await target.fetchEntry({ thumbnail: true });
 
         const { _path, uuidv4 } = this.modules;
+        const svc_fsEntry = this.services.get('fsEntryService');
         const resourceService = this.services.get('resourceService');
-        const systemFSEntryService = this.services.get('systemFSEntryService');
 
         const ts = Math.round(Date.now() / 1000);
         const uid = uuidv4();
@@ -292,7 +211,7 @@ class FilesystemService extends BaseService {
 
         this.log.debug('creating fsentry', { fsentry: raw_fsentry })
 
-        const entryOp = await systemFSEntryService.insert(raw_fsentry);
+        const entryOp = await svc_fsEntry.insert(raw_fsentry);
 
         console.log('entry op', entryOp);
 
@@ -329,7 +248,7 @@ class FilesystemService extends BaseService {
 
         const { _path, uuidv4 } = this.modules;
         const resourceService = this.services.get('resourceService');
-        const systemFSEntryService = this.services.get('systemFSEntryService');
+        const svc_fsEntry = this.services.get('fsEntryService');
 
         const ts = Math.round(Date.now() / 1000);
         const uid = uuidv4();
@@ -356,7 +275,7 @@ class FilesystemService extends BaseService {
 
         this.log.debug('creating symlink', { fsentry: raw_fsentry })
 
-        const entryOp = await systemFSEntryService.insert(raw_fsentry);
+        const entryOp = await svc_fsEntry.insert(raw_fsentry);
 
         (async () => {
             await entryOp.awaitDone();
@@ -375,13 +294,9 @@ class FilesystemService extends BaseService {
         return node;
     }
 
-    async copy_2 (...a) {
-        const ll_copy = new LLCopy();
-        return await ll_copy.run(...a);
-    }
-
     async update_child_paths (old_path, new_path, user_id) {
-        const monitor = PerformanceMonitor.createContext('update_child_paths');
+        const svc_performanceMonitor = this.services.get('performance-monitor');
+        const monitor = svc_performanceMonitor.createContext('update_child_paths');
 
         if ( ! old_path.endsWith('/') ) old_path += '/';
         if ( ! new_path.endsWith('/') ) new_path += '/';
@@ -430,7 +345,11 @@ class FilesystemService extends BaseService {
             }
         }
 
+        const svc_mountpoint = this.services.get('mountpoint');
+        const provider = await svc_mountpoint.get_provider(selector);
+
         let fsNode = new FSNodeContext({
+            provider,
             services: this.services,
             selector,
             fs: this

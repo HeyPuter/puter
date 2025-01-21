@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -32,7 +32,7 @@ module.exports = class FSNodeParam {
 
     async consolidate ({ req, getParam }) {
         const log = globalThis.services.get('log-service').create('fsnode-param');
-        const fs = req.fs ?? Context.get('services').get('filesystem');
+        const fs = Context.get('services').get('filesystem');
 
         let uidOrPath = getParam(this.srckey);
         if ( uidOrPath === undefined ) {

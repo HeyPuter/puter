@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -18,6 +19,16 @@
  */
 const BaseService = require('../BaseService');
 
+
+/**
+* Service class for generating thumbnails using Node API (NAPI)
+* Extends BaseService to handle thumbnail generation for various image formats
+* Supports multiple image types (JPEG, PNG, WebP, GIF, AVIF, TIFF, SVG)
+* Implements size limits and format validation for thumbnail generation
+* Uses Sharp library for image processing and transformation
+* @class NAPIThumbnailService
+* @extends BaseService
+*/
 class NAPIThumbnailService extends BaseService {
     static LIMIT = 400 * 1024 * 1024;
     static SUPPORTED_MIMETYPES = [
@@ -37,6 +48,12 @@ class NAPIThumbnailService extends BaseService {
     is_supported_mimetype (mimetype) {
         return this.constructor.SUPPORTED_MIMETYPES.includes(mimetype);
     }
+
+    /**
+    * Checks if a file size is within the supported limit for thumbnail generation
+    * @param {number} size - The file size in bytes to check
+    * @returns {boolean} True if size is less than or equal to the limit, false otherwise
+    */
     is_supported_size (size) {
         return size <= this.constructor.LIMIT;
     }

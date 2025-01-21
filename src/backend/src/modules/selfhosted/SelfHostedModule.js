@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -34,6 +34,9 @@ class SelfHostedModule extends AdvancedBase {
 
         const DevWatcherService = require('./DevWatcherService');
         const path_ = require('path');
+        
+        const { DBKVService } = require("../../services/DBKVService");
+        services.registerService('puter-kvstore', DBKVService);
 
         // TODO: sucks
         const RELATIVE_PATH = '../../../../../';
@@ -47,6 +50,10 @@ class SelfHostedModule extends AdvancedBase {
                     directory: 'src/puter-js',
                     command: 'npm',
                     args: ['run', 'start-webpack'],
+                    env: {
+                        PUTER_ORIGIN: ({ global_config: config }) => config.origin,
+                        PUTER_API_ORIGIN: ({ global_config: config }) => config.api_base_url,
+                    },
                 },
                 {
                     name: 'gui:webpack-watch',

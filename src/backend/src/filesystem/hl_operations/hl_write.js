@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -23,7 +23,7 @@ const StringParam = require("../../api/filesystem/StringParam");
 const UserParam = require("../../api/filesystem/UserParam");
 const config = require("../../config");
 const { chkperm, validate_fsentry_name } = require("../../helpers");
-const { TeePromise } = require("../../util/promise");
+const { TeePromise } = require("@heyputer/putility").libs.promise;
 const { pausing_tee, logging_stream, offset_write_stream, stream_to_the_void } = require("../../util/streamutil");
 const { TYPE_DIRECTORY } = require("../FSNodeContext");
 const { LLRead } = require("../ll_operations/ll_read");
@@ -32,6 +32,7 @@ const { is_valid_node_name } = require("../validation");
 const { HLFilesystemOperation } = require("./definitions");
 const { MkTree } = require("./hl_mkdir");
 const { Actor } = require("../../services/auth/Actor");
+const { LLCWrite, LLOWrite } = require("../ll_operations/ll_write");
 
 class WriteCommonFeature {
     install_in_instance (instance) {
@@ -65,8 +66,7 @@ class WriteCommonFeature {
             if ( ! user ) user = this.values.actor.type.user;
 
             const usage = await sizeService.get_usage(user.id);
-            let capacity = config.is_storage_limited ? user.free_storage == undefined
-                ? config.storage_capacity : user.free_storage : config.available_device_storage;
+            const capacity = await sizeService.get_storage_capacity(user.id);
             if( capacity - usage - file.size < 0 ) {
                 throw APIError.create('storage_limit_reached');
             }
@@ -116,7 +116,6 @@ class HLWrite extends HLFilesystemOperation {
 
     static MODULES = {
         _path: require('path'),
-        socketio: require('../../socketio.js'),
         mime: require('mime-types'),
     }
 
@@ -303,7 +302,7 @@ class HLWrite extends HLFilesystemOperation {
         this.checkpoint('before thumbnail');
 
         let thumbnail_promise = new TeePromise();
-        if ( await destination.isAppDataDirectory() ) {
+        if ( await parent.isAppDataDirectory() || values.no_thumbnail ) {
             thumbnail_promise.resolve(undefined);
         } else (async () => {
             const reason = await (async () => {
@@ -383,7 +382,8 @@ class HLWrite extends HLFilesystemOperation {
         }
 
         if ( is_overwrite ) {
-            this.written = await fs.owrite({
+            const ll_owrite = new LLOWrite();
+            this.written = await ll_owrite.run({
                 node: destination,
                 actor: values.actor,
                 file: values.file,
@@ -398,7 +398,8 @@ class HLWrite extends HLFilesystemOperation {
                 message: values.message,
             });
         } else {
-            this.written = await fs.cwrite({
+            const ll_cwrite = new LLCWrite();
+            this.written = await ll_cwrite.run({
                 parent,
                 name: target_name,
                 actor: values.actor,

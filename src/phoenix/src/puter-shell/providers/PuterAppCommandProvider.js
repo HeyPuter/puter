@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -18,7 +18,6 @@
  */
 import { Exit } from '../coreutils/coreutil_lib/exit.js';
 import { signals } from '../../ansi-shell/signals.js';
-import { TeePromise } from '../../promise.js';
 
 const BUILT_IN_APPS = [
     'explorer',

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -34,7 +34,6 @@ import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import PuterDialog from './UI/PuterDialog.js';
-import determine_active_container_parent from './helpers/determine_active_container_parent.js';
 import { ThemeService } from './services/ThemeService.js';
 import { BroadcastService } from './services/BroadcastService.js';
 import { ProcessService } from './services/ProcessService.js';
@@ -154,8 +153,10 @@ if(jQuery){
 }
 
 window.initgui = async function(options){
-    let url = new URL(window.location);
-    url = url.href;
+    const url = new URL(window.location).href;
+    window.url = url;
+    const url_paths = window.location.pathname.split('/').filter(element => element);
+    window.url_paths = url_paths
 
     let picked_a_user_for_sdk_login = false;
 
@@ -192,7 +193,7 @@ window.initgui = async function(options){
 
     // Appends a viewport meta tag to the head of the document, ensuring optimal display on mobile devices.
     // This tag sets the width of the viewport to the device width, and locks the zoom level to 1 (prevents user scaling).
-    $('head').append(`<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1">`);
+    $('head').append(`<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">`);
 
     // GET query params provided
     window.url_query_params = new URLSearchParams(window.location.search);
@@ -200,16 +201,14 @@ window.initgui = async function(options){
     // will hold the result of the whoami API call
     let whoami;
 
-    window.url_paths = window.location.pathname.split('/').filter(element => element);
-
     //--------------------------------------------------------------------------------------
     // Extract 'action' from URL
     //--------------------------------------------------------------------------------------
     let action;
-    if(url_paths[0]?.toLocaleLowerCase() === 'action' && url_paths[1]){
-        action = url_paths[1].toLowerCase();
+    if (window.url_paths[0]?.toLocaleLowerCase() === 'action' && window.url_paths[1]) {
+        action = window.url_paths[1].toLowerCase();
     }
-
+    
     //--------------------------------------------------------------------------------------
     // Determine if we are in full-page mode
     // i.e. https://puter.com/app/<app_name>/?puter.fullpage=true
@@ -393,8 +392,10 @@ window.initgui = async function(options){
     else if(window.url_query_params.has('auth_token')){
         let query_param_auth_token = window.url_query_params.get('auth_token');
 
+        puter.setAuthToken(query_param_auth_token);
+
         try{
-            whoami = await puter.os.user();
+            whoami = await puter.os.user({query: 'icon_size=64'});
         }catch(e){
             if(e.status === 401){
                 window.logout();
@@ -455,7 +456,7 @@ window.initgui = async function(options){
         // try to get user data using /whoami, only if that data is missing
         if(!whoami){
             try{
-                whoami = await puter.os.user();
+                whoami = await puter.os.user({query: 'icon_size=64'});
             }catch(e){
                 if(e.status === 401){
                     bad_session_logout();
@@ -788,6 +789,7 @@ window.initgui = async function(options){
             console.error('Error:', error);
         })
     }
+
     // -------------------------------------------------------------------------------------
     // Desktop Background
     // If we're in fullpage/emebedded/Auth Popup mode, we don't want to load the custom background
@@ -856,10 +858,9 @@ window.initgui = async function(options){
                 document.dispatchEvent(new Event("login", { bubbles: true}));
             },
             error: function (err){
-                $('#signup-error-msg').html(html_encode(err.responseText));
-                $('#signup-error-msg').fadeIn();
-                // re-enable 'Create Account' button
-                $('.signup-btn').prop('disabled', false);
+                UIAlert({
+                    message: html_encode(err.responseText),
+                });
             }
         });
     }
@@ -1245,33 +1246,6 @@ window.initgui = async function(options){
     // if an element has the .long-hover class, cancel the long-hover event if the mouse leaves
     $(document).on('mouseleave', '.long-hover', function(){
         clearTimeout(this.long_hover_timeout);
-    })
-
-    // if an element has the .long-hover class, cancel the long-hover event if the mouse leaves
-    $(document).on('paste', function(event){
-        event = event.originalEvent ?? event;
-
-        let clipboardData = event.clipboardData || window.clipboardData;
-        let items = clipboardData.items || clipboardData.files;
-
-        // return if paste is on input or textarea
-        if($(event.target).is('input') || $(event.target).is('textarea'))
-            return;
-
-        if(!(items instanceof DataTransferItemList))
-            return;
-
-        // upload files
-        if(items?.length>0){
-            let parent_container = determine_active_container_parent();
-            if(parent_container){
-                window.upload_items(items, $(parent_container).attr('data-path'));
-            }
-        }
-
-        event.stopPropagation();
-        event.preventDefault();
-        return false;
     })
 
     document.addEventListener("visibilitychange", (event) => {

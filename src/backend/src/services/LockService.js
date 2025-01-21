@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -20,15 +21,30 @@ const { RWLock } = require("../util/lockutil");
 const BaseService = require("./BaseService");
 
 /**
- * LockService implements robust critical sections when the behavior
- * might return early or throw an error.
- * 
- * This serivces uses RWLock but always locks in write mode.
- */
+* Represents the LockService class responsible for managing locks
+* using reader-writer locks (RWLock). This service ensures that 
+* critical sections are properly handled by enforcing write locks 
+* exclusively, enabling safe concurrent access to shared resources 
+* while preventing race conditions and ensuring data integrity.
+*/
 class LockService extends BaseService {
+    /**
+    * Initializes the LockService by setting up the locks object 
+    * and registering the 'lock' commands. This method is called 
+    * during the service initialization phase.
+    */
     async _construct () {
         this.locks = {};
     }
+    /**
+     * Initializes the locks object to store lock instances.
+     *
+     * This method is called during the construction of the LockService
+     * instance to ensure that the locks property is ready for use.
+     *
+     * @returns {Promise<void>} A promise that resolves when the 
+     * initialization is complete.
+     */
     async _init () {
         const svc_commands = this.services.get('commands');
         svc_commands.registerCommands('lock', [
@@ -66,6 +82,17 @@ class LockService extends BaseService {
         ]);
     }
 
+
+    /**
+    * Acquires a lock for the specified name, allowing for a callback to be executed while the lock is held.
+    * If the name is an array, all locks will be acquired in sequence. The method supports optional
+    * configurations, including a timeout feature. It returns the result of the callback execution.
+    * 
+    * @param {string|string[]} name - The name(s) of the lock(s) to acquire.
+    * @param {Object} [opt_options] - Optional configuration options.
+    * @param {function} callback - The function to call while the lock is held.
+    * @returns {Promise} The result of the callback.
+    */
     async lock (name, opt_options, callback) {
         if ( typeof opt_options === 'function' ) {
             callback = opt_options;

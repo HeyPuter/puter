@@ -1,15 +1,49 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ * 
+ * This file is part of Puter.
+ * 
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// METADATA // {"ai-commented":{"service":"claude"}}
 const { PassThrough } = require("stream");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { nou } = require("../../util/langutil");
 
 const axios = require('axios');
-const { TeePromise } = require("../../util/promise");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 
+
+/**
+* MistralAIService class extends BaseService to provide integration with the Mistral AI API.
+* Implements chat completion functionality with support for various Mistral models including
+* mistral-large, pixtral, codestral, and ministral variants. Handles both streaming and
+* non-streaming responses, token usage tracking, and model management. Provides cost information
+* for different models and implements the puter-chat-completion interface.
+*/
 class MistralAIService extends BaseService {
     static MODULES = {
         '@mistralai/mistralai': require('@mistralai/mistralai'),
     }
+    /**
+    * Initializes the service's cost structure for different Mistral AI models.
+    * Sets up pricing information for various models including token costs for input/output.
+    * Each model entry specifies currency (usd-cents) and costs per million tokens.
+    * @private
+    */
     _construct () {
         this.costs_ = {
             'mistral-large-latest': {
@@ -80,6 +114,12 @@ class MistralAIService extends BaseService {
             },
         };
     }
+    /**
+    * Initializes the service's cost structure for different Mistral AI models.
+    * Sets up pricing information for various models including token costs for input/output.
+    * Each model entry specifies currency (USD cents) and costs per million tokens.
+    * @private
+    */
     async _init () {
         const require = this.require;
         const { Mistral } = require('@mistralai/mistralai');
@@ -97,6 +137,13 @@ class MistralAIService extends BaseService {
         // TODO: make this event-driven so it doesn't hold up boot
         await this.populate_models_();
     }
+    /**
+    * Populates the internal models array with available Mistral AI models and their configurations.
+    * Makes an API call to fetch model data, then processes and filters models based on cost information.
+    * Each model entry includes id, name, aliases, context window size, capabilities, and pricing.
+    * @private
+    * @returns {Promise<void>}
+    */
     async populate_models_ () {
         const resp = await axios({
             method: 'get',
@@ -131,17 +178,43 @@ class MistralAIService extends BaseService {
         }
         // return resp.data;
     }
+    /**
+    * Populates the internal models array with available Mistral AI models and their metadata
+    * Fetches model data from the API, filters based on cost configuration, and stores
+    * model objects containing ID, name, aliases, context length, capabilities, and pricing
+    * @private
+    * @async
+    * @returns {void}
+    */
     get_default_model () {
         return 'mistral-large-latest';
     }
     static IMPLEMENTS = {
         'puter-chat-completion': {
+            /**
+             * Returns a list of available models and their details.
+             * See AIChatService for more information.
+             * 
+             * @returns Promise<Array<Object>> Array of model details
+             */
             async models () {
                 return this.models_array_;
             },
+
+            /**
+            * Returns a list of available model names including their aliases
+            * @returns {Promise<string[]>} Array of model identifiers and their aliases
+            * @description Retrieves all available model IDs and their aliases,
+            * flattening them into a single array of strings that can be used for model selection
+            */
             async list () {
                 return this.models_array_.map(m => m.id);
             },
+
+            /**
+             * AI Chat completion method.
+             * See AIChatService for more details.
+             */
             async complete ({ messages, stream, model }) {
 
                 for ( let i = 0; i < messages.length; i++ ) {

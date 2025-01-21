@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -22,13 +22,7 @@ logger.info('start -> async initialization');
 import './util/TeePromise.js';
 import './util/Component.js';
 import './util/Collector.js';
-import './UI/Components/Frame.js';
-import './UI/Components/Glyph.js';
 import './UI/Components/Spinner.js';
-import './UI/Components/ActionCard.js';
-import './UI/Components/NotifCard.js';
-import './UI/Components/TestView.js';
-import './UI/Components/JustID.js';
 import './UI/UIElement.js';
 import './UI/UIWindowSaveAccount.js';
 import './UI/UIWindowEmailConfirmationRequired.js';

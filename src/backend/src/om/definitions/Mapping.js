@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -76,6 +76,10 @@ class Mapping extends AdvancedBase {
             }
 
             if ( value instanceof FSNodeContext ) {
+                if ( ! await value.exists() ) {
+                    value = undefined;
+                    continue;
+                }
                 value = await value.getSafeEntry();
                 sanitized = true;
             }

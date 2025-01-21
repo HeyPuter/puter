@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -75,14 +75,11 @@ class HLDataRead extends HLFilesystemOperation {
 
         const output_stream = new PassThrough();
 
-        new Promise((resolve, reject) => {
-            rl.on('line', (line) => {
-                output_stream.write(line);
-            });
-            rl.on('close', () => {
-                output_stream.end();
-                resolve();
-            });
+        rl.on('line', (line) => {
+            output_stream.write(line);
+        });
+        rl.on('close', () => {
+            output_stream.end();
         });
 
         return output_stream;

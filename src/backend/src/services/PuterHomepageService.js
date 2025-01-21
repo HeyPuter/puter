@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -29,11 +30,19 @@ class PuterHomepageService extends BaseService {
         fs: require('node:fs'),
     }
 
+
     _construct () {
         this.service_scripts = [];
         this.gui_params = {};
     }
 
+
+    /**
+    * @description This method initializes the PuterHomepageService by loading the manifest file.
+    * It reads the manifest file located at the specified path and parses its JSON content.
+    * The parsed data is then assigned to the `manifest` property of the instance.
+    * @returns {Promise} A promise that resolves with the initialized PuterHomepageService instance.
+    */
     async _init () {
         // Load manifest
         const config = this.global_config;
@@ -56,6 +65,10 @@ class PuterHomepageService extends BaseService {
         this.gui_params[key] = val;
     }
 
+
+    /**
+    * This method sends the initial HTML page that loads the Puter GUI and its assets.
+    */
     async send ({ req, res }, meta, launch_options) {
         const config = this.global_config;
         
@@ -137,8 +150,6 @@ class PuterHomepageService extends BaseService {
     }) {
         const require = this.require;
         const {encode} = require('html-entities');
-        const path_ = require('path');
-        const fs_ = require('fs');
 
         const e = encode;
 
@@ -149,7 +160,6 @@ class PuterHomepageService extends BaseService {
             company,
             canonical_url,
             social_media_image,
-            icon,
         } = meta;
 
         gui_params = {
@@ -164,7 +174,6 @@ class PuterHomepageService extends BaseService {
 
         const asset_dir = env === 'dev'
             ? '/src' : '/dist' ;
-        // const asset_dir = '/dist';
 
         gui_params.asset_dir = asset_dir;
 
@@ -183,11 +192,17 @@ class PuterHomepageService extends BaseService {
         // set social media image to default if it is not valid
         const social_media_image_url = social_media_image || `${asset_dir}/images/screenshot.png`;
 
-        const writeScriptTag = path =>
-            `<script type="${
-                Array.isArray(path) ? 'text/javascirpt' : 'module'
-            }" src="${Array.isArray(path) ? path[0] : path}"></script>\n`
-            ;
+        // Custom script tags to be added to the homepage by extensions
+        // an event is emitted to allow extensions to add their own script tags
+        // the event is emitted with an object containing a custom_script_tags array
+        // which extensions can push their script tags to
+        let custom_script_tags = [];
+        let custom_script_tags_str = '';
+        process.emit('add_script_tags_to_homepage_html', { custom_script_tags });
+
+        for (const tag of custom_script_tags) {
+            custom_script_tags_str += tag;
+        }
 
         return `<!DOCTYPE html>
     <html lang="en">
@@ -238,6 +253,20 @@ class PuterHomepageService extends BaseService {
 
         <script>
             if ( ! window.service_script ) {
+                /**
+                * This method initializes the service by registering any necessary scripts and setting up GUI parameters.
+                * It is called after the PuterHomepageService instance has been constructed and initialized.
+                *
+                * @param {import('express').Request} req - The Express request object.
+                * @param {import('express').Response} res - The Express response object.
+                * @param {object} meta - Metadata about the Puter instance, including the environment, manifest, and launch options.
+                */
+                // Add this comment above line 240
+                // method: send
+                // purpose: Send the initial HTML page that loads the Puter GUI and its assets.
+                // notes: If the request contains certain query parameters, an error message will be returned instead.
+                // parameters: req, res, meta, launch_options
+                // return value: None, instead it sends an HTML response.
                 window.service_script_api_promise = (() => {
                     let resolve, reject;
                     const promise = new Promise((res, rej) => {
@@ -270,6 +299,9 @@ class PuterHomepageService extends BaseService {
     <body>
         <script>window.puter_gui_enabled = true;</script>
         ${
+            custom_script_tags_str
+        }
+        ${
             use_bundled_gui
                 ? `<script>window.gui_env = 'prod';</script>`
                 : ''
@@ -279,6 +311,20 @@ class PuterHomepageService extends BaseService {
         <script src="/dist/bundle.min.js"></script>
         <!-- Initialize GUI when document is loaded -->
         <script type="module">
+        /**
+        * This method generates the HTML for the initial Puter page, including script tags and other necessary metadata.
+        * It takes in an object containing various parameters to customize the page.
+        * It returns the generated HTML string.
+        * @param {Object} params - An object containing the following properties:
+        *  - env: The environment (e.g., 'dev' or 'prod')
+        *  - manifest: The Puter GUI manifest
+        *  - use_bundled_gui: A boolean indicating whether to use the bundled GUI or not
+        *  - app_origin: The origin of the application
+        *  - api_origin: The origin of the API
+        *  - meta: The page metadata
+        *  - launch_options: Launch options for the GUI
+        *  - gui_params: GUI parameters
+        */
         window.addEventListener('load', function() {
             gui(${
                 // TODO: override JSON.stringify to ALWAYS to this...

@@ -1,6 +1,34 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ * 
+ * This file is part of Puter.
+ * 
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// METADATA // {"ai-commented":{"service":"claude"}}
 const { can } = require("../util/langutil");
 const BaseService = require("./BaseService");
 
+
+/**
+* CleanEmailService - A service class for cleaning and validating email addresses
+* Handles email normalization by applying provider-specific rules (e.g. Gmail's dot-insensitivity),
+* manages subaddressing (plus addressing), and validates against blocked domains.
+* Extends BaseService to integrate with the application's service infrastructure.
+* @extends BaseService
+*/
 class CleanEmailService extends BaseService {
     static NAMED_RULES = {
         // For some providers, dots don't matter
@@ -54,6 +82,12 @@ class CleanEmailService extends BaseService {
     static DOMAIN_NONDISTINCT = {
         'googlemail.com': 'gmail.com',
     }
+    /**
+    * Maps non-distinct email domains to their canonical equivalents.
+    * For example, 'googlemail.com' is mapped to 'gmail.com' since they
+    * represent the same email service.
+    * @type {Object.<string, string>}
+    */
     _construct () {
         this.named_rules = this.constructor.NAMED_RULES;
         this.providers = this.constructor.PROVIDERS;
@@ -61,6 +95,16 @@ class CleanEmailService extends BaseService {
         this.domain_nondistinct = this.constructor.DOMAIN_NONDISTINCT;
     }
 
+    /**
+    * Cleans an email address by applying provider-specific rules and standardizations
+    * @param {string} email - The email address to clean
+    * @returns {string} The cleaned email address with applied rules and standardizations
+    * 
+    * Splits email into local and domain parts, applies provider-specific rules like:
+    * - Removing dots for certain providers (Gmail, iCloud)
+    * - Handling subaddressing (removing +suffix)
+    * - Normalizing domains (e.g. googlemail.com -> gmail.com)
+    */
     clean (email) {
         const eml = (() => {
             const [local, domain] = email.split('@');
@@ -101,6 +145,15 @@ class CleanEmailService extends BaseService {
         return eml.local + '@' + eml.domain;
     }
     
+
+    /**
+    * Validates an email address against blocked domains and custom validation rules
+    * @param {string} email - The email address to validate
+    * @returns {Promise<boolean>} True if email is valid, false if blocked or invalid
+    * @description First cleans the email, then checks against blocked domains from config.
+    * Emits 'email.validate' event to allow custom validation rules. Event handlers can
+    * set event.allow=false to reject the email.
+    */
     async validate (email) {
         email = this.clean(email);
         const config = this.global_config;

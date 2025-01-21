@@ -1,3 +1,22 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ * 
+ * This file is part of Puter.
+ * 
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 const { BaseLink } = require("./BaseLink");
 const { KeyPairHelper } = require("./KeyPairHelper");
 
@@ -41,7 +60,10 @@ class CLink extends BaseLink {
     }
 
     connect () {
-        const address = this.config.address;
+        let address = this.config.address;
+        if ( ! address.startsWith('https://') ) {
+            address = `https://${address}`;
+        }
         const socket = this.modules.sioclient(address, {
             transports: ['websocket'],
             path: '/wssinternal',
@@ -54,7 +76,7 @@ class CLink extends BaseLink {
         });
         socket.on('connect', () => {
             this.log.info(`connected`, {
-                address: this.config.address
+                address,
             });
 
             const require = this.require;
@@ -76,12 +98,12 @@ class CLink extends BaseLink {
         });
         socket.on('disconnect', () => {
             this.log.info(`disconnected`, {
-                address: this.config.address
+                address,
             });
         });
         socket.on('connect_error', e => {
             this.log.info(`connection error`, {
-                address: this.config.address,
+                address,
                 message: e.message,
             });
         });

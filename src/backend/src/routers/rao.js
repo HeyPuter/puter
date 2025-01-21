@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -21,15 +21,18 @@
 "use strict"
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth.js');
 const config = require('../config');
 const { is_valid_uuid4, get_app } = require('../helpers');
 const { DB_WRITE } = require('../services/database/consts.js');
+const configurable_auth = require('../middleware/configurable_auth.js');
+const { UserActorType, AppUnderUserActorType } = require('../services/auth/Actor.js');
+const APIError = require('../api/APIError.js');
 
 // -----------------------------------------------------------------------//
 // POST /rao
 // -----------------------------------------------------------------------//
-router.post('/rao', auth, express.json(), async (req, res, next)=>{
+router.post('/rao', configurable_auth(), express.json(), async (req, res, next)=>{
+    const { actor } = req;
     // check subdomain
     if(require('../helpers').subdomain(req) !== 'api')
         next();
@@ -38,13 +41,22 @@ router.post('/rao', auth, express.json(), async (req, res, next)=>{
     if((config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed)
         return res.status(400).send({code: 'account_is_not_verified', message: 'Account is not verified'});
 
-    // validation
-    if(!req.body.app_uid || typeof req.body.app_uid !== 'string' && !(req.body.app_uid instanceof String))
-        return res.status(400).send({code: 'invalid_app_uid', message: 'Invalid app uid'});
-    // must be a valid uuid
-    // app uuids start with 'app-', so in order to validate them we remove the prefix first
-    else if(!is_valid_uuid4(req.body.app_uid.replace('app-','')))
-        return res.status(400).send({code: 'invalid_app_uid', message: 'Invalid app uid'});
+    let app_uid;
+    if ( actor.type instanceof UserActorType )  {
+        // validation
+        if(!req.body.app_uid || typeof req.body.app_uid !== 'string' && !(req.body.app_uid instanceof String))
+            return res.status(400).send({code: 'invalid_app_uid', message: 'Invalid app uid'});
+        // must be a valid uuid
+        // app uuids start with 'app-', so in order to validate them we remove the prefix first
+        else if(!is_valid_uuid4(req.body.app_uid.replace('app-','')))
+            return res.status(400).send({code: 'invalid_app_uid', message: 'Invalid app uid'});
+        
+        app_uid = req.body.app_uid;
+    } else if ( actor.type instanceof AppUnderUserActorType ) {
+        app_uid = actor.type.app.uid;
+    } else {
+        throw APIError.create('forbidden');
+    }
 
     // get db connection
     const db = req.services.get('database').get(DB_WRITE, 'apps');
@@ -52,10 +64,19 @@ router.post('/rao', auth, express.json(), async (req, res, next)=>{
     // insert into db
     db.write(
         `INSERT INTO app_opens (app_uid, user_id, ts) VALUES (?, ?, ?)`,
-        [req.body.app_uid, req.user.id, Math.floor(new Date().getTime() / 1000)]
+        [app_uid, req.user.id, Math.floor(new Date().getTime() / 1000)]
     )
 
-    const opened_app = await get_app({uid: req.body.app_uid});
+    // get app
+    const opened_app = await get_app({uid: app_uid});
+
+    // send process event `puter.app_open`
+    process.emit('puter.app_open', {
+        app_uid: app_uid,
+        user_id: req.user.id,
+        app_owner_user_id: opened_app.owner_user_id,
+        ts: Math.floor(new Date().getTime() / 1000)
+    });
 
     // -----------------------------------------------------------------------//
     // Update the 'app opens' cache
@@ -66,7 +87,7 @@ router.post('/rao', auth, express.json(), async (req, res, next)=>{
     // If cache is not empty, prepend it with the new app
     if(recent_apps && recent_apps.length > 0){
         // add the app to the beginning of the array
-        recent_apps.unshift({app_uid: req.body.app_uid});
+        recent_apps.unshift({app_uid: app_uid});
 
         // dedupe the array
         recent_apps = recent_apps.filter((v,i,a)=>a.findIndex(t=>(t.app_uid === v.app_uid))===i);
@@ -90,8 +111,8 @@ router.post('/rao', auth, express.json(), async (req, res, next)=>{
     }
 
     // Update clients
-    const socketio = require('../socketio.js').getio();
-    socketio.to(req.user.id).emit('app.opened', {
+    const svc_socketio = req.services.get('socketio');
+    svc_socketio.send({ room: req.user.id }, 'app.opened', {
         uuid: opened_app.uid,
         uid: opened_app.uid,
         name: opened_app.name,

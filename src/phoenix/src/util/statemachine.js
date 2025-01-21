@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -17,7 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { disallowAccessToUndefined } from "./lang.js";
-import { Context } from "contextlink";
+import putility from '@heyputer/putility';
+const { Context } = putility.libs.context;
 
 export class StatefulProcessor {
     constructor (params) {

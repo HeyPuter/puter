@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -21,18 +21,22 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth.js');
 const config = require('../config.js');
-const fs = require('../middleware/fs.js');
 const { DB_WRITE } = require('../services/database/consts.js');
 const { NodePathSelector } = require('../filesystem/node/selectors.js');
 const { HLRead } = require('../filesystem/hl_operations/hl_read.js');
+const { UserActorType } = require('../services/auth/Actor.js');
 
 // -----------------------------------------------------------------------//
 // GET /down
 // -----------------------------------------------------------------------//
-router.post('/down', auth, fs, express.json(), async (req, res, next)=>{
+router.post('/down', auth, express.json(), express.urlencoded({ extended: true }), async (req, res, next)=>{
     // check subdomain
-    if(require('../helpers').subdomain(req) !== 'api')
-        next();
+    const actor = req.actor;
+
+    if ( ! actor || !(actor.type instanceof UserActorType) ) {
+        if(require('../helpers').subdomain(req) !== 'api')
+            next();
+    }
 
     // check if user is verified
     if((config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed)
@@ -65,7 +69,8 @@ router.post('/down', auth, fs, express.json(), async (req, res, next)=>{
         return res.status(400).send('Cannot download a directory.');
 
     // resolve path to its FSEntry
-    const fsnode = await req.fs.node(new NodePathSelector(path));
+    const svc_fs = req.services.get('filesystem');
+    const fsnode = await svc_fs.node(new NodePathSelector(path));
 
     // not found
     if( ! fsnode.exists() ) {
@@ -74,6 +79,12 @@ router.post('/down', auth, fs, express.json(), async (req, res, next)=>{
 
     // stream data from S3
     try{
+        const esc_filename = (await fsnode.get('name'))
+            .replace(/[^a-zA-Z0-9-_\.]/g, '_');
+        
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.attachment(await fsnode.get('name'));
+
         const hl_read = new HLRead();
         const stream = await hl_read.run({
             fsNode: fsnode,
@@ -85,7 +96,6 @@ router.post('/down', auth, fs, express.json(), async (req, res, next)=>{
         // }).createReadStream().on('error', error => {
         //     console.log(error);
         // });
-        res.attachment(await fsnode.get('name'));
         return stream.pipe(res);
     }catch(e){
         console.log(e);

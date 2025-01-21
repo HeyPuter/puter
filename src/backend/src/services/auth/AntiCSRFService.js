@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -21,6 +22,13 @@ const config = require("../../config");
 const { subdomain } = require("../../helpers");
 const BaseService = require("../BaseService");
 
+
+/**
+ * A utility class used by AntiCSRFService to manage a circular queue of
+ * CSRF tokens (or, as we like to call them, "anti-CSRF" tokens).
+ *
+ * A token expires when it is evicted from the queue.
+ */
 class CircularQueue {
     constructor (size) {
         this.size = size;
@@ -57,7 +65,18 @@ class CircularQueue {
     }
 }
 
+
+/**
+* Class AntiCSRFService extends BaseService to manage and protect against Cross-Site Request Forgery (CSRF) attacks.
+* It provides methods for generating, consuming, and verifying anti-CSRF tokens based on user sessions.
+*/
 class AntiCSRFService extends BaseService {
+    /**
+     * Initializes the AntiCSRFService instance and sets up the mapping
+     * between session IDs and their associated tokens.
+     * 
+     * @returns {void}
+     */
     _construct () {
         this.map_session_to_tokens = {};
     }
@@ -99,6 +118,14 @@ class AntiCSRFService extends BaseService {
         return tokens.maybe_consume(token);
     }
 
+
+    /**
+     * Generates a secure random token as a hexadecimal string.
+     * The token is created using cryptographic random bytes to ensure uniqueness 
+     * and security for Anti-CSRF purposes.
+     * 
+     * @returns {string} The generated token.
+     */
     generate_token_ () {
         return require('crypto').randomBytes(32).toString('hex');
     }

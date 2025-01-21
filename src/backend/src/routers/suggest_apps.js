@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -22,7 +22,6 @@ const router = new express.Router();
 const auth = require('../middleware/auth.js');
 const config = require('../config');
 const { Context } = require('../util/context.js');
-const fs = require('../middleware/fs.js');
 const { NodeInternalIDSelector } = require('../filesystem/node/selectors.js');
 
 // -----------------------------------------------------------------------// 

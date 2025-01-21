@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -17,14 +17,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 "use strict"
-const express = require('express');
-const router = new express.Router();
-const {get_taskbar_items, generate_random_username, generate_system_fsentries, send_email_verification_code, send_email_verification_token, username_exists, invalidate_cached_user_by_id, get_user } = require('../helpers');
+const {get_taskbar_items, send_email_verification_code, send_email_verification_token, username_exists, invalidate_cached_user_by_id, get_user } = require('../helpers');
 const config = require('../config');
 const eggspress = require('../api/eggspress');
 const { Context } = require('../util/context');
 const { DB_WRITE } = require('../services/database/consts');
-const { can } = require('../util/langutil');
+const { generate_identifier } = require('../util/identifier');
+const { is_temp_users_disabled: lazy_temp_users, 
+        is_user_signup_disabled: lazy_user_signup } = require("../helpers")
+
+async function generate_random_username () {
+    let username;
+    do {
+        username = generate_identifier();
+    } while (await username_exists(username));
+    return username;
+}
 
 // -----------------------------------------------------------------------//
 // POST /signup
@@ -72,6 +80,37 @@ module.exports = eggspress(['/signup'], {
     if(!req.body.is_temp && req.body.p102xyzname !== '')
         return res.send();
 
+
+    // send event
+    async function emitAsync(eventName, data) {
+        const listeners = process.listeners(eventName);
+        
+        if (listeners.length === 0) {
+            return data;
+        }
+        
+        await Promise.all(listeners.map(listener => listener(data)));
+        return data;
+    }
+
+    let event = {
+        allow: true,
+        ip: req.headers?.['x-forwarded-for'] ||
+            req.connection?.remoteAddress,
+        user_agent: req.headers?.['user-agent'],
+        body: req.body,
+    };
+
+    const MAX_WAIT = 5 * 1000;
+    await Promise.race([
+        emitAsync('puter.signup', event),
+        new Promise(resolve => setTimeout(() => resolve(), MAX_WAIT)),
+    ])
+
+    if ( ! event.allow ) {
+        return res.status(400).send(event.error ?? 'You are not allowed to sign up.');
+    }
+
     // check if user is already logged in
     if ( req.body.is_temp && req.cookies[config.cookie_name] ) {
         const { user, token } = await svc_auth.check_session(
@@ -100,15 +139,30 @@ module.exports = eggspress(['/signup'], {
         }
     }
 
-    // temporary user
-    if(req.body.is_temp && !config.disable_temp_users){
-        req.body.username = await generate_random_username();
-        req.body.email = req.body.username + '@gmail.com';
-        req.body.password = 'sadasdfasdfsadfsa';
-    }else if(config.disable_temp_users){
-        return res.status(400).send('Temp users are disabled.');
+    const is_temp_users_disabled = await lazy_temp_users();
+    const is_user_signup_disabled = await lazy_user_signup();
+
+    if (is_temp_users_disabled && is_user_signup_disabled) {
+        return res.status(403).send('User signup and Temporary users are disabled.');
     }
 
+    if (!req.body.is_temp && is_user_signup_disabled) {
+        return res.status(403).send('User signup is disabled.');
+    } 
+
+    if (req.body.is_temp && is_temp_users_disabled) {
+        return res.status(403).send('Temporary users are disabled.');
+    }
+
+    if (req.body.is_temp && event.no_temp_user) {
+        return res.status(403).send('You must login or signup.');
+    }
+
+    // Create temp user data
+    req.body.username = req.body.username ?? await generate_random_username();
+    req.body.email = req.body.email ?? req.body.username + '@gmail.com';
+    req.body.password = req.body.password ?? 'sadasdfasdfsadfsa';
+    
     // send_confirmation_code
     req.body.send_confirmation_code = req.body.send_confirmation_code ?? true;
 
@@ -239,15 +293,15 @@ module.exports = eggspress(['/signup'], {
                 // audit_metadata
                 JSON.stringify(audit_metadata),
                 // signup_ip
-                req.connection.remoteAddress,
+                req.connection.remoteAddress ?? null,
                 // signup_ip_fwd
-                req.headers['x-forwarded-for'],
+                req.headers['x-forwarded-for'] ?? null,
                 // signup_user_agent
-                req.headers['user-agent'],
+                req.headers['user-agent'] ?? null,
                 // signup_origin
-                req.headers['origin'],
+                req.headers['origin'] ?? null,
                 // signup_server
-                config.server_id,
+                config.server_id ?? null,
             ]
         );
 
@@ -348,7 +402,8 @@ module.exports = eggspress(['/signup'], {
         }
     }
 
-    await generate_system_fsentries(user);
+    const svc_user = Context.get('services').get('user');
+    await svc_user.generate_default_fsentries({ user });
 
     //set cookie
     res.cookie(config.cookie_name, token, {

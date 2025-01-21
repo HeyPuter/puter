@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -36,11 +36,10 @@ class HLMkLink extends HLFilesystemOperation {
 
     async _run () {
         const { context, values } = this;
-        const { _path } = this.modules;
         const fs = context.get('services').get('filesystem');
 
         const { target, parent, user } = values;
-        let { name, dedupe_name } = values;
+        let { name } = values;
 
         if ( ! name ) {
             throw APIError.create('field_empty', null, { key: 'name' });

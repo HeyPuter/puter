@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { ErrorCodes, PosixError } from '@heyputer/putility/src/PosixError.js';
+import { PosixError } from '@heyputer/putility/src/PosixError.js';
 
 // DRY: Almost the same as node/filesystem.js
 function wrapAPIs(apis) {

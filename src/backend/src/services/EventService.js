@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -19,6 +20,12 @@
 const { Context } = require("../util/context");
 const BaseService = require("./BaseService");
 
+
+/**
+ * A proxy to EventService or another scoped event bus, allowing for
+ * emitting or listening on a prefix (ex: `a.b.c`) without the user
+ * of the scoped bus needed to know what the prefix is.
+ */
 class ScopedEventBus {
     constructor (event_bus, scope) {
         this.event_bus = event_bus;
@@ -34,7 +41,22 @@ class ScopedEventBus {
     }
 }
 
+
+/**
+* Class representing the EventService, which extends the BaseService.
+* This service is responsible for managing event listeners and emitting 
+* events within a scoped context, allowing for flexible event handling 
+* and decoupled communication between different parts of the application.
+*/
 class EventService extends BaseService {
+    /**
+     * Initializes listeners and global listeners for the EventService.
+     * This method is called to set up the internal data structures needed 
+     * for managing event listeners upon construction of the service.
+     * 
+     * @async
+     * @returns {Promise} A promise that resolves when the initialization is complete.
+     */
     async _construct () {
         this.listeners_ = {};
         this.global_listeners_ = [];
@@ -51,9 +73,7 @@ class EventService extends BaseService {
             // actual emit
             const listeners = this.listeners_[part];
             if ( ! listeners ) continue;
-            for ( let i = 0; i < listeners.length; i++ ) {
-                const callback = listeners[i];
-
+            for ( const callback of listeners ) {
                 // IIAFE wrapper to catch errors without blocking
                 // event dispatch.
                 Context.arun(async () => {
@@ -73,6 +93,16 @@ class EventService extends BaseService {
         for ( const callback of this.global_listeners_ ) {
             // IIAFE wrapper to catch errors without blocking
             // event dispatch.
+            /**
+            * Invokes all registered global listeners for an event with the provided key, data, and meta
+            * information. Each callback is executed within a context that handles errors gracefully, 
+            * ensuring that one failing listener does not disrupt subsequent invocations.
+            *
+            * @param {string} key - The event key to emit.
+            * @param {*} data - The data to be passed to the listeners.
+            * @param {Object} [meta={}] - Optional metadata related to the event.
+            * @returns {void}
+            */
             Context.arun(async () => {
                 try {
                     await callback(key, data, meta);
@@ -88,6 +118,17 @@ class EventService extends BaseService {
 
     }
 
+    /**
+    * Registers a callback function for the specified event selector.
+    * 
+    * This method will push the provided callback onto the list of listeners
+    * for the event specified by the selector. It returns an object containing
+    * a detach method, which can be used to remove the listener.
+    *
+    * @param {string} selector - The event selector to listen for.
+    * @param {Function} callback - The function to be invoked when the event is emitted.
+    * @returns {Object} An object with a detach method to unsubscribe the listener.
+    */
     on (selector, callback) {
         const listeners = this.listeners_[selector] ||
             (this.listeners_[selector] = []);

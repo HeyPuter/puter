@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -36,7 +36,7 @@ class LLReadShares extends LLFilesystemOperation {
     `;
     
     async _run () {
-        const { subject, user, actor, depth = 0 } = this.values;
+        const { subject, user, actor } = this.values;
 
         const svc = this.context.get('services');
 

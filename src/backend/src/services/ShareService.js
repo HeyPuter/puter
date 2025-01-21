@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -20,7 +21,6 @@ const APIError = require("../api/APIError");
 const { get_user } = require("../helpers");
 const configurable_auth = require("../middleware/configurable_auth");
 const featureflag = require("../middleware/featureflag.js");
-const { Context } = require("../util/context");
 const { Endpoint } = require("../util/expressutil");
 const { whatis } = require("../util/langutil");
 const { Actor, UserActorType } = require("./auth/Actor");
@@ -35,6 +35,7 @@ class ShareService extends BaseService {
         express: require('express'),
     };
 
+
     async _init () {
         this.db = await this.services.get('database').get(DB_WRITE, 'share');
 
@@ -44,7 +45,7 @@ class ShareService extends BaseService {
         svc_featureFlag.register('share', {
             $: 'function-flag',
             fn: async ({ actor }) => {
-                const user = actor.type.user;
+                const user = actor.type.user ?? null;
                 if ( ! user ) {
                     throw new Error('expected user');
                 }
@@ -79,7 +80,6 @@ class ShareService extends BaseService {
                     user: issuer_user,
                 });
 
-                // const svc_permission = this.services.get('permission');
                 const svc_acl = this.services.get('acl');
 
                 for ( const permission of share.data.permissions ) {
@@ -102,6 +102,15 @@ class ShareService extends BaseService {
         this.install_share_endpoint({ app });
     }
     
+    /**
+    * This method is responsible for processing the share link application request.
+    * It checks if the share token is valid and if the user making the request is the intended recipient.
+    * If both conditions are met, it grants the requested permissions to the user and deletes the share from the database.
+    *
+    * @param {Object} req - Express request object.
+    * @param {Object} res - Express response object.
+    * @returns {Promise<void>}
+    */
     install_sharelink_endpoints ({ app }) {
         // track: scoping iife
         const router = (() => {
@@ -347,6 +356,18 @@ class ShareService extends BaseService {
         return share;
     }
     
+    /**
+    * Method to handle the creation of a new share
+    *
+    * This method creates a new share and saves it to the database.
+    * It takes three parameters: the issuer of the share, the recipient's email address, and the data to be shared.
+    * The method returns the UID of the created share.
+    *
+    * @param {Actor} issuer - The actor who is creating the share
+    * @param {string} email - The email address of the recipient
+    * @param {object} data - The data to be shared
+    * @returns {string} - The UID of the created share
+    */
     async create_share ({
         issuer,
         email,

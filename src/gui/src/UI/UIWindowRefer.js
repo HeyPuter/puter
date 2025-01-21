@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -37,6 +37,7 @@ async function UIWindowRefer(options){
 
     const el_window = await UIWindow({
         title: `Refer a friend!`,
+        window_class: 'window-refer-friend',
         icon: null,
         uid: null,
         is_dir: false,

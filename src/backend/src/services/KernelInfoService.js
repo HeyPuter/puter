@@ -1,17 +1,52 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ * 
+ * This file is part of Puter.
+ * 
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// METADATA // {"ai-commented":{"service":"claude"}}
 const configurable_auth = require("../middleware/configurable_auth");
 const { Context } = require("../util/context");
 const { Endpoint } = require("../util/expressutil");
 const BaseService = require("./BaseService");
 const { Interface } = require("./drivers/meta/Construct");
 
+// Permission flag that grants access to view all services in the kernel info system
 const PERM_SEE_ALL = 'kernel-info:see-all-services';
+// Permission flag that grants access to view all services in the kernel info system
 const PERM_SEE_DRIVERS = 'kernel-info:see-all-drivers';
 
-class KernelInfoService extends BaseService {
-    async _init () {
-        //
-    }
 
+/**
+* KernelInfoService class provides information about the kernel's services, modules, and interfaces.
+* It handles listing available modules, services, and their implementations based on user permissions.
+* The service exposes endpoints for querying kernel module information and manages access control
+* through permission checks for viewing all services and drivers.
+* @extends BaseService
+*/
+class KernelInfoService extends BaseService {
+    async _init () {}
+
+    /**
+    * Installs routes for the kernel info service
+    * @param {*} _ Unused parameter
+    * @param {Object} param1 Object containing Express app instance
+    * @param {Express} param1.app Express application instance
+    * @private
+    */
     ['__on_install.routes'] (_, { app }) {
         const router = (() => {
             const require = this.require;
@@ -54,14 +89,11 @@ class KernelInfoService extends BaseService {
                 }
 
                 const services = [];
-                const modules = [];
                 for ( const k in this.services.modules_ ) {
                     const module_info = {
                         name: k,
                         services: []
                     };
-                    
-                    modules.push(module_info);
                     
                     for ( const s_k of this.services.modules_[k].services_l ) {
                         const service_info = {

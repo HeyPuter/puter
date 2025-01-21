@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
 const BaseService = require("../../services/BaseService");
 const { CLink } = require("./connection/CLink");
 const { SLink } = require("./connection/SLink");
@@ -95,7 +94,7 @@ class BroadcastService extends BaseService {
                         JSON.stringify(data)
                     );
                 }
-                
+
                 meta.from_outside = true;
                 const context = Context.get(undefined, { allow_fallback: true });
                 context.arun(async () => {

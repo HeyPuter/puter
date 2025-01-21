@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require('../../../api/APIError.js');
-const { relativeSelector, NodeUIDSelector } = require('../../../filesystem/node/selectors.js');
+const { relativeSelector } = require('../../../filesystem/node/selectors.js');
 const ERR_INVALID_PATHREF = 'Invalid path reference in path: ';
 const ERR_UNKNOWN_PATHREF = 'Unknown path reference in path: ';
 

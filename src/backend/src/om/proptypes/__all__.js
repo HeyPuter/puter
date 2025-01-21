@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -141,7 +141,11 @@ module.exports = {
     url: {
         from: 'string',
         validate (value) {
-            return validator.isURL(value);
+            let valid = validator.isURL(value);
+            if ( ! valid ) {
+                valid = validator.isURL(value, { host_whitelist: ['localhost'] });
+            }
+            return valid;
         }
     },
     reference: {

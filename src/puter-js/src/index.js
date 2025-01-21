@@ -19,6 +19,14 @@ import { APIAccessService } from './services/APIAccess.js';
 import { XDIncomingService } from './services/XDIncoming.js';
 import { NoPuterYetService } from './services/NoPuterYet.js';
 import { Debug } from './modules/Debug.js';
+import { PSocket, wispInfo } from './modules/networking/PSocket.js';
+import { PTLSSocket } from "./modules/networking/PTLS.js"
+import { PWispHandler } from './modules/networking/PWispHandler.js';
+
+// TODO: This is for a safe-guard below; we should check if we can
+//       generalize this behavior rather than hard-coding it.
+//       (using defaultGUIOrigin breaks locally-hosted apps)
+const PROD_ORIGIN = 'https://puter.com';
 
 window.puter = (function() {
     'use strict';
@@ -30,8 +38,8 @@ window.puter = (function() {
         // 'web' means the SDK is running in a 3rd-party website.
         env;
 
-        defaultAPIOrigin = 'https://api.puter.com';
-        defaultGUIOrigin = 'https://puter.com';
+        defaultAPIOrigin = globalThis.PUTER_API_ORIGIN ?? 'https://api.puter.com';
+        defaultGUIOrigin = globalThis.PUTER_ORIGIN ?? 'https://puter.com';
 
         // An optional callback when the user is authenticated. This can be set by the app using the SDK.
         onAuth;
@@ -132,7 +140,7 @@ window.puter = (function() {
                 let hostname = location.hostname.replace(/\.$/, '');
 
                 // Create a new URL object with the URL string
-                const url = new URL(this.defaultGUIOrigin);
+                const url = new URL(PROD_ORIGIN);
 
                 // Extract hostname from the URL object
                 const gui_hostname = url.hostname;
@@ -288,6 +296,7 @@ window.puter = (function() {
 
             // Add prefix logger (needed to happen after modules are initialized)
             (async () => {
+                await this.services.wait_for_init(['api-access']);
                 const whoami = await this.auth.whoami();
                 logger = new putility.libs.log.PrefixLogger({
                     delegate: logger,
@@ -298,7 +307,78 @@ window.puter = (function() {
 
                 this.log.impl = logger;
             })();
+            
+            // Lock to prevent multiple requests to `/rao`
+            this.lock_rao_ = new putility.libs.promise.Lock();
+            // Promise that resolves when it's okay to request `/rao`
+            this.p_can_request_rao_ = new putility.libs.promise.TeePromise();
+            // Flag that indicates if a request to `/rao` has been made
+            this.rao_requested_ = false;
 
+            // In case we're already auth'd, request `/rao`
+            (async () => {
+                await this.services.wait_for_init(['api-access']);
+                this.p_can_request_rao_.resolve();
+            })();
+            (async () => {
+                const wispToken = (await (await fetch(this.APIOrigin + '/wisp/relay-token/create', {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${this.authToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({}),
+                })).json())["token"];
+                wispInfo.handler = new PWispHandler(wispInfo.server, wispToken);
+                this.net = {
+                    Socket: PSocket,
+                    tls: {
+                        TLSSocket: PTLSSocket
+                    }
+                }
+            })();
+
+
+        }
+
+        /**
+         * @internal
+         * Makes a request to `/rao`. This method aquires a lock to prevent
+         * multiple requests, and is effectively idempotent.
+         */
+        async request_rao_ () {
+            await this.p_can_request_rao_;
+                        
+            if ( this.env === 'gui' ) {
+                return;
+            }
+            
+            // setAuthToken is called more than once when auth completes, which
+            // causes multiple requests to /rao. This lock prevents that.
+            await this.lock_rao_.acquire();
+            if ( this.rao_requested_ ) {
+                this.lock_rao_.release();
+                return;
+            }
+
+            let had_error = false;
+            try {
+                const resp = await fetch(this.APIOrigin + '/rao', {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${this.authToken}`
+                    }
+                });
+                return await resp.json();
+            } catch (e) {
+                had_error = true;
+                console.error(e);
+            } finally {
+                this.lock_rao_.release();
+            }
+            if ( ! had_error ) {
+                this.rao_requested_ = true;
+            }
         }
         
         registerModule (name, cls, parameters = {}) {
@@ -340,6 +420,8 @@ window.puter = (function() {
             }
             // reinitialize submodules
             this.updateSubmodules();
+            // rao
+            this.request_rao_();
         }
 
         setAPIOrigin = function (APIOrigin) {

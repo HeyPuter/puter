@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -32,6 +33,13 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         Database: require('better-sqlite3'),
     };
 
+
+    /**
+    * @description Method to handle database schema upgrades.
+    * This method checks the current database version against the available migration scripts and performs any necessary upgrades.
+    * @param {void}
+    * @returns {void}
+    */
     async _init () {
         const require = this.require;
         const Database = require('better-sqlite3');
@@ -144,11 +152,20 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [30, [
                 '0033_ai-usage.sql',
             ]],
+            [31, [
+                '0034_app-redirect.sql',
+            ]],
         ];
 
         // Database upgrade logic
         const HIGHEST_VERSION =
             available_migrations[available_migrations.length - 1][0] + 1;
+        /**
+        * Upgrades the database schema to the specified version.
+        *
+        * @param {number} targetVersion - The target version to upgrade the database to.
+        * @returns {Promise<void>} A promise that resolves when the database has been upgraded.
+        */
         const TARGET_VERSION = (() => {
             const args = Context.get('args');
             if ( args['database-target-version'] ) {
@@ -220,6 +237,15 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             await this.db.exec(`PRAGMA user_version = ${TARGET_VERSION};`);
 
             // Add sticky notification
+            /**
+            * This method is responsible for applying database migrations. It checks the current version of the database against the available migrations, and if the database is out of date, it applies the necessary SQL files to bring it up to date.
+            *
+            * @param {void}
+            * @returns {void}
+            */
+            // Add this comment above line 222
+            // It describes the purpose of the method and its behavior
+            // It does not include any parameters or return values since the method does not take any inputs and does not return any output.
             this.database_update_notice = () => {
                 const lines = [
                     `Database has been updated!`,
@@ -239,6 +265,11 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
         const svc_serverHealth = this.services.get('server-health');
 
+
+        /**
+        * @description This method is used to register SQLite database-related commands with the dev-console service.
+        * @param {object} commands - The dev-console service commands object.
+        */
         svc_serverHealth.add_check('sqlite', async () => {
             const [{ user_version }] = await this._requireRead('PRAGMA user_version');
             if ( user_version !== TARGET_VERSION ) {
@@ -249,16 +280,30 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         });
     }
 
+
+    /**
+    * Implementation for prepared statements for READ operations.
+    */
     async _read (query, params = []) {
         query = this.sqlite_transform_query_(query);
         params = this.sqlite_transform_params_(params);
         return this.db.prepare(query).all(...params);
     }
 
+
+    /**
+    * Implementation for prepared statements for READ operations.
+    * This method may perform additional steps to obtain the data, which
+    * is not applicable to the SQLite implementation.
+    */
     async _requireRead (query, params) {
         return this._read(query, params);
     }
 
+
+    /**
+     * Implementation for prepared statements for WRITE operations.
+     */
     async _write (query, params) {
         query = this.sqlite_transform_query_(query);
         params = this.sqlite_transform_params_(params);
@@ -272,7 +317,21 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         };
     }
 
+
+    /**
+    * This method initializes the SQLite database by checking if it exists, setting up the connection, and performing any necessary database upgrades based on the current version.
+    *
+    * @param {object} config - The configuration object for the database.
+    * @returns {Promise} A promise that resolves when the database is initialized.
+    */
     async _batch_write (entries) {
+        /**
+        * @description This method is used to execute SQL queries in batch mode.
+        * It accepts an array of objects, where each object contains a SQL query as the `statement` property and an array of parameters as the `values` property.
+        * The method executes each SQL query in the transaction block, ensuring that all operations are atomic.
+        * @param {Array<{statement: string, values: any[]}>} entries - An array of SQL queries and their corresponding parameters.
+        * @return {void} This method does not return any value.
+        */
         this.db.transaction(() => {
             for ( let { statement, values } of entries ) {
                 statement = this.sqlite_transform_query_(statement);
@@ -299,7 +358,22 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         });
     }
     
+
+    /**
+    * @description This method is responsible for performing database upgrades. It checks the current database version against the available versions and applies any necessary migrations.
+    * @param {object} options - Optional parameters for the method.
+    * @returns {Promise} A promise that resolves when the database upgrade is complete.
+    */
     async run_js_migration_ ({ filename, contents }) {
+        /**
+        * Method to run JavaScript migrations. This method is used to apply JavaScript code to the SQLite database during the upgrade process.
+        *
+        * @param {Object} options - An object containing the following properties:
+        *   - `filename`: The name of the JavaScript file containing the migration code.
+        *   - `contents`: The contents of the JavaScript file.
+        *
+        * @returns {Promise<void>} A promise that resolves when the migration is completed.
+        */
         contents = `(async () => {${contents}})()`;
         const vm = require('vm');
         const context = vm.createContext({

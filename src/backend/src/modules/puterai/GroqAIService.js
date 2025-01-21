@@ -1,14 +1,50 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ * 
+ * This file is part of Puter.
+ * 
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// METADATA // {"ai-commented":{"service":"claude"}}
 const { PassThrough } = require("stream");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { nou } = require("../../util/langutil");
-const { TeePromise } = require("../../util/promise");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 
+
+/**
+* Service class for integrating with Groq AI's language models.
+* Extends BaseService to provide chat completion capabilities through the Groq API.
+* Implements the puter-chat-completion interface for model management and text generation.
+* Supports both streaming and non-streaming responses, handles multiple models including
+* various versions of Llama, Mixtral, and Gemma, and manages usage tracking.
+* @class GroqAIService
+* @extends BaseService
+*/
 class GroqAIService extends BaseService {
     static MODULES = {
         Groq: require('groq-sdk'),
     }
 
+
+    /**
+    * Initializes the GroqAI service by setting up the Groq client and registering with the AI chat provider
+    * @returns {Promise<void>}
+    * @private
+    */
     async _init () {
         const Groq = require('groq-sdk');
         this.client = new Groq({
@@ -22,20 +58,45 @@ class GroqAIService extends BaseService {
         });
     }
 
+
+    /**
+    * Returns the default model ID for the Groq AI service
+    * @returns {string} The default model ID 'llama-3.1-8b-instant'
+    */
     get_default_model () {
         return 'llama-3.1-8b-instant';
     }
     
     static IMPLEMENTS = {
         'puter-chat-completion': {
+            /**
+             * Returns a list of available models and their details.
+             * See AIChatService for more information.
+             * 
+             * @returns Promise<Array<Object>> Array of model details
+             */
             async models () {
                 return await this.models_();
             },
+            /**
+            * Returns a list of available model names including their aliases
+            * @returns {Promise<string[]>} Array of model identifiers and their aliases
+            * @description Retrieves all available model IDs and their aliases,
+            * flattening them into a single array of strings that can be used for model selection
+            */
             async list () {
                 // They send: { "object": "list", data }
                 const funny_wrapper = await this.client.models.list();
                 return funny_wrapper.data;
             },
+            /**
+            * Completes a chat interaction using the Groq API
+            * @param {Object} options - The completion options
+            * @param {Array<Object>} options.messages - Array of message objects containing the conversation history
+            * @param {string} [options.model] - The model ID to use for completion. Defaults to service's default model
+            * @param {boolean} [options.stream] - Whether to stream the response
+            * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or completion object with usage stats
+            */
             async complete ({ messages, model, stream }) {
                 for ( let i = 0; i < messages.length; i++ ) {
                     const message = messages[i];
@@ -101,6 +162,18 @@ class GroqAIService extends BaseService {
         }
     };
 
+
+    /**
+    * Returns an array of available AI models with their specifications
+    * 
+    * Each model object contains:
+    * - id: Unique identifier for the model
+    * - name: Human-readable name
+    * - context: Maximum context window size in tokens
+    * - cost: Pricing details including currency and token rates
+    * 
+    * @returns {Array<Object>} Array of model specification objects
+    */
     models_ () {
         return [
             {

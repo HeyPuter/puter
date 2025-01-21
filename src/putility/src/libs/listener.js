@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -29,6 +29,7 @@ class MultiDetachable extends FeatureBase {
     ];
 
     constructor() {
+        super();
         this.delegates = [];
         this.detached_ = false;
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -18,8 +18,7 @@
  */
 const { permission } = require("process");
 const { Sequence } = require("../../codex/Sequence");
-const { get_user } = require("../../helpers");
-const { Actor, UserActorType } = require("../../services/auth/Actor");
+const { UserActorType } = require("../../services/auth/Actor");
 const { PERMISSION_SCANNERS } = require("../../unstructured/permission-scanners");
 
 module.exports = new Sequence([

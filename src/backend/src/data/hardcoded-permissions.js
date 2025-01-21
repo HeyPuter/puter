@@ -1,3 +1,22 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ * 
+ * This file is part of Puter.
+ * 
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 const default_implicit_user_app_permissions = {
     'driver:helloworld:greet': {},
     'driver:puter-kvstore': {},
@@ -19,7 +38,6 @@ const implicit_user_app_permissions = [
             'app-0bef044f-918f-4cbf-a0c0-b4a17ee81085', // about
             'app-838dfbc4-bf8b-48c2-b47b-c4adc77fab58', // editor
             'app-58282b08-990a-4906-95f7-fa37ff92452b', // draw
-            'app-0087b701-da09-4f49-a37d-2d6bcabc81ee', // minipaint
             'app-3fea7529-266e-47d9-8776-31649cd06557', // terminal
             'app-5584fbf7-ed69-41fc-99cd-85da21b1ef51', // camera
             'app-7bdca1a4-6373-4c98-ad97-03ff2d608ca1', // recorder
@@ -79,22 +97,26 @@ const hardcoded_user_group_permissions = {
             'service': {},
             'feature': {},
             'kernel-info': {},
+            'local-terminal:access': {},
         },
         'b7220104-7905-4985-b996-649fdcdb3c8f': {
             'service:hello-world:ii:hello-world': policy_perm('temp.es'),
             'service:puter-kvstore:ii:puter-kvstore': policy_perm('temp.kv'),
             'driver:puter-kvstore': policy_perm('temp.kv'),
-            'driver:puter-notifications': policy_perm('temp.es'),
-            'driver:puter-apps': policy_perm('temp.es'),
-            'driver:puter-subdomains': policy_perm('temp.es'),
+            'service:puter-notifications:ii:crud-q': policy_perm('temp.es'),
+            'service:puter-apps:ii:crud-q': policy_perm('temp.es'),
+            'service:puter-subdomains:ii:crud-q': policy_perm('temp.es'),
+            'service:es\\Cnotification:ii:crud-q': policy_perm('user.es'),
+            'service:es\\Capp:ii:crud-q': policy_perm('user.es'),
+            'service:es\\Csubdomain:ii:crud-q': policy_perm('user.es'),
         },
         '78b1b1dd-c959-44d2-b02c-8735671f9997': {
             'service:hello-world:ii:hello-world': policy_perm('user.es'),
             'service:puter-kvstore:ii:puter-kvstore': policy_perm('user.kv'),
             'driver:puter-kvstore': policy_perm('user.kv'),
-            'driver:puter-notifications': policy_perm('user.es'),
-            'driver:puter-apps': policy_perm('user.es'),
-            'driver:puter-subdomains': policy_perm('user.es'),
+            'service:es\\Cnotification:ii:crud-q': policy_perm('user.es'),
+            'service:es\\Capp:ii:crud-q': policy_perm('user.es'),
+            'service:es\\Csubdomain:ii:crud-q': policy_perm('user.es'),
         },
     },
 };
