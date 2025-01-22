@@ -33,6 +33,7 @@ export default class EventListener {
             return;
         }
         this.#eventListeners[eventName].push(callback);
+        return this;
     }
 
     off(eventName, callback) {
@@ -45,5 +46,6 @@ export default class EventListener {
         if (index !== -1) {
             listeners.splice(index, 1);
         }
+        return this;
     }
 }

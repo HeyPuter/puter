@@ -22,6 +22,7 @@ import { Debug } from './modules/Debug.js';
 import { PSocket, wispInfo } from './modules/networking/PSocket.js';
 import { PTLSSocket } from "./modules/networking/PTLS.js"
 import { PWispHandler } from './modules/networking/PWispHandler.js';
+import { make_http_api } from './lib/http.js';
 
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
@@ -320,7 +321,12 @@ window.puter = (function() {
                 await this.services.wait_for_init(['api-access']);
                 this.p_can_request_rao_.resolve();
             })();
+            
+            // TODO: This should be separated into modules called "Net" and "Http".
+            //       Modules need to be refactored first because right now they
+            //       are too tightly-coupled with authentication state.
             (async () => {
+                // === puter.net ===
                 const { token: wispToken, server: wispServer } = (await (await fetch(this.APIOrigin + '/wisp/relay-token/create', {
                     method: 'POST',
                     headers: {
@@ -336,6 +342,12 @@ window.puter = (function() {
                         TLSSocket: PTLSSocket
                     }
                 }
+                
+                // === puter.http ===
+                this.http = make_http_api(
+                    { Socket: this.net.Socket, DEFAULT_PORT: 80 });
+                this.https = make_http_api(
+                    { Socket: this.net.tls.TLSSocket, DEFAULT_PORT: 443 });
             })();
 
 
