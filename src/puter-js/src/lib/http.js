@@ -64,8 +64,14 @@ export const make_http_api = ({ Socket, DEFAULT_PORT }) => {
                 throw new Error('Chunked transfer encoding not implemented');
             }
         };
+        const TRANSFER_NO_KEEPALIVE = {
+            data: data => {
+                res.emit('data', decoder.decode(data));
+            }
+        };
         let transfer = null;
 
+        let keepalive = false;
         const STATE_HEADERS = {
             data: data => {
                 data = decoder.decode(data);
@@ -95,7 +101,9 @@ export const make_http_api = ({ Socket, DEFAULT_PORT }) => {
                 }
 
 
-                if ( res.headers['transfer-encoding'] === 'chunked' ) {
+                if ( ! keepalive ) {
+                    transfer = TRANSFER_NO_KEEPALIVE;
+                } else if ( res.headers['transfer-encoding'] === 'chunked' ) {
                     transfer = TRANSFER_CHUNKED;
                 } else if ( res.headers['transfer-encoding'] ) {
                     throw new Error('Unsupported transfer encoding');
@@ -133,6 +141,13 @@ export const make_http_api = ({ Socket, DEFAULT_PORT }) => {
         const path = options.path || '/';
         const headers = options.headers || {};
         headers['Host'] = options.hostname;
+        if ( ! headers['Connection'] ) {
+            headers['Connection'] = 'close';
+        } else {
+            if ( headers['Connection'] !== 'close' ) {
+                keepalive = true;
+            }
+        }
         
         let requestString = `${method} ${path} HTTP/1.1\r\n`;
         for (const [key, value] of Object.entries(headers)) {
