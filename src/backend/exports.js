@@ -34,7 +34,7 @@ const { PuterFSModule } = require("./src/modules/puterfs/PuterFSModule.js");
 const { PerfMonModule } = require("./src/modules/perfmon/PerfMonModule.js");
 const { AppsModule } = require("./src/modules/apps/AppsModule.js");
 const { DevelopmentModule } = require("./src/modules/development/DevelopmentModule.js");
-
+const { HostOSModule } = require("./src/modules/hostos/HostOSModule.js");
 
 module.exports = {
     helloworld: () => {
@@ -52,6 +52,7 @@ module.exports = {
     EssentialModules: [
         Core2Module,
         PuterFSModule,
+        HostOSModule,
         CoreModule,
         WebModule,
         TemplateModule,
