@@ -76,7 +76,7 @@ class WispService extends BaseService {
 
                 const event = {
                     allow: true,
-                    policy: {},
+                    policy: { allow: true },
                     user: await svc_getUser.get_user({
                         uuid: decoded.user_uid,
                     }),
