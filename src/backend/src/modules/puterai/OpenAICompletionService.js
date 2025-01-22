@@ -354,17 +354,6 @@ class OpenAICompletionService extends BaseService {
             }
         }
 
-        const max_tokens = 4096 - token_count;
-        console.log('MAX TOKENS ???', max_tokens);
-
-        const svc_apiErrpr = this.services.get('api-error');
-        if ( max_tokens <= 8 ) {
-            throw svc_apiErrpr.create('max_tokens_exceeded', {
-                input_tokens: token_count,
-                max_tokens: 4096 - 8,
-            });
-        }
-
         const completion = await this.openai.chat.completions.create({
             user: user_private_uid,
             messages: messages,
