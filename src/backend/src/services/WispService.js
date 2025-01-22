@@ -45,7 +45,10 @@ class WispService extends BaseService {
                 }, {
                     expiresIn: '1d',
                 });
-                res.json({ token });
+                res.json({
+                    token,
+                    server: this.config.server,
+                });
             }
         }).attach(r_wisp);
 

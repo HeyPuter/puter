@@ -35,6 +35,7 @@ const { PerfMonModule } = require("./src/modules/perfmon/PerfMonModule.js");
 const { AppsModule } = require("./src/modules/apps/AppsModule.js");
 const { DevelopmentModule } = require("./src/modules/development/DevelopmentModule.js");
 const { HostOSModule } = require("./src/modules/hostos/HostOSModule.js");
+const { InternetModule } = require("./src/modules/internet/InternetModule.js");
 
 module.exports = {
     helloworld: () => {
@@ -68,6 +69,7 @@ module.exports = {
     TestDriversModule,
     PuterAIModule,
     BroadcastModule,
+    InternetModule,
     
     // Development modules
     PerfMonModule,

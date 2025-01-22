@@ -321,15 +321,15 @@ window.puter = (function() {
                 this.p_can_request_rao_.resolve();
             })();
             (async () => {
-                const wispToken = (await (await fetch(this.APIOrigin + '/wisp/relay-token/create', {
+                const { token: wispToken, server: wispServer } = (await (await fetch(this.APIOrigin + '/wisp/relay-token/create', {
                     method: 'POST',
                     headers: {
                         Authorization: `Bearer ${this.authToken}`,
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({}),
-                })).json())["token"];
-                wispInfo.handler = new PWispHandler(wispInfo.server, wispToken);
+                })).json());
+                wispInfo.handler = new PWispHandler(wispServer, wispToken);
                 this.net = {
                     Socket: PSocket,
                     tls: {
