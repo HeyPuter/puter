@@ -354,13 +354,13 @@ class OpenAICompletionService extends BaseService {
             }
         }
 
-        const max_tokens = 4096 - token_count;
+        // const max_tokens = 4096 - token_count;
 
         const completion = await this.openai.chat.completions.create({
             user: user_private_uid,
             messages: messages,
             model: model,
-            max_tokens,
+            // max_tokens,
             stream,
             ...(stream ? {
                 stream_options: { include_usage: true },
