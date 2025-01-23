@@ -57,6 +57,10 @@ module.exports = class APIError {
                 return `offering ${quot(name)} was not recognized.`;
             },
         },
+        'error_400_from_delegate': {
+            status: 400,
+            message: ({ delegate, message }) => `Error 400 from delegate ${quot(delegate)}: ${message}`,
+        },
         // Things
         'disallowed_thing': {
             status: 400,

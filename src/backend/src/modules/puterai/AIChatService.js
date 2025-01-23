@@ -385,6 +385,12 @@ class AIChatService extends BaseService {
                     tried.push(model);
 
                     error = e;
+                    if ( e.type === 'invalid_request_error' ) {
+                        throw APIError.create('error_400_from_delegate', null, {
+                            delegate: intended_service,
+                            message: e.message,
+                        })
+                    }
                     console.error(e);
                     this.log.error('error calling service', {
                         intended_service,
