@@ -165,7 +165,13 @@ export const make_http_api = ({ Socket, DEFAULT_PORT }) => {
         sock.on('error', (err) => {
             req.emit('error', err);
         });
+        let closed = false;
         sock.on('close', () => {
+            if ( closed ) {
+                console.error('close event after closed');
+                return;
+            }
+            closed = true;
             if ( buffer ) {
                 console.log('close with buffer', buffer);
                 const bin = encoder.encode(buffer);
