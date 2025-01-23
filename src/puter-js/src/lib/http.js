@@ -19,9 +19,10 @@ export const make_http_api = ({ Socket, DEFAULT_PORT }) => {
     const api = {};
     
     api.request = (options, callback) => {
-        const sock = new Socket(options.hostname, options.port ?? DEFAULT_PORT);
         const encoder = new TextEncoder();
         const decoder = new TextDecoder();
+
+        let sock;
 
         // Request object
         const req = new HTTPRequest([
@@ -128,18 +129,6 @@ export const make_http_api = ({ Socket, DEFAULT_PORT }) => {
             }
         };
         let state = STATE_HEADERS;
-        
-        sock.on('data', (data) => {
-            state.data(data);
-        });
-
-        sock.on('error', (err) => {
-            req.emit('error', err);
-        });
-
-        sock.on('close', () => {
-            res.emit('end');
-        });
 
         // Construct and send HTTP request
         const method = options.method || 'GET';
@@ -164,7 +153,28 @@ export const make_http_api = ({ Socket, DEFAULT_PORT }) => {
             requestString += options.data;
         }
         
-        sock.write(encoder.encode(requestString));
+        sock = new Socket(options.hostname, options.port ?? DEFAULT_PORT);
+        
+        sock.on('data', (data) => {
+            console.log('data event', data);
+            state.data(data);
+        });
+        sock.on('open', () => {
+            sock.write(encoder.encode(requestString));
+        });
+        sock.on('error', (err) => {
+            req.emit('error', err);
+        });
+        sock.on('close', () => {
+            if ( buffer ) {
+                console.log('close with buffer', buffer);
+                const bin = encoder.encode(buffer);
+                buffer = '';
+                state.data(bin);
+            }
+            res.emit('end');
+        });
+
         
         return req;
     };
