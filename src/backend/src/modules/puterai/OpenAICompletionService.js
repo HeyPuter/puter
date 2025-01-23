@@ -152,7 +152,7 @@ class OpenAICompletionService extends BaseService {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete ({ messages, test_mode, stream, model }) {
+            async complete ({ messages, test_mode, stream, model, tools }) {
 
                 // for now this code (also in AIChatService.js) needs to be
                 // duplicated because this hasn't been moved to be under
@@ -195,6 +195,7 @@ class OpenAICompletionService extends BaseService {
 
                 return await this.complete(messages, {
                     model: model,
+                    tools,
                     moderation: true,
                     stream,
                 });
@@ -242,7 +243,7 @@ class OpenAICompletionService extends BaseService {
     * @returns {Promise<Object>} The completion response containing message and usage info
     * @throws {Error} If messages are invalid or content is flagged by moderation
     */
-    async complete (messages, { stream, moderation, model }) {
+    async complete (messages, { stream, moderation, model, tools }) {
         // Validate messages
         if ( ! Array.isArray(messages) ) {
             throw new Error('`messages` must be an array');
@@ -360,6 +361,7 @@ class OpenAICompletionService extends BaseService {
             user: user_private_uid,
             messages: messages,
             model: model,
+            ...(tools ? { tools } : {}),
             // max_tokens,
             stream,
             ...(stream ? {
@@ -449,9 +451,9 @@ class OpenAICompletionService extends BaseService {
         }
 
         // We need to moderate the completion too
-        if ( moderation ) {
-            const text = completion.choices[0].message.content;
-            const moderation_result = await this.check_moderation(text);
+        const mod_text = completion.choices[0].message.content;
+        if ( moderation && mod_text !== null ) {
+            const moderation_result = await this.check_moderation(mod_text);
             if ( moderation_result.flagged ) {
                 throw new Error('message is not allowed');
             }
