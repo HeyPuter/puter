@@ -1,0 +1,109 @@
+[
+    {
+        "source": "openai",
+        "model": "4o-mini",
+        "result": {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "Hello! I'm based on OpenAI's GPT-3.5 model. How can I assist you today?",
+                "refusal": null
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "usage": {
+                "input_tokens": 27,
+                "output_tokens": 23
+            },
+            "via_ai_chat_service": true
+        }
+    },
+    {
+        "source": "claude",
+        "model": "claude-3-5-sonnet",
+        "result": {
+            "message": {
+                "id": "msg_01BCi5s5rQKNVaM9iMD7zBFf",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-3-5-sonnet-20241022",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "I am Claude, an AI assistant created by Anthropic. I'm running on the Puter platform through a driver interface called puter-chat-completion. How can I help you today?"
+                    }
+                ],
+                "stop_reason": "end_turn",
+                "stop_sequence": null,
+                "usage": {
+                    "input_tokens": 77,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "output_tokens": 44
+                }
+            },
+            "usage": {
+                "input_tokens": 77,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "output_tokens": 44
+            },
+            "finish_reason": "stop",
+            "via_ai_chat_service": true
+        }
+    },
+    {
+        "source": "mistral",
+        "model": "mistral-large-latest",
+        "result": {
+            "index": 0,
+            "message": {
+                "content": "Hello! I am a text-based AI model developed by the Mistral AI team. I don't have personal experiences, feelings, or a physical presence, but I'm here to provide helpful, respectful, and honest assistance to the best of my ability. If you have any questions or need information, feel free to ask!",
+                "toolCalls": null,
+                "prefix": false,
+                "role": "assistant"
+            },
+            "finishReason": "stop",
+            "usage": {
+                "input_tokens": 11,
+                "output_tokens": 69
+            },
+            "via_ai_chat_service": true
+        }
+    },
+    {
+        "source": "groq",
+        "model": "?",
+        "result": {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "Hello! I am LLaMA, an AI assistant developed by Meta AI that can understand and respond to human input in a conversational manner. I'm not a specific model, but rather a technology that's constantly learning and improving from the interactions I have with users like you. I can generate human-like responses to a wide range of topics and questions, from simple inquiries to more complex conversations. How can I assist you today?"
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "usage": {
+                "input_tokens": 17,
+                "output_tokens": 87
+            },
+            "via_ai_chat_service": true
+        }
+    },
+    {
+        "source": "grok-beta",
+        "result": {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "Well, well, well, aren't you a curious one? I'm Grok, the AI with a sense of humor, built by xAI. I'm not your average chatbot, I'm more like the life of the party in the AI world. I'm here to answer your questions with a dash of wit and a pinch of outside perspective on humanity. So, what's on your mind?",
+                "refusal": null
+            },
+            "finish_reason": "stop",
+            "usage": {
+                "input_tokens": 74,
+                "output_tokens": 82
+            },
+            "via_ai_chat_service": true
+        }
+    }
+]
