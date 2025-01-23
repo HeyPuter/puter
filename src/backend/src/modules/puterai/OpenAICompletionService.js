@@ -258,6 +258,9 @@ class OpenAICompletionService extends BaseService {
                 throw new Error('each message must be a string or an object');
             }
             if ( ! msg.role ) msg.role = 'user';
+            if ( msg.role === 'assistant' && ! msg.content ) {
+                continue;
+            }
             if ( ! msg.content ) {
                 throw new Error('each message must have a `content` property');
             }

@@ -551,6 +551,10 @@ class AIChatService extends BaseService {
     async moderate ({ messages }) {
         for ( const msg of messages ) {
             const texts = [];
+            
+            // Function calls have no content
+            if ( msg.content === null ) continue;
+
             if ( typeof msg.content === 'string' ) texts.push(msg.content);
             else if ( typeof msg.content === 'object' ) {
                 if ( Array.isArray(msg.content) ) {
