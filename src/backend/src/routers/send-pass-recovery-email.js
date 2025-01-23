@@ -74,10 +74,24 @@ router.post('/send-pass-recovery-email', express.json(), body_parser_error_handl
                 return res.status(400).send('Email not found.')
         }
 
+        if ( user.username === 'system' && config.allow_system_login !== true ) {
+            return res.status(400).send(
+                req.body.username
+                    ? 'Username not found.'
+                    : 'Email not found.'
+            )
+        }
+
         // check if user is suspended
         if(user.suspended){
             return res.status(401).send('Account suspended');
         }
+
+        // check if user even has an email for recovery
+        if( ! user.email ) {
+            return res.status(422).send('No email associated with this account.');
+        }
+
         // set pass_recovery_token
         const { v4: uuidv4 } = require('uuid');
         const nodemailer = require("nodemailer");

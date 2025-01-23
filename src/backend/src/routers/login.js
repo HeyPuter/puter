@@ -108,6 +108,13 @@ router.post('/login', express.json(), body_parser_error_handler, async (req, res
             if(!user)
                 return res.status(400).send('Email not found.')
         }
+        if (user.username === 'system' && config.allow_system_login !== true) {
+            return res.status(400).send(
+                req.body.username
+                    ? 'Username not found.'
+                    : 'Email not found.'
+            )
+        }
         // is user suspended?
         if(user.suspended)
             return res.status(401).send('This account is suspended.')
