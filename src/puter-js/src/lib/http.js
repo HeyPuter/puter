@@ -66,6 +66,11 @@ export const make_http_api = ({ Socket, DEFAULT_PORT }) => {
         };
         const TRANSFER_NO_KEEPALIVE = {
             data: data => {
+                if ( buffer ) {
+                    const bin = encoder.encode(buffer);
+                    data = new Uint8Array([...bin, ...data]);
+                    buffer = '';
+                }
                 res.emit('data', decoder.decode(data));
             }
         };
