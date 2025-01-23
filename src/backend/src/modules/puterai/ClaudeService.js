@@ -23,6 +23,7 @@ const BaseService = require("../../services/BaseService");
 const { whatis } = require("../../util/langutil");
 const { PassThrough } = require("stream");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
+const FunctionCalling = require("./lib/FunctionCalling");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 const PUTER_PROMPT = `
@@ -114,8 +115,10 @@ class ClaudeService extends BaseService {
             * @param {string} [options.model] - The Claude model to use, defaults to service default
             * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or a completion object
             */
-            async complete ({ messages, stream, model }) {
+            async complete ({ messages, stream, model, tools }) {
                 const adapted_messages = [];
+
+                tools = FunctionCalling.make_claude_tools(tools);
                 
                 const system_prompts = [];
                 let previous_was_user = false;
@@ -165,6 +168,7 @@ class ClaudeService extends BaseService {
                             temperature: 0,
                             system: PUTER_PROMPT + JSON.stringify(system_prompts),
                             messages: adapted_messages,
+                            ...(tools ? { tools } : {}),
                         });
                         const counts = { input_tokens: 0, output_tokens: 0 };
                         for await ( const event of completion ) {
@@ -202,6 +206,7 @@ class ClaudeService extends BaseService {
                     temperature: 0,
                     system: PUTER_PROMPT + JSON.stringify(system_prompts),
                     messages: adapted_messages,
+                    ...(tools ? { tools } : {}),
                 });
                 return {
                     message: msg,
