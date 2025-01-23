@@ -26,6 +26,7 @@ const { TypeSpec } = require("../../services/drivers/meta/Construct");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
 const { AsModeration } = require("./lib/AsModeration");
+const FunctionCalling = require("./lib/FunctionCalling");
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -352,6 +353,10 @@ class AIChatService extends BaseService {
                     if ( event.abuse ) {
                         parameters.model = 'abuse';
                     }
+                }
+
+                if ( parameters.tools ) {
+                    FunctionCalling.normalize_tools_object(parameters.tools);
                 }
 
                 if ( intended_service === this.service_name ) {
