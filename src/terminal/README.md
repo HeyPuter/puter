@@ -4,6 +4,9 @@
     <a href="https://puter.com/app/terminal"><strong>« LIVE DEMO »</strong></a>
     <br />
     <br />
+     <a href="https://app.codeanywhere.com/#https://github.com/HeyPuter/puter"><img src="https://codeanywhere.com/img/open-in-codeanywhere-btn.svg" alt=""></a>
+     <br />
+    <br />
     <a href="https://puter.com">Puter.com</a>
     ·
     <a href="https://discord.com/invite/PQcx7Teh8u">Discord</a>
