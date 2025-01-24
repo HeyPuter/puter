@@ -92,6 +92,14 @@ class PuterAIModule extends AdvancedBase {
             // services.registerService('claude', ClaudeEnoughService);
         }
 
+        if ( !! config?.services?.['deepseek'] ) {
+            const { DeepSeekService } = require('./DeepSeekService');
+            services.registerService('deepseek', DeepSeekService);
+
+            // const { ClaudeEnoughService } = require('./ClaudeEnoughService');
+            // services.registerService('claude', ClaudeEnoughService);
+        }
+
         const { AIChatService } = require('./AIChatService');
         services.registerService('ai-chat', AIChatService);
 
