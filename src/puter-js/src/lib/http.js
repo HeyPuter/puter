@@ -1,3 +1,4 @@
+import putility from "@heyputer/putility";
 import EventListener from "./EventListener";
 
 // TODO: this inheritance is an anti-pattern; we should use
@@ -7,9 +8,30 @@ export class HTTPRequest extends EventListener {
         super(['data','end','error']);
         this.options = options;
         this.callback = callback;
+
+        this.buffer = [];
+        this.onData_ = null;
+    }
+    set onData (callback) {
+        this.onData_ = callback;
+        if ( this.buffer.length ) {
+            this.buffer.forEach(chunk => this.onData_(chunk));
+            this.buffer = [];
+        }
+    }
+    write (chunk) {
+        // NOTE: Should be `.on('data', ...)` instead of this onData thing
+        //       but how do we buffer in that case? EventListener doesn't
+        //       currently support buffering events and #eventListeners is
+        //       private.
+        if ( this.onData_ ) {
+            this.onData_(chunk);
+        } else {
+            this.buffer.push(chunk);
+        }
     }
     end () {
-        //
+        this.emit('end');
     }
 }
 
@@ -143,24 +165,49 @@ export const make_http_api = ({ Socket, DEFAULT_PORT }) => {
             }
         }
         
-        let requestString = `${method} ${path} HTTP/1.1\r\n`;
+        let headerString = `${method} ${path} HTTP/1.1\r\n`;
         for (const [key, value] of Object.entries(headers)) {
-            requestString += `${key}: ${value}\r\n`;
+            headerString += `${key}: ${value}\r\n`;
         }
-        requestString += '\r\n';
+
+        let bodyChunks = [];
         
         if (options.data) {
-            requestString += options.data;
+            bodyChunks.push(options.data);
         }
         
         sock = new Socket(options.hostname, options.port ?? DEFAULT_PORT);
+
+        const p_socketOpen = new putility.libs.promise.TeePromise();
+        const p_reqEnd = new putility.libs.promise.TeePromise();
+
+        (async () => {
+            await p_socketOpen;
+            req.onData = (chunk) => {
+                if ( typeof chunk === 'string' ) {
+                    chunk = encoder.encode(chunk);
+                }
+                bodyChunks.push(chunk);
+            }
+            await p_reqEnd;
+            if ( bodyChunks.length ) {
+                headerString += `Content-Length: ${bodyChunks.reduce((acc, chunk) => acc + chunk.length, 0)}\r\n`;
+            }
+            sock.write(encoder.encode(headerString));
+            sock.write(encoder.encode('\r\n'));
+            bodyChunks.forEach(chunk => sock.write(chunk));
+        })()
+
+        req.on('end', () => {
+            p_reqEnd.resolve();
+        })
         
         sock.on('data', (data) => {
             console.log('data event', data);
             state.data(data);
         });
         sock.on('open', () => {
-            sock.write(encoder.encode(requestString));
+            p_socketOpen.resolve();
         });
         sock.on('error', (err) => {
             req.emit('error', err);
