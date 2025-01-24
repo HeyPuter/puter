@@ -60,3 +60,79 @@ URL.createObjectURL(await (await fetch("http://api.puter.localhost:4100/drivers/
   "method": "POST",
 })).blob());
 ```
+
+### Tool Use
+
+```javascript
+await puter.ai.chat('What\'s the weather like in Vancouver?', {
+    tools: [
+        {
+            type: 'function',
+            'function': {
+                name: 'get_weather',
+                description: 'A string describing the weather',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        location: {
+                            type: 'string',
+                            description: 'city',
+                        },
+                    },
+                    required: ['location'],
+                    additionalProperties: false,
+                },
+                strict: true
+            },
+        }
+    ]
+})
+```
+
+```javascript
+await puter.ai.chat([
+    { content: `What's the weather like in Vancouver?` },
+    {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+                {
+                    "id": "call_vcfEOmDczXq7KGMirPGGiNEe",
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "arguments": "{\"location\":\"Vancouver\"}"
+                    }
+                }
+            ],
+            "refusal": null
+    },
+    {
+        role: 'tool',
+        tool_call_id: 'call_vcfEOmDczXq7KGMirPGGiNEe',
+        content: 'Sunny with a chance of rain'
+    },
+], {
+    tools: [
+        {
+            type: 'function',
+            'function': {
+                name: 'get_weather',
+                description: 'A string describing the weather',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        location: {
+                            type: 'string',
+                            description: 'city',
+                        },
+                    },
+                    required: ['location'],
+                    additionalProperties: false,
+                },
+                strict: true
+            },
+        }
+    ]
+})
+```
