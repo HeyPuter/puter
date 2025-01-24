@@ -378,6 +378,7 @@ class AIChatService extends BaseService {
                     ret = await svc_driver.call_new_({
                         actor: Context.get('actor'),
                         service_name: intended_service,
+                        skip_usage: true,
                         iface: 'puter-chat-completion',
                         method: 'complete',
                         args: parameters,
@@ -431,6 +432,7 @@ class AIChatService extends BaseService {
                             ret = await svc_driver.call_new_({
                                 actor: Context.get('actor'),
                                 service_name: fallback_service_name,
+                                skip_usage: true,
                                 iface: 'puter-chat-completion',
                                 method: 'complete',
                                 args: {
