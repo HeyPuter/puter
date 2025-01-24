@@ -8,8 +8,6 @@ class InternetModule extends AdvancedBase {
         if ( !! config?.services?.['wisp-relay'] ) {
             const WispRelayService = require('./WispRelayService.js');
             services.registerService('wisp-relay', WispRelayService);
-        } else {
-            this.log.noticeme('WISP Relay is disabled');
         }
 
     }
