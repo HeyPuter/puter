@@ -44,7 +44,7 @@ async function UIWindowMyWebsites(options){
         allow_native_ctxmenu: true,
         allow_user_select: true,
         width: 400,
-        dominant: true,
+        dominant: false,
         onAppend: function(el_window){
         },
         window_css:{
