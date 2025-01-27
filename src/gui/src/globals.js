@@ -175,6 +175,9 @@ $( window ).on( "resize", function() {
     const new_desktop_width = window.innerWidth;
 
     $('.window').each((_, el) => {
+        // if window is maximized, do not resize
+        if($(el).attr('data-is_maximized') === "1") return;
+
         // if data-is_fullpage="1" then the window is in fullpage mode
         // and should not be resized
         if($(el).attr('data-is_fullpage') === "1") return;
@@ -189,11 +192,11 @@ $( window ).on( "resize", function() {
             }
         }
 
-        const leftRadio = pos.left / window.desktop_width;
-        const topRadio = pos.top / window.desktop_height;
+        const leftRatio = pos.left / window.desktop_width;
+        const topRatio = pos.top / window.desktop_height;
 
-        let left = new_desktop_width * leftRadio;
-        let top = new_desktop_height * topRadio;
+        let left = new_desktop_width * leftRatio;
+        let top = new_desktop_height * topRatio;
 
         const maxLeft = new_desktop_width - $(el).width();
         const maxTop = new_desktop_height - $(el).height();
