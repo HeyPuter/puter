@@ -432,9 +432,6 @@ class OpenAICompletionService extends BaseService {
             return tokens.length;
         })();
 
-        const svc_spending = Context.get('services').get('spending');
-        svc_spending.record_spending('openai', 'chat-completion', spending_meta);
-
         const svc_counting = Context.get('services').get('counting');
         svc_counting.increment({
             service_name: 'openai:chat-completion',

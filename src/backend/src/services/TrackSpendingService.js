@@ -278,6 +278,8 @@ class TrackSpendingService extends BaseService {
     /**
      * Records spending for a given vendor using the specified strategy
      * 
+     * @deprecated Use `record_cost` instead
+     * 
      * @param {string} vendor - The vendor name/identifier
      * @param {string} strategy_key - Key identifying the pricing strategy to use
      * @param {Object} data - Data needed to calculate cost based on the strategy
@@ -298,6 +300,22 @@ class TrackSpendingService extends BaseService {
 
         const id = `${vendor}:${strategy_key}`;
         const window = this.add_or_get_window_(id);
+        window.add(cost);
+    }
+
+    /**
+     * Records known cost into a specified window id.
+     * 
+     * This is simliar to `record_spending` but puts the responsibility
+     * of determining cost outside of this services.
+     */
+    record_cost (window_id, { timestamp, cost }) {
+        const window = this.add_or_get_window_(window_id);
+        this.log.info(`Spent ${format_as_usd(cost)}`, {
+            window_id,
+            timestamp,
+            cost,
+        })
         window.add(cost);
     }
 }

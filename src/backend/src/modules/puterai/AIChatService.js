@@ -112,6 +112,16 @@ class AIChatService extends BaseService {
             }
 
             await this.db.insert('ai_usage', values);
+
+            // USD cost from microcents
+            const cost_usd = values.cost / 1000000;
+
+            // Add to TrackSpendingService
+            const svc_spending = this.services.get('spending');
+            svc_spending.record_cost(`${details.service_used}:chat-completion`, {
+                timestamp: Date.now(),
+                cost: cost_usd,
+            });
         });
         
         const svc_apiErrpr = this.services.get('api-error');
