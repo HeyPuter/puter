@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -98,17 +98,10 @@ class LLRmDir extends LLFilesystemOperation {
             });
         }
 
-        if ( ! descendants_only ) {
-            tasks.add(`fs:rm:rm-self`, async () => {
-                const ll_rm = new LLRmNode();
-                await ll_rm.run({
-                    target,
-                    user,
-                });
-            });
-        }
-
         await tasks.awaitAll();
+        if ( ! descendants_only ) {
+            await target.provider.rmdir({ context, node: target });
+        }
     }
 }
 

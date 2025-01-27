@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -17,8 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { PassThrough, Readable, Transform } = require('stream');
-const { TeePromise } = require('./promise');
-const { EWMA } = require('./opmath');
+const { TeePromise } = require('@heyputer/putility').libs.promise;
+const crypto = require('crypto');
 
 class StreamBuffer extends TeePromise {
     constructor () {
@@ -47,6 +47,15 @@ const stream_to_the_void = stream => {
     stream.on('error', () => {});
 };
 
+/**
+ * This will split a stream (on the read side) into `n` streams.
+ * The slowest reader will determine the speed the the source stream
+ * is consumed at to avoid buffering.
+ * 
+ * @param {*} source 
+ * @param {*} n 
+ * @returns 
+ */
 const pausing_tee = (source, n) => {
     const { PassThrough } = require('stream');
 
@@ -59,39 +68,31 @@ const pausing_tee = (source, n) => {
         streams_.push(stream);
         stream.on('drain', () => {
             ready_[i] = true;
-            // console.log(source.id, 'PR :: drain from reader', i, ready_);
             if ( first_ ) {
                 source.resume();
                 first_ = false;
             }
             if (ready_.every(v => !! v)) source.resume();
         });
-        // stream.on('newListener', (event, listener) => {
-        //     console.log('PR :: newListener', i, event, listener);
-        // });
     }
 
     source.on('data', (chunk) => {
-        // console.log(source.id, 'PT :: data from source', chunk.length);
         ready_.forEach((v, i) => {
             ready_[i] = streams_[i].write(chunk);
         });
         if ( ! ready_.every(v => !! v) ) {
-            // console.log('PT :: pausing source', ready_);
             source.pause();
             return;
         }
     });
 
     source.on('end', () => {
-        // console.log(source.id, 'PT :: end from source');
         for ( let i=0 ; i < n ; i++ ) {
             streams_[i].end();
         }
     });
 
     source.on('error', (err) => {
-        // console.log(source.id, 'PT :: error from source', err);
         for ( let i=0 ; i < n ; i++ ) {
             streams_[i].emit('error', err);
         }
@@ -100,6 +101,9 @@ const pausing_tee = (source, n) => {
     return streams_;
 };
 
+/**
+ * A debugging stream transform that logs the data it receives.
+ */
 class LoggingStream extends Transform {
     constructor(options) {
         super(options);
@@ -337,6 +341,27 @@ const size_limit_stream = (source, { limit }) => {
     return stream;
 }
 
+class SizeMeasuringStream extends Transform {
+    constructor(options, probe) {
+        super(options);
+        this.probe = probe;
+        this.loaded = 0;
+    }
+
+    _transform(chunk, encoding, callback) {
+        this.loaded += chunk.length;
+        probe.amount = this.loaded;
+        this.push(chunk);
+        callback();
+    }
+}
+
+const size_measure_stream = (source, probe = {}) => {
+    const stream = new SizeMeasuringStream({}, probe);
+    source.pipe(stream);
+    return stream;
+}
+
 class StuckDetectorStream extends Transform {
     constructor(options, {
         timeout,
@@ -431,9 +456,7 @@ async function* chunk_stream(
         offset += amount;
 
         while (offset >= chunk_size) {
-            console.log('start yield');
             yield buffer;
-            console.log('end yield');
 
             buffer = Buffer.alloc(chunk_size);
             offset = 0;
@@ -449,13 +472,8 @@ async function* chunk_stream(
 
         if ( chunk_time_ewma !== null ) {
             const chunk_time = chunk_time_ewma.get();
-            // const sleep_time = chunk_size * chunk_time;
             const sleep_time = (chunk.length / chunk_size) * chunk_time / 2;
-            // const sleep_time = (amount / chunk_size) * chunk_time;
-            // const sleep_time = (amount / chunk_size) * chunk_time;
-            console.log(`start sleep ${amount} / ${chunk_size} * ${chunk_time} = ${sleep_time}`);
             await new Promise(resolve => setTimeout(resolve, sleep_time));
-            console.log('end sleep');
         }
     }
 
@@ -479,6 +497,31 @@ const buffer_to_stream = (buffer) => {
     return stream;
 };
 
+const hashing_stream = (source) => {
+    const hash = crypto.createHash('sha256');
+    const stream = new Transform({
+        transform(chunk, encoding, callback) {
+            hash.update(chunk);
+            this.push(chunk);
+            callback();
+        }
+    });
+
+    source.pipe(stream);
+
+    const hashPromise = new Promise((resolve, reject) => {
+        source.on('end', () => {
+            resolve(hash.digest('hex'));
+        });
+        source.on('error', reject);
+    });
+
+    return {
+        stream,
+        hashPromise,
+    };
+};
+
 module.exports = {
     StreamBuffer,
     stream_to_the_void,
@@ -492,4 +535,5 @@ module.exports = {
     chunk_stream,
     stream_to_buffer,
     buffer_to_stream,
+    hashing_stream,
 };

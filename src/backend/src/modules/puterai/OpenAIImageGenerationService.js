@@ -1,11 +1,45 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ * 
+ * This file is part of Puter.
+ * 
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// METADATA // {"ai-commented":{"service":"claude"}}
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
 
+
+/**
+* Service class for generating images using OpenAI's DALL-E API.
+* Extends BaseService to provide image generation capabilities through
+* the puter-image-generation interface. Supports different aspect ratios
+* (square, portrait, landscape) and handles API authentication, request
+* validation, and spending tracking.
+*/
 class OpenAIImageGenerationService extends BaseService {
     static MODULES = {
         openai: require('openai'),
     }
+    /**
+    * Initializes the OpenAI client with API credentials from config
+    * @private
+    * @async
+    * @returns {Promise<void>}
+    */
     async _init () {
         const sk_key =
             this.config?.openai?.secret_key ??
@@ -24,6 +58,15 @@ class OpenAIImageGenerationService extends BaseService {
             }
         },
         ['puter-image-generation']: {
+            /**
+            * Generates an image using OpenAI's DALL-E API
+            * @param {string} prompt - The text description of the image to generate
+            * @param {Object} options - Generation options
+            * @param {Object} options.ratio - Image dimensions ratio object with w/h properties
+            * @param {string} [options.model='dall-e-3'] - The model to use for generation
+            * @returns {Promise<string>} URL of the generated image
+            * @throws {Error} If prompt is not a string or ratio is invalid
+            */
             async generate ({ prompt, test_mode }) {
                 if ( test_mode ) {
                     return new TypedValue({

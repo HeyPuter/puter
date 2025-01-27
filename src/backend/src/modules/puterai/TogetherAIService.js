@@ -1,9 +1,37 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ * 
+ * This file is part of Puter.
+ * 
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// METADATA // {"ai-commented":{"service":"claude"}}
 const { PassThrough } = require("stream");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { nou } = require("../../util/langutil");
-const { TeePromise } = require("../../util/promise");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 
+
+/**
+* TogetherAIService class provides integration with Together AI's language models.
+* Extends BaseService to implement chat completion functionality through the
+* puter-chat-completion interface. Manages model listings, chat completions,
+* and streaming responses while handling usage tracking and model fallback testing.
+* @extends BaseService
+*/
 class TogetherAIService extends BaseService {
     static MODULES = {
         ['together-ai']: require('together-ai'),
@@ -11,6 +39,13 @@ class TogetherAIService extends BaseService {
         uuidv4: require('uuid').v4,
     }
 
+
+    /**
+    * Initializes the TogetherAI service by setting up the API client and registering as a chat provider
+    * @async
+    * @returns {Promise<void>}
+    * @private
+    */
     async _init () {
         const require = this.require;
         const Together = require('together-ai');
@@ -27,20 +62,42 @@ class TogetherAIService extends BaseService {
         });
     }
 
+
+    /**
+    * Returns the default model ID for the Together AI service
+    * @returns {string} The ID of the default model (meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo)
+    */
     get_default_model () {
         return 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo';
     }
     
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
+            /**
+             * Returns a list of available models and their details.
+             * See AIChatService for more information.
+             * 
+             * @returns Promise<Array<Object>> Array of model details
+             */
             async models () {
                 return await this.models_();
             },
+
+            /**
+            * Returns a list of available model names including their aliases
+            * @returns {Promise<string[]>} Array of model identifiers and their aliases
+            * @description Retrieves all available model IDs and their aliases,
+            * flattening them into a single array of strings that can be used for model selection
+            */
             async list () {
                 let models = this.modules.kv.get(`${this.kvkey}:models`);
                 if ( ! models ) models = await this.models_();
                 return models.map(model => model.id);
             },
+            /**
+             * AI Chat completion method.
+             * See AIChatService for more details.
+             */
             async complete ({ messages, stream, model }) {
                 if ( model === 'model-fallback-test-1' ) {
                     throw new Error('Model Fallback Test 1');
@@ -103,6 +160,14 @@ class TogetherAIService extends BaseService {
         }
     }
 
+
+    /**
+    * Fetches and caches available AI models from Together API
+    * @private
+    * @returns {Promise<Array>} Array of model objects containing id, name, context length, 
+    *                          description and pricing information
+    * @remarks Models are cached for 5 minutes in KV store
+    */
     async models_ () {
         let models = this.modules.kv.get(`${this.kvkey}:models`);
         if ( models ) return models;

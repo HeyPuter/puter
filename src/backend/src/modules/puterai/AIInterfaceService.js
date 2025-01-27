@@ -1,6 +1,39 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ * 
+ * This file is part of Puter.
+ * 
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// METADATA // {"ai-commented":{"service":"claude"}}
 const BaseService = require("../../services/BaseService");
 
+
+/**
+* Service class that manages AI interface registrations and configurations.
+* Handles registration of various AI services including OCR, chat completion,
+* image generation, and text-to-speech interfaces. Each interface defines
+* its available methods, parameters, and expected results.
+* @extends BaseService
+*/
 class AIInterfaceService extends BaseService {
+    /**
+    * Service class for managing AI interface registrations and configurations.
+    * Extends the base service to provide AI-related interface management.
+    * Handles registration of OCR, chat completion, image generation, and TTS interfaces.
+    */
     async ['__on_driver.register.interfaces'] () {
         const svc_registry = this.services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');
@@ -42,6 +75,7 @@ class AIInterfaceService extends BaseService {
                     description: 'Get completions for a chat log.',
                     parameters: {
                         messages: { type: 'json' },
+                        tools: { type: 'json' },
                         vision: { type: 'flag' },
                         stream: { type: 'flag' },
                         model: { type: 'string' },

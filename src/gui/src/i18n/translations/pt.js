@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -358,7 +358,62 @@ const pt = {
         'Share_With': 'Partilhar com…', // In English: "Share With…"
         'Owner': 'Administrador', // In English: "Owner"
         'You_cant_share_with_yourself': 'Não podes partilhar contigo mesmo', // In English: "You can't share with yourself."
-        'This_user_already_has_access_to_this_item': 'Este utilizador já tem acesso a este item' // In English: "This user already has access to this item"
+        'This_user_already_has_access_to_this_item': 'Este utilizador já tem acesso a este item', // In English: "This user already has access to this item"
+
+        // ----------------------------------------
+        // Missing translations:
+        // ----------------------------------------
+        "People with access": "Pessoas com acesso", // In English: "People with access"
+        "Share With…": "Partilhar com…", // In English: "Share With…"
+        "You can't share with yourself.": "Não pode partilhar consigo mesmo.", // In English: "You can't share with yourself."
+        "This user already has access to this item": "Este utilizador já tem acesso a este item.", // In English: "This user already has access to this item"
+        "billing.change_payment_method": "Alterar", // In English: "Change"
+        "billing.cancel": "Cancelar", // In English: "Cancel"
+        "billing.download_invoice": "Descarregar", // In English: "Download"
+        "billing.payment_method": "Método de Pagamento", // In English: "Payment Method"
+        "billing.payment_method_updated": "Método de pagamento atualizado!", // In English: "Payment method updated!"
+        "billing.confirm_payment_method": "Confirmar Método de Pagamento", // In English: "Confirm Payment Method"
+        "billing.payment_history": "Histórico de Pagamentos", // In English: "Payment History"
+        "billing.refunded": "Reembolsado", // In English: "Refunded"
+        "billing.paid": "Pago", // In English: "Paid"
+        "billing.ok": "OK", // In English: "OK"
+        "billing.resume_subscription": "Retomar Subscrição", // In English: "Resume Subscription"
+        "billing.subscription_cancelled": "A sua subscrição foi cancelada.", // In English: "Your subscription has been canceled."
+        "billing.subscription_cancelled_description": "Ainda terá acesso à sua subscrição até ao final deste período de faturação.", // In English: "You will still have access to your subscription until the end of this billing period."
+        "billing.offering.free": "Grátis", // In English: "Free"
+        "billing.offering.pro": "Profissional", // In English: "Professional"
+        "billing.offering.business": "Empresarial", // In English: "Business"
+        "billing.cloud_storage": "Armazenamento na Nuvem", // In English: "Cloud Storage"
+        "billing.ai_access": "Acesso à IA", // In English: "AI Access"
+        "billing.bandwidth": "Largura de Banda", // In English: "Bandwidth"
+        "billing.apps_and_games": "Aplicações e Jogos", // In English: "Apps & Games"
+        "billing.upgrade_to_pro": "Atualizar para %strong%", // In English: "Upgrade to %strong%"
+        "billing.switch_to": "Trocar para %strong%", // In English: "Switch to %strong%"
+        "billing.payment_setup": "Configuração de Pagamento", // In English: "Payment Setup"
+        "billing.back": "Voltar", // In English: "Back"
+        "billing.you_are_now_subscribed_to": "A sua subscrição no nivel %strong% foi realizada com uscesso.", // In English: "You are now subscribed to %strong% tier."
+        "billing.you_are_now_subscribed_to_without_tier": "A sua subscrição foi realizada com sucesso", // In English: "You are now subscribed"
+        "billing.subscription_cancellation_confirmation": "Tem a certeza de que deseja cancelar a sua subscrição?", // In English: "Are you sure you want to cancel your subscription?"
+        "billing.subscription_setup": "Configuração da Subscrição", // In English: "Subscription Setup"
+        "billing.cancel_it": "Cancelar", // In English: "Cancel It"
+        "billing.keep_it": "Manter", // In English: "Keep It"
+        "billing.subscription_resumed": "A sua subscrição %strong% foi reativada!", // In English: "Your %strong% subscription has been resumed!"
+        "billing.upgrade_now": "Atualizar Agora", // In English: "Upgrade Now"
+        "billing.upgrade": "Atualizar", // In English: "Upgrade"
+        "billing.currently_on_free_plan": "Está atualmente no plano gratuito.", // In English: "You are currently on the free plan."
+        "billing.download_receipt": "Descarregar Recibo", // In English: "Download Receipt"
+        "billing.subscription_check_error": "Ocorreu um problema ao verificar o estado da sua subscrição.", // In English: "A problem occurred while checking your subscription status."
+        "billing.email_confirmation_needed": "O seu email não foi confirmado. Enviaremos agora um código para o confirmar.", // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
+        "billing.sub_cancelled_but_valid_until": "Cancelou a sua subscrição e será automaticamente ativado o plano gratuito no final do período de faturação. Não será cobrado novamente a menos que volte a subscrever.", // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
+        "billing.current_plan_until_end_of_period": "O seu plano atual até ao final deste período de faturação.", // In English: "Your current plan until the end of this billing period."
+        "billing.current_plan": "Plano Atual", // In English: "Current plan"
+        "billing.cancelled_subscription_tier": "Subscrição Cancelada (%%)", // In English: "Cancelled Subscription (%%)"
+        "billing.manage": "Gerir", // In English: "Manage"
+        "billing.limited": "Limitado", // In English: "Limited"
+        "billing.expanded": "Expandido", // In English: "Expanded"
+        "billing.accelerated": "Acelerado", // In English: "Accelerated"
+        "billing.enjoy_msg": "Desfrute de %% de Armazenamento na Nuvem e outros benefícios.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
+
     }
 };
 

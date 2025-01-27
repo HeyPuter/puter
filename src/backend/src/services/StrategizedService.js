@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -17,8 +18,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { TechnicalError } = require("../errors/TechnicalError");
-const { quot } = require("../util/strutil");
+const { quot } = require('@heyputer/putility').libs.string;
 
+
+/**
+ * An abstract service used to strategize services in confirguration,
+ * primarily used for thumbnail service selection, but it could be used
+ * to strategize any service.
+ */
 class StrategizedService {
     constructor (service_resources, ...a) {
         const { my_config, args, name } = service_resources;
@@ -53,9 +60,14 @@ class StrategizedService {
         return this.strategy;
     }
 
+
+    /**
+     * This method must be implemented by the delegate or an error will be thrown
+     */
     async init () {
         throw this.initError;
     }
+
 
     async construct () {}
 }

@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -18,6 +19,12 @@
  */
 const { AdvancedBase } = require("@heyputer/putility");
 
+
+/**
+* Represents a Storage Service that extends the functionality of AdvancedBase.
+* This class is responsible for handling storage-related operations within the application,
+* enabling efficient management and access to data services.
+*/
 class StorageService extends AdvancedBase {
     constructor ({ services }) {
         super(services);

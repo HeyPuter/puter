@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -17,13 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require("../../api/APIError");
-const { app_name_exists, get_user, refresh_apps_cache } = require("../../helpers");
+const { app_name_exists, refresh_apps_cache } = require("../../helpers");
 
 const { AppUnderUserActorType } = require("../../services/auth/Actor");
 const { DB_WRITE } = require("../../services/database/consts");
 const { Context } = require("../../util/context");
+const { stream_to_buffer } = require("../../util/streamutil");
 const { origin_from_url } = require("../../util/urlutil");
-const { Eq, Like, Or } = require("../query/query");
+const { Eq, Like, Or, And } = require("../query/query");
 const { BaseES } = require("./BaseES");
 
 const uuidv4 = require('uuid').v4;
@@ -34,6 +35,13 @@ class AppES extends BaseES {
             const services = this.context.get('services');
             this.db = services.get('database').get(DB_WRITE, 'apps');
         },
+
+        /**
+         * Creates query predicates for filtering apps
+         * @param {string} id - Predicate identifier
+         * @param {...any} args - Additional arguments for predicate creation
+         * @returns {Promise<Eq|Like>} Query predicate object
+         */
         async create_predicate (id, ...args) {
             if ( id === 'user-can-edit' ) {
                 return new Eq({
@@ -52,6 +60,12 @@ class AppES extends BaseES {
             const svc_appInformation = this.context.get('services').get('app-information');
             await svc_appInformation.delete_app(uid);
         },
+
+        /**
+         * Filters app selection based on user permissions and visibility settings
+         * @param {Object} options - Selection options including predicates
+         * @returns {Promise<Object>} Filtered selection results
+         */
         async select (options) {
             const actor = Context.get('actor');
             const user = actor.type.user;
@@ -84,12 +98,19 @@ class AppES extends BaseES {
 
             return await this.upstream.select(options);
         },
+        
+        /**
+         * Creates or updates an application with proper name handling and associations
+         * @param {Object} entity - Application entity to upsert
+         * @param {Object} extra - Additional upsert parameters
+         * @returns {Promise<Object>} Upsert operation results
+         */
         async upsert (entity, extra) {
             if ( await app_name_exists(await entity.get('name')) ) {
                 const { old_entity } = extra;
-                const throw_it = ( ! old_entity ) ||
+                const is_name_change = ( ! old_entity ) ||
                     ( await old_entity.get('name') !== await entity.get('name') );
-                if ( throw_it && extra.options && extra.options.dedupe_name ) {
+                if ( is_name_change && extra?.options?.dedupe_name ) {
                     const base = await entity.get('name');
                     let number = 1;
                     while ( await app_name_exists(`${base}-${number}`) ) {
@@ -97,10 +118,20 @@ class AppES extends BaseES {
                     }
                     await entity.set('name', `${base}-${number}`)
                 }
-                else if ( throw_it ) {
-                    throw APIError.create('app_name_already_in_use', null, {
-                        name: await entity.get('name')
-                    });
+                else if ( is_name_change ) {
+                    // The name might be taken because it's the old name
+                    // of this same app. If it is, the app takes it back.
+                    const svc_oldAppName = this.context.get('services').get('old-app-name');
+                    const name_info = await svc_oldAppName.check_app_name(await entity.get('name'));
+                    if ( ! name_info || name_info.app_uid !== await entity.get('uid') ) {
+                        // Throw error because the name really is taken
+                        throw APIError.create('app_name_already_in_use', null, {
+                            name: await entity.get('name')
+                        });
+                    }
+
+                    // Remove the old name from the old-app-name service
+                    await svc_oldAppName.remove_name(name_info.id);
                 } else {
                     entity.del('name');
                 }
@@ -127,6 +158,38 @@ class AppES extends BaseES {
                     filetype_associations.map(() => '(?, ?)').join(', ');
                 const rows = filetype_associations.map(a => [insert_id, a.toLowerCase()]);
                 await this.db.write(stmt, rows.flat());
+            }
+
+            const has_new_icon =
+                ( ! extra.old_entity ) || (
+                    await entity.get('icon') !== await extra.old_entity.get('icon')
+                );
+
+            if ( has_new_icon ) {
+                const svc_event = this.context.get('services').get('event');
+                const event = {
+                    app_uid: await entity.get('uid'),
+                    data_url: await entity.get('icon'),
+                };
+                await svc_event.emit('app.new-icon', event);
+                if ( event.url ) {
+                    await entity.set('icon')
+                }
+            }
+
+            const has_new_name =
+                extra.old_entity && (
+                    await entity.get('name') !== await extra.old_entity.get('name')
+                );
+
+            if ( has_new_name ) {
+                const svc_event = this.context.get('services').get('event');
+                const event = {
+                    app_uid: await entity.get('uid'),
+                    new_name: await entity.get('name'),
+                    old_name: await extra.old_entity.get('name'),
+                };
+                await svc_event.emit('app.rename', event);
             }
 
             // Associate app with subdomain (if applicable)
@@ -169,6 +232,40 @@ class AppES extends BaseES {
 
             return result;
         },
+        async retry_predicate_rewrite ({ predicate }) {
+            const recurse = async (predicate) => {
+                if ( predicate instanceof Or ) {
+                    return new Or({
+                        children: await Promise.all(
+                            predicate.children.map(recurse)
+                        ),
+                    });
+                }
+                if ( predicate instanceof And ) {
+                    return new And({
+                        children: await Promise.all(
+                            predicate.children.map(recurse)
+                        ),
+                    });
+                }
+                if ( predicate instanceof Eq ) {
+                    if ( predicate.key === 'name' ) {
+                        const svc_oldAppName = this.context.get('services').get('old-app-name');
+                        const name_info = await svc_oldAppName.check_app_name(predicate.value);
+                        return new Eq({
+                            key: 'uid',
+                            value: name_info?.app_uid,
+                        });
+                    }
+                }
+            };
+            return await recurse(predicate);
+        },
+
+        /**
+         * Transforms app data before reading by adding associations and handling permissions
+         * @param {Object} entity - App entity to transform
+         */
         async read_transform (entity) {
             // Add file associations
             const rows = await this.db.read(
@@ -178,7 +275,7 @@ class AppES extends BaseES {
             entity.set('filetype_associations', rows.map(row => row.type));
 
             const svc_appInformation = this.context.get('services').get('app-information');
-            const stats = await svc_appInformation.get_stats(await entity.get('uid'));
+            const stats = await svc_appInformation.get_stats(await entity.get('uid'), {period: Context.get('es_params')?.stats_period, grouping: Context.get('es_params')?.stats_grouping, created_at: await entity.get('created_at')});
             entity.set('stats', stats);
 
             entity.set('created_from_origin', await (async () => {
@@ -191,6 +288,7 @@ class AppES extends BaseES {
                     ? origin : null ;
             })());
 
+            // Check if the user is the owner
             const is_owner = await (async () => {
                 let owner = await entity.get('owner');
                 
@@ -204,12 +302,37 @@ class AppES extends BaseES {
                 return actor.type.user.id === owner.id;
             })();
 
+            // Remove fields that are not allowed for non-owners
             if ( ! is_owner ) {
                 entity.del('approved_for_listing');
                 entity.del('approved_for_opening_items');
                 entity.del('approved_for_incentive_program');
             }
+
+            // Replace icon if an icon size is specified
+            const icon_size = Context.get('es_params')?.icon_size;
+            if ( icon_size ) {
+                const svc_appIcon = this.context.get('services').get('app-icon');
+                try {
+                    const icon_result = await svc_appIcon.get_icon_stream({
+                        app_uid: await entity.get('uid'),
+                        app_icon: await entity.get('icon'),
+                        size: icon_size,
+                    });
+                    await entity.set('icon', await icon_result.get_data_url());
+                } catch (e) {
+                    const svc_error = this.context.get('services').get('error-service');
+                    svc_error.report('AppES:read_transform', { source: e });
+                }
+            }
         },
+
+        /**
+         * Creates a subdomain entry for the app if required
+         * @param {Object} entity - App entity
+         * @returns {Promise<number|undefined>} Subdomain ID if created
+         * @private
+         */
         async maybe_insert_subdomain_ (entity) {
             // Create and update is a situation where we might create a subdomain
 

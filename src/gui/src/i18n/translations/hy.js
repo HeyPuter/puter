@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -346,20 +346,67 @@ const hy = {
         login2fa_recovery_back: "Հետ",
         login2fa_recovery_placeholder: "XXXXXXXX",
 
-        "change": "փոփոխել", // In English: "Change"
-        "clock_visibility": "ժամացույցի տեսանելիություն", // In English: "Clock Visibility"
-        "reading": "կարդալ", // In English: "Reading %strong%"
-        "writing": "գրել", // In English: "Writing %strong%"
-        "unzipping": "Արխիվի բացում", // In English: "Unzipping %strong%"
-        "sequencing": "հաջորդականացում", // In English: "Sequencing %strong%"
-        "zipping": "Արխիվացում", // In English: "Zipping %strong%"
-        "Editor": "Խմբագիր", // In English: "Editor"
-        "Viewer": "Դիտող", // In English: "Viewer"
-        "People with access": "Մարդիկ, ովքեր ունեն հասանելիություն", // In English: "People with access"
-        "Share With…": "Կիսվել …", // In English: "Share With…"
-        "Owner": "Սեփականատեր", // In English: "Owner"
-        "You can't share with yourself.": "Դուք չեք կարող կիսվել ինքներդ ձեզ հետ։", // In English: "You can't share with yourself."
-        "This user already has access to this item": "Այս օգտատերը արդեն ունի հասանելիություն այս տարրին։", // In English: "This user already has access to this item"
+        change: "Փոփոխել",
+        clock_visibility: "Ժամացույցի տեսանելիություն",
+        reading: "Ընթերցում",
+        writing: "Գրում",
+        unzipping: "Արխիվը բացել",
+        sequencing: "Հաջորդականություն",
+        zipping: "Արխիվացում",
+        Editor: "Խմբագրիչ",
+        Viewer: "Դիտորդ",
+        "People with access": "Մուտքի իրավունք ունեցող անձինք",
+        "Share With…": "Կիսվել…",
+        Owner: "Սեփականատեր",
+        "You can’t share with yourself.": "Դուք չեք կարող կիսվել ինքներդ ձեզ հետ։",
+        "This user already has access to this item": "Այս օգտատերն արդեն մուտքի իրավունք ունի։",
+        "You can't share with yourself.": "Դուք չեք կարող կիսվել ինքներդ ձեզ հետ",
+        "billing.change_payment_method": "Փոխել",
+        "billing.cancel": "Չեղարկել",
+        "billing.download_invoice": "Ներբեռնել",
+        "billing.payment_method": "Վճարման եղանակ",
+        "billing.payment_method_updated": "Վճարման եղանակը թարմացվել է",
+        "billing.confirm_payment_method": "Հաստատեք վճարման եղանակը",
+        "billing.payment_history": "Վճարումների պատմություն",
+        "billing.refunded": "Վերադարձվել է",
+        "billing.paid": "Վճարված",
+        "billing.ok": "Լավ",
+        "billing.resume_subscription": "Երկարացնել բաժանորդագրությունը",
+        "billing.subscription_cancelled": "Ձեր բաժանորդագրությունը չեղարկվել է",
+        "billing.subscription_cancelled_description": "Դուք դեռ կունենաք ձեր բաժանորդագրությանը մուտք մինչև այս վճարային ժամանակահատվածի ավարտը",
+        "billing.offering.free": "Անվճար",
+        "billing.offering.pro": "Պրոֆեսիոնալ",
+        "billing.offering.business": "Բիզնես",
+        "billing.cloud_storage": "Ամպային պահեստավորում",
+        "billing.ai_access": "ԱԲ հասանելիություն",
+        "billing.bandwidth": "Լայնաշերտ",
+        "billing.apps_and_games": "Ծրագրեր և խաղեր",
+        "billing.upgrade_to_pro": "Թարմացնել %strong%",
+        "billing.switch_to": "Անցնել դեպի %strong%",
+        "billing.payment_setup": "Վճարման կարգավորում",
+        "billing.back": "Հետ",
+        "billing.you_are_now_subscribed_to": "Դուք այժմ բաժանորդագրված եք %strong% պլանին",
+        "billing.you_are_now_subscribed_to_without_tier": "Դուք այժմ բաժանորդագրված եք",
+        "billing.subscription_cancellation_confirmation": "Վստա՞հ եք, որ ցանկանում եք չեղարկել բաժանորդագրությունը",
+        "billing.subscription_setup": "Բաժանորդագրության կարգավորում",
+        "billing.cancel_it": "Չեղարկել",
+        "billing.keep_it": "Պահպանել",
+        "billing.subscription_resumed": "Ձեր %strong% բաժանորդագրությունը վերականգնվել է",
+        "billing.upgrade_now": "Թարմացնել հիմա",
+        "billing.upgrade": "Թարմացնել",
+        "billing.currently_on_free_plan": "Դուք ներկայումս գտնվում եք անվճար պլանի վրա",
+        "billing.download_receipt": "Ներբեռնել անդորրագիրը",
+        "billing.subscription_check_error": "Պրոբլեմ առաջացավ բաժանորդագրության կարգավիճակը ստուգելիս",
+        "billing.email_confirmation_needed": "Ձեր էլ. փոստը դեռևս հաստատված չէ։ Մենք կուղարկենք հաստատման կոդ հիմա",
+        "billing.sub_cancelled_but_valid_until": "Դուք չեղարկել եք ձեր բաժանորդագրությունը, և այն ավտոմատ կփոխվի անվճար պլանի՝ վճարային ժամանակահատվածի ավարտին։ Ձեզնից այլևս չի գանձվի, եթե նորից չբաժանորդագրվեք",
+        "billing.current_plan_until_end_of_period": "Ձեր ընթացիկ պլանը մինչև վճարային ժամանակահատվածի ավարտը",
+        "billing.current_plan": "Ընթացիկ պլան",
+        "billing.cancelled_subscription_tier": "Չեղարկված բաժանորդագրություն (%%)",
+        "billing.manage": "Կառավարել",
+        "billing.limited": "Սահմանափակված",
+        "billing.expanded": "Ընդլայնված",
+        "billing.accelerated": "Արագացված",
+        "billing.enjoy_msg": "Վայելեք %% ամպային պահեստավորում և այլ առավելություններ",
     }
 };
 

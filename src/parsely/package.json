@@ -1,8 +1,0 @@
-{
-    "name": "@heyputer/parsely",
-    "version": "1.0.0",
-    "author": "Puter Technologies Inc.",
-    "license": "AGPL-3.0-only",
-    "main": "exports.js",
-    "type": "module"
-}

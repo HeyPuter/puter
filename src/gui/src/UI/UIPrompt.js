@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -81,6 +81,15 @@ function UIPrompt(options){
                 setTimeout(function(){
                     $(this_window).find('.prompt-input').get(0).focus({preventScroll:true});
                 }, 30);
+
+                // Add event listener for Escape key
+                $(document).on('keyup.uiprompt', function(e) {
+                    if (e.key === 'Escape') {
+                        resolve(false);
+                        $(el_window).close();
+                        $(document).off('keyup.uiprompt'); // Remove event listener
+                    }
+                });
             },
             ...options.window_options,
             window_css:{
@@ -108,6 +117,7 @@ function UIPrompt(options){
                 resolve(false);
             }
             $(el_window).close();
+            $(document).off('keyup.uiprompt'); // Remove event listener
             return false;
         })
 

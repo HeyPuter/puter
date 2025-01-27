@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -50,7 +50,7 @@ module.exports = eggspress('/auth/revoke-user-app', {
         );
     }
 
-    const token = await svc_permission.revoke_user_app_permission(
+    await svc_permission.revoke_user_app_permission(
         actor, req.body.app_uid, req.body.permission,
         req.body.meta || {},
     );

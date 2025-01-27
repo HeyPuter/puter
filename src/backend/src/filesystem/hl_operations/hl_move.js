@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -30,6 +30,11 @@ class HLMove extends HLFilesystemOperation {
     static MODULES = {
         _path: require('path'),
     }
+
+    static PROPERTIES = {
+        parent_directories_created: () => [],
+    }
+
     async _run () {
         const { _path } = this.modules;
 
@@ -82,6 +87,8 @@ class HLMove extends HLFilesystemOperation {
                 tree: [parent.path],
             });
 
+            this.parent_directories_created = tree_op.directories_created;
+
             parent = tree_op.leaves[0];
         }
 
@@ -106,7 +113,8 @@ class HLMove extends HLFilesystemOperation {
                 dest_user = source_user;
             await source.fetchSize();
             const item_size = source.entry.size;
-            let capacity = config.is_storage_limited ? (dest_user.free_storage === undefined || dest_user.free_storage === null) ? config.storage_capacity : dest_user.free_storage : config.available_device_storage;
+            const sizeService = svc.get('sizeService');
+            const capacity = await sizeService.get_storage_capacity(user.id);
             if(capacity - await df(dest_user.id) - item_size < 0){
                 throw APIError.create('storage_limit_reached');
             }
@@ -186,11 +194,19 @@ class HLMove extends HLFilesystemOperation {
         await source_new.awaitStableEntry();
         await source_new.fetchSuggestedApps();
         await source_new.fetchOwner();
-        return {
+
+        const response = {
             moved: await source_new.getSafeEntry({ thumbnail: true }),
             overwritten,
             old_path,
         }
+
+        response.parent_dirs_created = [];
+        for ( const node of this.parent_directories_created ) {
+            response.parent_dirs_created.push(await node.getSafeEntry());
+        }
+
+        return response;
     }
 }
 

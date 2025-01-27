@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -24,6 +24,7 @@ const { HLFilesystemOperation } = require("./definitions");
 const { MkTree } = require("./hl_mkdir");
 const { HLRemove } = require("./hl_remove");
 const config = require("../../config");
+const { LLCopy } = require("../ll_operations/ll_copy");
 
 class HLCopy extends HLFilesystemOperation {
     static DESCRIPTION = `
@@ -141,8 +142,8 @@ class HLCopy extends HLFilesystemOperation {
             const sizeService = svc.get('sizeService');
             let deset_usage = await sizeService.get_usage(dest_user.id);
 
-            const size = await source.fetchSize(values.user);
-            let capacity = config.is_storage_limited ? (dest_user.free_storage === undefined || dest_user.free_storage === null) ? config.storage_capacity : dest_user.free_storage : config.available_device_storage
+            const size = await source.fetchSize();
+            const capacity = await sizeService.get_storage_capacity(dest_user.id);
             if(capacity - deset_usage - size < 0){
                 throw APIError.create('storage_limit_reached');
             }
@@ -206,7 +207,8 @@ class HLCopy extends HLFilesystemOperation {
             }
         }
 
-        this.copied = await fs.copy_2({
+        const ll_copy = new LLCopy();
+        this.copied = await ll_copy.run({
             source,
             parent,
             user: values.user,

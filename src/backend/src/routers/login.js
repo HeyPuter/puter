@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -107,6 +107,13 @@ router.post('/login', express.json(), body_parser_error_handler, async (req, res
             user = await get_user({ email: req.body.email, cached: false });
             if(!user)
                 return res.status(400).send('Email not found.')
+        }
+        if (user.username === 'system' && config.allow_system_login !== true) {
+            return res.status(400).send(
+                req.body.username
+                    ? 'Username not found.'
+                    : 'Email not found.'
+            )
         }
         // is user suspended?
         if(user.suspended)

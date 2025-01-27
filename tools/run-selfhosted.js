@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -80,25 +80,33 @@ if ( ! import.meta.filename ) {
 const main = async () => {
     const {
         Kernel,
-        CoreModule,
+        EssentialModules,
         DatabaseModule,
         LocalDiskStorageModule,
         SelfHostedModule,
         BroadcastModule,
         TestDriversModule,
         PuterAIModule,
+        InternetModule,
+        DevelopmentModule
     } = (await import('@heyputer/backend')).default;
 
     const k = new Kernel({
         entry_path: import.meta.filename
     });
-    k.add_module(new CoreModule());
+    for ( const mod of EssentialModules ) {
+        k.add_module(new mod());
+    }
     k.add_module(new DatabaseModule());
     k.add_module(new LocalDiskStorageModule());
     k.add_module(new SelfHostedModule());
     k.add_module(new BroadcastModule());
     k.add_module(new TestDriversModule());
+    k.add_module(new InternetModule());
     // k.add_module(new PuterAIModule());
+    if ( process.env.UNSAFE_PUTER_DEV ) {
+        k.add_module(new DevelopmentModule());
+    }
     k.boot();
 };
 

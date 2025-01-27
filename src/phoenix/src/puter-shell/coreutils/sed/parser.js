@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -39,9 +39,10 @@ import {
     ZapCommand,
 } from './command.js';
 import { Script } from './script.js';
-import { GrammarContext, standard_parsers } from '@heyputer/parsely/exports.js';
-import { StringStream } from '@heyputer/parsely/streams.js';
-import { Parser, UNRECOGNIZED, VALUE } from '@heyputer/parsely/parser.js';
+import { parsely } from '@heyputer/parsers';
+const  { GrammarContext, standard_parsers } = parsely;
+const { StringStream } = parsely.streams;
+const { Parser, UNRECOGNIZED, VALUE } = parsely;
 
 /**
  * A slight hack: Parsely doesn't yet have an equivalent of backreferences.

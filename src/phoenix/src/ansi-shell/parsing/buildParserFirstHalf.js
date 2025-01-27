@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -16,11 +16,20 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { FirstRecognizedPStratumImpl, ParserBuilder, ParserFactory, StrUntilParserImpl, StrataParseFacade, WhitespaceParserImpl } from "strataparse";
-import { UnquotedTokenParserImpl } from "./UnquotedTokenParserImpl.js";
+import { strataparse } from '@heyputer/parsers';
+const {
+    ParserBuilder,
+    ParserFactory,
+    StrUntilParserImpl,
+    StrataParseFacade,
+    WhitespaceParserImpl
+} = strataparse;
+
 import { PARSE_CONSTANTS } from "./PARSE_CONSTANTS.js";
-import { MergeWhitespacePStratumImpl } from "strataparse/strata_impls/MergeWhitespacePStratumImpl.js";
-import ContextSwitchingPStratumImpl from "strataparse/strata_impls/ContextSwitchingPStratumImpl.js";
+const {
+    ContextSwitchingPStratumImpl,
+    MergeWhitespacePStratumImpl,
+} = strataparse;
 
 const parserConfigProfiles = {
     syntaxHighlighting: { cst: true },

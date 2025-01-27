@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -52,7 +52,7 @@ const simple_retry = async function simple_retry (func, max_tries, interval) {
 };
 
 const poll = async function poll({ poll_fn, schedule_fn }) {
-    let delay = undefined;
+    let delay;
 
     while ( true ) {
         const is_done = await poll_fn();

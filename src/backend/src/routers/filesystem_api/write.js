@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -23,9 +23,8 @@ const { HLWrite } = require('../../filesystem/hl_operations/hl_write.js');
 const { boolify } = require('../../util/hl_types.js');
 const { Context } = require('../../util/context.js');
 const Busboy = require('busboy');
-const { TeePromise } = require('../../util/promise.js');
+const { TeePromise } = require('@heyputer/putility').libs.promise;
 const APIError = require('../../api/APIError.js');
-const api_error_handler = require('../../api/api_error_handler.js');
 const { valid_file_size } = require('../../util/validutil.js');
 
 // -----------------------------------------------------------------------//
@@ -54,10 +53,7 @@ module.exports = eggspress(['/up', '/write'], {
     };
 
     // modules
-    const {get_app, mkdir} = require('../../helpers.js')
-
-    // if(!req.files)
-    //     return res.status(400).send('No files uploaded');
+    const {get_app} = require('../../helpers.js')
 
     // Is this an entry for an app?
     let app;
@@ -89,13 +85,6 @@ module.exports = eggspress(['/up', '/write'], {
         });
         x.set(svc_clientOperation.ckey('tracker'), tracker);
     }
-
-    //-------------------------------------------------------------
-    // Variables used by busboy callbacks
-    //-------------------------------------------------------------
-    const on_first_file = () => {
-        frame_meta_ready();
-    };
 
     //-------------------------------------------------------------
     // Multipart processing (using busboy)
@@ -172,13 +161,8 @@ module.exports = eggspress(['/up', '/write'], {
 
         const values = req.method === 'GET' ? req.query : req.body;
         const getParam = (key) => values[key];
-        try {
-          const result = await param.consolidate({ req, getParam });
-          req.values[key] = result;
-        } catch (e) {
-          api_error_handler(e, req, res, next);
-          return;
-        }
+        const result = await param.consolidate({ req, getParam });
+        req.values[key] = result;
     }
 
     if ( req.body.size === undefined ) {
@@ -203,6 +187,7 @@ module.exports = eggspress(['/up', '/write'], {
             req.body.create_missing_parents
         ),
 
+        actor: req.actor,
         user: req.user,
         file: uploaded_file,
 
@@ -211,37 +196,4 @@ module.exports = eggspress(['/up', '/write'], {
 
     if ( frame ) frame.done();
     return res.send(response);
-
-    // upload files one by one
-    // for (let index = 0; index < req.files.length; index++) {
-    //     let uploaded_file = req.files[index];
-
-    //     // TEMP: create stream from buffer
-    //     if ( uploaded_file.buffer ) {
-    //         uploaded_file = { ...uploaded_file };
-    //         const buffer = uploaded_file.buffer;
-    //         uploaded_file.stream = (() => {
-    //             const { Readable } = require('stream');
-    //             return Readable.from(buffer);
-    //         })();
-    //         delete uploaded_file.buffer;
-    //     }
-
-    //     const hl_write = new HLWrite();
-    //     const response = await hl_write.run({
-    //         destination_or_parent: req.values.fsNode,
-    //         specified_name: req.body.name,
-    //         fallback_name: uploaded_file.originalname,
-    //         overwrite: await boolify(req.body.overwrite),
-    //         dedupe_name: await boolify(req.body.dedupe_name),
-    //         shortcut_to: req.values.target,
-
-    //         create_missing_parents: boolify(req.body.create_missing_ancestors),
-
-    //         user: req.user,
-    //         file: uploaded_file,
-    //     });
-
-    //     return res.send(response);
-    // }
 });

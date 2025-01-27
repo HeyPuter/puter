@@ -1,0 +1,214 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36" version="25.0.1">
+  <diagram name="Page-1" id="5LlmtnmR4draSSsTtYyD">
+    <mxGraphModel grid="1" page="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="skmebJAFKBwesmhEX21R-64" value="Legacy Notice" style="rounded=1;whiteSpace=wrap;html=1;align=left;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="540" y="555" width="130" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-8" value="only most important directories shown" style="rounded=1;whiteSpace=wrap;html=1;align=right;" vertex="1" parent="1">
+          <mxGeometry x="380" y="50" width="230" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-1" value="src/" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="360" y="110" width="80" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-2" value="Puter Repository" style="rounded=0;whiteSpace=wrap;html=1;fontSize=18;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="240" y="40" width="160" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-4" value="Every directory under src/ is a node module." style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;size=14;align=left;" vertex="1" parent="1">
+          <mxGeometry x="470" y="110" width="260" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-5" value="" style="endArrow=classic;html=1;rounded=0;edgeStyle=elbowEdgeStyle;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-2" target="skmebJAFKBwesmhEX21R-1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="490" y="260" as="sourcePoint" />
+            <mxPoint x="540" y="210" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="320" y="125" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-6" value="backend/" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="440" y="190" width="80" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-7" value="gui/src/" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="440" y="1000" width="80" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-10" value="" style="endArrow=none;html=1;rounded=0;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-1" target="skmebJAFKBwesmhEX21R-4">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="490" y="260" as="sourcePoint" />
+            <mxPoint x="540" y="210" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-12" value="" style="endArrow=classic;html=1;rounded=0;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-1" target="skmebJAFKBwesmhEX21R-6">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="490" y="260" as="sourcePoint" />
+            <mxPoint x="540" y="210" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="400" y="205" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-14" value="extensions/" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="520" y="1080" width="140" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-15" value="Puter GUI Extensions" style="rounded=1;whiteSpace=wrap;html=1;fontSize=16;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="730" y="1080" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-16" value="" style="endArrow=classic;html=1;rounded=0;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-14" target="skmebJAFKBwesmhEX21R-15">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="530" y="980" as="sourcePoint" />
+            <mxPoint x="580" y="930" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-15" target="skmebJAFKBwesmhEX21R-15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-18" value="UI/" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="520" y="1120" width="140" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-19" value="Puter Desktop" style="rounded=1;whiteSpace=wrap;html=1;fontSize=16;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="730" y="1120" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-20" value="" style="endArrow=classic;html=1;rounded=0;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-18" target="skmebJAFKBwesmhEX21R-19">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="670" y="1098" as="sourcePoint" />
+            <mxPoint x="740" y="1098" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-21" value="services/" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="520" y="1160" width="140" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-22" value="Frontend Services" style="rounded=1;whiteSpace=wrap;html=1;fontSize=16;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="730" y="1160" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-23" value="" style="endArrow=classic;html=1;rounded=0;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-21" target="skmebJAFKBwesmhEX21R-22">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="670" y="1138" as="sourcePoint" />
+            <mxPoint x="740" y="1138" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-24" value="initgui.js" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="520" y="1200" width="140" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-25" value="Launches services and initializes the GUI" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="730" y="1200" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-26" value="" style="endArrow=classic;html=1;rounded=0;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-24" target="skmebJAFKBwesmhEX21R-25">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="670" y="1185" as="sourcePoint" />
+            <mxPoint x="740" y="1185" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-27" value="IPC.js" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="520" y="1240" width="140" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-28" value="Manages communication between Desktop and apps" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="730" y="1240" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-29" value="" style="endArrow=classic;html=1;rounded=0;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-27" target="skmebJAFKBwesmhEX21R-28">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="670" y="1225" as="sourcePoint" />
+            <mxPoint x="740" y="1225" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-46" value="modules/" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="520" y="280" width="140" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-47" value="New Code goes Here" style="rounded=1;whiteSpace=wrap;html=1;fontSize=16;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="730" y="280" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-48" value="" style="endArrow=classic;html=1;rounded=0;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-46" target="skmebJAFKBwesmhEX21R-47">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="530" y="180" as="sourcePoint" />
+            <mxPoint x="580" y="130" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-49" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-47" target="skmebJAFKBwesmhEX21R-47">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-50" value="services/" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="520" y="320" width="140" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-51" value="Core Module services" style="rounded=1;whiteSpace=wrap;html=1;fontSize=16;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="730" y="320" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-52" value="" style="endArrow=classic;html=1;rounded=0;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-50" target="skmebJAFKBwesmhEX21R-51">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="670" y="298" as="sourcePoint" />
+            <mxPoint x="740" y="298" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-53" value="routers/" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="520" y="480" width="140" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-54" value="HTTP endpoints" style="rounded=1;whiteSpace=wrap;html=1;fontSize=16;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="730" y="480" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-55" value="" style="endArrow=classic;html=1;rounded=0;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-53" target="skmebJAFKBwesmhEX21R-54">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="670" y="458" as="sourcePoint" />
+            <mxPoint x="740" y="458" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-62" value="&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;This is the original directory where routes&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;were placed. New services should use the&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;&quot;Endpoint&quot; class to define routes.&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;&lt;br&gt;&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;Examples:&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;- PermissionAPIService.js&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;- NotificationService.js&lt;/span&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;- KernelInfoService.js&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;color: rgba(0, 0, 0, 0); font-family: monospace; font-size: 0px; text-wrap: nowrap;&quot;&gt;%3CmxGraphModel%3E%3Croot%3E%3CmxCell%20id%3D%220%22%2F%3E%3CmxCell%20id%3D%221%22%20parent%3D%220%22%2F%3E%3CmxCell%20id%3D%222%22%20value%3D%22extensions%2F%22%20style%3D%22rounded%3D0%3BwhiteSpace%3Dwrap%3Bhtml%3D1%3BfontSize%3D16%3BfillColor%3D%23e1d5e7%3BstrokeColor%3D%239673a6%3B%22%20vertex%3D%221%22%20parent%3D%221%22%3E%3CmxGeometry%20x%3D%22520%22%20y%3D%22400%22%20width%3D%22140%22%20height%3D%2230%22%20as%3D%22geometry%22%2F%3E%3C%2FmxCell%3E%3CmxCell%20id%3D%223%22%20value%3D%22Puter%20GUI%20Extensions%22%20style%3D%22rounded%3D1%3BwhiteSpace%3Dwrap%3Bhtml%3D1%3BfontSize%3D16%3BfillColor%3D%23d5e8d4%3BstrokeColor%3D%2382b366%3B%22%20vertex%3D%221%22%20parent%3D%221%22%3E%3CmxGeometry%20x%3D%22730%22%20y%3D%22400%22%20width%3D%22180%22%20height%3D%2230%22%20as%3D%22geometry%22%2F%3E%3C%2FmxCell%3E%3CmxCell%20id%3D%224%22%20value%3D%22%22%20style%3D%22endArrow%3Dclassic%3Bhtml%3D1%3Brounded%3D0%3B%22%20edge%3D%221%22%20source%3D%222%22%20target%3D%223%22%20parent%3D%221%22%3E%3CmxGeometry%20width%3D%2250%22%20height%3D%2250%22%20relative%3D%221%22%20as%3D%22geometry%22%3E%3CmxPoint%20x%3D%22530%22%20y%3D%22300%22%20as%3D%22sourcePoint%22%2F%3E%3CmxPoint%20x%3D%22580%22%20y%3D%22250%22%20as%3D%22targetPoint%22%2F%3E%3C%2FmxGeometry%3E%3C%2FmxCell%3E%3CmxCell%20id%3D%225%22%20style%3D%22edgeStyle%3DorthogonalEdgeStyle%3Brounded%3D0%3BorthogonalLoop%3D1%3BjettySize%3Dauto%3Bhtml%3D1%3BexitX%3D0.5%3BexitY%3D1%3BexitDx%3D0%3BexitDy%3D0%3B%22%20edge%3D%221%22%20source%3D%223%22%20target%3D%223%22%20parent%3D%221%22%3E%3CmxGeometry%20relative%3D%221%22%20as%3D%22geometry%22%2F%3E%3C%2FmxCell%3E%3CmxCell%20id%3D%226%22%20value%3D%22UI%2F%22%20style%3D%22rounded%3D0%3BwhiteSpace%3Dwrap%3Bhtml%3D1%3BfontSize%3D16%3BfillColor%3D%23e1d5e7%3BstrokeColor%3D%239673a6%3B%22%20vertex%3D%221%22%20parent%3D%221%22%3E%3CmxGeometry%20x%3D%22520%22%20y%3D%22440%22%20width%3D%22140%22%20height%3D%2230%22%20as%3D%22geometry%22%2F%3E%3C%2FmxCell%3E%3CmxCell%20id%3D%227%22%20value%3D%22Puter%20Desktop%22%20style%3D%22rounded%3D1%3BwhiteSpace%3Dwrap%3Bhtml%3D1%3BfontSize%3D16%3BfillColor%3D%23d5e8d4%3BstrokeColor%3D%2382b366%3B%22%20vertex%3D%221%22%20parent%3D%221%22%3E%3CmxGeometry%20x%3D%22730%22%20y%3D%22440%22%20width%3D%22180%22%20height%3D%2230%22%20as%3D%22geometry%22%2F%3E%3C%2FmxCell%3E%3CmxCell%20id%3D%228%22%20value%3D%22%22%20style%3D%22endArrow%3Dclassic%3Bhtml%3D1%3Brounded%3D0%3B%22%20edge%3D%221%22%20source%3D%226%22%20target%3D%227%22%20parent%3D%221%22%3E%3CmxGeometry%20width%3D%2250%22%20height%3D%2250%22%20relative%3D%221%22%20as%3D%22geometry%22%3E%3CmxPoint%20x%3D%22670%22%20y%3D%22418%22%20as%3D%22sourcePoint%22%2F%3E%3CmxPoint%20x%3D%22740%22%20y%3D%22418%22%20as%3D%22targetPoint%22%2F%3E%3C%2FmxGeometry%3E%3C%2FmxCell%3E%3CmxCell%20id%3D%229%22%20value%3D%22services%2F%22%20style%3D%22rounded%3D0%3BwhiteSpace%3Dwrap%3Bhtml%3D1%3BfontSize%3D16%3BfillColor%3D%23e1d5e7%3BstrokeColor%3D%239673a6%3B%22%20vertex%3D%221%22%20parent%3D%221%22%3E%3CmxGeometry%20x%3D%22520%22%20y%3D%22480%22%20width%3D%22140%22%20height%3D%2230%22%20as%3D%22geometry%22%2F%3E%3C%2FmxCell%3E%3CmxCell%20id%3D%2210%22%20value%3D%22Frontend%20Services%22%20style%3D%22rounded%3D1%3BwhiteSpace%3Dwrap%3Bhtml%3D1%3BfontSize%3D16%3BfillColor%3D%23d5e8d4%3BstrokeColor%3D%2382b366%3B%22%20vertex%3D%221%22%20parent%3D%221%22%3E%3CmxGeometry%20x%3D%22730%22%20y%3D%22480%22%20width%3D%22180%22%20height%3D%2230%22%20as%3D%22geometry%22%2F%3E%3C%2FmxCell%3E%3CmxCell%20id%3D%2211%22%20value%3D%22%22%20style%3D%22endArrow%3Dclassic%3Bhtml%3D1%3Brounded%3D0%3B%22%20edge%3D%221%22%20source%3D%229%22%20target%3D%2210%22%20parent%3D%221%22%3E%3CmxGeometry%20width%3D%2250%22%20height%3D%2250%22%20relative%3D%221%22%20as%3D%22geometry%22%3E%3CmxPoint%20x%3D%22670%22%20y%3D%22458%22%20as%3D%22sourcePoint%22%2F%3E%3CmxPoint%20x%3D%22740%22%20y%3D%22458%22%20as%3D%22targetPoint%22%2F%3E%3C%2FmxGeometry%3E%3C%2FmxCell%3E%3CmxCell%20id%3D%2212%22%20value%3D%22initgui.js%22%20style%3D%22rounded%3D0%3BwhiteSpace%3Dwrap%3Bhtml%3D1%3BfontSize%3D16%3BfillColor%3D%23f8cecc%3BstrokeColor%3D%23b85450%3B%22%20vertex%3D%221%22%20parent%3D%221%22%3E%3CmxGeometry%20x%3D%22520%22%20y%3D%22520%22%20width%3D%22140%22%20height%3D%2230%22%20as%3D%22geometry%22%2F%3E%3C%2FmxCell%3E%3CmxCell%20id%3D%2213%22%20value%3D%22Launches%20services%20and%20initializes%20the%20GUI%22%20style%3D%22rounded%3D1%3BwhiteSpace%3Dwrap%3Bhtml%3D1%3BfontSize%3D13%3BfillColor%3D%23d5e8d4%3BstrokeColor%3D%2382b366%3B%22%20vertex%3D%221%22%20parent%3D%221%22%3E%3CmxGeometry%20x%3D%22730%22%20y%3D%22520%22%20width%3D%22180%22%20height%3D%2230%22%20as%3D%22geometry%22%2F%3E%3C%2FmxCell%3E%3CmxCell%20id%3D%2214%22%20value%3D%22%22%20style%3D%22endArrow%3Dclassic%3Bhtml%3D1%3Brounded%3D0%3B%22%20edge%3D%221%22%20source%3D%2212%22%20target%3D%2213%22%20parent%3D%221%22%3E%3CmxGeometry%20width%3D%2250%22%20height%3D%2250%22%20relative%3D%221%22%20as%3D%22geometry%22%3E%3CmxPoint%20x%3D%22670%22%20y%3D%22505%22%20as%3D%22sourcePoint%22%2F%3E%3CmxPoint%20x%3D%22740%22%20y%3D%22505%22%20as%3D%22targetPoint%22%2F%3E%3C%2FmxGeometry%3E%3C%2FmxCell%3E%3CmxCell%20id%3D%2215%22%20value%3D%22IPC.js%22%20style%3D%22rounded%3D0%3BwhiteSpace%3Dwrap%3Bhtml%3D1%3BfontSize%3D16%3BfillColor%3D%23f8cecc%3BstrokeColor%3D%23b85450%3B%22%20vertex%3D%221%22%20parent%3D%221%22%3E%3CmxGeometry%20x%3D%22520%22%20y%3D%22560%22%20width%3D%22140%22%20height%3D%2230%22%20as%3D%22geometry%22%2F%3E%3C%2FmxCell%3E%3CmxCell%20id%3D%2216%22%20value%3D%22Manages%20communication%20between%20Desktop%20and%20apps%22%20style%3D%22rounded%3D1%3BwhiteSpace%3Dwrap%3Bhtml%3D1%3BfontSize%3D13%3BfillColor%3D%23d5e8d4%3BstrokeColor%3D%2382b366%3B%22%20vertex%3D%221%22%20parent%3D%221%22%3E%3CmxGeometry%20x%3D%22730%22%20y%3D%22560%22%20width%3D%22180%22%20height%3D%2230%22%20as%3D%22geometry%22%2F%3E%3C%2FmxCell%3E%3CmxCell%20id%3D%2217%22%20value%3D%22%22%20style%3D%22endArrow%3Dclassic%3Bhtml%3D1%3Brounded%3D0%3B%22%20edge%3D%221%22%20source%3D%2215%22%20target%3D%2216%22%20parent%3D%221%22%3E%3CmxGeometry%20width%3D%2250%22%20height%3D%2250%22%20relative%3D%221%22%20as%3D%22geometry%22%3E%3CmxPoint%20x%3D%22670%22%20y%3D%22545%22%20as%3D%22sourcePoint%22%2F%3E%3CmxPoint%20x%3D%22740%22%20y%3D%22545%22%20as%3D%22targetPoint%22%2F%3E%3C%2FmxGeometry%3E%3C%2FmxCell%3E%3C%2Froot%3E%3C%2FmxGraphMode&lt;/span&gt;&lt;br&gt;&lt;/div&gt;" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;size=18;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="645" y="545" width="270" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-63" value="" style="endArrow=classic;html=1;rounded=0;edgeStyle=elbowEdgeStyle;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-62" target="skmebJAFKBwesmhEX21R-54">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="730" y="560" as="sourcePoint" />
+            <mxPoint x="780" y="510" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-65" value="structured/" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="520" y="700" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-66" value="unstructured/" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="520" y="720" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-68" value="&lt;div&gt;These directories mostly contain code for&lt;/div&gt;&lt;div&gt;the permission system to make it easier to maintain.&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;structured/&amp;lt;pattern&amp;gt;/ contains code that is formatted according to &quot;&amp;lt;pattern&amp;gt;&quot;&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;unstructured/ contains miscellaneous code used by the permission system.&lt;/div&gt;" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;size=18;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=top;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="730" y="700" width="270" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-69" value="" style="endArrow=classic;html=1;rounded=0;edgeStyle=elbowEdgeStyle;elbow=vertical;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-68" target="skmebJAFKBwesmhEX21R-65">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="730" y="680" as="sourcePoint" />
+            <mxPoint x="780" y="630" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-70" value="" style="endArrow=classic;html=1;rounded=0;edgeStyle=elbowEdgeStyle;elbow=vertical;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-68" target="skmebJAFKBwesmhEX21R-66">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="740" y="720" as="sourcePoint" />
+            <mxPoint x="670" y="720" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-71" value="these should go to:&lt;div&gt;modules/auth/&lt;/div&gt;&lt;div&gt;in the future&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;glass=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="520" y="760" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-72" value="" style="endArrow=classic;html=1;rounded=0;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-71" target="skmebJAFKBwesmhEX21R-66">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="730" y="680" as="sourcePoint" />
+            <mxPoint x="780" y="630" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-73" value="util/" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="520" y="880" width="140" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-74" value="&lt;div&gt;Utilities used by various services in Puter&#39;s backend.&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;These should be incrementally moved to individual `lib` directories in modules/&lt;/div&gt;" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;size=18;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=top;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="730" y="880" width="270" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-75" value="" style="endArrow=classic;html=1;rounded=0;edgeStyle=elbowEdgeStyle;elbow=vertical;" edge="1" parent="1" source="skmebJAFKBwesmhEX21R-74" target="skmebJAFKBwesmhEX21R-73">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="740" y="740" as="sourcePoint" />
+            <mxPoint x="670" y="740" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-76" value="Migration Notice" style="rounded=1;whiteSpace=wrap;html=1;align=left;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="540" y="400" width="130" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="skmebJAFKBwesmhEX21R-77" value="&lt;div&gt;Services here should be incrementally&lt;/div&gt;&lt;div&gt;migrated into the modules/ directory.&lt;/div&gt;" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;size=18;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="650" y="390" width="270" height="50" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

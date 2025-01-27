@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -32,6 +33,10 @@ const { DB_READ } = require("./database/consts");
  * The original `get_user` function now uses this service.
  */
 class GetUserService extends BaseService {
+    /**
+    * Constructor for GetUserService.
+    * Initializes the set of identifying properties used to retrieve user data.
+    */
     _construct () {
         this.id_properties = new Set();
 
@@ -41,8 +46,30 @@ class GetUserService extends BaseService {
         this.id_properties.add('email');
         this.id_properties.add('referral_code');
     }
+
+    /**
+    * Initializes the GetUserService instance.
+    * This method prepares any necessary internal structures or states.
+    * It is called automatically upon instantiation of the service.
+    * 
+    * @returns {Promise<void>} A promise that resolves when the initialization is complete.
+    */
     async _init () {
     }
+
+    /**
+     * Retrieves a user object based on the provided options.
+     * 
+     * This method queries the user from cache or database,
+     * depending on the caching options provided. If the user 
+     * is found, it also calls the 'whoami' service to enrich 
+     * the user details before returning.
+     * 
+     * @param {Object} options - The options for retrieving the user.
+     * @param {boolean} [options.cached=true] - Indicates if caching should be used.
+     * @param {boolean} [options.force=false] - Forces a read from the database regardless of cache.
+     * @returns {Promise<Object|null>} The user object if found, else null.
+     */
     async get_user (options) {
         const user = await this.get_user_(options);
         if ( ! user ) return null;
@@ -51,6 +78,7 @@ class GetUserService extends BaseService {
         await svc_whoami.get_details({ user }, user);
         return user;
     }
+
     async get_user_ (options) {
         const services = this.services;
 
@@ -96,11 +124,6 @@ class GetUserService extends BaseService {
                     kv.set(`users:${prop}:${user[prop]}`, user);
                 }
             }
-            // kv.set('users:username:' + user.username, user);
-            // kv.set('users:email:' + user.email, user);
-            // kv.set('users:uuid:' + user.uuid, user);
-            // kv.set('users:id:' + user.id, user);
-            // kv.set('users:referral_code:' + user.referral_code, user);
         } catch (e) {
             console.error(e);
         }

@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -22,11 +23,21 @@ const { Context } = require("../util/context");
 const { DB_WRITE } = require('./database/consts');
 
 const hash = v => {
-    var sum = crypto.createHash('sha1');
-    sum.update('foo');
+    const sum = crypto.createHash('sha1');
+    sum.update(v);
     return sum.digest();
 }
 
+
+/**
+* @class ConfigurableCountingService
+* @extends BaseService
+* @description The ConfigurableCountingService class extends BaseService and is responsible for managing and incrementing
+*              configurable counting types for different services.
+*              It defines counting types and SQL columns, and provides a method to increment counts based on specific service
+*              types and values. This class is used to manage usage counts for various services, ensuring accurate tracking
+*              and updating of counts in the database.
+*/
 class ConfigurableCountingService extends BaseService {
     static counting_types = {
         gpt: {
@@ -73,10 +84,34 @@ class ConfigurableCountingService extends BaseService {
         ],
     }
 
+
+    /**
+    * Initializes the database accessor for the ConfigurableCountingService.
+    * This method sets up the database service for writing counting data.
+    *
+    * @async
+    * @function _init
+    * @returns {Promise<void>} A promise that resolves when the database connection is established.
+    * @memberof ConfigurableCountingService
+    */
     async _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'counting');
     }
 
+
+    /**
+    * Increments the count for a given service based on the provided parameters.
+    * This method builds an SQL query to update the count and other custom values
+    * in the database. It handles different SQL dialects (MySQL and SQLite) and
+    * ensures that the pricing category is correctly hashed and stored.
+    *
+    * @param {Object} params - The parameters for incrementing the count.
+    * @param {string} params.service_name - The name of the service.
+    * @param {string} params.service_type - The type of the service.
+    * @param {Object} params.values - The values to be incremented.
+    * @throws {Error} If the service type is unknown or if there are no more available columns.
+    * @returns {Promise<void>} A promise that resolves when the count is successfully incremented.
+    */
     async increment ({ service_name, service_type, values }) {
         values = values ? {...values} : {};
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -29,7 +29,6 @@ const timeago = (() => {
 
 const { get_taskbar_items, is_shared_with_anyone, suggest_app_for_fsentry, get_app, get_descendants, id2uuid } = require('../helpers');
 const auth = require('../middleware/auth.js');
-const fs = require('../middleware/fs.js');
 const _path = require('path');
 const eggspress = require('../api/eggspress');
 const { Context } = require('../util/context');
@@ -50,6 +49,14 @@ const WHOAMI_GET = eggspress('/whoami', {
 
     const is_user = actor.type instanceof UserActorType;
 
+    if ( req.query.icon_size ) {
+        const ALLOWED_SIZES = ['16', '32', '64', '128', '256', '512'];
+    
+        if ( ! ALLOWED_SIZES.includes(req.query.icon_size) ) {
+            res.status(400).send({ error: 'Invalid icon_size' });
+        }
+    }
+
     // send user object
     const details = {
         username: req.user.username,
@@ -63,7 +70,11 @@ const WHOAMI_GET = eggspress('/whoami', {
         desktop_bg_color: req.user.desktop_bg_color,
         desktop_bg_fit: req.user.desktop_bg_fit,
         is_temp: (req.user.password === null && req.user.email === null),
-        taskbar_items: await get_taskbar_items(req.user),
+        taskbar_items: await get_taskbar_items(req.user, {
+            ...(req.query.icon_size
+                ? { icon_size: req.query.icon_size }
+                : { no_icons: true }),
+        }),
         referral_code: req.user.referral_code,
         otp: !! req.user.otp_enabled,
         human_readable_age: timeago.format(
@@ -110,7 +121,7 @@ const WHOAMI_GET = eggspress('/whoami', {
 // POST /whoami
 // -----------------------------------------------------------------------//
 const WHOAMI_POST = new express.Router();
-WHOAMI_POST.post('/whoami', auth, fs, express.json(), async (req, response, next)=>{
+WHOAMI_POST.post('/whoami', auth, express.json(), async (req, response, next)=>{
     // check subdomain
     if(require('../helpers').subdomain(req) !== 'api') {
         return;

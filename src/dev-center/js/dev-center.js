@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -53,7 +53,10 @@ const deploying_spinner = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns
 const loading_spinner = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><style>.spinner_P7sC{transform-origin:center;animation:spinner_svv2 .75s infinite linear}@keyframes spinner_svv2{100%{transform:rotate(360deg)}}</style><path d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z" class="spinner_P7sC"/></svg>`;
 const drop_area_placeholder = `<p>Drop your app folder and files here to deploy.</p><p style="font-size: 16px; margin-top: 0px;">HTML, JS, CSS, ...</p><input id="file-upload" type="file" multiple style="display: none;" /><button class="upload-btn  button button-primary">Upload</button>`;
 const index_missing_error = `Please upload an 'index.html' file or if you're uploading a directory, make sure it contains an 'index.html' file at its root.`;
-const lock_svg = '<svg style="width: 20px; height: 20px; margin-bottom: -5px; margin-left: 5px; opacity: 0.5;" width="59px" height="59px" stroke-width="1.9" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M16 12H17.4C17.7314 12 18 12.2686 18 12.6V19.4C18 19.7314 17.7314 20 17.4 20H6.6C6.26863 20 6 19.7314 6 19.4V12.6C6 12.2686 6.26863 12 6.6 12H8M16 12V8C16 6.66667 15.2 4 12 4C8.8 4 8 6.66667 8 8V12M16 12H8" stroke="#000000" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+const lock_svg = `<svg style="opacity: 0.8; margin-bottom: -3px; margin-left: 5px; width: 15px;" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-shield-shaded" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M8 14.933a1 1 0 0 0 .1-.025q.114-.034.294-.118c.24-.113.547-.29.893-.533a10.7 10.7 0 0 0 2.287-2.233c1.527-1.997 2.807-5.031 2.253-9.188a.48.48 0 0 0-.328-.39c-.651-.213-1.75-.56-2.837-.855C9.552 1.29 8.531 1.067 8 1.067zM5.072.56C6.157.265 7.31 0 8 0s1.843.265 2.928.56c1.11.3 2.229.655 2.887.87a1.54 1.54 0 0 1 1.044 1.262c.596 4.477-.787 7.795-2.465 9.99a11.8 11.8 0 0 1-2.517 2.453 7 7 0 0 1-1.048.625c-.28.132-.581.24-.829.24s-.548-.108-.829-.24a7 7 0 0 1-1.048-.625 11.8 11.8 0 0 1-2.517-2.453C1.928 10.487.545 7.169 1.141 2.692A1.54 1.54 0 0 1 2.185 1.43 63 63 0 0 1 5.072.56"/> </svg>`;
+const lock_svg_tippy = `<svg title="Delete Protection enabled." style="opacity: 0.8; margin-bottom: -3px; margin-left: 5px; width: 15px;" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-shield-shaded tippy" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M8 14.933a1 1 0 0 0 .1-.025q.114-.034.294-.118c.24-.113.547-.29.893-.533a10.7 10.7 0 0 0 2.287-2.233c1.527-1.997 2.807-5.031 2.253-9.188a.48.48 0 0 0-.328-.39c-.651-.213-1.75-.56-2.837-.855C9.552 1.29 8.531 1.067 8 1.067zM5.072.56C6.157.265 7.31 0 8 0s1.843.265 2.928.56c1.11.3 2.229.655 2.887.87a1.54 1.54 0 0 1 1.044 1.262c.596 4.477-.787 7.795-2.465 9.99a11.8 11.8 0 0 1-2.517 2.453 7 7 0 0 1-1.048.625c-.28.132-.581.24-.829.24s-.548-.108-.829-.24a7 7 0 0 1-1.048-.625 11.8 11.8 0 0 1-2.517-2.453C1.928 10.487.545 7.169 1.141 2.692A1.54 1.54 0 0 1 2.185 1.43 63 63 0 0 1 5.072.56"/> </svg>`;
+
+const copy_svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/> </svg>`;
 
 // authUsername
 (async () => {
@@ -102,7 +105,7 @@ $(document).ready(function () {
     // initialize assets directory
     initializeAssetsDirectory();
 
-    $('#loading').show();
+    puter.ui.showSpinner();
 
     setTimeout(async function () {
         puter.ui.onLaunchedWithItems(async function (items) {
@@ -143,11 +146,11 @@ $(document).ready(function () {
             })
         }
         // Get apps
-        puter.apps.list().then((resp) => {
+        puter.apps.list({ icon_size: 64 }).then((resp) => {
             apps = resp;
 
             // hide loading
-            $('#loading').hide();
+            puter.ui.hideSpinner();
 
             // set apps
             if (apps.length > 0) {
@@ -161,6 +164,7 @@ $(document).ready(function () {
                 });
                 count_apps();
                 sort_apps();
+                activate_tippy();
             } else {
                 $('#no-apps-notice').show();
             }
@@ -177,14 +181,14 @@ $(document).ready(function () {
 
 function refresh_app_list(show_loading = false) {
     if (show_loading)
-        $('#loading').show();
+        puter.ui.showSpinner();
     // get apps
     setTimeout(function () {
         // uncheck the select all checkbox
         $('.select-all-apps').prop('checked', false);
 
-        puter.apps.list().then((apps_res) => {
-            $('#loading').hide();
+        puter.apps.list({ icon_size: 64 }).then((apps_res) => {
+            puter.ui.hideSpinner();
             apps = apps_res;
             if (apps.length > 0) {
                 if (activeTab === 'apps') {
@@ -201,11 +205,13 @@ function refresh_app_list(show_loading = false) {
                 $('#no-apps-notice').show();
                 $('#app-list').hide()
             }
+            activate_tippy();
         })
     }, show_loading ? 1000 : 0);
 }
 
 $(document).on('click', '.tab-btn', function (e) {
+    puter.ui.showSpinner();
     $('section:not(.sidebar)').hide();
     $('.tab-btn').removeClass('active');
     $(this).addClass('active');
@@ -223,19 +229,21 @@ $(document).on('click', '.tab-btn', function (e) {
     // ---------------------------------------------------------------
     else if ($(this).attr('data-tab') === 'payout-method') {
         activeTab = 'payout-method';
-        $('#loading').show();
+        puter.ui.showSpinner();
         setTimeout(function () {
             puter.apps.getDeveloperProfile(function (dev_profile) {
                 // show payout method tab if dev has joined incentive program
                 if (dev_profile.joined_incentive_program) {
                     $('#payout-method-email').html(dev_profile.paypal);
                 }
-                $('#loading').hide();
+                puter.ui.hideSpinner();
                 if (activeTab === 'payout-method')
                     $('#tab-payout-method').show();
             })
         }, 1000);
     }
+
+    puter.ui.hideSpinner();
 })
 
 $(document).on('click', '.create-an-app-btn', async function (e) {
@@ -267,7 +275,8 @@ async function create_app(title, source_path = null, items = null) {
 
     // open the 'Creting new app...' modal
     let start_ts = Date.now();
-    $('.new-app-modal').get(0).showModal();
+    
+    puter.ui.showSpinner();
 
     //----------------------------------------------------
     // Create app
@@ -283,7 +292,6 @@ async function create_app(title, source_path = null, items = null) {
             dedupeName: true,
             metadata: {
                 window_resizable: true,
-                credentialless: true,
             },
     
         })
@@ -314,7 +322,7 @@ async function create_app(title, source_path = null, items = null) {
                 background: false,
             }).then(async (app) => {
                 // refresh app list
-                puter.apps.list().then(async (resp) => {
+                puter.apps.list({ icon_size: 64 }).then(async (resp) => {
                     apps = resp;
                     // Close the 'Creting new app...' modal
                     // but make sure it was shown for at least 2 seconds
@@ -326,13 +334,14 @@ async function create_app(title, source_path = null, items = null) {
                             $('.drop-area').removeClass('drop-area-hover');
                             $('.drop-area').addClass('drop-area-ready-to-deploy');
                         }
-                        $('.new-app-modal').get(0).close();
+                        puter.ui.hideSpinner();
                         // deploy app if source_path was provided
                         if (source_path) {
                             deploy(app, source_path);
                         } else if (items) {
                             deploy(app, items);
                         }
+                        activate_tippy();
                     }, (Date.now() - start_ts) > 2000 ? 1 : 2000 - (Date.now() - start_ts));
                 })
             }).catch(async (err) => {
@@ -462,7 +471,7 @@ $(document).on('click', '.delete-app', async function (e) {
     let app_name = $(this).attr('data-app-name');
 
     // get app
-    const app_data = await puter.apps.get(app_name);
+    const app_data = await puter.apps.get(app_name, { icon_size: 16 });
 
     if(app_data.metadata?.locked){
         puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
@@ -491,10 +500,10 @@ $(document).on('click', '.delete-app', async function (e) {
 
     if (alert_resp === 'delete') {
         let init_ts = Date.now();
-        $('.deleting-app-modal')?.get(0)?.showModal();
+        puter.ui.showSpinner();
         puter.apps.delete(app_name).then(async (app) => {
                 setTimeout(() => {
-                    $('.deleting-app-modal')?.get(0)?.close();
+                    puter.ui.hideSpinner();
                     $(`.app-card[data-uid="${app_uid}"]`).fadeOut(200, function name(params) {
                         $(this).remove();
                         if ($(`.app-card`).length === 0) {
@@ -525,8 +534,7 @@ $(document).on('click', '.delete-app', async function (e) {
                 })
             }).catch(async (err) => {
                 setTimeout(() => {
-
-                    $('.deleting-app-modal')?.get(0)?.close();
+                    puter.ui.hideSpinner();
                     puter.ui.alert(err?.message, [
                         {
                             label: 'Ok',
@@ -578,7 +586,7 @@ function generate_edit_app_section(app) {
         <div class="edit-app-navbar">
             <div style="flex-grow:1;">
                 <img class="app-icon" data-uid="${html_encode(app.uid)}" src="${html_encode(!app.icon ? './img/app.svg' : app.icon)}">
-                <h3 class="app-title" data-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg : ''}</h3>
+                <h3 class="app-title" data-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg_tippy : ''}</h3>
                 <div style="margin-top: 4px; margin-bottom: 4px;">
                     <span class="open-app-btn" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Open</span>
                     <span style="margin: 5px; opacity: 0.3;">&bull;</span>
@@ -594,6 +602,7 @@ function generate_edit_app_section(app) {
         <ul class="section-tab-buttons disable-user-select">
             <li class="section-tab-btn active" data-tab="deploy"><span>Deploy</span></li>
             <li class="section-tab-btn" data-tab="info"><span>Settings</span></li>
+            <li class="section-tab-btn" data-tab="analytics"><span>Analytics</span></li>
         </ul>
 
         <div class="section-tab active" data-tab="deploy">
@@ -606,9 +615,11 @@ function generate_edit_app_section(app) {
         </div>
 
         <div class="section-tab" data-tab="info">
-            <form style="clear:both;">
+            <form style="clear:both; padding-bottom: 50px;">
                 <div class="error" id="edit-app-error"></div>
-                <div class="success" id="edit-app-success">App has been successfully updated.<span class="close-success-msg">&times;</span></div>
+                <div class="success" id="edit-app-success">App has been successfully updated.<span class="close-success-msg">&times;</span>
+                <p style="margin-bottom:0;"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
+                </div>
                 <input type="hidden" id="edit-app-uid" value="${html_encode(app.uid)}">
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 40px;">Basic</h3>
@@ -622,7 +633,9 @@ function generate_edit_app_section(app) {
                 <input type="text" id="edit-app-index-url" placeholder="https://example-app.com/index.html" value="${html_encode(app.index_url)}">
                 
                 <label for="edit-app-app-id">App ID</label>
-                <input type="text" style="width: 362px;" class="app-uid" value="${html_encode(app.uid)}" readonly>
+                <div style="overflow:hidden;">
+                    <input type="text" style="width: 362px; float:left;" class="app-uid" value="${html_encode(app.uid)}" readonly><span class="copy-app-uid" style="cursor: pointer; height: 35px; display: inline-block; width: 50px; text-align: center; line-height: 35px; margin-left:5px;">${copy_svg}</span>
+                </div>
 
                 <label for="edit-app-icon">Icon</label>
                 <div id="edit-app-icon" style="background-image:url(${!app.icon ? './img/app.svg' : html_encode(app.icon)});" ${app.icon ? 'data-url="' + html_encode(app.icon) + '"' : ''}  ${app.icon ? 'data-base64="' + html_encode(app.icon) + '"' : ''} >
@@ -643,8 +656,8 @@ function generate_edit_app_section(app) {
                 </select>
 
                 <label for="edit-app-filetype-associations">File Associations</label>
-                <p style="margin-top: 10px; font-size:13px;">A comma-separated list of file type specifiers. For example if you include <code>.txt</code>, your apps could be opened when a user clicks on a TXT file.</p>
-                <textarea id="edit-app-filetype-associations" placeholder=".txt, .jpg, application/json">${app.filetype_associations}</textarea>
+               <p style="margin-top: 10px; font-size:13px;">A list of file type specifiers. For example if you include <code>.txt</code> your apps could be opened when a user clicks on a TXT file.</p>
+               <textarea id="edit-app-filetype-associations"  placeholder=".txt  .jpg    application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length)}</textarea>
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window</h3>
                 <div>
@@ -689,21 +702,49 @@ function generate_edit_app_section(app) {
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Misc</h3>
                 <div style="margin-top:30px;">
                     <input type="checkbox" id="edit-app-locked" name="edit-app-locked" value="true" ${app.metadata?.locked ? 'checked' : ''}>
-                    <label for="edit-app-locked" style="display: inline;">Locked</label>
-                    <p>When locked, the app cannot be deleted. This is useful to prevent accidental deletion of important apps.</p>
+                    <label for="edit-app-locked" style="display: inline;">Delete Protection${lock_svg}</label>
+                    <p>When enabled, the app cannot be deleted. This is useful for preventing accidental deletion of important apps.</p>
                 </div>
 
-                <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Advanced</h3>
-                <div style="margin-top:30px;">
-                    <input type="checkbox" id="edit-app-credentialless" name="edit-app-credentialless" value="true" ${(app.metadata?.credentialless === true || app.metadata === undefined || app.metadata?.credentialless === undefined) ? 'checked' : ''}>
-                    <label for="edit-app-credentialless" style="display: inline;">Credentialless</label>
-                    <p><code>credentialless</code> attribute for the <code>iframe</code> tag.</p>
+                <div style="z-index: 999; box-shadow: 10px 10px 15px #8c8c8c; overflow: hidden; position: fixed; bottom: 0; background: white; padding: 10px; width: 100%; left: 0;">
+                    <button type="button" class="edit-app-save-btn button button-primary" style="margin-right: 40px;">Save</button>
+                    <button type="button" class="edit-app-reset-btn button button-secondary">Reset</button>
                 </div>
-
-                <hr style="margin-top: 40px;">
-                <button type="button" class="edit-app-save-btn button button-primary">Save</button>
-                <button type="button" class="edit-app-reset-btn button button-secondary">Reset</button>
             </form>
+        </div>
+        <div class="section-tab" data-tab="analytics">
+            <label for="analytics-period">Period</label>
+            <select id="analytics-period" class="category-select">
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <optgroup label="──────"></optgroup>
+                <option value="this_week">This week</option>
+                <option value="last_week">Last week</option>
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+                <optgroup label="──────"></optgroup>
+                <option value="this_month">This month</option>
+                <option value="last_month">Last month</option>
+                <optgroup label="──────"></optgroup>
+                <option value="this_year">This year</option>
+                <option value="last_year">Last year</option>
+                <optgroup label="──────"></optgroup>
+                <option value="12m">Last 12 months</option>
+                <option value="all">All time</option>
+            </select>
+            <div style="overflow:hidden;">
+                <div class="analytics-card" id="analytics-users">
+                    <h3 style="margin-top:0;">Users</h3>
+                    <div class="count" style="font-size: 35px;"></div>
+                </div>
+                <div class="analytics-card" id="analytics-opens">
+                    <h3 style="margin-top:0;">Opens</h3>
+                    <div class="count" style="font-size: 35px;"></div>
+                </div>
+            </div>
+            <hr style="margin-top: 50px;">
+            <p>Timezone: UTC</p>
+            <p>More analytics features coming soon...</p>
         </div>
     `
     return h;
@@ -732,7 +773,6 @@ function trackOriginalValues(){
             resizableWindow: $('#edit-app-window-resizable').is(':checked'),
             hideTitleBar: $('#edit-app-hide-titlebar').is(':checked'),
             locked: $('#edit-app-locked').is(':checked'),
-            credentialless: $('#edit-app-credentialless').is(':checked'),
             fullPageOnLanding: $('#edit-app-fullpage-on-landing').is(':checked')
         }
     };
@@ -769,7 +809,6 @@ function hasChanges() {
         $('#edit-app-window-resizable').is(':checked') !== originalValues.checkboxes.resizableWindow ||
         $('#edit-app-hide-titlebar').is(':checked') !== originalValues.checkboxes.hideTitleBar ||
         $('#edit-app-locked').is(':checked') !== originalValues.checkboxes.locked ||
-        $('#edit-app-credentialless').is(':checked') !== originalValues.checkboxes.credentialless ||
         $('#edit-app-fullpage-on-landing').is(':checked') !== originalValues.checkboxes.fullPageOnLanding
     );
 }
@@ -809,7 +848,6 @@ function resetToOriginalValues() {
     $('#edit-app-window-resizable').prop('checked', originalValues.checkboxes.resizableWindow);
     $('#edit-app-hide-titlebar').prop('checked', originalValues.checkboxes.hideTitleBar);
     $('#edit-app-locked').prop('checked', originalValues.checkboxes.locked);
-    $('#edit-app-credentialless').prop('checked', originalValues.checkboxes.credentialless);
     $('#edit-app-fullpage-on-landing').prop('checked', originalValues.checkboxes.fullPageOnLanding);
 
     if (originalValues.icon) {
@@ -835,12 +873,13 @@ function resetToOriginalValues() {
     }
 }
 
-async function edit_app_section(cur_app_name) {
+async function edit_app_section(cur_app_name, tab = 'deploy') {
     $('section:not(.sidebar)').hide();
     $('.tab-btn').removeClass('active');
     $('.tab-btn[data-tab="apps"]').addClass('active');
 
-    let cur_app = await puter.apps.get(cur_app_name);
+    let cur_app = await puter.apps.get(cur_app_name, {icon_size: 128, stats_period: 'today'});
+    
     currently_editing_app = cur_app;
 
     // generate edit app section
@@ -849,6 +888,75 @@ async function edit_app_section(cur_app_name) {
     toggleSaveButton();  // Ensure Save button is initially disabled
     toggleResetButton();  // Ensure Reset button is initially disabled
     $('#edit-app').show();
+
+    // analytics
+    $('#analytics-users .count').html(cur_app.stats.user_count);
+    $('#analytics-opens .count').html(cur_app.stats.open_count);
+
+    render_analytics('today')
+
+    // show the correct tab
+    $('.section-tab').hide();
+    $(`.section-tab[data-tab="${tab}"]`).show();
+    $('.section-tab-buttons .section-tab-btn').removeClass('active');
+    $(`.section-tab-buttons .section-tab-btn[data-tab="${tab}"]`).addClass('active');
+    
+    const filetype_association_input = document.querySelector('textarea[id=edit-app-filetype-associations]');
+    let tagify = new Tagify(filetype_association_input, {
+        pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/(?:[a-z0-9.-]+|\*))/,
+        delimiters: ", ",
+        enforceWhitelist: false,
+        dropdown : {
+            // show the dropdown immediately on focus (0 character typed)
+            enabled: 0,
+        },
+        whitelist: [
+          // MIME type patterns
+          "text/*", "image/*", "audio/*", "video/*", "application/*",
+          
+          // Documents
+          ".doc", ".docx", ".pdf", ".txt", ".odt", ".rtf", ".tex", ".md", ".pages", ".epub", ".mobi", ".azw", ".azw3", ".djvu", ".xps", ".oxps", ".fb2", ".textile", ".markdown", ".asciidoc", ".rst", ".wpd", ".wps", ".abw", ".zabw",
+          
+          // Spreadsheets
+          ".xls", ".xlsx", ".csv", ".ods", ".numbers", ".tsv", ".gnumeric", ".xlt", ".xltx", ".xlsm", ".xltm", ".xlam", ".xlsb",
+          
+          // Presentations
+          ".ppt", ".pptx", ".key", ".odp", ".pps", ".ppsx", ".pptm", ".potx", ".potm", ".ppam",
+          
+          // Images
+          ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".svg", ".webp", ".ico", ".psd", ".ai", ".eps", ".raw", ".cr2", ".nef", ".orf", ".sr2", ".heic", ".heif", ".avif", ".jxr", ".hdp", ".wdp", ".jng", ".xcf", ".pgm", ".pbm", ".ppm", ".pnm",
+          
+          // Video
+          ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".flv", ".webm", ".m4v", ".mpeg", ".mpg", ".3gp", ".3g2", ".ogv", ".vob", ".drc", ".gifv", ".mng", ".qt", ".yuv", ".rm", ".rmvb", ".asf", ".amv", ".m2v", ".svi",
+          
+          // Audio
+          ".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a", ".wma", ".aiff", ".alac", ".ape", ".au", ".mid", ".midi", ".mka", ".pcm", ".ra", ".ram", ".snd", ".wv", ".opus",
+          
+          // Code/Development
+          ".js", ".ts", ".html", ".css", ".json", ".xml", ".php", ".py", ".java", ".cpp", ".c", ".cs", ".h", ".hpp", ".hxx", ".rs", ".go", ".rb", ".pl", ".swift", ".kt", ".kts", ".scala", ".coffee", ".sass", ".scss", ".less", ".jsx", ".tsx", ".vue", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd", ".sql", ".r", ".dart", ".f", ".f90", ".for", ".lua", ".m", ".mm", ".clj", ".erl", ".ex", ".exs", ".elm", ".hs", ".lhs", ".lisp", ".ml", ".mli", ".nim", ".pl", ".rkt", ".v", ".vhd",
+          
+          // Archives
+          ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".z", ".lz", ".lzma", ".tlz", ".txz", ".tgz", ".tbz2", ".bz", ".br", ".lzo", ".ar", ".cpio", ".shar", ".lrz", ".lz4", ".lz2", ".rz", ".sfark", ".sz", ".zoo",
+          
+          // Database
+          ".db", ".sql", ".sqlite", ".sqlite3", ".dbf", ".mdb", ".accdb", ".db3", ".s3db", ".dbx",
+          
+          // Fonts
+          ".ttf", ".otf", ".woff", ".woff2", ".eot", ".pfa", ".pfb", ".sfd",
+          
+          // CAD and 3D
+          ".dwg", ".dxf", ".stl", ".obj", ".fbx", ".dae", ".3ds", ".blend", ".max", ".ma", ".mb", ".c4d", ".skp", ".usd", ".usda", ".usdc", ".abc",
+          
+          // Scientific/Technical
+          ".mat", ".fig", ".nb", ".cdf", ".fits", ".fts", ".fit", ".gmsh", ".msh", ".fem", ".neu", ".hdf", ".h5", ".nx", ".unv",
+          
+          // System
+          ".exe", ".dll", ".so", ".dylib", ".app", ".dmg", ".iso", ".img", ".bin", ".msi", ".apk", ".ipa", ".deb", ".rpm",
+          
+          // Directory
+          ".directory"
+        ],
+    })
 
     // --------------------------------------------------------
     // Dragster
@@ -1051,6 +1159,8 @@ async function edit_app_section(cur_app_name) {
 
     // Focus on the first input
     $('#edit-app-title').focus();
+
+    activate_tippy();
 }
 
 $('.jip-submit-btn').on('click', async function (e) {
@@ -1190,6 +1300,31 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         }
     }
 
+    // parse filetype_associations
+    if(filetype_associations !== ''){
+        filetype_associations = JSON.parse(filetype_associations);
+        filetype_associations = filetype_associations.map((type) => {
+            const fileType = type.value;
+            if (
+                !fileType ||
+                fileType === "." ||
+                fileType === "/"
+            ) {
+                error = `<strong>File Association Type</strong> must be valid.`;
+                return null; // Return null for invalid cases
+            }
+            const lower = fileType.toLocaleLowerCase();
+
+            if (fileType.includes("/")) {
+            return lower;
+            } else if (fileType.includes(".")) {
+            return "." + lower.split(".")[1];
+            } else {
+            return "." + lower;
+            }
+        }).filter(Boolean);
+    }
+
     // error?
     if (error) {
         $('#edit-app-error').show();
@@ -1201,8 +1336,6 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
     // show working spinner
     puter.ui.showSpinner();
 
-    // parse filetype_associations
-    filetype_associations = filetype_associations.split(',').map(element => element.trim());
     // disable submit button
     $('.edit-app-save-btn').prop('disabled', true);
 
@@ -1236,8 +1369,6 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
             window_resizable: $('#edit-app-window-resizable').is(":checked"),
             hide_titlebar: $('#edit-app-hide-titlebar').is(":checked"),
             locked: $(`#edit-app-locked`).is(":checked") ?? false,
-            credentialless: $(`#edit-app-credentialless`).is(":checked") ?? true,
-
         },
         filetypeAssociations: filetype_associations,
     }).then(async (app) => {
@@ -1309,7 +1440,7 @@ $(document).on('click', '.delete-app-settings', async function (e) {
     let app_title = $(this).attr('data-app-title');
 
     // check if app is locked
-    const app_data = await puter.apps.get(app_name);
+    const app_data = await puter.apps.get(app_name, {icon_size: 16});
 
     if(app_data.metadata?.locked){
         puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
@@ -1338,10 +1469,10 @@ $(document).on('click', '.delete-app-settings', async function (e) {
 
     if (alert_resp === 'delete') {
         let init_ts = Date.now();
-        $('.deleting-app-modal')?.get(0)?.showModal();
+        puter.ui.showSpinner();
         puter.apps.delete(app_name).then(async (app) => {
                 setTimeout(() => {
-                    $('.deleting-app-modal')?.get(0)?.close();
+                    puter.ui.hideSpinner();
                     $('.back-to-main-btn').trigger('click');
                 },
                     // make sure the modal was shown for at least 2 seconds
@@ -1361,7 +1492,7 @@ $(document).on('click', '.delete-app-settings', async function (e) {
                 })
             }).catch(async (err) => {
                 setTimeout(() => {
-                    $('.deleting-app-modal')?.get(0)?.close();
+                    puter.ui.hideSpinner();
                     puter.ui.alert(err?.message, [
                         {
                             label: 'Ok',
@@ -1383,13 +1514,13 @@ $(document).on('click', '.back-to-main-btn', function (e) {
     $('.tab-btn[data-tab="apps"]').addClass('active');
 
     // get apps
-    $('#loading').show();
+    puter.ui.showSpinner();
     setTimeout(function () {
-        puter.apps.list().then((apps_res) => {
+        puter.apps.list({icon_size: 64}).then((apps_res) => {
             // uncheck the select all checkbox
             $('.select-all-apps').prop('checked', false);
 
-            $('#loading').hide();
+            puter.ui.hideSpinner();
             apps = apps_res;
             if (apps.length > 0) {
                 if (activeTab === 'apps') {
@@ -1402,6 +1533,7 @@ $(document).on('click', '.back-to-main-btn', function (e) {
                 });
                 count_apps();
                 sort_apps();
+                activate_tippy();
             } else
                 $('#no-apps-notice').show();
         })
@@ -1527,7 +1659,7 @@ function generate_app_card(app) {
     // Info
     h += `<div style="float:left; padding-left: 10px;">`;
     // Title
-    h += `<h3 class="got-to-edit-app app-card-title" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg : ''}</h3>`;
+    h += `<h3 class="got-to-edit-app app-card-title" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg_tippy : ''}</h3>`;
     // // Category
     // if (app.metadata?.category) {
     //     const category = APP_CATEGORIES.find(c => c.id === app.metadata.category);
@@ -1563,29 +1695,29 @@ function generate_app_card(app) {
 
     // users count
     h += `<td style="margin-top:10px; font-size:15px; vertical-align:middle;">`;
-    h += `<span title="Users" style="margin-right:20px; width: 100px; display: inline-block;"><img style="width: 20px; margin-right: 5px; margin-bottom: -4px;" src="./img/users.svg">${number_format((app.stats.referral_count ?? 0) + app.stats.user_count)}</span>`;
+        h += `<span class="stats-cell" data-app-name="${html_encode(app.name)}" data-app-uid="${html_encode(app.uid)}" title="Users" style="margin-right:20px;"><img src="./img/users.svg">${number_format((app.stats.referral_count ?? 0) + app.stats.user_count)}</span>`;
     h += `</td>`;
 
     // opens
     h += `<td style="margin-top:10px; font-size:15px; vertical-align:middle;">`;
-    h += `<span title="Opens" style="width: 100px; display: inline-block;"><img style="width: 20px; margin-right: 5px; margin-bottom: -4px;" src="./img/views.svg">${number_format(app.stats.open_count)}</span>`;
+        h += `<span class="stats-cell" data-app-name="${html_encode(app.name)}" data-app-uid="${html_encode(app.uid)}" title="Opens"><img src="./img/views.svg">${number_format(app.stats.open_count)}</span>`;
     h += `</td>`;
 
     // Created
     h += `<td style="margin-top:10px; font-size:15px; vertical-align:middle;">`;
-    h += `<span title="Created" style="width: 130px; display: inline-block;">${moment(app.created_at).format('MMM Do, YYYY')}</span>`;
+    h += `<span title="Created" style="width: 130px; display: inline-block; font-size: 14px;">${moment(app.created_at).format('MMM Do, YYYY')}</span>`;
     h += `</td>`;
 
     h += `<td style="vertical-align:middle; min-width:200px;">`;
         h += `<div style="overflow: hidden; height: 100%; display: flex; justify-content: center; align-items: center;">`;
             // "Approved for listing"
-            h += `<span class="approval-badge approval-badge-lsiting ${app.approved_for_listing ? 'active' : ''}" title="${app.approved_for_listing ? 'Approved for listing in the App Center' : 'Not approved for listing in the App Center'}"></span>`;
+            h += `<span class="tippy approval-badge approval-badge-lsiting ${app.approved_for_listing ? 'active' : ''}" title="${app.approved_for_listing ? '✅ Approved for listing in the App Center' : '❌ Not approved for listing in the App Center'}"></span>`;
 
             // "Approved for opening items"
-            h += `<span class="approval-badge approval-badge-opening ${app.approved_for_opening_items ? 'active' : ''}" title="${app.approved_for_opening_items ? 'Approved for opening items' : 'Not approved for opening items'}"></span>`;
+            h += `<span class="tippy approval-badge approval-badge-opening ${app.approved_for_opening_items ? 'active' : ''}" title="${app.approved_for_opening_items ? '✅ Approved for opening items' : '❌ Not approved for opening items'}"></span>`;
 
             // "Approved for incentive program"
-            h += `<span class="approval-badge approval-badge-incentive ${app.approved_for_incentive_program ? 'active' : ''}" title="${app.approved_for_incentive_program ? 'Approved for the incentive program' : 'Not approved for the incentive program'}"></span>`;
+            h += `<span class="tippy approval-badge approval-badge-incentive ${app.approved_for_incentive_program ? 'active' : ''}" title="${app.approved_for_incentive_program ? '✅ Approved for the incentive program' : '❌ Not approved for the incentive program'}"></span>`;
         h += `</div>`;
     h += `</td>`;
     h += `</tr>`;
@@ -1726,7 +1858,123 @@ function sort_apps() {
     }
 }
 
+/**
+ * Checks if the items being deployed contain a .git directory
+ * @param {Array|string} items - Items to check (can be path string or array of items)
+ * @returns {Promise<boolean>} - True if .git directory is found
+ */
+async function hasGitDirectory(items) {
+    // Case 1: Single Puter path
+    if (typeof items === 'string' && (items.startsWith('/') || items.startsWith('~'))) {
+        const stat = await puter.fs.stat(items);
+        if (stat.is_dir) {
+            const files = await puter.fs.readdir(items);
+            return files.some(file => file.name === '.git' && file.is_dir);
+        }
+        return false;
+    }
+    
+    // Case 2: Array of Puter items
+    if (Array.isArray(items) && items[0]?.uid) {
+        return items.some(item => item.name === '.git' && item.is_dir);
+    }
+    
+    // Case 3: Local items (DataTransferItems)
+    if (Array.isArray(items)) {
+        for (let item of items) {
+            if (item.fullPath?.includes('/.git/') || 
+                item.path?.includes('/.git/') || 
+                item.filepath?.includes('/.git/')) {
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
+
+/**
+ * Shows a warning dialog about .git directory deployment
+ * @returns {Promise<boolean>} - True if the user wants to proceed with deployment
+ */
+async function showGitWarningDialog() {
+    try {
+        // Check if the user has chosen to skip the warning
+        const skipWarning = await puter.kv.get('skip-git-warning');
+
+        // Log retrieved value for debugging
+        console.log('Retrieved skip-git-warning:', skipWarning);
+
+        // If the user opted to skip the warning, proceed without showing it
+        if (skipWarning === true) {
+            return true;
+        }
+    } catch (error) {
+        console.error('Error accessing KV store:', error);
+        // If KV store access fails, fall back to showing the dialog
+    }
+
+    // Create the modal dialog
+    const modal = document.createElement('div');
+    modal.innerHTML = `
+        <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2); z-index: 10000;">
+            <h3 style="margin-top: 0;">Warning: Git Repository Detected</h3>
+            <p>A .git directory was found in your deployment files. Deploying .git directories may:</p>
+            <ul>
+                <li>Expose sensitive information like commit history and configuration</li>
+                <li>Significantly increase deployment size</li>
+            </ul>
+            <div style="margin-top: 15px; display: flex; align-items: center;">
+                <input type="checkbox" id="skip-git-warning" style="margin-right: 10px;">
+                <label for="skip-git-warning" style="margin-top:0;">Don't show this warning again</label>
+            </div>
+            <div style="margin-top: 15px; display: flex; justify-content: flex-end;">
+                <button id="cancel-deployment" style="margin-right: 10px; padding: 10px 15px; background: #f0f0f0; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+                <button id="continue-deployment" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Continue Deployment</button>
+            </div>
+        </div>
+        <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 9999;"></div>
+    `;
+    document.body.appendChild(modal);
+
+    return new Promise((resolve) => {
+        // Handle "Continue Deployment"
+        document.getElementById('continue-deployment').addEventListener('click', async () => {
+            try {
+                const skipChecked = document.getElementById('skip-git-warning')?.checked;
+                if (skipChecked) {
+                    console.log("Saving 'skip-git-warning' preference as true");
+                    await puter.kv.set('skip-git-warning', true);
+                }
+            } catch (error) {
+                console.error('Error saving user preference to KV store:', error);
+            } finally {
+                document.body.removeChild(modal);
+                resolve(true); // Continue deployment
+            }
+        });
+
+        // Handle "Cancel Deployment"
+        document.getElementById('cancel-deployment').addEventListener('click', () => {
+            document.body.removeChild(modal);
+            resolve(false); // Cancel deployment
+        });
+    });
+}
+
 window.deploy = async function (app, items) {
+    // Check for .git directory before proceeding
+    try {
+        if (await hasGitDirectory(items)) {
+            const shouldProceed = await showGitWarningDialog();
+            if (!shouldProceed) {
+                reset_drop_area();
+                return;
+            }
+        }
+    } catch (err) {
+        console.error('Error checking for .git directory:', err);
+    }
     let appdata_dir, current_app_dir;
 
     // disable deploy button
@@ -2064,7 +2312,7 @@ $(document).on('click', '.insta-deploy-to-existing-app', function (e) {
     $('.insta-deploy-modal').get(0).close();
     $('.insta-deploy-existing-app-select').get(0).showModal();
     $('.insta-deploy-existing-app-list').html(`<div style="margin: 100px auto 10px auto; width: 40px; height:40px;">${loading_spinner}</div>`);
-    puter.apps.list().then((apps) => {
+    puter.apps.list({ icon_size: 64 }).then((apps) => {
         setTimeout(() => {
             $('.insta-deploy-existing-app-list').html('');
             if (apps.length === 0)
@@ -2255,9 +2503,9 @@ $('.insta-deploy-existing-app-select').on('close', function (e) {
 })
 
 $('.refresh-app-list').on('click', function (e) {
-    $('.loading-modal').get(0)?.showModal();
+    puter.ui.showSpinner();
 
-    puter.apps.list().then((resp) => {
+    puter.apps.list({ icon_size: 64 }).then((resp) => {
         setTimeout(() => {
             apps = resp;
 
@@ -2282,8 +2530,9 @@ $('.refresh-app-list').on('click', function (e) {
 
             // preserve sort
             sort_apps();
+            activate_tippy();
 
-            $('.loading-modal').get(0).close();
+            puter.ui.hideSpinner();
         }, 1000);
     })
 })
@@ -2378,7 +2627,7 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
         // $('.delete-apps-btn').addClass('disabled');
 
         // show 'deleting' modal
-        $('.deleting-app-modal')?.get(0)?.showModal();
+        puter.ui.showSpinner();
 
         let start_ts = Date.now();
         const apps = $('.app-checkbox:checked').toArray();
@@ -2390,7 +2639,7 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
             const app_name = $(app).attr('data-app-name');
 
             // get app
-            const app_data = await puter.apps.get(app_name);
+            const app_data = await puter.apps.get(app_name, {icon_size: 64 });
 
             if(app_data.metadata?.locked){
                 if(apps.length === 1){
@@ -2465,7 +2714,7 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
 
         // close 'deleting' modal
         setTimeout(() => {
-            $('.deleting-app-modal')?.get(0)?.close();
+            puter.ui.hideSpinner();
             if($('.app-checkbox:checked').length === 0){
                 // disable delete button
                 $('.delete-apps-btn').addClass('disabled');
@@ -2657,4 +2906,154 @@ async function handleSocialImageUpload(app_name, socialImageData) {
         console.error('Error uploading social image:', err);
         throw err;
     }
+}
+
+$(document).on('click', '.copy-app-uid', function(e) {
+    const appUID = $('#edit-app-uid').val();
+    navigator.clipboard.writeText(appUID);
+    // change to 'copied'
+    $(this).html('Copied');
+    setTimeout(() => {
+        $(this).html(copy_svg);
+    }, 2000);
+});
+
+$(document).on('change', '#analytics-period', async function(e) {
+    let period = $(this).val();
+    render_analytics(period);
+});
+
+async function render_analytics(period){
+    puter.ui.showSpinner();
+
+    // set a sensible stats_grouping based on the selected period
+    let stats_grouping;
+
+    if (period === 'today' || period === 'yesterday') {
+        stats_grouping = 'hour';
+    }
+    else if (period === 'this_week' || period === 'last_week' || period === 'this_month' || period === 'last_month' || period === '7d' || period === '30d') {
+        stats_grouping = 'day';
+    }
+    else if (period === 'this_year' || period === 'last_year' || period === '12m' || period === 'all') {
+        stats_grouping = 'month';
+    }
+
+    const app = await puter.apps.get(
+        currently_editing_app.name, 
+        { 
+            icon_size: 16, 
+            stats_period: period,
+            stats_grouping: stats_grouping,
+        }
+    );
+
+    $('#analytics-users .count').html(number_format(app.stats.user_count));
+    $('#analytics-opens .count').html(number_format(app.stats.open_count));
+
+    // Clear existing chart if any
+    $('#analytics-chart').remove();
+    $('.analytics-container').remove();
+
+    // Create new canvas
+    const container = $('<div class="analytics-container" style="width:100%; height:400px; margin-top:30px;"></div>');
+    const canvas = $('<canvas id="analytics-chart"></canvas>');
+    container.append(canvas);
+    $('#analytics-opens').parent().after(container);
+
+    // Format the data
+    const labels = app.stats.grouped_stats.open_count.map(item => {
+        let date;
+        if (stats_grouping === 'month') {
+            // Handle YYYY-MM format explicitly
+            const [year, month] = item.period.split('-');
+            date = new Date(parseInt(year), parseInt(month) - 1); // month is 0-based in JS
+        } else {
+            date = new Date(item.period);
+        }
+        
+        if (stats_grouping === 'hour') {
+            return date.toLocaleString('en-US', { hour: 'numeric', hour12: true }).toLowerCase();
+        } else if (stats_grouping === 'day') {
+            return date.toLocaleString('en-US', { month: 'short', day: 'numeric' });
+        } else {
+            return date.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+        }
+    });
+    const openData = app.stats.grouped_stats.open_count.map(item => item.count);
+    const userData = app.stats.grouped_stats.user_count.map(item => item.count);
+
+    // Create chart
+    const ctx = document.getElementById('analytics-chart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Opens',
+                    data: openData,
+                    borderColor: '#346beb',
+                    tension: 0,
+                    fill: false
+                },
+                {
+                    label: 'Users',
+                    data: userData,
+                    borderColor: '#27cc32',
+                    tension: 0,
+                    fill: false
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: 'Period'
+                    },
+                    ticks: {
+                        maxRotation: 45,
+                        minRotation: 45
+                    }
+                },
+                y: {
+                    display: true,
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Count'
+                    },
+                    ticks: {
+                        precision: 0,  // Show whole numbers only
+                        stepSize: 1    // Increment by 1
+                    }
+                }
+            },
+        }
+    });
+
+    puter.ui.hideSpinner();
+}
+
+$(document).on('click', '.stats-cell', function(e) {
+    edit_app_section($(this).attr('data-app-name'), 'analytics');
+})
+
+function activate_tippy(){
+    tippy('.tippy', {
+        content(reference) {
+            return reference.getAttribute('title');
+        },
+        onMount(instance) {
+            // Remove the default title to prevent double tooltips
+            instance.reference.removeAttribute('title');
+        },
+        placement: 'top',
+        arrow: true,
+    });  
 }

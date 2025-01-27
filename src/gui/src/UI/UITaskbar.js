@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -29,7 +29,7 @@ async function UITaskbar(options){
 
     // get launch apps
     $.ajax({
-        url: window.api_origin + "/get-launch-apps",
+        url: window.api_origin + "/get-launch-apps?icon_size=64",
         type: 'GET',
         async: true,
         contentType: "application/json",
@@ -42,7 +42,10 @@ async function UITaskbar(options){
     });
 
     let h = '';
-    h += `<div id="ui-taskbar_${window.global_element_id}" class="taskbar" style="height:${window.taskbar_height}px;"><span id='clock'></span></div>`;
+    h += `<div id="ui-taskbar_${window.global_element_id}" class="taskbar" style="height:${window.taskbar_height}px;">`;
+        h += `<div class="taskbar-sortable" style="display: flex; justify-content: center; z-index: 99999;"></div>`;
+    h += `</div>`;
+
 
     $('.desktop').append(h);
 
@@ -65,11 +68,12 @@ async function UITaskbar(options){
 
             // show popover
             let popover = UIPopover({
-                content: `<div class="launch-popover hide-scrollbar"><span class="close-launch-popover">✕</span></div>`,
+                content: `<div class="launch-popover hide-scrollbar"></div>`,
                 snapToElement: item,
                 parent_element: item,
                 width: 500,
                 height: 500,
+                class: 'popover-launcher',
                 center_horizontally: true,
             });
 
@@ -78,7 +82,7 @@ async function UITaskbar(options){
             if(!window.launch_apps || !window.launch_apps.recent || window.launch_apps.recent.length === 0){
                 // get launch apps
                 window.launch_apps = await $.ajax({
-                    url: window.api_origin + "/get-launch-apps",
+                    url: window.api_origin + "/get-launch-apps?icon_size=64",
                     type: 'GET',
                     async: true,
                     contentType: "application/json",
@@ -146,8 +150,7 @@ async function UITaskbar(options){
             $(popover).find('.start-app').draggable({
                 appendTo: "body",
                 revert: "invalid",
-                connectToSortable: ".taskbar",
-                //containment: "document",
+                connectToSortable: ".taskbar-sortable",
                 zIndex: parseInt($(popover).css('z-index')) + 1,
                 scroll: false,
                 distance: 5,
@@ -238,7 +241,6 @@ async function UITaskbar(options){
         }
     })
 
-    window.recalibrate_taskbar_item_positions();
     window.make_taskbar_sortable();
 }
 
@@ -246,7 +248,7 @@ window.make_taskbar_sortable = function(){
     //-------------------------------------------
     // Taskbar is sortable
     //-------------------------------------------
-    $('.taskbar').sortable({
+    $('.taskbar-sortable').sortable({
         axis: "x",
         items: '.taskbar-item-sortable:not(.has-open-contextmenu)',
         cancel: '.has-open-contextmenu',
@@ -292,7 +294,6 @@ window.make_taskbar_sortable = function(){
                 });
                 let el = ($(item).detach())
                 $(el).insertAfter(ui.item);
-                // $(ui.item).insertBefore(`<h1>Hello!</h1>`);
                 $(el).show();
                 $(ui.item).removeItems();
                 window.update_taskbar();
@@ -305,28 +306,4 @@ window.make_taskbar_sortable = function(){
     });
 }
 
-window.recalibrate_taskbar_item_positions = function(){
-    // if this is mobile rearrange taskbar item positions based on absolute position
-    // taskbar items must be centered unless there is overflow. If there is overflow, the taskbar items must be left aligned
-    if(isMobile.phone || window.desktop_width < 800){
-        let taskbar_items = $('.taskbar-item');
-        let taskbar_width = taskbar_items.length * 60;
-
-        if(taskbar_width > window.desktop_width){
-            // set taskbar items to absolute position
-            $('.taskbar-item').css('position', 'absolute');
-            $('.taskbar').css('display', 'block');
-            // set left position for each taskbar item
-            let left = 0;
-            for (let index = 0; index < taskbar_items.length; index++) {
-                const taskbar_item = taskbar_items[index];
-                $(taskbar_item).css('left', left);
-                left += 60;
-            }
-        }else{
-            $('.taskbar-item').css('position', 'unset');
-            $('.taskbar').css('justify-content', 'center');
-        }
-    }
-}
 export default UITaskbar;

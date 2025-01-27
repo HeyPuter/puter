@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -36,8 +36,6 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
     if ( ! (actor.type instanceof UserActorType) ) {
         throw APIError.create('forbidden');
     }
-
-    const user = actor.type.user;
 
     const actions = {};
 

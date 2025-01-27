@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -17,9 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 module.exports = class UserParam {
-    constructor () {
-        //
-    }
     consolidate ({ req }) {
         return req.user;
     }

@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -16,9 +17,29 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const configurable_auth = require("../middleware/configurable_auth");
+const { Endpoint } = require("../util/expressutil");
 const BaseService = require("./BaseService");
 
+
+/**
+* @class PuterAPIService
+* @extends BaseService
+* 
+* The PuterAPIService class is responsible for integrating various routes 
+* into the web server for the Puter application. It acts as a middleware 
+* support layer, providing necessary API endpoints for handling various 
+* functionality such as authentication, user management, and application 
+* operations. This class is designed to extend the core functionalities 
+* of BaseService, ensuring that all routes are properly configured and 
+* available for use.
+*/
 class PuterAPIService extends BaseService {
+    /**
+    * Sets up the routes for the Puter API service.
+    * This method registers various API endpoints with the web server.
+    * It does not return a value as it configures the server directly.
+    */
     async ['__on_install.routes'] () {
         const { app } = this.services.get('web-server');
 
@@ -45,7 +66,7 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/kvstore/setItem'))
         app.use(require('../routers/kvstore/listItems'))
         app.use(require('../routers/kvstore/clearItems'))
-        app.use(require('../routers/get-launch-apps'))
+        // app.use(require('../routers/get-launch-apps'))
         app.use(require('../routers/itemMetadata'))
         app.use(require('../routers/login'))
         app.use(require('../routers/logout'))
@@ -71,6 +92,14 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/test'))
         app.use(require('../routers/update-taskbar-items'))
         require('../routers/whoami')(app);
+
+
+        Endpoint({
+            route: '/get-launch-apps',
+            methods: ['GET'],
+            mw: [configurable_auth()],
+            handler: require('../routers/get-launch-apps'),
+        }).attach(app);
 
     }
 }

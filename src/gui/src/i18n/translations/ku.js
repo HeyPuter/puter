@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -392,6 +392,53 @@ const ku = {
     "Owner": "خاوەن", // In English: "Owner"
     "You can't share with yourself.": "ناتوانیت لەگەڵ خودی خۆت بڵاوی کەیتەوە", // In English: "You can't share with yourself."
     "This user already has access to this item": "ئەم بەکارهێنەرە پێشتر ڕێپێدراوە بۆ ئەم فایلە", // In English: "This user already has access to this item"
+
+    "billing.change_payment_method": "گۆڕانکاری",
+    "billing.cancel": "بڕینەوە",
+    "billing.download_invoice": "داونلۆد بکە",
+    "billing.payment_method": "شێوازی پارەدان",
+    "billing.payment_method_updated": "شێوازی پارەدان نوێ کراوەتەوە!",
+    "billing.confirm_payment_method": "دروستکردنی شێوازی پارەدان",
+    "billing.payment_history": "مێژووی پارەدان",
+    "billing.refunded": "بەپێچەوانە کراوە",
+    "billing.paid": "پارەی دا",
+    "billing.ok": "باشە",
+    "billing.resume_subscription": "پاشەکەوتی بەردەوام بکە",
+    "billing.subscription_cancelled": "بەژداربوونەکەت هەڵوەشێنراوەتەوە",
+    "billing.subscription_cancelled_description": "تا کۆتایی ئەم ماوەیە تۆ هێشتا دەستت بە بەشداربوونەکەت هەیە",
+    "billing.offering.free": "بە خۆڕایی",
+    "billing.offering.pro": "پیشەیی",
+    "billing.offering.business": "بزنس",
+    "billing.cloud_storage": "خزێنەی هەور",
+    "billing.ai_access": "دەستڕاگەیشتن بە AI",
+    "billing.bandwidth": "باندفیدت",
+    "billing.apps_and_games": "ئەپەکان & یارییەکان",
+    "billing.upgrade_to_pro": "بە %strong% بەرز بکەرەوە",
+    "billing.switch_to": "گۆڕە بۆ %strong%",
+    "billing.payment_setup": "بەکارھێنانی پارەدان",
+    "billing.back": "باک",
+    "billing.you_are_now_subscribed_to": "ئێستا تۆ بەشداریت لە %strong% tier",
+    "billing.you_are_now_subscribed_to_without_tier": "ئێستا تۆ بەشداریت",
+    "billing.subscription_cancellation_confirmation": "ئایا دڵنیایت کە دەتەوێت بەشداربوونەکەت هەڵوەشێنیتەوە؟",
+    "billing.subscription_setup": "دەستکاریی بەشداربوون",
+    "billing.cancel_it": "داوایی لێ بکەوە",
+    "billing.keep_it": "هێشتەوە",
+    "billing.subscription_resumed": "بەژداربوونت %strong% دەستپێکرایەوە!",
+    "billing.upgrade_now": "ئێستا نوێکەرەوە",
+    "billing.upgrade": "Upgrade",
+    "billing.currently_on_free_plan": "ئێستا لە پلانی بێبەرامبەریت",
+    "billing.download_receipt": "دانەوەی وەرگیراو",
+    "billing.subscription_check_error": "کێشەیەک ڕوویدا لەکاتی پشکنینی دۆخی بەشداربوونەکەت",
+    "billing.email_confirmation_needed": " ئیمەیڵەکەت پشتڕاست نەکراوەتەوە. کۆدێکت بۆ دەنێرین بۆ پشتڕاستکردنەوەی ئێستا",
+    "billing.sub_cancelled_but_valid_until": "تۆ بەشداربوونەکەت هەڵوەشاندەوە و بە ئۆتۆماتیکی دەگۆڕێت بۆ پلەی خۆڕایی لە کۆتایی ماوەی فۆڕمی فۆرم. جارێكی دیكە هیچ پارەیەكتان لێناگیرێت مەگەر دووبارە بەشداربن",
+    "billing.current_plan_until_end_of_period": "پلانی ئێستای تۆ تا کۆتایی ئەم ماوەیە بۆ فۆڕمی فۆرم",
+    "billing.current_plan": "پلانی ئێستا",
+    "billing.cancelled_subscription_tier": "بەژمارەی هەڵوەشێندراو (%%) ",
+    "billing.manage": "بەڕێوەبەری",
+    "billing.limited": "Limited",
+    "billing.expanded": "بڵاوکراوەتەوە",
+    "billing.accelerated": "بە خێرایی",
+    "billing.enjoy_msg": "%% لە هەڵگرتنی هەور و سوودی تر وەربگرە"
   },
 };
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -19,24 +19,19 @@
 const APIError = require("../../../api/APIError");
 const eggspress = require("../../../api/eggspress");
 const config = require("../../../config");
-const PathResolver = require("./PathResolver");
-const { WorkUnit } = require("../../../services/runtime-analysis/ExpectationService");
 const { Context } = require("../../../util/context");
 const Busboy = require('busboy');
 const { BatchExecutor } = require("../../../filesystem/batch/BatchExecutor");
-const { TeePromise } = require("../../../util/promise");
-const { EWMA, MovingMode } = require("../../../util/opmath");
+const { TeePromise } = require('@heyputer/putility').libs.promise;
+const { MovingMode } = require("../../../util/opmath");
 const { get_app } = require('../../../helpers');
 const { valid_file_size } = require("../../../util/validutil");
 const { OnlyOnceFn } = require("../../../util/fnutil.js");
-
-const commands = require('../../../filesystem/batch/commands.js').commands;
 
 module.exports = eggspress('/batch', {
     subdomain: 'api',
     verified: true,
     auth2: true,
-    fs: true,
     // json: true,
     // files: ['file'],
     // multest: true,
@@ -89,7 +84,8 @@ module.exports = eggspress('/batch', {
     }
 
     // Make sure usage is cached
-    await req.fs.sizeService.get_usage(req.user.id);
+    const sizeService = x.get('services').get('sizeService');
+    await sizeService.get_usage(req.user.id);
 
     globalThis.average_chunk_size = new MovingMode({
         alpha: 0.7,
@@ -138,8 +134,6 @@ module.exports = eggspress('/batch', {
     const pending_operations = [];
     const response_promises = [];
     const fileinfos = [];
-    let total = 0;
-    let total_tbd = true;
 
     const on_nonfile_data_end = OnlyOnceFn(() => {
         if ( request_error ) {
@@ -153,16 +147,14 @@ module.exports = eggspress('/batch', {
             if ( ! operation_requires_file(op_spec) ) {
                 indexes_to_remove.push(i);
                 log.info(`executing ${op_spec.op}`);
-                response_promises.push(
-                    batch_exe.exec_op(req, op_spec)
-                );
+                response_promises[i] = batch_exe.exec_op(req, op_spec);
+            } else {
             }
         }
 
         for ( let i=indexes_to_remove.length-1 ; i >= 0 ; i-- ) {
             const index = indexes_to_remove[i];
             pending_operations.splice(index, 1)[0];
-            response_promises.splice(index, 1);
         }
     });
 
@@ -223,10 +215,6 @@ module.exports = eggspress('/batch', {
             res.sendStatus(400);
         }
     });
-
-    let i = 0;
-    let ended = [];
-    let ps = [];
 
     busboy.on('file', async (fieldname, stream, detais) => {
         if ( batch_exe.total_tbd ) {

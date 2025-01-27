@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { quot } = require("./strutil");
+const { quot } = require('@heyputer/putility').libs.string;
 
 const hl_type_definitions = {
     flag: {
@@ -42,6 +42,12 @@ const hl_type_definitions = {
 
             if ( typeof v === 'boolean' ) {
                 return v;
+            }
+
+            if ( v === 1 ) return true;
+            if ( v === 0 ) return false
+            if ( typeof v === 'object' ) {
+                return v !== null;
             }
 
             throw new Error(`could not adapt value to boolean: ${quot(v)}`);

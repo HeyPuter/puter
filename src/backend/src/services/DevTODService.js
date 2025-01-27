@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"claude"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -18,15 +19,6 @@
  */
 const { surrounding_box } = require("../fun/dev-console-ui-utils");
 const BaseService = require("./BaseService");
-
-const SOURCE_CODE_TIPS = `
-    Most services are registered in CoreModule.js
-    Boot sequence events are different from service events
-    ExpectationService exists to ensure Puter doesn't miss a step
-    Services are composable; StrategyService is a good example
-    API endpoints should be on a separate origin in production
-    There is some limited query-building in packages/backend/src/om
-`;
 
 const tips = (
     // CLI tips
@@ -50,6 +42,13 @@ const tips = (
     .filter((line) => line.length)
     ;
 
+
+/**
+* Wraps text to specified width by breaking it into lines
+* @param {string} text - The text to wrap
+* @param {number} width - Maximum width of each line
+* @returns {string[]} Array of wrapped text lines
+*/
 const wordwrap = (text, width) => {
     const lines = [];
     while ( text.length ) {
@@ -59,11 +58,34 @@ const wordwrap = (text, width) => {
     return lines;
 };
 
+
+/**
+* @class DevTODService
+* @extends BaseService
+* @description Service that manages the "Tip of the Day" functionality in the development console.
+* Displays random helpful tips about the system during startup and provides commands to manage
+* the tip display. Inherits from BaseService and integrates with the dev-console and commands
+* services to provide an interactive tip system for developers.
+*/
 class DevTODService extends BaseService {
+    /**
+    * Initializes the DevTODService by registering commands with the command service
+    * @private
+    * @async
+    * @returns {Promise<void>}
+    */
     async _init () {
         const svc_commands = this.services.get('commands');
         this._register_commands(svc_commands);
     }
+
+    /**
+    * Handles the boot consolidation phase for the Tip of the Day service
+    * Selects a random tip, wraps it to fit the console width, and creates
+    * a widget function to display the formatted tip with optional header/footer
+    * 
+    * @returns {Promise<void>}
+    */
     async ['__on_boot.consolidation'] () {
         let random_tip = tips[Math.floor(Math.random() * tips.length)];
         random_tip = wordwrap(
@@ -76,7 +98,7 @@ class DevTODService extends BaseService {
                 ...random_tip,
             ];
             if ( ! this.global_config.minimal_console ) {
-                lines.unshift("\x1B[1mTip of the Day\x1B[0m"),
+                lines.unshift("\x1B[1mTip of the Day\x1B[0m");
                 lines.push("Type tod:dismiss to un-stick this message");
             }
             surrounding_box('33;1', lines);

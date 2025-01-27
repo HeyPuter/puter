@@ -27,8 +27,10 @@ export class APIAccessService extends putility.concepts.Service {
         const self = this;
         const o = {};
         [
+            ['auth_token','auth_token'],
             ['authToken','auth_token'],
             ['APIOrigin','api_origin'],
+            ['api_origin','api_origin'],
         ].forEach(([k1,k2]) => {
             Object.defineProperty(o, k1, {
                 get () {

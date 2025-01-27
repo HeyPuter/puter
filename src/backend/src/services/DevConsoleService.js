@@ -1,5 +1,6 @@
+// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -19,11 +20,24 @@
 const { consoleLogManager } = require('../util/consolelog');
 const BaseService = require('./BaseService');
 
+
+/**
+* DevConsoleService - A service for managing the developer console interface,
+* providing functionalities such as adding and removing widgets, updating the display,
+* and handling command input/output in a terminal environment.
+*/
 class DevConsoleService extends BaseService {
     static MODULES = {
         fs: require('fs'),
     }
 
+
+    /**
+    * Initializes the DevConsoleService instance, setting up required properties 
+    * and determining if the application is running in a Docker environment.
+    * 
+    * @returns {void} This method does not return a value.
+    */
     _construct () {
         this.static_lines = [];
         this.widgets = [];
@@ -42,7 +56,18 @@ class DevConsoleService extends BaseService {
         }
     }
 
+
+    /**
+     * Activates the warning lights by adding a widget that outputs a warning message.
+     * The widget will display a flashing warning message when it is turned on.
+     */
     turn_on_the_warning_lights () {
+        /**
+        * Turns on the warning lights by adding a warning widget to the console.
+        * This function calls the `add_widget` method to display a formatted 
+        * warning message. The widget will be shown in red and blinking, 
+        * indicating a warning state.
+        */
         this.add_widget(() => {
             return `\x1B[31;1m\x1B[5m *** ${
                 Array(3).fill('WARNING').join(' ** ')
@@ -66,6 +91,16 @@ class DevConsoleService extends BaseService {
         this.mark_updated();
     }
 
+
+    /**
+     * Updates the displayed output based on the current state of widgets.
+     * This method collects output from all active widgets, handles any errors, 
+     * and maintains the integrity of displayed information.
+     * 
+     * It modifies the static_lines array to reflect the latest outputs and 
+     * removes widgets that produce errors. The display is updated only if there 
+     * are changes in the output.
+     */
     update_ () {
         const initialOutput = [...this.static_lines];
         this.static_lines = [];
@@ -86,6 +121,7 @@ class DevConsoleService extends BaseService {
             this.static_lines.push(...output);
         }
 
+        // The desired minimum output lines for display; used to ensure there's enough space for content.
         const DESIRED_MIN_OUT = 10;
         const size_ok = () =>
             process.stdout.rows - DESIRED_MIN_OUT > this.static_lines.length;
@@ -133,13 +169,28 @@ class DevConsoleService extends BaseService {
         return a.length === b.length && a.every((val, index) => val === b[index]);
     }
 
+
+    /**
+    * Marks that an update has occurred in the DevConsoleService.
+    * This method sets the has_updates flag to true, indicating that
+    * the service should refresh the display during the next render cycle.
+    */
     mark_updated () {
         this.has_updates = true;
     }
 
+
+    /**
+    * Initializes the DevConsoleService, setting up necessary interfaces
+    * and handlers for command execution. This method manages input and
+    * output streams, integrates command completion, and refreshes console
+    * output based on widget updates.
+    *
+    * @async
+    * @returns {Promise<void>} Resolves when the initialization completes.
+    */
     async _init () {
         const services = this.services;
-        // await services.ready;
         const commands = services.get('commands');
 
         const readline = require('readline');
@@ -171,9 +222,14 @@ class DevConsoleService extends BaseService {
                 await commands.executeRawCommand(input, console);
             }
             this._after_cmd();
-            // rl.prompt();
         });
 
+
+        /**
+        * _before_cmd - Handles operations needed before a command is executed.
+        * 
+        * (resets cursor to correct position, if I recall correctly)
+        */
         this._before_cmd = () => {
             rl.pause();
             rl.output.write('\x1b[1A\r');
@@ -185,6 +241,13 @@ class DevConsoleService extends BaseService {
             );
         }
 
+
+        /**
+        * _after_cmd - Handles operations needed after a command is executed.
+        * 
+        * This method is called to clean up the output after a command has been processed.
+        * It logs a formatted message indicating the end of the command output.
+        */
         this._after_cmd = () => {
             console.log(
                 `\x1B[33m` +
@@ -193,6 +256,12 @@ class DevConsoleService extends BaseService {
             );
         }
 
+
+        /**
+         * Prepares the output console by pausing input, clearing the console lines, 
+         * and writing the static lines to be displayed. This method interacts directly 
+         * with the terminal output handling the cursor movements and line clearances.
+         */
         this._pre_write = () => {
             rl.pause();
             process.stdout.write('\x1b[0m');
@@ -203,6 +272,11 @@ class DevConsoleService extends BaseService {
             }
         }
 
+
+        /**
+        * Re-draws static lines and the input prompt (everything at the bottom of
+        * the dev console) when something is written.
+        */
         this._post_write = () => {
             this.update_();
             // Draw separator bar
@@ -233,11 +307,22 @@ class DevConsoleService extends BaseService {
             }
         };
 
+
+        /**
+        * Triggers the pre-write and post-write processes to refresh the console output.
+        * This method ensures that the latest changes are reflected in the console view.
+        */
         this._redraw = () => {
             this._pre_write();
             this._post_write();
         };
 
+
+        /**
+        * Starts an interval that periodically checks for updates and redraws the console output if needed.
+        * The interval runs every 2000 milliseconds (2 seconds) and invokes the `_redraw` method if 
+        * any updates have occurred since the last check.
+        */
         setInterval(() => {
             if (this.has_updates) {
                 this._redraw();
@@ -245,24 +330,22 @@ class DevConsoleService extends BaseService {
             }
         }, 2000);
 
+        /**
+        * Decorates all console log messages with the specified pre-write actions.
+        * 
+        * This method is invoked before each log message is printed to the console, 
+        * ensuring that any necessary updates or redrawing of the console UI 
+        * can occur before the message is displayed. 
+        * 
+        * It does not accept any parameters and does not return any value.
+        */
         consoleLogManager.decorate_all(({ replace }, ...args) => {
             this._pre_write();
         });
+
         consoleLogManager.post_all(() => {
             this._post_write();
         })
-        // logService.loggers.unshift({
-        //     onLogMessage: () => {
-        //         rl.pause();
-        //         rl.output.write('\x1b[2K\r');
-        //     }
-        // });
-        // logService.loggers.push({
-        //     onLogMessage: () => {
-        //         rl.resume();
-        //         rl._refreshLine();
-        //     }
-        // });
 
         // This prevents the promptline background from staying
         // when Ctrl+C is used to terminate the server

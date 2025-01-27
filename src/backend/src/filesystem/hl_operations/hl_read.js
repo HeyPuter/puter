@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -28,7 +28,6 @@ class HLRead extends HLFilesystemOperation {
     }
 
     async _run () {
-        const { context } = this;
         const {
             fsNode, actor,
             line_count, byte_count,

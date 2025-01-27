@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -21,6 +21,7 @@ import UIAlert from './UI/UIAlert.js';
 import UIWindowSearch from './UI/UIWindowSearch.js';
 import launch_app from './helpers/launch_app.js';
 import open_item from './helpers/open_item.js';
+import determine_active_container_parent from './helpers/determine_active_container_parent.js';
 
 $(document).bind('keydown', async function(e){
     const focused_el = document.activeElement;
@@ -152,7 +153,7 @@ $(document).bind('keydown', async function(e){
                 let selected_item_index = $('.context-menu-active .context-menu-item').index(selected_item);
                 let new_selected_item_index = selected_item_index + 1;
                 let new_selected_item = $('.context-menu-active .context-menu-item').get(new_selected_item_index);
-                while($(new_selected_item).hasClass('context-menu-item-disabled')){
+                while($(new_selected_item).hasClass('context-menu-item-disabled') || $(new_selected_item).hasClass('context-menu-divider')){
                     new_selected_item_index = new_selected_item_index + 1;
                     new_selected_item = $('.context-menu-active .context-menu-item').get(new_selected_item_index);
                 }
@@ -165,7 +166,7 @@ $(document).bind('keydown', async function(e){
                 let selected_item_index = $('.context-menu-active .context-menu-item').index(selected_item);
                 let new_selected_item_index = selected_item_index - 1;
                 let new_selected_item = $('.context-menu-active .context-menu-item').get(new_selected_item_index);
-                while($(new_selected_item).hasClass('context-menu-item-disabled')){
+                while($(new_selected_item).hasClass('context-menu-item-disabled') || $(new_selected_item).hasClass('context-menu-divider')){
                     new_selected_item_index = new_selected_item_index - 1;
                     new_selected_item = $('.context-menu-active .context-menu-item').get(new_selected_item_index);
                 }
@@ -686,7 +687,9 @@ $(document).bind("keyup keydown", async function(e){
                 launch_app({
                     name: $('.launch-app-selected').attr('data-name'),
                 })
-                $(".launch-popover").remove();
+                $(".popover-launcher").remove();
+                // taskbar item inactive
+                $('.taskbar-item[data-name="Start"]').removeClass('has-open-popover');
             });
 
             return false;

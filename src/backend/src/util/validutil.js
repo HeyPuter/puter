@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Puter Technologies Inc.
+ * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -21,7 +21,7 @@ const valid_file_size = v => {
     if ( ! Number.isInteger(v) ) {
         return { ok: false, v };
     }
-    if ( ! (v >= 0) ) {
+    if ( v < 0 ) {
         return { ok: false, v };
     }
     return { ok: true, v };
