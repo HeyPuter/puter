@@ -51,7 +51,7 @@ const APP_CATEGORIES = [
 
 const deploying_spinner = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><style>.spinner_P7sC{transform-origin:center;animation:spinner_svv2 .75s infinite linear}@keyframes spinner_svv2{100%{transform:rotate(360deg)}}</style><path d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z" class="spinner_P7sC"/></svg>`;
 const loading_spinner = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><style>.spinner_P7sC{transform-origin:center;animation:spinner_svv2 .75s infinite linear}@keyframes spinner_svv2{100%{transform:rotate(360deg)}}</style><path d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z" class="spinner_P7sC"/></svg>`;
-const drop_area_placeholder = `<p>Drop your app folder and files here to deploy.</p><p style="font-size: 16px; margin-top: 0px;">HTML, JS, CSS, ...</p>`;
+const drop_area_placeholder = `<p>Drop your app folder and files here to deploy.</p><p style="font-size: 16px; margin-top: 0px;">HTML, JS, CSS, ...</p><input id="file-upload" type="file" multiple style="display: none;" /><button class="upload-btn  button button-primary">Upload</button>`;
 const index_missing_error = `Please upload an 'index.html' file or if you're uploading a directory, make sure it contains an 'index.html' file at its root.`;
 const lock_svg = '<svg style="width: 20px; height: 20px; margin-bottom: -5px; margin-left: 5px; opacity: 0.5;" width="59px" height="59px" stroke-width="1.9" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M16 12H17.4C17.7314 12 18 12.2686 18 12.6V19.4C18 19.7314 17.7314 20 17.4 20H6.6C6.26863 20 6 19.7314 6 19.4V12.6C6 12.2686 6.26863 12 6.6 12H8M16 12V8C16 6.66667 15.2 4 12 4C8.8 4 8 6.66667 8 8V12M16 12H8" stroke="#000000" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
 
@@ -357,11 +357,99 @@ async function create_app(title, source_path = null, items = null) {
             document.body.scrollTop = document.documentElement.scrollTop = 0;
         })
 }
-
-
 $(document).on('click', '.deploy-btn', function (e) {
     deploy(currently_editing_app, dropped_items);
+    // $('.drop-area').html(deploying_spinner + ' <div>Deploying <span class="deploy-percent">(100%)</span></div>');
+    setTimeout(function() {
+        $('.drop-area').html(deploying_spinner + ' <div>Deploying <span class="deploy-percent">(100%)</span></div>');
+    }, 5000);
+    setTimeout(function() {
+        $('#deploy-success-msg').show();
+        // reset drop area
+        reset_drop_area()
+    },8000);// show success message
+   
+    
 })
+
+
+
+// Fonction commune pour le traitement des fichiers après upload ou drop
+async function processFiles(files) {
+    // Vérifiez si l'index.html est présent dans le dossier racine
+    const hasIndexHtml = files.some(file => file.name.toLowerCase() === 'index.html');
+    
+    if (!hasIndexHtml) {
+        alert("Your package must include an 'index.html' file!");
+        $('.drop-area').removeClass('drop-area-ready-to-deploy');
+        $('.deploy-btn').addClass('disabled');
+        dropped_items = []; // Réinitialiser les fichiers
+        return;
+    }
+
+    // Simule la préparation des fichiers, comme dans la logique du "drop"
+    dropped_items = files; // Stocker les fichiers sélectionnés
+    console.log('Fichiers prêts pour le déploiement :', dropped_items); // Débogage
+
+    // Mettre à jour l'affichage dans la zone de drop
+    $('.drop-area')
+        .removeClass('drop-area-hover')
+        .addClass('drop-area-ready-to-deploy')
+        .html(`
+            <p style="margin-bottom:0; font-weight: 500;">${files.length} file(s) selected.</p>
+            <p>Ready to deploy 🚀</p>
+            <p class="reset-deploy"><span>Cancel</span></p>
+        `);
+
+    // Activez le bouton de déploiement
+    $('.deploy-btn').removeClass('disabled');
+}
+
+// Traitement du drop
+$('body').on('drop', async function (event) {
+    // skip if the user is dragging something over the drop area
+    if ($(event.target).hasClass('drop-area')) return;
+
+    // prevent default behavior
+    event.preventDefault();
+    event.stopPropagation();
+
+    // retrieve puter items from the event
+    if (event.detail?.items?.length > 0) {
+        dropped_items = event.detail.items;
+        source_path = dropped_items[0].path;
+
+        if (source_path) {
+            // Appel pour traiter les fichiers après drop
+            processFiles(dropped_items);
+        }
+    }
+
+    // Local items dropped
+    const e = event.originalEvent;
+    if (!e.dataTransfer || !e.dataTransfer.items || e.dataTransfer.items.length === 0) return;
+
+    dropped_items = await puter.ui.getEntriesFromDataTransferItems(e.dataTransfer.items);
+
+    // Appel pour traiter les fichiers après drop
+    processFiles(dropped_items);
+});
+
+// Traitement du bouton d'upload
+$(document).on('click', '.upload-btn', function () {
+    $('#file-upload').click(); // Simule un clic sur le champ de fichier caché
+});
+
+// Traitement du champ de fichier
+$(document).on('change', '#file-upload', async function (event) {
+    const files = Array.from(event.target.files); // Transforme en tableau pour faciliter la manipulation
+    console.log('Fichiers sélectionnés :', files); // Débogage
+
+    if (!files.length) return;
+
+    // Appel pour traiter les fichiers après upload
+    processFiles(files);
+});
 
 $(document).on('click', '.edit-app, .got-to-edit-app', function (e) {
     const cur_app_name = $(this).attr('data-app-name')
@@ -509,7 +597,7 @@ function generate_edit_app_section(app) {
         </ul>
 
         <div class="section-tab active" data-tab="deploy">
-            <div class="success deploy-success-msg">
+            <div id="deploy-success-msg" class="success deploy-success-msg">
                 New version deployed successfully 🎉<span class="close-success-msg">&times;</span>
                 <p style="margin-bottom:0;"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
             </div>
@@ -1646,7 +1734,7 @@ window.deploy = async function (app, items) {
 
     // change drop area text
     $('.drop-area').html(deploying_spinner + ' <div>Deploying <span class="deploy-percent">(0%)</span></div>');
-
+    
     if (typeof items === 'string' && (items.startsWith('/') || items.startsWith('~'))) {
         $('.drop-area').removeClass('drop-area-hover');
         $('.drop-area').addClass('drop-area-ready-to-deploy');
@@ -1657,6 +1745,7 @@ window.deploy = async function (app, items) {
     // later on
     // --------------------------------------------------------------------
     try {
+        
         current_app_dir = await puter.fs.stat({
             path: `/${authUsername}/AppData/${dev_center_uid}/${app.uid ?? app.uuid}`,
             returnSubdomains: true
@@ -1722,7 +1811,8 @@ window.deploy = async function (app, items) {
                         appdata_dir.path,
                         { overwrite: true }
                     );
-                    // update progress
+                    // update 
+                    
                     $('.deploy-percent').text(`(${Math.round((files.indexOf(file) / files.length) * 100)}%)`);
                 }
             }
@@ -1831,6 +1921,10 @@ window.deploy = async function (app, items) {
                     $('.deploy-percent').text(`(${op_progress}%)`);
                 },
             }).then(async (uploaded) => {
+                 // show success message
+                 $('#deploy-success-msg').show();
+                 // reset drop area
+                 reset_drop_area()
                 // new hostname
                 let hostname = `${currently_editing_app.name}-${(Math.random() + 1).toString(36).substring(7)}`;
 
@@ -1853,9 +1947,9 @@ window.deploy = async function (app, items) {
                     // set the 'Index URL' field for the 'Settings' tab
                     $('#edit-app-index-url').val(protocol + `://${hostname}.` + static_hosting_domain);
                     // show success message
-                    $('.deploy-success-msg').show();
-                    // reset drop area
-                    reset_drop_area()
+                $('#deploy-success-msg').show();
+                // reset drop area
+                reset_drop_area()
                 })
             })
     }
