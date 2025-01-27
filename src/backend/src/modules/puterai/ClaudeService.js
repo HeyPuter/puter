@@ -171,6 +171,66 @@ class ClaudeService extends BaseService {
                             ...(tools ? { tools } : {}),
                         });
                         const counts = { input_tokens: 0, output_tokens: 0 };
+
+                        let content_block; // for when it's buffered ("tool use")
+                        let buffer = '';
+
+                        let state;
+                        const STATES = {
+                            ready: {
+                                on_event: (event) => {
+                                    if ( event.type === 'content_block_start' ) {
+                                        if ( event.content_block.type === 'text' ) {
+                                            state = STATES.message;
+                                        } else if ( event.content_block.type === 'tool_use' ) {
+                                            state = STATES.tool_use;
+                                            content_block = event.content_block;
+                                            buffer = '';
+                                        }
+                                    }
+                                }
+                            },
+                            message: {
+                                on_event: (event) => {
+                                    if ( event.type === 'content_block_stop' ) {
+                                        state = STATES.ready;
+                                    }
+                                    if (
+                                        event.type !== 'content_block_delta' ||
+                                        event.delta.type !== 'text_delta'
+                                    ) return;
+                                    const str = JSON.stringify({
+                                        text: event.delta.text,
+                                    });
+                                    stream.write(str + '\n');
+                                }
+                            },
+                            tool_use: {
+                                on_event: (event) => {
+                                    if ( event.type === 'content_block_stop' ) {
+                                        state = STATES.ready;
+                                        const str = JSON.stringify({
+                                            tool_use: {
+                                                ...content_block,
+                                                input: JSON.parse(buffer),
+                                            },
+                                        });
+                                        stream.write(str + '\n');
+                                        buffer = '';
+                                        return;
+                                    }
+
+                                    if (
+                                        event.type !== 'content_block_delta' ||
+                                        event.delta.type !== 'input_json_delta'
+                                    ) return;
+
+                                    buffer += event.delta.partial_json;
+                                }
+                            }
+                        };
+                        state = STATES.ready;
+
                         for await ( const event of completion ) {
                             const input_tokens =
                                 (event?.usage ?? event?.message?.usage)?.input_tokens;
@@ -180,11 +240,14 @@ class ClaudeService extends BaseService {
                             if ( input_tokens ) counts.input_tokens += input_tokens;
                             if ( output_tokens ) counts.output_tokens += output_tokens;
 
+                            state.on_event(event);
+
                             if (
                                 event.type !== 'content_block_delta' ||
                                 event.delta.type !== 'text_delta'
                             ) continue;
                             const str = JSON.stringify({
+                                type: 'text',
                                 text: event.delta.text,
                             });
                             stream.write(str + '\n');
