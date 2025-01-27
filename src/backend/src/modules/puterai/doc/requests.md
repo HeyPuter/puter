@@ -136,3 +136,97 @@ await puter.ai.chat([
     ]
 })
 ```
+
+### Claude Tool Use with Streaming
+
+```javascript
+gen = await puter.ai.chat('What\'s the weather like in Vancouver?', {
+    model: 'claude',
+    stream: true,
+    tools: [
+        {
+            type: 'function',
+            'function': {
+                name: 'get_weather',
+                description: 'A string describing the weather',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        location: {
+                            type: 'string',
+                            description: 'city',
+                        },
+                    },
+                    required: ['location'],
+                    additionalProperties: false,
+                },
+                strict: true
+            },
+        }
+    ]
+})
+for await ( const thing of gen ) { console.log('thing', thing) }
+```
+
+Last item in the stream looks like this:
+```json
+{
+    "tool_use": {
+        "type": "tool_use",
+        "id": "toolu_01Y4naZhXygjUVRjGBvrL9z8",
+        "name": "get_weather",
+        "input": {
+            "location": "Vancouver"
+        }
+    }
+}
+```
+
+Respond like this:
+```javascript
+gen = await puter.ai.chat([
+    { role: 'user', content: `What's the weather like in Vancouver?` },
+    {
+            "role": "assistant",
+            "content": [
+                { type: 'text', text: "I'll check the weather in Vancouver for you." },
+                { type: 'tool_use', name: 'get_weather', id: 'toolu_01Y4naZhXygjUVRjGBvrL9z8', input: { location: 'Vancouver' } },
+            ]
+    },
+    {
+        role: 'user',
+        content: [
+            {
+                type: 'tool_result',
+                tool_use_id: 'toolu_01Y4naZhXygjUVRjGBvrL9z8',
+                content: 'Sunny with a chance of rain'
+            }
+        ]
+    },
+], {
+    model: 'claude',
+    stream: true,
+    tools: [
+        {
+            type: 'function',
+            'function': {
+                name: 'get_weather',
+                description: 'A string describing the weather',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        location: {
+                            type: 'string',
+                            description: 'city',
+                        },
+                    },
+                    required: ['location'],
+                    additionalProperties: false,
+                },
+                strict: true
+            },
+        }
+    ]
+})
+for await ( const item of gen ) { console.log(item) }
+```
