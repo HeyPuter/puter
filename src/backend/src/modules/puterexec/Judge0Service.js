@@ -35,6 +35,17 @@ class Judge0Service extends BaseService {
             if ( runtime.startsWith('j0-') ) {
                 return runtime.slice(3);
             }
+            if ( runtime.includes('-') ) {
+                const versionIndex = runtime.lastIndexOf('-');
+                const langPart =  runtime.slice(0, versionIndex);
+                const versionPart = runtime.slice(versionIndex + 1);
+                const lang = this.languages.find((lang) =>
+                    lang.language === langPart && lang.version === versionPart
+                );
+                if ( lang ) {
+                    return lang.judge0_id;
+                }
+            }
             let lang = this.languages.find((lang) => lang.language === runtime);
             if ( lang ) {
                 return lang.judge0_id;
