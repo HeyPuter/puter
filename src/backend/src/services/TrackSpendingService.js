@@ -183,8 +183,8 @@ class TrackSpendingService extends BaseService {
         // How frequently we'll get repeat alarms
         const alarm_cooldown_time = 30 * MINUTE;
 
-        const alarm_at_cost = this.config.alarm_at_cost ?? 1;
-        const alarm_increment = this.config.alarm_increment ?? 1;
+        const alarm_at_cost = this.config.alarm_at_cost ?? 10;
+        const alarm_increment = this.config.alarm_increment ?? 10;
 
         for ( const k in strategies ) {
             await strategies[k].validate?.();
