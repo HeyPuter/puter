@@ -143,16 +143,17 @@ class MovingMode extends StreamReducer {
 }
 
 class TimeWindow {
-    constructor ({ window_duration, reducer }) {
+    constructor ({ window_duration, reducer, now }) {
         this.window_duration = window_duration;
         this.reducer = reducer;
         this.entries_ = [];
+        this.now = now ?? Date.now;
     }
 
     add (value) {
         this.remove_stale_entries_();
 
-        const timestamp = Date.now();
+        const timestamp = this.now();
         this.entries_.push({
             timestamp,
             value,
@@ -174,7 +175,7 @@ class TimeWindow {
 
     remove_stale_entries_ () {
         let i = 0;
-        const current_ts = Date.now();
+        const current_ts = this.now();
         for ( ; i < this.entries_.length ; i++ ) {
             const entry = this.entries_[i];
             // as soon as an entry is in the window we can break,
