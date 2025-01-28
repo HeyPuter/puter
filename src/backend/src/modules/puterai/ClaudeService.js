@@ -200,6 +200,7 @@ class ClaudeService extends BaseService {
                                         event.delta.type !== 'text_delta'
                                     ) return;
                                     const str = JSON.stringify({
+                                        type: 'text',
                                         text: event.delta.text,
                                     });
                                     stream.write(str + '\n');
@@ -217,6 +218,9 @@ class ClaudeService extends BaseService {
                                             buffer = '{}';
                                         }
                                         const str = JSON.stringify({
+                                            ...content_block,
+
+                                            // deprecated {}.tool_use (because it was like that before)
                                             tool_use: {
                                                 ...content_block,
                                                 input: JSON.parse(buffer),
@@ -257,7 +261,6 @@ class ClaudeService extends BaseService {
                                 type: 'text',
                                 text: event.delta.text,
                             });
-                            stream.write(str + '\n');
                         }
                         stream.end();
                         usage_promise.resolve(counts);
