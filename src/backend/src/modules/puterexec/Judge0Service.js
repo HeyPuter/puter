@@ -53,13 +53,29 @@ class Judge0Service extends BaseService {
         const submission_done = new putility.libs.promise.TeePromise();
         (async () => {
             // Need to poll the submission until it's done
+            let i = 0;
+            let poll_running = false;
             let poll = setInterval(async () => {
+                // Prevent overlapping polls
+                if ( poll_running ) return;
+                
+                // Custom backoff strategy
+                let will_skip = false;
+                if ( i > 5  && i % 2 === 0 ) will_skip = true;
+                if ( i > 10 && i % 3 === 0 ) will_skip = true;
+                if ( i > 50 && i % 5 === 0 ) will_skip = true;
+                i++;
+                if ( will_skip ) return;
+
+                // Poll the submission
+                poll_running = true;
                 const submission = await this.client.get_submission(result.token);
                 if ( submission.status.id >= 3 ) {
                     clearInterval(poll);
                     // this.submissions_[result.id] = submission;
                     submission_done.resolve(submission);
                 }
+                poll_running = false;
             });
 
             // Wait for the submission to be done
