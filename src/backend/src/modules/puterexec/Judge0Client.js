@@ -12,6 +12,17 @@ class Judge0Client {
         return await this.get_('/about');
     }
 
+    async create_submission ({ lang_id, code }) {
+        return await this.post_('/submissions', {
+            language_id: lang_id,
+            source_code: code,
+        });
+    }
+
+    async get_submission (id) {
+        return await this.get_(`/submissions/${id}`);
+    }
+
     async get_ (path) {
         if ( ! path.startsWith('/') ) {
             path = `/${path}`;
@@ -23,6 +34,24 @@ class Judge0Client {
             headers: {
                 Authorization: `Bearer ${this.token}`,
             },
+        });
+
+        return resp.data;
+    }
+
+    async post_ (path, data) {
+        if ( ! path.startsWith('/') ) {
+            path = `/${path}`;
+        }
+
+        const resp = await axios.request({
+            method: 'POST',
+            url: `${this.baseURL}${path}`,
+            headers: {
+                Authorization: `Bearer ${this.token}`,
+                'Content-Type': 'application/json',
+            },
+            data,
         });
 
         return resp.data;
