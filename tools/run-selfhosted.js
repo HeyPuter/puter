@@ -87,6 +87,7 @@ const main = async () => {
         BroadcastModule,
         TestDriversModule,
         PuterAIModule,
+        PuterExecModule,
         InternetModule,
         DevelopmentModule
     } = (await import('@heyputer/backend')).default;
@@ -103,7 +104,8 @@ const main = async () => {
     k.add_module(new BroadcastModule());
     k.add_module(new TestDriversModule());
     k.add_module(new InternetModule());
-    // k.add_module(new PuterAIModule());
+    k.add_module(new PuterAIModule());
+    k.add_module(new PuterExecModule());
     if ( process.env.UNSAFE_PUTER_DEV ) {
         k.add_module(new DevelopmentModule());
     }
