@@ -36,6 +36,8 @@ class WSPushService  extends BaseService {
             this._on_upload_progress.bind(this));
         this.svc_event.on('fs.storage.progress.*',
             this._on_upload_progress.bind(this));
+        this.svc_event.on('puter-exec.submission.done',
+            this._on_submission_done.bind(this));
         this.svc_event.on('outer.gui.*',
             this._on_outer_gui.bind(this));
     }
@@ -271,7 +273,25 @@ class WSPushService  extends BaseService {
             });
         })
     }
-    
+
+    async _on_submission_done (key, data) {
+        const { actor } = data;
+        const { id, output, summary, measures, aux_outputs } = data;
+        const user_id = actor.type.user.id;
+
+        const response = {
+            id,
+            output,
+            summary,
+            measures,
+            aux_outputs,
+        };
+
+        this.svc_event.emit('outer.gui.submission.done', {
+            user_id_list: [ user_id ],
+            response,
+        });
+    }
 
     /**
     * Handles the 'outer.gui.*' event to emit GUI-related updates to specific users.
