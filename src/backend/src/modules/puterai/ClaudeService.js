@@ -209,6 +209,13 @@ class ClaudeService extends BaseService {
                                 on_event: (event) => {
                                     if ( event.type === 'content_block_stop' ) {
                                         state = STATES.ready;
+                                        
+                                        // Yeah... claude will send an empty string instead of
+                                        // an empty object when there's no input. So we have to
+                                        // check for that. Good job, Anthropic.
+                                        if ( buffer === '' ) {
+                                            buffer = '{}';
+                                        }
                                         const str = JSON.stringify({
                                             tool_use: {
                                                 ...content_block,
