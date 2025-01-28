@@ -51,18 +51,11 @@ for ( const item of sample ) {
         versions = newVersions;
     }
 
-    const onlyOne = Object.keys(versions).length === 1;
-    if ( versions.version && onlyOne ) {
-        output.push({
-            id,
-            language,
-            versions,
-        });
-        continue;
-    }
     output.push({
-        id,
+        judge0_id: id,
+        id: `j0-${id}`,
         language,
+        version: versions[Object.keys(versions)[0]],
         versions,
     });
 }
