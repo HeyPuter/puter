@@ -114,7 +114,8 @@ class AIChatService extends BaseService {
             await this.db.insert('ai_usage', values);
 
             // USD cost from microcents
-            const cost_usd = values.cost / 1000000;
+            const cost_usc = values.cost / 1000000;
+            const cost_usd = cost_usc / 100;
 
             // Add to TrackSpendingService
             const svc_spending = this.services.get('spending');
