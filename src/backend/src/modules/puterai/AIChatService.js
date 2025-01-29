@@ -27,6 +27,7 @@ const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
 const { AsModeration } = require("./lib/AsModeration");
 const FunctionCalling = require("./lib/FunctionCalling");
+const Messages = require("./lib/Messages");
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -351,6 +352,10 @@ class AIChatService extends BaseService {
                     test_mode = true;
                 }
                 
+                if ( parameters.messages ) {
+                    Messages.normalize_messages(parameters.messages);
+                }
+
                 if ( ! test_mode && ! await this.moderate(parameters) ) {
                     test_mode = true;
                 }

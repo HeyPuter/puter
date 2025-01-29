@@ -251,48 +251,6 @@ class OpenAICompletionService extends BaseService {
 
         model = model ?? this.get_default_model();
 
-        for ( let i = 0; i < messages.length; i++ ) {
-            let msg = messages[i];
-            if ( typeof msg === 'string' ) msg = { content: msg };
-            if ( typeof msg !== 'object' ) {
-                throw new Error('each message must be a string or an object');
-            }
-            if ( ! msg.role ) msg.role = 'user';
-            if ( msg.role === 'assistant' && ! msg.content ) {
-                continue;
-            }
-            if ( ! msg.content ) {
-                throw new Error('each message must have a `content` property');
-            }
-
-            const texts = [];
-            if ( typeof msg.content === 'string' ) texts.push(msg.content);
-            else if ( typeof msg.content === 'object' ) {
-                if ( Array.isArray(msg.content) ) {
-                    texts.push(...msg.content.filter(o => (
-                        ( ! o.type && o.hasOwnProperty('text') ) ||
-                        o.type === 'text')).map(o => o.text));
-                }
-                else texts.push(msg.content.text);
-            }
-
-            this.log.noticeme('OPENAI MODERATION CHECK', {
-                moderation,
-                context_value: Context.get('moderated'),
-            })
-            if ( moderation && ! Context.get('moderated') ) {
-                console.log('RAN MODERATION');
-                for ( const text of texts ) {
-                    const moderation_result = await this.check_moderation(text);
-                    if ( moderation_result.flagged ) {
-                        throw new Error('message is not allowed');
-                    }
-                }
-            }
-
-            messages[i] = msg;
-        }
-
         messages.unshift({
             role: 'system',
             content: 'You are running inside a Puter app.',
@@ -320,7 +278,7 @@ class OpenAICompletionService extends BaseService {
             if ( ! msg.content ) continue;
             if ( typeof msg.content !== 'object' ) continue;
 
-            const content = smol.ensure_array(msg.content);
+            const content = msg.content;
 
             for ( const o of content ) {
                 if ( ! o.hasOwnProperty('image_url') ) continue;
