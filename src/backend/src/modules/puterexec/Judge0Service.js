@@ -2,6 +2,7 @@ const putility = require("@heyputer/putility");
 const BaseService = require("../../services/BaseService");
 const { Judge0Client } = require("./Judge0Client");
 const { Context } = require("../../util/context");
+const { find_highest_version } = require("../../util/versionutil");
 
 class Judge0Service extends BaseService {
     _construct () {
@@ -46,7 +47,9 @@ class Judge0Service extends BaseService {
                     return lang.judge0_id;
                 }
             }
-            let lang = this.languages.find((lang) => lang.language === runtime);
+            const matchingLangs = this.languages.filter((lang) => lang.language === runtime);
+            const lang = find_highest_version(matchingLangs);
+
             if ( lang ) {
                 return lang.judge0_id;
             }
