@@ -23,6 +23,7 @@ import { PSocket, wispInfo } from './modules/networking/PSocket.js';
 import { PTLSSocket } from "./modules/networking/PTLS.js"
 import { PWispHandler } from './modules/networking/PWispHandler.js';
 import { make_http_api } from './lib/http.js';
+import Exec from './modules/Exec.js';
 
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
@@ -98,6 +99,7 @@ window.puter = (function() {
             this.registerModule('kv', KV);
             this.registerModule('drivers', Drivers);
             this.registerModule('debug', Debug);
+            this.registerModule('exec', Exec);
 
             // Path
             this.path = path;

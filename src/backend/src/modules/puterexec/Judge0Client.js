@@ -44,17 +44,22 @@ class Judge0Client {
             path = `/${path}`;
         }
 
-        const resp = await axios.request({
-            method: 'POST',
-            url: `${this.baseURL}${path}`,
-            headers: {
-                Authorization: `Bearer ${this.token}`,
-                'Content-Type': 'application/json',
-            },
-            data,
-        });
+        try {
+            const resp = await axios.request({
+                method: 'POST',
+                url: `${this.baseURL}${path}`,
+                headers: {
+                    Authorization: `Bearer ${this.token}`,
+                    'Content-Type': 'application/json',
+                },
+                data,
+            });
 
-        return resp.data;
+            return resp.data;
+        } catch (e) {
+            console.error('error response', e.response.data);
+            throw e;
+        }
     }
 }
 
