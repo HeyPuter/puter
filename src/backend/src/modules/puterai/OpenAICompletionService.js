@@ -287,37 +287,6 @@ class OpenAICompletionService extends BaseService {
             }
         }
 
-        console.log('DATA GOING IN', messages);
-
-        // Count tokens
-        let token_count = 0;
-        {
-            const enc = this.modules.tiktoken.encoding_for_model(model);
-            const text = JSON.stringify(messages)
-            const tokens = enc.encode(text);
-            token_count += tokens.length;
-        }
-
-        // Subtract image urls
-        for ( const msg of messages ) {
-            // console.log('msg and content', msg, msg.content);
-            if ( ! msg.content ) continue;
-            if ( typeof msg.content !== 'object' ) continue;
-
-            const content = smol.ensure_array(msg.content);
-
-            for ( const o of content ) {
-                // console.log('part of content', o);
-                if ( o.type !== 'image_url' ) continue;
-                const enc = this.modules.tiktoken.encoding_for_model(model);
-                const text = o.image_url?.url ?? '';
-                const tokens = enc.encode(text);
-                token_count -= tokens.length;
-            }
-        }
-
-        // const max_tokens = 4096 - token_count;
-
         const completion = await this.openai.chat.completions.create({
             user: user_private_uid,
             messages: messages,
@@ -370,36 +339,6 @@ class OpenAICompletionService extends BaseService {
 
 
         this.log.info('how many choices?: ' + completion.choices.length);
-
-        // Record spending information
-        const spending_meta = {};
-        spending_meta.timestamp = Date.now();
-        spending_meta.count_tokens_input = token_count;
-        /**
-        * Records spending metadata for the chat completion request and performs token counting.
-        * Initializes metadata object with timestamp and token counts for both input and output.
-        * Uses tiktoken to count output tokens from the completion response.
-        * Records spending data via spending service and increments usage counters.
-        * @private
-        */
-        spending_meta.count_tokens_output = (() => {
-            // count output tokens (overestimate)
-            const enc = this.modules.tiktoken.encoding_for_model(model);
-            const text = JSON.stringify(completion.choices);
-            const tokens = enc.encode(text);
-            return tokens.length;
-        })();
-
-        const svc_counting = Context.get('services').get('counting');
-        svc_counting.increment({
-            service_name: 'openai:chat-completion',
-            service_type: 'gpt',
-            values: {
-                model,
-                input_tokens: token_count,
-                output_tokens: spending_meta.count_tokens_output,
-            }
-        });
 
         const is_empty = completion.choices?.[0]?.message?.content?.trim() === '';
         if ( is_empty ) {
