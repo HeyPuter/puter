@@ -46,4 +46,30 @@ module.exports = class Messages {
             messages[i] = this.normalize_single_message(messages[i], params);
         }
     }
+    static extract_text (messages) {
+        return messages.map(m => {
+            if ( whatis(m) === 'string' ) {
+                return m;
+            }
+            if ( whatis(m) !== 'object' ) {
+                return '';
+            }
+            if ( whatis(m.content) === 'array' ) {
+                return m.content.map(c => c.text).join(' ');
+            }
+            if ( whatis(m.content) === 'string' ) {
+                return m.content;
+            } else {
+                const is_text_type = m.content.type === 'text' ||
+                    ! m.content.hasOwnProperty('type');
+                if ( is_text_type ) {
+                    if ( whatis(m.content.text) !== 'string' ) {
+                        throw new Error('text content must be a string');
+                    }
+                    return m.content.text;
+                }
+                return '';
+            }
+        }).join(' ');
+    }
 }
