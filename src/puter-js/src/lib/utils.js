@@ -282,7 +282,14 @@ async function driverCall_(
     let signal_stream_update = null;
     let lastLength = 0;
     let response_complete = false;
-    const parts_received = [];
+    
+    let buffer = '';
+    
+    // NOTE: linked-list technically would perform better,
+    //       but in practice there are at most 2-3 lines
+    //       buffered so this does not matter.
+    const lines_received = [];
+
     xhr.onreadystatechange = () => {
         if ( xhr.readyState === 2 ) {
             if ( xhr.getResponseHeader("Content-Type") !==
@@ -295,13 +302,10 @@ async function driverCall_(
                     signal_stream_update = tp.resolve.bind(tp);
                     await tp;
                     if ( response_complete ) break;
-                    while ( parts_received.length > 0 ) {
-                        const value = parts_received.pop();
-                        const parts = value.split('\n');
-                        for ( const part of parts ) {
-                            if ( part.trim() === '' ) continue;
-                            yield JSON.parse(part);
-                        }
+                    while ( lines_received.length > 0 ) {
+                        const line = lines_received.shift();
+                        if ( line.trim() === '' ) continue;
+                        yield JSON.parse(line);
                     }
                 }
             }
@@ -322,8 +326,19 @@ async function driverCall_(
         const newText = xhr.responseText.slice(lastLength);
         lastLength = xhr.responseText.length; // Update lastLength to the current length
         
-        parts_received.push(newText);
-        signal_stream_update();
+        let hasUpdates = false;
+        for ( let i = 0; i < newText.length; i++ ) {
+            buffer += newText[i];
+            if ( newText[i] === '\n' ) {
+                hasUpdates = true;
+                lines_received.push(buffer);
+                buffer = '';
+            }
+        }
+        
+        if ( hasUpdates ) {
+            signal_stream_update();
+        }
     };
     
     // ========================
