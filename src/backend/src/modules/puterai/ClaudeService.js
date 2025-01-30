@@ -251,7 +251,6 @@ class ClaudeService extends BaseService {
 
                 const msg = await this.anthropic.messages.create({
                     model: model ?? this.get_default_model(),
-                    max_tokens: (model === 'claude-3-5-sonnet-20241022' || model === 'claude-3-5-sonnet-20240620') ? 8192 : 4096,
                     temperature: 0,
                     system: PUTER_PROMPT + JSON.stringify(system_prompts),
                     messages: adapted_messages,
