@@ -407,7 +407,29 @@ class AIChatService extends BaseService {
                     tried.push(model);
 
                     error = e;
-                    if ( e.type === 'invalid_request_error' ) {
+                    
+                    // Distinguishing between user errors and service errors
+                    // is very messy because of different conventions between
+                    // services. This is a best-effort attempt to catch user
+                    // errors and throw them as 400s.
+                    const is_request_error = (() => {
+                        if ( e instanceof APIError ) {
+                            return true;
+                        }
+                        if ( e.type === 'invalid_request_error' ) {
+                            return true;
+                        }
+                        let some_error = e;
+                        while ( some_error ) {
+                            if ( some_error.type === 'invalid_request_error' ) {
+                                return true;
+                            }
+                            some_error = some_error.error ?? some_error.cause;
+                        }
+                        return false;
+                    })();
+
+                    if ( is_request_error ) {
                         throw APIError.create('error_400_from_delegate', null, {
                             delegate: intended_service,
                             message: e.message,
