@@ -121,10 +121,34 @@ class ClaudeService extends BaseService {
                 tools = FunctionCalling.make_claude_tools(tools);
                 
                 const system_prompts = [];
-                for ( let i = messages.length - 1; i >= 0; i-- ) {
+                let previous_was_user = false;
+                for ( const message of messages ) {
+                    if ( typeof message.content === 'string' ) {
+                        message.content = {
+                            type: 'text',
+                            text: message.content,
+                        };
+                    }
+                    if ( whatis(message.content) !== 'array' ) {
+                        message.content = [message.content];
+                    }
+                    if ( ! message.role ) message.role = 'user';
+                    if ( message.role === 'user' && previous_was_user ) {
+                        const last_msg = adapted_messages[adapted_messages.length-1];
+                        last_msg.content.push(
+                            ...(Array.isArray ? message.content : [message.content])
+                        );
+                        continue;
+                    }
                     if ( message.role === 'system' ) {
                         system_prompts.push(...message.content);
-                        messages.splice(i, 1);
+                        continue;
+                    }
+                    adapted_messages.push(message);
+                    if ( message.role === 'user' ) {
+                        previous_was_user = true;
+                    } else {
+                        previous_was_user = false;
                     }
                 }
 
