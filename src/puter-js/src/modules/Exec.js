@@ -1,3 +1,4 @@
+import putility from '@heyputer/putility';
 import * as utils from '../lib/utils.js';
 
 export default class Exec {
@@ -11,7 +12,18 @@ export default class Exec {
 
     // Exec Interface
     async exec (...args) {
-        return await utils.make_driver_method([
+        const socket = puter.fs.socket;
+        const tokenPromise = new putility.libs.promise.TeePromise();
+        const resultPromise = new putility.libs.promise.TeePromise();
+        const listener = async result => {
+            const token = await tokenPromise;
+            if ( result.id !== token ) return;
+            resultPromise.resolve(result);
+            socket.off('submission.done', listener);
+        };
+        socket.on('submission.done', listener);
+        
+        const { token } = await utils.make_driver_method([
             'runtime', 'code', 'stdin',
         ], 'puter-exec', undefined, 'exec', {
             transform: async (result) => {
@@ -26,6 +38,8 @@ export default class Exec {
                 return result;
             }
         }).call(this, ...args);
+        tokenPromise.resolve(token);
+        return await resultPromise;
     }
 
     // Internal
