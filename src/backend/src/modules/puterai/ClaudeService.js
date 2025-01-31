@@ -24,6 +24,7 @@ const { whatis } = require("../../util/langutil");
 const { PassThrough } = require("stream");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const FunctionCalling = require("./lib/FunctionCalling");
+const Messages = require("./lib/Messages");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 const PUTER_PROMPT = `
@@ -116,41 +117,10 @@ class ClaudeService extends BaseService {
             * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or a completion object
             */
             async complete ({ messages, stream, model, tools }) {
-                const adapted_messages = [];
-
                 tools = FunctionCalling.make_claude_tools(tools);
                 
-                const system_prompts = [];
-                let previous_was_user = false;
-                for ( const message of messages ) {
-                    if ( typeof message.content === 'string' ) {
-                        message.content = {
-                            type: 'text',
-                            text: message.content,
-                        };
-                    }
-                    if ( whatis(message.content) !== 'array' ) {
-                        message.content = [message.content];
-                    }
-                    if ( ! message.role ) message.role = 'user';
-                    if ( message.role === 'user' && previous_was_user ) {
-                        const last_msg = adapted_messages[adapted_messages.length-1];
-                        last_msg.content.push(
-                            ...(Array.isArray ? message.content : [message.content])
-                        );
-                        continue;
-                    }
-                    if ( message.role === 'system' ) {
-                        system_prompts.push(...message.content);
-                        continue;
-                    }
-                    adapted_messages.push(message);
-                    if ( message.role === 'user' ) {
-                        previous_was_user = true;
-                    } else {
-                        previous_was_user = false;
-                    }
-                }
+                let system_prompts;
+                [system_prompts, messages] = Messages.extract_and_remove_system_messages(messages);
 
                 if ( stream ) {
                     let usage_promise = new TeePromise();
@@ -167,7 +137,7 @@ class ClaudeService extends BaseService {
                             max_tokens: (model === 'claude-3-5-sonnet-20241022' || model === 'claude-3-5-sonnet-20240620') ? 8192 : 4096,
                             temperature: 0,
                             system: PUTER_PROMPT + JSON.stringify(system_prompts),
-                            messages: adapted_messages,
+                            messages,
                             ...(tools ? { tools } : {}),
                         });
                         const counts = { input_tokens: 0, output_tokens: 0 };
@@ -278,7 +248,7 @@ class ClaudeService extends BaseService {
                     max_tokens: (model === 'claude-3-5-sonnet-20241022' || model === 'claude-3-5-sonnet-20240620') ? 8192 : 4096,
                     temperature: 0,
                     system: PUTER_PROMPT + JSON.stringify(system_prompts),
-                    messages: adapted_messages,
+                    messages,
                     ...(tools ? { tools } : {}),
                 });
                 return {

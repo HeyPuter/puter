@@ -354,7 +354,8 @@ class AIChatService extends BaseService {
                 }
                 
                 if ( parameters.messages ) {
-                    Messages.normalize_messages(parameters.messages);
+                    parameters.messages =
+                        Messages.normalize_messages(parameters.messages);
                 }
 
                 if ( ! test_mode && ! await this.moderate(parameters) ) {
