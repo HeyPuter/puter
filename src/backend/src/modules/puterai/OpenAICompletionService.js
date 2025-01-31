@@ -115,6 +115,15 @@ class OpenAICompletionService extends BaseService {
                     output: 1200,
                 }
             },
+            {
+                id: 'o3-mini',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 110,
+                    output: 440,
+                }
+            },
         ];
     }
 
@@ -287,6 +296,7 @@ class OpenAICompletionService extends BaseService {
             }
         }
 
+        console.log('MODEL IN USE ------- ', model);
         const completion = await this.openai.chat.completions.create({
             user: user_private_uid,
             messages: messages,
