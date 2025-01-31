@@ -19,6 +19,7 @@
 
 // METADATA // {"ai-commented":{"service":"claude"}}
 const APIError = require("../../api/APIError");
+const config = require("../../config");
 const { PermissionUtil } = require("../../services/auth/PermissionService");
 const BaseService = require("../../services/BaseService");
 const { DB_WRITE } = require("../../services/database/consts");
@@ -436,6 +437,11 @@ class AIChatService extends BaseService {
                         })
                     }
                     console.error(e);
+
+                    if ( config.disable_fallback_mechanisms ) {
+                        throw e;
+                    }
+
                     this.log.error('error calling service', {
                         intended_service,
                         model,
