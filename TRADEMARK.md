@@ -23,7 +23,7 @@ This policy encompasses all trademarks and service marks, whether they are regis
 
 ## 1. GENERAL GUIDELINES
 
-Whenever you use one of our marks, you must always do so in a way that does not mislead anyone about what they are getting and from whom. For example, you cannot say you are distributing the Puter software when you're distributing a modified version of it, because recipients may not understand the differences between your modified versions and our own.
+Whenever you use one of our marks, you must always do so in a way that does not mislead anyone about what they are getting and from whom. For example, you cannot say you are providing the Puter software when you're providing a modified version of it, because recipients may not understand the differences between your modified versions and our own.
 
 You also cannot use our logo on your website in a way that suggests that your website is an official website or that we endorse your website.
 
@@ -154,7 +154,8 @@ When using our marks in online content:
 When developing with Puter APIs:
 
 * You may use our word marks to accurately describe your integration
-* You must not use our marks in a way that suggests your API or service is official
+* You must not use our marks in a way that suggests your API or service is endorse by
+Puter or provided by Puter
 * You must include appropriate trademark attribution
 
 All uses described above must also comply with the General Guidelines section of this policy and maintain the integrity of our marks as described in the How to Display Our Marks section.
