@@ -547,6 +547,17 @@ class AIChatService extends BaseService {
                     service_used,
                 });
 
+
+                if ( parameters.response?.normalize ) {
+                    ret.result.message =
+                       Messages.normalize_single_message(ret.result.message);
+                    ret.result = {
+                        message: ret.result.message,
+                        via_ai_chat_service: true,
+                        normalized: true,
+                    };
+                }
+
                 return ret.result;
             }
         }

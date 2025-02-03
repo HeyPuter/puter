@@ -285,8 +285,12 @@ class AI{
             options.stream = settings.stream;
         }
 
-        if ( settings.tools ) {
-            options.tools = settings.tools;
+        // settings to pass
+        const SETTINGS_TO_PASS = ['tools', 'response'];
+        for ( const name of SETTINGS_TO_PASS ) {
+            if ( settings[name] ) {
+                options[name] = settings[name];
+            }
         }
 
         // Call the original chat.complete method
