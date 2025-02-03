@@ -37,6 +37,7 @@ const { DevelopmentModule } = require("./src/modules/development/DevelopmentModu
 const { HostOSModule } = require("./src/modules/hostos/HostOSModule.js");
 const { InternetModule } = require("./src/modules/internet/InternetModule.js");
 const { PuterExecModule } = require("./src/modules/puterexec/PuterExecModule.js");
+const { MailModule } = require("./src/modules/mail/MailModule.js");
 
 module.exports = {
     helloworld: () => {
@@ -72,6 +73,7 @@ module.exports = {
     PuterExecModule,
     BroadcastModule,
     InternetModule,
+    MailModule,
     
     // Development modules
     PerfMonModule,

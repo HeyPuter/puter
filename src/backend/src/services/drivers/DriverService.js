@@ -217,6 +217,7 @@ class DriverService extends BaseService {
             ['puter-chat-completion']: 'openai-completion',
             ['puter-image-generation']: 'openai-image-generation',
             'puter-exec': 'judge0',
+            'puter-send-mail': 'user-send-mail',
             'puter-apps': 'es:app',
             'puter-subdomains': 'es:subdomain',
             'puter-notifications': 'es:notification',

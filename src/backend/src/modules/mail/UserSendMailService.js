@@ -1,4 +1,5 @@
 const BaseService = require("../../services/BaseService");
+const { Context } = require("../../util/context");
 
 class UserSendMailService extends BaseService {
     async ['__on_driver.register.interfaces'] () {
@@ -29,7 +30,7 @@ class UserSendMailService extends BaseService {
     static IMPLEMENTS = {
         'puter-send-mail': {
             async send ({ to, subject, html }) {
-                const actor = this.context.get('actor');
+                const actor = Context.get('actor');
                 const svc_email = this.services.get('email');
     
                 if ( ! actor.type.user ) {
