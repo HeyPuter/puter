@@ -45,17 +45,26 @@ class Email{
             throw ({message: 'Arguments are required', code: 'arguments_required'});
         }
 
+        let opt_i = 0;
         if(typeof args[0] === 'object'){
             options = args[0];
+            opt_i = 1;
         }else{
             options = {
                 to: args[0],
                 subject: args[1],
-                html: args[2]
+                body: args[2]
+            }
+            opt_i = 3;
+        }
+
+        for ( const opt of args.slice(opt_i) ) {
+            if ( typeof opt === 'object' ) {
+                Object.assign(options, opt);
             }
         }
 
-        return utils.make_driver_method(['to', 'subject', 'html'], 'temp-email', 'send').call(this, options);
+        return utils.make_driver_method(['to', 'subject', 'body'], 'puter-send-mail', undefined, 'send').call(this, options);
     }
 }
 

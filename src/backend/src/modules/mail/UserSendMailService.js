@@ -1,5 +1,7 @@
+const APIError = require("../../api/APIError");
 const BaseService = require("../../services/BaseService");
 const { Context } = require("../../util/context");
+const validator = require('validator')
 
 class UserSendMailService extends BaseService {
     async ['__on_driver.register.interfaces'] () {
@@ -18,7 +20,10 @@ class UserSendMailService extends BaseService {
                         subject: {
                             type: 'string',
                         },
-                        html: {
+                        body: {
+                            type: 'string',
+                        },
+                        encoding: {
                             type: 'string',
                         },
                     },
@@ -29,7 +34,7 @@ class UserSendMailService extends BaseService {
     }
     static IMPLEMENTS = {
         'puter-send-mail': {
-            async send ({ to, subject, html }) {
+            async send ({ to, subject, body, encoding }) {
                 const actor = Context.get('actor');
                 const svc_email = this.services.get('email');
     
@@ -37,11 +42,40 @@ class UserSendMailService extends BaseService {
                     throw new Error('Only users can send email.');
                 }
                 const user = actor.type.user;
+
+                encoding = encoding ?? 'html';
+                if ( ! ['html', 'text'].includes(encoding) ) {
+                    throw APIError.create('field_invalid', null, {
+                        key: 'encoding',
+                        expected: 'html or text',
+                        got: encoding,
+                    });
+                }
+
+                if ( ! validator.isEmail(to) ) {
+                    throw APIError.create('field_invalid', null, {
+                        key: 'to',
+                        expected: 'a valid email address',
+                        got: to,
+                    });
+                }
+
+                // We're going to disallow subject lines over or including 998,
+                // as nobody would ever do this unless they're trying to
+                // exploit a faulty email client.
+                if ( subject.length >= 998 ) {
+                    throw APIError.create('field_too_long', null, {
+                        key: 'subject',
+                        max_length: 997,
+                    });
+                }
     
                 const transporter = svc_email.get_transport_();
                 const o = {
                     from: `${user.username}@${this.config.domain}`, // sender address
-                    to, subject, html,
+                    to,
+                    subject,
+                    [encoding === 'html' ? 'html' : 'text']: body,
                 };
                 await transporter.sendMail(o);
             }
