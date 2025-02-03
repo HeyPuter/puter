@@ -213,6 +213,7 @@ class ClaudeService extends BaseService {
                         state = STATES.ready;
 
                         for await ( const event of completion ) {
+                            // console.log('EVENT', event);
                             const input_tokens =
                                 (event?.usage ?? event?.message?.usage)?.input_tokens;
                             const output_tokens =

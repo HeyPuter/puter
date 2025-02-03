@@ -321,6 +321,7 @@ class OpenAICompletionService extends BaseService {
             }, stream);
             (async () => {
                 for await ( const chunk of completion ) {
+                    // console.log('CHUNK', chunk, JSON.stringify(chunk?.choices?.[0]?.delta ?? null));
                     entire.push(chunk);
                     if ( chunk.usage ) {
                         usage_promise.resolve({
