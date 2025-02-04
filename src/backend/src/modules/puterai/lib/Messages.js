@@ -30,8 +30,9 @@ module.exports = class Messages {
                     });
                 }
                 delete message.tool_calls;
+            } else {
+                throw new Error(`each message must have a 'content' property`);
             }
-            throw new Error(`each message must have a 'content' property`);
         }
         if ( whatis(message.content) !== 'array' ) {
             message.content = [message.content];
