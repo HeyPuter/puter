@@ -351,7 +351,8 @@ class OpenAICompletionService extends BaseService {
                             if ( ! tool_call_blocks[tool_call.index] ) {
                                 toolblock = message.contentBlock({
                                     type: 'tool_use',
-                                    id: tool_call.function.name,
+                                    id: tool_call.id,
+                                    name: tool_call.function.name,
                                 });
                                 tool_call_blocks[tool_call.index] = toolblock;
                             } else {
