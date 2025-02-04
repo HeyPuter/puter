@@ -74,6 +74,10 @@ class AIChatStream {
         this.stream = stream;
     }
 
+    end () {
+        this.stream.end();
+    }
+
     message () {
         return new AIChatMessageStream(this);
     }

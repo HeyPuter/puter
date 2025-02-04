@@ -189,6 +189,7 @@ class ClaudeService extends BaseService {
                                 }
                             }
                         }
+                        chatStream.end();
                         usage_promise.resolve(counts);
                     };
 

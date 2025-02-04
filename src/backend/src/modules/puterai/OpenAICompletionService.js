@@ -365,6 +365,7 @@ class OpenAICompletionService extends BaseService {
                 if ( mode === 'text' ) textblock.end();
                 if ( mode === 'tool' ) toolblock.end();
                 message.end();
+                chatStream.end();
             };
             
             return new TypedValue({ $: 'ai-chat-intermediate' }, {
