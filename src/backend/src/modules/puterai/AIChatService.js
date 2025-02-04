@@ -18,6 +18,7 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
+const { PassThrough } = require("stream");
 const APIError = require("../../api/APIError");
 const config = require("../../config");
 const { PermissionUtil } = require("../../services/auth/PermissionService");
@@ -29,6 +30,7 @@ const { Context } = require("../../util/context");
 const { AsModeration } = require("./lib/AsModeration");
 const FunctionCalling = require("./lib/FunctionCalling");
 const Messages = require("./lib/Messages");
+const Streaming = require("./lib/Streaming");
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -380,7 +382,7 @@ class AIChatService extends BaseService {
                 if ( intended_service === this.service_name ) {
                     throw new Error('Calling ai-chat directly is not yet supported');
                 }
-                
+
                 const svc_driver = this.services.get('driver');
                 let ret, error;
                 let service_used = intended_service;
@@ -526,6 +528,24 @@ class AIChatService extends BaseService {
                             usage,
                         });
                     })();
+
+                    if ( ret.result.value.init_chat_stream ) {
+                        const stream = new PassThrough();
+                        const retval = new TypedValue({
+                            $: 'stream',
+                            content_type: 'application/x-ndjson',
+                            chunked: true,
+                        }, stream);
+
+                        const chatStream = new Streaming.AIChatStream({
+                            stream,
+                        });
+
+                        ret.result.value.init_chat_stream({ chatStream });
+
+                        return retval;
+                    }
+
                     return ret.result.value.response;
                 } else {
                     await svc_event.emit('ai.prompt.report-usage', {
