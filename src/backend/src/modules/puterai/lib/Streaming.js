@@ -31,7 +31,7 @@ class AIChatConstructStream {
 class AIChatTextStream extends AIChatConstructStream {
     addText (text) {
         const json = JSON.stringify({
-            text,
+            type: 'text', text,
         });
         this.chatStream.stream.write(json + '\n');
     }
