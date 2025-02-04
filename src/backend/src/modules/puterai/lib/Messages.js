@@ -80,12 +80,12 @@ module.exports = class Messages {
             for ( let j=0 ; j < message.content.length ; j++ ) {
                 if ( message.content[j].type === 'tool_result' ) {
                     separated_messages.push({
-                        role: message.role,
+                        ...message,
                         content: [message.content[j]],
                     });
                 } else {
                     separated_messages.push({
-                        role: message.role,
+                        ...message,
                         content: [message.content[j]],
                     });
                 }
