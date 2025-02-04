@@ -18,6 +18,9 @@ module.exports = class Messages {
             message.role = params.role;
         }
         if ( ! message.content ) {
+            if ( message.tool_calls ) {
+                return message;
+            }
             throw new Error(`each message must have a 'content' property`);
         }
         if ( whatis(message.content) !== 'array' ) {
