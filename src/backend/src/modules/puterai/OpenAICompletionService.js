@@ -312,17 +312,15 @@ class OpenAICompletionService extends BaseService {
         if ( stream ) {
             let usage_promise = new TeePromise();
         
-            const entire = [];
-            const stream = new PassThrough();
-            const retval = new TypedValue({
-                $: 'stream',
-                content_type: 'application/x-ndjson',
-                chunked: true,
-            }, stream);
-            (async () => {
+            const init_chat_stream = async ({ chatStream }) => {
+                const message = chatStream.message();
+                let textblock = message.contentBlock({ type: 'text' });
+                let toolblock = null;
+                let mode = 'text';
+                const tool_call_blocks = [];
+
                 for await ( const chunk of completion ) {
-                    // console.log('CHUNK', chunk, JSON.stringify(chunk?.choices?.[0]?.delta ?? null));
-                    entire.push(chunk);
+                    console.log('CHUNK', chunk, JSON.stringify(chunk?.choices?.[0]?.delta ?? null));
                     if ( chunk.usage ) {
                         usage_promise.resolve({
                             input_tokens: chunk.usage.prompt_tokens,
@@ -331,18 +329,47 @@ class OpenAICompletionService extends BaseService {
                         continue;
                     }
                     if ( chunk.choices.length < 1 ) continue;
-                    if ( nou(chunk.choices[0].delta.content) ) continue;
-                    const str = JSON.stringify({
-                        text: chunk.choices[0].delta.content
-                    });
-                    stream.write(str + '\n');
+                    
+                    const choice = chunk.choices[0];
+
+                    if ( ! nou(choice.delta.content) ) {
+                        if ( mode === 'tool' ) {
+                            toolblock.end();
+                            mode = 'text';
+                            textblock = message.contentBlock({ type: 'text' });
+                        }
+                        textblock.addText(choice.delta.content);
+                        continue;
+                    }
+
+                    if (  ! nou(choice.delta.tool_calls) ) {
+                        if ( mode === 'text' ) {
+                            mode = 'tool';
+                            textblock.end();
+                        }
+                        for ( const tool_call of choice.delta.tool_calls ) {
+                            if ( ! tool_call_blocks[tool_call.index] ) {
+                                toolblock = message.contentBlock({
+                                    type: 'tool_use',
+                                    id: tool_call.function.name,
+                                });
+                                tool_call_blocks[tool_call.index] = toolblock;
+                            } else {
+                                toolblock = tool_call_blocks[tool_call.index];
+                            }
+                            toolblock.addPartialJSON(tool_call.function.arguments);
+                        }
+                    }
                 }
-                stream.end();
-            })();
+
+                if ( mode === 'text' ) textblock.end();
+                if ( mode === 'tool' ) toolblock.end();
+                message.end();
+            };
             
             return new TypedValue({ $: 'ai-chat-intermediate' }, {
                 stream: true,
-                response: retval,
+                init_chat_stream,
                 usage_promise: usage_promise,
             });
             return retval;
