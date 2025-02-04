@@ -19,13 +19,24 @@ module.exports = class Messages {
         }
         if ( ! message.content ) {
             if ( message.tool_calls ) {
-                return message;
+                message.content = [];
+                for ( let i=0 ; i < message.tool_calls.length ; i++ ) {
+                    const tool_call = message.tool_calls[i];
+                    message.content.push({
+                        type: 'tool_use',
+                        id: tool_call.id,
+                        name: tool_call.function.name,
+                        input: tool_call.function.arguments,
+                    });
+                }
+                delete message.tool_calls;
             }
             throw new Error(`each message must have a 'content' property`);
         }
         if ( whatis(message.content) !== 'array' ) {
             message.content = [message.content];
         }
+        // Coerce each content block into an object
         for ( let i=0 ; i < message.content.length ; i++ ) {
             if ( whatis(message.content[i]) === 'string' ) {
                 message.content[i] = {
@@ -41,12 +52,44 @@ module.exports = class Messages {
             }
         }
 
+        // Remove "text" properties from content blocks with type=tool_result
+        for ( let i=0 ; i < message.content.length ; i++ ) {
+            if ( message.content[i].type !== 'tool_use' ) {
+                continue;
+            }
+            if ( message.content[i].hasOwnProperty('text') ) {
+                delete message.content[i].text;
+            }
+        }
+
         console.log('???', message)
         return message;
     }
     static normalize_messages (messages, params = {}) {
         for ( let i=0 ; i < messages.length ; i++ ) {
             messages[i] = this.normalize_single_message(messages[i], params);
+        }
+
+        // Split messages with tool_use content into separate messages
+        // TODO: unit test this
+        messages = [...messages];
+        for ( let i=0 ; i < messages.length ; i++ ) {
+            let message = messages[i];
+            let separated_messages = [];
+            for ( let j=0 ; j < message.content.length ; j++ ) {
+                if ( message.content[j].type === 'tool_result' ) {
+                    separated_messages.push({
+                        role: message.role,
+                        content: [message.content[j]],
+                    });
+                } else {
+                    separated_messages.push({
+                        role: message.role,
+                        content: [message.content[j]],
+                    });
+                }
+            }
+            messages.splice(i, 1, ...separated_messages);
         }
 
         // If multiple messages are from the same role, merge them

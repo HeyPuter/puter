@@ -294,6 +294,36 @@ class OpenAICompletionService extends BaseService {
                 if ( o.type ) continue;
                 o.type = 'image_url';
             }
+
+            // coerce tool calls
+            for ( let i = content.length - 1 ; i >= 0 ; i-- ) {
+                const content_block = content[i];
+
+                if ( content_block.type === 'tool_use' ) {
+                    if ( ! msg.hasOwnProperty('tool_calls') ) {
+                        msg.tool_calls = [];
+                    }
+                    msg.tool_calls.push({
+                        id: content_block.id,
+                        type: 'function',
+                        function: {
+                            name: content_block.name,
+                            arguments: JSON.stringify(content_block.input),
+                        }
+                    });
+                    content.splice(i, 1);
+                }
+            }
+
+            // coerce tool results
+            // (we assume multiple tool results were already split into separate messages)
+            for ( let i = content.length - 1 ; i >= 0 ; i-- ) {
+                const content_block = content[i];
+                if ( content_block.type !== 'tool_result' ) continue;
+                msg.role = 'tool';
+                msg.tool_call_id = content_block.tool_use_id;
+                msg.content = content_block.content;
+            }
         }
 
         console.log('MODEL IN USE ------- ', model);
