@@ -46,6 +46,9 @@ class AIChatToolUseStream extends AIChatConstructStream {
         this.buffer += partial_json;
     }
     _end () {
+        if ( this.buffer.trim() === '' ) {
+            this.buffer = '{}';
+        }
         const str = JSON.stringify(objectAssignTop({
             ...this.contentBlock,
             input: JSON.parse(this.buffer),
