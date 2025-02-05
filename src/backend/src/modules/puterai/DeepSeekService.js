@@ -22,15 +22,14 @@ const BaseService = require("../../services/BaseService");
 const { whatis, nou } = require("../../util/langutil");
 const { PassThrough } = require("stream");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
+const OpenAIUtil = require("./lib/OpenAIUtil");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
+const dedent = require('dedent');
 
 const PUTER_PROMPT = `
     You are running on an open-source platform called Puter,
     as the DeepSeek implementation for a driver interface
     called puter-chat-completion.
-    
-    The following JSON contains system messages from the
-    user of the driver interface (typically an app on Puter):
 `.replace('\n', ' ').trim();
 
 
@@ -120,49 +119,56 @@ class DeepSeekService extends BaseService {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete ({ messages, stream, model }) {
+            async complete ({ messages, stream, model, tools }) {
                 model = this.adapt_model(model);
-                const adapted_messages = [];
-                
-                const system_prompts = [];
-                let previous_was_user = false;
+
+                messages = await OpenAIUtil.process_input_messages(messages);
                 for ( const message of messages ) {
-                    if ( typeof message.content === 'string' ) {
-                        message.content = {
-                            type: 'text',
-                            text: message.content,
-                        };
+                    // DeepSeek doesn't appreciate arrays here
+                    if ( message.tool_calls && Array.isArray(message.content) ) {
+                        message.content = "";
                     }
-                    if ( whatis(message.content) !== 'array' ) {
-                        message.content = [message.content];
-                    }
-                    if ( ! message.role ) message.role = 'user';
-                    if ( message.role === 'user' && previous_was_user ) {
-                        const last_msg = adapted_messages[adapted_messages.length-1];
-                        last_msg.content.push(
-                            ...(Array.isArray ? message.content : [message.content])
-                        );
-                        continue;
-                    }
-                    if ( message.role === 'system' ) {
-                        system_prompts.push(...message.content);
-                        continue;
-                    }
-                    adapted_messages.push(message);
-                    if ( message.role === 'user' ) {
-                        previous_was_user = true;
+                }
+                
+                // Function calling is just broken on DeepSeek - it never awknowledges
+                // the tool results and instead keeps calling the function over and over.
+                // (see https://github.com/deepseek-ai/DeepSeek-V3/issues/15)
+                // To fix this, we inject a message that tells DeepSeek what happened.
+                const TOOL_TEXT = message => dedent(`
+                    Hi DeepSeek V3, your tool calling is broken and you are not able to
+                    obtain tool results in the expected way. That's okay, we can work
+                    around this.
+
+                    Please do not repeat this tool call.
+
+                    We have provided the tool call results below:
+
+                    Tool call ${message.tool_call_id} returned: ${message.content}.
+                `);
+                for ( let i=messages.length-1; i >= 0 ; i-- ) {
+                    const message = messages[i];
+                    if ( message.role === 'tool' ) {
+                        messages.splice(i+1, 0, {
+                            role: 'system',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: TOOL_TEXT(message),
+                                }
+                            ]
+                        });
                     }
                 }
 
-                adapted_messages.unshift({
+                messages.unshift({
                     role: 'system',
-                    content: this.get_system_prompt() +
-                        JSON.stringify(system_prompts),
+                    content: PUTER_PROMPT,
                 })
 
                 const completion = await this.openai.chat.completions.create({
-                    messages: adapted_messages,
+                    messages,
                     model: model ?? this.get_default_model(),
+                    ...(tools ? { tools } : {}),
                     max_tokens: 1000,
                     stream,
                     ...(stream ? {
@@ -170,54 +176,9 @@ class DeepSeekService extends BaseService {
                     } : {}),
                 });
                 
-                if ( stream ) {
-                    let usage_promise = new TeePromise();
-
-                    const stream = new PassThrough();
-                    const retval = new TypedValue({
-                        $: 'stream',
-                        content_type: 'application/x-ndjson',
-                        chunked: true,
-                    }, stream);
-                    (async () => {
-                        let last_usage = null;
-                        for await ( const chunk of completion ) {
-                            if ( chunk.usage ) last_usage = chunk.usage;
-                            // if (
-                            //     event.type !== 'content_block_delta' ||
-                            //     event.delta.type !== 'text_delta'
-                            // ) continue;
-                            // const str = JSON.stringify({
-                            //     text: event.delta.text,
-                            // });
-                            // stream.write(str + '\n');
-                            if ( chunk.choices.length < 1 ) continue;
-                            if ( nou(chunk.choices[0].delta.content) ) continue;
-                            const str = JSON.stringify({
-                                text: chunk.choices[0].delta.content
-                            });
-                            stream.write(str + '\n');
-                        }
-                        usage_promise.resolve({
-                            input_tokens: last_usage.prompt_tokens,
-                            output_tokens: last_usage.completion_tokens,
-                        });
-                        stream.end();
-                    })();
-
-                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
-                        stream: true,
-                        response: retval,
-                        usage_promise: usage_promise,
-                    });
-                }
-
-                const ret = completion.choices[0];
-                ret.usage = {
-                    input_tokens: completion.usage.prompt_tokens,
-                    output_tokens: completion.usage.completion_tokens,
-                };
-                return ret;
+                return OpenAIUtil.handle_completion_output({
+                    stream, completion,
+                });
             }
         }
     }

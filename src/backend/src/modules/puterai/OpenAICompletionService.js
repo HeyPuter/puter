@@ -27,6 +27,11 @@ const { nou } = require('../../util/langutil');
 const OpenAIUtil = require('./lib/OpenAIUtil');
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
+const PUTER_PROMPT = `
+    You are running on an open-source platform called Puter,
+    as the DeepSeek implementation for a driver interface
+    called puter-chat-completion.
+`.replace('\n', ' ').trim();
 
 /**
 * OpenAICompletionService class provides an interface to OpenAI's chat completion API.
@@ -219,7 +224,7 @@ class OpenAICompletionService extends BaseService {
 
         messages.unshift({
             role: 'system',
-            content: 'You are running inside a Puter app.',
+            content: PUTER_PROMPT,
         })
         // messages.unshift({
         //     role: 'system',

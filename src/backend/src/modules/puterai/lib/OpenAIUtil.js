@@ -58,7 +58,7 @@ module.exports = class OpenAIUtil {
     }
 
     static create_chat_stream_handler = ({
-        completion,
+        completion, usage_promise,
     }) => async ({ chatStream }) => {
         const message = chatStream.message();
         let textblock = message.contentBlock({ type: 'text' });
@@ -122,7 +122,10 @@ module.exports = class OpenAIUtil {
             let usage_promise = new putility.libs.promise.TeePromise();
         
             const init_chat_stream =
-                OpenAIUtil.create_chat_stream_handler({ completion });
+                OpenAIUtil.create_chat_stream_handler({
+                    completion,
+                    usage_promise,
+                });
             
             return new TypedValue({ $: 'ai-chat-intermediate' }, {
                 stream: true,
@@ -132,7 +135,7 @@ module.exports = class OpenAIUtil {
         }
 
         const is_empty = completion.choices?.[0]?.message?.content?.trim() === '';
-        if ( is_empty ) {
+        if ( is_empty && ! completion.choices?.[0]?.message?.tool_calls ) {
             // GPT refuses to generate an empty response if you ask it to,
             // so this will probably only happen on an error condition.
             throw new Error('an empty response was generated');
