@@ -1,4 +1,5 @@
 const APIError = require("../../api/APIError");
+const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const BaseService = require("../../services/BaseService");
 const { Context } = require("../../util/context");
 const validator = require('validator')
@@ -26,6 +27,9 @@ class UserSendMailService extends BaseService {
                         encoding: {
                             type: 'string',
                         },
+                        attachments: {
+                            type: 'json',
+                        }
                     },
                     result: { type: 'json' },
                 },
@@ -34,7 +38,11 @@ class UserSendMailService extends BaseService {
     }
     static IMPLEMENTS = {
         'puter-send-mail': {
-            async send ({ to, subject, body, encoding }) {
+            async send ({
+                to, subject, body,
+                encoding,
+                attachments = [],
+            }) {
                 const actor = Context.get('actor');
                 const svc_email = this.services.get('email');
     
@@ -77,6 +85,25 @@ class UserSendMailService extends BaseService {
                     subject,
                     [encoding === 'html' ? 'html' : 'text']: body,
                 };
+                
+                for ( const attachment of attachments ) {
+                    if ( attachment.path ) {
+                        const svc_fs = this.services.get('filesystem');
+                        const node = await svc_fs.node(attachment.path);
+                        const ll_read = new LLRead();
+                        const stream = await ll_read.run({
+                            actor: Context.get('actor'),
+                            fsNode: node,
+                        });
+                        attachment.content = stream;
+                        delete attachment.path;
+                    }
+                }
+                
+                if ( attachments.length > 0 ) {
+                    o.attachments = attachments;
+                }
+                
                 await transporter.sendMail(o);
             }
         }
