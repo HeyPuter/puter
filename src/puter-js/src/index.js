@@ -339,6 +339,17 @@ window.puter = (function() {
                 })).json());
                 wispInfo.handler = new PWispHandler(wispServer, wispToken);
                 this.net = {
+                    generateWispV1URL: async () => {
+                        const { token: wispToken, server: wispServer } = (await (await fetch(this.APIOrigin + '/wisp/relay-token/create', {
+                            method: 'POST',
+                            headers: {
+                                Authorization: `Bearer ${this.authToken}`,
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({}),
+                        })).json());
+                        return `${wispServer}/${wispToken}/`
+                    },
                     Socket: PSocket,
                     tls: {
                         TLSSocket: PTLSSocket
