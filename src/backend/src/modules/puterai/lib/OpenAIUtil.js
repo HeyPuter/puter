@@ -66,14 +66,12 @@ module.exports = class OpenAIUtil {
         let mode = 'text';
         const tool_call_blocks = [];
 
+        let last_usage = null;
         for await ( const chunk of completion ) {
-            if ( chunk.usage ) {
-                usage_promise.resolve({
-                    input_tokens: chunk.usage.prompt_tokens,
-                    output_tokens: chunk.usage.completion_tokens,
-                });
-                continue;
+            if ( process.env.DEBUG ) {
+                console.log(`AI CHUNK`, chunk);
             }
+            if ( chunk.usage ) last_usage = chunk.usage;
             if ( chunk.choices.length < 1 ) continue;
             
             const choice = chunk.choices[0];
@@ -108,6 +106,10 @@ module.exports = class OpenAIUtil {
                 }
             }
         }
+        usage_promise.resolve({
+            input_tokens: last_usage.prompt_tokens,
+            output_tokens: last_usage.completion_tokens,
+        });
 
         if ( mode === 'text' ) textblock.end();
         if ( mode === 'tool' ) toolblock.end();
