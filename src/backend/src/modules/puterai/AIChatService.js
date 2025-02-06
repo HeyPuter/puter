@@ -85,35 +85,46 @@ class AIChatService extends BaseService {
                 app_id: details.actor?.type?.app?.id ?? null,
                 service_name: details.service_used,
                 model_name: details.model_used,
-                value_uint_1: details.usage?.input_tokens,
-                value_uint_2: details.usage?.output_tokens,
             };
 
-            let model_details = this.detail_model_map[details.model_used];
-            if ( Array.isArray(model_details) ) {
-                for ( const model of model_details ) {
-                    if ( model.provider === details.service_used ) {
-                        model_details = model;
-                        break;
+            // New format
+            if ( Array.isArray(details.usage) ) {
+                values.cost = details.usage.reduce((acc, u) => {
+                    return acc + u.cost;
+                }, 0);
+            } else {
+                values.value_uint_1 = details.usage?.input_tokens;
+                values.value_uint_2 = details.usage?.output_tokens;
+
+                let model_details = this.detail_model_map[details.model_used];
+                if ( Array.isArray(model_details) ) {
+                    for ( const model of model_details ) {
+                        if ( model.provider === details.service_used ) {
+                            model_details = model;
+                            break;
+                        }
                     }
                 }
-            }
-            if ( Array.isArray(model_details) ) {
-                model_details = model_details[0];
-            }
-            if ( model_details ) {
-                values.cost = 0 + // for formatting
+                if ( Array.isArray(model_details) ) {
+                    model_details = model_details[0];
+                }
+                if ( model_details ) {
+                    values.cost = 0 + // for formatting
 
-                    model_details.cost.input  * details.usage.input_tokens
-                    //            cents/MTok                        tokens
-                                              +
+                        model_details.cost.input  * details.usage.input_tokens
+                        //            cents/MTok                        tokens
+                                                +
 
-                    model_details.cost.output * details.usage.output_tokens
-                    //            cents/MTok                        tokens
-                    ;
-            } else {
-                this.log.error('could not find model details', { details });
+                        model_details.cost.output * details.usage.output_tokens
+                        //            cents/MTok                        tokens
+                        ;
+                } else {
+                    this.log.error('could not find model details', { details });
+                }
             }
+
+            this.log.noticeme('COST INFO', values);
+
 
             await this.db.insert('ai_usage', values);
 

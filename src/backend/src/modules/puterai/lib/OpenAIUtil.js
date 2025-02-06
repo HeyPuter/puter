@@ -57,6 +57,28 @@ module.exports = class OpenAIUtil {
         return messages;
     }
 
+    static create_usage_calculator = ({ model_details }) => {
+        return ({ usage }) => {
+            const tokens = [];
+            
+            tokens.push({
+                type: 'prompt',
+                model: model_details.id,
+                amount: usage.prompt_tokens,
+                cost: model_details.cost.input * usage.prompt_tokens,
+            });
+
+            tokens.push({
+                type: 'completion',
+                model: model_details.id,
+                amount: usage.completion_tokens,
+                cost: model_details.cost.output * usage.completion_tokens,
+            });
+
+            return tokens;
+        };
+    };
+
     static create_chat_stream_handler = ({
         completion, usage_promise,
     }) => async ({ chatStream }) => {
@@ -106,10 +128,7 @@ module.exports = class OpenAIUtil {
                 }
             }
         }
-        usage_promise.resolve({
-            input_tokens: last_usage.prompt_tokens,
-            output_tokens: last_usage.completion_tokens,
-        });
+        usage_promise.resolve(last_usage);
 
         if ( mode === 'text' ) textblock.end();
         if ( mode === 'tool' ) toolblock.end();
@@ -118,7 +137,8 @@ module.exports = class OpenAIUtil {
     };
 
     static async handle_completion_output ({
-        stream, completion, moderate
+        stream, completion, moderate,
+        usage_calculator,
     }) {
         if ( stream ) {
             let usage_promise = new putility.libs.promise.TeePromise();
@@ -127,12 +147,18 @@ module.exports = class OpenAIUtil {
                 OpenAIUtil.create_chat_stream_handler({
                     completion,
                     usage_promise,
+                    usage_calculator,
                 });
             
             return new TypedValue({ $: 'ai-chat-intermediate' }, {
                 stream: true,
                 init_chat_stream,
-                usage_promise: usage_promise,
+                usage_promise: usage_promise.then(usage => {
+                    return usage_calculator ? usage_calculator({ usage }) : {
+                        input_tokens: usage.prompt_tokens,
+                        output_tokens: usage.completion_tokens,
+                    };
+                }),
             });
         }
 
@@ -153,7 +179,7 @@ module.exports = class OpenAIUtil {
         }
         
         const ret = completion.choices[0];
-        ret.usage = {
+        ret.usage = usage_calculator ? usage_calculator(completion) : {
             input_tokens: completion.usage.prompt_tokens,
             output_tokens: completion.usage.completion_tokens,
         };

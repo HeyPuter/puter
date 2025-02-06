@@ -260,6 +260,9 @@ class OpenAICompletionService extends BaseService {
         });
 
         return OpenAIUtil.handle_completion_output({
+            usage_calculator: OpenAIUtil.create_usage_calculator({
+                model_details: (await this.models_()).find(m => m.id === model),
+            }),
             stream, completion,
             moderate: moderation && this.check_moderation.bind(this),
         });
