@@ -90,6 +90,7 @@ const main = async () => {
         PuterExecModule,
         InternetModule,
         MailModule,
+        ConvertModule,
         DevelopmentModule,
     } = (await import('@heyputer/backend')).default;
 
@@ -108,6 +109,7 @@ const main = async () => {
     k.add_module(new PuterExecModule());
     k.add_module(new InternetModule());
     k.add_module(new MailModule());
+    k.add_module(new ConvertModule());
     if ( process.env.UNSAFE_PUTER_DEV ) {
         k.add_module(new DevelopmentModule());
     }
