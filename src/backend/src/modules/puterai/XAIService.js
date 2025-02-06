@@ -23,15 +23,13 @@ const BaseService = require("../../services/BaseService");
 const { whatis, nou } = require("../../util/langutil");
 const { PassThrough } = require("stream");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
+const OpenAIUtil = require("./lib/OpenAIUtil");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 const PUTER_PROMPT = `
     You are running on an open-source platform called Puter,
     as the xAI implementation for a driver interface
     called puter-chat-completion.
-    
-    The following JSON contains system messages from the
-    user of the driver interface (typically an app on Puter):
 `.replace('\n', ' ').trim();
 
 
@@ -123,42 +121,12 @@ class XAIService extends BaseService {
              */
             async complete ({ messages, stream, model }) {
                 model = this.adapt_model(model);
-                const adapted_messages = [];
-                
-                const system_prompts = [];
-                let previous_was_user = false;
-                for ( const message of messages ) {
-                    if ( typeof message.content === 'string' ) {
-                        message.content = {
-                            type: 'text',
-                            text: message.content,
-                        };
-                    }
-                    if ( whatis(message.content) !== 'array' ) {
-                        message.content = [message.content];
-                    }
-                    if ( ! message.role ) message.role = 'user';
-                    if ( message.role === 'user' && previous_was_user ) {
-                        const last_msg = adapted_messages[adapted_messages.length-1];
-                        last_msg.content.push(
-                            ...(Array.isArray ? message.content : [message.content])
-                        );
-                        continue;
-                    }
-                    if ( message.role === 'system' ) {
-                        system_prompts.push(...message.content);
-                        continue;
-                    }
-                    adapted_messages.push(message);
-                    if ( message.role === 'user' ) {
-                        previous_was_user = true;
-                    }
-                }
 
+                messages = await OpenAIUtil.process_input_messages(messages);
+                
                 adapted_messages.unshift({
                     role: 'system',
-                    content: this.get_system_prompt() +
-                        JSON.stringify(system_prompts),
+                    content: this.get_system_prompt()
                 })
 
                 const completion = await this.openai.chat.completions.create({
