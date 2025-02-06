@@ -1,3 +1,4 @@
+const { HLWrite } = require("../../filesystem/hl_operations/hl_write");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
@@ -27,7 +28,15 @@ class ConvertAPIService extends BaseService {
                         },
                         source: {
                             type: 'file',
+                            required: true,
                         },
+                        
+                        // File output mode
+                        dest: {
+                            type: 'file',
+                        },
+                        overwrite: { type: 'flag' },
+                        dedupe_name: { type: 'flag' },
                     },
                     result_choices: [
                         {
@@ -52,7 +61,13 @@ class ConvertAPIService extends BaseService {
 
     static IMPLEMENTS = {
         ['convert-files']: {
-            async convert ({ from, to, source }) {
+            async convert ({
+                // Require parameters
+                from, to, source,
+
+                // File Output Mode
+                dest, overwrite, dedupe_name,
+            }) {
                 const convertapi = this.convertapi;
                 const axios = this.require('axios');
 
@@ -77,6 +92,22 @@ class ConvertAPIService extends BaseService {
                 const downloadResponse = await axios.get(fileInfo.Url, {
                     responseType: 'stream',
                 });
+
+                if ( dest !== undefined ) {
+                    const hl_write = new HLWrite();
+                    return await hl_write.run({
+                        destination_or_parent: await dest.get('fs-node'),
+                        fallback_name: fileInfo.FileName,
+                        overwrite,
+                        dedupe_name,
+                        file: {
+                            originalname: fileInfo.FileName,
+                            stream: downloadResponse.data,
+                            size: fileInfo.FileSize,
+                        },
+                        actor: Context.get('actor'),
+                    });
+                }
 
                 return new TypedValue({
                     $: 'stream',

@@ -226,6 +226,8 @@ class File extends BaseType {
     * @throws {APIError} If input format is invalid
     */
     async consolidate (ctx, input, { arg_name }) {
+        if ( input === undefined ) return undefined;
+
         if ( input instanceof FileFacade ) {
             return input;
         }
