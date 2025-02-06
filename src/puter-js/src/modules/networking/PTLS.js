@@ -73,7 +73,7 @@ export class PTLSSocket extends PSocket {
             } catch (e) {
                 this.emit("error", e)
             }
-            this.emit("close", undefined);
+            // this.emit("close", undefined);
         })();
     }
     on(event, callback) {
