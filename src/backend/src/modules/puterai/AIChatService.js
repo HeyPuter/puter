@@ -123,6 +123,7 @@ class AIChatService extends BaseService {
                 }
             }
 
+            this.log.noticeme('USAGE INFO', { usage: details.usage });
             this.log.noticeme('COST INFO', values);
 
 

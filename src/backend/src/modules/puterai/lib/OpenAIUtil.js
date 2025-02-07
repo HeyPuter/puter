@@ -80,8 +80,13 @@ module.exports = class OpenAIUtil {
     };
 
     static create_chat_stream_handler = ({
+        deviations,
         completion, usage_promise,
     }) => async ({ chatStream }) => {
+        deviations = Object.assign({
+            index_usage_from_stream_chunk: chunk => chunk.usage,
+        }, deviations);
+
         const message = chatStream.message();
         let textblock = message.contentBlock({ type: 'text' });
         let toolblock = null;
@@ -98,7 +103,8 @@ module.exports = class OpenAIUtil {
                     delta && JSON.stringify(delta)
                 );
             }
-            if ( chunk.usage ) last_usage = chunk.usage;
+            const chunk_usage = deviations.index_usage_from_stream_chunk(chunk);
+            if ( chunk_usage ) last_usage = chunk_usage;
             if ( chunk.choices.length < 1 ) continue;
             
             const choice = chunk.choices[0];
@@ -142,6 +148,7 @@ module.exports = class OpenAIUtil {
     };
 
     static async handle_completion_output ({
+        deviations,
         stream, completion, moderate,
         usage_calculator,
     }) {
@@ -150,6 +157,7 @@ module.exports = class OpenAIUtil {
         
             const init_chat_stream =
                 OpenAIUtil.create_chat_stream_handler({
+                    deviations,
                     completion,
                     usage_promise,
                     usage_calculator,

@@ -22,7 +22,7 @@ const { PassThrough } = require("stream");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { nou } = require("../../util/langutil");
-const { TeePromise } = require('@heyputer/putility').libs.promise;
+const OpenAIUtil = require("./lib/OpenAIUtil");
 
 
 /**
@@ -97,67 +97,34 @@ class GroqAIService extends BaseService {
             * @param {boolean} [options.stream] - Whether to stream the response
             * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or completion object with usage stats
             */
-            async complete ({ messages, model, stream }) {
-                for ( let i = 0; i < messages.length; i++ ) {
-                    const message = messages[i];
-                    if ( ! message.role ) message.role = 'user';
-                }
-
+            async complete ({ messages, model, stream, tools }) {
                 model = model ?? this.get_default_model();
+
+                messages = await OpenAIUtil.process_input_messages(messages);
+                for ( const message of messages ) {
+                    // Curiously, DeepSeek has the exact same deviation
+                    if ( message.tool_calls && Array.isArray(message.content) ) {
+                        message.content = "";
+                    }
+                }
 
                 const completion = await this.client.chat.completions.create({
                     messages,
                     model,
                     stream,
+                    tools,
                 });
 
-                if ( stream ) {
-                    const usage_promise = new TeePromise();
-
-                    const stream = new PassThrough();
-                    const retval = new TypedValue({
-                        $: 'stream',
-                        content_type: 'application/x-ndjson',
-                        chunked: true,
-                    }, stream);
-                    (async () => {
-                        for await ( const chunk of completion ) {
-                            let usage = chunk?.x_groq?.usage ?? chunk.usage;
-                            if ( usage ) {
-                                usage_promise.resolve({
-                                    input_tokens: usage.prompt_tokens,
-                                    output_tokens: usage.completion_tokens,
-                                });
-                                continue;
-                            }
-
-                            if ( chunk.choices.length < 1 ) continue;
-                            if ( chunk.choices[0].finish_reason ) {
-                                stream.end();
-                                break;
-                            }
-                            if ( nou(chunk.choices[0].delta.content) ) continue;
-                            const str = JSON.stringify({
-                                text: chunk.choices[0].delta.content
-                            });
-                            stream.write(str + '\n');
-                        }
-                        stream.end();
-                    })();
-
-                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
-                        stream: true,
-                        response: retval,
-                        usage_promise: usage_promise,
-                    });
-                }
-                
-                const ret = completion.choices[0];
-                ret.usage = {
-                    input_tokens: completion.usage.prompt_tokens,
-                    output_tokens: completion.usage.completion_tokens,
-                };
-                return ret;
+                return OpenAIUtil.handle_completion_output({
+                    deviations: {
+                        index_usage_from_stream_chunk: chunk =>
+                            chunk.x_groq?.usage,
+                    },
+                    usage_calculator: OpenAIUtil.create_usage_calculator({
+                        model_details: (await this.models_()).find(m => m.id === model),
+                    }),
+                    stream, completion,
+                });
             }
         }
     };
