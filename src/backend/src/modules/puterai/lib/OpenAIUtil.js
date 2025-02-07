@@ -84,7 +84,11 @@ module.exports = class OpenAIUtil {
         completion, usage_promise,
     }) => async ({ chatStream }) => {
         deviations = Object.assign({
+            // affected by: Groq
             index_usage_from_stream_chunk: chunk => chunk.usage,
+            // affected by: Mistral
+            chunk_but_like_actually: chunk => chunk,
+            index_tool_calls_from_stream_choice: choice => choice.delta.tool_calls,
         }, deviations);
 
         const message = chatStream.message();
@@ -94,7 +98,8 @@ module.exports = class OpenAIUtil {
         const tool_call_blocks = [];
 
         let last_usage = null;
-        for await ( const chunk of completion ) {
+        for await ( let chunk of completion ) {
+            chunk = deviations.chunk_but_like_actually(chunk);
             if ( process.env.DEBUG ) {
                 const delta = chunk?.choices?.[0]?.delta;
                 console.log(
@@ -119,12 +124,13 @@ module.exports = class OpenAIUtil {
                 continue;
             }
 
-            if (  ! nou(choice.delta.tool_calls) ) {
+            const tool_calls = deviations.index_tool_calls_from_stream_choice(choice);
+            if (  ! nou(tool_calls) ) {
                 if ( mode === 'text' ) {
                     mode = 'tool';
                     textblock.end();
                 }
-                for ( const tool_call of choice.delta.tool_calls ) {
+                for ( const tool_call of tool_calls ) {
                     if ( ! tool_call_blocks[tool_call.index] ) {
                         toolblock = message.contentBlock({
                             type: 'tool_use',
