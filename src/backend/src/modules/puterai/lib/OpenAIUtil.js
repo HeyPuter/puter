@@ -91,7 +91,12 @@ module.exports = class OpenAIUtil {
         let last_usage = null;
         for await ( const chunk of completion ) {
             if ( process.env.DEBUG ) {
-                console.log(`AI CHUNK`, chunk);
+                const delta = chunk?.choices?.[0]?.delta;
+                console.log(
+                    `AI CHUNK`,
+                    chunk,
+                    delta && JSON.stringify(delta)
+                );
             }
             if ( chunk.usage ) last_usage = chunk.usage;
             if ( chunk.choices.length < 1 ) continue;

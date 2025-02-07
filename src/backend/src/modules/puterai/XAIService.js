@@ -119,74 +119,33 @@ class XAIService extends BaseService {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete ({ messages, stream, model }) {
+            async complete ({ messages, stream, model, tools }) {
                 model = this.adapt_model(model);
 
                 messages = await OpenAIUtil.process_input_messages(messages);
                 
-                adapted_messages.unshift({
+                messages.unshift({
                     role: 'system',
                     content: this.get_system_prompt()
                 })
 
                 const completion = await this.openai.chat.completions.create({
-                    messages: adapted_messages,
+                    messages,
                     model: model ?? this.get_default_model(),
+                    ...(tools ? { tools } : {}),
                     max_tokens: 1000,
                     stream,
                     ...(stream ? {
                         stream_options: { include_usage: true },
                     } : {}),
                 });
-                
-                if ( stream ) {
-                    let usage_promise = new TeePromise();
 
-                    const stream = new PassThrough();
-                    const retval = new TypedValue({
-                        $: 'stream',
-                        content_type: 'application/x-ndjson',
-                        chunked: true,
-                    }, stream);
-                    (async () => {
-                        let last_usage = null;
-                        for await ( const chunk of completion ) {
-                            if ( chunk.usage ) last_usage = chunk.usage;
-                            // if (
-                            //     event.type !== 'content_block_delta' ||
-                            //     event.delta.type !== 'text_delta'
-                            // ) continue;
-                            // const str = JSON.stringify({
-                            //     text: event.delta.text,
-                            // });
-                            // stream.write(str + '\n');
-                            if ( chunk.choices.length < 1 ) continue;
-                            if ( nou(chunk.choices[0].delta.content) ) continue;
-                            const str = JSON.stringify({
-                                text: chunk.choices[0].delta.content
-                            });
-                            stream.write(str + '\n');
-                        }
-                        usage_promise.resolve({
-                            input_tokens: last_usage.prompt_tokens,
-                            output_tokens: last_usage.completion_tokens,
-                        });
-                        stream.end();
-                    })();
-
-                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
-                        stream: true,
-                        response: retval,
-                        usage_promise: usage_promise,
-                    });
-                }
-
-                const ret = completion.choices[0];
-                ret.usage = {
-                    input_tokens: completion.usage.prompt_tokens,
-                    output_tokens: completion.usage.completion_tokens,
-                };
-                return ret;
+                return OpenAIUtil.handle_completion_output({
+                    usage_calculator: OpenAIUtil.create_usage_calculator({
+                        model_details: (await this.models_()).find(m => m.id === model),
+                    }),
+                    stream, completion,
+                });
             }
         }
     }
