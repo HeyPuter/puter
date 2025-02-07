@@ -280,12 +280,17 @@ class AppES extends BaseES {
 
             entity.set('created_from_origin', await (async () => {
                 const svc_auth = this.context.get('services').get('auth');
-                const origin = origin_from_url(
-                    await entity.get('index_url')
-                );
-                const expected_uid = await svc_auth.app_uid_from_origin(origin);
-                return expected_uid === await entity.get('uid')
-                    ? origin : null ;
+                try {
+                    const origin = origin_from_url(
+                        await entity.get('index_url')
+                    );
+                    const expected_uid = await svc_auth.app_uid_from_origin(origin);
+                    return expected_uid === await entity.get('uid')
+                        ? origin : null ;
+                } catch (e) {
+                    // This happens when the index_url is not a valid URL
+                    return null;
+                }
             })());
 
             // Check if the user is the owner
