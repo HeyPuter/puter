@@ -46,17 +46,19 @@ class Convert {
                 })
             });
 
-            const data = await response.json();
-
             if (!response.ok) {
-                throw new Error(data.message || 'Conversion failed');
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Conversion failed');
             }
+
+            // Get the blob from the response
+            const blob = await response.blob();
 
             if (options.success && typeof options.success === 'function') {
-                options.success(data);
+                options.success(blob);
             }
 
-            return data;
+            return blob;
 
         } catch (error) {
             if (options.error && typeof options.error === 'function') {
