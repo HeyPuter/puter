@@ -24,6 +24,7 @@ import { PTLSSocket } from "./modules/networking/PTLS.js"
 import { PWispHandler } from './modules/networking/PWispHandler.js';
 import { make_http_api } from './lib/http.js';
 import Exec from './modules/Exec.js';
+import Convert from './modules/Convert.js';
 
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
@@ -100,6 +101,7 @@ window.puter = (function() {
             this.registerModule('drivers', Drivers);
             this.registerModule('debug', Debug);
             this.registerModule('exec', Exec);
+            this.registerModule('convert', Convert);
 
             // Path
             this.path = path;
