@@ -369,22 +369,6 @@ window.initgui = async function(options){
                 cover_page: true,
             });
         }
-        // if not and action is show-open-file-picker, we need confirmation before proceeding
-        if(action === 'show-open-file-picker' || action === 'show-save-file-picker' || action === 'show-directory-picker'){
-            if(!window.userAppToken){
-                let is_confirmed = await PuterDialog();
-
-                if(is_confirmed === false){
-                    if(!window.is_auth()){
-                        window.first_visit_ever = false;
-                        localStorage.removeItem("has_visited_before", true);
-                    }
-
-                    window.close();
-                    window.open('','_self').close();
-                }
-            }
-        }
     }
     // -------------------------------------------------------------------------------------
     // `auth_token` provided in URL, use it to log in
