@@ -361,8 +361,8 @@ window.initgui = async function(options){
         let response = await window.checkUserSiteRelationship(window.openerOrigin);
         window.userAppToken = response.token;
 
-        if(!picked_a_user_for_sdk_login && window.logged_in_users.length > 0 && (!window.userAppToken || window.url_query_params.get('request_auth') )){
-            await UIWindowSessionList({
+        if(!picked_a_user_for_sdk_login && window.logged_in_users.length > 1 && (!window.userAppToken || window.url_query_params.get('request_auth') )){
+            picked_a_user_for_sdk_login = await UIWindowSessionList({
                 reload_on_success: false,
                 draggable_body: false,
                 has_head: false,
