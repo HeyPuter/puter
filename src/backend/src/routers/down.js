@@ -29,7 +29,7 @@ const configurable_auth = require('../middleware/configurable_auth.js');
 // -----------------------------------------------------------------------//
 // GET /down
 // -----------------------------------------------------------------------//
-router.post('/down', configurable_auth(), express.json(), express.urlencoded({ extended: true }), async (req, res, next)=>{
+router.post('/down', express.json(), express.urlencoded({ extended: true }), configurable_auth(), async (req, res, next)=>{
     // check subdomain
     const actor = req.actor;
 
