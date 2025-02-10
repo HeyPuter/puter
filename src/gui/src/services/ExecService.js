@@ -123,7 +123,7 @@ export class ExecService extends Service {
                 msg: 'appClosed',
                 appInstanceID: connection.forward.uuid,
                 statusCode: 0,
-            });
+            }, '*');
         });
 
         return {
