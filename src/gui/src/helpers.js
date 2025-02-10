@@ -1298,7 +1298,10 @@ window.trigger_download = (paths)=>{
             return token;
         })();
 
-        downloadFile(e.download, { anti_csrf });
+        downloadFile(e.download, {
+            anti_csrf,
+            auth_token: puter.authToken,
+        });
         return;
 
         fetch(e.download, {

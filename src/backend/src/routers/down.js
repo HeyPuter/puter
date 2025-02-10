@@ -19,17 +19,17 @@
 "use strict"
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth.js');
 const config = require('../config.js');
 const { DB_WRITE } = require('../services/database/consts.js');
 const { NodePathSelector } = require('../filesystem/node/selectors.js');
 const { HLRead } = require('../filesystem/hl_operations/hl_read.js');
 const { UserActorType } = require('../services/auth/Actor.js');
+const configurable_auth = require('../middleware/configurable_auth.js');
 
 // -----------------------------------------------------------------------//
 // GET /down
 // -----------------------------------------------------------------------//
-router.post('/down', auth, express.json(), express.urlencoded({ extended: true }), async (req, res, next)=>{
+router.post('/down', configurable_auth(), express.json(), express.urlencoded({ extended: true }), async (req, res, next)=>{
     // check subdomain
     const actor = req.actor;
 

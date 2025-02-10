@@ -57,6 +57,9 @@ const configurable_auth = options => async (req, res, next) => {
     // Auth token in URL
     else if(req.query && req.query.auth_token)
         token = req.query.auth_token;
+    // Auth token in body
+    else if(req.body && req.body.auth_token)
+        token = req.body.auth_token;
     // Socket
     else if(req.handshake && req.handshake.query && req.handshake.query.auth_token)
         token = req.handshake.query.auth_token;
