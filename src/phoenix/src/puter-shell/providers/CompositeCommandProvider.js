@@ -49,6 +49,7 @@ export class CompositeCommandProvider {
 
         const results = [];
         for (const provider of this.providers) {
+            if ( ! provider.complete ) continue;
             results.push(...await provider.complete(...a));
         }
         return results;
