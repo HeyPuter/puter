@@ -37,6 +37,7 @@ import { CompositeCommandProvider } from './providers/CompositeCommandProvider.j
 import { ScriptCommandProvider } from './providers/ScriptCommandProvider.js';
 import { PuterAppCommandProvider } from './providers/PuterAppCommandProvider.js';
 import { EmuCommandProvider } from './providers/EmuCommandProvider.js';
+import { PDECommandProvider } from './providers/PDECommandProvider.js';
 
 const argparser_registry = {
     [SimpleArgParser.name]: SimpleArgParser
@@ -90,6 +91,7 @@ export const launchPuterShell = async (ctx) => {
         ...(ctx.platform.name === 'puter' ? [new PuterAppCommandProvider()] : []),
         new ScriptCommandProvider(),
         new EmuCommandProvider(),
+        new PDECommandProvider()
     ]);
 
     ctx = ctx.sub({
