@@ -54,7 +54,7 @@ class ServiceManager extends AdvancedBase {
             return `running (since ${this.start_ts})`;
         }
     }
-    constructor ({ context }) {
+    constructor ({ context } = {}) {
         super();
 
         this.context = context;
