@@ -35,6 +35,9 @@ module.exports = {
         time: require('./src/libs/time'),
         smol: require('./src/libs/smol'),
     },
+    features: {
+        EmitterFeature: require('./src/features/EmitterFeature'),
+    },
     concepts: {
         Service,
     },

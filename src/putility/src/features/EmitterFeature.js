@@ -29,7 +29,7 @@
  * corresponding `emit()` call. Listeners are invoked concurrently, so
  * listeners of the same event do not block each other.
  */
-module.exports = ({ decorators }) => ({
+module.exports = ({ decorators } = {}) => ({
     install_in_instance (instance, { parameters }) {
         // install the internal state
         const state = instance._.emitterFeature = {};
