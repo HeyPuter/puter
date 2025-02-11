@@ -37,13 +37,19 @@ class LLMkdir extends LLFilesystemOperation {
         this.checkpoint('lock requested');
         this.log.noticeme('GET FSLOCK');
         const svc_fslock = context.get('services').get('fslock');
-        this.log.noticeme('REQUESTING LOCK');
+        this.log.noticeme('REQUESTING LOCK', {
+            parent: await parent.get('path'),
+            name,
+        });
         const lock_handle = await svc_fslock.lock_child(
             await parent.get('path'),
             name,
             MODE_WRITE,
         );
-        this.log.noticeme('GOT LOCK');
+        this.log.noticeme('GOT LOCK', {
+            parent: await parent.get('path'),
+            name,
+        });
         this.checkpoint('lock acquired');
 
         try {
