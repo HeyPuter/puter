@@ -99,6 +99,10 @@ class PuterAIModule extends AdvancedBase {
             // const { ClaudeEnoughService } = require('./ClaudeEnoughService');
             // services.registerService('claude', ClaudeEnoughService);
         }
+        if ( !! config?.services?.['gemini'] ) {
+            const { GeminiService } = require('./GeminiService');
+            services.registerService('gemini', GeminiService);
+        }
 
         const { AIChatService } = require('./AIChatService');
         services.registerService('ai-chat', AIChatService);
