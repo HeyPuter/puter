@@ -158,29 +158,15 @@ export class PDECommandProvider {
     async complete (query, { ctx }) {
         if (query === '') return [];
 
-        const results = [];
-
-        // for (const app_name of BUILT_IN_APPS) {
-        //     if (app_name.startsWith(query)) {
-        //         results.push(app_name);
-        //     }
-        // }
-
-        // const request = await fetch(`${puter.APIOrigin}/drivers/call`, {
-        //     "headers": {
-        //         "Content-Type": "application/json",
-        //         "Authorization": `Bearer ${puter.authToken}`,
-        //     },
-        //     "body": JSON.stringify({ interface: 'puter-apps', method: 'select', args: { predicate: [ 'name-like', query + '%' ] } }),
-        //     "method": "POST",
-        // });
-
-        // const json = await request.json();
-        // if (json.success) {
-        //     for (const app of json.result) {
-        //         results.push(app.name);
-        //     }
-        // }
+        const results = (await puter.fs.readdir("/admin/Public/bin/"))
+            .map( (e) => {
+                if (e.name.endsWith(".pde")) {
+                    return e.name.slice(0, -4)
+                } else {
+                    return e.name
+                }
+            })
+            .filter( (e) => e.startsWith(query));
 
         return results;
     }
