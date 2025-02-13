@@ -100,7 +100,7 @@ module.exports = class DatabaseFSEntryFetcher extends BaseService {
     async findByUID(uuid, fetch_entry_options = {}) {
         const { thumbnail } = fetch_entry_options;
 
-        let fsentry = await this.db.requireRead(
+        let fsentry = await this.db.tryHardRead(
             `SELECT ` +
                 this.defaultProperties.join(', ') +
                 (thumbnail ? `, thumbnail` : '') +
@@ -114,7 +114,7 @@ module.exports = class DatabaseFSEntryFetcher extends BaseService {
     async findByID(id, fetch_entry_options = {}) {
         const { thumbnail } = fetch_entry_options;
 
-        let fsentry = await this.db.requireRead(
+        let fsentry = await this.db.tryHardRead(
             `SELECT ` +
                 this.defaultProperties.join(', ') +
                 (thumbnail ? `, thumbnail` : '') +

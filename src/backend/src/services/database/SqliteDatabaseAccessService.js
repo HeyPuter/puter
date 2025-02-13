@@ -271,7 +271,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         * @param {object} commands - The dev-console service commands object.
         */
         svc_serverHealth.add_check('sqlite', async () => {
-            const [{ user_version }] = await this._requireRead('PRAGMA user_version');
+            const [{ user_version }] = await this.requireRead('PRAGMA user_version');
             if ( user_version !== TARGET_VERSION ) {
                 throw new Error(
                     `Database version mismatch: expected ${TARGET_VERSION}, ` +
@@ -296,8 +296,8 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
     * This method may perform additional steps to obtain the data, which
     * is not applicable to the SQLite implementation.
     */
-    async _requireRead (query, params) {
-        return this._read(query, params);
+    async _tryHardRead (query, params) {
+        return await this._read(query, params);
     }
 
 

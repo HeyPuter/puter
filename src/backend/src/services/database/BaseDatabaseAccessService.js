@@ -60,6 +60,37 @@ class BaseDatabaseAccessService extends BaseService {
         return this._read(query, params);
     }
 
+    /**
+     * requireRead will fallback to the primary database
+     * when a read-replica configuration is in use;
+     * otherwise it behaves the same as `read()`.
+     *
+     * @param {string} query
+     * @param {array} params
+     * @returns {Promise<*>}
+     */
+    tryHardRead (query, params) {
+        return this._tryHardRead(query, params);
+    }
+
+    /**
+     * requireRead will fallback to the primary database
+     * when a read-replica configuration is in use by
+     * delegating to `tryHardRead()`.
+     * If the query returns no results, an error is thrown.
+     *
+     * @param {string} query
+     * @param {array} params
+     * @returns {Promise<*>}
+     */
+    requireRead (query, params) {
+        const results = this._tryHardRead(query, params);
+        if ( results.length === 0 ) {
+            throw new Error('required read failed: ' + query);
+        }
+        return results;
+    }
+
     pread (query, params) {
         return this._read(query, params, { use_primary: true });
     }
@@ -85,19 +116,6 @@ class BaseDatabaseAccessService extends BaseService {
 
     batch_write (statements) {
         return this._batch_write(statements);
-    }
-
-    /**
-     * requireRead will fallback to the primary database
-     * when a read-replica configuration is in use;
-     * otherwise it behaves the same as `read()`.
-     *
-     * @param {string} query
-     * @param {array} params
-     * @returns {Promise<*>}
-     */
-    requireRead (query, params) {
-        return this._requireRead(query, params);
     }
 }
 
