@@ -18,9 +18,15 @@
  */
 export const SHELL_VERSIONS = [
     {
-        v: '0.2.5',
+        v: '0.2.6',
         changes: [
             'add PDE execution from /admin/Public/bin',
+        ]
+    },
+    {
+        v: '0.2.5',
+        changes: [
+            'fixed app command provider exit',
         ]
     },
     {
