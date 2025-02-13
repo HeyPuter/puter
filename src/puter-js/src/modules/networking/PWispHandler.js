@@ -27,7 +27,8 @@ export class PWispHandler {
                         this._continue()
                         break;
                     case CLOSE:
-                        this.streamMap.get(parsed.streamID).closeCallBack(parsed.reason);
+                        if (parsed.streamID !== 0)
+                            this.streamMap.get(parsed.streamID).closeCallBack(parsed.reason);
                         break;
                     case INFO:
                         puterAuth && this._ws.send(createWispPacket({
