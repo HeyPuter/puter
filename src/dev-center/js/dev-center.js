@@ -296,6 +296,8 @@ async function create_app(title, source_path = null, items = null) {
     
         })
         .then(async (app) => {
+            $('.new-app-modal').get(0).close();
+            window.location.reload();
             let app_dir;
             // ----------------------------------------------------
             // Create app directory in AppData
@@ -321,6 +323,8 @@ async function create_app(title, source_path = null, items = null) {
                 maximizeOnStart: false,
                 background: false,
             }).then(async (app) => {
+                $('.new-app-modal').get(0).close();
+                window.location.reload();
                 // refresh app list
                 puter.apps.list({ icon_size: 64 }).then(async (resp) => {
                     apps = resp;
@@ -568,8 +572,8 @@ function generate_edit_app_section(app) {
                 </select>
 
                 <label for="edit-app-filetype-associations">File Associations</label>
-               <p style="margin-top: 10px; font-size:13px;">A list of file type specifiers. For example if you include <code>.txt</code> your apps could be opened when a user clicks on a TXT file.</p>
-               <textarea id="edit-app-filetype-associations"  placeholder=".txt  .jpg    application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length)}</textarea>
+                <p style="margin-top: 10px; font-size:13px;">A comma-separated list of file type specifiers. For example if you include <code>.txt</code>, your apps could be opened when a user clicks on a TXT file.</p>
+                <textarea id="edit-app-filetype-associations" placeholder=".txt, .jpg, application/json">${app.filetype_associations}</textarea>
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window</h3>
                 <div>
@@ -910,7 +914,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                         dropped_items = items[0].path;
                         $('.drop-area').removeClass('drop-area-hover');
                         $('.drop-area').addClass('drop-area-ready-to-deploy');
-                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">index.html</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">index.html</p><p>Ready to deploy 🚀</p>`;
                         $('.drop-area').html(drop_area_content);
 
                         // enable deploy button
@@ -944,7 +948,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                         dropped_items = items;
                         $('.drop-area').removeClass('drop-area-hover');
                         $('.drop-area').addClass('drop-area-ready-to-deploy');
-                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${items.length} items</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${items.length} items</p><p>Ready to deploy 🚀</p>`;
                         $('.drop-area').html(drop_area_content);
 
                         // enable deploy button
@@ -985,7 +989,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
 
                             $('.drop-area').removeClass('drop-area-hover');
                             $('.drop-area').addClass('drop-area-ready-to-deploy');
-                            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+                            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p>`;
                             $('.drop-area').html(drop_area_content);
 
                             // enable deploy button
@@ -1059,7 +1063,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
             rootItems = html_encode(rootItems);
             $('.drop-area').removeClass('drop-area-hover');
             $('.drop-area').addClass('drop-area-ready-to-deploy');
-            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p>`;
             $('.drop-area').html(drop_area_content);
 
             // enable deploy button
@@ -1211,7 +1215,6 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
             icon = null;
         }
     }
-
     // parse filetype_associations
     if(filetype_associations !== ''){
         filetype_associations = JSON.parse(filetype_associations);
@@ -1236,7 +1239,6 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
             }
         }).filter(Boolean);
     }
-
     // error?
     if (error) {
         $('#edit-app-error').show();
@@ -1247,6 +1249,9 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
 
     // show working spinner
     puter.ui.showSpinner();
+  
+    // parse filetype_associations
+    filetype_associations = filetype_associations.split(',').map(element => element.trim());
 
     // disable submit button
     $('.edit-app-save-btn').prop('disabled', true);
@@ -1770,130 +1775,14 @@ function sort_apps() {
     }
 }
 
-/**
- * Checks if the items being deployed contain a .git directory
- * @param {Array|string} items - Items to check (can be path string or array of items)
- * @returns {Promise<boolean>} - True if .git directory is found
- */
-async function hasGitDirectory(items) {
-    // Case 1: Single Puter path
-    if (typeof items === 'string' && (items.startsWith('/') || items.startsWith('~'))) {
-        const stat = await puter.fs.stat(items);
-        if (stat.is_dir) {
-            const files = await puter.fs.readdir(items);
-            return files.some(file => file.name === '.git' && file.is_dir);
-        }
-        return false;
-    }
-    
-    // Case 2: Array of Puter items
-    if (Array.isArray(items) && items[0]?.uid) {
-        return items.some(item => item.name === '.git' && item.is_dir);
-    }
-    
-    // Case 3: Local items (DataTransferItems)
-    if (Array.isArray(items)) {
-        for (let item of items) {
-            if (item.fullPath?.includes('/.git/') || 
-                item.path?.includes('/.git/') || 
-                item.filepath?.includes('/.git/')) {
-                return true;
-            }
-        }
-    }
-    
-    return false;
-}
-
-/**
- * Shows a warning dialog about .git directory deployment
- * @returns {Promise<boolean>} - True if the user wants to proceed with deployment
- */
-async function showGitWarningDialog() {
-    try {
-        // Check if the user has chosen to skip the warning
-        const skipWarning = await puter.kv.get('skip-git-warning');
-
-        // Log retrieved value for debugging
-        console.log('Retrieved skip-git-warning:', skipWarning);
-
-        // If the user opted to skip the warning, proceed without showing it
-        if (skipWarning === true) {
-            return true;
-        }
-    } catch (error) {
-        console.error('Error accessing KV store:', error);
-        // If KV store access fails, fall back to showing the dialog
-    }
-
-    // Create the modal dialog
-    const modal = document.createElement('div');
-    modal.innerHTML = `
-        <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2); z-index: 10000;">
-            <h3 style="margin-top: 0;">Warning: Git Repository Detected</h3>
-            <p>A .git directory was found in your deployment files. Deploying .git directories may:</p>
-            <ul>
-                <li>Expose sensitive information like commit history and configuration</li>
-                <li>Significantly increase deployment size</li>
-            </ul>
-            <div style="margin-top: 15px; display: flex; align-items: center;">
-                <input type="checkbox" id="skip-git-warning" style="margin-right: 10px;">
-                <label for="skip-git-warning" style="margin-top:0;">Don't show this warning again</label>
-            </div>
-            <div style="margin-top: 15px; display: flex; justify-content: flex-end;">
-                <button id="cancel-deployment" style="margin-right: 10px; padding: 10px 15px; background: #f0f0f0; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
-                <button id="continue-deployment" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Continue Deployment</button>
-            </div>
-        </div>
-        <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 9999;"></div>
-    `;
-    document.body.appendChild(modal);
-
-    return new Promise((resolve) => {
-        // Handle "Continue Deployment"
-        document.getElementById('continue-deployment').addEventListener('click', async () => {
-            try {
-                const skipChecked = document.getElementById('skip-git-warning')?.checked;
-                if (skipChecked) {
-                    console.log("Saving 'skip-git-warning' preference as true");
-                    await puter.kv.set('skip-git-warning', true);
-                }
-            } catch (error) {
-                console.error('Error saving user preference to KV store:', error);
-            } finally {
-                document.body.removeChild(modal);
-                resolve(true); // Continue deployment
-            }
-        });
-
-        // Handle "Cancel Deployment"
-        document.getElementById('cancel-deployment').addEventListener('click', () => {
-            document.body.removeChild(modal);
-            resolve(false); // Cancel deployment
-        });
-    });
-}
-
 window.deploy = async function (app, items) {
-    // Check for .git directory before proceeding
-    try {
-        if (await hasGitDirectory(items)) {
-            const shouldProceed = await showGitWarningDialog();
-            if (!shouldProceed) {
-                reset_drop_area();
-                return;
-            }
-        }
-    } catch (err) {
-        console.error('Error checking for .git directory:', err);
-    }
     let appdata_dir, current_app_dir;
 
     // disable deploy button
     $('.deploy-btn').addClass('disabled');
 
     // change drop area text
-    $('.drop-area').html(deploying_spinner + ' <div>Deploying <span class="deploy-percent">(0%)</span></div>');
+    $('.drop-area').html(deploying_spinner + ' <div>Deploying <span class="deploy-percent">(0%)</span></div><p class="reset-deploy button button-secondary"><span>Cancel</span></p>');
 
     if (typeof items === 'string' && (items.startsWith('/') || items.startsWith('~'))) {
         $('.drop-area').removeClass('drop-area-hover');
@@ -2264,7 +2153,7 @@ $(document).on('click', '.insta-deploy-existing-app-deploy-btn', function (e) {
 
     $('.drop-area').removeClass('drop-area-hover');
     $('.drop-area').addClass('drop-area-ready-to-deploy');
-    let drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+    let drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">Ready to deploy 🚀</p><p class="reset-deploy button button-secondary"><span>Cancel</span></p>`;
     $('.drop-area').html(drop_area_content);
 
     // deploy
@@ -2707,9 +2596,32 @@ function enable_window_settings(){
     $('#edit-app-hide-titlebar').prop('disabled', false);
 }
 
-$(document).on('click', '.reset-deploy', function (e) {
-    reset_drop_area();
-})
+$(document).on('click', '.reset-deploy', async function (e) {
+    // Display a confirmation dialog to ask the user
+    const alert_resp = await puter.ui.alert(
+        'Are you sure you want to cancel the deployment?', 
+        [
+            {
+                label: 'Yes, cancel deployment',
+                value: 'cancel',
+                type: 'danger', // This can style the button as red/danger
+            },
+            {
+                label: 'No, keep it',
+                value: 'keep'
+            }
+        ]
+    );
+
+    if (alert_resp === 'cancel') {
+        // If the user clicks "Yes, cancel deployment", reset the drop area
+        reset_drop_area();
+    } else {
+        // If the user clicks "No, keep it", do nothing or log it
+        console.log('Deployment is not canceled.');
+    }
+});
+
 
 $(document).on('click', '.sidebar-toggle', function (e) {
     $('.sidebar').toggleClass('open');
