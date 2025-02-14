@@ -87,11 +87,11 @@ export const launchPuterShell = async (ctx) => {
         new BuiltinCommandProvider(),
         // PathCommandProvider is only compatible with node.js for now
         ...(ctx.platform.name === 'node' ? [new PathCommandProvider()] : []),
-        // PuterAppCommandProvider is only usable on Puter
-        ...(ctx.platform.name === 'puter' ? [new PuterAppCommandProvider()] : []),
         new ScriptCommandProvider(),
         new EmuCommandProvider(),
-        new PDECommandProvider()
+        new PDECommandProvider(),
+        // PuterAppCommandProvider is only usable on Puter
+        ...(ctx.platform.name === 'puter' ? [new PuterAppCommandProvider()] : []),
     ]);
 
     ctx = ctx.sub({
