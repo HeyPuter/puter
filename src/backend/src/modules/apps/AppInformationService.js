@@ -609,7 +609,13 @@ class AppInformationService extends BaseService {
 
             // only count the referral if the origin hashes to the app's uid
             const svc_auth = this.services.get('auth');
-            const expected_uid = await svc_auth.app_uid_from_origin(origin);
+            let expected_uid;
+            try {
+                expected_uid = await svc_auth.app_uid_from_origin(origin);
+            } catch (e) {
+                // This happens if the app origin isn't valid
+                continue;
+            }
             if ( expected_uid !== app.uid ) {
                 continue;
             }
