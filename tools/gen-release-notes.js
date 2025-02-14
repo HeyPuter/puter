@@ -23,10 +23,9 @@ import { simpleGit } from 'simple-git';
 const REPO_URL = 'https://github.com/HeyPuter/puter';
 
 const params = {
-    from: 'v2.4.1',
-    // from: 'v2.4.0',
-    to: 'v2.4.2',
-    date: '2024-07-22',
+    from: 'v2.5.0',
+    to: 'v2.5.1',
+    date: '2025-02-13',
 };
 
 const git = simpleGit();
