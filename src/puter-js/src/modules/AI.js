@@ -279,6 +279,12 @@ class AI{
         ){
             driver = 'deepseek';
         }
+        else if(
+            options.model === 'gemini-1.5-flash' ||
+            options.model === 'gemini-2.0-flash'
+        ){
+            driver = 'gemini';
+        }
 
         // stream flag from settings
         if(settings.stream !== undefined && typeof settings.stream === 'boolean'){
