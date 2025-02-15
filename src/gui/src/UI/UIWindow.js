@@ -3289,12 +3289,20 @@ window.scale_window = (el_window)=>{
         // shrink icon
         $(el_window).find('.window-scale-btn>img').attr('src', window.icons['scale-down-3.svg']);
 
+        // calculate height
+        let height;
+        if(window.is_fullpage_mode){
+            height = `calc(100% - ${ window.toolbar_height}px)`;
+        }else{
+            height = `calc(100% - ${window.taskbar_height + window.toolbar_height + 6}px)`;
+        }
+
         // set new size and position
         $(el_window).css({
             'top': window.toolbar_height+'px',
             'left': '0',
             'width': '100%',
-            'height': `calc(100% - ${window.taskbar_height + window.toolbar_height + 6}px)`,
+            'height': height,
             'transform': 'none',
         });
     }
