@@ -266,7 +266,7 @@ const fr = {
         set_new_password: "Definir un nouveau mot de passe",
         share: "Partager",
         share_to: "Partager à",
-        share_with: "Partager avec",
+        share_with: "Partager avec :",
         shortcut_to: "Raccourci vers",
         show_all_windows: "Afficher toutes les fenêtres",
         show_hidden: 'Afficher les fichiers cachés',
@@ -347,7 +347,7 @@ const fr = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         "change": 'Changer',
-        "clock_visibility": "visibilité de l'horloge",
+        "clock_visibility": "Visibilité de l'horloge",
         "confirm": 'Confirmer',
         "public": 'Publique',
         "reading": 'lecture de %strong%',
