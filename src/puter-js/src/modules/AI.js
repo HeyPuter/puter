@@ -285,6 +285,9 @@ class AI{
         ){
             driver = 'gemini';
         }
+        else if ( options.model.startsWith('openrouter:') ) {
+            driver = 'openrouter';
+        }
 
         // stream flag from settings
         if(settings.stream !== undefined && typeof settings.stream === 'boolean'){
