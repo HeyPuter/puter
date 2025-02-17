@@ -3,10 +3,6 @@
 <h3 align="center">The Internet OS! Free, Open-Source, and Self-Hostable.</h3>
 
 <p align="center">
-    <img alt="test" src="https://github.com/heyPuter/puter/actions/workflows/test.yml/badge.svg">
-    <img alt="GitHub repo size" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="GitHub Release" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=latest%20version"> <img alt="GitHub License" src="https://img.shields.io/github/license/HeyPuter/puter">
-</p>
-<p align="center">
     <a href="https://puter.com/?ref=github.com"><strong>« LIVE DEMO »</strong></a>
     <br />
     <br />
@@ -14,11 +10,13 @@
     ·
     <a href="https://docs.puter.com" target="_blank">SDK</a>
     ·
+    <a href="https://github.com/heyputer/puter-cli" target="_blank">CLI</a>
+    ·
     <a href="https://discord.com/invite/PQcx7Teh8u">Discord</a>
     ·
     <a href="https://reddit.com/r/puter">Reddit</a>
     ·
-    <a href="https://twitter.com/HeyPuter">X (Twitter)</a>
+    <a href="https://twitter.com/HeyPuter">X</a>
 </p>
 
 <h3 align="center"><img width="800" style="border-radius:5px;" alt="screenshot" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>
