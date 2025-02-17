@@ -86,7 +86,32 @@ class UserSendMailService extends BaseService {
                     [encoding === 'html' ? 'html' : 'text']: body,
                 };
                 
-                for ( const attachment of attachments ) {
+                for ( let i=0 ; i < attachments.length ; i++ ) {
+                    const attachment = attachments[i];
+
+                    // Validation
+                    // TODO: JSON schema might be better for this actually
+                    if ( ! attachment.path && ! attachment.content ) {
+                        throw APIError.create('xor_field_missing', null, {
+                            names: [
+                                `attachments[${i}].path`,
+                                `attachments[${i}].content`
+                            ],
+                        });
+                    }
+                    if ( ! attachment.filename ) {
+                        throw APIError.create('field_missing', null, {
+                            key: `attachments[${i}].filename`,
+                        });
+                    }
+                    if ( typeof attachment.filename !== 'string' ) {
+                        throw APIError.create('field_invalid', null, {
+                            key: `attachments[${i}].filename`,
+                            expected: 'string',
+                            got: typeof attachment.filename,
+                        });
+                    }
+
                     if ( attachment.path ) {
                         const svc_fs = this.services.get('filesystem');
                         const node = await svc_fs.node(attachment.path);
