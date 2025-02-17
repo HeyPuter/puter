@@ -31,6 +31,9 @@ class LLRmDir extends LLFilesystemOperation {
             actor,
             descendants_only,
             recursive,
+            
+            // internal use only - not for clients
+            ignore_not_empty,
 
             max_tasks = 8,
         } = this.values;
@@ -61,7 +64,7 @@ class LLRmDir extends LLFilesystemOperation {
             await target.get('uid')
         );
 
-        if ( children.length > 0 && ! recursive ) {
+        if ( children.length > 0 && ! recursive && ! ignore_not_empty ) {
             throw APIError.create('not_empty');
         }
 
@@ -100,7 +103,13 @@ class LLRmDir extends LLFilesystemOperation {
 
         await tasks.awaitAll();
         if ( ! descendants_only ) {
-            await target.provider.rmdir({ context, node: target });
+            await target.provider.rmdir({
+                context,
+                node: target,
+                options: {
+                    ignore_not_empty: true,
+                },
+            });
         }
     }
 }

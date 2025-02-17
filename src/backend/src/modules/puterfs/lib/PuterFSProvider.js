@@ -367,7 +367,7 @@ class PuterFSProvider extends putility.AdvancedBase {
         await this.rmnode_({ context, node });
     }
 
-    async rmdir ({ context, node }) {
+    async rmdir ({ context, node, options = {} }) {
         if ( await node.get('type') !== TYPE_DIRECTORY ) {
             console.log(`\x1B[31;1m===D1====${await node.get('path')}=========\x1B[0m`)
             throw new APIError(409, 'Cannot rmdir a file.');
@@ -386,15 +386,15 @@ class PuterFSProvider extends putility.AdvancedBase {
             await node.get('uid')
         );
 
-        if ( children.length > 0 ) {
+        if ( children.length > 0 && ! options.ignore_not_empty ) {
             console.log(`\x1B[31;1m===D3====${await node.get('path')}=========\x1B[0m`)
             throw APIError.create('not_empty');
         }
 
-        await this.rmnode_({ context, node });
+        await this.rmnode_({ context, node, options });
     }
 
-    async rmnode_ ({ context, node }) {
+    async rmnode_ ({ context, node, options }) {
         // Services
         const services = context.get('services');
         const svc_size = services.get('sizeService');
