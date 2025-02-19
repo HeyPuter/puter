@@ -24,12 +24,14 @@ module.exports = class OpenAIUtil {
             }
 
             // coerce tool calls
+            let is_tool_call = false;
             for ( let i = content.length - 1 ; i >= 0 ; i-- ) {
                 const content_block = content[i];
 
                 if ( content_block.type === 'tool_use' ) {
                     if ( ! msg.hasOwnProperty('tool_calls') ) {
                         msg.tool_calls = [];
+                        is_tool_call = true;
                     }
                     msg.tool_calls.push({
                         id: content_block.id,
@@ -42,6 +44,8 @@ module.exports = class OpenAIUtil {
                     content.splice(i, 1);
                 }
             }
+
+            if ( is_tool_call ) msg.content = null;
 
             // coerce tool results
             // (we assume multiple tool results were already split into separate messages)
