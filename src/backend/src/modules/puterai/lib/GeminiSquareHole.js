@@ -3,6 +3,8 @@
  * but Google's AI API defies all the established conventions
  * so it made sense to defy them here as well.
  */
+
+const crypto = require('crypto');
 module.exports = class GeminiSquareHole {
     static process_input_messages = async (messages) => {
         messages = messages.slice();
@@ -13,6 +15,35 @@ module.exports = class GeminiSquareHole {
 
             if ( msg.role === 'assistant' ) {
                 msg.role = 'model';
+            }
+
+            for ( let i=0 ; i < msg.parts.length ; i++ ) {
+                const part = msg.parts[i];
+                console.log('what the part is', part);
+                if ( part.type === 'tool_use' ) {
+                    msg.parts[i] = {
+                        functionCall: {
+                            name: part.id,
+                            args: part.input,
+                        },
+                    };
+                }
+                if ( part.type === 'tool_result' ) {
+                    msg.parts[i] = {
+                        functionResponse: {
+                            name: part.tool_use_id,
+                            response: {
+                                name: part.tool_use_id,
+                                content: part.content,
+                            },
+                        },
+                    };
+                }
+                if ( part.type === 'text' ) {
+                    msg.parts[i] = {
+                        text: part.text,
+                    };
+                }
             }
         }
 
@@ -46,7 +77,12 @@ module.exports = class GeminiSquareHole {
         usage_promise,
     }) => async ({ chatStream }) => {
         const message = chatStream.message();
+        
         let textblock = message.contentBlock({ type: 'text' });
+        let toolblock = null;
+        let mode = 'text';
+
+        
         let last_usage = null;
         for await ( const chunk of stream ) {
             // This is spread across several lines so that the stack trace
@@ -56,6 +92,31 @@ module.exports = class GeminiSquareHole {
             const content = candidate.content;
             const parts = content.parts;
             for ( const part of parts ) {
+                if ( part.functionCall ) {
+                    if ( mode === 'text' ) {
+                        mode = 'tool';
+                        textblock.end();
+                    }
+
+                    toolblock = message.contentBlock({
+                        type: 'tool_use',
+                        id: part.functionCall.name,
+                        name: part.functionCall.name,
+                    });
+                    toolblock.addPartialJSON(JSON.stringify(
+                        part.functionCall.args,
+                    ));
+
+                    continue;
+                }
+
+                if ( mode === 'tool' ) {
+                    mode = 'text';
+                    toolblock.end();
+                    textblock = message.contentBlock({ type: 'text' });
+                }
+
+                // assume text as default
                 const text = part.text;
                 textblock.addText(text);
             }
@@ -65,7 +126,8 @@ module.exports = class GeminiSquareHole {
 
         usage_promise.resolve(last_usage);
 
-        textblock.end();
+        if ( mode === 'text' ) textblock.end();
+        if ( mode === 'tool' ) toolblock.end();
         message.end();
         chatStream.end();
     }

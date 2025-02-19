@@ -3,6 +3,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const GeminiSquareHole = require("./lib/GeminiSquareHole");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const putility = require("@heyputer/putility");
+const FunctionCalling = require("./lib/FunctionCalling");
 
 class GeminiService extends BaseService {
     async _init () {
@@ -31,9 +32,12 @@ class GeminiService extends BaseService {
             },
 
             async complete ({ messages, stream, model, tools }) {
+                tools = FunctionCalling.make_gemini_tools(tools);
+
                 const genAI = new GoogleGenerativeAI(this.config.apiKey);
                 const genModel = genAI.getGenerativeModel({
                     model: model ?? 'gemini-2.0-flash',
+                    tools,
                 });
 
                 messages = await GeminiSquareHole.process_input_messages(messages);
@@ -41,7 +45,9 @@ class GeminiService extends BaseService {
                 // History is separate, so the last message gets special treatment.
                 const last_message = messages.pop();
                 const last_message_parts = last_message.parts.map(
-                    part => typeof part === 'string' ? part : part.text
+                    part => typeof part === 'string' ? part :
+                            typeof part.text === 'string' ? part.text :
+                            part
                 );
 
                 const chat = genModel.startChat({
