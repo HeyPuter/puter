@@ -409,7 +409,10 @@ async function refresh_associations_cache(){
     // update username
     await db.write("UPDATE `user` SET username = ? WHERE `id` = ? LIMIT 1", [new_username, user_id]);
     // update root directory name for this user
-    await db.write("UPDATE `fsentries` SET `name` = ? WHERE `user_id` = ? AND parent_uid IS NULL LIMIT 1", [new_username, user_id]);
+    await db.write("UPDATE `fsentries` SET `name` = ?, `path` = ? " +
+        "WHERE `user_id` = ? AND parent_uid IS NULL LIMIT 1",
+        [new_username, '/' + new_username, user_id]
+    );
 
     const log = services.get('log-service').create('change_username');
     log.noticeme(`User ${old_username} changed username to ${new_username}`);
