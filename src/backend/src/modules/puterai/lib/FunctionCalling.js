@@ -20,13 +20,17 @@ module.exports = class FunctionCalling {
 
             const normalize_function = fn => {
                 const normal_fn = {};
-                const parameters =
+                let parameters =
                     fn.parameters ||
                     fn.input_schema;
                 
                 normal_fn.parameters = parameters ?? {
                     type: 'object',
                 };
+
+                if ( parameters.properties ) {
+                    parameters = this.normalize_json_schema(parameters);
+                }
 
                 if ( fn.name ) {
                     normal_fn.name = fn.name;
@@ -59,6 +63,31 @@ module.exports = class FunctionCalling {
             tools[i] = normalized_tool;
         }
         return tools;
+    }
+
+    static normalize_json_schema (schema) {
+        if ( ! schema ) return schema;
+
+        if ( schema.type === 'object' ) {
+            if ( ! schema.properties ) {
+                return schema;
+            }
+
+            const keys = Object.keys(schema.properties);
+            for ( const key of keys ) {
+                schema.properties[key] = this.normalize_json_schema(schema.properties[key]);
+            }
+        }
+
+        if ( schema.type === 'array' ) {
+            if ( ! schema.items ) {
+                schema.items = {};
+            } else {
+                schema.items = this.normalize_json_schema(schema.items);
+            }
+        }
+
+        return schema;
     }
 
     /**
