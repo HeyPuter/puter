@@ -29,6 +29,7 @@ Every directory under `/tools` is [an npm "workspaces" module](https://docs.npmj
 
 Some of these modules are core pieces of Puter:
 - **Puter's backend** is [`/src/backend`](/src/backend)
+  - See [key locations in backend documentation](/src/backend/doc/contributors/structure.md)
 - **Puter's GUI** is [`/src/gui`](/src/gui)
 
 Some of these modules are apps:
