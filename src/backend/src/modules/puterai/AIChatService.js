@@ -553,7 +553,17 @@ class AIChatService extends BaseService {
                             stream,
                         });
 
-                        ret.result.value.init_chat_stream({ chatStream });
+                        (async () => {
+                            try {
+                                await ret.result.value.init_chat_stream({ chatStream });
+                            } catch (e) {
+                                stream.write(JSON.stringify({
+                                    type: 'error',
+                                    message: e.message,
+                                }) + '\n');
+                                stream.end();
+                            }
+                        })();
 
                         return retval;
                     }
