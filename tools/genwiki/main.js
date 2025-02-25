@@ -29,6 +29,9 @@ const ROOT_DIR = path_.join(__dirname, '../..');
 const WIKI_DIR = path_.join(__dirname, '../../submodules/wiki');
 
 const path_to_name = path => {
+    // Special case for Home.md
+    if ( path === 'doc/README.md' ) return 'Home';
+    
     // Remove src/ and doc/ components
     // path = path.replace(/src\//g, '')
     path = path.replace(/doc\//g, '')

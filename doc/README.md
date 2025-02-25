@@ -1,5 +1,10 @@
 # Puter Documentation
 
+Hi, you've found Puter's wiki page on GitHub! If you were looking for
+something else, you might find it in the links below.
+All of the wiki docs are generated from `doc/` directories in the main
+repository, so it's best to edit docs there rather than here.
+
 ## Users
 
 If you have general questions about using [Puter](https://puter.com),
