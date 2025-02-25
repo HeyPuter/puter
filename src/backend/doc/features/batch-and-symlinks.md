@@ -1,14 +1,6 @@
-# Documentation Scratchpad
+# Batch and Symlinks
 
-## 2024-10-08
-
-This is place where any documentation can be written, and this documentation
-may later be moved or reformatted.
-
-I added this file because I noticed sometimes I don't write documentation
-simply because I don't yet know the best place to put the documentation,
-which in retrospect seems incredibly silly so instead this file should exist.
-
+2024-10-08
 
 ### Batch and Symlinks
 

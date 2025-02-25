@@ -133,8 +133,10 @@ const generate_sidebar = (documents) => {
         }
         
         // README.md always goes first
-        const isReadmeA = a.outputName.toLowerCase().includes('readme');
-        const isReadmeB = b.outputName.toLowerCase().includes('readme');
+        const isReadmeA = a.outputName.toLowerCase().includes('readme') ||
+            a.outputName.toLowerCase().includes('home');
+        const isReadmeB = b.outputName.toLowerCase().includes('readme') ||
+            b.outputName.toLowerCase().includes('home');
         if (isReadmeA) return -1;
         if (isReadmeB) return 1;
         
@@ -146,6 +148,9 @@ const generate_sidebar = (documents) => {
         let title = document.title;
         if ( document.outputName.split('-').slice(-1)[0].toLowerCase() === 'readme' ) {
             title = 'Index (README.md)';
+        }
+        if ( document.outputName.split('-').slice(-1)[0].toLowerCase() === 'home' ) {
+            title = `Home`;
         }
         return `* [${title}](${document.outputName.replace('.md', '')})\n`;
     };
