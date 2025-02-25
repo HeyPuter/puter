@@ -2259,8 +2259,11 @@ $(document).on('click', '.insta-deploy-app-selector', function (e) {
 $(document).on('click', '.insta-deploy-existing-app-deploy-btn', function (e) {
     $('.insta-deploy-existing-app-deploy-btn').addClass('disabled');
     $('.insta-deploy-existing-app-select')?.get(0)?.close();
+
+    const app_item = $('.insta-deploy-app-selector.active');
+
     // load the 'App Settings' section
-    edit_app_section($('.insta-deploy-app-selector.active').attr('data-name'));
+    edit_app_section(app_item.attr('data-name'));
 
     $('.drop-area').removeClass('drop-area-hover');
     $('.drop-area').addClass('drop-area-ready-to-deploy');
@@ -2268,7 +2271,8 @@ $(document).on('click', '.insta-deploy-existing-app-deploy-btn', function (e) {
     $('.drop-area').html(drop_area_content);
 
     // deploy
-    deploy({ uid: $(e.target).attr('data-uid') }, source_path ?? dropped_items);
+    console.log('data uid is present?', $(e.target).attr('data-uid'), app_item.attr('data-uid'));
+    deploy({ uid: app_item.attr('data-uid') }, source_path ?? dropped_items);
     $('.insta-deploy-existing-app-list').html('');
 })
 
