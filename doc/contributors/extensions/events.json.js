@@ -1,4 +1,4 @@
-module.exports = [
+export default [
     {
         id: 'core.email.validate',
         description: `
@@ -23,5 +23,28 @@ module.exports = [
                 ]
             },
         },
-    }
+    },
+    {
+        id: 'core.request.measured',
+        description: `
+            This event is emitted when a requests incoming and outgoing bytes
+            have been measured.
+        `,
+        example: {
+            language: 'javascript',
+            code: /*javascript*/`
+                extension.on('core.request.measured', data => {
+                    const measurements = data.measurements;
+                    //    measurements = { sz_incoming: integer, sz_outgoing: integer }
+
+                    const actor = data.actor; // instance of Actor
+
+                    console.log('\\x1B[36;1m === MEASUREMENT ===\\x1B[0m\\n', {
+                        actor: data.actor.uid,
+                        measurements: data.measurements
+                    });
+                });
+            `
+        }
+    },
 ];

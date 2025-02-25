@@ -1,5 +1,5 @@
-const dedent = require('dedent');
-const events = require('./events.json.js');
+import dedent from 'dedent';
+import events from './events.json.js';
 
 const mdlib = {};
 mdlib.h = (out, n, str) => {
@@ -20,11 +20,19 @@ for ( const event of events ) {
         out(`- **Type**: ${prop.type}\n`);
         out(`- **Mutability**: ${prop.mutability}\n`);
         if ( prop.notes ) {
-            out(`- **Notes**: ${prop.n}\n`);
+            out(`- **Notes**:\n`);
             for ( const note of prop.notes ) {
                 out(`  - ${note}\n`);
             }
         }
+        out('\n');
     }
+
+    if ( event.example ) {
+        mdlib.h(out, N_START + 1, `Example`);
+        out(`\`\`\`${event.example.language}\n${dedent(event.example.code)}\n\`\`\`\n`);
+    }
+
+    out('\n');
 
 }
