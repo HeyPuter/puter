@@ -8,20 +8,24 @@ The event can be used to block certain emails from being validated.
 the email being validated
 - **Type**: string
 - **Mutability**: no-effect
-- **Notes**: undefined
+- **Notes**:
   - The email may have already been cleaned.
+
 #### Property `allow`
 
 whether the email is allowed
 - **Type**: boolean
 - **Mutability**: mutable
-- **Notes**: undefined
+- **Notes**:
   - If set to false, the email will be considered invalid.
+
 
 ### `core.request.measured`
 
 This event is emitted when a requests incoming and outgoing bytes
 have been measured.
+
+#### Example
 
 ```javascript
 extension.on('core.request.measured', data => {
@@ -36,3 +40,21 @@ extension.on('core.request.measured', data => {
     });
 });
 ```
+
+### `core.fs.create.directory`
+
+This event is emitted when a directory is created.
+
+#### Property `node`
+
+the directory that was created
+- **Type**: FSNodeContext
+- **Mutability**: no-effect
+
+#### Property `context`
+
+current context
+- **Type**: Context
+- **Mutability**: no-effect
+
+

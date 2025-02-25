@@ -47,4 +47,22 @@ export default [
             `
         }
     },
+    {
+        id: 'core.fs.create.directory',
+        description: `
+            This event is emitted when a directory is created.
+        `,
+        properties: {
+            node: {
+                type: 'FSNodeContext',
+                mutability: 'no-effect',
+                summary: 'the directory that was created',
+            },
+            context: {
+                type: 'Context',
+                mutability: 'no-effect',
+                summary: 'current context'
+            },
+        }
+    },
 ];
