@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Page Testing</title>
+</head>
+<body>
+    <pre id="result"></pre>
+
+    <script>
+        async function fetchIssues() {
+            const owner = 'HeyPuter';
+            const repo = 'puter';
+            
+            try {
+                const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues?state=all&per_page=100`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                
+                const issues = await response.json();
+                
+                document.getElementById('result').textContent = JSON.stringify(issues, null, 2);
+            } catch (error) {
+                console.error('Error fetching issues:', error);
+                document.getElementById('result').textContent = `Error: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
