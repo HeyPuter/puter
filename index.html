@@ -4,12 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GitHub Page Testing</title>
-</head>
-<body>
-    <pre id="result"></pre>
-
     <script>
-        async function fetchIssues() {
+        async function main() {
             const owner = 'HeyPuter';
             const repo = 'puter';
             
@@ -28,6 +24,13 @@
                 document.getElementById('result').textContent = `Error: ${error.message}`;
             }
         }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            main();
+        });
     </script>
+</head>
+<body>
+    <pre id="result"></pre>
 </body>
 </html>
