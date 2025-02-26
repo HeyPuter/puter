@@ -6,6 +6,19 @@
 
 Ensure the hosting device has a static IP address to prevent potential connectivity issues due to IP changes. This setup will enable seamless access to Puter and its services across your local network.
 
+### Using `nip.io`
+
+We recommend this configuration for LAN setups. All you need to do is set the following
+at root level in your configuration file:
+
+```json
+  "allow_nipio_domains": true
+```
+
+Puter requires multiple origins to work correctly. `nip.io` is a wildcard DNS for IP addresses,
+so Puter can still have multiple subdomains and you don't need to configure your own DNS or
+hosts file.
+
 ### Using Hosts Files
 
 The hosts file is a straightforward way to map domain names to IP addresses on individual devices. It's simple to set up but requires manual changes on each device that needs access to the domains.

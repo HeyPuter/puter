@@ -449,11 +449,20 @@ class WebServerService extends BaseService {
                 'at.' + config.static_hosting_domain.toLowerCase(),
             ];
 
+            if ( config.allow_nipio_domains ) {
+                allowedDomains.push('nip.io');
+            }
+
             // Retrieve the Host header and ensure it's in a valid format
             const hostHeader = req.headers.host;
 
-            if (!hostHeader) {
+            if ( ! config.allow_no_host_header && ! hostHeader ) {
                 return res.status(400).send('Missing Host header.');
+            }
+
+            if ( config.allow_all_host_values ) {
+                next();
+                return;
             }
 
             // Parse the Host header to isolate the hostname (strip out port if present)
