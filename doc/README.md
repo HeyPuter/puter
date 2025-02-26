@@ -15,6 +15,7 @@ to ask questions.
 ## Deployers
 
 - [Hosting Instructions](./self-hosters/instructions.md)
+- [Configuration](./self-hosters/config.md)
 - [Domain Setup](./self-hosters/domains.md)
 - [Support Levels](./self-hosters/support.md)
 

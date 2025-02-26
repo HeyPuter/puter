@@ -16,7 +16,7 @@ Until then, it is still possible to add apps using the **Dev Center** app.
 
 ## Configuration
 
-Running the server will generate a configuration file in one of these locations:
+Running the server will generate a [configuration file](./config.md) in one of these locations:
 - `config/config.json` when [Using Docker](#using-docker)
 - `volatile/config/config.json` in [Local Development](#local-development)
 - `/etc/puter/config.json` on a server (or within a Docker container)
@@ -25,6 +25,11 @@ Running the server will generate a configuration file in one of these locations:
 
 To access Puter on your device, you can simply go to the address printed in
 the server console (usually `puter.localhost:4100`).
+
+To access Puter from another device on LAN, enable the following configuration:
+```json
+"allow_nipio_domains": true
+```
 
 To access Puter from another device, a domain name must be configured, as well as
 an `api` subdomain. For example, `example.local` might be the domain name pointing
