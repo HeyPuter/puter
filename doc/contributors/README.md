@@ -28,3 +28,7 @@ You will be able to find existing documentation on a contribution topic **follow
 
 Also, comments uses prefixes for improve their clearness.
 [`Here you will find the standard`](./comment_prefixes.md) that is followed.
+
+## How to interact with the puter team and other contributors
+
+[`Here you will find our colaboration guidelines`](./oscon.md) so you can get started.
