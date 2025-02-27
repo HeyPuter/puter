@@ -32,3 +32,7 @@ Also, comments uses prefixes for improve their clearness.
 ## How to interact with the puter team and other contributors
 
 [`Here you will find our colaboration guidelines`](./oscon.md) so you can get started.
+
+## Get support
+
+Keep in touch [by using these means of contact](./support.md)
