@@ -48,7 +48,7 @@ module.exports = class Messages {
             if ( whatis(message.content[i]) !== 'object' ) {
                 throw new Error('each message content item must be a string or object');
             }
-            if ( ! message.content[i].type ) {
+            if ( typeof message.content[i].text === 'string' && ! message.content[i].type ) {
                 message.content[i].type = 'text';
             }
         }
