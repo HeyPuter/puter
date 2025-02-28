@@ -1431,7 +1431,6 @@ $(document).on('click', '.item-has-website-url-badge', async function(e){
 })
 
 $(document).on('mousedown', '.item-has-website-url-badge', async function(e){
-    console.log('mousedown')
     e.stopPropagation();
     e.preventDefault();
     return false;   

@@ -78,7 +78,6 @@ async function UIWindowNewPassword(options){
         }
 
         const response_data = await response.json();
-        console.log('response_data', response_data);
         let time_remaining = response_data.time_remaining;
 
 
