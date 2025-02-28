@@ -278,6 +278,54 @@ class ThreadService extends BaseService {
                 res.json({});
             }
         }).attach(router);
+
+        Endpoint({
+            route: '/delete',
+            methods: ['POST'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                const uid = req.body.uid;
+
+                if ( ! is_valid_uuid(uid) ) {
+                    throw APIError.create('field_invalid', null, {
+                        key: 'uid',
+                        expected: 'uuid',
+                        got: whatis(uid),
+                    });
+                }
+
+                // Get existing thread
+                const thread = await this.get_thread({ uid });
+                if ( !thread ) {
+                    throw APIError.create('thread_not_found', null, {
+                        uid,
+                    });
+                }
+
+                const actor = Context.get('actor');
+
+                // Check edit permission
+                {
+                    const permission = PermissionUtil.join('thread', uid, 'delete');
+                    const svc_permission = this.services.get('permission');
+                    const reading = await svc_permission.scan(actor, permission);
+                    const options = PermissionUtil.reading_to_options(reading);
+                    if ( options.length <= 0 ) {
+                        throw APIError.create('permission_denied', null, {
+                            permission,
+                        });
+                    }
+                }
+
+                // Update thread
+                await this.db.write(
+                    "DELETE FROM `thread` WHERE uid=?",
+                    [uid]
+                );
+                
+                res.json({});
+            }
+        }).attach(router);
     }
 
     async get_thread ({ uid }) {
