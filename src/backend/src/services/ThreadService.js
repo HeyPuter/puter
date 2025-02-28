@@ -326,6 +326,116 @@ class ThreadService extends BaseService {
                 res.json({});
             }
         }).attach(router);
+
+        Endpoint({
+            route: '/read/:uid',
+            methods: ['GET'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                const uid = req.params.uid;
+
+                if ( ! is_valid_uuid(uid) ) {
+                    throw APIError.create('field_invalid', null, {
+                        key: 'uid',
+                        expected: 'uuid',
+                        got: whatis(uid),
+                    });
+                }
+                
+
+                const actor = Context.get('actor');
+
+                // Check read permission
+                {
+                    const permission = PermissionUtil.join('thread', uid, 'read');
+                    const svc_permission = this.services.get('permission');
+                    const reading = await svc_permission.scan(actor, permission);
+                    const options = PermissionUtil.reading_to_options(reading);
+                    if ( options.length <= 0 ) {
+                        throw APIError.create('permission_denied', null, {
+                            permission,
+                        });
+                    }
+                }
+
+                const thread = await this.get_thread({ uid });
+
+                res.json(this.client_safe_thread(thread));
+            }
+        }).attach(router);
+
+        Endpoint({
+            route: '/list/:uid/:page',
+            methods: ['POST'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                const uid = req.params.uid;
+
+                if ( ! is_valid_uuid(uid) ) {
+                    throw APIError.create('field_invalid', null, {
+                        key: 'uid',
+                        expected: 'uuid',
+                        got: whatis(uid),
+                    });
+                }
+
+                const actor = Context.get('actor');
+
+                // Check list permission
+                {
+                    const permission = PermissionUtil.join('thread', uid, 'list');
+                    const svc_permission = this.services.get('permission');
+                    const reading = await svc_permission.scan(actor, permission);
+                    const options = PermissionUtil.reading_to_options(reading);
+                    if ( options.length <= 0 ) {
+                        throw APIError.create('permission_denied', null, {
+                            permission,
+                        });
+                    }
+                }
+
+                const page = Number(req.params.page);
+                const validate_positive_integer = (key, value) => {
+                    if ( whatis(value) !== 'number' ) {
+                        throw APIError.create('field_invalid', null, {
+                            key,
+                            expected: 'number',
+                            got: whatis(value),
+                        });
+                    }
+                    if ( value < 0 || ! Number.isInteger(value) ) {
+                        throw APIError.create('field_invalid', null, {
+                            key,
+                            expected: 'positive integer',
+                            got: value,
+                        });
+                    }
+                }
+                validate_positive_integer('page', page);
+
+                if ( req.body.limit !== undefined ) {
+                    validate_positive_integer('limit', req.body.limit);
+                }
+
+                const limit = Math.min(100, req.body.limit ?? 50);
+                const offset = page * limit;
+
+                const threads = await this.db.read(
+                    "SELECT * FROM `thread` WHERE parent_uid=? LIMIT ?,?",
+                    [uid, offset, limit]
+                );
+
+                res.json(threads.map(this.client_safe_thread));
+            }
+        }).attach(router);
+    }
+
+    client_safe_thread (thread) {
+        return {
+            uid: thread.uid,
+            parent: thread.parent_uid,
+            text: thread.text,
+        };
     }
 
     async get_thread ({ uid }) {
