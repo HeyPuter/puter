@@ -39,6 +39,7 @@
 
 import TeePromise from "../util/TeePromise.js";
 import ValueHolder from "../util/ValueHolder.js";
+import Button from "./Components/Button.js";
 import CodeEntryView from "./Components/CodeEntryView.js";
 import ConfirmationsView from "./Components/ConfirmationsView.js";
 import Flexer from "./Components/Flexer.js";
@@ -168,35 +169,14 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                             ],
                             confirmed: done_enabled,
                         }),
-                        {
-                            dom: (function() {
-                                const enableButton = $(`<button class="button button-primary button-block" style="margin-top:10px;">${i18n('setup2fa_5_button')}</button>`);
-                                
-                                // Initially disabled if done_enabled is initially false
-                                if (!done_enabled.get()) {
-                                    enableButton.prop('disabled', true);
-                                }
-                                
-                                // Handle the enabled state changes
-                                done_enabled.sub(value => {
-                                    enableButton.prop('disabled', !value);
-                                });
-                                
-                                enableButton.on('click', async () => {
-                                    // Optional loading animation
-                                    const originalText = enableButton.text();
-                                    enableButton.html(`<svg style="width:20px; margin-top: 5px;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#fff" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#eee" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`);
-                                    
-                                    await enable_2fa_();
-                                    stepper.next();
-                                    
-                                    // Reset button text (though it may not be necessary since the view is changing)
-                                    enableButton.html(originalText);
-                                });
-                                
-                                return enableButton[0]; // Return the DOM element
-                            })()
-                        }
+                        new Button({
+                            enabled: done_enabled,
+                            label: i18n('setup2fa_5_button'),
+                            on_click: async () => {
+                                await enable_2fa_();
+                                stepper.next();
+                            },
+                        }),
                     ]
                 }),
             ]
