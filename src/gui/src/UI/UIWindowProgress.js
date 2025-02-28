@@ -19,7 +19,6 @@
 
 import UIWindow from './UIWindow.js'
 import Placeholder from '../util/Placeholder.js';
-import Button from './Components/Button.js';
 
 /**
  * General purpose progress dialog.
@@ -111,25 +110,19 @@ async function UIWindowProgress({
     });
 
     if (on_cancel) {
-        const cancel_btn = new Button({
-            label: i18n('cancel'),
-            style: 'small',
-            on_click: () => {
-                $(el_window).close();
-                on_cancel();
-            },
-        });
-        cancel_btn.attach(placeholder_cancel_btn);
-    }
-
-    const ok_btn = new Button({
-        label: i18n('ok'),
-        style: 'small',
-        on_click: () => {
+        const cancelBtn = $(`<button class="button button-small">${i18n('cancel')}</button>`);
+        cancelBtn.on('click', () => {
             $(el_window).close();
-        },
+            on_cancel();
+        });
+        placeholder_cancel_btn.replaceWith(cancelBtn);
+    }
+    
+    const okBtn = $(`<button class="button button-small">${i18n('ok')}</button>`);
+    okBtn.on('click', () => {
+        $(el_window).close();
     });
-    ok_btn.attach(placeholder_ok_btn);
+    placeholder_ok_btn.replaceWith(okBtn);
 
     return {
         element: el_window,

@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import TeePromise from "../../util/TeePromise.js";
-import Button from "../Components/Button.js";
 import Flexer from "../Components/Flexer.js";
 import JustHTML from "../Components/JustHTML.js";
 import PasswordEntry from "../Components/PasswordEntry.js";
@@ -112,6 +111,28 @@ export default {
                 password_confirm_promise.resolve(true);
                 $(win).close();
             }
+
+            const passwordEntryElement = new PasswordEntry({
+                _ref: me => password_entry = me,
+                on_submit: async () => {
+                    try_password();
+                }
+            });
+            
+            const disableBtn = $(`<button class="button button-primary">${i18n('disable_2fa')}</button>`);
+            disableBtn.on('click', async () => {
+                try_password();
+            });
+            
+            const cancelBtn = $(`<button class="button button-secondary">${i18n('cancel')}</button>`);
+            cancelBtn.on('click', async () => {
+                password_confirm_promise.resolve(false);
+                $(win).close();
+            });
+            
+            const buttonContainer = $('<div style="display: flex; gap: 5pt;"></div>');
+            buttonContainer.append(disableBtn, cancelBtn);
+                        
             const password_confirm = new Flexer({
                 children: [
                     new JustHTML({
@@ -127,27 +148,9 @@ export default {
                     new Flexer({
                         gap: '5pt',
                         children: [
-                            new PasswordEntry({
-                                _ref: me => password_entry = me,
-                                on_submit: async () => {
-                                    try_password();
-                                }
-                            }),
-                            new Button({
-                                label: i18n('disable_2fa'),
-                                on_click: async () => {
-                                    try_password();
-                                }
-                            }),
-                            new Button({
-                                label: i18n('cancel'),
-                                style: 'secondary',
-                                on_click: async () => {
-                                    password_confirm_promise.resolve(false);
-                                    $(win).close();
-                                }
-                            })
-                        ]
+                            passwordEntryElement,
+                            { dom: buttonContainer[0] }
+                        ]            
                     }),
                 ]
             });

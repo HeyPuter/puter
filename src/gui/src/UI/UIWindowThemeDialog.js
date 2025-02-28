@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import UIComponentWindow from './UIComponentWindow.js';
-import Button from './Components/Button.js';
 import Flexer from './Components/Flexer.js';
 import Slider from './Components/Slider.js';
 
@@ -61,20 +60,19 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
         on_change: slider_ch,
     });
 
+    const resetButton = $(`<button class="button button-secondary">${i18n('reset_colors')}</button>`);
+    resetButton.on('click', () => {
+        svc_theme.reset();
+        state = {};
+        hue_slider.set('value', svc_theme.get('hue'));
+        sat_slider.set('value', svc_theme.get('sat'));
+        lig_slider.set('value', svc_theme.get('lig'));
+        alpha_slider.set('value', svc_theme.get('alpha'));
+    });
+    
     const component = new Flexer({
         children: [
-            new Button({
-                label: i18n('reset_colors'),
-                style: 'secondary',
-                on_click: () => {
-                    svc_theme.reset();
-                    state = {};
-                    hue_slider.set('value', svc_theme.get('hue'));
-                    sat_slider.set('value', svc_theme.get('sat'));
-                    lig_slider.set('value', svc_theme.get('lig'));
-                    alpha_slider.set('value', svc_theme.get('alpha'));
-                },
-            }),
+            { dom: resetButton[0] },
             hue_slider,
             sat_slider,
             lig_slider,
