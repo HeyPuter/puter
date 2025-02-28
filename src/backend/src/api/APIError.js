@@ -479,6 +479,11 @@ module.exports = class APIError {
             status: 400,
             message: 'Incorrect or missing anti-CSRF token.',
         },
+
+        'not_yet_supported': {
+            status: 400,
+            message: ({ message }) => message,
+        }
     };
 
     /**
