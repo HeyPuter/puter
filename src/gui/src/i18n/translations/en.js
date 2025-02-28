@@ -376,6 +376,7 @@ const en = {
         'billing.subscription_cancelled': 'Your subscription has been canceled.',
         'billing.subscription_cancelled_description': 'You will still have access to your subscription until the end of this billing period.',
         'billing.offering.free': 'Free',
+        'billing.offering.basic': 'Basic',
         'billing.offering.pro': 'Professional',
         'billing.offering.business': 'Business',
         'billing.cloud_storage': 'Cloud Storage',
