@@ -152,6 +152,8 @@ async function UIWindowSaveAccount(options){
                     "Authorization": "Bearer "+window.auth_token
                 },        
                 success: async function (data){
+                    window.dispatchEvent(new CustomEvent('account-saved', { detail: { data: data} }));
+
                     window.update_auth_data(data.token, data.user)
 
                     //close this window

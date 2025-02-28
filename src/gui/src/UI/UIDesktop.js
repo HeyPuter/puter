@@ -1145,6 +1145,9 @@ async function UIDesktop(options){
     // prepend toolbar to desktop
     $(ht).insertBefore(el_desktop);
 
+    // send event
+    window.dispatchEvent(new CustomEvent('toolbar:ready'));
+
     // notification container
     $('body').append(`<div class="notification-container"><div class="notifications-close-all">${i18n('close_all')}</div></div>`);
 
