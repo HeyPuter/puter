@@ -27,6 +27,7 @@ const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Actor, UserActorType, SiteActorType } = require("../../services/auth/Actor");
 const APIError = require("../../api/APIError");
 const { PermissionUtil } = require("../../services/auth/PermissionService");
+const { default: dedent } = require("dedent");
 
 const AT_DIRECTORY_NAMESPACE = '4aa6dc52-34c1-4b8a-b63c-a62b27f727cf';
 
@@ -158,6 +159,15 @@ class PuterSiteMiddleware extends AdvancedBase {
             subdomain_root_path = await node.get('path');
         }
 
+
+        if ( ! subdomain_root_path ) {
+            return this.respond_html_error_({
+                html: dedent(`
+                    Subdomain or site is not pointing to a directory.
+                `),
+            }, req, res, next);
+        }
+
         if ( ! subdomain_root_path || subdomain_root_path === '/' ) {
             throw APIError.create('forbidden');
         }
@@ -170,7 +180,7 @@ class PuterSiteMiddleware extends AdvancedBase {
         await target_node.fetchEntry();
 
         if ( ! await target_node.exists() ) {
-            return this.respond_index_not_found_(path, req, res, next);
+            return this.respond_html_error_({ path }, req, res, next);
         }
 
         const target_is_dir = await target_node.get('type') === TYPE_DIRECTORY;
@@ -180,7 +190,7 @@ class PuterSiteMiddleware extends AdvancedBase {
         }
 
         if ( target_is_dir ) {
-            return this.respond_index_not_found_(path, req, res, next);
+            return this.respond_html_error_({ path }, req, res, next);
         }
 
         const contentType = this.modules.mime.contentType(
@@ -317,7 +327,7 @@ class PuterSiteMiddleware extends AdvancedBase {
         }
     }
 
-    respond_index_not_found_ (path, req, res, next) {
+    respond_html_error_ ({ path, html }, req, res, next) {
         res.status(404);
         res.set('Content-Type', 'text/html; charset=UTF-8');
         res.write(`<div style="font-size: 20px;
@@ -328,10 +338,15 @@ class PuterSiteMiddleware extends AdvancedBase {
         flex-direction: column;">`);
         res.write('<h1 style="margin:0; color:#727272;">404</h1>');
         res.write(`<p style="margin-top:10px;">`)
-            if(path === '/index.html')
+        if ( path ) {
+            if ( path === '/index.html' ) {
                 res.write('<code>index.html</code> Not Found');
-            else
+            } else {
                 res.write('Not Found');
+            }
+        } else {
+            res.write(html);
+        }
         res.write(`</p>`)
 
         res.write('</div>');
