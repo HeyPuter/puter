@@ -214,8 +214,8 @@ class ThreadService extends BaseService {
         }).attach(router);
 
         Endpoint({
-            route: '/edit',
-            methods: ['POST'],
+            route: '/edit/:uid',
+            methods: ['PUT'],
             mw: [configurable_auth()],
             handler: async (req, res) => {
                 const text = req.body.text;
@@ -235,7 +235,7 @@ class ThreadService extends BaseService {
                     });
                 }
 
-                const uid = req.body.uid;
+                const uid = req.params.uid;
 
                 if ( ! is_valid_uuid(uid) ) {
                     throw APIError.create('field_invalid', null, {
@@ -280,11 +280,11 @@ class ThreadService extends BaseService {
         }).attach(router);
 
         Endpoint({
-            route: '/delete',
-            methods: ['POST'],
+            route: '/delete/:uid',
+            methods: ['DELETE'],
             mw: [configurable_auth()],
             handler: async (req, res) => {
-                const uid = req.body.uid;
+                const uid = req.params.uid;
 
                 if ( ! is_valid_uuid(uid) ) {
                     throw APIError.create('field_invalid', null, {
