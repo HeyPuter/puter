@@ -26,6 +26,7 @@ import { make_http_api } from './lib/http.js';
 import Exec from './modules/Exec.js';
 import Convert from './modules/Convert.js';
 import Threads from './modules/Threads.js';
+import Perms from './modules/Perms.js';
 
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
@@ -100,6 +101,7 @@ window.puter = (function() {
             this.registerModule('ai', AI);
             this.registerModule('kv', KV);
             this.registerModule('threads', Threads);
+            this.registerModule('perms', Perms);
             this.registerModule('drivers', Drivers);
             this.registerModule('debug', Debug);
             this.registerModule('exec', Exec);
