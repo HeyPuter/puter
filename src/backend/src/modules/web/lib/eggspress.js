@@ -191,5 +191,13 @@ module.exports = function eggspress (route, settings, handler) {
     router.post(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
+  if ( settings.allowedMethods.includes('PUT') ) {
+    router.put(route, ...mw, errorHandledHandler, ...afterMW);
+  }
+
+  if ( settings.allowedMethods.includes('DELETE') ) {
+    router.delete(route, ...mw, errorHandledHandler, ...afterMW);
+  }
+
   return router;
 }
