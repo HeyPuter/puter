@@ -105,9 +105,10 @@ class PermissionAPIService extends BaseService {
                 const svc_group = this.services.get('group');
                 const uid = await svc_group.create({
                     owner_user_id,
-                    // TODO: allow specifying these in request
+                    // TODO: includeslist for allowed 'extra' fields
                     extra: {},
-                    metadata: {},
+                    // Metadata can be specified in request
+                    metadata: metadata ?? {},
                 });
                 
                 res.json({ uid });
@@ -228,11 +229,27 @@ class PermissionAPIService extends BaseService {
                 const in_groups = await svc_group.list_groups_with_member(
                     { user_id: req.user.id });
 
+                const public_groups = await svc_group.list_public_groups();
+
                 res.json({
                     owned_groups: await Promise.all(owned_groups.map(
-                        g => g.get_client_value())),
+                        g => g.get_client_value({ members: true }))),
                     in_groups: await Promise.all(in_groups.map(
+                        g => g.get_client_value({ members: true }))),
+                    public_groups: await Promise.all(public_groups.map(
                         g => g.get_client_value())),
+                });
+            }
+        }).attach(router);
+
+        Endpoint({
+            route: '/public-groups',
+            methods: ['GET'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                res.json({
+                    user: this.global_config.default_user_group,
+                    temp: this.global_config.default_temp_group,
                 });
             }
         }).attach(router);
