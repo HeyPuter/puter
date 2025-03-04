@@ -25,6 +25,7 @@ import { PWispHandler } from './modules/networking/PWispHandler.js';
 import { make_http_api } from './lib/http.js';
 import Exec from './modules/Exec.js';
 import Convert from './modules/Convert.js';
+import Threads from './modules/Threads.js';
 
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
@@ -98,6 +99,7 @@ window.puter = (function() {
             this.registerModule('apps', Apps);
             this.registerModule('ai', AI);
             this.registerModule('kv', KV);
+            this.registerModule('threads', Threads);
             this.registerModule('drivers', Drivers);
             this.registerModule('debug', Debug);
             this.registerModule('exec', Exec);
