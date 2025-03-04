@@ -18,6 +18,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+const APIError = require("../../api/APIError");
 const { get_user, get_app } = require("../../helpers");
 const BaseService = require("../BaseService");
 const { DB_WRITE } = require("../database/consts");
@@ -401,6 +402,12 @@ class PermissionService extends BaseService {
 
         let app = await get_app({ uid: app_uid });
         if ( ! app ) app = await get_app({ name: app_uid });
+        
+        if ( ! app ) {
+            throw APIError.create('entity_not_found', null, {
+                identifier: 'app:' + app_uid,
+            });
+        }
 
         const app_id = app.id;
 
@@ -466,6 +473,11 @@ class PermissionService extends BaseService {
 
         let app = await get_app({ uid: app_uid });
         if ( ! app ) app = await get_app({ name: app_uid });
+        if ( ! app ) {
+            throw APIError.create('entity_not_found', null, {
+                identifier: 'app' + app_uid,
+            })
+        }
         const app_id = app.id;
 
         // DELETE permission
@@ -570,7 +582,9 @@ class PermissionService extends BaseService {
         permission = await this._rewrite_permission(permission);
         const user = await get_user({ username });
         if ( ! user ) {
-            throw new Error('user not found');
+            throw APIError.create('user_does_not_exist', null, {
+                username,
+            })
         }
 
         // Don't allow granting permissions to yourself
@@ -633,7 +647,9 @@ class PermissionService extends BaseService {
         const svc_group = this.services.get('group');
         const group = await svc_group.get({ uid: gid });
         if ( ! group ) {
-            throw new Error('group not found');
+            throw APIError.create('entity_not_found', null, {
+                identifier: 'group:' + gid,
+            });
         }
         
         await this.db.write(
@@ -688,7 +704,11 @@ class PermissionService extends BaseService {
 
         const user = await get_user({ username });
         if ( ! user ) {
-            throw new Error('user not found');
+            if ( ! user ) {
+                throw APIError.create('user_does_not_exist', null, {
+                    username,
+                })
+            }
         }
 
         // DELETE permission
@@ -738,7 +758,9 @@ class PermissionService extends BaseService {
         const svc_group = this.services.get('group');
         const group = await svc_group.get({ uid: gid });
         if ( ! group ) {
-            throw new Error('group not found');
+            throw APIError.create('entity_not_found', null, {
+                identifier: 'group:' + gid,
+            });
         }
 
         // DELETE permission
