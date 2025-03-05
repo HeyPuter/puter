@@ -68,4 +68,26 @@ export default class Perms {
             origin, permission,
         })
     }
+
+    // Group Management
+    async createGroup (metadata = {}, extra = {}) {
+        return await this.req_('/group/create', {
+            metadata, extra,
+        });
+    }
+    async addUsersToGroup (uid, usernames) {
+        return await this.req_('/group/add-users', {
+            uid,
+            users: usernames ?? [],
+        });
+    }
+    async removeUsersFromGroup (uid, usernames) {
+        return await this.req_('/group/remove-users', {
+            uid,
+            users: usernames ?? [],
+        });
+    }
+    async listGroups () {
+        return await this.req_('/group/list');
+    }
 }
