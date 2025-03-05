@@ -8,12 +8,12 @@ export default class Perms {
     async req_ (route, body) {
         const resp = await fetch(
             this.APIOrigin + route, {
-                method: 'POST',
+                method: body ? 'POST' : 'GET',
                 headers: {
                     Authorization: `Bearer ${this.authToken}`,
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(body),
+                ...(body ? { body: JSON.stringify(body) } : {}),
             }
         );
         return await resp.json();

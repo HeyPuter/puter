@@ -280,7 +280,7 @@ class ThreadService extends BaseService {
         }).attach(router);
 
         Endpoint({
-            route: '/delete/:uid',
+            route: '/:uid',
             methods: ['DELETE'],
             mw: [configurable_auth()],
             handler: async (req, res) => {

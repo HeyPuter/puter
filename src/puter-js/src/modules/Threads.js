@@ -39,7 +39,7 @@ export default class Threads {
     }
     
     async list (uid, page, options) {
-        await this.req_('POST',
+        return await this.req_('POST',
             '/threads/list/' + encodeURIComponent(uid) + '/' + page,
             options ?? {},
         );
