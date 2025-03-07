@@ -50,6 +50,18 @@ export default {
             messages: [
                 ...chatHistory.get_messages(),
                 {
+                    role: 'system',
+                    content: `You are a helpful AI assistant that helps users with shell commands.
+                    When a user asks to perform an action:
+                    1. If the action requires a command, wrap ONLY the command between %%% markers
+                    2. Keep the command simple and on a single line
+                    3. Do not ask for confirmation
+                    Example:
+                    User: "create a directory named test"
+                    You: "Creating directory 'test'
+                    %%%mkdir test%%%"`
+                },
+                {
                     role: 'user',
                     content: prompt,
                 }
@@ -80,8 +92,27 @@ export default {
             return;
         }
 
+        
         chatHistory.add_message(resobj?.result?.message);
 
-        await ctx.externs.out.write(message + '\n');
+        const commandMatch = message.match(/%%%(.*?)%%%/);
+
+        if (commandMatch) {
+            const commandToExecute = commandMatch[1].trim();
+            const cleanMessage = message.replace(/%%%(.*?)%%%/, '');
+
+            await ctx.externs.out.write(cleanMessage + '\n');
+
+            try {
+                await ctx.shell.runPipeline(commandToExecute);
+                await ctx.externs.out.write(`Command executed: ${commandToExecute}`);
+            } catch (error) {
+                await ctx.externs.err.write(`Error executing command: ${error.message}\n`);
+                return;
+            }
+        } else {
+            await ctx.externs.out.write(message + '\n');
+        }
+
     }
 }
