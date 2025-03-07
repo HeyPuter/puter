@@ -128,8 +128,8 @@ class ClaudeService extends BaseService {
                     const init_chat_stream = async ({ chatStream }) => {
                         const completion = await this.anthropic.messages.stream({
                             model: model ?? this.get_default_model(),
-                            max_tokens: max_tokens || (model === 'claude-3-5-sonnet-20241022' || model === 'claude-3-5-sonnet-20240620') ? 8192 : 4096,
-                            temperature: temperature || 0,
+                            max_tokens: max_tokens || (model === 'claude-3-5-sonnet-20241022' || model === 'claude-3-5-sonnet-20240620') ? 8192 : 4096, //required
+                            temperature: temperature || 0, // required
                             system: PUTER_PROMPT + JSON.stringify(system_prompts),
                             messages,
                             ...(tools ? { tools } : {}),

@@ -216,7 +216,7 @@ class MistralAIService extends BaseService {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete ({ messages, stream, model, tools }) {
+            async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
 
                 messages = await OpenAIUtil.process_input_messages(messages);
                 for ( const message of messages ) {
@@ -238,6 +238,8 @@ class MistralAIService extends BaseService {
                     model: model ?? this.get_default_model(),
                     ...(tools ? { tools } : {}),
                     messages,
+                    max_tokens: max_tokens,
+                    temperature
                 });
             
                 return await OpenAIUtil.handle_completion_output({

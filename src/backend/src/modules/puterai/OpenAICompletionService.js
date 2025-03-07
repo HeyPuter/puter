@@ -163,12 +163,14 @@ class OpenAICompletionService extends BaseService {
                 return model_names;
             },
 
-            async complete ({ messages, test_mode, stream, model, tools }) {
+            async complete ({ messages, test_mode, stream, model, tools, max_tokens, temperature }) {
                 return await this.complete(messages, {
                     model: model,
                     tools,
                     moderation: true,
                     stream,
+                    max_tokens,
+                    temperature
                 });
             }
         }
