@@ -116,7 +116,7 @@ class ClaudeService extends BaseService {
             * @param {string} [options.model] - The Claude model to use, defaults to service default
             * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or a completion object
             */
-            async complete ({ messages, stream, model, tools }) {
+            async complete ({ messages, stream, model, tools, max_tokens, temperature}) {
                 tools = FunctionCalling.make_claude_tools(tools);
                 
                 let system_prompts;
@@ -128,8 +128,8 @@ class ClaudeService extends BaseService {
                     const init_chat_stream = async ({ chatStream }) => {
                         const completion = await this.anthropic.messages.stream({
                             model: model ?? this.get_default_model(),
-                            max_tokens: (model === 'claude-3-5-sonnet-20241022' || model === 'claude-3-5-sonnet-20240620') ? 8192 : 4096,
-                            temperature: 0,
+                            max_tokens: max_tokens || (model === 'claude-3-5-sonnet-20241022' || model === 'claude-3-5-sonnet-20240620') ? 8192 : 4096,
+                            temperature: temperature || 0,
                             system: PUTER_PROMPT + JSON.stringify(system_prompts),
                             messages,
                             ...(tools ? { tools } : {}),
@@ -202,8 +202,8 @@ class ClaudeService extends BaseService {
 
                 const msg = await this.anthropic.messages.create({
                     model: model ?? this.get_default_model(),
-                    max_tokens: (model === 'claude-3-5-sonnet-20241022' || model === 'claude-3-5-sonnet-20240620') ? 8192 : 4096,
-                    temperature: 0,
+                    max_tokens: max_tokens || (model === 'claude-3-5-sonnet-20241022' || model === 'claude-3-5-sonnet-20240620') ? 8192 : 4096,
+                    temperature: temperature || 0,
                     system: PUTER_PROMPT + JSON.stringify(system_prompts),
                     messages,
                     ...(tools ? { tools } : {}),
