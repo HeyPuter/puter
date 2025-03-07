@@ -425,7 +425,6 @@ const PERMISSION_SCANNERS = [
                 'WHERE `app_id` = ? AND ' +
                 sql_perm,
                 [
-                    actor.type.user.id,
                     actor.type.app.id,
                     ...permission_options,
                 ]
