@@ -216,7 +216,10 @@ class OpenAICompletionService extends BaseService {
     * @returns {Promise<Object>} The completion response containing message and usage info
     * @throws {Error} If messages are invalid or content is flagged by moderation
     */
-    async complete (messages, { stream, moderation, model, tools }) {
+    async complete (messages, {
+        stream, moderation, model, tools,
+        temperature, max_tokens,
+    }) {
         // Validate messages
         if ( ! Array.isArray(messages) ) {
             throw new Error('`messages` must be an array');
@@ -254,7 +257,8 @@ class OpenAICompletionService extends BaseService {
             messages: messages,
             model: model,
             ...(tools ? { tools } : {}),
-            // max_tokens,
+            ...(max_tokens ? { max_tokens } : {}),
+            ...(temperature ? { temperature } : {}),
             stream,
             ...(stream ? {
                 stream_options: { include_usage: true },
