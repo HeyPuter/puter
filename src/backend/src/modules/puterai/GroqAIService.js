@@ -97,7 +97,7 @@ class GroqAIService extends BaseService {
             * @param {boolean} [options.stream] - Whether to stream the response
             * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or completion object with usage stats
             */
-            async complete ({ messages, model, stream, tools }) {
+            async complete ({ messages, model, stream, tools, max_tokens, temperature }) {
                 model = model ?? this.get_default_model();
 
                 messages = await OpenAIUtil.process_input_messages(messages);
@@ -113,6 +113,8 @@ class GroqAIService extends BaseService {
                     model,
                     stream,
                     tools,
+                    max_completion_tokens: max_tokens, // max_tokens has been deprecated
+                    temperature
                 });
 
                 return OpenAIUtil.handle_completion_output({

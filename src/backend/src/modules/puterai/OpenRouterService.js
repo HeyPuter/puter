@@ -116,7 +116,7 @@ class OpenRouterService extends BaseService {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete ({ messages, stream, model, tools }) {
+            async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
                 model = this.adapt_model(model);
 
                 if ( model.startsWith('openrouter:') ) {
@@ -134,7 +134,8 @@ class OpenRouterService extends BaseService {
                     messages,
                     model: model ?? this.get_default_model(),
                     ...(tools ? { tools } : {}),
-                    max_tokens: 1000,
+                    max_tokens: max_tokens || 1000,
+                    temperature: temperature, // default to 1.0
                     stream,
                     ...(stream ? {
                         stream_options: { include_usage: true },

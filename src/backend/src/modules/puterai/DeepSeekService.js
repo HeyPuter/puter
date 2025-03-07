@@ -119,7 +119,7 @@ class DeepSeekService extends BaseService {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete ({ messages, stream, model, tools }) {
+            async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
                 model = this.adapt_model(model);
 
                 messages = await OpenAIUtil.process_input_messages(messages);
@@ -169,7 +169,8 @@ class DeepSeekService extends BaseService {
                     messages,
                     model: model ?? this.get_default_model(),
                     ...(tools ? { tools } : {}),
-                    max_tokens: 1000,
+                    max_tokens: max_tokens || 1000,
+                    temperature, // the default temperature is 1.0. suggested 0 for math/coding and 1.5 for creative poetry
                     stream,
                     ...(stream ? {
                         stream_options: { include_usage: true },
