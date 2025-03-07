@@ -425,16 +425,24 @@ class ThreadService extends BaseService {
                     [uid, offset, limit]
                 );
 
-                res.json(threads.map(this.client_safe_thread));
+                res.json(await Promise.all(threads.map(
+                    this.client_safe_thread.bind(this))));
             }
         }).attach(router);
     }
 
-    client_safe_thread (thread) {
+    async client_safe_thread (thread) {
+        const svc_getUser = this.services.get('get-user');
+        const user = await svc_getUser.get_user({ id: thread.owner_user_id });
+
         return {
             uid: thread.uid,
             parent: thread.parent_uid,
             text: thread.text,
+            user: {
+                username: user.username,
+                uuid: user.uuid,
+            },
         };
     }
 
