@@ -1,4 +1,8 @@
 export default class Threads {
+    constructor (context) {
+        this.authToken = context.authToken;
+        this.APIOrigin = context.APIOrigin;
+    }
     setAuthToken (authToken) {
         this.authToken = authToken;
     }
@@ -43,5 +47,9 @@ export default class Threads {
             '/threads/list/' + encodeURIComponent(uid) + '/' + page,
             options ?? {},
         );
+    }
+
+    async subscribe (uid) {
+        puter.fs.socket.emit('thread.sub-request', { uid });
     }
 }
