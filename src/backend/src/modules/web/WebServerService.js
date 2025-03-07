@@ -254,17 +254,6 @@ class WebServerService extends BaseService {
 
         const context = Context.get();
         socketio.on('connection', (socket) => {
-            /**
-            * Starts the web server and associated services.
-            *
-            * This method is responsible for starting the web server and its associated services. It first initializes the middlewares and routes for the server, then begins the server with the specified HTTP port. If the specified port is not available, it will try to find an available port within a range.
-            *
-            * @returns {Promise} A promise that resolves when the server is started.
-            */
-            // eslint-disable-next-line no-unused-vars
-            WebServerService.prototype.__on_start_webserver = async function () {
-               // ...
-            };
             socket.on('disconnect', () => {
             });
             socket.on('trash.is_empty', (msg) => {

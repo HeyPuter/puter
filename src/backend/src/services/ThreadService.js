@@ -118,7 +118,48 @@ class ThreadService extends BaseService {
                 return {};
             }
         }));
+
+        await this.init_socket_subs_();
     }
+
+    async init_socket_subs_ () {
+        this.socket_subs_ = {};
+
+        const svc_event = this.services.get('event');
+        svc_event.on('web.socket.user-connected', async (_, { socket }) => {
+            socket.on('disconnect', () => {
+                for ( const uid in this.socket_subs_ ) {
+                    this.socket_subs_[uid].delete(socket.id);
+                }
+            });
+
+            socket.on('thread.sub-request', async ({ uid }) => {
+                if ( ! this.socket_subs_[uid] ) {
+                    this.socket_subs_[uid] = new Set();
+                }
+
+                this.socket_subs_[uid].add(socket.id);
+            });
+
+            socket.on('thread.sub-cancel', async ({ uid }) => {
+                if ( this.socket_subs_[uid] ) {
+                    this.socket_subs_[uid].delete(socket.id);
+                }
+            });
+        });
+    }
+
+    async notify_subscribers (uid, action, data) {
+        if ( ! this.socket_subs_[uid] ) return;
+
+        const svc_socketio = this.services.get('socketio');
+        await svc_socketio.send(
+            Array.from(this.socket_subs_[uid]).map(socket => ({ socket })),
+            'thread.' + action,
+            data,
+        );
+    }
+
     async ['__on_install.routes'] (_, { app }) {
         const r_threads = (() => {
             const require = this.require;
@@ -210,6 +251,16 @@ class ThreadService extends BaseService {
                 }
 
                 res.json({ uid });
+
+                // Notify subscribers
+                await this.notify_subscribers(parent_uid, 'post', {
+                    uid,
+                    text,
+                    user: {
+                        username: actor.type.user.username,
+                        uuid: actor.type.user.id,
+                    },
+                });
             }
         }).attach(router);
 
@@ -247,12 +298,12 @@ class ThreadService extends BaseService {
 
                 // Get existing thread
                 const thread = await this.get_thread({ uid });
-                console.log('thread???', thread);
                 if ( !thread ) {
                     throw APIError.create('thread_not_found', null, {
                         uid,
                     });
                 }
+                const parent_uid = thread.parent_uid;
 
                 const actor = Context.get('actor');
 
@@ -276,6 +327,18 @@ class ThreadService extends BaseService {
                 );
                 
                 res.json({});
+
+                // Notify subscribers
+                await this.notify_subscribers(uid, 'edit', {
+                    uid,
+                    text,
+                });
+
+                // Notify parent subscribers
+                await this.notify_subscribers(parent_uid, 'child-edit', {
+                    uid,
+                    text,
+                });
             }
         }).attach(router);
 
@@ -324,6 +387,11 @@ class ThreadService extends BaseService {
                 );
                 
                 res.json({});
+
+                // Notify subscribers
+                await this.notify_subscribers(parent_uid, 'delete', {
+                    uid,
+                });
             }
         }).attach(router);
 
