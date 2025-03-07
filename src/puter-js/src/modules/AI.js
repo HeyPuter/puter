@@ -226,6 +226,12 @@ class AI{
         if (settings.model) {
             options.model = settings.model;
         }
+        if (settings.temperature) {
+            options.temperature = settings.temperature;
+        }
+        if (settings.max_tokens) {
+            options.max_tokens = settings.max_tokens;
+        }
 
         // convert to the correct model name if necessary
         if( options.model === 'claude-3-5-sonnet'){
