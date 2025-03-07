@@ -123,7 +123,8 @@ export class ANSIShell extends EventTarget {
             env: this.env,
             locals: {
                 pwd: this.variables.pwd,
-            }
+            },
+            shell: this,
         });
         this.ctx.externs.echo.off();
         const input = await readline(
