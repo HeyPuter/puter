@@ -26,6 +26,9 @@ export default {
         $: 'simple-parser',
         allowPositionals: true,
     },
+    input: {
+        synchLines: true,
+    },
     execute: async ctx => {
         const { positionals } = ctx.locals;
         const [ prompt ] = positionals;
@@ -103,12 +106,32 @@ export default {
 
             await ctx.externs.out.write(cleanMessage + '\n');
 
+            await ctx.externs.out.write(`Execute command: '${commandToExecute}' (y/n): `);
+
             try {
+                let line, done;
+                const next_line = async () => {
+                    ({ value: line, done } = await ctx.externs.in_.read());
+                }
+
+                await next_line();
+
+                const inputString = new TextDecoder().decode(line);
+                const response = (inputString ?? '').trim().toLowerCase();
+
+                console.log('processed response', {response});
+
+                if (!response.startsWith('y')) {
+                    await ctx.externs.out.write('\nCommand execution cancelled\n');
+                    return; 
+                }
+
+                await ctx.externs.out.write('\n');
                 await ctx.shell.runPipeline(commandToExecute);
-                await ctx.externs.out.write(`Command executed: ${commandToExecute}`);
+                await ctx.externs.out.write(`Command executed: ${commandToExecute}\n`);
             } catch (error) {
                 await ctx.externs.err.write(`Error executing command: ${error.message}\n`);
-                return;
+                return; 
             }
         } else {
             await ctx.externs.out.write(message + '\n');
