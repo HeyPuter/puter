@@ -131,6 +131,10 @@ export class ThemeService extends Service {
       '--primary-color-icon',
       s.light_text ? 'invert(1)' : 'invert(0)'
     );
+    this.root.style.setProperty(
+      '--primary-color-sidebar-item',
+      s.light_text ? '#5a5d61aa' : '#fefeff'
+    );
 
     // TODO: Should we debounce this to reduce traffic?
     this.#broadcastService.sendBroadcast(
