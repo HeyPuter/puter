@@ -1,78 +1,82 @@
 # /!\ NOTICE /!\
+# Many developers do not use this Dockerfile or its image.
+# While we test Docker configuration changes, future repository updates
+# may break it. When modifying this file, aim for resilience against
+# such changes. Developers should only need to address Docker if the
+# build/run process itself changes.
 
-# Many of the developers DO NOT USE the Dockerfile or image.
-# While we do test new changes to Docker configuration, it's
-# possible that future changes to the repo might break it.
-# When changing this file, please try to make it as resiliant
-# to such changes as possible; developers shouldn't need to
-# worry about Docker unless the build/run process changes.
-
-# Build stage
+# --- Build Stage ---
 FROM node:22-alpine AS build
 
 # Install build dependencies
-RUN apk add --no-cache git python3 make g++ \
-    && ln -sf /usr/bin/python3 /usr/bin/python
+RUN apk add --no-cache \
+    git \
+    python3 \
+    make \
+    g++ \
+  && ln -sf /usr/bin/python3 /usr/bin/python
 
-# Set up working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json
-COPY package*.json ./
+# Copy dependency manifests first (optimization for caching)
+COPY package.json package-lock.json ./
 
-# Copy the source files
-COPY . .
-
-# Install mocha
+# Install global testing tool
 RUN npm install -g mocha
 
-# Install node modules
-RUN npm cache clean --force && \
-    for i in 1 2 3; do \
-        npm ci && break || \
-        if [ $i -lt 3 ]; then \
-            sleep 15; \
-        else \
-            exit 1; \
-        fi; \
-    done
+# Install project dependencies with retry logic
+RUN npm cache clean --force \
+  && for attempt in 1 2 3; do \
+       npm ci && break || \
+       if [ "$attempt" -lt 3 ]; then \
+         echo "Install failed, retrying in 15s..." && sleep 15; \
+       else \
+         echo "Failed to install dependencies after 3 attempts" && exit 1; \
+       fi; \
+     done
 
-# Run the build command if necessary
-RUN cd src/gui && npm run build && cd -
-
-# Production stage
-FROM node:22-alpine
-
-# Set labels
-LABEL repo="https://github.com/HeyPuter/puter"
-LABEL license="AGPL-3.0,https://github.com/HeyPuter/puter/blob/master/LICENSE.txt"
-LABEL version="1.2.46-beta-1"
-
-# Install git (required by Puter to check version)
-RUN apk add --no-cache git
-
-# Set up working directory
-RUN mkdir -p /opt/puter/app
-WORKDIR /opt/puter/app
-
-# Copy built artifacts and necessary files from the build stage
-COPY --from=build /app/src/gui/dist ./dist
-COPY --from=build /app/node_modules ./node_modules
+# Copy remaining source files
 COPY . .
 
-# Set permissions
+# Build the GUI (if required)
+RUN cd src/gui && npm run build && cd -
+
+# --- Production Stage ---
+FROM node:22-alpine
+
+# Metadata labels
+LABEL repo="https://github.com/HeyPuter/puter" \
+      license="AGPL-3.0,https://github.com/HeyPuter/puter/blob/master/LICENSE.txt" \
+      version="1.2.46-beta-1"
+
+# Install runtime dependencies
+RUN apk add --no-cache git
+
+# Set up application directory
+WORKDIR /opt/puter/app
+RUN mkdir -p /opt/puter/app
+
+# Copy artifacts from build stage
+COPY --from=build /app/src/gui/dist ./dist
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app ./
+
+# Set ownership for security
 RUN chown -R node:node /opt/puter/app
 USER node
 
+# Expose application port
 EXPOSE 4100
 
+# Healthcheck for container monitoring
 HEALTHCHECK --interval=30s --timeout=3s \
-    CMD wget --no-verbose --tries=1 --spider http://puter.localhost:4100/test || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://puter.localhost:4100/test || exit 1
 
-ENV NO_VAR_RUNTUME=1
+# Environment variables
+ENV NO_VAR_RUNTIME=1
 
-# Attempt to fix `lru-cache@11.0.2` missing after build stage
-# by doing a redundant `npm install` at this stage
+# Workaround for potential `lru-cache@11.0.2` issue
 RUN npm install
 
+# Start the application
 CMD ["npm", "start"]
