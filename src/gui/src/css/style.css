@@ -89,6 +89,8 @@ pre {
     --primary-lightness: 93.33%;
     --primary-alpha: 0.8;
     --primary-color: #373e44;
+    --primary-color-icon: invert(0);
+    --primary-color-sidebar-item: #fefeff;
 
     --window-head-hue: var(--primary-hue);
     --window-head-saturation: var(--primary-saturation);
@@ -1235,7 +1237,7 @@ span.header-sort-icon img {
 }
 
 .window-sidebar-item:hover, .window-sidebar-item.has-open-contextmenu {
-    background-color: rgba(243, 243, 243, 0.8);
+    background-color: #5a5d6155;
     cursor: pointer;
 }
 
@@ -1244,7 +1246,7 @@ span.header-sort-icon img {
     margin-top: 2px;
     padding: 4px;
     border-radius: 3px;
-    color: #444444;
+    color: var(--primary-color);
     font-size: 13px;
     cursor: pointer;
     transition: 0.15s background-color;
@@ -1256,7 +1258,7 @@ span.header-sort-icon img {
 }
 
 .window-sidebar-item-active, .window-sidebar-item-drag-active, .window-sidebar-item-active:hover {
-    background-color: #fefeff;
+    background-color: var(--primary-color-sidebar-item);
 }
 
 .window-sidebar-item-placeholder {
@@ -1404,6 +1406,7 @@ span.header-sort-icon img {
     -moz-user-select: none;
     -webkit-user-select: none;
     -ms-user-select: none;
+    filter: var(--primary-color-icon);
 }
 
 .window-action-btn:hover>img {
