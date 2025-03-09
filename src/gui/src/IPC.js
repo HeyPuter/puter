@@ -1082,6 +1082,7 @@ const ipc_listener = async (event, handled) => {
             origin: event.origin,
             permission: event.data.options.permission,
             window_options: event.data.options.window_options,
+            app_uid: app_uuid,
         });
 
         // send selected font to requester window
