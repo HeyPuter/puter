@@ -25,11 +25,8 @@ const { get_user } = require("../../helpers");
 const { USERNAME } = require("../../constants");
 
 /**
- * Service for Puter's setup wizard.
- * This service provides endpoints to configure Puter when first installed.
- * It handles subdomain behavior, domain configuration, and admin user password setting.
- *
- * This service self-registers in the system initialization via boot hook.
+ * Setup wizard service for initial Puter configuration
+ * Self-registers via boot hook
  */
 class SetupService extends BaseService {
   static register(services) {
@@ -39,15 +36,12 @@ class SetupService extends BaseService {
 
   async _init() {
     this.log.info("Initializing Setup Wizard Service");
-
-    // Check if setup is completed
     this.setupCompleted = await this.isSetupCompleted();
 
-    // If setup isn't completed, intercept all web requests to show setup wizard
     if (!this.setupCompleted) {
-      this.log.info("Setup not completed, setup wizard will be displayed");
+      this.log.info("Setup not completed, wizard will be displayed");
     } else {
-      this.log.info("Setup already completed, skipping setup wizard");
+      this.log.info("Setup already completed, skipping wizard");
     }
   }
 

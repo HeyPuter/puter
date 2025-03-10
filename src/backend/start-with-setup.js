@@ -17,15 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-/**
- * Setup Wizard Initialization Script
- *
- * This script initializes the setup wizard by injecting it into the service registry
- * before the normal application startup process begins.
- */
-
-// First require our initialization script to register our setup wizard
+// Setup wizard bootstrap
 require("./src/init-setup-wizard");
-
-// Then start the application normally
 require("./src/start");

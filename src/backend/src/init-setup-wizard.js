@@ -22,7 +22,7 @@
  * It uses a self-initializing mechanism through a service event.
  */
 
-// Import the SetupService
+// Setup wizard initializer
 require("./modules/selfhosted/SetupService");
 
 // Export an empty object since this file is mainly for side effects

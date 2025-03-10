@@ -17,10 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// System-wide constants
+// System constants
 module.exports = {
-  // Default admin username
   USERNAME: "admin",
-
-  // Add other constants as needed here
 };
