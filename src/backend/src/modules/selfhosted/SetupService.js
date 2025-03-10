@@ -1723,7 +1723,10 @@ class SetupService extends BaseService {
             <div class="container">
                 <div class="card">
                     <div class="card-header">
-                        <h1>Reset Puter Setup</h1>
+                        <div class="logo">
+                            <img src="/assets/img/logo.svg" alt="Puter Logo">
+                        </div>
+                        <h1>Reset Instructions</h1>
                         <p class="description">Follow these steps to reset your Puter instance.</p>
                     </div>
                     
