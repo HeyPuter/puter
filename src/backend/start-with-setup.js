@@ -19,4 +19,4 @@
 
 // Setup wizard bootstrap
 require("./src/init-setup-wizard");
-require("./src/start");
+require("./start");
