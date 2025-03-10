@@ -18,10 +18,9 @@
  */
 
 const BaseService = require("../../services/BaseService");
-const fs = require("fs");
-const fsPromises = fs.promises;
-const path = require("path");
 const { Endpoint } = require("../../util/expressutil");
+const fs = require("fs").promises;
+const path = require("path");
 const { get_user } = require("../../helpers");
 const { USERNAME } = require("../../constants");
 
@@ -66,7 +65,7 @@ class SetupService extends BaseService {
   async isSetupCompleted() {
     try {
       const configPath = path.join(process.cwd(), "config", "setup-completed");
-      await fsPromises.access(configPath);
+      await fs.access(configPath);
       return true;
     } catch (error) {
       // File doesn't exist, setup not completed
@@ -84,7 +83,7 @@ class SetupService extends BaseService {
 
       // Create config directory if it doesn't exist
       try {
-        await fsPromises.mkdir(configDir, { recursive: true });
+        await fs.mkdir(configDir, { recursive: true });
         this.safeLog("info", "Config directory created or already exists");
       } catch (err) {
         this.safeLog("error", "Error creating config directory", err);
@@ -99,7 +98,7 @@ class SetupService extends BaseService {
       );
 
       try {
-        await fsPromises.writeFile(
+        await fs.writeFile(
           setupCompletedPath,
           new Date().toISOString(),
           "utf8"
@@ -151,7 +150,7 @@ class SetupService extends BaseService {
       setupToken = fs.readFileSync(tokenPath, "utf8").trim();
       safeLog("info", "Using existing setup token");
     } catch (error) {
-      // Token doesn't exist, so generate a new one
+      // Generate a new token if it doesn't exist
       setupToken = crypto.randomBytes(32).toString("hex");
       try {
         // Ensure config directory exists
@@ -164,6 +163,8 @@ class SetupService extends BaseService {
         safeLog("info", "Generated new setup token");
       } catch (err) {
         safeLog("error", "Failed to save setup token", err);
+        // Continue without token protection if we can't save it
+        setupToken = null;
       }
     }
 
@@ -229,52 +230,83 @@ class SetupService extends BaseService {
       methods: ["POST"],
       handler: async (req, res) => {
         try {
-          // Verify admin password for security
-          const { password } = req.body;
-          if (!password) {
-            return res.status(400).json({
-              success: false,
-              error: "Admin password is required",
-            });
-          }
-
-          // Verify the admin password
-          const adminUser = await get_user({
-            username: "admin",
+          // Require authentication for reset
+          const adminUsername = "admin";
+          const user = await get_user({
+            username: adminUsername,
             cached: false,
           });
-          if (!adminUser) {
-            return res.status(404).json({
-              success: false,
-              error: "Admin user not found",
-            });
+
+          // Verify password if provided
+          if (req.body && req.body.adminPassword) {
+            const bcrypt = require("bcrypt");
+            const isValidPassword = await bcrypt.compare(
+              req.body.adminPassword,
+              user.password
+            );
+
+            if (!isValidPassword) {
+              return res.status(401).json({
+                success: false,
+                message: "Invalid admin password",
+              });
+            }
+          } else {
+            // If no password provided, require token
+            const providedToken =
+              req.query.token || req.headers["x-setup-token"];
+            if (!providedToken || providedToken !== setupToken) {
+              return res.status(401).json({
+                success: false,
+                message: "Unauthorized. Provide admin password or setup token.",
+              });
+            }
           }
 
-          const bcrypt = require("bcrypt");
-          const passwordCorrect = await bcrypt.compare(
-            password,
-            adminUser.password
-          );
-          if (!passwordCorrect) {
-            return res.status(401).json({
-              success: false,
-              error: "Invalid admin password",
-            });
+          // Reset the setup-completed marker
+          const configDir = path.join(process.cwd(), "config");
+          const setupCompletedPath = path.join(configDir, "setup-completed");
+
+          try {
+            await fs.unlink(setupCompletedPath);
+            this.log.info(
+              "Removed setup-completed marker for configuration reset"
+            );
+          } catch (err) {
+            // File might not exist, which is fine
+            this.log.info(
+              "No setup-completed marker found, continuing with reset"
+            );
           }
 
-          // Reset the configuration
-          await this.resetConfiguration();
+          // Reset the internal state
+          this.setupCompleted = false;
 
-          return res.json({
+          // Generate new setup token
+          const crypto = require("crypto");
+          setupToken = crypto.randomBytes(32).toString("hex");
+
+          try {
+            const tokenPath = path.join(configDir, "setup-token");
+            await fs.writeFile(tokenPath, setupToken, "utf8");
+            this.log.info("Generated new setup token for configuration reset");
+          } catch (err) {
+            this.log.error("Failed to save new setup token", err);
+          }
+
+          // Success response with new token
+          res.json({
             success: true,
             message:
-              "Setup configuration has been reset. Please restart the application or refresh the page to access the setup wizard.",
+              "Configuration reset. Setup wizard will be displayed on next visit.",
+            setupToken: setupToken,
           });
         } catch (error) {
-          this.safeLog("error", "Error in reset endpoint", error);
-          return res.status(500).json({
+          this.log.error("Failed to reset configuration", error);
+          res.status(500).json({
             success: false,
-            error: "Failed to reset configuration: " + error.message,
+            message: "Failed to reset configuration",
+            error: error.message,
           });
         }
       },
@@ -341,7 +373,7 @@ class SetupService extends BaseService {
           // Remove setup token after successful setup
           if (setupToken) {
             try {
-              await fsPromises.unlink(tokenPath);
+              fs.unlinkSync(tokenPath);
               safeLog("info", "Removed setup token after successful setup");
             } catch (err) {
               safeLog("error", "Failed to remove setup token", err);
@@ -396,14 +428,14 @@ class SetupService extends BaseService {
       // Save configuration to a file
       const configDir = path.join(process.cwd(), "config");
       try {
-        await fsPromises.mkdir(configDir, { recursive: true });
+        await fs.mkdir(configDir, { recursive: true });
       } catch (err) {
         // Directory might already exist
       }
 
       // Write the configuration to a JSON file
       const configPath = path.join(configDir, "wizard-config.json");
-      await fsPromises.writeFile(
+      await fs.writeFile(
         configPath,
         JSON.stringify(newConfig, null, 2),
         "utf8"
@@ -453,237 +485,55 @@ class SetupService extends BaseService {
     }
   }
 
-  // Update admin user password - improved implementation
+  // Update admin user password using a direct database approach
   async updateAdminPassword(password) {
     try {
       const adminUsername = "admin";
-      this.safeLog(
-        "info",
-        `Finding admin user with username: ${adminUsername}`
-      );
-
-      // Get the admin user
       const user = await get_user({ username: adminUsername, cached: false });
 
       if (!user) {
-        throw new Error(`Admin user '${adminUsername}' not found`);
+        throw new Error("Admin user not found");
       }
 
-      this.safeLog("info", `Found admin user with ID: ${user.id}`);
-
-      // Hash the password with bcrypt
+      // Use bcrypt to hash the password
       const bcrypt = require("bcrypt");
-      const saltRounds = 10;
-      const passwordHash = await bcrypt.hash(password, saltRounds);
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(password, salt);
 
-      this.safeLog("info", "Generated password hash, updating database...");
+      // Find a suitable database service
+      const dbService = await this.findDatabaseService();
 
-      // Get database access
+      // Log what we're doing
+      this.safeLog("info", `Updating password for user ID: ${user.id}`);
+
+      // Direct SQL update to the users table
       try {
-        // First try to find a database service
-        const dbService = await this.findDatabaseService();
-
-        // Try multiple approaches to update the password
-        let updated = false;
-
-        // 1. Try using the user service if available
-        try {
-          const userService = this.services.get("user");
-          if (userService) {
-            // Check for various password update methods
-            if (typeof userService.update_password === "function") {
-              await userService.update_password(user.id, password);
-              updated = true;
-              this.safeLog(
-                "info",
-                "Password updated using userService.update_password"
-              );
-            } else if (typeof userService.change_password === "function") {
-              await userService.change_password(user.id, password);
-              updated = true;
-              this.safeLog(
-                "info",
-                "Password updated using userService.change_password"
-              );
-            } else if (typeof userService.updatePassword === "function") {
-              await userService.updatePassword(user.id, password);
-              updated = true;
-              this.safeLog(
-                "info",
-                "Password updated using userService.updatePassword"
-              );
-            } else if (typeof userService.setUserPassword === "function") {
-              await userService.setUserPassword(user.id, password);
-              updated = true;
-              this.safeLog(
-                "info",
-                "Password updated using userService.setUserPassword"
-              );
-            }
-          }
-        } catch (userServiceError) {
-          this.safeLog(
-            "warn",
-            "Failed to update password through user service, falling back to direct DB update",
-            userServiceError
-          );
+        // Using Knex if available
+        if (dbService.knex) {
+          await dbService
+            .knex("users")
+            .where("id", user.id)
+            .update({ password: passwordHash });
         }
-
-        // 2. If user service didn't work, use direct database access
-        if (!updated && dbService) {
-          if (dbService.knex) {
-            // Using Knex
-            const affectedRows = await dbService
-              .knex("users")
-              .where("id", user.id)
-              .update({ password: passwordHash });
-
-            if (affectedRows > 0) {
-              updated = true;
-              this.safeLog(
-                "info",
-                `Password updated using Knex, affected rows: ${affectedRows}`
-              );
-            }
-          } else if (dbService.query) {
-            // Using raw query
-            const result = await dbService.query(
-              "UPDATE users SET password = ? WHERE id = ?",
-              [passwordHash, user.id]
-            );
-
-            if (result && (result.affectedRows > 0 || result.changes > 0)) {
-              updated = true;
-              this.safeLog(
-                "info",
-                `Password updated using raw query, result:`,
-                result
-              );
-            }
-          }
-        }
-
-        // 3. Fallback to finding the SQLite database file directly
-        if (!updated) {
-          const path = require("path");
-          const fs = require("fs");
-          const { Database } = require("better-sqlite3");
-
-          // Try to locate the database file
-          const possiblePaths = [
-            path.join(process.cwd(), "volatile", "runtime", "puter.db"),
-            path.join(process.cwd(), "runtime", "puter.db"),
-            path.join(process.cwd(), "db", "puter.db"),
-            "/var/puter/runtime/puter.db",
-          ];
-
-          for (const dbPath of possiblePaths) {
-            try {
-              if (fs.existsSync(dbPath)) {
-                const db = new Database(dbPath);
-                const stmt = db.prepare(
-                  "UPDATE users SET password = ? WHERE id = ?"
-                );
-                const updateResult = stmt.run(passwordHash, user.id);
-
-                if (updateResult.changes > 0) {
-                  updated = true;
-                  this.safeLog(
-                    "info",
-                    `Password updated using direct SQLite access, changes: ${updateResult.changes}`
-                  );
-                  break;
-                }
-              }
-            } catch (directDbError) {
-              this.safeLog(
-                "error",
-                `Failed to update password using direct access to ${dbPath}`,
-                directDbError
-              );
-            }
-          }
-        }
-
-        // 4. Verify the password was updated
-        if (updated) {
-          // Fetch the user again to verify the password change
-          const updatedUser = await get_user({
-            username: adminUsername,
-            cached: false,
-          });
-
-          // Use bcrypt to compare the new password with the hash
-          if (updatedUser && updatedUser.password) {
-            const isPasswordCorrect = await bcrypt.compare(
-              password,
-              updatedUser.password
-            );
-
-            if (isPasswordCorrect) {
-              this.safeLog(
-                "info",
-                "Verified password was successfully updated"
-              );
-              await this.markPasswordSetByWizard();
-              return true;
-            } else {
-              this.safeLog(
-                "warn",
-                "Password update was reported successful but verification failed"
-              );
-              throw new Error("Password update could not be verified");
-            }
-          }
+        // Using raw query as fallback
+        else if (dbService.query) {
+          await dbService.query("UPDATE users SET password = ? WHERE id = ?", [
+            passwordHash,
+            user.id,
+          ]);
         } else {
-          throw new Error("No method succeeded in updating the password");
+          throw new Error("No suitable database access method found");
         }
 
-        return updated;
+        this.safeLog("info", "Admin password updated successfully");
+        return true;
       } catch (dbError) {
-        this.safeLog("error", "Database error during password update", dbError);
+        this.safeLog("error", "Database error updating password", dbError);
         throw new Error(`Database error: ${dbError.message}`);
       }
     } catch (error) {
       this.safeLog("error", "Failed to update admin password", error);
       throw error;
-    }
-  }
-
-  async isPasswordSetByWizard() {
-    try {
-      const configDir = path.join(process.cwd(), "volatile", "config");
-      const passwordFlagPath = path.join(configDir, "setup-password-set");
-
-      // Check if the flag file exists
-      return fs.existsSync(passwordFlagPath);
-    } catch (error) {
-      this.safeLog(
-        "error",
-        "Error checking if password was set by wizard",
-        error
-      );
-      return false;
-    }
-  }
-
-  async markPasswordSetByWizard() {
-    try {
-      const configDir = path.join(process.cwd(), "volatile", "config");
-      const passwordFlagPath = path.join(configDir, "setup-password-set");
-
-      // Make sure the config directory exists
-      if (!fs.existsSync(configDir)) {
-        fs.mkdirSync(configDir, { recursive: true });
-      }
-
-      // Create the flag file
-      fs.writeFileSync(passwordFlagPath, new Date().toISOString());
-      this.safeLog("info", "Marked password as set by setup wizard");
-      return true;
-    } catch (error) {
-      this.safeLog("error", "Error marking password as set by wizard", error);
-      return false;
     }
   }
 
@@ -2019,70 +1869,6 @@ class SetupService extends BaseService {
     }
 
     return config;
-  }
-
-  /**
-   * Reset the setup configuration
-   * This removes the setup-completed file and generates a new setup token
-   */
-  async resetConfiguration() {
-    try {
-      const configDir = path.join(process.cwd(), "config");
-      const setupCompletedPath = path.join(configDir, "setup-completed");
-      const passwordFlagPath = path.join(configDir, "setup-password-set");
-      const volatileConfigDir = path.join(process.cwd(), "volatile", "config");
-      const volatilePasswordFlagPath = path.join(
-        volatileConfigDir,
-        "setup-password-set"
-      );
-
-      // Remove the setup-completed file
-      try {
-        await fsPromises.unlink(setupCompletedPath);
-        this.log.info("Removed setup-completed marker for configuration reset");
-      } catch (err) {
-        this.log.warn("Failed to remove setup-completed file", err);
-      }
-
-      // Remove the password set flag if it exists
-      try {
-        if (fs.existsSync(passwordFlagPath)) {
-          await fsPromises.unlink(passwordFlagPath);
-          this.log.info("Removed password-set flag for configuration reset");
-        }
-      } catch (err) {
-        this.log.warn("Failed to remove password-set flag", err);
-      }
-
-      // Also check the volatile config location
-      try {
-        if (fs.existsSync(volatilePasswordFlagPath)) {
-          await fsPromises.unlink(volatilePasswordFlagPath);
-          this.log.info(
-            "Removed volatile password-set flag for configuration reset"
-          );
-        }
-      } catch (err) {
-        this.log.warn("Failed to remove volatile password-set flag", err);
-      }
-
-      // Generate a new setup token
-      const crypto = require("crypto");
-      const setupToken = crypto.randomBytes(32).toString("hex");
-
-      try {
-        const tokenPath = path.join(configDir, "setup-token");
-        await fsPromises.writeFile(tokenPath, setupToken, "utf8");
-        this.log.info("Generated new setup token for configuration reset");
-      } catch (err) {
-        this.log.error("Failed to generate new setup token", err);
-      }
-
-      return true;
-    } catch (error) {
-      this.log.error("Failed to reset configuration", error);
-      throw error;
-    }
   }
 }
 

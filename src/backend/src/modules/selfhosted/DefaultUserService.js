@@ -83,13 +83,6 @@ class DefaultUserService extends BaseService {
     let user = await get_user({ username: USERNAME, cached: false });
     if (!user) user = await this.create_default_user_();
 
-    // Check if password was set by the setup wizard
-    const setup_service = this.services.get("setup");
-    if (setup_service && (await setup_service.isPasswordSetByWizard())) {
-      // Password was set by the setup wizard, so don't show the default password message
-      return;
-    }
-
     // check if user named `admin` is using default password
     const require = this.require;
     const tmp_password = await this.get_tmp_password_(user);
