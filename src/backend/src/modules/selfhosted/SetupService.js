@@ -249,195 +249,403 @@ class SetupService extends BaseService {
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Puter Setup Wizard</title>
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
             <style>
-                body {
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                    background-color: #f5f7fa;
+                :root {
+                    --background: #ffffff;
+                    --foreground: #09090b;
+                    
+                    --card: #ffffff;
+                    --card-foreground: #09090b;
+                    
+                    --popover: #ffffff;
+                    --popover-foreground: #09090b;
+                    
+                    --primary: #18181b;
+                    --primary-foreground: #f8fafc;
+                    
+                    --secondary: #f1f5f9;
+                    --secondary-foreground: #0f172a;
+                    
+                    --muted: #f1f5f9;
+                    --muted-foreground: #64748b;
+                    
+                    --accent: #f1f5f9;
+                    --accent-foreground: #0f172a;
+                    
+                    --destructive: #ef4444;
+                    --destructive-foreground: #f8fafc;
+                    
+                    --border: #e2e8f0;
+                    --input: #e2e8f0;
+                    --ring: #0f172a;
+                    
+                    --radius: 0.5rem;
+                }
+                
+                * {
                     margin: 0;
                     padding: 0;
-                    color: #333;
+                    box-sizing: border-box;
                 }
+                
+                body {
+                    font-family: 'Inter', sans-serif;
+                    background-color: #f9fafb;
+                    color: var(--foreground);
+                    line-height: 1.5;
+                }
+                
                 .container {
-                    max-width: 800px;
-                    margin: 50px auto;
-                    padding: 30px;
-                    background-color: white;
-                    border-radius: 10px;
-                    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+                    max-width: 550px;
+                    margin: 2rem auto;
+                    padding: 1.5rem;
                 }
-                h1 {
+                
+                .card {
+                    background-color: var(--card);
+                    border-radius: var(--radius);
+                    box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.08);
+                    overflow: hidden;
+                }
+                
+                .card-header {
+                    padding: 1.5rem;
+                    border-bottom: 1px solid var(--border);
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
                     text-align: center;
-                    color: #2563eb;
-                    margin-bottom: 30px;
                 }
+                
+                .logo {
+                    display: flex;
+                    justify-content: center;
+                    margin-bottom: 1rem;
+                }
+                
+                .logo img {
+                    height: 40px;
+                }
+                
+                h1 {
+                    font-size: 1.5rem;
+                    font-weight: 600;
+                    color: var(--foreground);
+                    margin-bottom: 0.5rem;
+                }
+                
+                .description {
+                    font-size: 0.875rem;
+                    color: var(--muted-foreground);
+                    max-width: 500px;
+                    margin: 0 auto;
+                }
+                
+                .card-content {
+                    padding: 1.5rem;
+                }
+                
                 .setup-form {
                     display: flex;
                     flex-direction: column;
-                    gap: 20px;
+                    gap: 1.5rem;
                 }
-                .form-section {
-                    border: 1px solid #e5e7eb;
-                    padding: 20px;
-                    border-radius: 8px;
-                    background-color: #f9fafb;
-                }
-                .form-section h2 {
-                    margin-top: 0;
-                    font-size: 1.2rem;
-                    color: #4b5563;
-                }
+                
                 .form-group {
-                    margin-bottom: 15px;
-                }
-                label {
-                    display: block;
-                    margin-bottom: 8px;
-                    font-weight: 500;
-                }
-                input[type="text"],
-                input[type="password"] {
-                    width: 100%;
-                    padding: 10px;
-                    border: 1px solid #d1d5db;
-                    border-radius: 5px;
-                    font-size: 16px;
-                }
-                .radio-group {
                     display: flex;
-                    gap: 15px;
-                    margin-top: 10px;
+                    flex-direction: column;
+                    gap: 0.75rem;
                 }
-                .radio-option {
+                
+                .form-group h2 {
+                    font-size: 0.875rem;
+                    font-weight: 600;
+                    color: var(--foreground);
+                }
+                
+                .label {
+                    font-size: 0.875rem;
+                    font-weight: 500;
+                    color: var(--foreground);
+                }
+                
+                .input {
+                    display: flex;
+                    height: 2.5rem;
+                    width: 100%;
+                    border-radius: var(--radius);
+                    border: 1px solid var(--input);
+                    background-color: transparent;
+                    padding: 0.5rem 0.75rem;
+                    font-size: 0.875rem;
+                    transition: border 0.2s ease;
+                }
+                
+                .input:focus {
+                    outline: none;
+                    border-color: var(--ring);
+                    box-shadow: 0 0 0 1px var(--ring);
+                }
+                
+                .radio-group {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 0.5rem;
+                }
+                
+                .radio-item {
                     display: flex;
                     align-items: center;
-                    gap: 5px;
-                }
-                .warning {
-                    background-color: #fff7ed;
-                    border-left: 4px solid #f97316;
-                    padding: 10px;
-                    margin-top: 10px;
-                    font-size: 14px;
-                    color: #9a3412;
-                }
-                button {
-                    background-color: #2563eb;
-                    color: white;
-                    border: none;
-                    padding: 12px 20px;
-                    border-radius: 5px;
-                    font-size: 16px;
+                    gap: 0.5rem;
+                    padding: 0.5rem;
+                    border-radius: var(--radius);
+                    border: 1px solid var(--border);
                     cursor: pointer;
-                    margin-top: 20px;
-                    transition: background-color 0.2s;
+                    transition: all 0.2s ease;
                 }
-                button:hover {
-                    background-color: #1d4ed8;
+                
+                .radio-item:hover {
+                    background-color: var(--accent);
                 }
-                .conditional {
-                    margin-top: 15px;
-                    padding-left: 25px;
+                
+                .radio-item.checked {
+                    border-color: var(--primary);
+                    background-color: var(--accent);
                 }
-                #setup-feedback {
-                    margin-top: 20px;
-                    padding: 15px;
-                    border-radius: 5px;
+                
+                .radio-item input {
                     display: none;
                 }
+                
+                .radio-item .radio-button {
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 50%;
+                    border: 1px solid var(--muted-foreground);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                
+                .radio-item.checked .radio-button {
+                    border-color: var(--primary);
+                }
+                
+                .radio-item.checked .radio-button::after {
+                    content: "";
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 50%;
+                    background-color: var(--primary);
+                }
+                
+                .radio-item .radio-label {
+                    font-size: 0.875rem;
+                    font-weight: 500;
+                }
+                
+                .alert {
+                    border-radius: var(--radius);
+                    padding: 0.75rem;
+                    font-size: 0.875rem;
+                    margin-top: 0.75rem;
+                    display: flex;
+                    gap: 0.5rem;
+                    align-items: flex-start;
+                }
+                
+                .alert-warning {
+                    background-color: #fff7ed;
+                    border: 1px solid #ffedd5;
+                    color: #c2410c;
+                }
+                
+                .alert-icon {
+                    flex-shrink: 0;
+                    margin-top: 0.125rem;
+                }
+                
+                .conditional {
+                    margin-top: 0.75rem;
+                }
+                
+                .button {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    border-radius: var(--radius);
+                    font-size: 0.875rem;
+                    font-weight: 500;
+                    height: 2.5rem;
+                    padding-left: 1rem;
+                    padding-right: 1rem;
+                    transition: all 0.2s ease;
+                    cursor: pointer;
+                }
+                
+                .button-primary {
+                    background-color: var(--primary);
+                    color: var(--primary-foreground);
+                    border: none;
+                }
+                
+                .button-primary:hover {
+                    opacity: 0.9;
+                }
+                
+                .button-primary:active {
+                    opacity: 0.8;
+                }
+                
+                #setup-feedback {
+                    margin-top: 1rem;
+                    padding: 0.75rem;
+                    border-radius: var(--radius);
+                    font-size: 0.875rem;
+                    display: none;
+                }
+                
                 .success {
                     background-color: #ecfdf5;
-                    color: #065f46;
                     border: 1px solid #a7f3d0;
+                    color: #065f46;
                 }
+                
                 .error {
                     background-color: #fef2f2;
-                    color: #b91c1c;
                     border: 1px solid #fecaca;
+                    color: #b91c1c;
                 }
-                .logo {
-                    text-align: center;
-                    margin-bottom: 20px;
-                }
-                .logo img {
-                    height: 80px;
+                
+                .divider {
+                    height: 1px;
+                    width: 100%;
+                    background-color: var(--border);
+                    margin: 1.5rem 0;
                 }
             </style>
         </head>
         <body>
             <div class="container">
-                <div class="logo">
-                    <img src="/assets/img/logo.svg" alt="Puter Logo">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="logo">
+                            <img src="/assets/img/logo.svg" alt="Puter Logo">
+                        </div>
+                        <h1>Welcome to Puter</h1>
+                        <p class="description">Complete this setup wizard to configure your Puter instance</p>
+                    </div>
+                    
+                    <div class="card-content">
+                        <form id="setup-form" class="setup-form">
+                            <div class="form-group">
+                                <h2>Subdomain Configuration</h2>
+                                <div class="radio-group" id="subdomain-radio-group">
+                                    <label class="radio-item checked" data-value="enabled">
+                                        <input type="radio" name="subdomainBehavior" value="enabled" checked>
+                                        <span class="radio-button"></span>
+                                        <span class="radio-label">Enabled (Recommended)</span>
+                                    </label>
+                                    <label class="radio-item" data-value="disabled">
+                                        <input type="radio" name="subdomainBehavior" value="disabled">
+                                        <span class="radio-button"></span>
+                                        <span class="radio-label">Disabled</span>
+                                    </label>
+                                </div>
+                                
+                                <div id="subdomain-warning" class="alert alert-warning" style="display: none;">
+                                    <span class="alert-icon">⚠️</span>
+                                    <span>Disabling subdomains makes your deployment less secure. Only use this option if your hosting does not support subdomains.</span>
+                                </div>
+                            </div>
+                            
+                            <div class="divider"></div>
+                            
+                            <div class="form-group">
+                                <h2>Domain Configuration</h2>
+                                <div class="radio-group" id="domain-radio-group">
+                                    <label class="radio-item checked" data-value="domain">
+                                        <input type="radio" name="domainType" value="domain" checked>
+                                        <span class="radio-button"></span>
+                                        <span class="radio-label">Custom Domain</span>
+                                    </label>
+                                    <label class="radio-item" data-value="nipio">
+                                        <input type="radio" name="domainType" value="nipio">
+                                        <span class="radio-button"></span>
+                                        <span class="radio-label">Use nip.io (IP-based)</span>
+                                    </label>
+                                </div>
+                                
+                                <div id="domain-input" class="conditional">
+                                    <label class="label" for="domainName">Domain Name</label>
+                                    <input type="text" id="domainName" name="domainName" class="input" placeholder="e.g., yourdomain.com">
+                                </div>
+                                
+                                <div id="nipio-info" class="conditional" style="display: none;">
+                                    <div class="alert alert-warning">
+                                        <span class="alert-icon">ℹ️</span>
+                                        <span>Using nip.io will create a domain based on your server's IP address. Your Puter instance will be accessible at: <strong id="nipio-domain">--.--.--.---.nip.io</strong></span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="divider"></div>
+                            
+                            <div class="form-group">
+                                <h2>Admin User Password</h2>
+                                <div>
+                                    <label class="label" for="adminPassword">Password</label>
+                                    <input type="password" id="adminPassword" name="adminPassword" class="input" placeholder="Enter a secure password">
+                                </div>
+                                <div>
+                                    <label class="label" for="confirmPassword">Confirm Password</label>
+                                    <input type="password" id="confirmPassword" name="confirmPassword" class="input" placeholder="Confirm your password">
+                                </div>
+                            </div>
+                            
+                            <div class="divider"></div>
+                            
+                            <button type="submit" id="submit-btn" class="button button-primary">Complete Setup</button>
+                            
+                            <div id="setup-feedback"></div>
+                        </form>
+                    </div>
                 </div>
-                <h1>Welcome to Puter</h1>
-                <p>This setup wizard will help you configure your Puter instance. These settings can be modified later by editing your configuration files.</p>
-                
-                <form id="setup-form" class="setup-form">
-                    <div class="form-section">
-                        <h2>Subdomain Configuration</h2>
-                        <div class="form-group">
-                            <label>Subdomain Behavior:</label>
-                            <div class="radio-group">
-                                <div class="radio-option">
-                                    <input type="radio" id="subdomain-enabled" name="subdomainBehavior" value="enabled" checked>
-                                    <label for="subdomain-enabled">Enabled (Recommended)</label>
-                                </div>
-                                <div class="radio-option">
-                                    <input type="radio" id="subdomain-disabled" name="subdomainBehavior" value="disabled">
-                                    <label for="subdomain-disabled">Disabled</label>
-                                </div>
-                            </div>
-                            <div id="subdomain-warning" class="warning" style="display: none;">
-                                Warning: Disabling subdomains makes your deployment less secure. Only use this option if your hosting does not support subdomains.
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="form-section">
-                        <h2>Domain Configuration</h2>
-                        <div class="form-group">
-                            <div class="radio-group">
-                                <div class="radio-option">
-                                    <input type="radio" id="use-domain" name="domainType" value="domain" checked>
-                                    <label for="use-domain">Use Domain Name</label>
-                                </div>
-                                <div class="radio-option">
-                                    <input type="radio" id="use-nipio" name="domainType" value="nipio">
-                                    <label for="use-nipio">Use nip.io (IP-based)</label>
-                                </div>
-                            </div>
-                            
-                            <div id="domain-input" class="conditional">
-                                <label for="domainName">Domain Name:</label>
-                                <input type="text" id="domainName" name="domainName" placeholder="e.g., yourdomain.com">
-                            </div>
-                            
-                            <div id="nipio-info" class="conditional" style="display: none;">
-                                <p>Using nip.io will create a domain based on your server's IP address.</p>
-                                <p>Your Puter instance will be accessible at: <span id="nipio-domain">--.--.--.---.nip.io</span></p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="form-section">
-                        <h2>Admin User Password</h2>
-                        <div class="form-group">
-                            <label for="adminPassword">Set Admin Password:</label>
-                            <input type="password" id="adminPassword" name="adminPassword" placeholder="Enter a secure password">
-                        </div>
-                        <div class="form-group">
-                            <label for="confirmPassword">Confirm Password:</label>
-                            <input type="password" id="confirmPassword" name="confirmPassword" placeholder="Confirm your password">
-                        </div>
-                    </div>
-                    
-                    <button type="submit" id="submit-btn">Complete Setup</button>
-                </form>
-                
-                <div id="setup-feedback"></div>
             </div>
             
             <script>
                 document.addEventListener('DOMContentLoaded', function() {
+                    // Handle radio button styling
+                    function setupRadioGroup(groupId) {
+                        const radioGroup = document.getElementById(groupId);
+                        const radioItems = radioGroup.querySelectorAll('.radio-item');
+                        
+                        radioItems.forEach(item => {
+                            item.addEventListener('click', () => {
+                                // Remove checked class from all items
+                                radioItems.forEach(i => i.classList.remove('checked'));
+                                
+                                // Add checked class to the clicked item
+                                item.classList.add('checked');
+                                
+                                // Check the radio input
+                                const input = item.querySelector('input');
+                                input.checked = true;
+                                
+                                // Trigger change event
+                                const event = new Event('change');
+                                input.dispatchEvent(event);
+                            });
+                        });
+                    }
+                    
+                    // Setup radio groups
+                    setupRadioGroup('subdomain-radio-group');
+                    setupRadioGroup('domain-radio-group');
+                    
                     // Get user's IP for nip.io domain
                     fetch('/__setup/status')
                         .then(response => response.json())
@@ -500,6 +708,11 @@ class SetupService extends BaseService {
                             adminPassword: adminPassword
                         };
                         
+                        // Submit button loading state
+                        const submitBtn = document.getElementById('submit-btn');
+                        submitBtn.textContent = 'Setting up...';
+                        submitBtn.disabled = true;
+                        
                         // Submit configuration
                         fetch('/__setup/configure', {
                             method: 'POST',
@@ -517,10 +730,14 @@ class SetupService extends BaseService {
                                 }, 2000);
                             } else {
                                 showFeedback('Error: ' + data.message, false);
+                                submitBtn.textContent = 'Complete Setup';
+                                submitBtn.disabled = false;
                             }
                         })
                         .catch(error => {
                             showFeedback('Error: ' + error.message, false);
+                            submitBtn.textContent = 'Complete Setup';
+                            submitBtn.disabled = false;
                         });
                     });
                     
