@@ -280,6 +280,15 @@ class DefaultUserService extends BaseService {
       },
     ]);
   }
+
+  /**
+   * Get the admin user by username
+   *
+   * @returns {Promise<Object|null>} The admin user object or null if not found
+   */
+  async getAdminUser() {
+    return await get_user({ username: USERNAME, cached: false });
+  }
 }
 
 module.exports = DefaultUserService;
