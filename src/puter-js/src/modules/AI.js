@@ -37,6 +37,66 @@ class AI{
         this.APIOrigin = APIOrigin;
     }
 
+
+     // Class-level models dictionary
+     static MODELS = {
+        chat: {
+            openai: ['gpt-4o', 'gpt-4o-mini'],
+            anthropic: [
+                'claude-3-haiku-20240307',
+                'claude-3-5-sonnet-20240620',
+                'claude-3-5-sonnet-20241022',
+                'claude-3-5-sonnet-latest',
+                'claude-3-7-sonnet-latest'
+            ],
+            together: [
+                'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+                'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo',
+                'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo',
+                'google/gemma-2-27b-it'
+            ],
+            mistral: ['mistral-large-latest', 'codestral-latest'],
+            groq: [
+                'distil-whisper-large-v3-en',
+                'gemma2-9b-it',
+                'gemma-7b-it',
+                'llama-3.1-70b-versatile',
+                'llama-3.1-8b-instant',
+                'llama3-70b-8192',
+                'llama3-8b-8192',
+                'llama3-groq-70b-8192-tool-use-preview',
+                'llama3-groq-8b-8192-tool-use-preview',
+                'llama-guard-3-8b',
+                'mixtral-8x7b-32768',
+                'whisper-large-v3'
+            ],
+            xai: ['grok-beta'],
+            deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+            gemini: ['gemini-1.5-flash', 'gemini-2.0-flash']
+        }
+    };
+
+
+     /**
+     * Returns a list of all available AI models grouped by their capabilities
+     * @returns {Object} Object containing categorized lists of available models
+     */
+     listModels() {
+        return AI.MODELS;
+    }
+
+    /**
+     * Returns a list of all available AI providers
+     * @returns {Object} Object containing providers grouped by capability
+     */
+    listProviders() {
+        const providers = {};
+        for (const [capability, providerMap] of Object.entries(AI.MODELS)) {
+            providers[capability] = Object.keys(providerMap);
+        }
+        return providers;
+    }
+    
     img2txt = async (...args) => {
         let MAX_INPUT_SIZE = 10 * 1024 * 1024;
         let options = {};
