@@ -81,19 +81,6 @@ export default {
     h += `</div>`;
     h += `</div>`;
 
-    // Add Admin Reconfiguration option for admin users only
-    if (window.user.username === "admin") {
-      h += `<div class="settings-card settings-card-admin" style="margin-top: 30px; border-top: 1px solid rgba(0,0,0,0.1); padding-top: 15px;">`;
-      h += `<div>`;
-      h += `<strong style="display:block;">Admin Configuration</strong>`;
-      h += `<span style="display:block; margin-top:5px; font-size: 14px; color: #666;">Return to the setup wizard to reconfigure system settings</span>`;
-      h += `</div>`;
-      h += `<div style="flex-grow:1;">`;
-      h += `<button class="button admin-reconfigure" style="float:right; background-color: #4361ee; color: white;">Setup Wizard</button>`;
-      h += `</div>`;
-      h += `</div>`;
-    }
-
     return h;
   },
   init: ($el_window) => {
@@ -145,20 +132,6 @@ export default {
           parent_center: true,
         },
       });
-    });
-
-    // Add handler for the admin reconfigure button
-    $el_window.find(".admin-reconfigure").on("click", function (e) {
-      // Before redirecting, close the settings window
-      const settingsWindow = window.UIWindows.find(
-        (w) => w.uuid === $el_window.attr("data-element_uuid")
-      );
-      if (settingsWindow) {
-        settingsWindow.close();
-      }
-
-      // Redirect to the admin reconfiguration page
-      window.location.href = "/__admin";
     });
 
     $el_window.find(".change-profile-picture").on("click", async function (e) {
