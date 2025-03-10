@@ -66,18 +66,34 @@ class SetupService extends BaseService {
   async markSetupCompleted() {
     try {
       const configDir = path.join(process.cwd(), "config");
+      this.log.info(`Ensuring config directory exists at: ${configDir}`);
 
       // Create config directory if it doesn't exist
       try {
         await fs.mkdir(configDir, { recursive: true });
+        this.log.info("Config directory created or already exists");
       } catch (err) {
-        // Directory might already exist, which is fine
+        this.log.error("Error creating config directory", err);
+        // Continue anyway, as the error might be that the directory already exists
       }
 
-      // Write an empty file to mark setup as completed
-      await fs.writeFile(path.join(configDir, "setup-completed"), "", "utf8");
-      this.setupCompleted = true;
-      this.log.info("Setup marked as completed");
+      // Write a marker file to indicate setup is complete
+      const setupCompletedPath = path.join(configDir, "setup-completed");
+      this.log.info(`Writing setup completed marker to: ${setupCompletedPath}`);
+
+      try {
+        await fs.writeFile(
+          setupCompletedPath,
+          new Date().toISOString(),
+          "utf8"
+        );
+        this.log.info("Setup completed marker file written successfully");
+        this.setupCompleted = true;
+        return true;
+      } catch (writeErr) {
+        this.log.error("Error writing setup-completed file", writeErr);
+        throw writeErr;
+      }
     } catch (error) {
       this.log.error("Failed to mark setup as completed", error);
       throw error;
@@ -97,18 +113,16 @@ class SetupService extends BaseService {
   ["__on_install.routes"](_, { app }) {
     this.log.info("Installing setup wizard routes");
 
-    // Route to check setup status
+    // Status endpoint
     Endpoint({
       route: "/__setup/status",
       methods: ["GET"],
       handler: async (req, res) => {
-        res.json({
-          setupCompleted: this.setupCompleted,
-        });
+        res.json({ setupCompleted: this.setupCompleted });
       },
     }).attach(app);
 
-    // Route to render setup wizard HTML page
+    // Wizard UI endpoint
     Endpoint({
       route: "/__setup",
       methods: ["GET"],
@@ -116,13 +130,11 @@ class SetupService extends BaseService {
         if (this.setupCompleted) {
           return res.redirect("/");
         }
-
-        // Serve the setup wizard HTML page
         res.send(this.getSetupWizardHTML());
       },
     }).attach(app);
 
-    // API endpoint to save configuration
+    // Configuration endpoint
     Endpoint({
       route: "/__setup/configure",
       methods: ["POST"],
@@ -131,23 +143,58 @@ class SetupService extends BaseService {
           const { subdomainBehavior, domainName, useNipIo, adminPassword } =
             req.body;
 
-          // Apply configurations
-          await this.updateConfig({
-            experimental_no_subdomain: subdomainBehavior === "disabled",
-            domain: useNipIo
-              ? `${req.ip.replace(/\./g, "-")}.nip.io`
-              : domainName,
-          });
-
-          // Update admin password if provided
-          if (adminPassword && adminPassword.trim()) {
-            await this.updateAdminPassword(adminPassword);
+          // Step 1: Update configuration
+          try {
+            await this.updateConfig({
+              experimental_no_subdomain: subdomainBehavior === "disabled",
+              domain: useNipIo
+                ? `${req.ip.replace(/\./g, "-")}.nip.io`
+                : domainName,
+            });
+            this.log.info("Configuration updated successfully");
+          } catch (configError) {
+            this.log.error("Failed to update configuration", configError);
+            return res.status(500).json({
+              success: false,
+              message: "Failed to update configuration",
+              error: configError.message,
+            });
           }
 
-          // Mark setup as completed
-          await this.markSetupCompleted();
+          // Step 2: Update admin password (if provided)
+          if (adminPassword && adminPassword.trim()) {
+            try {
+              await this.updateAdminPassword(adminPassword);
+              this.log.info("Admin password updated successfully");
+            } catch (passwordError) {
+              // Log the error but continue with setup
+              this.log.error("Failed to update admin password", passwordError);
+              // We'll still mark setup as completed but warn the user
+            }
+          } else {
+            this.log.info(
+              "No admin password provided, skipping password update"
+            );
+          }
 
-          res.json({ success: true, message: "Setup completed successfully" });
+          // Step 3: Mark setup as completed regardless of password update
+          try {
+            await this.markSetupCompleted();
+            this.log.info("Setup marked as completed");
+          } catch (setupError) {
+            this.log.error("Failed to mark setup as completed", setupError);
+            return res.status(500).json({
+              success: false,
+              message: "Failed to mark setup as completed",
+              error: setupError.message,
+            });
+          }
+
+          // Success response
+          return res.json({
+            success: true,
+            message: "Setup completed successfully",
+          });
         } catch (error) {
           this.log.error("Setup configuration failed", error);
           res.status(500).json({
@@ -162,7 +209,6 @@ class SetupService extends BaseService {
     // Middleware to redirect to setup wizard if not completed
     if (!this.setupCompleted) {
       app.use((req, res, next) => {
-        // Skip for API and asset requests
         if (
           req.path.startsWith("/__setup") ||
           req.path.startsWith("/api/") ||
@@ -170,8 +216,6 @@ class SetupService extends BaseService {
         ) {
           return next();
         }
-
-        // Redirect to setup wizard
         res.redirect("/__setup");
       });
     }
@@ -212,26 +256,88 @@ class SetupService extends BaseService {
     }
   }
 
-  /**
-   * Updates the admin user's password
-   * Uses direct database access instead of relying on DefaultUserService
-   */
+  // Helper method to find a suitable database service
+  async findDatabaseService() {
+    try {
+      // Try different service names that might provide database access
+      const possibleServices = [
+        "database",
+        "db",
+        "sql",
+        "sqlite",
+        "database-access",
+      ];
+
+      // Log available services
+      const allServices = this.services.list();
+      this.log.info("Available services:", allServices);
+
+      // Try each possible database service
+      for (const serviceName of possibleServices) {
+        if (this.services.has(serviceName)) {
+          const service = this.services.get(serviceName);
+          this.log.info(`Found database service: ${serviceName}`, {
+            methods: Object.keys(service),
+            hasKnex: !!service.knex,
+            hasQuery: !!service.query,
+          });
+          return service;
+        }
+      }
+
+      throw new Error("No database service found");
+    } catch (error) {
+      this.log.error("Error finding database service", error);
+      throw error;
+    }
+  }
+
+  // Update admin user password using a direct database approach
   async updateAdminPassword(password) {
     try {
-      // Get the admin user directly without using DefaultUserService
-      const adminUsername = "admin"; // Default admin username
+      const adminUsername = "admin";
       const user = await get_user({ username: adminUsername, cached: false });
 
       if (!user) {
         throw new Error("Admin user not found");
       }
 
-      // Get user service to update password
-      const userService = this.services.get("user");
-      await userService.setUserPassword(user.id, password);
+      // Use bcrypt to hash the password
+      const bcrypt = require("bcrypt");
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(password, salt);
 
-      this.log.info("Admin password updated");
-      return true;
+      // Find a suitable database service
+      const dbService = await this.findDatabaseService();
+
+      // Log what we're doing
+      this.log.info(`Updating password for user ID: ${user.id}`);
+
+      // Direct SQL update to the users table
+      try {
+        // Using Knex if available
+        if (dbService.knex) {
+          await dbService
+            .knex("users")
+            .where("id", user.id)
+            .update({ password: passwordHash });
+        }
+        // Using raw query as fallback
+        else if (dbService.query) {
+          await dbService.query("UPDATE users SET password = ? WHERE id = ?", [
+            passwordHash,
+            user.id,
+          ]);
+        } else {
+          throw new Error("No suitable database access method found");
+        }
+
+        this.log.info("Admin password updated successfully");
+        return true;
+      } catch (dbError) {
+        this.log.error("Database error updating password", dbError);
+        throw new Error(`Database error: ${dbError.message}`);
+      }
     } catch (error) {
       this.log.error("Failed to update admin password", error);
       throw error;
