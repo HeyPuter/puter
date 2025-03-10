@@ -39,33 +39,7 @@ module.exports = {
             disk_max_size: 16384,
             precache_size: 16384,
             path: './file-cache',
-        },
-        // Redis configuration
-        redis: {
-            host: 'localhost',
-            port: 6379,
-            password: '',
-            db: 0,
-            keyPrefix: 'puter:',
-            connectTimeout: 10000,
-            enableReadyCheck: true,
-            enableOfflineQueue: true,
-            // Whether to fall back to in-memory storage if Redis is unavailable
-            fallbackToMemory: true
-        },
-        // Enhanced captcha configuration
-        captcha: {
-            enabled: true,
-            expirationTime: 10 * 60 * 1000, // 10 minutes default
-            difficulty: 'medium',
-            // Redis key namespace for captcha-related keys
-            redisKeyPrefix: 'captcha:',
-            // Rate limiting settings
-            rateLimit: {
-                maxAttempts: 5,
-                window: 60 * 1000, // 1 minute
-                blockDuration: 10 * 60 * 1000 // 10 minutes
-            }
+
         }
     },
 };

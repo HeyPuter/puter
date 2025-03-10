@@ -23,25 +23,3 @@ services:
       timeout: 3s
       retries: 3
       start_period: 30s
-    depends_on:
-      - redis
-
-  redis:
-    container_name: redis
-    image: redis:7-alpine
-    restart: unless-stopped
-    ports:
-      - '6379:6379'
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
-
-volumes:
-  redis-data:
-    driver: local
