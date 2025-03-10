@@ -259,8 +259,12 @@ class WebServerService extends BaseService {
             socket.on('trash.is_empty', (msg) => {
                 socket.broadcast.to(socket.user.id).emit('trash.is_empty', msg);
             });
+            const svc_event = this.services.get('event');
+            svc_event.emit('web.socket.connected', {
+                socket,
+                user: socket.user
+            });
             socket.on('puter_is_actually_open', async (msg) => {
-                const svc_event = this.services.get('event');
                 await context.sub({
                     actor: socket.actor,
                 }).arun(async () => {

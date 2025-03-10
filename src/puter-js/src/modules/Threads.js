@@ -25,7 +25,7 @@ export default class Threads {
     
     async create (spec, parent) {
         if ( typeof spec === 'string' ) spec = { text: spec };
-        await this.req_('POST', '/threads/create', {
+        return await this.req_('POST', '/threads/create', {
             ...spec,
             ...(parent ? { parent } : {}),
         });
@@ -49,7 +49,19 @@ export default class Threads {
         );
     }
 
-    async subscribe (uid) {
+    async subscribe (uid, callback) {
         puter.fs.socket.emit('thread.sub-request', { uid });
+
+        // socket.io, which we use unfortunatelly, doesn't handle
+        // wildcard events, so we have to just put them all here.
+        const events = [
+            'post', 'edit', 'delete', 'child-edit', 'child-delete',
+        ];
+
+        for ( const event of events ) {
+            puter.fs.socket.on(`thread.${event}`, (data) => {
+                if ( data.subscription === uid ) callback(event, data);
+            });
+        }
     }
 }
