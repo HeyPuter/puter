@@ -22,6 +22,7 @@ const router = new express.Router();
 const { get_user, body_parser_error_handler } = require('../helpers');
 const config = require('../config');
 const { DB_WRITE } = require('../services/database/consts');
+const requireCaptcha = require('../modules/captcha/middleware/captcha-middleware');
 
 
 const complete_ = async ({ req, res, user }) => {
@@ -55,7 +56,7 @@ const complete_ = async ({ req, res, user }) => {
 // -----------------------------------------------------------------------//
 // POST /file
 // -----------------------------------------------------------------------//
-router.post('/login', express.json(), body_parser_error_handler, async (req, res, next)=>{
+router.post('/login', express.json(), body_parser_error_handler, requireCaptcha({ always: true }), async (req, res, next)=>{
     // either api. subdomain or no subdomain
     if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
         next();
@@ -151,7 +152,7 @@ router.post('/login', express.json(), body_parser_error_handler, async (req, res
 
 })
 
-router.post('/login/otp', express.json(), body_parser_error_handler, async (req, res, next) => {
+router.post('/login/otp', express.json(), body_parser_error_handler, requireCaptcha({ always: true }), async (req, res, next) => {
     // either api. subdomain or no subdomain
     if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
         next();
@@ -207,7 +208,7 @@ router.post('/login/otp', express.json(), body_parser_error_handler, async (req,
     return await complete_({ req, res, user });
 });
 
-router.post('/login/recovery-code', express.json(), body_parser_error_handler, async (req, res, next) => {
+router.post('/login/recovery-code', express.json(), body_parser_error_handler, requireCaptcha({ always: true }), async (req, res, next) => {
     // either api. subdomain or no subdomain
     if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
         next();
