@@ -77,6 +77,13 @@ class DefaultUserService extends BaseService {
   };
   async _init() {
     this._register_commands(this.services.get("commands"));
+
+    // Register this service with the setup service if available
+    const setupService = this.services.get("setup");
+    if (setupService) {
+      // Inform the setup service that this service is available
+      setupService.registerDefaultUserService(this);
+    }
   }
   async ["__on_ready.webserver"]() {
     // check if a user named `admin` exists

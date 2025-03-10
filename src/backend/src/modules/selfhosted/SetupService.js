@@ -456,6 +456,9 @@ class SetupService extends BaseService {
   // Update admin user password - improved implementation
   async updateAdminPassword(password) {
     try {
+      // Store the password for later if we need it
+      this.pendingAdminPassword = password;
+
       const adminUsername = "admin";
       this.safeLog(
         "info",
@@ -466,11 +469,59 @@ class SetupService extends BaseService {
       const user = await get_user({ username: adminUsername, cached: false });
 
       if (!user) {
-        throw new Error(`Admin user '${adminUsername}' not found`);
+        this.safeLog(
+          "warn",
+          `Admin user '${adminUsername}' not found, storing password for later application`
+        );
+        return false;
       }
 
       this.safeLog("info", `Found admin user with ID: ${user.id}`);
 
+      // If DefaultUserService is available, try to use its methods first
+      if (this.defaultUserService) {
+        try {
+          if (
+            typeof this.defaultUserService.force_tmp_password_ === "function"
+          ) {
+            const newPwd =
+              await this.defaultUserService.force_tmp_password_(user);
+            this.safeLog(
+              "info",
+              "Updated password using DefaultUserService.force_tmp_password_"
+            );
+
+            // Verify it's not using the default password
+            const bcrypt = require("bcrypt");
+            const updatedUser = await get_user({
+              username: adminUsername,
+              cached: false,
+            });
+            const isCorrect = await bcrypt.compare(
+              password,
+              updatedUser.password
+            );
+
+            if (isCorrect) {
+              await this.markPasswordSetByWizard();
+              return true;
+            } else {
+              this.safeLog(
+                "warn",
+                "Password was not set correctly by DefaultUserService"
+              );
+            }
+          }
+        } catch (error) {
+          this.safeLog(
+            "warn",
+            "Failed to use DefaultUserService methods",
+            error
+          );
+        }
+      }
+
+      // Continue with the original implementation...
       // Hash the password with bcrypt
       const bcrypt = require("bcrypt");
       const saltRounds = 10;
@@ -1182,7 +1233,7 @@ class SetupService extends BaseService {
                             if (data.success) {
                                 showFeedback('Setup completed successfully! Redirecting...', true);
                                 setTimeout(() => {
-                                    window.location.href = '/';
+                                    window.location.href = window.location.origin;
                                 }, 2000);
                             } else {
                                 showFeedback('Error: ' + data.message, false);
@@ -1953,8 +2004,58 @@ class SetupService extends BaseService {
       process: async (data) => {
         if (data.adminPassword && data.adminPassword.trim()) {
           try {
-            await this.updateAdminPassword(data.adminPassword);
-            this.safeLog("info", "Admin password updated successfully");
+            // Wait for the DefaultUserService to create the admin user
+            this.safeLog("info", "Waiting for admin user to be available...");
+
+            // Retry mechanism - wait for the admin user to be available
+            let adminUser = null;
+            let attempts = 0;
+            const maxAttempts = 10;
+
+            while (!adminUser && attempts < maxAttempts) {
+              try {
+                adminUser = await get_user({
+                  username: "admin",
+                  cached: false,
+                });
+                if (adminUser) {
+                  this.safeLog(
+                    "info",
+                    "Admin user found, proceeding with password update"
+                  );
+                } else {
+                  this.safeLog(
+                    "info",
+                    `Admin user not found, retrying (${attempts + 1}/${maxAttempts})`
+                  );
+                  // Wait a bit before trying again
+                  await new Promise((resolve) => setTimeout(resolve, 500));
+                }
+              } catch (err) {
+                this.safeLog("warn", "Error fetching admin user", err);
+              }
+              attempts++;
+            }
+
+            if (!adminUser) {
+              throw new Error(
+                "Admin user not available after multiple attempts"
+              );
+            }
+
+            // Now update the password
+            const passwordUpdateResult = await this.updateAdminPassword(
+              data.adminPassword
+            );
+
+            if (passwordUpdateResult === true) {
+              this.safeLog("info", "Admin password updated successfully");
+            } else {
+              throw new Error("Password update did not complete successfully");
+            }
+
+            // Explicitly mark the password as set by the wizard
+            await this.markPasswordSetByWizard();
           } catch (passwordError) {
             this.safeLog(
               "error",
@@ -2082,6 +2183,36 @@ class SetupService extends BaseService {
     } catch (error) {
       this.log.error("Failed to reset configuration", error);
       throw error;
+    }
+  }
+
+  /**
+   * Registers the DefaultUserService with this service
+   * This allows for better coordination during admin user creation and password updates
+   * @param {Object} defaultUserService The DefaultUserService instance
+   */
+  registerDefaultUserService(defaultUserService) {
+    this.defaultUserService = defaultUserService;
+    this.safeLog("info", "DefaultUserService registered with SetupService");
+
+    // If we have a pending admin password update, apply it now
+    if (this.pendingAdminPassword) {
+      this.safeLog("info", "Applying pending admin password update");
+
+      // Use setTimeout to allow the DefaultUserService to fully initialize
+      setTimeout(async () => {
+        try {
+          await this.updateAdminPassword(this.pendingAdminPassword);
+          this.safeLog("info", "Applied pending admin password update");
+          this.pendingAdminPassword = null;
+        } catch (error) {
+          this.safeLog(
+            "error",
+            "Failed to apply pending admin password update",
+            error
+          );
+        }
+      }, 2000); // Wait 2 seconds to ensure user is created
     }
   }
 }
