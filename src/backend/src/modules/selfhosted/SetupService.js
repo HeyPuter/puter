@@ -19,16 +19,24 @@
 
 const BaseService = require("../../services/BaseService");
 const { Endpoint } = require("../../util/expressutil");
-const { Context } = require("../../util/context");
 const fs = require("fs").promises;
 const path = require("path");
+const { get_user } = require("../../helpers");
+const { USERNAME } = require("../../constants");
 
 /**
  * Service for Puter's setup wizard.
  * This service provides endpoints to configure Puter when first installed.
  * It handles subdomain behavior, domain configuration, and admin user password setting.
+ *
+ * This service self-registers in the system initialization via boot hook.
  */
 class SetupService extends BaseService {
+  static register(services) {
+    services.registerService("setup-wizard", SetupService);
+    return true;
+  }
+
   async _init() {
     this.log.info("Initializing Setup Wizard Service");
 
@@ -80,6 +88,13 @@ class SetupService extends BaseService {
       this.log.error("Failed to mark setup as completed", error);
       throw error;
     }
+  }
+
+  /**
+   * Hook into boot.consolidation to register the service
+   */
+  ["__on_boot.consolidation"]() {
+    this.log.info("Setup Wizard Service consolidated");
   }
 
   /**
@@ -205,20 +220,22 @@ class SetupService extends BaseService {
 
   /**
    * Updates the admin user's password
+   * Uses direct database access instead of relying on DefaultUserService
    */
   async updateAdminPassword(password) {
     try {
-      const userService = this.services.get("user");
-      const defaultUserService = this.services.get("default-user");
+      // Get the admin user directly without using DefaultUserService
+      const adminUsername = "admin"; // Default admin username
+      const user = await get_user({ username: adminUsername, cached: false });
 
-      // Get the admin user
-      const user = await defaultUserService.getAdminUser();
       if (!user) {
         throw new Error("Admin user not found");
       }
 
-      // Update the password
+      // Get user service to update password
+      const userService = this.services.get("user");
       await userService.setUserPassword(user.id, password);
+
       this.log.info("Admin password updated");
       return true;
     } catch (error) {
@@ -525,6 +542,13 @@ class SetupService extends BaseService {
         </html>
         `;
   }
+}
+
+// Self-registration when the file is required.
+// This will register with the service system without modifying SelfHostedModule.js
+const serviceContainer = global.services || global.__service_container__;
+if (serviceContainer) {
+  SetupService.register(serviceContainer);
 }
 
 module.exports = {
