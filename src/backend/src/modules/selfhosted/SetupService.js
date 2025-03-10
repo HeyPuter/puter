@@ -454,6 +454,16 @@ class SetupService extends BaseService {
                     text-align: center;
                 }
                 
+                .logo {
+                    display: flex;
+                    justify-content: center;
+                    margin-bottom: 1rem;
+                }
+                
+                .logo img {
+                    height: 40px;
+                }
+                
                 h1 {
                     font-size: 1.5rem;
                     font-weight: 600;
@@ -656,6 +666,9 @@ class SetupService extends BaseService {
             <div class="container">
                 <div class="card">
                     <div class="card-header">
+                        <div class="logo">
+                            <img src="/assets/img/logo.svg" alt="Puter Logo">
+                        </div>
                         <h1>Welcome to Puter</h1>
                         <p class="description">Complete this setup wizard to configure your Puter instance</p>
                     </div>
