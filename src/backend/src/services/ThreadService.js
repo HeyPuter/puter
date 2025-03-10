@@ -119,7 +119,25 @@ class ThreadService extends BaseService {
             }
         }));
 
+        await this.init_event_listeners_();
         await this.init_socket_subs_();
+    }
+
+    async init_event_listeners_() {
+        const svc_event = this.services.get('event');
+        svc_event.on('outer.thread.notify-subscribers', async (_, {
+            uid, action, data,
+        }) => {
+
+            if ( ! this.socket_subs_[uid] ) return;
+
+            const svc_socketio = this.services.get('socketio');
+            await svc_socketio.send(
+                Array.from(this.socket_subs_[uid]).map(socket => ({ socket })),
+                'thread.' + action,
+                { ...data, subscription: uid },
+            );
+        })
     }
 
     async init_socket_subs_ () {
@@ -150,14 +168,8 @@ class ThreadService extends BaseService {
     }
 
     async notify_subscribers (uid, action, data) {
-        if ( ! this.socket_subs_[uid] ) return;
-
-        const svc_socketio = this.services.get('socketio');
-        await svc_socketio.send(
-            Array.from(this.socket_subs_[uid]).map(socket => ({ socket })),
-            'thread.' + action,
-            { ...data, subscription: uid },
-        );
+        const svc_event = this.services.get('event');
+        svc_event.emit('outer.thread.notify-subscribers', { uid, action, data });
     }
 
     async ['__on_install.routes'] (_, { app }) {
