@@ -77,21 +77,49 @@ class SetupService extends BaseService {
         // Continue anyway, as the error might be that the directory already exists
       }
 
-      // Write a marker file to indicate setup is complete
+      // Ensure runtime config directory also exists
+      const runtimeConfigDir = path.join(
+        process.cwd(),
+        "volatile",
+        "runtime",
+        "config"
+      );
+      try {
+        await fs.mkdir(runtimeConfigDir, { recursive: true });
+        this.log.info("Runtime config directory created or already exists");
+      } catch (err) {
+        this.log.error("Error creating runtime config directory", err);
+        // Continue anyway, as the error might be that the directory already exists
+      }
+
+      // Write marker files to indicate setup is complete - in both locations to be safe
       const setupCompletedPath = path.join(configDir, "setup-completed");
-      this.log.info(`Writing setup completed marker to: ${setupCompletedPath}`);
+      const runtimeSetupCompletedPath = path.join(
+        runtimeConfigDir,
+        "setup-completed"
+      );
+
+      this.log.info(
+        `Writing setup completed marker to: ${setupCompletedPath} and ${runtimeSetupCompletedPath}`
+      );
+
+      const timestamp = new Date().toISOString();
 
       try {
-        await fs.writeFile(
-          setupCompletedPath,
-          new Date().toISOString(),
-          "utf8"
-        );
-        this.log.info("Setup completed marker file written successfully");
+        // Write to both locations to ensure it's picked up
+        await fs.writeFile(setupCompletedPath, timestamp, "utf8");
+        await fs.writeFile(runtimeSetupCompletedPath, timestamp, "utf8");
+
+        this.log.info("Setup completed marker files written successfully");
         this.setupCompleted = true;
+
+        // Set a flag in global config to ensure port is properly released on restart
+        const config = require("../../config");
+        config.setup_just_completed = true;
+
         return true;
       } catch (writeErr) {
-        this.log.error("Error writing setup-completed file", writeErr);
+        this.log.error("Error writing setup-completed files", writeErr);
         throw writeErr;
       }
     } catch (error) {
