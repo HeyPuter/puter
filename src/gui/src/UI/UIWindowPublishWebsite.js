@@ -37,7 +37,7 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
             // subdomain
             h += `<div style="overflow: hidden;">`;
                 h += `<label style="margin-bottom: 10px;">${i18n('pick_name_for_website')}</label>`;
-                h += `<div style="font-family: monospace;">https://<input class="publish-website-subdomain" style="width:235px;" type="text" autocomplete="subdomain" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>.${html_encode(window.hosting_domain)}</div>`;
+                h += `<div style="font-family: monospace;">http://<input class="publish-website-subdomain" style="width:235px;" type="text" autocomplete="subdomain" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>.${html_encode(window.hosting_domain)}</div>`;
             h += `</div>`;
             // uid
             h += `<input class="publishWebsiteTargetDirUID" type="hidden" value="${html_encode(target_dir_uid)}"/>`;
