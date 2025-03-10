@@ -49,6 +49,9 @@ class SetupService extends BaseService {
     } else {
       this.log.info("Setup already completed, skipping wizard");
     }
+
+    // Install the admin reconfiguration endpoints
+    this._installAdminReconfigEndpoints();
   }
 
   /**
@@ -348,28 +351,16 @@ class SetupService extends BaseService {
             }
           }
 
-          // Restart services as needed to apply configuration
-          try {
-            await this.restartServicesAfterSetup();
-            safeLog("info", "Services restarted to apply new configuration");
-          } catch (restartError) {
-            safeLog(
-              "warn",
-              "Some services may not have restarted properly",
-              restartError
-            );
-            // Don't fail the setup if restart has issues
-          }
-
+          // Success response
           return res.json({
             success: true,
             message: "Setup completed successfully",
           });
         } catch (error) {
-          safeLog("error", "Failed to process configuration", error);
-          return res.status(500).json({
+          safeLog("error", "Setup configuration failed", error);
+          res.status(500).json({
             success: false,
-            message: "Failed to process configuration",
+            message: "Failed to complete setup",
             error: error.message,
           });
         }
@@ -402,32 +393,8 @@ class SetupService extends BaseService {
       // Get the current configuration
       const config = require("../../config");
 
-      // Log current configuration and new settings
-      this.safeLog("info", "Current configuration:", config);
-      this.safeLog("info", "New configuration settings:", newConfig);
-
       // Apply new settings
       Object.assign(config, newConfig);
-
-      // Handle special WebSocket cases
-      if (newConfig.hasOwnProperty("experimental_no_subdomain")) {
-        // If disabling subdomains, update WebSocket configuration
-        if (newConfig.experimental_no_subdomain) {
-          this.safeLog(
-            "info",
-            "Disabling subdomains, updating WebSocket configuration"
-          );
-          // When no subdomains, WebSocket should connect to the same host
-          config.websocket_url = "";
-          config.websocket_host = "";
-        } else if (newConfig.api_subdomain) {
-          // When using subdomains, configure WebSocket appropriately
-          this.safeLog(
-            "info",
-            "Enabling subdomains with api subdomain for WebSocket"
-          );
-        }
-      }
 
       // Save configuration to a file
       const configDir = path.join(process.cwd(), "config");
@@ -445,7 +412,7 @@ class SetupService extends BaseService {
         "utf8"
       );
 
-      this.safeLog("info", "Configuration updated and saved to file");
+      this.safeLog("info", "Configuration updated", newConfig);
       return true;
     } catch (error) {
       this.safeLog("error", "Failed to update configuration", error);
@@ -777,460 +744,109 @@ class SetupService extends BaseService {
   /**
    * Returns the HTML for the setup wizard interface
    */
-  getSetupWizardHTML(token = "") {
+  getSetupWizardHTML(
+    token = "",
+    reconfigurationMode = false,
+    currentConfig = {}
+  ) {
     const html = `
         <!DOCTYPE html>
         <html lang="en">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Puter Setup Wizard</title>
-            <link rel="preconnect" href="https://fonts.googleapis.com">
-            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+            <title>${reconfigurationMode ? "Puter Reconfiguration" : "Puter Setup Wizard"}</title>
             <style>
-                :root {
-                    --background: #ffffff;
-                    --foreground: #09090b;
-                    
-                    --card: #ffffff;
-                    --card-foreground: #09090b;
-                    
-                    --popover: #ffffff;
-                    --popover-foreground: #09090b;
-                    
-                    --primary: #18181b;
-                    --primary-foreground: #f8fafc;
-                    
-                    --secondary: #f1f5f9;
-                    --secondary-foreground: #0f172a;
-                    
-                    --muted: #f1f5f9;
-                    --muted-foreground: #64748b;
-                    
-                    --accent: #f1f5f9;
-                    --accent-foreground: #0f172a;
-                    
-                    --destructive: #ef4444;
-                    --destructive-foreground: #f8fafc;
-                    
-                    --border: #e2e8f0;
-                    --input: #e2e8f0;
-                    --ring: #0f172a;
-                    
-                    --radius: 0.5rem;
-                }
-                
-                * {
-                    margin: 0;
-                    padding: 0;
-                    box-sizing: border-box;
-                }
-                
-                body {
-                    font-family: 'Inter', sans-serif;
-                    background-color: #f9fafb;
-                    color: var(--foreground);
-                    line-height: 1.5;
-                }
-                
-                .container {
-                    max-width: 550px;
-                    margin: 2rem auto;
-                    padding: 1.5rem;
-                }
-                
-                .card {
-                    background-color: var(--card);
-                    border-radius: var(--radius);
-                    box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.08);
-                    overflow: hidden;
-                }
-                
-                .card-header {
-                    padding: 1.5rem;
-                    border-bottom: 1px solid var(--border);
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    text-align: center;
-                }
-                
-                .logo {
-                    display: flex;
-                    justify-content: center;
-                    margin-bottom: 1rem;
-                }
-                
-                .logo img {
-                    height: 40px;
-                }
-                
-                h1 {
-                    font-size: 1.5rem;
-                    font-weight: 600;
-                    color: var(--foreground);
-                    margin-bottom: 0.5rem;
-                }
-                
-                .description {
-                    font-size: 0.875rem;
-                    color: var(--muted-foreground);
-                    max-width: 500px;
-                    margin: 0 auto;
-                }
-                
-                .card-content {
-                    padding: 1.5rem;
-                }
-                
-                .setup-form {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 1.5rem;
-                }
-                
-                .form-group {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 0.75rem;
-                }
-                
-                .form-group h2 {
-                    font-size: 0.875rem;
-                    font-weight: 600;
-                    color: var(--foreground);
-                }
-                
-                .label {
-                    font-size: 0.875rem;
-                    font-weight: 500;
-                    color: var(--foreground);
-                }
-                
-                .input {
-                    display: flex;
-                    height: 2.5rem;
-                    width: 100%;
-                    border-radius: var(--radius);
-                    border: 1px solid var(--input);
-                    background-color: transparent;
-                    padding: 0.5rem 0.75rem;
-                    font-size: 0.875rem;
-                    transition: border 0.2s ease;
-                }
-                
-                .input:focus {
-                    outline: none;
-                    border-color: var(--ring);
-                    box-shadow: 0 0 0 1px var(--ring);
-                }
-                
-                .radio-group {
-                    display: grid;
-                    grid-template-columns: repeat(2, 1fr);
-                    gap: 0.5rem;
-                }
-                
-                .radio-item {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.5rem;
-                    padding: 0.5rem;
-                    border-radius: var(--radius);
-                    border: 1px solid var(--border);
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                }
-                
-                .radio-item:hover {
-                    background-color: var(--accent);
-                }
-                
-                .radio-item.checked {
-                    border-color: var(--primary);
-                    background-color: var(--accent);
-                }
-                
-                .radio-item input {
-                    display: none;
-                }
-                
-                .radio-item .radio-button {
-                    width: 16px;
-                    height: 16px;
-                    border-radius: 50%;
-                    border: 1px solid var(--muted-foreground);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                }
-                
-                .radio-item.checked .radio-button {
-                    border-color: var(--primary);
-                }
-                
-                .radio-item.checked .radio-button::after {
-                    content: "";
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background-color: var(--primary);
-                }
-                
-                .radio-item .radio-label {
-                    font-size: 0.875rem;
-                    font-weight: 500;
-                }
-                
-                .alert {
-                    border-radius: var(--radius);
-                    padding: 0.75rem;
-                    font-size: 0.875rem;
-                    margin-top: 0.75rem;
-                    display: flex;
-                    gap: 0.5rem;
-                    align-items: flex-start;
-                }
-                
-                .alert-warning {
-                    background-color: #fff7ed;
-                    border: 1px solid #ffedd5;
-                    color: #c2410c;
-                }
-                
-                .alert-icon {
-                    flex-shrink: 0;
-                    margin-top: 0.125rem;
-                }
-                
-                .conditional {
-                    margin-top: 0.75rem;
-                }
-                
-                .button {
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                    border-radius: var(--radius);
-                    font-size: 0.875rem;
-                    font-weight: 500;
-                    height: 2.5rem;
-                    padding-left: 1rem;
-                    padding-right: 1rem;
-                    transition: all 0.2s ease;
-                    cursor: pointer;
-                }
-                
-                .button-primary {
-                    background-color: var(--primary);
-                    color: var(--primary-foreground);
-                    border: none;
-                }
-                
-                .button-primary:hover {
-                    opacity: 0.9;
-                }
-                
-                .button-primary:active {
-                    opacity: 0.8;
-                }
-                
-                #setup-feedback {
-                    margin-top: 1rem;
-                    padding: 0.75rem;
-                    border-radius: var(--radius);
-                    font-size: 0.875rem;
-                    display: none;
-                }
-                
-                .success {
-                    background-color: #ecfdf5;
-                    border: 1px solid #a7f3d0;
-                    color: #065f46;
-                }
-                
-                .error {
-                    background-color: #fef2f2;
-                    border: 1px solid #fecaca;
-                    color: #b91c1c;
-                }
-                
-                .divider {
-                    height: 1px;
-                    width: 100%;
-                    background-color: var(--border);
-                    margin: 1.5rem 0;
-                }
+            ${this.getWizardStyles()}
             </style>
         </head>
         <body>
-            <div class="container">
-                <div class="card">
-                    <div class="card-header">
-                        <div class="logo">
-                            <img src="/assets/img/logo.svg" alt="Puter Logo">
-                        </div>
-                        <h1>Welcome to Puter</h1>
-                        <p class="description">Complete this setup wizard to configure your Puter instance</p>
-                    </div>
-                    
-                    <div class="card-content">
-                        <form id="setup-form" class="setup-form">
-                            <!-- Hidden input to store the token -->
+            <div class="setup-container">
+                <div class="setup-header">
+                    <img src="/assets/images/puter-logo.svg" alt="Puter Logo" class="logo">
+                    <h1>${reconfigurationMode ? "Puter Reconfiguration" : "Puter Setup Wizard"}</h1>
+                </div>
+                
+                <div class="setup-content">
+                    <div class="setup-card">
+                        ${
+                          reconfigurationMode
+                            ? '<div class="reconfiguration-warning">You are in admin reconfiguration mode. Changes you make will be applied immediately.</div>'
+                            : ""
+                        }
+                        
+                        <form id="setupForm">
                             <input type="hidden" id="setupToken" name="setupToken" value="${token}">
+                            <input type="hidden" id="reconfigMode" name="reconfigMode" value="${reconfigurationMode ? "true" : "false"}">
+                            
+                            ${this.getWizardFormContent(currentConfig)}
                             
                             <div class="form-group">
-                                <h2>Subdomain Configuration</h2>
-                                <div class="radio-group" id="subdomain-radio-group">
-                                    <label class="radio-item checked" data-value="enabled">
-                                        <input type="radio" name="subdomainBehavior" value="enabled" checked>
-                                        <span class="radio-button"></span>
-                                        <span class="radio-label">Enabled (Recommended)</span>
-                                    </label>
-                                    <label class="radio-item" data-value="disabled">
-                                        <input type="radio" name="subdomainBehavior" value="disabled">
-                                        <span class="radio-button"></span>
-                                        <span class="radio-label">Disabled</span>
-                                    </label>
-                                </div>
-                                
-                                <div id="subdomain-warning" class="alert alert-warning" style="display: none;">
-                                    <span class="alert-icon">⚠️</span>
-                                    <span>Disabling subdomains makes your deployment less secure. Only use this option if your hosting does not support subdomains.</span>
-                                </div>
+                                <button type="submit" id="submit-btn" class="btn btn-primary">
+                                    ${reconfigurationMode ? "Apply Changes" : "Complete Setup"}
+                                </button>
+                                ${
+                                  reconfigurationMode
+                                    ? '<button type="button" id="cancel-btn" class="btn btn-secondary">Cancel</button>'
+                                    : ""
+                                }
                             </div>
-                            
-                            <div class="divider"></div>
-                            
-                            <div class="form-group">
-                                <h2>Domain Configuration</h2>
-                                <div class="radio-group" id="domain-radio-group">
-                                    <label class="radio-item checked" data-value="domain">
-                                        <input type="radio" name="domainType" value="domain" checked>
-                                        <span class="radio-button"></span>
-                                        <span class="radio-label">Custom Domain</span>
-                                    </label>
-                                    <label class="radio-item" data-value="nipio">
-                                        <input type="radio" name="domainType" value="nipio">
-                                        <span class="radio-button"></span>
-                                        <span class="radio-label">Use nip.io (IP-based)</span>
-                                    </label>
-                                </div>
-                                
-                                <div id="domain-input" class="conditional">
-                                    <label class="label" for="domainName">Domain Name</label>
-                                    <input type="text" id="domainName" name="domainName" class="input" placeholder="e.g., yourdomain.com">
-                                </div>
-                                
-                                <div id="nipio-info" class="conditional" style="display: none;">
-                                    <div class="alert alert-warning">
-                                        <span class="alert-icon">ℹ️</span>
-                                        <span>Using nip.io will create a domain based on your server's IP address. Your Puter instance will be accessible at: <strong id="nipio-domain">--.--.--.---.nip.io</strong></span>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="divider"></div>
-                            
-                            <div class="form-group">
-                                <h2>Admin User Password</h2>
-                                <div>
-                                    <label class="label" for="adminPassword">Password</label>
-                                    <input type="password" id="adminPassword" name="adminPassword" class="input" placeholder="Enter a secure password">
-                                </div>
-                                <div>
-                                    <label class="label" for="confirmPassword">Confirm Password</label>
-                                    <input type="password" id="confirmPassword" name="confirmPassword" class="input" placeholder="Confirm your password">
-                                </div>
-                            </div>
-                            
-                            <div class="divider"></div>
-                            
-                            <button type="submit" id="submit-btn" class="button button-primary">Complete Setup</button>
-                            
-                            <div id="setup-feedback"></div>
                         </form>
+                        
+                        <div id="feedback" class="feedback"></div>
                     </div>
+                </div>
+                
+                <div class="setup-footer">
+                    <p>&copy; ${new Date().getFullYear()} Puter Technologies Inc.</p>
                 </div>
             </div>
             
             <script>
                 document.addEventListener('DOMContentLoaded', function() {
-                    // Handle radio button styling
-                    function setupRadioGroup(groupId) {
-                        const radioGroup = document.getElementById(groupId);
-                        const radioItems = radioGroup.querySelectorAll('.radio-item');
-                        
-                        radioItems.forEach(item => {
-                            item.addEventListener('click', () => {
-                                // Remove checked class from all items
-                                radioItems.forEach(i => i.classList.remove('checked'));
-                                
-                                // Add checked class to the clicked item
-                                item.classList.add('checked');
-                                
-                                // Check the radio input
-                                const input = item.querySelector('input');
-                                input.checked = true;
-                                
-                                // Trigger change event
-                                const event = new Event('change');
-                                input.dispatchEvent(event);
-                            });
-                        });
+                    const form = document.getElementById('setupForm');
+                    const feedbackElement = document.getElementById('feedback');
+                    const reconfigMode = document.getElementById('reconfigMode').value === 'true';
+                    
+                    ${
+                      reconfigurationMode
+                        ? `// Add cancel button functionality in reconfiguration mode
+                      document.getElementById('cancel-btn').addEventListener('click', function() {
+                          window.location.href = '/';
+                      });
+                      
+                      // Add auth header to all requests in reconfiguration mode
+                      const adminToken = sessionStorage.getItem('adminReconfigToken');
+                      if (!adminToken) {
+                          window.location.href = '/__admin/reconfigure-ui';
+                      }`
+                        : ""
                     }
                     
-                    // Setup radio groups
-                    setupRadioGroup('subdomain-radio-group');
-                    setupRadioGroup('domain-radio-group');
-                    
-                    // Get user's IP for nip.io domain
-                    fetch('/__setup/status?token=${token}')
-                        .then(response => response.json())
-                        .then(data => {
-                            // If setup is completed, redirect to home
-                            if (data.setupCompleted) {
-                                window.location.href = '/';
-                            }
-                        });
-                    
-                    // Update nip.io preview
-                    const userIp = window.location.hostname.split(':')[0];
-                    document.getElementById('nipio-domain').textContent = userIp.replace(/\\./g, '-') + '.nip.io';
-                    
-                    // Toggle subdomain warning
-                    document.querySelector('input[name="subdomainBehavior"]').addEventListener('change', function(e) {
-                        const warningEl = document.getElementById('subdomain-warning');
-                        warningEl.style.display = e.target.value === 'disabled' ? 'block' : 'none';
-                    });
-                    
-                    // Toggle domain/nip.io inputs
-                    document.querySelector('input[name="domainType"]').addEventListener('change', function(e) {
-                        const domainInput = document.getElementById('domain-input');
-                        const nipioInfo = document.getElementById('nipio-info');
-                        
-                        if (e.target.value === 'domain') {
-                            domainInput.style.display = 'block';
-                            nipioInfo.style.display = 'none';
-                        } else {
-                            domainInput.style.display = 'none';
-                            nipioInfo.style.display = 'block';
-                        }
-                    });
-                    
+                    // Show feedback function
+                    function showFeedback(message, isSuccess) {
+                        feedbackElement.textContent = message;
+                        feedbackElement.className = isSuccess ? 'feedback success' : 'feedback error';
+                    }
+
                     // Form submission
-                    document.getElementById('setup-form').addEventListener('submit', function(e) {
-                        e.preventDefault();
+                    form.addEventListener('submit', function(event) {
+                        event.preventDefault();
                         
-                        // Validate form
-                        const adminPassword = document.getElementById('adminPassword').value;
-                        const confirmPassword = document.getElementById('confirmPassword').value;
+                        // Get form values
+                        const subdomainBehavior = document.querySelector('input[name="subdomainBehavior"]:checked').value;
                         const domainType = document.querySelector('input[name="domainType"]:checked').value;
-                        const domainName = document.getElementById('domainName').value;
+                        let domainName = '';
                         
-                        if (adminPassword !== confirmPassword) {
-                            showFeedback('Passwords do not match', false);
+                        if (domainType === 'domain') {
+                            domainName = document.getElementById('domainName').value.trim();
+                        }
+                        
+                        const adminPassword = document.getElementById('adminPassword').value.trim();
+                        
+                        // Validation
+                        if (adminPassword.length < 8) {
+                            showFeedback('Admin password must be at least 8 characters', false);
                             return;
                         }
                         
@@ -1244,7 +860,7 @@ class SetupService extends BaseService {
                         
                         // Prepare data for submission
                         const formData = {
-                            subdomainBehavior: document.querySelector('input[name="subdomainBehavior"]:checked').value,
+                            subdomainBehavior: subdomainBehavior,
                             domainName: domainName,
                             useNipIo: domainType === 'nipio',
                             adminPassword: adminPassword
@@ -1252,45 +868,62 @@ class SetupService extends BaseService {
                         
                         // Submit button loading state
                         const submitBtn = document.getElementById('submit-btn');
-                        submitBtn.textContent = 'Setting up...';
+                        submitBtn.textContent = reconfigMode ? 'Applying...' : 'Setting up...';
                         submitBtn.disabled = true;
                         
-                        // Submit configuration with token in headers
-                        fetch('/__setup/configure?token=' + token, {
+                        // Submit configuration with appropriate endpoint and headers
+                        const endpoint = reconfigMode ? '/__admin/reconfigure/submit' : '/__setup/configure';
+                        const headers = {
+                            'Content-Type': 'application/json'
+                        };
+                        
+                        // Add token to headers depending on mode
+                        if (reconfigMode) {
+                            headers['Authorization'] = 'Bearer ' + adminToken;
+                        } else if (token) {
+                            headers['X-Setup-Token'] = token;
+                        }
+                        
+                        fetch(reconfigMode ? endpoint : endpoint + (token ? '?token=' + token : ''), {
                             method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-Setup-Token': token
-                            },
+                            headers: headers,
                             body: JSON.stringify(formData)
                         })
                         .then(response => response.json())
                         .then(data => {
                             if (data.success) {
-                                showFeedback('Setup completed successfully! Redirecting...', true);
+                                showFeedback(reconfigMode ? 'Configuration updated successfully! Redirecting...' : 'Setup completed successfully! Redirecting...', true);
                                 setTimeout(() => {
-                                    // Use the current host instead of hardcoded localhost:4100
-                                    // Add a reload parameter to force a complete page reload that initializes WebSockets correctly
-                                    window.location.href = window.location.origin + '/?setup_complete=true';
+                                    // Use the current origin for both modes
+                                    window.location.href = window.location.origin;
                                 }, 2000);
                             } else {
-                                showFeedback('Error: ' + data.message, false);
-                                submitBtn.textContent = 'Complete Setup';
+                                showFeedback('Error: ' + (data.message || 'Unknown error'), false);
+                                submitBtn.textContent = reconfigMode ? 'Apply Changes' : 'Complete Setup';
                                 submitBtn.disabled = false;
                             }
                         })
                         .catch(error => {
                             showFeedback('Error: ' + error.message, false);
-                            submitBtn.textContent = 'Complete Setup';
+                            submitBtn.textContent = reconfigMode ? 'Apply Changes' : 'Complete Setup';
                             submitBtn.disabled = false;
                         });
                     });
                     
-                    function showFeedback(message, isSuccess) {
-                        const feedbackEl = document.getElementById('setup-feedback');
-                        feedbackEl.textContent = message;
-                        feedbackEl.className = isSuccess ? 'success' : 'error';
-                        feedbackEl.style.display = 'block';
+                    // Domain type change handler
+                    const domainTypeInputs = document.querySelectorAll('input[name="domainType"]');
+                    const domainNameField = document.getElementById('domainNameField');
+                    
+                    domainTypeInputs.forEach(input => {
+                        input.addEventListener('change', function() {
+                            domainNameField.style.display = this.value === 'domain' ? 'block' : 'none';
+                        });
+                    });
+                    
+                    // Initialize domain field visibility
+                    const selectedDomainType = document.querySelector('input[name="domainType"]:checked');
+                    if (selectedDomainType) {
+                        domainNameField.style.display = selectedDomainType.value === 'domain' ? 'block' : 'none';
                     }
                 });
             </script>
@@ -1298,318 +931,364 @@ class SetupService extends BaseService {
         </html>
     `;
 
-    // Return the HTML with all styles and content preserved
-    return html
-      .replace("/* Styles remain unchanged */", this.getWizardStyles())
-      .replace(
-        "<!-- Form content remains unchanged -->",
-        this.getWizardFormContent()
-      );
+    return html;
   }
 
-  // Extract styles to a separate method for better maintainability
+  /**
+   * Get the CSS styles for the wizard UI
+   */
   getWizardStyles() {
     return `
-            :root {
-                --background: #ffffff;
-                --foreground: #09090b;
-                
-                --card: #ffffff;
-                --card-foreground: #09090b;
-                
-                --popover: #ffffff;
-                --popover-foreground: #09090b;
-                
-                --primary: #18181b;
-                --primary-foreground: #f8fafc;
-                
-                --secondary: #f1f5f9;
-                --secondary-foreground: #0f172a;
-                
-                --muted: #f1f5f9;
-                --muted-foreground: #64748b;
-                
-                --accent: #f1f5f9;
-                --accent-foreground: #0f172a;
-                
-                --destructive: #ef4444;
-                --destructive-foreground: #f8fafc;
-                
-                --border: #e2e8f0;
-                --input: #e2e8f0;
-                --ring: #0f172a;
-                
-                --radius: 0.5rem;
-            }
-            
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }
-            
-            body {
-                font-family: 'Inter', sans-serif;
-                background-color: #f9fafb;
-                color: var(--foreground);
-                line-height: 1.5;
-            }
-            
-            .container {
-                max-width: 550px;
-                margin: 2rem auto;
-                padding: 1.5rem;
-            }
-            
-            .card {
-                background-color: var(--card);
-                border-radius: var(--radius);
-                box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.08);
-                overflow: hidden;
-            }
-            
-            .card-header {
-                padding: 1.5rem;
-                border-bottom: 1px solid var(--border);
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                text-align: center;
-            }
-            
-            .logo {
-                display: flex;
-                justify-content: center;
-                margin-bottom: 1rem;
-            }
-            
-            .logo img {
-                height: 40px;
-            }
-            
-            h1 {
-                font-size: 1.5rem;
-                font-weight: 600;
-                color: var(--foreground);
-                margin-bottom: 0.5rem;
-            }
-            
-            .description {
-                font-size: 0.875rem;
-                color: var(--muted-foreground);
-                max-width: 500px;
-                margin: 0 auto;
-            }
-            
-            .card-content {
-                padding: 1.5rem;
-            }
-            
-            .setup-form {
-                display: flex;
-                flex-direction: column;
-                gap: 1.5rem;
-            }
-            
-            .form-group {
-                display: flex;
-                flex-direction: column;
-                gap: 0.75rem;
-            }
-            
-            .form-group h2 {
-                font-size: 0.875rem;
-                font-weight: 600;
-                color: var(--foreground);
-            }
-            
-            .label {
-                font-size: 0.875rem;
-                font-weight: 500;
-                color: var(--foreground);
-            }
-            
-            .input {
-                display: flex;
-                height: 2.5rem;
-                width: 100%;
-                border-radius: var(--radius);
-                border: 1px solid var(--input);
-                background-color: transparent;
-                padding: 0.5rem 0.75rem;
-                font-size: 0.875rem;
-                transition: border 0.2s ease;
-            }
-            
-            .input:focus {
-                outline: none;
-                border-color: var(--ring);
-                box-shadow: 0 0 0 1px var(--ring);
-            }
-            
-            .radio-group {
-                display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                gap: 0.5rem;
-            }
-            
-            .radio-item {
-                display: flex;
-                align-items: center;
-                gap: 0.5rem;
-                padding: 0.5rem;
-                border-radius: var(--radius);
-                border: 1px solid var(--border);
-                cursor: pointer;
-                transition: all 0.2s ease;
-            }
-            
-            .radio-item:hover {
-                background-color: var(--accent);
-            }
-            
-            .radio-item.checked {
-                border-color: var(--primary);
-                background-color: var(--accent);
-            }
-            
-            .radio-item input {
-                display: none;
-            }
-            
-            .radio-item .radio-button {
-                width: 16px;
-                height: 16px;
-                border-radius: 50%;
-                border: 1px solid var(--muted-foreground);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            
-            .radio-item.checked .radio-button {
-                border-color: var(--primary);
-            }
-            
-            .radio-item.checked .radio-button::after {
-                content: "";
-                width: 8px;
-                height: 8px;
-                border-radius: 50%;
-                background-color: var(--primary);
-            }
-            
-            .radio-item .radio-label {
-                font-size: 0.875rem;
-                font-weight: 500;
-            }
-            
-            .alert {
-                border-radius: var(--radius);
-                padding: 0.75rem;
-                font-size: 0.875rem;
-                margin-top: 0.75rem;
-                display: flex;
-                gap: 0.5rem;
-                align-items: flex-start;
-            }
-            
-            .alert-warning {
-                background-color: #fff7ed;
-                border: 1px solid #ffedd5;
-                color: #c2410c;
-            }
-            
-            .alert-icon {
-                flex-shrink: 0;
-                margin-top: 0.125rem;
-            }
-            
-            .conditional {
-                margin-top: 0.75rem;
-            }
-            
-            .button {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                border-radius: var(--radius);
-                font-size: 0.875rem;
-                font-weight: 500;
-                height: 2.5rem;
-                padding-left: 1rem;
-                padding-right: 1rem;
-                transition: all 0.2s ease;
-                cursor: pointer;
-            }
-            
-            .button-primary {
-                background-color: var(--primary);
-                color: var(--primary-foreground);
-                border: none;
-            }
-            
-            .button-primary:hover {
-                opacity: 0.9;
-            }
-            
-            .button-primary:active {
-                opacity: 0.8;
-            }
-            
-            #setup-feedback {
-                margin-top: 1rem;
-                padding: 0.75rem;
-                border-radius: var(--radius);
-                font-size: 0.875rem;
-                display: none;
-            }
-            
-            .success {
-                background-color: #ecfdf5;
-                border: 1px solid #a7f3d0;
-                color: #065f46;
-            }
-            
-            .error {
-                background-color: #fef2f2;
-                border: 1px solid #fecaca;
-                color: #b91c1c;
-            }
-            
-            .divider {
-                height: 1px;
-                width: 100%;
-                background-color: var(--border);
-                margin: 1.5rem 0;
-            }
+    /* Modern CSS for Setup Wizard */
+    :root {
+      --primary: #4361ee;
+      --primary-hover: #3a56d4;
+      --secondary: #6c757d;
+      --secondary-hover: #5a6268;
+      --success: #2ecc71;
+      --warning: #f39c12;
+      --danger: #e74c3c;
+      --light: #f8f9fa;
+      --dark: #343a40;
+      --white: #ffffff;
+      --border: #e0e0e0;
+      --text: #333333;
+      --text-light: #6c757d;
+      --radius: 0.375rem;
+      --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      --transition: all 0.3s ease;
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+      background-color: #f5f7fa;
+      color: var(--text);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    
+    .setup-container {
+      max-width: 640px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+    }
+    
+    .setup-header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    
+    .setup-header .logo {
+      height: 50px;
+      margin-bottom: 1rem;
+    }
+    
+    .setup-header h1 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      color: var(--dark);
+      margin-bottom: 0.5rem;
+    }
+    
+    .setup-content {
+      margin-bottom: 2rem;
+    }
+    
+    .setup-card {
+      background-color: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 2rem;
+    }
+    
+    .setup-footer {
+      text-align: center;
+      color: var(--text-light);
+      font-size: 0.875rem;
+    }
+    
+    .form-section {
+      margin-bottom: 1.5rem;
+    }
+    
+    .form-section h2 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+    }
+    
+    .form-divider {
+      height: 1px;
+      background-color: var(--border);
+      margin: 1.5rem 0;
+    }
+    
+    .form-group {
+      margin-bottom: 1rem;
+    }
+    
+    .form-group label {
+      display: block;
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+    }
+    
+    .input-field {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      font-size: 1rem;
+      line-height: 1.5;
+      color: var(--text);
+      background-color: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      transition: var(--transition);
+    }
+    
+    .input-field:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.25);
+    }
+    
+    .form-hint {
+      font-size: 0.875rem;
+      color: var(--text-light);
+      margin-top: 0.5rem;
+    }
+    
+    .radio-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    
+    .radio-label {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: var(--transition);
+    }
+    
+    .radio-label:hover {
+      background-color: #f9fafb;
+    }
+    
+    .radio-label input[type="radio"] {
+      margin-right: 0.75rem;
+    }
+    
+    .radio-text {
+      font-weight: 500;
+    }
+    
+    .btn {
+      display: inline-block;
+      font-weight: 500;
+      text-align: center;
+      white-space: nowrap;
+      vertical-align: middle;
+      user-select: none;
+      border: 1px solid transparent;
+      padding: 0.75rem 1.5rem;
+      font-size: 1rem;
+      line-height: 1.5;
+      border-radius: var(--radius);
+      transition: var(--transition);
+      cursor: pointer;
+    }
+    
+    .btn-primary {
+      color: var(--white);
+      background-color: var(--primary);
+      border-color: var(--primary);
+    }
+    
+    .btn-primary:hover {
+      background-color: var(--primary-hover);
+      border-color: var(--primary-hover);
+    }
+    
+    .btn-secondary {
+      color: var(--white);
+      background-color: var(--secondary);
+      border-color: var(--secondary);
+      margin-left: 0.5rem;
+    }
+    
+    .btn-secondary:hover {
+      background-color: var(--secondary-hover);
+      border-color: var(--secondary-hover);
+    }
+    
+    .btn:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+    
+    .feedback {
+      margin-top: 1rem;
+      padding: 1rem;
+      border-radius: var(--radius);
+      font-size: 0.875rem;
+      display: none;
+    }
+    
+    .feedback.success {
+      display: block;
+      color: #155724;
+      background-color: #d4edda;
+      border: 1px solid #c3e6cb;
+    }
+    
+    .feedback.error {
+      display: block;
+      color: #721c24;
+      background-color: #f8d7da;
+      border: 1px solid #f5c6cb;
+    }
+    
+    .form-helper {
+      margin-top: 0.75rem;
+      font-size: 0.875rem;
+    }
+    
+    .form-helper.hidden {
+      display: none;
+    }
+    
+    .form-helper.visible {
+      display: block;
+    }
+    
+    .warning-message {
+      padding: 0.75rem;
+      background-color: #fff8e5;
+      border: 1px solid #ffe9a8;
+      border-radius: var(--radius);
+      display: flex;
+      align-items: flex-start;
+    }
+    
+    .warning-icon {
+      margin-right: 0.5rem;
+      font-size: 1rem;
+    }
+    
+    .info-message {
+      padding: 0.75rem;
+      background-color: #e6f7ff;
+      border: 1px solid #b8e2fd;
+      border-radius: var(--radius);
+      display: flex;
+      align-items: flex-start;
+    }
+    
+    .info-icon {
+      margin-right: 0.5rem;
+      font-size: 1rem;
+    }
+    
+    .reconfiguration-warning {
+      padding: 0.75rem;
+      margin-bottom: 1.5rem;
+      background-color: #ffedde;
+      border: 1px solid #ffd0a8;
+      border-radius: var(--radius);
+      color: #8a4500;
+      font-weight: 500;
+    }
+    
+    @media (min-width: 640px) {
+      .radio-group {
+        flex-direction: row;
+      }
+      
+      .radio-label {
+        flex: 1;
+      }
+    }
     `;
   }
 
   // Extract form content to a separate method for better maintainability
-  getWizardFormContent() {
-    let html = "";
+  getWizardFormContent(currentConfig = {}) {
+    // Get current values or defaults
+    const subdomainBehavior =
+      currentConfig.experimental_no_subdomain === true ? "disabled" : "enabled";
+    const useNipIo = currentConfig.useNipIo === true;
+    const domainName = currentConfig.domain || "";
 
-    // Generate HTML for each configuration step
-    this.configSteps.forEach((step, index) => {
-      html += `
-        <div class="form-group" data-step-id="${step.id}">
-          <h2>${step.title}</h2>
-          ${step.description ? `<p class="step-description">${step.description}</p>` : ""}
-          ${step.template}
+    return `
+    <div class="form-section">
+        <h2>Subdomain Configuration</h2>
+        <div class="radio-group">
+            <label class="radio-label">
+                <input type="radio" name="subdomainBehavior" value="enabled" ${subdomainBehavior === "enabled" ? "checked" : ""}>
+                <span class="radio-text">Enabled (Recommended)</span>
+            </label>
+            <label class="radio-label">
+                <input type="radio" name="subdomainBehavior" value="disabled" ${subdomainBehavior === "disabled" ? "checked" : ""}>
+                <span class="radio-text">Disabled</span>
+            </label>
         </div>
-        ${index < this.configSteps.length - 1 ? '<div class="divider"></div>' : ""}
-      `;
-    });
-
-    // Add the submit button and feedback area
-    html += `
-      <div class="divider"></div>
-      <button type="submit" id="submit-btn" class="button button-primary">Complete Setup</button>
-      <div id="setup-feedback"></div>
+        
+        <div class="form-helper ${subdomainBehavior === "disabled" ? "visible" : "hidden"}" id="subdomain-warning">
+            <div class="warning-message">
+                <span class="warning-icon">⚠️</span>
+                <span>Disabling subdomains makes your deployment less secure. Only use this option if your hosting environment does not support subdomains.</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="form-divider"></div>
+    
+    <div class="form-section">
+        <h2>Domain Configuration</h2>
+        <div class="radio-group">
+            <label class="radio-label">
+                <input type="radio" name="domainType" value="domain" ${!useNipIo ? "checked" : ""}>
+                <span class="radio-text">Custom Domain</span>
+            </label>
+            <label class="radio-label">
+                <input type="radio" name="domainType" value="nipio" ${useNipIo ? "checked" : ""}>
+                <span class="radio-text">Use nip.io (IP-based)</span>
+            </label>
+        </div>
+        
+        <div class="form-group" id="domainNameField" style="display: ${!useNipIo ? "block" : "none"}">
+            <label for="domainName">Domain Name</label>
+            <input type="text" id="domainName" class="input-field" placeholder="e.g., yourdomain.com" value="${domainName}">
+        </div>
+        
+        <div class="form-helper" id="nip-io-info" style="display: ${useNipIo ? "block" : "none"}">
+            <div class="info-message">
+                <span class="info-icon">ℹ️</span>
+                <span>Using nip.io will create a domain based on your server's IP address.</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="form-divider"></div>
+    
+    <div class="form-section">
+        <h2>Admin Password</h2>
+        <div class="form-group">
+            <label for="adminPassword">Password</label>
+            <input type="password" id="adminPassword" class="input-field" placeholder="Enter admin password">
+            <p class="form-hint">Leave blank to keep the current password</p>
+        </div>
+    </div>
     `;
-
-    return html;
   }
 
   // Templates for default configuration steps
@@ -2008,33 +1687,9 @@ class SetupService extends BaseService {
       order: 10,
       template: this.getSubdomainStepTemplate(),
       process: async (data) => {
-        // If the user chose to disable subdomains, we need to configure the system accordingly
-        const disableSubdomains = data.subdomainBehavior === "disabled";
-
-        // Create config object for subdomain settings
-        const config = {
-          experimental_no_subdomain: disableSubdomains,
+        return {
+          experimental_no_subdomain: data.subdomainBehavior === "disabled",
         };
-
-        // Additional configuration for WebSocket connections
-        if (disableSubdomains) {
-          this.safeLog(
-            "info",
-            "Subdomains disabled, configuring WebSocket to use main domain"
-          );
-          // When subdomains are disabled, WebSocket should connect to the main domain
-          config.websocket_host = "";
-          config.api_subdomain = "";
-        } else {
-          this.safeLog(
-            "info",
-            "Subdomains enabled, configuring WebSocket for api subdomain"
-          );
-          // When subdomains are enabled, make sure the api subdomain is configured
-          config.api_subdomain = "api";
-        }
-
-        return config;
       },
     });
 
@@ -2047,20 +1702,11 @@ class SetupService extends BaseService {
       order: 20,
       template: this.getDomainStepTemplate(),
       process: async (data, req) => {
-        // Determine the domain based on user selection
-        const domain = data.useNipIo
-          ? `${req.ip.replace(/\./g, "-")}.nip.io`
-          : data.domainName;
-
-        // Create the config object with the domain
-        const config = {
-          domain: domain,
+        return {
+          domain: data.useNipIo
+            ? `${req.ip.replace(/\./g, "-")}.nip.io`
+            : data.domainName,
         };
-
-        // Store the determined domain for other configuration steps
-        this.setupDomain = domain;
-
-        return config;
       },
     });
 
@@ -2139,51 +1785,6 @@ class SetupService extends BaseService {
         return {};
       },
     });
-
-    // Add a final configuration step to handle WebSocket and other remaining settings
-    this.registerConfigStep({
-      id: "finalization",
-      title: "Finalization",
-      description: "Complete the setup with final configuration settings",
-      required: true,
-      order: 40, // Run after all other steps
-      template: "", // No UI template needed
-      process: async (data) => {
-        const config = {};
-
-        // Use the domain from the domain step
-        const domain = this.setupDomain || "localhost";
-
-        // Configure WebSocket settings based on subdomain behavior
-        const disableSubdomains = data.subdomainBehavior === "disabled";
-
-        if (disableSubdomains) {
-          this.safeLog(
-            "info",
-            `Configuring WebSocket for no-subdomain mode with domain: ${domain}`
-          );
-          config.websocket_host = domain;
-
-          // Additional settings for no-subdomain mode
-          config.origin = `http://${domain}`;
-          config.api_origin = `http://${domain}`;
-        } else {
-          this.safeLog(
-            "info",
-            `Configuring WebSocket for subdomain mode with domain: ${domain}`
-          );
-          config.api_subdomain = "api";
-          config.websocket_host = `api.${domain}`;
-
-          // Additional settings for subdomain mode
-          config.origin = `http://${domain}`;
-          config.api_origin = `http://api.${domain}`;
-        }
-
-        this.safeLog("info", "Final configuration:", config);
-        return config;
-      },
-    });
   }
 
   /**
@@ -2220,13 +1821,27 @@ class SetupService extends BaseService {
   /**
    * Process all configuration steps with the provided data
    */
-  async processConfigSteps(data, req) {
+  async processConfigSteps(data, req, isReconfigMode = false) {
     let config = {};
 
     // Process each step in order
     for (const step of this.configSteps) {
       try {
         this.safeLog("info", `Processing configuration step: ${step.id}`);
+
+        // Skip admin password update in reconfiguration mode if password is empty
+        if (
+          isReconfigMode &&
+          step.id === "adminPassword" &&
+          (!data.adminPassword || data.adminPassword.trim() === "")
+        ) {
+          this.safeLog(
+            "info",
+            "Admin password empty in reconfiguration mode, skipping password update"
+          );
+          continue;
+        }
+
         const stepConfig = await step.process.call(this, data, req);
         config = { ...config, ...stepConfig };
       } catch (error) {
@@ -2333,52 +1948,428 @@ class SetupService extends BaseService {
   }
 
   /**
-   * Restart services after setup to apply new configuration
+   * Install routes for admin reconfiguration access
+   * This allows admin users to return to the setup wizard after initial setup
    */
-  async restartServicesAfterSetup() {
-    this.safeLog("info", "Restarting services after setup");
+  _installAdminReconfigEndpoints() {
+    // Get app instance
+    const app = this.app;
+    if (!app) return;
 
+    // Create a direct access endpoint that simply redirects to the reconfiguration UI
+    app.get("/__admin", (req, res) => {
+      res.redirect("/__admin/reconfigure-ui");
+    });
+
+    // Admin reconfiguration page
+    Endpoint({
+      route: "/__admin/reconfigure",
+      methods: ["GET"],
+      handler: async (req, res) => {
+        try {
+          // Check if the user is authenticated as admin
+          const adminUsername = "admin";
+          const authHeader = req.headers.authorization;
+
+          if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            return res.status(401).json({
+              success: false,
+              message: "Admin authentication required",
+            });
+          }
+
+          const token = authHeader.split(" ")[1];
+
+          // Verify the admin credentials
+          const isAdmin = await this._verifyAdminCredentials(token);
+          if (!isAdmin) {
+            return res.status(403).json({
+              success: false,
+              message: "Admin authentication failed",
+            });
+          }
+
+          // Load current configuration
+          const currentConfig = await this._loadCurrentConfig();
+
+          // Generate the setup wizard HTML with reconfiguration mode
+          res.send(this.getSetupWizardHTML("", true, currentConfig));
+        } catch (error) {
+          this.safeLog("error", "Error in admin reconfiguration page", error);
+          res.status(500).json({
+            success: false,
+            message: "An error occurred",
+            error: error.message,
+          });
+        }
+      },
+    }).attach(app);
+
+    // Admin reconfiguration submit endpoint
+    Endpoint({
+      route: "/__admin/reconfigure/submit",
+      methods: ["POST"],
+      handler: async (req, res) => {
+        try {
+          // Check if the user is authenticated as admin
+          const adminUsername = "admin";
+          const authHeader = req.headers.authorization;
+
+          if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            return res.status(401).json({
+              success: false,
+              message: "Admin authentication required",
+            });
+          }
+
+          const token = authHeader.split(" ")[1];
+
+          // Verify the admin credentials
+          const isAdmin = await this._verifyAdminCredentials(token);
+          if (!isAdmin) {
+            return res.status(403).json({
+              success: false,
+              message: "Admin authentication failed",
+            });
+          }
+
+          // Process configuration in reconfiguration mode
+          const config = await this.processConfigSteps(req.body, req, true);
+
+          // Apply configuration
+          await this.updateConfig(config);
+
+          // Don't mark setup as completed again - it's already complete
+          // Just return success
+          return res.json({
+            success: true,
+            message: "Configuration updated successfully",
+          });
+        } catch (error) {
+          this.safeLog("error", "Error in admin reconfiguration submit", error);
+          res.status(500).json({
+            success: false,
+            message: "An error occurred",
+            error: error.message,
+          });
+        }
+      },
+    }).attach(app);
+
+    // Generate admin access token endpoint
+    Endpoint({
+      route: "/__admin/reconfigure/token",
+      methods: ["POST"],
+      handler: async (req, res) => {
+        try {
+          // Verify admin password
+          const { password } = req.body;
+          if (!password) {
+            return res.status(400).json({
+              success: false,
+              message: "Admin password is required",
+            });
+          }
+
+          // Get admin user
+          const adminUser = await get_user({
+            username: "admin",
+            cached: false,
+          });
+          if (!adminUser) {
+            return res.status(404).json({
+              success: false,
+              message: "Admin user not found",
+            });
+          }
+
+          // Verify password
+          const bcrypt = require("bcrypt");
+          const passwordCorrect = await bcrypt.compare(
+            password,
+            adminUser.password
+          );
+          if (!passwordCorrect) {
+            return res.status(401).json({
+              success: false,
+              message: "Invalid admin password",
+            });
+          }
+
+          // Generate token
+          const crypto = require("crypto");
+          const adminToken = crypto.randomBytes(32).toString("hex");
+
+          // Store token (temporarily) - in a real implementation, you'd use a proper session mechanism
+          this._storeAdminToken(adminToken, adminUser.id);
+
+          // Return the token
+          return res.json({
+            success: true,
+            token: adminToken,
+          });
+        } catch (error) {
+          this.safeLog("error", "Error generating admin token", error);
+          res.status(500).json({
+            success: false,
+            message: "An error occurred",
+            error: error.message,
+          });
+        }
+      },
+    }).attach(app);
+
+    // Admin reconfiguration UI access endpoint
+    Endpoint({
+      route: "/__admin/reconfigure-ui",
+      methods: ["GET"],
+      handler: async (req, res) => {
+        res.send(this.getAdminReconfigUI());
+      },
+    }).attach(app);
+  }
+
+  /**
+   * Store admin token temporarily
+   * In a production environment, this should use a more robust session mechanism
+   */
+  _storeAdminToken(token, userId) {
+    // Initialize token store if not exists
+    if (!this._adminTokens) {
+      this._adminTokens = new Map();
+    }
+
+    // Store token with expiration (30 minutes)
+    this._adminTokens.set(token, {
+      userId,
+      expires: Date.now() + 30 * 60 * 1000, // 30 minutes
+    });
+
+    // Cleanup expired tokens periodically
+    if (!this._tokenCleanupInterval) {
+      this._tokenCleanupInterval = setInterval(() => {
+        if (!this._adminTokens) return;
+
+        const now = Date.now();
+        for (const [token, data] of this._adminTokens.entries()) {
+          if (data.expires < now) {
+            this._adminTokens.delete(token);
+          }
+        }
+      }, 60 * 1000); // Cleanup every minute
+    }
+  }
+
+  /**
+   * Verify admin credentials using the token
+   */
+  async _verifyAdminCredentials(token) {
+    if (!this._adminTokens) return false;
+
+    // Check if token exists and is valid
+    const tokenData = this._adminTokens.get(token);
+    if (!tokenData) return false;
+
+    // Check if token is expired
+    if (tokenData.expires < Date.now()) {
+      this._adminTokens.delete(token);
+      return false;
+    }
+
+    // Check if the user is admin
+    const user = await get_user({ id: tokenData.userId, cached: false });
+    return user && user.username === "admin";
+  }
+
+  /**
+   * Load the current configuration
+   */
+  async _loadCurrentConfig() {
     try {
-      // Get the event emitter from the service manager
-      const events = this.services.events;
-      if (!events) {
-        this.safeLog(
-          "warn",
-          "Event emitter not found, cannot signal service restart"
-        );
-        return;
+      // Load from configuration file
+      const configDir = path.join(process.cwd(), "config");
+      const configPath = path.join(configDir, "wizard-config.json");
+
+      let config = {};
+      try {
+        if (fs.existsSync(configPath)) {
+          const configData = await fsPromises.readFile(configPath, "utf8");
+          config = JSON.parse(configData);
+        }
+      } catch (err) {
+        this.safeLog("warn", "Failed to load existing configuration", err);
       }
 
-      // Signal configuration change to relevant services
-      this.safeLog("info", "Signaling configuration change to services");
-      events.emit("config:updated", { source: "setup-wizard" });
-
-      // Restart specific services if needed
-      const socketService = this.services.get("socket");
-      if (socketService && typeof socketService.restart === "function") {
-        this.safeLog("info", "Restarting socket service");
-        await socketService.restart();
-      }
-
-      // Restart the API service if it exists
-      const apiService = this.services.get("api");
-      if (apiService && typeof apiService.restart === "function") {
-        this.safeLog("info", "Restarting API service");
-        await apiService.restart();
-      }
-
-      // Restart the web server if needed
-      const webServer = this.services.get("webserver");
-      if (webServer && typeof webServer.reload === "function") {
-        this.safeLog("info", "Reloading web server configuration");
-        await webServer.reload();
-      }
-
-      this.safeLog("info", "Service restart process completed");
-      return true;
+      return config;
     } catch (error) {
-      this.safeLog("error", "Error restarting services", error);
-      throw error;
+      this.safeLog("error", "Error loading current configuration", error);
+      return {};
+    }
+  }
+
+  /**
+   * Get admin reconfiguration UI
+   * This is a simple page with a form to enter admin password and access the reconfiguration
+   */
+  getAdminReconfigUI() {
+    return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Puter Admin Reconfiguration</title>
+        <style>
+        ${this.getWizardStyles()}
+        </style>
+    </head>
+    <body>
+        <div class="setup-container">
+            <div class="setup-header">
+                <img src="/assets/images/puter-logo.svg" alt="Puter Logo" class="logo">
+                <h1>Admin Reconfiguration</h1>
+            </div>
+            
+            <div class="setup-content">
+                <div class="setup-card">
+                    <h2>Access Setup Wizard</h2>
+                    <p>Enter your admin password to access the setup wizard and reconfigure your Puter instance.</p>
+                    
+                    <div class="form-group">
+                        <label for="adminPassword">Admin Password</label>
+                        <input type="password" id="adminPassword" class="input-field" placeholder="Enter admin password">
+                    </div>
+                    
+                    <div class="form-group">
+                        <button id="accessBtn" class="btn btn-primary">Access Reconfiguration</button>
+                    </div>
+                    
+                    <div id="feedback" class="feedback"></div>
+                </div>
+            </div>
+            
+            <div class="setup-footer">
+                <p>&copy; ${new Date().getFullYear()} Puter Technologies Inc.</p>
+            </div>
+        </div>
+        
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const accessBtn = document.getElementById('accessBtn');
+            const adminPasswordInput = document.getElementById('adminPassword');
+            const feedbackEl = document.getElementById('feedback');
+            
+            function showFeedback(message, isSuccess) {
+                feedbackEl.textContent = message;
+                feedbackEl.className = isSuccess ? 'feedback success' : 'feedback error';
+            }
+            
+            accessBtn.addEventListener('click', async function() {
+                const adminPassword = adminPasswordInput.value.trim();
+                
+                if (!adminPassword) {
+                    showFeedback('Please enter your admin password', false);
+                    return;
+                }
+                
+                // Disable the button and show loading state
+                accessBtn.disabled = true;
+                accessBtn.textContent = 'Verifying...';
+                
+                try {
+                    // Request admin token
+                    const tokenResponse = await fetch('/__admin/reconfigure/token', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ password: adminPassword })
+                    });
+                    
+                    const tokenData = await tokenResponse.json();
+                    
+                    if (tokenData.success) {
+                        // Store token in session storage
+                        sessionStorage.setItem('adminReconfigToken', tokenData.token);
+                        
+                        // Redirect to reconfiguration page
+                        showFeedback('Access granted! Redirecting...', true);
+                        setTimeout(() => {
+                            window.location.href = '/__admin/reconfigure';
+                        }, 1000);
+                    } else {
+                        showFeedback('Error: ' + (tokenData.message || 'Authentication failed'), false);
+                        accessBtn.disabled = false;
+                        accessBtn.textContent = 'Access Reconfiguration';
+                    }
+                } catch (error) {
+                    showFeedback('Error: ' + error.message, false);
+                    accessBtn.disabled = false;
+                    accessBtn.textContent = 'Access Reconfiguration';
+                }
+            });
+            
+            // Allow pressing Enter to submit
+            adminPasswordInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    accessBtn.click();
+                }
+            });
+        });
+        </script>
+    </body>
+    </html>
+    `;
+  }
+
+  /**
+   * Hook that runs when the webserver is ready
+   */
+  async ["__on_ready.webserver"]() {
+    this.log.info("Setup Service ready");
+
+    // Shows a notification to the admin user about the reconfiguration feature
+    this._showAdminNotification();
+  }
+
+  /**
+   * Shows a notification to the admin user about the reconfiguration feature
+   * This is called when the webserver is ready
+   */
+  _showAdminNotification() {
+    try {
+      // Add a console log message for admins
+      console.log(
+        "============================================================"
+      );
+      console.log("💡 Admin Reconfiguration Feature Available 💡");
+      console.log(
+        "Access the setup wizard reconfiguration from your Account settings"
+      );
+      console.log(
+        "(Look for 'Admin Configuration' at the bottom of the Account tab)"
+      );
+      console.log(
+        "============================================================"
+      );
+
+      // Try to find the dev-console service for better visibility
+      const devConsole = this.services.get("dev-console");
+      if (devConsole && typeof devConsole.add_widget === "function") {
+        // Create a widget for the admin notification
+        const adminReconfigWidget = () => {
+          return [
+            "Admin Reconfiguration Feature Available",
+            "Access via Account settings tab",
+            "",
+          ];
+        };
+
+        // Add widget to dev console
+        devConsole.add_widget(adminReconfigWidget);
+      }
+    } catch (error) {
+      this.safeLog("error", "Failed to show admin notification", error);
     }
   }
 }
