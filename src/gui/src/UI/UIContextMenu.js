@@ -460,9 +460,12 @@ function UIContextMenu(options){
             
         for(let i=0; i < options.items.length; i++){
             // item
+
             if(!options.items[i].is_divider && options.items[i] !== '-'){
+               
                 // single item
                 if(options.items[i].items === undefined){
+
                     h += `<li data-action="${i}" 
                             class="context-menu-item ${options.items[i].disabled ? ' context-menu-item-disabled' : ''}"
                             >`;
