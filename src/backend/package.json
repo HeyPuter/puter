@@ -5,7 +5,7 @@
   "main": "exports.js",
   "scripts": {
     "test": "npx mocha src/**/*.test.js && node ./tools/test.js",
-    "start-with-setup": "node start-with-setup.js"
+    "start": "node src/index.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.26.1",
