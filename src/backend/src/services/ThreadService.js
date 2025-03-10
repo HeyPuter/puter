@@ -126,7 +126,7 @@ class ThreadService extends BaseService {
         this.socket_subs_ = {};
 
         const svc_event = this.services.get('event');
-        svc_event.on('web.socket.user-connected', async (_, { socket }) => {
+        svc_event.on('web.socket.connected', async (_, { socket }) => {
             socket.on('disconnect', () => {
                 for ( const uid in this.socket_subs_ ) {
                     this.socket_subs_[uid].delete(socket.id);
@@ -156,7 +156,7 @@ class ThreadService extends BaseService {
         await svc_socketio.send(
             Array.from(this.socket_subs_[uid]).map(socket => ({ socket })),
             'thread.' + action,
-            data,
+            { ...data, subscription: uid },
         );
     }
 

@@ -49,6 +49,8 @@ class PermissionAPIService extends BaseService {
         app.use(require('../routers/auth/get-user-app-token'))
         app.use(require('../routers/auth/grant-user-app'))
         app.use(require('../routers/auth/revoke-user-app'))
+        app.use(require('../routers/auth/grant-dev-app'))
+        app.use(require('../routers/auth/revoke-dev-app'))
         app.use(require('../routers/auth/grant-user-user'));
         app.use(require('../routers/auth/revoke-user-user'));
         app.use(require('../routers/auth/grant-user-group'));

@@ -401,6 +401,57 @@ const PERMISSION_SCANNERS = [
             }
         }
     },
+    {
+        name: 'user-app',
+        documentation: `
+            If the actor is an app, this scans for permissions granted to the app
+            because any other user has the permission and granted it to the app
+            for all users of the app.
+        `,
+        async scan (a) {
+            const { reading, actor, permission_options } = a.values();
+            if ( !(actor.type instanceof AppUnderUserActorType)  ) {
+                return;
+            }
+            const db = a.iget('db');
+            
+            let sql_perm = permission_options.map(() =>
+                `\`permission\` = ?`).join(' OR ');
+            if ( permission_options.length > 1 ) sql_perm = '(' + sql_perm + ')';
+            
+            // SELECT permission
+            const rows = await db.read(
+                'SELECT * FROM `dev_to_app_permissions` ' +
+                'WHERE `app_id` = ? AND ' +
+                sql_perm,
+                [
+                    actor.type.app.id,
+                    ...permission_options,
+                ]
+            );
+            
+            if ( rows[0] ) {
+                const row = rows[0];
+                row.extra = db.case({
+                    mysql: () => row.extra,
+                    otherwise: () => JSON.parse(row.extra ?? '{}')
+                })();
+                const issuer_user = await get_user({ id: row.user_id });
+                const issuer_actor = Actor.adapt(issuer_user);
+                const issuer_reading = await a.icall('scan', issuer_actor, row.permission);
+                const has_terminal = reading_has_terminal({ reading: issuer_reading });
+                reading.push({
+                    $: 'path',
+                    via: 'dev-app',
+                    permission: row.permission,
+                    has_terminal,
+                    data: row.extra,
+                    issuer_username: actor.type.user.username,
+                    reading: issuer_reading,
+                });
+            }
+        }
+    },
 ];
 
 module.exports = {
