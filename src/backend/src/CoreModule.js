@@ -254,6 +254,10 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { PuterVersionService } = require('./services/PuterVersionService');
     services.registerService('puter-version', PuterVersionService);
 
+    // Register Redis service
+    const { RedisService } = require('./services/RedisService');
+    services.registerService('redis', RedisService, config.services.redis || {});
+
     const { SessionService } = require('./services/SessionService');
     services.registerService('session', SessionService);
 
