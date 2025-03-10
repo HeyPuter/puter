@@ -36,6 +36,11 @@ class SetupService extends BaseService {
 
   async _init() {
     this.log.info("Initializing Setup Wizard Service");
+
+    // Register the default configuration steps
+    this.registerDefaultConfigSteps();
+
+    // Check if setup is completed
     this.setupCompleted = await this.isSetupCompleted();
 
     if (!this.setupCompleted) {
@@ -46,11 +51,19 @@ class SetupService extends BaseService {
   }
 
   /**
-   * Check if the setup wizard has already been completed
+   * Helper method for safe logging
+   */
+  safeLog(level, message, data) {
+    if (this.log && typeof this.log[level] === "function") {
+      this.log[level](message, data);
+    }
+  }
+
+  /**
+   * Check if setup has been completed
    */
   async isSetupCompleted() {
     try {
-      // Check if a setup completion marker exists
       const configPath = path.join(process.cwd(), "config", "setup-completed");
       await fs.access(configPath);
       return true;
@@ -66,20 +79,23 @@ class SetupService extends BaseService {
   async markSetupCompleted() {
     try {
       const configDir = path.join(process.cwd(), "config");
-      this.log.info(`Ensuring config directory exists at: ${configDir}`);
+      this.safeLog("info", `Ensuring config directory exists at: ${configDir}`);
 
       // Create config directory if it doesn't exist
       try {
         await fs.mkdir(configDir, { recursive: true });
-        this.log.info("Config directory created or already exists");
+        this.safeLog("info", "Config directory created or already exists");
       } catch (err) {
-        this.log.error("Error creating config directory", err);
+        this.safeLog("error", "Error creating config directory", err);
         // Continue anyway, as the error might be that the directory already exists
       }
 
       // Write a marker file to indicate setup is complete
       const setupCompletedPath = path.join(configDir, "setup-completed");
-      this.log.info(`Writing setup completed marker to: ${setupCompletedPath}`);
+      this.safeLog(
+        "info",
+        `Writing setup completed marker to: ${setupCompletedPath}`
+      );
 
       try {
         await fs.writeFile(
@@ -87,15 +103,18 @@ class SetupService extends BaseService {
           new Date().toISOString(),
           "utf8"
         );
-        this.log.info("Setup completed marker file written successfully");
+        this.safeLog(
+          "info",
+          "Setup completed marker file written successfully"
+        );
         this.setupCompleted = true;
         return true;
       } catch (writeErr) {
-        this.log.error("Error writing setup-completed file", writeErr);
+        this.safeLog("error", "Error writing setup-completed file", writeErr);
         throw writeErr;
       }
     } catch (error) {
-      this.log.error("Failed to mark setup as completed", error);
+      this.safeLog("error", "Failed to mark setup as completed", error);
       throw error;
     }
   }
@@ -111,7 +130,14 @@ class SetupService extends BaseService {
    * Installs setup wizard routes when web server initializes
    */
   ["__on_install.routes"](_, { app }) {
-    this.log.info("Installing setup wizard routes");
+    // Safe logging
+    const safeLog = (level, message, data) => {
+      if (this.log && typeof this.log[level] === "function") {
+        this.log[level](message, data);
+      }
+    };
+
+    safeLog("info", "Installing setup wizard routes");
 
     // === SECURITY ENHANCEMENT: Setup Token Generation ===
     // Generate a random setup token on first run to protect the setup wizard
@@ -122,7 +148,7 @@ class SetupService extends BaseService {
     // Try to read the token if it exists
     try {
       setupToken = fs.readFileSync(tokenPath, "utf8").trim();
-      this.log.info("Using existing setup token");
+      safeLog("info", "Using existing setup token");
     } catch (error) {
       // Generate a new token if it doesn't exist
       setupToken = crypto.randomBytes(32).toString("hex");
@@ -134,9 +160,9 @@ class SetupService extends BaseService {
           // Directory may already exist
         }
         fs.writeFileSync(tokenPath, setupToken, "utf8");
-        this.log.info("Generated new setup token");
+        safeLog("info", "Generated new setup token");
       } catch (err) {
-        this.log.error("Failed to save setup token", err);
+        safeLog("error", "Failed to save setup token", err);
         // Continue without token protection if we can't save it
         setupToken = null;
       }
@@ -321,9 +347,9 @@ class SetupService extends BaseService {
           // Apply configuration
           try {
             await this.updateConfig(config);
-            this.log.info("Configuration updated successfully");
+            safeLog("info", "Configuration updated successfully");
           } catch (configError) {
-            this.log.error("Failed to update configuration", configError);
+            safeLog("error", "Failed to update configuration", configError);
             return res.status(500).json({
               success: false,
               message: "Failed to update configuration",
@@ -334,9 +360,9 @@ class SetupService extends BaseService {
           // Mark setup as completed
           try {
             await this.markSetupCompleted();
-            this.log.info("Setup marked as completed");
+            safeLog("info", "Setup marked as completed");
           } catch (setupError) {
-            this.log.error("Failed to mark setup as completed", setupError);
+            safeLog("error", "Failed to mark setup as completed", setupError);
             return res.status(500).json({
               success: false,
               message: "Failed to mark setup as completed",
@@ -348,9 +374,9 @@ class SetupService extends BaseService {
           if (setupToken) {
             try {
               fs.unlinkSync(tokenPath);
-              this.log.info("Removed setup token after successful setup");
+              safeLog("info", "Removed setup token after successful setup");
             } catch (err) {
-              this.log.error("Failed to remove setup token", err);
+              safeLog("error", "Failed to remove setup token", err);
             }
           }
 
@@ -360,7 +386,7 @@ class SetupService extends BaseService {
             message: "Setup completed successfully",
           });
         } catch (error) {
-          this.log.error("Setup configuration failed", error);
+          safeLog("error", "Setup configuration failed", error);
           res.status(500).json({
             success: false,
             message: "Failed to complete setup",
@@ -415,10 +441,10 @@ class SetupService extends BaseService {
         "utf8"
       );
 
-      this.log.info("Configuration updated", newConfig);
+      this.safeLog("info", "Configuration updated", newConfig);
       return true;
     } catch (error) {
-      this.log.error("Failed to update configuration", error);
+      this.safeLog("error", "Failed to update configuration", error);
       throw error;
     }
   }
@@ -437,13 +463,13 @@ class SetupService extends BaseService {
 
       // Log available services
       const allServices = this.services.list();
-      this.log.info("Available services:", allServices);
+      this.safeLog("info", "Available services:", allServices);
 
       // Try each possible database service
       for (const serviceName of possibleServices) {
         if (this.services.has(serviceName)) {
           const service = this.services.get(serviceName);
-          this.log.info(`Found database service: ${serviceName}`, {
+          this.safeLog("info", `Found database service: ${serviceName}`, {
             methods: Object.keys(service),
             hasKnex: !!service.knex,
             hasQuery: !!service.query,
@@ -454,7 +480,7 @@ class SetupService extends BaseService {
 
       throw new Error("No database service found");
     } catch (error) {
-      this.log.error("Error finding database service", error);
+      this.safeLog("error", "Error finding database service", error);
       throw error;
     }
   }
@@ -478,7 +504,7 @@ class SetupService extends BaseService {
       const dbService = await this.findDatabaseService();
 
       // Log what we're doing
-      this.log.info(`Updating password for user ID: ${user.id}`);
+      this.safeLog("info", `Updating password for user ID: ${user.id}`);
 
       // Direct SQL update to the users table
       try {
@@ -499,14 +525,14 @@ class SetupService extends BaseService {
           throw new Error("No suitable database access method found");
         }
 
-        this.log.info("Admin password updated successfully");
+        this.safeLog("info", "Admin password updated successfully");
         return true;
       } catch (dbError) {
-        this.log.error("Database error updating password", dbError);
+        this.safeLog("error", "Database error updating password", dbError);
         throw new Error(`Database error: ${dbError.message}`);
       }
     } catch (error) {
-      this.log.error("Failed to update admin password", error);
+      this.safeLog("error", "Failed to update admin password", error);
       throw error;
     }
   }
@@ -1726,12 +1752,15 @@ class SetupService extends BaseService {
     `;
   }
 
-  // Constructor to initialize with configuration steps
+  // Constructor to initialize basic properties
   _construct() {
     // Initialize the configuration steps registry
     this.configSteps = [];
+  }
 
-    // Register the default configuration steps
+  // Register the default configuration steps
+  registerDefaultConfigSteps() {
+    // Register the subdomain configuration step
     this.registerConfigStep({
       id: "subdomain",
       title: "Subdomain Configuration",
@@ -1746,6 +1775,7 @@ class SetupService extends BaseService {
       },
     });
 
+    // Register the domain configuration step
     this.registerConfigStep({
       id: "domain",
       title: "Domain Configuration",
@@ -1762,6 +1792,7 @@ class SetupService extends BaseService {
       },
     });
 
+    // Register the admin password configuration step
     this.registerConfigStep({
       id: "adminPassword",
       title: "Admin Password",
@@ -1773,9 +1804,13 @@ class SetupService extends BaseService {
         if (data.adminPassword && data.adminPassword.trim()) {
           try {
             await this.updateAdminPassword(data.adminPassword);
-            this.log.info("Admin password updated successfully");
+            this.safeLog("info", "Admin password updated successfully");
           } catch (passwordError) {
-            this.log.error("Failed to update admin password", passwordError);
+            this.safeLog(
+              "error",
+              "Failed to update admin password",
+              passwordError
+            );
             // Don't throw error to allow setup to continue
           }
         }
@@ -1809,7 +1844,10 @@ class SetupService extends BaseService {
     // Sort steps by order
     this.configSteps.sort((a, b) => a.order - b.order);
 
-    this.log.info(`Registered configuration step: ${step.id}`);
+    // Only log if logger is available (might not be during construction)
+    if (this.log && typeof this.log.info === "function") {
+      this.log.info(`Registered configuration step: ${step.id}`);
+    }
   }
 
   /**
@@ -1821,10 +1859,11 @@ class SetupService extends BaseService {
     // Process each step in order
     for (const step of this.configSteps) {
       try {
-        const stepConfig = await step.process(data, req);
+        this.safeLog("info", `Processing configuration step: ${step.id}`);
+        const stepConfig = await step.process.call(this, data, req);
         config = { ...config, ...stepConfig };
       } catch (error) {
-        this.log.error(`Error processing step ${step.id}`, error);
+        this.safeLog("error", `Error processing step ${step.id}`, error);
         throw error;
       }
     }
