@@ -1956,11 +1956,6 @@ class SetupService extends BaseService {
     const app = this.app;
     if (!app) return;
 
-    // Create a direct access endpoint that simply redirects to the reconfiguration UI
-    app.get("/__admin", (req, res) => {
-      res.redirect("/__admin/reconfigure-ui");
-    });
-
     // Admin reconfiguration page
     Endpoint({
       route: "/__admin/reconfigure",
@@ -2323,10 +2318,246 @@ class SetupService extends BaseService {
   }
 
   /**
+   * Injects admin menu with reconfiguration link
+   * This method adds a middleware that injects JavaScript to create an admin menu
+   */
+  _injectAdminMenu() {
+    // Get app instance
+    const app = this.app;
+    if (!app) return;
+
+    // Create a direct access endpoint that simply redirects to the reconfiguration UI
+    app.get("/__admin", (req, res) => {
+      res.redirect("/__admin/reconfigure-ui");
+    });
+
+    // Middleware to inject admin menu
+    app.use((req, res, next) => {
+      // Skip for API routes, assets, and setup routes
+      if (
+        req.path.startsWith("/api/") ||
+        req.path.startsWith("/assets/") ||
+        req.path.startsWith("/__setup") ||
+        req.path.startsWith("/__admin/")
+      ) {
+        return next();
+      }
+
+      // Store the original send method
+      const originalSend = res.send;
+
+      // Override the send method
+      res.send = function (body) {
+        // Only process HTML responses
+        if (
+          typeof body === "string" &&
+          (body.includes("</body>") || body.includes("</html>")) &&
+          (!res.getHeader("Content-Type") ||
+            res.getHeader("Content-Type").includes("text/html"))
+        ) {
+          // Inject the admin menu script with more reliable user detection
+          const adminMenuScript = `
+          <script>
+          // Wait for DOM to be fully loaded
+          (function() {
+            // Function to add the admin menu
+            function addAdminMenu() {
+              console.log('Checking for admin user...');
+              
+              // More comprehensive check for admin user
+              function isAdminUser() {
+                // 1. Check URL parameters (for testing)
+                if (new URLSearchParams(window.location.search).get('admin') === 'true') {
+                  return true;
+                }
+                
+                // 2. Check for username elements in the page
+                const possibleSelectors = [
+                  '.username', '.user-name', '.account-name', '.user-info', 
+                  '[data-username]', '[data-user]', '.profile-name',
+                  '.user-profile', '.account-info'
+                ];
+                
+                for (const selector of possibleSelectors) {
+                  const elements = document.querySelectorAll(selector);
+                  for (const el of elements) {
+                    const text = el.textContent || el.innerText || '';
+                    if (text.trim().toLowerCase() === 'admin') {
+                      return true;
+                    }
+                    
+                    // Check attributes
+                    if (el.getAttribute('data-username') === 'admin' || 
+                        el.getAttribute('data-user') === 'admin') {
+                      return true;
+                    }
+                  }
+                }
+                
+                // 3. Check cookies or localStorage if available
+                try {
+                  if (localStorage.getItem('username') === 'admin' || 
+                      document.cookie.includes('username=admin')) {
+                    return true;
+                  }
+                } catch (e) {
+                  // Ignore errors accessing localStorage
+                }
+                
+                // 4. As a fallback, check if the page content contains admin references
+                const pageContent = document.body.textContent || '';
+                if (pageContent.includes('Logged in as admin') || 
+                    pageContent.includes('User: admin')) {
+                  return true;
+                }
+                
+                // Get the URL pathname
+                const pathname = window.location.pathname;
+                
+                // 5. For testing purposes, always show admin button in development
+                if (window.location.hostname.includes('localhost') || 
+                    window.location.hostname.includes('127.0.0.1')) {
+                  console.log('Development environment detected, showing admin button');
+                  return true;
+                }
+                
+                return false;
+              }
+              
+              // Check if current user is admin
+              if (isAdminUser()) {
+                console.log('Admin user detected, adding admin menu button');
+                
+                // Create the admin menu element
+                const adminMenu = document.createElement('div');
+                adminMenu.className = 'puter-admin-menu';
+                adminMenu.innerHTML = \`
+                  <button class="puter-admin-button">Admin</button>
+                  <div class="puter-admin-dropdown">
+                    <a href="/__admin/reconfigure-ui" class="puter-admin-link">Reconfigure Setup</a>
+                  </div>
+                \`;
+                
+                // Add styles with higher specificity to avoid conflicts
+                const styles = document.createElement('style');
+                styles.textContent = \`
+                  body .puter-admin-menu {
+                    position: fixed;
+                    bottom: 20px;
+                    right: 20px;
+                    z-index: 9999999;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                  }
+                  body .puter-admin-menu * {
+                    box-sizing: border-box;
+                  }
+                  body .puter-admin-button {
+                    background: #4361ee;
+                    color: white !important;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 12px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                    font-size: 14px;
+                    line-height: 1.5;
+                  }
+                  body .puter-admin-dropdown {
+                    position: absolute;
+                    bottom: 100%;
+                    right: 0;
+                    background: white;
+                    border-radius: 4px;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+                    margin-bottom: 8px;
+                    display: none;
+                    min-width: 180px;
+                  }
+                  body .puter-admin-menu:hover .puter-admin-dropdown {
+                    display: block;
+                  }
+                  body .puter-admin-link {
+                    display: block;
+                    padding: 8px 16px;
+                    color: #333 !important;
+                    text-decoration: none !important;
+                    white-space: nowrap;
+                    font-size: 14px;
+                  }
+                  body .puter-admin-link:hover {
+                    background: #f5f5f5;
+                  }
+                \`;
+                
+                // Add to document
+                document.head.appendChild(styles);
+                document.body.appendChild(adminMenu);
+                
+                console.log('Admin menu added to page');
+              } else {
+                console.log('Not an admin user, admin menu not added');
+              }
+            }
+            
+            // Function to run when DOM is loaded
+            function onDOMReady() {
+              addAdminMenu();
+            }
+            
+            // If DOM already loaded, run now, otherwise add event listener
+            if (document.readyState === 'complete' || document.readyState === 'interactive') {
+              setTimeout(onDOMReady, 100);
+            } else {
+              document.addEventListener('DOMContentLoaded', onDOMReady);
+            }
+            
+            // Also try again after a short delay to catch dynamic content
+            setTimeout(addAdminMenu, 1000);
+            
+            // Also add a simpler text link at the very end of the page as a fallback
+            setTimeout(function() {
+              const linkContainer = document.createElement('div');
+              linkContainer.style.textAlign = 'center';
+              linkContainer.style.padding = '20px';
+              linkContainer.style.fontSize = '12px';
+              linkContainer.style.color = '#999';
+              linkContainer.innerHTML = '<a href="/__admin" style="color: #666; text-decoration: underline;">Admin Settings</a>';
+              document.body.appendChild(linkContainer);
+            }, 500);
+          })();
+          </script>
+          `;
+
+          // Insert script right before the closing body tag
+          if (body.includes("</body>")) {
+            body = body.replace("</body>", adminMenuScript + "</body>");
+          } else if (body.includes("</html>")) {
+            body = body.replace("</html>", adminMenuScript + "</html>");
+          } else {
+            // If no closing tags, append to the end
+            body += adminMenuScript;
+          }
+        }
+
+        // Call the original send method
+        return originalSend.call(this, body);
+      };
+
+      next();
+    });
+
+    this.log.info("Admin menu injection middleware installed");
+  }
+
+  /**
    * Hook that runs when the webserver is ready
    */
   async ["__on_ready.webserver"]() {
-    this.log.info("Setup Service ready");
+    // Inject admin menu into the UI
+    this._injectAdminMenu();
+
+    this.log.info("Setup Service ready, admin menu injected");
 
     // Shows a notification to the admin user about the reconfiguration feature
     this._showAdminNotification();
@@ -2343,11 +2574,9 @@ class SetupService extends BaseService {
         "============================================================"
       );
       console.log("💡 Admin Reconfiguration Feature Available 💡");
+      console.log("Access the setup wizard reconfiguration at /__admin");
       console.log(
-        "Access the setup wizard reconfiguration from your Account settings"
-      );
-      console.log(
-        "(Look for 'Admin Configuration' at the bottom of the Account tab)"
+        "(The admin button should appear in the bottom-right corner)"
       );
       console.log(
         "============================================================"
@@ -2360,7 +2589,7 @@ class SetupService extends BaseService {
         const adminReconfigWidget = () => {
           return [
             "Admin Reconfiguration Feature Available",
-            "Access via Account settings tab",
+            "Access at: /__admin",
             "",
           ];
         };
