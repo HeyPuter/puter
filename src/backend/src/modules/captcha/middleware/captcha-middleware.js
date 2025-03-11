@@ -44,7 +44,7 @@ const requireCaptcha = (options = {}) => async (req, res, next) => {
                 // Use next(error) instead of throwing directly
                 return next(APIError.create('internal_error', null, {
                     message: 'Captcha service unavailable',
-                    status: 500
+                    status: 503
                 }));
             }
             return next();
