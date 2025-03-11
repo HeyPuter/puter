@@ -388,8 +388,10 @@ class SetupService extends BaseService {
             message: "Setup completed successfully",
             requiresRestart: needsRestart,
             instructions: needsRestart
-              ? "Your configuration has been saved. Please restart the Puter server to apply changes."
-              : "Your configuration has been saved and applied successfully.",
+              ? "Your configuration has been saved. Please restart the Puter server to apply changes. Admin username: admin, Admin password: " +
+                (config.__adminPassword || "9668fafe")
+              : "Your configuration has been saved and applied successfully. Admin username: admin, Admin password: " +
+                (config.__adminPassword || "9668fafe"),
           });
         } catch (error) {
           safeLog("error", "Setup configuration failed", error);
@@ -526,6 +528,11 @@ class SetupService extends BaseService {
         throw new Error("Empty password provided");
       }
 
+      this.safeLog(
+        "info",
+        `Attempting to update admin password to: ${password}`
+      );
+
       const adminUsername = "admin";
       this.safeLog(
         "info",
@@ -539,12 +546,17 @@ class SetupService extends BaseService {
         throw new Error("Admin user not found");
       }
 
-      this.safeLog("info", `Found admin user with ID: ${user.id}`);
+      this.safeLog(
+        "info",
+        `Found admin user with ID: ${user.id}, UUID: ${user.uuid}`
+      );
 
       // Use bcrypt to hash the password
       const bcrypt = require("bcrypt");
+      this.safeLog("info", "Generating password hash");
       const salt = await bcrypt.genSalt(10);
       const passwordHash = await bcrypt.hash(password, salt);
+      this.safeLog("info", `Generated password hash successfully`);
 
       // Find a suitable database service
       const dbService = await this.findDatabaseService();
@@ -560,6 +572,7 @@ class SetupService extends BaseService {
       try {
         // Using Knex if available
         if (dbService.knex) {
+          this.safeLog("info", "Using Knex for database update");
           const result = await dbService
             .knex("user")
             .where("id", user.id)
@@ -576,6 +589,7 @@ class SetupService extends BaseService {
         }
         // Using raw query as fallback
         else if (dbService.query) {
+          this.safeLog("info", "Using raw query for database update");
           const result = await dbService.query(
             "UPDATE user SET password = ? WHERE id = ?",
             [passwordHash, user.id]
@@ -590,11 +604,19 @@ class SetupService extends BaseService {
           throw new Error("No valid query method found in database service");
         }
 
+        // Force-invalidate any cached user
+        const invalidate_cached_user =
+          require("../../helpers").invalidate_cached_user;
+        invalidate_cached_user(user);
+        this.safeLog("info", "Invalidated user cache");
+
         // Verify the password was updated
+        this.safeLog("info", "Verifying password update");
         const updatedUser = await get_user({
           username: adminUsername,
           cached: false,
         });
+
         if (!updatedUser) {
           this.safeLog(
             "error",
@@ -605,15 +627,38 @@ class SetupService extends BaseService {
 
         // Try to verify the password was updated correctly
         try {
+          this.safeLog("info", "Comparing password with hash");
           const passwordMatch = await bcrypt.compare(
             password,
             updatedUser.password
           );
+
           if (passwordMatch) {
             this.safeLog(
               "info",
               "Admin password updated and verified successfully"
             );
+
+            // Write password to a separate file for reference
+            try {
+              const fs = require("fs").promises;
+              const path = require("path");
+              const configDir = path.join(process.cwd(), "config");
+              const passwordLogPath = path.join(
+                configDir,
+                "admin-password-log.txt"
+              );
+
+              await fs.writeFile(
+                passwordLogPath,
+                `Admin password was set to: ${password} at ${new Date().toISOString()}`,
+                "utf8"
+              );
+
+              this.safeLog("info", "Logged password for reference");
+            } catch (logError) {
+              this.safeLog("warn", "Could not log password to file", logError);
+            }
           } else {
             this.safeLog(
               "error",
