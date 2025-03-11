@@ -75,8 +75,9 @@ class SetupService extends BaseService {
 
   /**
    * Mark setup as completed
+   * @param {string} [adminPassword] - Optional admin password to save alongside completion marker
    */
-  async markSetupCompleted() {
+  async markSetupCompleted(adminPassword) {
     try {
       const configDir = path.join(process.cwd(), "config");
       this.safeLog("info", `Ensuring config directory exists at: ${configDir}`);
@@ -98,16 +99,27 @@ class SetupService extends BaseService {
       );
 
       try {
-        await fs.writeFile(
-          setupCompletedPath,
-          new Date().toISOString(),
-          "utf8"
-        );
+        // Use current timestamp as content
+        const timestamp = new Date().toISOString();
+        await fs.writeFile(setupCompletedPath, timestamp, "utf8");
         this.safeLog(
           "info",
-          "Setup completed marker file written successfully"
+          `Setup completed marker file written successfully with timestamp: ${timestamp}`
         );
+
+        // If an admin password was provided, save it for server restart
+        if (adminPassword) {
+          const adminPassPath = path.join(configDir, "admin-password");
+          this.safeLog("info", "Saving admin password for server restart");
+          await fs.writeFile(adminPassPath, adminPassword, "utf8");
+          this.safeLog("info", "Admin password saved for server restart");
+        }
+
+        // Update the in-memory flag
         this.setupCompleted = true;
+
+        // Log success
+        this.safeLog("info", "Setup marked as completed in memory and on disk");
         return true;
       } catch (writeErr) {
         this.safeLog("error", "Error writing setup-completed file", writeErr);
@@ -127,174 +139,137 @@ class SetupService extends BaseService {
   }
 
   /**
-   * Installs setup wizard routes when web server initializes
+   * Hook into install.routes to serve the setup wizard
    */
-  ["__on_install.routes"](_, { app }) {
-    // Safe logging
+  async ["__on_install.routes"](_, { app }) {
+    // Ensure app is defined before using it
+    if (!app || typeof app.use !== "function") {
+      this.safeLog(
+        "error",
+        "Express app is undefined or invalid in __on_install.routes"
+      );
+      return;
+    }
+
+    this.safeLog("info", "Installing setup wizard routes");
+
+    // Register endpoint for reset instructions
+    const { Endpoint } = require("../../util/expressutil");
+    const fs = require("fs");
+    const path = require("path");
+
+    // Generate a secure random token for setup
+    let setupToken = null;
+    let tokenPath = null;
+
+    try {
+      // Check for existing token
+      tokenPath = path.join(process.cwd(), "config", "setup-token");
+      setupToken = fs.existsSync(tokenPath)
+        ? fs.readFileSync(tokenPath, "utf8")
+        : null;
+    } catch (err) {
+      this.safeLog("error", "Error reading setup token", err);
+    }
+
+    // Create a token if not present
+    if (!setupToken) {
+      try {
+        setupToken = require("crypto").randomBytes(32).toString("hex");
+        const configDir = path.join(process.cwd(), "config");
+
+        // Ensure config directory exists
+        try {
+          fs.mkdirSync(configDir, { recursive: true });
+        } catch (err) {
+          this.safeLog("error", "Error creating config directory", err);
+        }
+
+        // Write token to file
+        tokenPath = path.join(configDir, "setup-token");
+        fs.writeFileSync(tokenPath, setupToken);
+        this.safeLog("info", "New setup token generated", { tokenPath });
+      } catch (err) {
+        this.safeLog("error", "Error generating setup token", err);
+      }
+    }
+
+    // Helper for consistent logging
     const safeLog = (level, message, data) => {
       if (this.log && typeof this.log[level] === "function") {
         this.log[level](message, data);
       }
     };
 
-    safeLog("info", "Installing setup wizard routes");
-
-    // === SECURITY ENHANCEMENT: Setup Token Generation ===
-    // Generate a random setup token on first run to protect the setup wizard
-    const crypto = require("crypto");
-    const tokenPath = path.join(process.cwd(), "config", "setup-token");
-    let setupToken;
-
-    // Try to read the token if it exists
-    try {
-      setupToken = fs.readFileSync(tokenPath, "utf8").trim();
-      safeLog("info", "Using existing setup token");
-    } catch (error) {
-      // Generate a new token if it doesn't exist
-      setupToken = crypto.randomBytes(32).toString("hex");
-      try {
-        // Ensure config directory exists
-        try {
-          fs.mkdirSync(path.join(process.cwd(), "config"), { recursive: true });
-        } catch (err) {
-          // Directory may already exist
-        }
-        fs.writeFileSync(tokenPath, setupToken, "utf8");
-        safeLog("info", "Generated new setup token");
-      } catch (err) {
-        safeLog("error", "Failed to save setup token", err);
-        // Continue without token protection if we can't save it
-        setupToken = null;
-      }
-    }
-
-    // Security middleware to verify setup token
+    // Token verification middleware
     const verifySetupToken = (req, res, next) => {
-      // Skip token verification if setup is already completed
-      if (this.setupCompleted) {
+      // Skip token verification for the token page itself
+      if (req.path === "/__setup/token") {
         return next();
       }
 
-      // Skip token verification if no token was generated (fallback)
-      if (!setupToken) {
+      // Skip token verification for the reset instructions page
+      if (req.path === "/__setup/reset-instructions") {
         return next();
       }
 
-      // Check for token in query string or headers
-      const providedToken = req.query.token || req.headers["x-setup-token"];
-
-      // Allow the initial setup page access without token
+      // Skip token verification if viewing the main setup page without submitting
       if (req.path === "/__setup" && req.method === "GET") {
         return next();
       }
 
-      if (providedToken === setupToken) {
+      // Skip token verification for the root path when setup is not completed
+      if (req.path === "/" && req.method === "GET" && !this.setupCompleted) {
         return next();
-      } else {
-        // For API endpoints, return a JSON error
-        if (
-          req.path.startsWith("/__setup/") &&
-          req.path !== "/__setup/status"
-        ) {
-          return res.status(401).json({
-            success: false,
-            message: "Unauthorized access to setup wizard",
-          });
-        }
-
-        // For the setup page without a token, show token information
-        if (req.path === "/__setup" && !req.query.token) {
-          return res.send(this.getSetupTokenHTML(setupToken));
-        }
-
-        return res.status(401).send("Unauthorized access to setup wizard");
       }
+
+      // For other setup routes, verify token
+      const token = req.query.token || req.body.token;
+
+      if (!token || token !== setupToken) {
+        safeLog("warn", "Invalid setup token", {
+          token,
+          path: req.path,
+          method: req.method,
+        });
+        return res.redirect("/__setup/token");
+      }
+
+      next();
     };
 
-    // Apply the security middleware to all setup routes
-    app.use("/__setup", verifySetupToken);
-
-    // Status endpoint
+    // Add token page
     Endpoint({
-      route: "/__setup/status",
+      route: "/__setup/token",
       methods: ["GET"],
       handler: async (req, res) => {
-        res.json({ setupCompleted: this.setupCompleted });
+        res.send(this.getSetupTokenHTML(setupToken));
       },
     }).attach(app);
 
-    // === CONFIGURATION RESET FEATURE ===
-    // Endpoint to reset configuration and re-run setup wizard
+    // Add setup reset endpoint
     Endpoint({
       route: "/__setup/reset",
       methods: ["POST"],
+      middleware: [verifySetupToken],
       handler: async (req, res) => {
         try {
-          // Require authentication for reset
-          const adminUsername = "admin";
-          const user = await get_user({
-            username: adminUsername,
-            cached: false,
-          });
+          // Delete the setup-completed file
+          const setupCompletedPath = path.join(
+            process.cwd(),
+            "config",
+            "setup-completed"
+          );
 
-          // Verify password if provided
-          if (req.body && req.body.adminPassword) {
-            const bcrypt = require("bcrypt");
-            const isValidPassword = await bcrypt.compare(
-              req.body.adminPassword,
-              user.password
-            );
-
-            if (!isValidPassword) {
-              return res.status(401).json({
-                success: false,
-                message: "Invalid admin password",
-              });
-            }
-          } else {
-            // If no password provided, require token
-            const providedToken =
-              req.query.token || req.headers["x-setup-token"];
-            if (!providedToken || providedToken !== setupToken) {
-              return res.status(401).json({
-                success: false,
-                message: "Unauthorized. Provide admin password or setup token.",
-              });
-            }
+          if (fs.existsSync(setupCompletedPath)) {
+            fs.unlinkSync(setupCompletedPath);
           }
 
-          // Reset the setup-completed marker
-          const configDir = path.join(process.cwd(), "config");
-          const setupCompletedPath = path.join(configDir, "setup-completed");
-
-          try {
-            await fs.unlink(setupCompletedPath);
-            this.log.info(
-              "Removed setup-completed marker for configuration reset"
-            );
-          } catch (err) {
-            // File might not exist, which is fine
-            this.log.info(
-              "No setup-completed marker found, continuing with reset"
-            );
-          }
-
-          // Reset the internal state
+          // Update the internal state
           this.setupCompleted = false;
 
-          // Generate new setup token
-          const crypto = require("crypto");
-          setupToken = crypto.randomBytes(32).toString("hex");
+          safeLog("info", "Setup has been reset");
 
-          try {
-            const tokenPath = path.join(configDir, "setup-token");
-            await fs.writeFile(tokenPath, setupToken, "utf8");
-            this.log.info("Generated new setup token for configuration reset");
-          } catch (err) {
-            this.log.error("Failed to save new setup token", err);
-          }
-
-          // Success response with new token
           res.json({
             success: true,
             message:
@@ -321,7 +296,7 @@ class SetupService extends BaseService {
       },
     }).attach(app);
 
-    // Wizard UI endpoint
+    // Wizard UI endpoint - handle both /__setup and root path
     Endpoint({
       route: "/__setup",
       methods: ["GET"],
@@ -332,6 +307,30 @@ class SetupService extends BaseService {
 
         // Pass the token to the setup wizard HTML
         res.send(this.getSetupWizardHTML(req.query.token || ""));
+      },
+    }).attach(app);
+
+    // Root path handler when setup is not completed
+    if (!this.setupCompleted) {
+      Endpoint({
+        route: "/",
+        methods: ["GET"],
+        handler: async (req, res) => {
+          // Pass the token to the setup wizard HTML
+          res.send(this.getSetupWizardHTML(req.query.token || ""));
+        },
+      }).attach(app);
+    }
+
+    // API status endpoint
+    Endpoint({
+      route: "/api/status",
+      methods: ["GET"],
+      handler: async (req, res) => {
+        res.json({
+          setupCompleted: this.setupCompleted,
+          serverTime: new Date().toISOString(),
+        });
       },
     }).attach(app);
 
@@ -359,7 +358,7 @@ class SetupService extends BaseService {
 
           // Mark setup as completed
           try {
-            await this.markSetupCompleted();
+            await this.markSetupCompleted(config.__adminPassword);
             safeLog("info", "Setup marked as completed");
           } catch (setupError) {
             safeLog("error", "Failed to mark setup as completed", setupError);
@@ -380,10 +379,17 @@ class SetupService extends BaseService {
             }
           }
 
+          // Check if we need a restart based on the configuration changes
+          const needsRestart = this.requiresRestart(config);
+
           // Success response
           return res.json({
             success: true,
             message: "Setup completed successfully",
+            requiresRestart: needsRestart,
+            instructions: needsRestart
+              ? "Your configuration has been saved. Please restart the Puter server to apply changes."
+              : "Your configuration has been saved and applied successfully.",
           });
         } catch (error) {
           safeLog("error", "Setup configuration failed", error);
@@ -396,10 +402,11 @@ class SetupService extends BaseService {
       },
     }).attach(app);
 
-    // Middleware to redirect to setup wizard if not completed
+    // Middleware to redirect to setup wizard if not completed - only redirect paths that aren't already handled
     if (!this.setupCompleted) {
       app.use((req, res, next) => {
         if (
+          req.path === "/" ||
           req.path.startsWith("/__setup") ||
           req.path.startsWith("/api/") ||
           req.path.startsWith("/assets/")
@@ -409,7 +416,7 @@ class SetupService extends BaseService {
 
         // Include token in redirect if available
         const tokenParam = setupToken ? `?token=${setupToken}` : "";
-        res.redirect(`/__setup${tokenParam}`);
+        res.redirect(`/${tokenParam}`);
       });
     }
   }
@@ -422,8 +429,24 @@ class SetupService extends BaseService {
       // Get the current configuration
       const config = require("../../config");
 
+      // Log the current configuration before changes
+      this.safeLog("info", "Current configuration before update", {
+        current_config: JSON.stringify({
+          domain: config.domain,
+          experimental_no_subdomain: config.experimental_no_subdomain,
+        }),
+      });
+
       // Apply new settings
       Object.assign(config, newConfig);
+
+      // Log the updated configuration
+      this.safeLog("info", "Configuration after update", {
+        updated_config: JSON.stringify({
+          domain: config.domain,
+          experimental_no_subdomain: config.experimental_no_subdomain,
+        }),
+      });
 
       // Save configuration to a file
       const configDir = path.join(process.cwd(), "config");
@@ -431,6 +454,11 @@ class SetupService extends BaseService {
         await fs.mkdir(configDir, { recursive: true });
       } catch (err) {
         // Directory might already exist
+        this.safeLog(
+          "warn",
+          "Error creating config directory, it might already exist",
+          err
+        );
       }
 
       // Write the configuration to a JSON file
@@ -441,7 +469,9 @@ class SetupService extends BaseService {
         "utf8"
       );
 
-      this.safeLog("info", "Configuration updated", newConfig);
+      this.safeLog("info", "Configuration updated and saved to file", {
+        configPath,
+      });
       return true;
     } catch (error) {
       this.safeLog("error", "Failed to update configuration", error);
@@ -488,12 +518,28 @@ class SetupService extends BaseService {
   // Update admin user password using a direct database approach
   async updateAdminPassword(password) {
     try {
+      if (!password || password.trim() === "") {
+        this.safeLog(
+          "error",
+          "Cannot update admin password: Empty password provided"
+        );
+        throw new Error("Empty password provided");
+      }
+
       const adminUsername = "admin";
+      this.safeLog(
+        "info",
+        `Looking up admin user with username: ${adminUsername}`
+      );
+
       const user = await get_user({ username: adminUsername, cached: false });
 
       if (!user) {
+        this.safeLog("error", "Admin user not found in database");
         throw new Error("Admin user not found");
       }
+
+      this.safeLog("info", `Found admin user with ID: ${user.id}`);
 
       // Use bcrypt to hash the password
       const bcrypt = require("bcrypt");
@@ -502,6 +548,10 @@ class SetupService extends BaseService {
 
       // Find a suitable database service
       const dbService = await this.findDatabaseService();
+      if (!dbService) {
+        this.safeLog("error", "No database service found");
+        throw new Error("No database service found");
+      }
 
       // Log what we're doing
       this.safeLog("info", `Updating password for user ID: ${user.id}`);
@@ -510,29 +560,81 @@ class SetupService extends BaseService {
       try {
         // Using Knex if available
         if (dbService.knex) {
-          await dbService
-            .knex("users")
+          const result = await dbService
+            .knex("user")
             .where("id", user.id)
             .update({ password: passwordHash });
+
+          this.safeLog("info", `Knex update result: ${result} row(s) affected`);
+
+          if (result !== 1) {
+            this.safeLog(
+              "warn",
+              `Expected to update 1 row, but updated ${result} rows`
+            );
+          }
         }
         // Using raw query as fallback
         else if (dbService.query) {
-          await dbService.query("UPDATE users SET password = ? WHERE id = ?", [
-            passwordHash,
-            user.id,
-          ]);
+          const result = await dbService.query(
+            "UPDATE user SET password = ? WHERE id = ?",
+            [passwordHash, user.id]
+          );
+
+          this.safeLog("info", "Raw query update result", result);
         } else {
-          throw new Error("No suitable database access method found");
+          this.safeLog(
+            "error",
+            "No valid query method found in database service"
+          );
+          throw new Error("No valid query method found in database service");
         }
 
-        this.safeLog("info", "Admin password updated successfully");
-        return true;
+        // Verify the password was updated
+        const updatedUser = await get_user({
+          username: adminUsername,
+          cached: false,
+        });
+        if (!updatedUser) {
+          this.safeLog(
+            "error",
+            "Failed to verify password update: User not found after update"
+          );
+          throw new Error("Failed to verify password update");
+        }
+
+        // Try to verify the password was updated correctly
+        try {
+          const passwordMatch = await bcrypt.compare(
+            password,
+            updatedUser.password
+          );
+          if (passwordMatch) {
+            this.safeLog(
+              "info",
+              "Admin password updated and verified successfully"
+            );
+          } else {
+            this.safeLog(
+              "error",
+              "Admin password update verification failed: Password doesn't match"
+            );
+            throw new Error("Password verification failed");
+          }
+        } catch (verifyError) {
+          this.safeLog("error", "Error verifying password update", verifyError);
+          throw verifyError;
+        }
       } catch (dbError) {
-        this.safeLog("error", "Database error updating password", dbError);
-        throw new Error(`Database error: ${dbError.message}`);
+        this.safeLog(
+          "error",
+          "Failed to update admin password in database",
+          dbError
+        );
+        throw dbError;
       }
     } catch (error) {
-      this.safeLog("error", "Failed to update admin password", error);
+      this.safeLog("error", "Error updating admin password", error);
       throw error;
     }
   }
@@ -541,453 +643,135 @@ class SetupService extends BaseService {
    * Returns the HTML for the setup wizard interface
    */
   getSetupWizardHTML(token = "") {
-    const html = `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Puter Setup Wizard</title>
-            <link rel="preconnect" href="https://fonts.googleapis.com">
-            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-            <style>
-                :root {
-                    --background: #ffffff;
-                    --foreground: #09090b;
-                    
-                    --card: #ffffff;
-                    --card-foreground: #09090b;
-                    
-                    --popover: #ffffff;
-                    --popover-foreground: #09090b;
-                    
-                    --primary: #18181b;
-                    --primary-foreground: #f8fafc;
-                    
-                    --secondary: #f1f5f9;
-                    --secondary-foreground: #0f172a;
-                    
-                    --muted: #f1f5f9;
-                    --muted-foreground: #64748b;
-                    
-                    --accent: #f1f5f9;
-                    --accent-foreground: #0f172a;
-                    
-                    --destructive: #ef4444;
-                    --destructive-foreground: #f8fafc;
-                    
-                    --border: #e2e8f0;
-                    --input: #e2e8f0;
-                    --ring: #0f172a;
-                    
-                    --radius: 0.5rem;
-                }
-                
-                * {
-                    margin: 0;
-                    padding: 0;
-                    box-sizing: border-box;
-                }
-                
-                body {
-                    font-family: 'Inter', sans-serif;
-                    background-color: #f9fafb;
-                    color: var(--foreground);
-                    line-height: 1.5;
-                }
-                
-                .container {
-                    max-width: 550px;
-                    margin: 2rem auto;
-                    padding: 1.5rem;
-                }
-                
-                .card {
-                    background-color: var(--card);
-                    border-radius: var(--radius);
-                    box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.08);
-                    overflow: hidden;
-                }
-                
-                .card-header {
-                    padding: 1.5rem;
-                    border-bottom: 1px solid var(--border);
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    text-align: center;
-                }
-                
-                .logo {
-                    display: flex;
-                    justify-content: center;
-                    margin-bottom: 1rem;
-                }
-                
-                .logo img {
-                    height: 40px;
-                }
-                
-                h1 {
-                    font-size: 1.5rem;
-                    font-weight: 600;
-                    color: var(--foreground);
-                    margin-bottom: 0.5rem;
-                }
-                
-                .description {
-                    font-size: 0.875rem;
-                    color: var(--muted-foreground);
-                    max-width: 500px;
-                    margin: 0 auto;
-                }
-                
-                .card-content {
-                    padding: 1.5rem;
-                }
-                
-                .setup-form {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 1.5rem;
-                }
-                
-                .form-group {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 0.75rem;
-                }
-                
-                .form-group h2 {
-                    font-size: 0.875rem;
-                    font-weight: 600;
-                    color: var(--foreground);
-                }
-                
-                .label {
-                    font-size: 0.875rem;
-                    font-weight: 500;
-                    color: var(--foreground);
-                }
-                
-                .input {
-                    display: flex;
-                    height: 2.5rem;
-                    width: 100%;
-                    border-radius: var(--radius);
-                    border: 1px solid var(--input);
-                    background-color: transparent;
-                    padding: 0.5rem 0.75rem;
-                    font-size: 0.875rem;
-                    transition: border 0.2s ease;
-                }
-                
-                .input:focus {
-                    outline: none;
-                    border-color: var(--ring);
-                    box-shadow: 0 0 0 1px var(--ring);
-                }
-                
-                .radio-group {
-                    display: grid;
-                    grid-template-columns: repeat(2, 1fr);
-                    gap: 0.5rem;
-                }
-                
-                .radio-item {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.5rem;
-                    padding: 0.5rem;
-                    border-radius: var(--radius);
-                    border: 1px solid var(--border);
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                }
-                
-                .radio-item:hover {
-                    background-color: var(--accent);
-                }
-                
-                .radio-item.checked {
-                    border-color: var(--primary);
-                    background-color: var(--accent);
-                }
-                
-                .radio-item input {
-                    display: none;
-                }
-                
-                .radio-item .radio-button {
-                    width: 16px;
-                    height: 16px;
-                    border-radius: 50%;
-                    border: 1px solid var(--muted-foreground);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                }
-                
-                .radio-item.checked .radio-button {
-                    border-color: var(--primary);
-                }
-                
-                .radio-item.checked .radio-button::after {
-                    content: "";
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background-color: var(--primary);
-                }
-                
-                .radio-item .radio-label {
-                    font-size: 0.875rem;
-                    font-weight: 500;
-                }
-                
-                .alert {
-                    border-radius: var(--radius);
-                    padding: 0.75rem;
-                    font-size: 0.875rem;
-                    margin-top: 0.75rem;
-                    display: flex;
-                    gap: 0.5rem;
-                    align-items: flex-start;
-                }
-                
-                .alert-warning {
-                    background-color: #fff7ed;
-                    border: 1px solid #ffedd5;
-                    color: #c2410c;
-                }
-                
-                .alert-icon {
-                    flex-shrink: 0;
-                    margin-top: 0.125rem;
-                }
-                
-                .conditional {
-                    margin-top: 0.75rem;
-                }
-                
-                .button {
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                    border-radius: var(--radius);
-                    font-size: 0.875rem;
-                    font-weight: 500;
-                    height: 2.5rem;
-                    padding-left: 1rem;
-                    padding-right: 1rem;
-                    transition: all 0.2s ease;
-                    cursor: pointer;
-                }
-                
-                .button-primary {
-                    background-color: var(--primary);
-                    color: var(--primary-foreground);
-                    border: none;
-                }
-                
-                .button-primary:hover {
-                    opacity: 0.9;
-                }
-                
-                .button-primary:active {
-                    opacity: 0.8;
-                }
-                
-                #setup-feedback {
-                    margin-top: 1rem;
-                    padding: 0.75rem;
-                    border-radius: var(--radius);
-                    font-size: 0.875rem;
-                    display: none;
-                }
-                
-                .success {
-                    background-color: #ecfdf5;
-                    border: 1px solid #a7f3d0;
-                    color: #065f46;
-                }
-                
-                .error {
-                    background-color: #fef2f2;
-                    border: 1px solid #fecaca;
-                    color: #b91c1c;
-                }
-                
-                .divider {
-                    height: 1px;
-                    width: 100%;
-                    background-color: var(--border);
-                    margin: 1.5rem 0;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="card">
-                    <div class="card-header">
-                        <h1>Welcome to Puter</h1>
-                        <p class="description">Complete this setup wizard to configure your Puter instance</p>
+    return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Puter Setup Wizard</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <style>
+            ${this.getWizardStyles()}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="card">
+                <div class="card-header">
+                    <div class="logo-container">
+                        <svg width="50" height="50" viewBox="0 0 45 45" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M2.83992 38.2927C-0.5357 34.9171 -0.5357 29.4674 2.83992 26.0918L10.6486 18.2831C12.7236 16.2081 15.6358 15.2857 18.5097 15.5224V12.5719C15.6358 12.8086 12.7236 11.8861 10.6486 9.81115L5.44428 4.60683C3.36928 2.53183 3.36928 -0.705672 5.44428 -2.78067C7.51928 -4.85567 10.7568 -4.85567 12.8318 -2.78067L18.0361 2.42365C20.1111 4.49865 21.0335 7.41085 20.7968 10.2848H23.7473C23.5106 7.41085 24.4331 4.49865 26.5081 2.42365L31.7124 -2.78067C33.7874 -4.85567 37.0249 -4.85567 39.0999 -2.78067C41.1749 -0.705672 41.1749 2.53183 39.0999 4.60683L33.8956 9.81115C31.8206 11.8861 28.9084 12.8086 26.0345 12.5719V15.5224C28.9084 15.2857 31.8206 16.2081 33.8956 18.2831L41.7043 26.0918C45.0799 29.4674 45.0799 34.9171 41.7043 38.2927C38.3286 41.6684 32.879 41.6684 29.5033 38.2927L21.6946 30.484C19.6196 28.409 18.6972 25.4968 18.9339 22.6229H15.9834C16.2201 25.4968 15.2976 28.409 13.2226 30.484L5.41392 38.2927C2.03826 41.6684 -3.41136 41.6684 -6.78701 38.2927" transform="translate(2 4)" fill="var(--primary)"/>
+                        </svg>
                     </div>
-                    
-                    <div class="card-content">
-                        <form id="setup-form" class="setup-form">
-                            <!-- Hidden input to store the token -->
-                            <input type="hidden" id="setupToken" name="setupToken" value="${token}">
-                            
-                            <div class="form-group">
-                                <h2>Subdomain Configuration</h2>
-                                <div class="radio-group" id="subdomain-radio-group">
-                                    <label class="radio-item checked" data-value="enabled">
-                                        <input type="radio" name="subdomainBehavior" value="enabled" checked>
-                                        <span class="radio-button"></span>
-                                        <span class="radio-label">Enabled (Recommended)</span>
-                                    </label>
-                                    <label class="radio-item" data-value="disabled">
-                                        <input type="radio" name="subdomainBehavior" value="disabled">
-                                        <span class="radio-button"></span>
-                                        <span class="radio-label">Disabled</span>
-                                    </label>
-                                </div>
-                                
-                                <div id="subdomain-warning" class="alert alert-warning" style="display: none;">
-                                    <span class="alert-icon">⚠️</span>
-                                    <span>Disabling subdomains makes your deployment less secure. Only use this option if your hosting does not support subdomains.</span>
-                                </div>
-                            </div>
-                            
-                            <div class="divider"></div>
-                            
-                            <div class="form-group">
-                                <h2>Domain Configuration</h2>
-                                <div class="radio-group" id="domain-radio-group">
-                                    <label class="radio-item checked" data-value="domain">
-                                        <input type="radio" name="domainType" value="domain" checked>
-                                        <span class="radio-button"></span>
-                                        <span class="radio-label">Custom Domain</span>
-                                    </label>
-                                    <label class="radio-item" data-value="nipio">
-                                        <input type="radio" name="domainType" value="nipio">
-                                        <span class="radio-button"></span>
-                                        <span class="radio-label">Use nip.io (IP-based)</span>
-                                    </label>
-                                </div>
-                                
-                                <div id="domain-input" class="conditional">
-                                    <label class="label" for="domainName">Domain Name</label>
-                                    <input type="text" id="domainName" name="domainName" class="input" placeholder="e.g., yourdomain.com">
-                                </div>
-                                
-                                <div id="nipio-info" class="conditional" style="display: none;">
-                                    <div class="alert alert-warning">
-                                        <span class="alert-icon">ℹ️</span>
-                                        <span>Using nip.io will create a domain based on your server's IP address. Your Puter instance will be accessible at: <strong id="nipio-domain">--.--.--.---.nip.io</strong></span>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="divider"></div>
-                            
-                            <div class="form-group">
-                                <h2>Admin User Password</h2>
-                                <div>
-                                    <label class="label" for="adminPassword">Password</label>
-                                    <input type="password" id="adminPassword" name="adminPassword" class="input" placeholder="Enter a secure password">
-                                </div>
-                                <div>
-                                    <label class="label" for="confirmPassword">Confirm Password</label>
-                                    <input type="password" id="confirmPassword" name="confirmPassword" class="input" placeholder="Confirm your password">
-                                </div>
-                            </div>
-                            
-                            <div class="divider"></div>
-                            
-                            <button type="submit" id="submit-btn" class="button button-primary">Complete Setup</button>
-                            
-                            <div id="setup-feedback"></div>
-                        </form>
-                    </div>
+                    <h1>Puter Setup</h1>
+                    <p>Configure your Puter server installation</p>
+                </div>
+                <div class="card-body">
+                    <form id="setup-form">
+                        <input type="hidden" id="setupToken" value="${token}">
+                        ${this.getWizardFormContent()}
+                    </form>
                 </div>
             </div>
-            
-            <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    // Handle radio button styling
-                    function setupRadioGroup(groupId) {
-                        const radioGroup = document.getElementById(groupId);
-                        const radioItems = radioGroup.querySelectorAll('.radio-item');
-                        
-                        radioItems.forEach(item => {
-                            item.addEventListener('click', () => {
-                                // Remove checked class from all items
-                                radioItems.forEach(i => i.classList.remove('checked'));
-                                
-                                // Add checked class to the clicked item
-                                item.classList.add('checked');
-                                
-                                // Check the radio input
-                                const input = item.querySelector('input');
-                                input.checked = true;
-                                
-                                // Trigger change event
-                                const event = new Event('change');
-                                input.dispatchEvent(event);
-                            });
+        </div>
+        
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                // Radio button group functionality
+                function setupRadioGroup(groupId) {
+                    const radioGroup = document.getElementById(groupId);
+                    if (!radioGroup) return;
+                    
+                    const radioItems = radioGroup.querySelectorAll('.radio-item');
+                    
+                    radioItems.forEach(item => {
+                        item.addEventListener('click', () => {
+                            // Remove checked class from all items
+                            radioItems.forEach(i => i.classList.remove('checked'));
+                            
+                            // Add checked class to the clicked item
+                            item.classList.add('checked');
+                            
+                            // Check the radio input
+                            const input = item.querySelector('input');
+                            input.checked = true;
+                            
+                            // Trigger change event
+                            const event = new Event('change');
+                            input.dispatchEvent(event);
                         });
-                    }
-                    
-                    // Setup radio groups
-                    setupRadioGroup('subdomain-radio-group');
-                    setupRadioGroup('domain-radio-group');
-                    
-                    // Get user's IP for nip.io domain
-                    fetch('/__setup/status?token=${token}')
-                        .then(response => response.json())
-                        .then(data => {
-                            // If setup is completed, redirect to home
-                            if (data.setupCompleted) {
-                                window.location.href = '/';
-                            }
-                        });
-                    
-                    // Update nip.io preview
-                    const userIp = window.location.hostname.split(':')[0];
-                    document.getElementById('nipio-domain').textContent = userIp.replace(/\\./g, '-') + '.nip.io';
-                    
-                    // Toggle subdomain warning
-                    document.querySelector('input[name="subdomainBehavior"]').addEventListener('change', function(e) {
-                        const warningEl = document.getElementById('subdomain-warning');
-                        warningEl.style.display = e.target.value === 'disabled' ? 'block' : 'none';
                     });
-                    
-                    // Toggle domain/nip.io inputs
-                    document.querySelector('input[name="domainType"]').addEventListener('change', function(e) {
+                }
+                
+                // Setup radio groups
+                setupRadioGroup('subdomain-radio-group');
+                setupRadioGroup('domain-radio-group');
+                
+                // Get user's IP for nip.io domain
+                fetch('/api/status')
+                    .then(response => response.json())
+                    .catch(error => console.error('Error fetching status:', error));
+                
+                // Update nip.io preview
+                const userIp = window.location.hostname.split(':')[0];
+                const nipioElement = document.getElementById('nipio-domain');
+                if (nipioElement) {
+                    nipioElement.textContent = userIp.replace(/\\./g, '-') + '.nip.io';
+                }
+                
+                // Toggle subdomain warning
+                const subdomainBehaviorInput = document.querySelector('input[name="subdomainBehavior"]');
+                if (subdomainBehaviorInput) {
+                    subdomainBehaviorInput.addEventListener('change', function(e) {
+                        const warningEl = document.getElementById('subdomain-warning');
+                        if (warningEl) {
+                            warningEl.style.display = e.target.value === 'disabled' ? 'block' : 'none';
+                        }
+                    });
+                }
+                
+                // Toggle domain/nip.io inputs
+                const domainTypeInput = document.querySelector('input[name="domainType"]');
+                if (domainTypeInput) {
+                    domainTypeInput.addEventListener('change', function(e) {
                         const domainInput = document.getElementById('domain-input');
                         const nipioInfo = document.getElementById('nipio-info');
                         
                         if (e.target.value === 'domain') {
-                            domainInput.style.display = 'block';
-                            nipioInfo.style.display = 'none';
+                            if (domainInput) domainInput.style.display = 'block';
+                            if (nipioInfo) nipioInfo.style.display = 'none';
                         } else {
-                            domainInput.style.display = 'none';
-                            nipioInfo.style.display = 'block';
+                            if (domainInput) domainInput.style.display = 'none';
+                            if (nipioInfo) nipioInfo.style.display = 'block';
                         }
                     });
-                    
-                    // Form submission
-                    document.getElementById('setup-form').addEventListener('submit', function(e) {
+                }
+                
+                // Helper function to show feedback
+                function showFeedback(message, isSuccess) {
+                    const feedbackEl = document.getElementById('setup-feedback');
+                    if (feedbackEl) {
+                        feedbackEl.textContent = message;
+                        feedbackEl.className = isSuccess ? 'feedback success' : 'feedback error';
+                        feedbackEl.style.display = 'block';
+                    }
+                }
+                
+                // Form submission
+                const setupForm = document.getElementById('setup-form');
+                if (setupForm) {
+                    setupForm.addEventListener('submit', function(e) {
                         e.preventDefault();
                         
                         // Validate form
-                        const adminPassword = document.getElementById('adminPassword').value;
-                        const confirmPassword = document.getElementById('confirmPassword').value;
-                        const domainType = document.querySelector('input[name="domainType"]:checked').value;
-                        const domainName = document.getElementById('domainName').value;
+                        const adminPassword = document.getElementById('adminPassword')?.value || '';
+                        const confirmPassword = document.getElementById('confirmPassword')?.value || '';
+                        const domainTypeInput = document.querySelector('input[name="domainType"]:checked');
+                        const domainType = domainTypeInput?.value || 'domain';
+                        const domainName = document.getElementById('domainName')?.value || '';
                         
                         if (adminPassword !== confirmPassword) {
                             showFeedback('Passwords do not match', false);
@@ -1000,11 +784,12 @@ class SetupService extends BaseService {
                         }
                         
                         // Get the token value
-                        const token = document.getElementById('setupToken').value;
+                        const token = document.getElementById('setupToken')?.value || '';
                         
                         // Prepare data for submission
+                        const subdomainBehaviorInput = document.querySelector('input[name="subdomainBehavior"]:checked');
                         const formData = {
-                            subdomainBehavior: document.querySelector('input[name="subdomainBehavior"]:checked').value,
+                            subdomainBehavior: subdomainBehaviorInput?.value || 'enabled',
                             domainName: domainName,
                             useNipIo: domainType === 'nipio',
                             adminPassword: adminPassword
@@ -1012,8 +797,10 @@ class SetupService extends BaseService {
                         
                         // Submit button loading state
                         const submitBtn = document.getElementById('submit-btn');
-                        submitBtn.textContent = 'Setting up...';
-                        submitBtn.disabled = true;
+                        if (submitBtn) {
+                            submitBtn.textContent = 'Setting up...';
+                            submitBtn.disabled = true;
+                        }
                         
                         // Submit configuration with token in headers
                         fetch('/__setup/configure?token=' + token, {
@@ -1027,320 +814,416 @@ class SetupService extends BaseService {
                         .then(response => response.json())
                         .then(data => {
                             if (data.success) {
-                                showFeedback('Setup completed successfully! Redirecting...', true);
-                                setTimeout(() => {
-                                    window.location.href = '/';
-                                }, 2000);
+                                if (data.requiresRestart) {
+                                    // Show restart instructions instead of redirecting
+                                    const feedbackEl = document.getElementById('setup-feedback');
+                                    if (feedbackEl) {
+                                        feedbackEl.innerHTML = 
+                                            '<div class="success">' +
+                                            '<p><strong>Setup completed successfully!</strong></p>' +
+                                            '<p>' + (data.instructions || 'Please restart the Puter server to apply changes.') + '</p>' +
+                                            '<div class="restart-instructions">' +
+                                            '<p><strong>How to restart:</strong></p>' +
+                                            '<ol>' +
+                                            '<li>Stop the server (Ctrl+C in the terminal where Puter is running)</li>' +
+                                            '<li>Start the server again</li>' +
+                                            '<li>Return to this page after restart</li>' +
+                                            '</ol>' +
+                                            '</div>' +
+                                            '</div>';
+                                        feedbackEl.style.display = 'block';
+                                    }
+                                    
+                                    // Change button to indicate completion
+                                    if (submitBtn) {
+                                        submitBtn.textContent = 'Setup Complete';
+                                        submitBtn.disabled = true;
+                                    }
+                                } else {
+                                    showFeedback('Setup completed successfully! Redirecting...', true);
+                                    setTimeout(() => {
+                                        window.location.href = '/';
+                                    }, 1500);
+                                }
                             } else {
-                                showFeedback('Error: ' + data.message, false);
-                                submitBtn.textContent = 'Complete Setup';
-                                submitBtn.disabled = false;
+                                showFeedback('Error: ' + (data.message || 'Unknown error'), false);
+                                if (submitBtn) {
+                                    submitBtn.textContent = 'Complete Setup';
+                                    submitBtn.disabled = false;
+                                }
                             }
                         })
                         .catch(error => {
                             showFeedback('Error: ' + error.message, false);
-                            submitBtn.textContent = 'Complete Setup';
-                            submitBtn.disabled = false;
+                            if (submitBtn) {
+                                submitBtn.textContent = 'Complete Setup';
+                                submitBtn.disabled = false;
+                            }
                         });
                     });
-                    
-                    function showFeedback(message, isSuccess) {
-                        const feedbackEl = document.getElementById('setup-feedback');
-                        feedbackEl.textContent = message;
-                        feedbackEl.className = isSuccess ? 'success' : 'error';
-                        feedbackEl.style.display = 'block';
-                    }
-                });
-            </script>
-        </body>
-        </html>
+                }
+            });
+        </script>
+    </body>
+    </html>
     `;
-
-    // Return the HTML with all styles and content preserved
-    return html
-      .replace("/* Styles remain unchanged */", this.getWizardStyles())
-      .replace(
-        "<!-- Form content remains unchanged -->",
-        this.getWizardFormContent()
-      );
   }
 
   // Extract styles to a separate method for better maintainability
   getWizardStyles() {
     return `
-            :root {
-                --background: #ffffff;
-                --foreground: #09090b;
-                
-                --card: #ffffff;
-                --card-foreground: #09090b;
-                
-                --popover: #ffffff;
-                --popover-foreground: #09090b;
-                
-                --primary: #18181b;
-                --primary-foreground: #f8fafc;
-                
-                --secondary: #f1f5f9;
-                --secondary-foreground: #0f172a;
-                
-                --muted: #f1f5f9;
-                --muted-foreground: #64748b;
-                
-                --accent: #f1f5f9;
-                --accent-foreground: #0f172a;
-                
-                --destructive: #ef4444;
-                --destructive-foreground: #f8fafc;
-                
-                --border: #e2e8f0;
-                --input: #e2e8f0;
-                --ring: #0f172a;
-                
-                --radius: 0.5rem;
-            }
-            
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }
-            
-            body {
-                font-family: 'Inter', sans-serif;
-                background-color: #f9fafb;
-                color: var(--foreground);
-                line-height: 1.5;
-            }
-            
-            .container {
-                max-width: 550px;
-                margin: 2rem auto;
-                padding: 1.5rem;
-            }
-            
-            .card {
-                background-color: var(--card);
-                border-radius: var(--radius);
-                box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.08);
-                overflow: hidden;
-            }
-            
-            .card-header {
-                padding: 1.5rem;
-                border-bottom: 1px solid var(--border);
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                text-align: center;
-            }
-            
-            .logo {
-                display: flex;
-                justify-content: center;
-                margin-bottom: 1rem;
-            }
-            
-            .logo img {
-                height: 40px;
-            }
-            
-            h1 {
-                font-size: 1.5rem;
-                font-weight: 600;
-                color: var(--foreground);
-                margin-bottom: 0.5rem;
-            }
-            
-            .description {
-                font-size: 0.875rem;
-                color: var(--muted-foreground);
-                max-width: 500px;
-                margin: 0 auto;
-            }
-            
-            .card-content {
-                padding: 1.5rem;
-            }
-            
-            .setup-form {
-                display: flex;
-                flex-direction: column;
-                gap: 1.5rem;
-            }
-            
-            .form-group {
-                display: flex;
-                flex-direction: column;
-                gap: 0.75rem;
-            }
-            
-            .form-group h2 {
-                font-size: 0.875rem;
-                font-weight: 600;
-                color: var(--foreground);
-            }
-            
-            .label {
-                font-size: 0.875rem;
-                font-weight: 500;
-                color: var(--foreground);
-            }
-            
-            .input {
-                display: flex;
-                height: 2.5rem;
-                width: 100%;
-                border-radius: var(--radius);
-                border: 1px solid var(--input);
-                background-color: transparent;
-                padding: 0.5rem 0.75rem;
-                font-size: 0.875rem;
-                transition: border 0.2s ease;
-            }
-            
-            .input:focus {
-                outline: none;
-                border-color: var(--ring);
-                box-shadow: 0 0 0 1px var(--ring);
-            }
-            
-            .radio-group {
-                display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                gap: 0.5rem;
-            }
-            
-            .radio-item {
-                display: flex;
-                align-items: center;
-                gap: 0.5rem;
-                padding: 0.5rem;
-                border-radius: var(--radius);
-                border: 1px solid var(--border);
-                cursor: pointer;
-                transition: all 0.2s ease;
-            }
-            
-            .radio-item:hover {
-                background-color: var(--accent);
-            }
-            
-            .radio-item.checked {
-                border-color: var(--primary);
-                background-color: var(--accent);
-            }
-            
-            .radio-item input {
-                display: none;
-            }
-            
-            .radio-item .radio-button {
-                width: 16px;
-                height: 16px;
-                border-radius: 50%;
-                border: 1px solid var(--muted-foreground);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            
-            .radio-item.checked .radio-button {
-                border-color: var(--primary);
-            }
-            
-            .radio-item.checked .radio-button::after {
-                content: "";
-                width: 8px;
-                height: 8px;
-                border-radius: 50%;
-                background-color: var(--primary);
-            }
-            
-            .radio-item .radio-label {
-                font-size: 0.875rem;
-                font-weight: 500;
-            }
-            
-            .alert {
-                border-radius: var(--radius);
-                padding: 0.75rem;
-                font-size: 0.875rem;
-                margin-top: 0.75rem;
-                display: flex;
-                gap: 0.5rem;
-                align-items: flex-start;
-            }
-            
-            .alert-warning {
-                background-color: #fff7ed;
-                border: 1px solid #ffedd5;
-                color: #c2410c;
-            }
-            
-            .alert-icon {
-                flex-shrink: 0;
-                margin-top: 0.125rem;
-            }
-            
-            .conditional {
-                margin-top: 0.75rem;
-            }
-            
-            .button {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                border-radius: var(--radius);
-                font-size: 0.875rem;
-                font-weight: 500;
-                height: 2.5rem;
-                padding-left: 1rem;
-                padding-right: 1rem;
-                transition: all 0.2s ease;
-                cursor: pointer;
-            }
-            
-            .button-primary {
-                background-color: var(--primary);
-                color: var(--primary-foreground);
-                border: none;
-            }
-            
-            .button-primary:hover {
-                opacity: 0.9;
-            }
-            
-            .button-primary:active {
-                opacity: 0.8;
-            }
-            
-            #setup-feedback {
-                margin-top: 1rem;
-                padding: 0.75rem;
-                border-radius: var(--radius);
-                font-size: 0.875rem;
-                display: none;
-            }
-            
-            .success {
-                background-color: #ecfdf5;
-                border: 1px solid #a7f3d0;
-                color: #065f46;
-            }
-            
-            .error {
-                background-color: #fef2f2;
-                border: 1px solid #fecaca;
-                color: #b91c1c;
-            }
-            
-            .divider {
-                height: 1px;
-                width: 100%;
-                background-color: var(--border);
-                margin: 1.5rem 0;
-            }
+      :root {
+        --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        
+        --background: hsl(0 0% 100%);
+        --foreground: hsl(224 71.4% 4.1%);
+        
+        --card: hsl(0 0% 100%);
+        --card-foreground: hsl(224 71.4% 4.1%);
+        
+        --popover: hsl(0 0% 100%);
+        --popover-foreground: hsl(224 71.4% 4.1%);
+        
+        --primary: hsl(220.9 39.3% 11%);
+        --primary-foreground: hsl(210 20% 98%);
+        
+        --secondary: hsl(220 14.3% 95.9%);
+        --secondary-foreground: hsl(220.9 39.3% 11%);
+        
+        --muted: hsl(220 14.3% 95.9%);
+        --muted-foreground: hsl(220 8.9% 46.1%);
+        
+        --accent: hsl(220 14.3% 95.9%);
+        --accent-foreground: hsl(220.9 39.3% 11%);
+        
+        --destructive: hsl(0 84.2% 60.2%);
+        --destructive-foreground: hsl(210 20% 98%);
+        
+        --border: hsl(220 13% 91%);
+        --input: hsl(220 13% 91%);
+        --ring: hsl(224 71.4% 4.1%);
+        
+        --radius: 0.5rem;
+      }
+
+      .dark {
+        --background: hsl(224 71.4% 4.1%);
+        --foreground: hsl(210 20% 98%);
+        
+        --card: hsl(224 71.4% 4.1%);
+        --card-foreground: hsl(210 20% 98%);
+        
+        --popover: hsl(224 71.4% 4.1%);
+        --popover-foreground: hsl(210 20% 98%);
+        
+        --primary: hsl(210 20% 98%);
+        --primary-foreground: hsl(220.9 39.3% 11%);
+        
+        --secondary: hsl(215 27.9% 16.9%);
+        --secondary-foreground: hsl(210 20% 98%);
+        
+        --muted: hsl(215 27.9% 16.9%);
+        --muted-foreground: hsl(217.9 10.6% 64.9%);
+        
+        --accent: hsl(215 27.9% 16.9%);
+        --accent-foreground: hsl(210 20% 98%);
+        
+        --destructive: hsl(0 62.8% 30.6%);
+        --destructive-foreground: hsl(210 20% 98%);
+        
+        --border: hsl(215 27.9% 16.9%);
+        --input: hsl(215 27.9% 16.9%);
+        --ring: hsl(216 12.2% 83.9%);
+      }
+      
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      
+      html {
+        font-family: var(--font-sans);
+      }
+      
+      body {
+        background-color: var(--background);
+        color: var(--foreground);
+        font-feature-settings: "rlig" 1, "calt" 1;
+        line-height: 1.5;
+      }
+      
+      .container {
+        max-width: 600px;
+        margin: 2rem auto;
+        padding: 1.5rem;
+      }
+
+      .logo-container {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 1rem;
+      }
+      
+      .card {
+        background-color: var(--card);
+        border-radius: var(--radius);
+        box-shadow: 0px 4px 25px rgba(0, 0, 0, 0.05);
+        overflow: hidden;
+      }
+      
+      .card-header {
+        padding: 2rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        border-bottom: 1px solid var(--border);
+      }
+      
+      .card-body {
+        padding: 2rem;
+      }
+      
+      h1 {
+        font-size: 1.875rem;
+        font-weight: 600;
+        letter-spacing: -0.025em;
+        color: var(--foreground);
+        margin-bottom: 0.5rem;
+      }
+      
+      p {
+        color: var(--muted-foreground);
+        font-size: 0.9375rem;
+      }
+      
+      .form-group {
+        margin-bottom: 1.5rem;
+      }
+      
+      .form-group h2 {
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 0.75rem;
+      }
+      
+      .form-group p {
+        margin-bottom: 1rem;
+        font-size: 0.875rem;
+      }
+      
+      .input-group {
+        margin-bottom: 1rem;
+      }
+      
+      .label {
+        display: block;
+        font-size: 0.875rem;
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+      }
+      
+      .input {
+        display: flex;
+        width: 100%;
+        height: 2.5rem;
+        border-radius: var(--radius);
+        border: 1px solid var(--input);
+        background-color: transparent;
+        padding: 0 0.75rem;
+        font-size: 0.875rem;
+        transition: border-color 0.2s, box-shadow 0.2s;
+      }
+      
+      .input:focus {
+        outline: none;
+        box-shadow: 0 0 0 2px var(--ring);
+        border-color: var(--ring);
+      }
+      
+      .radio-group {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.75rem;
+      }
+      
+      .radio-item {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background-color: var(--background);
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      
+      .radio-item:hover {
+        background-color: var(--secondary);
+      }
+      
+      .radio-item.checked {
+        border-color: var(--primary);
+        background-color: var(--accent);
+      }
+      
+      .radio-item input {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      
+      .radio-button {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 1rem;
+        height: 1rem;
+        border-radius: 50%;
+        border: 1.5px solid var(--muted-foreground);
+      }
+      
+      .radio-item.checked .radio-button {
+        border-color: var(--primary);
+      }
+      
+      .radio-item.checked .radio-button::after {
+        content: "";
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background-color: var(--primary);
+      }
+      
+      .radio-label {
+        font-size: 0.875rem;
+        font-weight: 500;
+      }
+      
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--radius);
+        font-size: 0.875rem;
+        font-weight: 500;
+        height: 2.5rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+        transition: all 0.2s ease;
+        cursor: pointer;
+      }
+      
+      .button-primary {
+        background-color: var(--primary);
+        color: var(--primary-foreground);
+        border: none;
+      }
+      
+      .button-primary:hover {
+        opacity: 0.9;
+      }
+      
+      .button-primary:active {
+        opacity: 0.8;
+      }
+      
+      .button-primary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      
+      .divider {
+        height: 1px;
+        width: 100%;
+        background-color: var(--border);
+        margin: 1.5rem 0;
+      }
+      
+      .alert {
+        border-radius: var(--radius);
+        padding: 0.75rem;
+        font-size: 0.875rem;
+        margin-top: 0.75rem;
+        display: flex;
+        gap: 0.5rem;
+        align-items: flex-start;
+      }
+      
+      .alert-warning {
+        background-color: hsl(48 96% 89%);
+        border: 1px solid hsl(38 92% 50%);
+        color: hsl(20 94% 30%);
+      }
+      
+      .alert-info {
+        background-color: hsl(213 100% 96%);
+        border: 1px solid hsl(221 83% 53%);
+        color: hsl(224 76% 33%);
+      }
+      
+      .alert-icon {
+        flex-shrink: 0;
+      }
+      
+      .conditional {
+        margin-top: 0.75rem;
+      }
+      
+      #setup-feedback {
+        margin-top: 1rem;
+        border-radius: var(--radius);
+        padding: 0.75rem;
+        font-size: 0.875rem;
+        display: none;
+      }
+      
+      .success {
+        background-color: hsl(142 76% 97%);
+        border: 1px solid hsl(143 71% 48%);
+        color: hsl(140 100% 27%);
+      }
+      
+      .error {
+        background-color: hsl(0 96% 97%);
+        border: 1px solid hsl(0 72% 51%);
+        color: hsl(0 74% 39%);
+      }
+      
+      .restart-instructions {
+        margin-top: 1rem;
+        background: var(--secondary);
+        padding: 1rem;
+        border-radius: var(--radius);
+      }
+      
+      .restart-instructions ol {
+        margin-left: 1.5rem;
+        margin-top: 0.5rem;
+      }
+      
+      .restart-instructions li {
+        margin-bottom: 0.5rem;
+      }
+      
+      @media (max-width: 640px) {
+        .container {
+          padding: 1rem;
+        }
+        
+        .card-header, .card-body {
+          padding: 1.5rem;
+        }
+        
+        .radio-group {
+          grid-template-columns: 1fr;
+        }
+      }
     `;
   }
 
@@ -1351,20 +1234,20 @@ class SetupService extends BaseService {
     // Generate HTML for each configuration step
     this.configSteps.forEach((step, index) => {
       html += `
-        <div class="form-group" data-step-id="${step.id}">
+        <div class="form-step" data-step-id="${step.id}">
           <h2>${step.title}</h2>
-          ${step.description ? `<p class="step-description">${step.description}</p>` : ""}
           ${step.template}
+          ${index < this.configSteps.length - 1 ? '<div class="divider"></div>' : ""}
         </div>
-        ${index < this.configSteps.length - 1 ? '<div class="divider"></div>' : ""}
       `;
     });
 
     // Add the submit button and feedback area
     html += `
-      <div class="divider"></div>
-      <button type="submit" id="submit-btn" class="button button-primary">Complete Setup</button>
-      <div id="setup-feedback"></div>
+      <div class="form-actions">
+        <button type="submit" id="submit-btn" class="button button-primary">Complete Setup</button>
+      </div>
+      <div id="setup-feedback" class="feedback"></div>
     `;
 
     return html;
@@ -1373,50 +1256,64 @@ class SetupService extends BaseService {
   // Templates for default configuration steps
   getSubdomainStepTemplate() {
     return `
-      <div class="radio-group" id="subdomain-radio-group">
-        <label class="radio-item checked" data-value="enabled">
-          <input type="radio" name="subdomainBehavior" value="enabled" checked>
-          <span class="radio-button"></span>
-          <span class="radio-label">Enabled (Recommended)</span>
-        </label>
-        <label class="radio-item" data-value="disabled">
-          <input type="radio" name="subdomainBehavior" value="disabled">
-          <span class="radio-button"></span>
-          <span class="radio-label">Disabled</span>
-        </label>
-      </div>
-      
-      <div id="subdomain-warning" class="alert alert-warning" style="display: none;">
-        <span class="alert-icon">⚠️</span>
-        <span>Disabling subdomains makes your deployment less secure. Only use this option if your hosting does not support subdomains.</span>
+      <div class="form-group">
+        <p>Choose whether to enable or disable subdomains for your Puter instance.</p>
+        <div class="radio-group" id="subdomain-radio-group">
+          <label class="radio-item checked" data-value="enabled">
+            <input type="radio" name="subdomainBehavior" value="enabled" checked>
+            <span class="radio-button"></span>
+            <span class="radio-label">Enabled (Recommended)</span>
+          </label>
+          <label class="radio-item" data-value="disabled">
+            <input type="radio" name="subdomainBehavior" value="disabled">
+            <span class="radio-button"></span>
+            <span class="radio-label">Disabled</span>
+          </label>
+        </div>
+        
+        <div id="subdomain-warning" class="alert alert-warning" style="display: none;">
+          <span class="alert-icon">⚠️</span>
+          <div>
+            <strong>Security Warning</strong>
+            <p style="margin-top: 0.25rem;">Disabling subdomains makes your deployment less secure. Only use this option if your hosting does not support subdomains.</p>
+          </div>
+        </div>
       </div>
     `;
   }
 
   getDomainStepTemplate() {
     return `
-      <div class="radio-group" id="domain-radio-group">
-        <label class="radio-item checked" data-value="domain">
-          <input type="radio" name="domainType" value="domain" checked>
-          <span class="radio-button"></span>
-          <span class="radio-label">Custom Domain</span>
-        </label>
-        <label class="radio-item" data-value="nipio">
-          <input type="radio" name="domainType" value="nipio">
-          <span class="radio-button"></span>
-          <span class="radio-label">Use nip.io (IP-based)</span>
-        </label>
-      </div>
-      
-      <div id="domain-input" class="conditional">
-        <label class="label" for="domainName">Domain Name</label>
-        <input type="text" id="domainName" name="domainName" class="input" placeholder="e.g., yourdomain.com">
-      </div>
-      
-      <div id="nipio-info" class="conditional" style="display: none;">
-        <div class="alert alert-warning">
-          <span class="alert-icon">ℹ️</span>
-          <span>Using nip.io will create a domain based on your server's IP address. Your Puter instance will be accessible at: <strong id="nipio-domain">--.--.--.---.nip.io</strong></span>
+      <div class="form-group">
+        <p>Choose how users will access your Puter instance.</p>
+        <div class="radio-group" id="domain-radio-group">
+          <label class="radio-item checked" data-value="domain">
+            <input type="radio" name="domainType" value="domain" checked>
+            <span class="radio-button"></span>
+            <span class="radio-label">Custom Domain</span>
+          </label>
+          <label class="radio-item" data-value="nipio">
+            <input type="radio" name="domainType" value="nipio">
+            <span class="radio-button"></span>
+            <span class="radio-label">Use nip.io (IP-based)</span>
+          </label>
+        </div>
+        
+        <div id="domain-input" class="conditional">
+          <div class="input-group">
+            <label class="label" for="domainName">Domain Name</label>
+            <input type="text" id="domainName" name="domainName" class="input" placeholder="e.g., yourdomain.com">
+          </div>
+        </div>
+        
+        <div id="nipio-info" class="conditional" style="display: none;">
+          <div class="alert alert-info">
+            <span class="alert-icon">ℹ️</span>
+            <div>
+              <strong>Using nip.io</strong>
+              <p style="margin-top: 0.25rem;">This will create a domain based on your server's IP address. Your Puter instance will be accessible at: <strong id="nipio-domain">--.--.--.---.nip.io</strong></p>
+            </div>
+          </div>
         </div>
       </div>
     `;
@@ -1424,13 +1321,16 @@ class SetupService extends BaseService {
 
   getPasswordStepTemplate() {
     return `
-      <div>
-        <label class="label" for="adminPassword">Password</label>
-        <input type="password" id="adminPassword" name="adminPassword" class="input" placeholder="Enter a secure password">
-      </div>
-      <div>
-        <label class="label" for="confirmPassword">Confirm Password</label>
-        <input type="password" id="confirmPassword" name="confirmPassword" class="input" placeholder="Confirm your password">
+      <div class="form-group">
+        <p>Set a secure password for the admin user.</p>
+        <div class="input-group">
+          <label class="label" for="adminPassword">Password</label>
+          <input type="password" id="adminPassword" name="adminPassword" class="input" placeholder="Enter a secure password">
+        </div>
+        <div class="input-group">
+          <label class="label" for="confirmPassword">Confirm Password</label>
+          <input type="password" id="confirmPassword" name="confirmPassword" class="input" placeholder="Confirm your password">
+        </div>
       </div>
     `;
   }
@@ -1799,6 +1699,8 @@ class SetupService extends BaseService {
           try {
             await this.updateAdminPassword(data.adminPassword);
             this.safeLog("info", "Admin password updated successfully");
+            // Return an empty object since we're handling the password separately
+            return {};
           } catch (passwordError) {
             this.safeLog(
               "error",
@@ -1806,6 +1708,7 @@ class SetupService extends BaseService {
               passwordError
             );
             // Don't throw error to allow setup to continue
+            return {};
           }
         }
         return {};
@@ -1850,11 +1753,20 @@ class SetupService extends BaseService {
   async processConfigSteps(data, req) {
     let config = {};
 
+    // Store the admin password separately
+    let adminPassword = null;
+
     // Process each step in order
     for (const step of this.configSteps) {
       try {
         this.safeLog("info", `Processing configuration step: ${step.id}`);
         const stepConfig = await step.process.call(this, data, req);
+
+        // If this is the admin password step, store the password
+        if (step.id === "adminPassword" && data.adminPassword) {
+          adminPassword = data.adminPassword;
+        }
+
         config = { ...config, ...stepConfig };
       } catch (error) {
         this.safeLog("error", `Error processing step ${step.id}`, error);
@@ -1862,7 +1774,42 @@ class SetupService extends BaseService {
       }
     }
 
+    // Store the admin password in the config object for later use
+    // This won't be included in the global config but will be used for setup
+    if (adminPassword) {
+      config.__adminPassword = adminPassword;
+    }
+
     return config;
+  }
+
+  /**
+   * Determines if server restart is required based on configuration changes
+   * @param {Object} newConfig - The newly applied configuration
+   * @returns {boolean} - True if restart is required
+   */
+  requiresRestart(newConfig) {
+    // These configuration options require a server restart to take effect
+    const restartRequiredOptions = [
+      "domain",
+      "experimental_no_subdomain",
+      "http_port",
+      "api_base_url",
+      "origin",
+    ];
+
+    // Check if any restart-required options were changed
+    for (const option of restartRequiredOptions) {
+      if (option in newConfig) {
+        this.safeLog(
+          "info",
+          `Configuration change to '${option}' requires server restart`
+        );
+        return true;
+      }
+    }
+
+    return false;
   }
 }
 

@@ -77,23 +77,103 @@ class DefaultUserService extends BaseService {
   };
   async _init() {
     this._register_commands(this.services.get("commands"));
+
+    let user = await get_user({ username: USERNAME });
+
+    if (!user) {
+      this.log.info("Creating admin user");
+      user = await this.create_default_user_();
+    }
+
+    // Check for saved admin password from setup
+    const fs = require("fs").promises;
+    const path = require("path");
+    const configDir = path.join(process.cwd(), "config");
+    const adminPassPath = path.join(configDir, "admin-password");
+
+    try {
+      // Check if admin password file exists
+      const adminPasswordExists = await fs
+        .access(adminPassPath)
+        .then(() => true)
+        .catch(() => false);
+
+      if (adminPasswordExists) {
+        this.log.info("Found saved admin password from setup, applying it");
+
+        // Read the password
+        const adminPassword = await fs.readFile(adminPassPath, "utf8");
+
+        if (adminPassword && adminPassword.trim()) {
+          try {
+            // Apply the password
+            const bcrypt = require("bcrypt");
+            const salt = await bcrypt.genSalt(10);
+            const passwordHash = await bcrypt.hash(adminPassword, salt);
+
+            // Update the password in the database
+            const db = this.services.get("database").get(DB_WRITE, USERNAME);
+            await db.write(`UPDATE user SET password = ? WHERE id = ?`, [
+              passwordHash,
+              user.id,
+            ]);
+
+            this.log.info("Applied saved admin password");
+
+            // Delete the password file after applying it
+            await fs.unlink(adminPassPath);
+            this.log.info("Deleted saved admin password file for security");
+
+            // Invalidate the cached user since we changed the password
+            invalidate_cached_user(user);
+
+            // Refresh user data with updated password
+            user = await get_user({ username: USERNAME, cached: false });
+          } catch (error) {
+            this.log.error("Failed to apply saved admin password:", error);
+          }
+        }
+      }
+    } catch (error) {
+      this.log.error("Error checking for saved admin password:", error);
+    }
   }
   async ["__on_ready.webserver"]() {
-    // check if a user named `admin` exists
-    let user = await get_user({ username: USERNAME, cached: false });
-    if (!user) user = await this.create_default_user_();
+    let user = await get_user({ username: USERNAME });
 
-    // check if user named `admin` is using default password
+    if (!user) {
+      this.log.info("Creating admin user");
+      user = await this.create_default_user_();
+    }
+
+    // Check if a password has already been set
+    // This could happen if we applied a saved password during initialization
+    this.log.info("Checking if admin password is already set");
+
     const require = this.require;
-    const tmp_password = await this.get_tmp_password_(user);
     const bcrypt = require("bcrypt");
+
+    // Generate a temporary password as a fallback
+    const tmp_password = await this.get_tmp_password_(user);
+
+    // Check if the temporary password is already the current password
+    // If it's not, it means either a custom password was set or we applied the saved password
     const is_default_password = await bcrypt.compare(
       tmp_password,
       user.password
     );
-    if (!is_default_password) return;
 
-    // show console widget
+    if (!is_default_password) {
+      this.log.info(
+        "Admin user already has a custom password set, skipping temporary password"
+      );
+      return;
+    }
+
+    // If we got here, we need to display the temporary password in the console
+    await this.force_tmp_password_(user);
+
+    // show console widget with the temporary password
     this.default_user_widget = ({ is_docker }) => {
       if (is_docker) {
         // In Docker we keep the output as simple as possible because
@@ -117,6 +197,8 @@ class DefaultUserService extends BaseService {
       return lines;
     };
     this.default_user_widget.critical = true;
+
+    // Start polling to check if the password has been changed
     this.start_poll_({ tmp_password, user });
     const svc_devConsole = this.services.get("dev-console");
     svc_devConsole.add_widget(this.default_user_widget);
