@@ -47,8 +47,6 @@
     ]
   },
   "dependencies": {
-    "bcrypt": "^5.1.1",
-    "better-sqlite3": "^8.0.0",
     "dedent": "^1.5.3",
     "javascript-time-ago": "^2.5.11",
     "json-colorizer": "^3.0.1",
