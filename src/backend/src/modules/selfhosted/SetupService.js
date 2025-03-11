@@ -706,11 +706,6 @@ class SetupService extends BaseService {
         <div class="container">
             <div class="card">
                 <div class="card-header">
-                    <div class="logo-container">
-                        <svg width="50" height="50" viewBox="0 0 45 45" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M2.83992 38.2927C-0.5357 34.9171 -0.5357 29.4674 2.83992 26.0918L10.6486 18.2831C12.7236 16.2081 15.6358 15.2857 18.5097 15.5224V12.5719C15.6358 12.8086 12.7236 11.8861 10.6486 9.81115L5.44428 4.60683C3.36928 2.53183 3.36928 -0.705672 5.44428 -2.78067C7.51928 -4.85567 10.7568 -4.85567 12.8318 -2.78067L18.0361 2.42365C20.1111 4.49865 21.0335 7.41085 20.7968 10.2848H23.7473C23.5106 7.41085 24.4331 4.49865 26.5081 2.42365L31.7124 -2.78067C33.7874 -4.85567 37.0249 -4.85567 39.0999 -2.78067C41.1749 -0.705672 41.1749 2.53183 39.0999 4.60683L33.8956 9.81115C31.8206 11.8861 28.9084 12.8086 26.0345 12.5719V15.5224C28.9084 15.2857 31.8206 16.2081 33.8956 18.2831L41.7043 26.0918C45.0799 29.4674 45.0799 34.9171 41.7043 38.2927C38.3286 41.6684 32.879 41.6684 29.5033 38.2927L21.6946 30.484C19.6196 28.409 18.6972 25.4968 18.9339 22.6229H15.9834C16.2201 25.4968 15.2976 28.409 13.2226 30.484L5.41392 38.2927C2.03826 41.6684 -3.41136 41.6684 -6.78701 38.2927" transform="translate(2 4)" fill="var(--primary)"/>
-                        </svg>
-                    </div>
                     <h1>Puter Setup</h1>
                     <p>Configure your Puter server installation</p>
                 </div>
@@ -799,8 +794,12 @@ class SetupService extends BaseService {
                 function showFeedback(message, isSuccess) {
                     const feedbackEl = document.getElementById('setup-feedback');
                     if (feedbackEl) {
-                        feedbackEl.textContent = message;
-                        feedbackEl.className = isSuccess ? 'feedback success' : 'feedback error';
+                        if (isSuccess) {
+                            feedbackEl.innerHTML = '<div class="success"><strong>' + message + '</strong></div>';
+                        } else {
+                            feedbackEl.innerHTML = '<div class="error">' + message + '</div>';
+                        }
+                        feedbackEl.className = '';
                         feedbackEl.style.display = 'block';
                     }
                 }
@@ -865,10 +864,10 @@ class SetupService extends BaseService {
                                     if (feedbackEl) {
                                         feedbackEl.innerHTML = 
                                             '<div class="success">' +
-                                            '<p><strong>Setup completed successfully!</strong></p>' +
+                                            '<strong>Setup Completed Successfully</strong>' +
                                             '<p>' + (data.instructions || 'Please restart the Puter server to apply changes.') + '</p>' +
                                             '<div class="restart-instructions">' +
-                                            '<p><strong>How to restart:</strong></p>' +
+                                            '<strong>How to restart:</strong>' +
                                             '<ol>' +
                                             '<li>Stop the server (Ctrl+C in the terminal where Puter is running)</li>' +
                                             '<li>Start the server again</li>' +
@@ -1004,12 +1003,6 @@ class SetupService extends BaseService {
         padding: 1.5rem;
       }
 
-      .logo-container {
-        display: flex;
-        justify-content: center;
-        margin-bottom: 1rem;
-      }
-      
       .card {
         background-color: var(--card);
         border-radius: var(--radius);
@@ -1018,24 +1011,23 @@ class SetupService extends BaseService {
       }
       
       .card-header {
-        padding: 2rem;
+        padding: 2rem 2rem 1.5rem;
+        border-bottom: 1px solid var(--border);
         display: flex;
         flex-direction: column;
         align-items: center;
         text-align: center;
-        border-bottom: 1px solid var(--border);
+      }
+      
+      .card-header h1 {
+        margin: 0 0 0.5rem;
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: var(--foreground);
       }
       
       .card-body {
         padding: 2rem;
-      }
-      
-      h1 {
-        font-size: 1.875rem;
-        font-weight: 600;
-        letter-spacing: -0.025em;
-        color: var(--foreground);
-        margin-bottom: 0.5rem;
       }
       
       p {
@@ -1221,17 +1213,28 @@ class SetupService extends BaseService {
       }
       
       #setup-feedback {
-        margin-top: 1rem;
+        margin-top: 1.5rem;
         border-radius: var(--radius);
-        padding: 0.75rem;
-        font-size: 0.875rem;
+        padding: 1rem;
+        font-size: 0.9rem;
         display: none;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
       }
       
       .success {
         background-color: hsl(142 76% 97%);
         border: 1px solid hsl(143 71% 48%);
         color: hsl(140 100% 27%);
+      }
+      
+      .success strong {
+        font-size: 1.1rem;
+        display: block;
+        margin-bottom: 0.75rem;
+      }
+      
+      .success p {
+        margin-bottom: 0.75rem;
       }
       
       .error {
@@ -1241,10 +1244,17 @@ class SetupService extends BaseService {
       }
       
       .restart-instructions {
-        margin-top: 1rem;
+        margin-top: 1.5rem;
         background: var(--secondary);
-        padding: 1rem;
+        padding: 1.25rem;
         border-radius: var(--radius);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      
+      .restart-instructions strong {
+        display: block;
+        margin-bottom: 0.75rem;
+        font-size: 1rem;
       }
       
       .restart-instructions ol {
@@ -1442,21 +1452,10 @@ class SetupService extends BaseService {
                 
                 .card-header {
                     padding: 1.5rem;
-                    border-bottom: 1px solid var(--border);
                     display: flex;
                     flex-direction: column;
                     align-items: center;
                     text-align: center;
-                }
-                
-                .logo {
-                    display: flex;
-                    justify-content: center;
-                    margin-bottom: 1rem;
-                }
-                
-                .logo img {
-                    height: 40px;
                 }
                 
                 h1 {
@@ -1619,21 +1618,10 @@ class SetupService extends BaseService {
                 
                 .card-header {
                     padding: 1.5rem;
-                    border-bottom: 1px solid var(--border);
                     display: flex;
                     flex-direction: column;
                     align-items: center;
                     text-align: center;
-                }
-                
-                .logo {
-                    display: flex;
-                    justify-content: center;
-                    margin-bottom: 1rem;
-                }
-                
-                .logo img {
-                    height: 40px;
                 }
                 
                 h1 {
@@ -1668,9 +1656,6 @@ class SetupService extends BaseService {
             <div class="container">
                 <div class="card">
                     <div class="card-header">
-                        <div class="logo">
-                            <img src="/assets/img/logo.svg" alt="Puter Logo">
-                        </div>
                         <h1>Reset Instructions</h1>
                         <p class="description">Follow these steps to reset your Puter instance.</p>
                     </div>
