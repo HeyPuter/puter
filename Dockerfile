@@ -49,8 +49,8 @@
         license="AGPL-3.0,https://github.com/HeyPuter/puter/blob/master/LICENSE.txt" \
         version="1.2.46-beta-1"
   
-  # Install runtime dependencies (including Python for node-gyp)
-  RUN apk add --no-cache git python3 \
+  # Install runtime dependencies (including Python and make for node-gyp)
+  RUN apk add --no-cache git python3 make \
     && ln -sf /usr/bin/python3 /usr/bin/python
   
   # Set up application directory
