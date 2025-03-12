@@ -19,6 +19,7 @@
  */
 
 const { AdvancedBase } = require("@heyputer/putility");
+const config = require("../../config");
 
 /**
  * @class CaptchaModule
@@ -34,14 +35,14 @@ class CaptchaModule extends AdvancedBase {
         
         const { CaptchaService } = require('./services/CaptchaService');
         
-        // Get configuration from environment or use defaults
-        const captchaEnabled = process.env.CAPTCHA_ENABLED !== 'false'; // Enabled by default
-        const captchaExpirationTime = parseInt(process.env.CAPTCHA_EXPIRATION_TIME) || 10 * 60 * 1000; // 10 minutes
-        const captchaDifficulty = process.env.CAPTCHA_DIFFICULTY || 'medium';
+        // Get configuration from config system with fallbacks
+        const captchaEnabled = config.captcha?.enabled !== false; // Enabled by default
+        const captchaExpirationTime = config.captcha?.expirationTime || 10 * 60 * 1000; // 10 minutes
+        const captchaDifficulty = config.captcha?.difficulty || 'medium';
         
         // Register the captcha service
         services.registerService('captcha', CaptchaService, {
-            // Configuration with environment variables support
+            // Configuration from config system
             enabled: captchaEnabled,
             expirationTime: captchaExpirationTime,
             difficulty: captchaDifficulty
@@ -65,11 +66,12 @@ class CaptchaModule extends AdvancedBase {
             console.error('Error accessing captcha service after registration:', error);
         }
         
-        // Register captcha middleware
-        const captchaMiddleware = require('./middleware/captcha-middleware');
-        context.set('captcha-middleware', captchaMiddleware);
+        // Note: The captcha middleware is available at './middleware/captcha-middleware'
+        // It is directly imported by consumers rather than accessed via context
+        // const captchaMiddleware = require('./middleware/captcha-middleware');
+        // context.set('captcha-middleware', captchaMiddleware);
         
-        console.log('Captcha module installed with middleware');
+        console.log('Captcha module installed');
     }
 }
 
