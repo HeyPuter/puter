@@ -376,6 +376,7 @@ class ThreadService extends BaseService {
                         uid,
                     });
                 }
+                const parent_uid = thread.parent_uid;
 
                 const actor = Context.get('actor');
 
@@ -401,8 +402,13 @@ class ThreadService extends BaseService {
                 res.json({});
 
                 // Notify subscribers
-                await this.notify_subscribers(parent_uid, 'delete', {
+                await this.notify_subscribers(uid, 'delete', {
                     uid,
+                });
+
+                // Notify parent subscribers
+                await this.notify_subscribers(parent_uid, 'child-delete', {
+                    parent_uid,
                 });
             }
         }).attach(router);
