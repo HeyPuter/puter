@@ -46,8 +46,10 @@ git clone https://github.com/HeyPuter/puter
 cd puter
 npm install
 npm start
-This will launch Puter at http://puter.localhost:4100 (or the next available port).
 ```
+✨ This will should launch Puter at 
+<font color="red"> http://puter.localhost:4100 (or the next available port). </font>
+
 
 
 If this does not work, see [First Run Issues](./doc/self-hosters/first-run-issues.md) for
@@ -59,8 +61,8 @@ troubleshooting steps.
 
 ```bash
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
-This will should launch Puter at http://puter.localhost:4100 (or the next available port).
 ```
+
 
 <br/>
 
@@ -73,7 +75,7 @@ mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
-open "http://puter.localhost:4100" in browser or whichever port in showing in docker
+
 ```
 
 <br/>
@@ -87,8 +89,9 @@ New-Item -Path "puter\config" -ItemType Directory -Force
 New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
-open "http://puter.localhost:4100" in browser or whichever port in showing in docker
 ```
+✨ This will should launch Puter at 
+<font color="red"> http://puter.localhost:4100 (or the next available port). </font>
 
 <br/>
 
