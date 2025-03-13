@@ -417,6 +417,7 @@ const en = {
         'refresh_captcha': 'Get a new code',
         'captcha_case_sensitive': 'Please enter the characters exactly as they appear. Case sensitive.',
         'captcha_required': 'Please complete the verification code.',
+        'captcha_now_required': 'Verification is now required. Please complete the verification below.',
         'captcha_invalid': 'Incorrect verification code. Please try again.',
         'captcha_expired': 'Verification code has expired. Please try a new one.',
         'captcha_system_error': 'Verification system error. Please refresh the page.',

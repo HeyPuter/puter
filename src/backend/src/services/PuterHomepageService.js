@@ -21,6 +21,7 @@ const { PathBuilder } = require("../util/pathutil");
 const BaseService = require("./BaseService");
 const {is_valid_url} = require('../helpers');
 const { Endpoint } = require("../util/expressutil");
+const { Context } = require("../util/context");
 
 /**
  * PuterHomepageService serves the initial HTML page that loads the Puter GUI
@@ -106,6 +107,40 @@ class PuterHomepageService extends BaseService {
             }));
         }
         
+        // Check if captcha will be required for various operations
+        let captchaRequired = {};
+        
+        // Get the checkCaptcha middleware if available
+        const captchaMiddleware = Context.get('check-captcha-middleware');
+        
+        if (captchaMiddleware) {
+            // Check login captcha requirement
+            const loginReq = {
+                ip: req.ip,
+                headers: req.headers,
+                connection: req.connection
+            };
+            
+            await new Promise(resolve => {
+                captchaMiddleware({ eventType: 'login' })(loginReq, {}, resolve);
+            });
+            
+            captchaRequired.login = loginReq.captchaRequired || false;
+            
+            // Check signup captcha requirement
+            const signupReq = {
+                ip: req.ip,
+                headers: req.headers,
+                connection: req.connection
+            };
+            
+            await new Promise(resolve => {
+                captchaMiddleware({ eventType: 'signup' })(signupReq, {}, resolve);
+            });
+            
+            captchaRequired.signup = signupReq.captchaRequired || false;
+        }
+        
         return res.send(this.generate_puter_page_html({
             env: config.env,
 
@@ -144,6 +179,8 @@ class PuterHomepageService extends BaseService {
                 long_description: config.long_description,
                 disable_temp_users: config.disable_temp_users,
                 co_isolation_enabled: req.co_isolation_enabled,
+                // Add captcha requirements to GUI parameters
+                captchaRequired: captchaRequired,
             },
         }));
     }

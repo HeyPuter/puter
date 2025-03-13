@@ -26,8 +26,8 @@ const config = require("../../config");
  * @extends AdvancedBase
  * @description Module that provides captcha verification functionality to protect
  * against automated abuse, particularly for login and signup flows. Registers
- * a CaptchaService for generating and verifying captchas as well as a middleware
- * that can be used to protect routes.
+ * a CaptchaService for generating and verifying captchas as well as middlewares
+ * that can be used to protect routes and determine captcha requirements.
  */
 class CaptchaModule extends AdvancedBase {
     async install(context) {
@@ -66,12 +66,16 @@ class CaptchaModule extends AdvancedBase {
             console.error('Error accessing captcha service after registration:', error);
         }
         
-        // Note: The captcha middleware is available at './middleware/captcha-middleware'
-        // It is directly imported by consumers rather than accessed via context
-        // const captchaMiddleware = require('./middleware/captcha-middleware');
-        // context.set('captcha-middleware', captchaMiddleware);
+        // Register the captcha middlewares in the context
+        // This allows them to be accessed by name rather than requiring the file directly
+        const captchaMiddleware = require('./middleware/captcha-middleware');
+        context.set('captcha-middleware', captchaMiddleware);
         
-        console.log('Captcha module installed');
+        // Also register individual middlewares for explicit access
+        context.set('check-captcha-middleware', captchaMiddleware.checkCaptcha);
+        context.set('require-captcha-middleware', captchaMiddleware.requireCaptcha);
+        
+        console.log('Captcha module installed with check and require middlewares');
     }
 }
 

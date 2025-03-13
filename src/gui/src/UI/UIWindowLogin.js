@@ -30,35 +30,48 @@ import Button from './Components/Button.js';
 import RecoveryCodeEntryView from './Components/RecoveryCodeEntryView.js';
 import play_startup_chime from '../helpers/play_startup_chime.js';
 import CaptchaView from './Components/CaptchaView.js'
+import { isCaptchaRequired } from '../helpers/captchaHelper.js';
 
 async function UIWindowLogin(options){
     options = options ?? {};
-    options.reload_on_success = options.reload_on_success ?? false;
-    options.has_head = options.has_head ?? true;
-    options.send_confirmation_code = options.send_confirmation_code ?? false;
-    options.show_password = options.show_password ?? false;
-
+    
+    if(options.reload_on_success === undefined)
+        options.reload_on_success = true;
+    
     return new Promise(async (resolve) => {
         const internal_id = window.uuidv4();
+        
+        // Check if captcha is required for login
+        const captchaRequired = await isCaptchaRequired('login');
+        console.log('Login captcha required:', captchaRequired);
+        
         let h = ``;
-        h += `<div style="max-width: 500px; min-width: 340px;">`;
-            if(!options.has_head && options.show_close_button !== false)
-                h += `<div class="generic-close-window-button"> &times; </div>`;
-            h += `<div style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
-                // title
-                h += `<h1 class="login-form-title">${i18n('log_in')}</h1>`;
-                // login form
-                h += `<form class="login-form">`;
-                    // error msg
-                    h += `<div class="login-error-msg"></div>`;
-                    // username/email
-                    h += `<div style="overflow: hidden;">`;
-                        h += `<label for="email_or_username-${internal_id}">${i18n('email_or_username')}</label>`;
-                        h += `<input id="email_or_username-${internal_id}" class="email_or_username" type="text" name="email_or_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false" autocomplete="username"/>`;
+        h += `<div style="max-width:100%; width:100%; height:100%; min-height:0; box-sizing:border-box; display:flex; flex-direction:column; justify-content:flex-start; align-items:stretch; padding:0; overflow:auto; color:var(--color-text);">`;
+            // logo
+            h += `<div class="logo-wrapper" style="display:flex; justify-content:center; padding:20px 20px 0 20px; margin-bottom: 0;">`;
+                h += `<img src="/dist/images/logo/logo.svg" style="height:45px;" />`;
+            h += `</div>`;
+            // title
+            h += `<div style="padding:10px 20px; text-align:center; margin-bottom:0;">`;
+                h += `<h1 style="font-size:18px; margin-bottom:0;">${i18n('log_in')}</h1>`;
+            h += `</div>`;
+            // form
+            h += `<div style="padding:20px; overflow-y:auto; overflow-x:hidden;">`;
+                h += `<form style="width:100%;">`;
+                    // server messages
+                    h += `<div class="login-error-msg" style="color:#e74c3c; display:none; margin-bottom:10px; line-height:15px; font-size:13px;"></div>`;
+                    // email or username
+                    h += `<div style="position: relative; margin-bottom: 20px;">`;
+                    h += `<label style="display:block; margin-bottom:5px;">${i18n('email_or_username')}</label>`;
+                    if(options.email_or_username){
+                        h += `<input type="text" class="email_or_username" value="${options.email_or_username}" autocomplete="username"/>`;
+                    }else{
+                        h += `<input type="text" class="email_or_username" autocomplete="username"/>`;
+                    }
                     h += `</div>`;
-                    // password with conditional type based based on options.show_password
-                    h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px; position: relative;">`;
-                    h += `<label for="password-${internal_id}">${i18n('password')}</label>`;
+                    // password
+                    h += `<div style="position: relative; margin-bottom: 20px;">`;
+                    h += `<label style="display:block; margin-bottom:5px;">${i18n('password')}</label>`;
                     h += `<input id="password-${internal_id}" class="password" type="${options.show_password ? "text" : "password"}" name="password" autocomplete="current-password"/>`;
                     // show/hide icon
                     h += `<span style="position: absolute; right: 5%; top: 50%; cursor: pointer;" id="toggle-show-password-${internal_id}">
@@ -129,9 +142,12 @@ async function UIWindowLogin(options){
             }    
         })
 
-        // Initialize the captcha component
+        // Initialize the captcha component with the required state
         const captchaContainer = $(el_window).find('.captcha-container')[0];
-        const captcha = CaptchaView({ container: captchaContainer });
+        const captcha = CaptchaView({ 
+            container: captchaContainer,
+            required: captchaRequired,
+        });
 
         // Function to show captcha-specific error
         const showCaptchaError = (message) => {
@@ -197,35 +213,40 @@ async function UIWindowLogin(options){
                 return;
             }
             
-            // Get captcha token and answer
-            let captchaToken = captcha.getToken();
-            let captchaAnswer = captcha.getAnswer();
+            // Get captcha token and answer if required
+            let captchaToken = null;
+            let captchaAnswer = null;
             
-            // Validate captcha
-            if (!captcha || !captchaContainer) {
-                $(el_window).find('.login-error-msg').html(i18n('captcha_system_error') || 'Verification system error. Please refresh the page.');
-                $(el_window).find('.login-error-msg').fadeIn();
-                return;
-            }
-            
-            if (!captchaToken) {
-                showCaptchaError(i18n('captcha_load_error') || 'Could not load verification code. Please refresh the page or try again later.');
-                return;
-            }
-            
-            if (!captchaAnswer) {
-                showCaptchaError(i18n('captcha_required') || 'Please enter the verification code');
-                return;
-            }
-            
-            if (captchaAnswer.trim().length < 3) {
-                showCaptchaError(i18n('captcha_too_short') || 'Verification code answer is too short.');
-                return;
-            }
-            
-            if (captchaAnswer.trim().length > 12) {
-                showCaptchaError(i18n('captcha_too_long') || 'Verification code answer is too long.');
-                return;
+            if (captcha.isRequired()) {
+                captchaToken = captcha.getToken();
+                captchaAnswer = captcha.getAnswer();
+                
+                // Validate captcha if it's required
+                if (!captcha || !captchaContainer) {
+                    $(el_window).find('.login-error-msg').html(i18n('captcha_system_error') || 'Verification system error. Please refresh the page.');
+                    $(el_window).find('.login-error-msg').fadeIn();
+                    return;
+                }
+                
+                if (!captchaToken) {
+                    showCaptchaError(i18n('captcha_load_error') || 'Could not load verification code. Please refresh the page or try again later.');
+                    return;
+                }
+                
+                if (!captchaAnswer) {
+                    showCaptchaError(i18n('captcha_required') || 'Please enter the verification code');
+                    return;
+                }
+                
+                if (captchaAnswer.trim().length < 3) {
+                    showCaptchaError(i18n('captcha_too_short') || 'Verification code answer is too short.');
+                    return;
+                }
+                
+                if (captchaAnswer.trim().length > 12) {
+                    showCaptchaError(i18n('captcha_too_long') || 'Verification code answer is too long.');
+                    return;
+                }
             }
             
             // Prepare data for the request
@@ -234,15 +255,19 @@ async function UIWindowLogin(options){
                 data = JSON.stringify({ 
                     email: email_username, 
                     password: password,
-                    captchaToken: captchaToken,
-                    captchaAnswer: captchaAnswer
+                    ...(captchaToken && captchaAnswer ? { 
+                        captchaToken: captchaToken,
+                        captchaAnswer: captchaAnswer 
+                    } : {})
                 });
             } else {
                 data = JSON.stringify({ 
                     username: email_username, 
                     password: password,
-                    captchaToken: captchaToken,
-                    captchaAnswer: captchaAnswer
+                    ...(captchaToken && captchaAnswer ? { 
+                        captchaToken: captchaToken,
+                        captchaAnswer: captchaAnswer 
+                    } : {})
                 });
             }
         
@@ -433,6 +458,9 @@ async function UIWindowLogin(options){
                     $(el_window).close();
                 },
                 error: function (err){
+                    // Enable 'Log In' button
+                    $(el_window).find('.login-btn').prop('disabled', false);
+                    
                     // Handle captcha-specific errors
                     const errorText = err.responseText || '';
                     const errorStatus = err.status || 0;
@@ -443,7 +471,13 @@ async function UIWindowLogin(options){
                         
                         // Check for specific error codes
                         if (errorJson.code === 'captcha_required') {
-                            showCaptchaError(i18n('captcha_required') || 'Please enter the verification code');
+                            // If captcha is now required but wasn't before, update the component
+                            if (!captcha.isRequired()) {
+                                captcha.setRequired(true);
+                                showCaptchaError(i18n('captcha_now_required') || 'Verification is now required. Please complete the verification below.');
+                            } else {
+                                showCaptchaError(i18n('captcha_required') || 'Please enter the verification code');
+                            }
                             return;
                         } 
                         
@@ -470,7 +504,13 @@ async function UIWindowLogin(options){
                         errorText.includes('Captcha verification required') ||
                         (errorText.includes('captcha') && errorText.includes('required'))
                     ) {
-                        showCaptchaError(i18n('captcha_required') || 'Please enter the verification code');
+                        // If captcha is now required but wasn't before, update the component
+                        if (!captcha.isRequired()) {
+                            captcha.setRequired(true);
+                            showCaptchaError(i18n('captcha_now_required') || 'Verification is now required. Please complete the verification below.');
+                        } else {
+                            showCaptchaError(i18n('captcha_required') || 'Please enter the verification code');
+                        }
                         return;
                     } 
                     

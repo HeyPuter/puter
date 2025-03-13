@@ -24,6 +24,8 @@
  * @param {HTMLElement} options.container - The container element to attach the captcha to
  * @param {Function} options.onReady - Callback when the captcha is ready
  * @param {Function} options.onError - Callback for handling errors
+ * @param {boolean} options.required - Whether captcha is required (will not display if false)
+ * @param {Function} options.onRequiredChange - Callback when the required status changes
  * @returns {Object} - Methods to interact with the captcha
  */
 function CaptchaView(options = {}) {
@@ -35,6 +37,8 @@ function CaptchaView(options = {}) {
         loading: false,
         error: null,
         container: options.container || document.createElement('div'),
+        required: options.required !== undefined ? options.required : true, // Default to required
+        initialized: false
     };
 
     // Create the initial DOM structure
@@ -45,15 +49,41 @@ function CaptchaView(options = {}) {
         container.style.marginBottom = '20px';
         
         // Add container CSS
-        container.style.display = 'flex';
+        container.style.display = state.required ? 'flex' : 'none';
         container.style.flexDirection = 'column';
         container.style.gap = '10px';
+        
+        state.initialized = true;
         
         // Render the initial HTML
         render();
         
-        // Fetch the first captcha
-        refresh();
+        // Only fetch captcha if required
+        if (state.required) {
+            refresh();
+        }
+    };
+
+    // Set whether captcha is required
+    const setRequired = (required) => {
+        if (state.required === required) return; // No change
+        
+        state.required = required;
+        
+        if (state.initialized) {
+            // Update display
+            state.container.style.display = required ? 'flex' : 'none';
+            
+            // If becoming required and no captcha loaded, fetch one
+            if (required && !state.token) {
+                refresh();
+            }
+            
+            // Notify of change if callback provided
+            if (typeof options.onRequiredChange === 'function') {
+                options.onRequiredChange(required);
+            }
+        }
     };
 
     // Render the captcha HTML
@@ -146,6 +176,11 @@ function CaptchaView(options = {}) {
 
     // Fetch a new captcha
     const refresh = async () => {
+        // Skip if not required
+        if (!state.required) {
+            return;
+        }
+        
         try {
             state.loading = true;
             state.error = null;
@@ -206,8 +241,25 @@ function CaptchaView(options = {}) {
          * Get the container element
          * @returns {HTMLElement} The container element
          */
-        getElement: () => state.container
+        getElement: () => state.container,
+        
+        /**
+         * Check if captcha is required
+         * @returns {boolean} Whether captcha is required
+         */
+        isRequired: () => state.required,
+        
+        /**
+         * Set whether captcha is required
+         * @param {boolean} required - Whether captcha is required
+         */
+        setRequired: setRequired
     };
+    
+    // Set initial required state from options
+    if (options.required !== undefined) {
+        state.required = options.required;
+    }
     
     // Initialize the component
     init();
