@@ -655,8 +655,6 @@ async function UIDesktop(options){
             >`;
     h += `</div>`;
 
-    h += `<span id='clock'></span></div>`;
-
     // Get window sidebar width
     puter.kv.get('window_sidebar_width').then(async (val) => {
         let value = parseInt(val);
@@ -1105,8 +1103,12 @@ async function UIDesktop(options){
     let ht = '';
     ht += `<div class="toolbar" style="height:${window.toolbar_height}px; min-height:${window.toolbar_height}px; max-height:${window.toolbar_height}px;">`;
         // logo
-        ht += `<div class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px; margin-right: auto;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
-
+        ht += `<div id="toolbar-first" class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
+      
+    
+        //clock 
+    ht += `<div id="clock" class="toolbar-clock" style="margin-left: 10px; margin-right: auto">12:00 AM Sun, Jan 01</div>`;
+    
         // create account button
         ht += `<div class="toolbar-btn user-options-create-account-btn ${window.user.is_temp ? '' : 'hidden' }" style="padding:0; opacity:1;" title="Save Account">`;
             ht += `<svg style="width: 17px; height: 17px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px" height="48px" viewBox="0 0 48 48"><g transform="translate(0, 0)"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"></path></g></svg>`;
@@ -1145,9 +1147,12 @@ async function UIDesktop(options){
     // prepend toolbar to desktop
     $(ht).insertBefore(el_desktop);
 
+    
     // send event
     window.dispatchEvent(new CustomEvent('toolbar:ready'));
-
+    // init clock visibility
+    window.change_clock_visible();
+    
     // notification container
     $('body').append(`<div class="notification-container"><div class="notifications-close-all">${i18n('close_all')}</div></div>`);
 
@@ -1267,6 +1272,7 @@ async function UIDesktop(options){
     })  
 
     function display_ct() {
+       
         var x = new Date()
         var ampm = x.getHours( ) >= 12 ? ' PM' : ' AM';
         let hours = x.getHours( ) % 12;
@@ -1279,19 +1285,20 @@ async function UIDesktop(options){
         var seconds=x.getSeconds().toString()
         seconds=seconds.length==1 ? 0+seconds : seconds;
         
-        var month=(x.getMonth() +1).toString();
-        month=month.length==1 ? 0+month : month;
+        var month = x.toLocaleString('default',{month : 'short'});
         
-        var dt=x.getDate().toString();
+        var dt = x.getDate().toString();
         dt=dt.length==1 ? 0+dt : dt;
         
-        var x1=month + "/" + dt + "/" + x.getFullYear(); 
-        x1 = x1 + " - " +  hours + ":" +  minutes + ":" +  seconds + " " + ampm;
+        var day = x.toLocaleString('default',{weekday : 'short'});
+       
+   
+        var x1= day + ", " + month + " " + dt; 
+        x1 =  hours + ":" +  minutes   + ampm + " " + x1;
         $('#clock').html(x1);
-        $('#clock').css('line-height', window.taskbar_height + 'px');
     }
-
-    setInterval(display_ct, 1000);
+    display_ct()
+    setInterval(display_ct,1000);
 
     // show referral notice window
     if(window.show_referral_notice && !window.user.email_confirmed){

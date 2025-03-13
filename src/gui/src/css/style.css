@@ -2398,12 +2398,12 @@ label {
 
 #clock {
     display: none;
-    position: absolute;
-    right: 15px;
     color: white;
-    text-shadow: 0px 0px 3px #00000082, 0px 0px 3px #00000082, 0px 0px 3px #00000082;
     font-size: 13px;
-    bottom: 5px;
+    background-color: #00000056;
+    padding: 5px;
+    border-radius: 5px;
+    opacity: 0.8;
 }
 
 .device-phone #clock {
