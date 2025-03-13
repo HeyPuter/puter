@@ -1298,7 +1298,7 @@ async function UIDesktop(options){
         $('#clock').html(x1);
     }
     display_ct()
-    setInterval(display_ct,60 * 1000);
+    setInterval(display_ct,1000);
 
     // show referral notice window
     if(window.show_referral_notice && !window.user.email_confirmed){
