@@ -41,7 +41,7 @@ async function UIWindowRequestPermission(options) {
  * Creates the permission dialog
  */
 async function create_permission_window(options, permission_description, resolve) {
-    const requestingEntity = options.app_uid ?? options.origin;
+    const requestingEntity = options.app_name ?? options.origin;
     const h = create_window_content(requestingEntity, permission_description);
 
     return await UIWindow({
@@ -152,29 +152,11 @@ async function get_permission_description(permission) {
     let resource_id = parts[1];
     let action = parts[2];
     let permission_description = "";
-
+    
     if (resource_type === "fs") {
         // permission to read file with UUID = resource_id using fs
-        try {
-            // get the fs entry of given file UUID
-            const response = await fetch(window.api_origin + "/search/uid", {
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer " + window.auth_token,
-                },
-                body: JSON.stringify({
-                    uid: resource_id
-                }),
-                method: "POST",
-            });
-
-            const fsEntry = await response.json();
-
-            permission_description = `use ${fsEntry.name} with ${action} access.`;
-        } catch (err) {
-            console.error(err);
-            return undefined;
-        }
+        const fileInfo = await puter.fs.stat({ uid: resource_id });
+        permission_description = `use ${fileInfo.name} located at ${fileInfo.dirpath} with ${action} access.`;
     } else if (resource_type === "thread" && action === "post") {
         // permission to post to a thread of UUID = resource_id
         permission_description = `post to thread ${resource_id}.`;

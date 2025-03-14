@@ -1081,7 +1081,7 @@ const ipc_listener = async (event, handled) => {
         let options = {
             permission: event.data.options.permission,
             window_options: event.data.options.window_options,
-            ...(app_env === 'app' && { app_uid: app_uuid }), // for request by a Puter app 
+            ...(app_env === 'app' && { app_uid: app_uuid, app_name: app_name }), // for request by a Puter app 
             ...(app_env === 'web' && { origin: event.origin }) // for request by a website using Puter SDK
         };
             
