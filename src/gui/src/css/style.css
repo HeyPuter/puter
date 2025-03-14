@@ -2413,6 +2413,10 @@ label {
     opacity: 0.8;
 }
 
+.toolbar-spacer {
+    margin-right: auto;
+}
+
 .device-phone #clock {
     display: none !important;
 }

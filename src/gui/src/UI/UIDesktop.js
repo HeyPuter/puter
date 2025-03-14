@@ -1108,6 +1108,9 @@ async function UIDesktop(options){
     
         //clock 
     ht += `<div id="clock" class="toolbar-clock" style="margin-left: 10px; margin-right: auto">12:00 AM Sun, Jan 01</div>`;
+
+    // clock spacer
+    ht += `<div class="toolbar-spacer"></div>`;
     
         // create account button
         ht += `<div class="toolbar-btn user-options-create-account-btn ${window.user.is_temp ? '' : 'hidden' }" style="padding:0; opacity:1;" title="Save Account">`;
