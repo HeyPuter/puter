@@ -147,29 +147,22 @@ async function setup_window_events(el_window, options, resolve) {
  * fs:UUID-OF-FILE:read, thread:UUID-OF-THREAD:post, service:name-of-service:ii:name-of-interface, driver:driver-name:action-name 
  */
 async function get_permission_description(permission) {
-    let parts = split_permission(permission);
-    let resource_type = parts[0];
-    let resource_id = parts[1];
-    let action = parts[2];
-    let permission_description = "";
-    
-    if (resource_type === "fs") {
-        // permission to read file with UUID = resource_id using fs
-        const fileInfo = await puter.fs.stat({ uid: resource_id });
-        permission_description = `use ${fileInfo.name} located at ${fileInfo.dirpath} with ${action} access.`;
-    } else if (resource_type === "thread" && action === "post") {
-        // permission to post to a thread of UUID = resource_id
-        permission_description = `post to thread ${resource_id}.`;
-    } else if (resource_type === "service" && action === "ii") {
-        // permission for service to invoke interface
-        let interface_name = parts[3];
-        permission_description = `use ${resource_id} to invoke ${interface_name}.`;
-    } else if (resource_type === "driver") {
-        // permission for driver to perform an action
-        permission_description = `use ${resource_id} to ${action}.`;
-    }
+    const parts = split_permission(permission);
+    const [resource_type, resource_id, action, interface_name = null] = parts;
+    let fsentry;
 
-    return permission_description;
+    if (resource_type === "fs") {
+        fsentry = await puter.fs.stat({ uid: resource_id });
+    } 
+    
+    const permission_mappings = {
+        "fs": fsentry ? `use ${fsentry.name} located at ${fsentry.dirpath} with ${action} access.` : null,
+        "thread": action === "post" ? `post to thread ${resource_id}.` : null,
+        "service": action === "ii" ? `use ${resource_id} to invoke ${interface_name}.` : null,
+        "driver": `use ${resource_id} to ${action}.`,
+    };
+
+    return permission_mappings[resource_type];
 }
 
 function split_permission(permission) {
