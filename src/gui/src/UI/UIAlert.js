@@ -71,7 +71,7 @@ function UIAlert(options) {
                     ];
                     break;
                 default:
-                    options.buttons = [{ label: "OK", value: true, type: "primary" }];
+                    options.buttons = [{ label: i18n('ok'), value: true, type: "primary" }];
                     break;
             }
         }
