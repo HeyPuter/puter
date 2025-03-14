@@ -2401,7 +2401,7 @@ label {
     color: white;
     font-size: 13px;
     background-color: #00000056;
-    
+    margin-left: 20px;
     /* prevent clock from moving other taskbar items */
     height: 22px;
     line-height: 22px;

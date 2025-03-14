@@ -1103,12 +1103,9 @@ async function UIDesktop(options){
     let ht = '';
     ht += `<div class="toolbar" style="height:${window.toolbar_height}px; min-height:${window.toolbar_height}px; max-height:${window.toolbar_height}px;">`;
         // logo
-        ht += `<div id="toolbar-first" class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
+        ht += `<div class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
       
     
-        //clock 
-    ht += `<div id="clock" class="toolbar-clock" style="margin-left: 10px; margin-right: auto">12:00 AM Sun, Jan 01</div>`;
-
     // clock spacer
     ht += `<div class="toolbar-spacer"></div>`;
     
@@ -1140,6 +1137,10 @@ async function UIDesktop(options){
         
         // search button
         ht += `<div class="toolbar-btn search-btn" title="Search" style="background-image:url('${window.icons['search.svg']}')"></div>`;
+
+    
+        //clock 
+        ht += `<div id="clock" class="toolbar-clock" style="">12:00 AM Sun, Jan 01</div>`;
 
         // user options menu
         ht += `<div class="toolbar-btn user-options-menu-btn profile-pic" style="display:block;">`;
