@@ -1078,7 +1078,6 @@ const ipc_listener = async (event, handled) => {
         // disable parent window
         event.data.options.window_options.disable_parent_window = true;
 
-            
         let granted = await UIWindowRequestPermission(
             {
                 permission: event.data.options.permission,
