@@ -57,7 +57,7 @@ function UIAlert(options) {
 
         // Define buttons if not provided
         if (!options.buttons || options.buttons.length === 0) {
-            switch (options.iconType) {
+            switch (options.type) {
                 case "confirm":
                     options.buttons = [
                         { label: "Yes", value: true, type: "primary" },
