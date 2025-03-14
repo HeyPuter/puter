@@ -22,7 +22,7 @@ const router = new express.Router();
 const { get_user, body_parser_error_handler } = require('../helpers');
 const config = require('../config');
 const { DB_WRITE } = require('../services/database/consts');
-const requireCaptcha = require('../modules/captcha/middleware/captcha-middleware');
+const { requireCaptcha } = require('../modules/captcha/middleware/captcha-middleware');
 
 
 const complete_ = async ({ req, res, user }) => {

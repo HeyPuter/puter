@@ -57,7 +57,7 @@ async function UIWindowLogin(options){
             h += `</div>`;
             // form
             h += `<div style="padding:20px; overflow-y:auto; overflow-x:hidden;">`;
-                h += `<form style="width:100%;">`;
+                h += `<form class="login-form" style="width:100%;">`;
                     // server messages
                     h += `<div class="login-error-msg" style="color:#e74c3c; display:none; margin-bottom:10px; line-height:15px; font-size:13px;"></div>`;
                     // email or username
@@ -83,7 +83,7 @@ async function UIWindowLogin(options){
                     // captcha-specific error message
                     h += `<div class="captcha-error-msg" style="color: #e74c3c; font-size: 12px; margin-top: 5px; display: none;" aria-live="polite"></div>`;
                     // login
-                    h += `<button class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
+                    h += `<button type="button" class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
                     // password recovery
                     h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>`;
                 h += `</form>`;
@@ -193,6 +193,9 @@ async function UIWindowLogin(options){
         })
 
         $(el_window).find('.login-btn').on('click', function(e){
+            // Prevent default button behavior (important for async requests)
+            e.preventDefault();
+            
             // Clear previous error states
             $(el_window).find('.login-error-msg').hide();
             clearCaptchaError();
@@ -275,14 +278,20 @@ async function UIWindowLogin(options){
             if(window.custom_headers)
                 headers = window.custom_headers;
     
+            // Disable the login button to prevent multiple submissions
+            $(el_window).find('.login-btn').prop('disabled', true);
+    
+            console.log('Sending login AJAX request with async: true');
             $.ajax({
                 url: window.gui_origin + "/login",
                 type: 'POST',
-                async: false,
+                async: true,
                 headers: headers,
                 contentType: "application/json",
                 data: data,				
                 success: async function (data){
+                    console.log('Login request successful');
+                    // Keep the button disabled on success since we're redirecting or closing
                     let p = Promise.resolve();
                     if ( data.next_step === 'otp' ) {
                         p = new TeePromise();
@@ -452,12 +461,28 @@ async function UIWindowLogin(options){
                     
                     if(options.reload_on_success){
                         window.onbeforeunload = null;
-                        window.location.replace('/');
+                        console.log('About to redirect, checking URL parameters:', window.location.search);
+                        // Replace with a clean URL to prevent password leakage
+                        const cleanUrl = window.location.origin + window.location.pathname;
+                        window.location.replace(cleanUrl);
                     }else
                         resolve(true);
                     $(el_window).close();
                 },
                 error: function (err){
+                    console.log('Login AJAX request error:', err.status, err.statusText);
+                    
+                    // First, ensure URL is clean in case of error (prevent password leakage)
+                    if (window.location.search && (
+                        window.location.search.includes('password=') || 
+                        window.location.search.includes('username=') || 
+                        window.location.search.includes('email=')
+                    )) {
+                        console.log('Cleaning sensitive data from URL');
+                        const cleanUrl = window.location.origin + window.location.pathname;
+                        history.replaceState({}, document.title, cleanUrl);
+                    }
+                    
                     // Enable 'Log In' button
                     $(el_window).find('.login-btn').prop('disabled', false);
                     

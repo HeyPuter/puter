@@ -309,7 +309,9 @@ function UIWindowSignup(options){
                     //send out the login event
                     if(options.reload_on_success){
                         window.onbeforeunload = null;
-                        window.location.replace('/');
+                        // Replace with a clean URL to prevent sensitive data leakage
+                        const cleanUrl = window.location.origin + window.location.pathname;
+                        window.location.replace(cleanUrl);
                     }else if(options.send_confirmation_code){
                         $(el_window).close();
                         let is_verified = await UIWindowEmailConfirmationRequired({stay_on_top: true, has_head: true});

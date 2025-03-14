@@ -25,7 +25,7 @@ const { DB_WRITE } = require('../services/database/consts');
 const { generate_identifier } = require('../util/identifier');
 const { is_temp_users_disabled: lazy_temp_users, 
         is_user_signup_disabled: lazy_user_signup } = require("../helpers")
-const requireCaptcha = require('../modules/captcha/middleware/captcha-middleware');
+const { requireCaptcha } = require('../modules/captcha/middleware/captcha-middleware');
 
 async function generate_random_username () {
     let username;
