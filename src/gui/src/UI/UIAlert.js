@@ -53,7 +53,7 @@ function UIAlert(options) {
         const alertType = alertTypes[options.iconType] || alertTypes.warning;
         options.message = options.title || alertType.title;
         options.body_icon = options.body_icon ?? window.icons[alertType.icon];
-        options.color = alertType.color;
+        options.color = options.color ?? alertType.color;
 
         // Define buttons if not provided
         if (!options.buttons || options.buttons.length === 0) {
