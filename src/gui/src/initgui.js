@@ -1426,3 +1426,11 @@ $(document).on('contextmenu', '.disable-context-menu', function(e){
 
 // util/desktop.js
 window.privacy_aware_path = privacy_aware_path({ window });
+
+$(window).on('system-logout-event', function(){
+    // Clear cookie
+    document.cookie = 'puter=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+    // Redirect to clean URL without any query parameters
+    const cleanUrl = window.location.origin + window.location.pathname;
+    window.location.replace(cleanUrl);
+});

@@ -12,6 +12,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.1.1",
+    "chai": "^4.3.7",
     "chalk": "^4.1.0",
     "clean-css": "^5.3.2",
     "dotenv": "^16.4.5",
@@ -19,13 +20,15 @@
     "express": "^4.18.2",
     "globals": "^15.0.0",
     "html-entities": "^2.3.3",
+    "jsdom": "^21.1.0",
     "nodemon": "^3.1.0",
+    "sinon": "^15.0.1",
     "uglify-js": "^3.17.4",
     "webpack": "^5.88.2",
     "webpack-cli": "^5.1.1"
   },
   "scripts": {
-    "test": "mocha ./packages/phoenix/test ./packages/phoenix/packages/contextlink/test",
+    "test": "mocha ./test/**/*.test.js",
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
     "build": "node ./build.js",
     "check-translations": "node tools/check-translations.js",

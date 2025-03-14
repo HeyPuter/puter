@@ -20,7 +20,9 @@
 const { PathBuilder } = require("../util/pathutil");
 const BaseService = require("./BaseService");
 const {is_valid_url} = require('../helpers');
+const { Context } = require("../util/context");
 const { Endpoint } = require("../util/expressutil");
+
 
 /**
  * PuterHomepageService serves the initial HTML page that loads the Puter GUI
@@ -72,10 +74,68 @@ class PuterHomepageService extends BaseService {
             route: '/whoarewe',
             methods: ['GET'],
             handler: async (req, res) => {
-                res.json({
+                // Get basic configuration information
+                const responseData = {
                     disable_user_signup: this.global_config.disable_user_signup,
                     disable_temp_users: this.global_config.disable_temp_users,
-                });
+                    environmentInfo: {
+                        env: this.global_config.env,
+                        version: process.env.VERSION || 'development'
+                    }
+                };
+
+                // Add captcha requirement information
+                responseData.captchaRequired = {};
+                
+                // Get the captcha middleware
+                const captchaMiddleware = Context.get('check-captcha-middleware');
+                
+                if (captchaMiddleware) {
+                    // Check login captcha requirement
+                    const loginReq = {
+                        ip: req.ip,
+                        headers: req.headers,
+                        connection: req.connection
+                    };
+                    
+                    await new Promise(resolve => {
+                        captchaMiddleware({ eventType: 'login' })(loginReq, {}, resolve);
+                    });
+                    
+                    responseData.captchaRequired.login = loginReq.captchaRequired || false;
+                    
+                    // Check signup captcha requirement
+                    const signupReq = {
+                        ip: req.ip,
+                        headers: req.headers,
+                        connection: req.connection
+                    };
+                    
+                    await new Promise(resolve => {
+                        captchaMiddleware({ eventType: 'signup' })(signupReq, {}, resolve);
+                    });
+                    
+                    responseData.captchaRequired.signup = signupReq.captchaRequired || false;
+                } else {
+                    // If middleware isn't available, assume captcha is required (fail closed)
+                    responseData.captchaRequired.login = true;
+                    responseData.captchaRequired.signup = true;
+                }
+                
+                // Add feature flags if available
+                try {
+                    const services = Context.get('services');
+                    if (services) {
+                        const featureFlagService = services.get('featureflag');
+                        if (featureFlagService) {
+                            responseData.featureFlags = featureFlagService.getPublicFlags();
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Error getting feature flags for /whoarewe:', error);
+                }
+                
+                res.json(responseData);
             }
         }).attach(app);
     }
@@ -104,6 +164,40 @@ class PuterHomepageService extends BaseService {
             return res.send(this.generate_error_html({
                 message,
             }));
+        }
+        
+        // Check if captcha will be required for various operations
+        let captchaRequired = {};
+        
+        // Get the checkCaptcha middleware if available
+        const captchaMiddleware = Context.get('check-captcha-middleware');
+        
+        if (captchaMiddleware) {
+            // Check login captcha requirement
+            const loginReq = {
+                ip: req.ip,
+                headers: req.headers,
+                connection: req.connection
+            };
+            
+            await new Promise(resolve => {
+                captchaMiddleware({ eventType: 'login' })(loginReq, {}, resolve);
+            });
+            
+            captchaRequired.login = loginReq.captchaRequired || false;
+            
+            // Check signup captcha requirement
+            const signupReq = {
+                ip: req.ip,
+                headers: req.headers,
+                connection: req.connection
+            };
+            
+            await new Promise(resolve => {
+                captchaMiddleware({ eventType: 'signup' })(signupReq, {}, resolve);
+            });
+            
+            captchaRequired.signup = signupReq.captchaRequired || false;
         }
         
         return res.send(this.generate_puter_page_html({
@@ -144,6 +238,8 @@ class PuterHomepageService extends BaseService {
                 long_description: config.long_description,
                 disable_temp_users: config.disable_temp_users,
                 co_isolation_enabled: req.co_isolation_enabled,
+                // Add captcha requirements to GUI parameters
+                captchaRequired: captchaRequired,
             },
         }));
     }

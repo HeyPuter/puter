@@ -20,6 +20,8 @@
 
 window.puter_gui_enabled = true;
 
+import { isCaptchaRequired } from './helpers/captchaHelper.js';
+
 /**
  * Initializes and configures the GUI (Graphical User Interface) settings based on the provided options.
  *
@@ -46,7 +48,7 @@ window.puter_gui_enabled = true;
  * });
  */
 
-window.gui = async function(options){
+window.gui = async (options) => {
     options = options ?? {};
     // app_origin is deprecated, use gui_origin instead
     window.gui_params = options;
@@ -58,6 +60,18 @@ window.gui = async function(options){
     window.require_email_verification_to_publish_website = options.require_email_verification_to_publish_website ?? true;
     window.disable_temp_users = options.disable_temp_users ?? false;
     window.co_isolation_enabled = options.co_isolation_enabled;
+
+    // Preload captcha requirements if not already in GUI parameters
+    if (!options.captchaRequired) {
+        // Start loading in the background, but don't await
+        // This way we don't delay the GUI initialization
+        Promise.all([
+            isCaptchaRequired('login'),
+            isCaptchaRequired('signup')
+        ]).catch(err => {
+            console.warn('Failed to preload captcha requirements:', err);
+        });
+    }
 
     // DEV: Load the initgui.js file if we are in development mode
     if(!window.gui_env || window.gui_env === "dev"){
