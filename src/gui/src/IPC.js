@@ -1078,14 +1078,15 @@ const ipc_listener = async (event, handled) => {
         // disable parent window
         event.data.options.window_options.disable_parent_window = true;
 
-        let options = {
-            permission: event.data.options.permission,
-            window_options: event.data.options.window_options,
-            ...(app_env === 'app' && { app_uid: app_uuid, app_name: app_name }), // for request by a Puter app 
-            ...(app_env === 'web' && { origin: event.origin }) // for request by a website using Puter SDK
-        };
             
-        let granted = await UIWindowRequestPermission(options);
+        let granted = await UIWindowRequestPermission(
+            {
+                permission: event.data.options.permission,
+                window_options: event.data.options.window_options,
+                app_uid: app_uuid, 
+                app_name: app_name, 
+            }
+        );
         
         // send selected font to requester window
         target_iframe.contentWindow.postMessage({
