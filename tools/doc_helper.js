@@ -1,17 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import manualOverrides from './doc/contributors/extensions/manual_overrides.json.js';
 
 // Get the directory name in ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// Create a map of manual overrides for quick lookup
-const manualOverridesMap = new Map();
-manualOverrides.forEach(override => {
-    manualOverridesMap.set(override.id, override);
-});
 
 function extractEventsFromFile(filePath, seenEvents) {
     const content = fs.readFileSync(filePath, 'utf-8');
@@ -33,13 +26,6 @@ function extractEventsFromFile(filePath, seenEvents) {
         
         // Skip if we've already seen this event
         if (seenEvents.has(eventId)) continue;
-        
-        // Check if this event has a manual override
-        if (manualOverridesMap.has(eventId)) {
-            // Use the manual override instead of generating a new definition
-            seenEvents.set(eventId, manualOverridesMap.get(eventId));
-            continue;
-        }
         
         // Generate description based on event name
         let description = generateDescription(eventName);
@@ -178,11 +164,8 @@ function generateTestExtension(events) {
     let code = `// Test extension for event listeners\n\n`;
     
     events.forEach(event => {
-        const eventId = event.id;
-        const eventName = event.event ? event.event.toUpperCase() : eventId.split('.').slice(1).join('.').toUpperCase();
-        
-        code += `extension.on('${eventId}', event => {\n`;
-        code += `    console.log('GOT ${eventName} EVENT', event);\n`;
+        code += `extension.on('${event.id}', event => {\n`;
+        code += `    console.log('GOT ${event.event.toUpperCase()} EVENT', event);\n`;
         code += `});\n\n`;
     });
     
@@ -196,7 +179,7 @@ function main() {
         process.exit(1);
     }
     
-    const directory = args[0];
+    let directory = args[0];
     let outputFile = null;
     let generateTest = false;
     let testOutputDir = "./extensions/";
@@ -212,26 +195,50 @@ function main() {
         }
     }
     
+    // Check if the directory exists, if not try to find it relative to parent directory
+    if (!fs.existsSync(directory)) {
+        const parentDirPath = path.join(__dirname, '..');
+        const parentDirCandidate = path.join(parentDirPath, directory);
+        
+        if (fs.existsSync(parentDirCandidate)) {
+            console.log(`Directory '${directory}' not found in current directory, using '${parentDirCandidate}' instead.`);
+            directory = parentDirCandidate;
+        } else {
+            console.error(`Error: Directory '${directory}' not found.`);
+            process.exit(1);
+        }
+    }
+    
+    // If outputFile is a relative path, make sure it's relative to the current working directory
+    if (outputFile && !path.isAbsolute(outputFile)) {
+        const cwd = process.cwd();
+        if (cwd.includes('tools') && !outputFile.startsWith('..')) {
+            // If we're in the tools directory and the output path doesn't start with '..',
+            // prepend '../' to make it relative to the parent directory
+            outputFile = path.join('..', outputFile);
+        }
+    }
+    
     const seenEvents = new Map();
     
-    // First, add all manual overrides to the seenEvents map
-    manualOverrides.forEach(override => {
-        seenEvents.set(override.id, override);
-    });
-    
-    // Then scan the directory for additional events
     scanDirectory(directory, seenEvents);
     
     const result = Array.from(seenEvents.values());
     
-    // Sort events alphabetically by ID
-    result.sort((a, b) => a.id.localeCompare(b.id));
+    // Sort events alphabetically
+    result.sort((a, b) => a.event.localeCompare(b.event));
     
     // Format the output to match events.json.js
     const formattedOutput = formatEventsOutput(result);
     
     // Output the result
     if (outputFile) {
+        // Ensure the directory exists
+        const outputDir = path.dirname(outputFile);
+        if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+        }
+        
         fs.writeFileSync(outputFile, formattedOutput);
         console.log(`Event metadata written to ${outputFile}`);
     } else {
@@ -260,120 +267,59 @@ function formatEventsOutput(events) {
     let output = 'export default [\n';
     
     events.forEach((event, index) => {
-        // Check if this is a manual override (it won't have the 'event' property)
-        if (!event.event) {
-            // This is a manual override, just output it as is
-            output += '    {\n';
-            output += `        id: '${event.id}',\n`;
-            output += `        description: \`\n`;
+        output += '    {\n';
+        output += `        id: '${event.id}',\n`;
+        output += `        description: \`\n`;
+        
+        // Format the description with proper indentation
+        const descriptionLines = event.description.split('\n');
+        descriptionLines.forEach(line => {
+            output += `            ${line}\n`;
+        });
+        
+        output += `        \`,\n`;
+        
+        // Add properties if they exist
+        if (Object.keys(event.properties).length > 0) {
+            output += '        properties: {\n';
             
-            // Format the description with proper indentation
-            const descriptionLines = event.description.split('\n');
-            descriptionLines.forEach(line => {
-                output += `            ${line}\n`;
+            // Filter out any dynamic property expressions (those starting with '...')
+            const validProperties = Object.entries(event.properties)
+                .filter(([propName]) => !propName.startsWith('...'));
+            
+            validProperties.forEach(([propName, propDetails], propIndex) => {
+                output += `            ${propName}: {\n`;
+                output += `                type: '${propDetails.type}',\n`;
+                output += `                mutability: '${propDetails.mutability === 'effect' ? 'mutable' : 'no-effect'}',\n`;
+                output += `                summary: '${propDetails.summary}',\n`;
+                
+                // Add notes array with appropriate content
+                if (propName === 'allow' && event.event.includes('validate')) {
+                    output += `                notes: [\n`;
+                    output += `                    'If set to false, the ${event.event.split('.')[0]} will be considered invalid.',\n`;
+                    output += `                ],\n`;
+                } else if (propName === 'email' && event.event.includes('validate')) {
+                    output += `                notes: [\n`;
+                    output += `                    'The email may have already been cleaned.',\n`;
+                    output += `                ],\n`;
+                } else {
+                    output += `                notes: [],\n`;
+                }
+                
+                output += '            }';
+                
+                // Add comma if not the last property
+                if (propIndex < validProperties.length - 1) {
+                    output += ',';
+                }
+                
+                output += '\n';
             });
             
-            output += `        \`,\n`;
-            
-            // Add properties if they exist
-            if (event.properties && Object.keys(event.properties).length > 0) {
-                output += '        properties: {\n';
-                
-                Object.entries(event.properties).forEach(([propName, propDetails], propIndex) => {
-                    output += `            ${propName}: {\n`;
-                    output += `                type: '${propDetails.type}',\n`;
-                    output += `                mutability: '${propDetails.mutability}',\n`;
-                    output += `                summary: '${propDetails.summary}',\n`;
-                    
-                    // Add notes array if it exists
-                    if (propDetails.notes && propDetails.notes.length > 0) {
-                        output += `                notes: [\n`;
-                        propDetails.notes.forEach((note, noteIndex) => {
-                            output += `                    '${note}'`;
-                            if (noteIndex < propDetails.notes.length - 1) {
-                                output += ',';
-                            }
-                            output += '\n';
-                        });
-                        output += `                ],\n`;
-                    } else {
-                        output += `                notes: [],\n`;
-                    }
-                    
-                    output += '            }';
-                    
-                    // Add comma if not the last property
-                    if (propIndex < Object.keys(event.properties).length - 1) {
-                        output += ',';
-                    }
-                    
-                    output += '\n';
-                });
-                
-                output += '        },\n';
-            }
-            
-            // Add example if it exists
-            if (event.example) {
-                output += '        example: {\n';
-                output += `            language: '${event.example.language}',\n`;
-                output += `            code: /*${event.example.language}*/\`${event.example.code}\`\n`;
-                output += '        },\n';
-            }
-            
-            output += '    }';
-        } else {
-            // This is an auto-generated event
-            output += '    {\n';
-            output += `        id: '${event.id}',\n`;
-            output += `        description: \`\n`;
-            
-            // Format the description with proper indentation
-            const descriptionLines = event.description.split('\n');
-            descriptionLines.forEach(line => {
-                output += `            ${line}\n`;
-            });
-            
-            output += `        \`,\n`;
-            
-            // Add properties if they exist
-            if (Object.keys(event.properties).length > 0) {
-                output += '        properties: {\n';
-                
-                Object.entries(event.properties).forEach(([propName, propDetails], propIndex) => {
-                    output += `            ${propName}: {\n`;
-                    output += `                type: '${propDetails.type}',\n`;
-                    output += `                mutability: '${propDetails.mutability === 'effect' ? 'mutable' : 'no-effect'}',\n`;
-                    output += `                summary: '${propDetails.summary}',\n`;
-                    
-                    // Add notes array with appropriate content
-                    if (propName === 'allow' && event.event.includes('validate')) {
-                        output += `                notes: [\n`;
-                        output += `                    'If set to false, the ${event.event.split('.')[0]} will be considered invalid.',\n`;
-                        output += `                ],\n`;
-                    } else if (propName === 'email' && event.event.includes('validate')) {
-                        output += `                notes: [\n`;
-                        output += `                    'The email may have already been cleaned.',\n`;
-                        output += `                ],\n`;
-                    } else {
-                        output += `                notes: [],\n`;
-                    }
-                    
-                    output += '            }';
-                    
-                    // Add comma if not the last property
-                    if (propIndex < Object.keys(event.properties).length - 1) {
-                        output += ',';
-                    }
-                    
-                    output += '\n';
-                });
-                
-                output += '        },\n';
-            }
-            
-            output += '    }';
+            output += '        },\n';
         }
+        
+        output += '    }';
         
         // Add comma if not the last event
         if (index < events.length - 1) {
