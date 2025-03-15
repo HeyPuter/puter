@@ -365,7 +365,7 @@ class AIChatService extends BaseService {
                 await svc_event.emit('ai.prompt.validate', event);
                 if ( ! event.allow ) {
                     test_mode = true;
-                }  
+                }
 
                 if ( parameters.messages ) {
                     parameters.messages =
@@ -385,7 +385,7 @@ class AIChatService extends BaseService {
                     if ( event.abuse ) {
                         parameters.model = 'abuse';
                     }
-                }    
+                }
 
                 if ( parameters.tools ) {
                     FunctionCalling.normalize_tools_object(parameters.tools);
@@ -461,7 +461,7 @@ class AIChatService extends BaseService {
                         throw APIError.create('error_400_from_delegate', null, {
                             delegate: intended_service,
                             message: e.message,
-                        });
+                        })
                     }
                     console.error(e);
 
