@@ -149,3 +149,4 @@ thumbnail-service
 
 # init sql generated from ./run.sh
 init.sql
+test-app/

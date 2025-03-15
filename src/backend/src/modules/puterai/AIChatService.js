@@ -365,32 +365,26 @@ class AIChatService extends BaseService {
                 await svc_event.emit('ai.prompt.validate', event);
                 if ( ! event.allow ) {
                     test_mode = true;
-                }
-                
+                }  
                 if ( parameters.messages ) {
                     parameters.messages = 
                         Messages.normalize_messages(parameters.messages);
                 }
-            
                 if ( ! test_mode && ! await this.moderate(parameters) ) {
                     test_mode = true;
                 }
-            
                 if ( ! test_mode ) {
                     Context.set('moderated', true);
-                }
-            
+                }   
                 if ( test_mode ) {
                     intended_service = 'fake-chat';
                     if ( event.abuse ) {
                         parameters.model = 'abuse';
                     }
-                }
-            
+                }    
                 if ( parameters.tools ) {
                     FunctionCalling.normalize_tools_object(parameters.tools);
-                }
-            
+                }  
                 if ( intended_service === this.service_name ) {
                     throw new Error('Calling ai-chat directly is not yet supported');
                 }
@@ -456,7 +450,6 @@ class AIChatService extends BaseService {
                         }
                         return false;
                     })();
-            
                     if ( is_request_error ) {
                         throw APIError.create('error_400_from_delegate', null, {
                             delegate: intended_service,
@@ -464,7 +457,6 @@ class AIChatService extends BaseService {
                         });
                     }
                     console.error(e);
-            
                     if ( config.disable_fallback_mechanisms ) {
                         throw e;
                     }
@@ -580,7 +572,6 @@ class AIChatService extends BaseService {
                             usage,
                         });
                     })();
-            
                     if ( ret.result.value.init_chat_stream ) {
                         const stream = new PassThrough();
                         const retval = new TypedValue({
@@ -628,7 +619,6 @@ class AIChatService extends BaseService {
                     model_used,
                     service_used,
                 });
-            
             
                 if (parameters.response?.normalize ) {
                     ret.result.message =
@@ -767,11 +757,9 @@ class AIChatService extends BaseService {
         return true;
     }
 
-
     async models_ () {
         return this.detail_model_list;
     }
-
 
     /**
     * Returns a list of available AI models with basic details
@@ -780,7 +768,6 @@ class AIChatService extends BaseService {
     async list_ () {
         return this.simple_model_list;
     }
-
 
     /**
     * Gets the appropriate delegate service for handling chat completion requests.
@@ -818,7 +805,6 @@ class AIChatService extends BaseService {
             this.log.noticeme('conflict exists', { model, target_model });
             target_model = target_model[0];
         }
-
         // First check KV for the sorted list
         let sorted_models = this.modules.kv.get(
             `${this.kvkey}:fallbacks:${model}`);
@@ -858,7 +844,6 @@ class AIChatService extends BaseService {
             tried,
         });
     }
-
     get_model_from_request (parameters, modified_context = {}) {
         const client_driver_call = Context.get('client_driver_call');
         let { intended_service } = client_driver_call;
