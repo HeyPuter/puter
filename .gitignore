@@ -31,4 +31,3 @@ dist/
 .netlify
 src/emulator/release/
 .qodo
-test-app
