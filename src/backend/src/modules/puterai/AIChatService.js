@@ -629,6 +629,7 @@ class AIChatService extends BaseService {
                     service_used,
                 });
 
+
                 if ( parameters.response?.normalize ) {
                     ret.result.message =
                        Messages.normalize_single_message(ret.result.message);
