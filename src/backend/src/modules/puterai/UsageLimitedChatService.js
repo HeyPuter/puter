@@ -77,7 +77,7 @@ class UsageLimitedChatService extends BaseService {
                 `);
                 
                 // If streaming is requested, return a streaming response
-                if (stream) {
+                if ( stream ) {
                     const streamObj = new PassThrough();
                     const retval = new TypedValue({
                         $: 'stream',

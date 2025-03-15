@@ -351,7 +351,7 @@ class AIChatService extends BaseService {
             * @param {string} options.model   - The name of a model to use
             * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or a completion object
             */
-            async complete(parameters) {
+            async complete (parameters) {
                 const client_driver_call = Context.get('client_driver_call');
                 let { test_mode, intended_service, response_metadata } = client_driver_call;
                 
@@ -363,35 +363,35 @@ class AIChatService extends BaseService {
                     parameters
                 };
                 await svc_event.emit('ai.prompt.validate', event);
-                if (!event.allow) {
+                if ( ! event.allow ) {
                     test_mode = true;
                 }
                 
-                if (parameters.messages) {
+                if ( parameters.messages ) {
                     parameters.messages = 
                         Messages.normalize_messages(parameters.messages);
                 }
             
-                if (!test_mode && !await this.moderate(parameters)) {
+                if ( ! test_mode && ! await this.moderate(parameters) ) {
                     test_mode = true;
                 }
             
-                if (!test_mode) {
+                if ( ! test_mode ) {
                     Context.set('moderated', true);
                 }
             
-                if (test_mode) {
+                if ( test_mode ) {
                     intended_service = 'fake-chat';
-                    if (event.abuse) {
+                    if ( event.abuse ) {
                         parameters.model = 'abuse';
                     }
                 }
             
-                if (parameters.tools) {
+                if ( parameters.tools ) {
                     FunctionCalling.normalize_tools_object(parameters.tools);
                 }
             
-                if (intended_service === this.service_name) {
+                if ( intended_service === this.service_name ) {
                     throw new Error('Calling ai-chat directly is not yet supported');
                 }
             
@@ -410,7 +410,7 @@ class AIChatService extends BaseService {
                 });
                 
                 // Handle usage limits reached case
-                if (!usageAllowed) {
+                if ( !usageAllowed ) {
                     // The check_usage_ method has already updated the intended_service to 'usage-limited-chat'
                     service_used = 'usage-limited-chat';
                     model_used = 'usage-limited';
@@ -441,15 +441,15 @@ class AIChatService extends BaseService {
                     // services. This is a best-effort attempt to catch user
                     // errors and throw them as 400s.
                     const is_request_error = (() => {
-                        if (e instanceof APIError) {
+                        if ( e instanceof APIError ) {
                             return true;
                         }
-                        if (e.type === 'invalid_request_error') {
+                        if ( e.type === 'invalid_request_error' ) {
                             return true;
                         }
                         let some_error = e;
-                        while (some_error) {
-                            if (some_error.type === 'invalid_request_error') {
+                        while ( some_error ) {
+                            if ( some_error.type === 'invalid_request_error' ) {
                                 return true;
                             }
                             some_error = some_error.error ?? some_error.cause;
@@ -457,7 +457,7 @@ class AIChatService extends BaseService {
                         return false;
                     })();
             
-                    if (is_request_error) {
+                    if ( is_request_error ) {
                         throw APIError.create('error_400_from_delegate', null, {
                             delegate: intended_service,
                             message: e.message,
@@ -465,7 +465,7 @@ class AIChatService extends BaseService {
                     }
                     console.error(e);
             
-                    if (config.disable_fallback_mechanisms) {
+                    if ( config.disable_fallback_mechanisms ) {
                         throw e;
                     }
             
@@ -474,12 +474,12 @@ class AIChatService extends BaseService {
                         model,
                         error: e,
                     });
-                    while (!!error) {
+                    while ( !! error ) {
                         const fallback = this.get_fallback_model({
                             model, tried,
                         });
             
-                        if (!fallback) {
+                        if ( !fallback ) {
                             throw new Error('no fallback model available');
                         }
             
@@ -581,7 +581,7 @@ class AIChatService extends BaseService {
                         });
                     })();
             
-                    if (ret.result.value.init_chat_stream) {
+                    if ( ret.result.value.init_chat_stream ) {
                         const stream = new PassThrough();
                         const retval = new TypedValue({
                             $: 'stream',
@@ -630,7 +630,7 @@ class AIChatService extends BaseService {
                 });
             
             
-                if (parameters.response?.normalize) {
+                if (parameters.response?.normalize ) {
                     ret.result.message =
                        Messages.normalize_single_message(ret.result.message);
                     ret.result = {
