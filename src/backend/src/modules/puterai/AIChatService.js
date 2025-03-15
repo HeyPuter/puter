@@ -680,7 +680,7 @@ class AIChatService extends BaseService {
         };
         await svc_event.emit('ai.prompt.check-usage', event);
         
-                // If the user has exceeded their usage limit, apply usage-limited-chat which lets them know
+        // If the user has exceeded their usage limit, apply usage-limited-chat which lets them know
         if (event.error || !event.allowed) {
             // Instead of throwing an error, modify the intended_service
             const client_driver_call = Context.get('client_driver_call');
