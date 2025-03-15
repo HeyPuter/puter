@@ -680,18 +680,18 @@ class AIChatService extends BaseService {
         };
         await svc_event.emit('ai.prompt.check-usage', event);
         
-        // Check if usage is not allowed or there's an error
+                // If the user has exceeded their usage limit, apply usage-limited-chat which lets them know
         if (event.error || !event.allowed) {
             // Instead of throwing an error, modify the intended_service
             const client_driver_call = Context.get('client_driver_call');
             client_driver_call.intended_service = 'usage-limited-chat';
             client_driver_call.response_metadata.usage_limited = true;
             
-            // Return false to indicate that usage is not allowed and service has been changed
+            // Return false to indicate that the user has gone over their limit and service has been changed
             return false;
         }
         
-        // Usage is allowed
+        // Return true if the user has tokens to spend
         return true;
     }
     
