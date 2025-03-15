@@ -30,4 +30,3 @@ dist/
 # Local Netlify folder
 .netlify
 src/emulator/release/
-.qodo
