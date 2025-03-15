@@ -116,6 +116,9 @@ class PuterAIModule extends AdvancedBase {
 
         const{ AITestModeService } = require('./AITestModeService');
         services.registerService('ai-test-mode', AITestModeService);
+
+        const { UsageLimitedChatService } = require('./UsageLimitedChatService');
+        services.registerService('usage-limited-chat', UsageLimitedChatService);
     }
 }
 

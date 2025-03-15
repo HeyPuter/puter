@@ -366,7 +366,7 @@ class AIChatService extends BaseService {
                 if ( ! event.allow ) {
                     test_mode = true;
                 }
-                
+
                 if ( parameters.messages ) {
                     parameters.messages =
                         Messages.normalize_messages(parameters.messages);
@@ -401,11 +401,23 @@ class AIChatService extends BaseService {
                 let model_used = this.get_model_from_request(parameters, {
                     intended_service
                 });
-                await this.check_usage_({
+
+                // Updated: Check usage and get a boolean result instead of throwing error
+                const usageAllowed = await this.check_usage_({
                     actor: Context.get('actor'),
                     service: service_used,
                     model: model_used,
                 });
+
+                // Handle usage limits reached case
+                if ( !usageAllowed ) {
+                    // The check_usage_ method has already updated the intended_service to 'usage-limited-chat'
+                    service_used = 'usage-limited-chat';
+                    model_used = 'usage-limited';
+                    // Update intended_service to match service_used
+                    intended_service = service_used;
+                }
+
                 try {
                     ret = await svc_driver.call_new_({
                         actor: Context.get('actor'),
@@ -423,7 +435,7 @@ class AIChatService extends BaseService {
                     tried.push(model);
 
                     error = e;
-                    
+
                     // Distinguishing between user errors and service errors
                     // is very messy because of different conventions between
                     // services. This is a best-effort attempt to catch user
@@ -482,45 +494,73 @@ class AIChatService extends BaseService {
                             fallback_model_name
                         });
 
-                        await this.check_usage_({
+                        // Check usage for fallback model too (with updated method)
+                        const fallbackUsageAllowed = await this.check_usage_({
                             actor: Context.get('actor'),
                             service: fallback_service_name,
                             model: fallback_model_name,
                         });
-                        try {
+                        
+                        // If usage not allowed for fallback, use usage-limited-chat instead
+                        if (!fallbackUsageAllowed) {
+                            // The check_usage_ method has already updated intended_service
+                            service_used = 'usage-limited-chat';
+                            model_used = 'usage-limited';
+                            // Clear the error to exit the fallback loop
+                            error = null;
+                            
+                            // Call the usage-limited service
                             ret = await svc_driver.call_new_({
                                 actor: Context.get('actor'),
-                                service_name: fallback_service_name,
+                                service_name: 'usage-limited-chat',
                                 skip_usage: true,
                                 iface: 'puter-chat-completion',
                                 method: 'complete',
-                                args: {
-                                    ...parameters,
+                                args: parameters,
+                            });
+                        } else {
+                            // Normal fallback flow continues
+                            try {
+                                ret = await svc_driver.call_new_({
+                                    actor: Context.get('actor'),
+                                    service_name: fallback_service_name,
+                                    skip_usage: true,
+                                    iface: 'puter-chat-completion',
+                                    method: 'complete',
+                                    args: {
+                                        ...parameters,
+                                        model: fallback_model_name,
+                                    },
+                                });
+                                error = null;
+                                service_used = fallback_service_name;
+                                model_used = fallback_model_name;
+                                response_metadata.fallback = {
+                                    service: fallback_service_name,
                                     model: fallback_model_name,
-                                },
-                            });
-                            error = null;
-                            service_used = fallback_service_name;
-                            model_used = fallback_model_name;
-                            response_metadata.fallback = {
-                                service: fallback_service_name,
-                                model: fallback_model_name,
-                                tried: tried,
-                            };
-                        } catch (e) {
-                            error = e;
-                            tried.push(fallback_model_name);
-                            this.log.error('error calling fallback', {
-                                intended_service,
-                                model,
-                                error: e,
-                            });
+                                    tried: tried,
+                                };
+                            } catch (e) {
+                                error = e;
+                                tried.push(fallback_model_name);
+                                this.log.error('error calling fallback', {
+                                    intended_service,
+                                    model,
+                                    error: e,
+                                });
+                            }
                         }
                     }
                 }
+                
                 ret.result.via_ai_chat_service = true;
                 response_metadata.service_used = service_used;
-
+                
+                // Add flag if we're using the usage-limited service
+                if (service_used === 'usage-limited-chat') {
+                    response_metadata.usage_limited = true;
+                }
+            
                 const username = Context.get('actor').type?.user?.username;
 
                 if (
@@ -639,10 +679,20 @@ class AIChatService extends BaseService {
             permission_options: options,
         };
         await svc_event.emit('ai.prompt.check-usage', event);
-        if ( event.error ) throw event.error;
-        if ( ! event.allowed ) {
-            throw new APIError('forbidden');
+        
+        // If the user has exceeded their usage limit, apply usage-limited-chat which lets them know
+        if ( event.error || ! event.allowed ) {
+            // Instead of throwing an error, modify the intended_service
+            const client_driver_call = Context.get('client_driver_call');
+            client_driver_call.intended_service = 'usage-limited-chat';
+            client_driver_call.response_metadata.usage_limited = true;
+            
+            // Return false to indicate that the user has gone over their limit and service has been changed
+            return false;
         }
+        
+        // Return true if the user has tokens to spend
+        return true;
     }
     
 
