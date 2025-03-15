@@ -351,7 +351,7 @@ class AIChatService extends BaseService {
             * @param {string} options.model   - The name of a model to use
             * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or a completion object
             */
-            async complete (parameters) {
+            async complete(parameters) {
                 const client_driver_call = Context.get('client_driver_call');
                 let { test_mode, intended_service, response_metadata } = client_driver_call;
                 
@@ -363,49 +363,61 @@ class AIChatService extends BaseService {
                     parameters
                 };
                 await svc_event.emit('ai.prompt.validate', event);
-                if ( ! event.allow ) {
+                if (!event.allow) {
                     test_mode = true;
                 }
                 
-                if ( parameters.messages ) {
-                    parameters.messages =
+                if (parameters.messages) {
+                    parameters.messages = 
                         Messages.normalize_messages(parameters.messages);
                 }
-
-                if ( ! test_mode && ! await this.moderate(parameters) ) {
+            
+                if (!test_mode && !await this.moderate(parameters)) {
                     test_mode = true;
                 }
-
-                if ( ! test_mode ) {
+            
+                if (!test_mode) {
                     Context.set('moderated', true);
                 }
-
-                if ( test_mode ) {
+            
+                if (test_mode) {
                     intended_service = 'fake-chat';
-                    if ( event.abuse ) {
+                    if (event.abuse) {
                         parameters.model = 'abuse';
                     }
                 }
-
-                if ( parameters.tools ) {
+            
+                if (parameters.tools) {
                     FunctionCalling.normalize_tools_object(parameters.tools);
                 }
-
-                if ( intended_service === this.service_name ) {
+            
+                if (intended_service === this.service_name) {
                     throw new Error('Calling ai-chat directly is not yet supported');
                 }
-
+            
                 const svc_driver = this.services.get('driver');
                 let ret, error;
                 let service_used = intended_service;
                 let model_used = this.get_model_from_request(parameters, {
                     intended_service
                 });
-                await this.check_usage_({
+                
+                // Updated: Check usage and get a boolean result instead of throwing error
+                const usageAllowed = await this.check_usage_({
                     actor: Context.get('actor'),
                     service: service_used,
                     model: model_used,
                 });
+                
+                // Handle usage limits reached case
+                if (!usageAllowed) {
+                    // The check_usage_ method has already updated the intended_service to 'usage-limited-chat'
+                    service_used = 'usage-limited-chat';
+                    model_used = 'usage-limited';
+                    // Update intended_service to match service_used
+                    intended_service = service_used;
+                }
+                
                 try {
                     ret = await svc_driver.call_new_({
                         actor: Context.get('actor'),
@@ -418,10 +430,10 @@ class AIChatService extends BaseService {
                 } catch (e) {
                     const tried = [];
                     let model = model_used;
-
+            
                     // TODO: if conflict models exist, add service name
                     tried.push(model);
-
+            
                     error = e;
                     
                     // Distinguishing between user errors and service errors
@@ -429,100 +441,128 @@ class AIChatService extends BaseService {
                     // services. This is a best-effort attempt to catch user
                     // errors and throw them as 400s.
                     const is_request_error = (() => {
-                        if ( e instanceof APIError ) {
+                        if (e instanceof APIError) {
                             return true;
                         }
-                        if ( e.type === 'invalid_request_error' ) {
+                        if (e.type === 'invalid_request_error') {
                             return true;
                         }
                         let some_error = e;
-                        while ( some_error ) {
-                            if ( some_error.type === 'invalid_request_error' ) {
+                        while (some_error) {
+                            if (some_error.type === 'invalid_request_error') {
                                 return true;
                             }
                             some_error = some_error.error ?? some_error.cause;
                         }
                         return false;
                     })();
-
-                    if ( is_request_error ) {
+            
+                    if (is_request_error) {
                         throw APIError.create('error_400_from_delegate', null, {
                             delegate: intended_service,
                             message: e.message,
-                        })
+                        });
                     }
                     console.error(e);
-
-                    if ( config.disable_fallback_mechanisms ) {
+            
+                    if (config.disable_fallback_mechanisms) {
                         throw e;
                     }
-
+            
                     this.log.error('error calling service', {
                         intended_service,
                         model,
                         error: e,
                     });
-                    while ( !! error ) {
+                    while (!!error) {
                         const fallback = this.get_fallback_model({
                             model, tried,
                         });
-
-                        if ( ! fallback ) {
+            
+                        if (!fallback) {
                             throw new Error('no fallback model available');
                         }
-
+            
                         const {
                             fallback_service_name,
                             fallback_model_name,
                         } = fallback;
-
+            
                         this.log.warn('model fallback', {
                             intended_service,
                             fallback_service_name,
                             fallback_model_name
                         });
-
-                        await this.check_usage_({
+            
+                        // Check usage for fallback model too (with updated method)
+                        const fallbackUsageAllowed = await this.check_usage_({
                             actor: Context.get('actor'),
                             service: fallback_service_name,
                             model: fallback_model_name,
                         });
-                        try {
+                        
+                        // If usage not allowed for fallback, use usage-limited-chat instead
+                        if (!fallbackUsageAllowed) {
+                            // The check_usage_ method has already updated intended_service
+                            service_used = 'usage-limited-chat';
+                            model_used = 'usage-limited';
+                            // Clear the error to exit the fallback loop
+                            error = null;
+                            
+                            // Call the usage-limited service
                             ret = await svc_driver.call_new_({
                                 actor: Context.get('actor'),
-                                service_name: fallback_service_name,
+                                service_name: 'usage-limited-chat',
                                 skip_usage: true,
                                 iface: 'puter-chat-completion',
                                 method: 'complete',
-                                args: {
-                                    ...parameters,
+                                args: parameters,
+                            });
+                        } else {
+                            // Normal fallback flow continues
+                            try {
+                                ret = await svc_driver.call_new_({
+                                    actor: Context.get('actor'),
+                                    service_name: fallback_service_name,
+                                    skip_usage: true,
+                                    iface: 'puter-chat-completion',
+                                    method: 'complete',
+                                    args: {
+                                        ...parameters,
+                                        model: fallback_model_name,
+                                    },
+                                });
+                                error = null;
+                                service_used = fallback_service_name;
+                                model_used = fallback_model_name;
+                                response_metadata.fallback = {
+                                    service: fallback_service_name,
                                     model: fallback_model_name,
-                                },
-                            });
-                            error = null;
-                            service_used = fallback_service_name;
-                            model_used = fallback_model_name;
-                            response_metadata.fallback = {
-                                service: fallback_service_name,
-                                model: fallback_model_name,
-                                tried: tried,
-                            };
-                        } catch (e) {
-                            error = e;
-                            tried.push(fallback_model_name);
-                            this.log.error('error calling fallback', {
-                                intended_service,
-                                model,
-                                error: e,
-                            });
+                                    tried: tried,
+                                };
+                            } catch (e) {
+                                error = e;
+                                tried.push(fallback_model_name);
+                                this.log.error('error calling fallback', {
+                                    intended_service,
+                                    model,
+                                    error: e,
+                                });
+                            }
                         }
                     }
                 }
+                
                 ret.result.via_ai_chat_service = true;
                 response_metadata.service_used = service_used;
-
+                
+                // Add flag if we're using the usage-limited service
+                if (service_used === 'usage-limited-chat') {
+                    response_metadata.usage_limited = true;
+                }
+            
                 const username = Context.get('actor').type?.user?.username;
-
+            
                 if (
                     // Check if we have 'ai-chat-intermediate' response type;
                     // this means we're streaming and usage comes from a promise.
@@ -540,19 +580,19 @@ class AIChatService extends BaseService {
                             usage,
                         });
                     })();
-
-                    if ( ret.result.value.init_chat_stream ) {
+            
+                    if (ret.result.value.init_chat_stream) {
                         const stream = new PassThrough();
                         const retval = new TypedValue({
                             $: 'stream',
                             content_type: 'application/x-ndjson',
                             chunked: true,
                         }, stream);
-
+            
                         const chatStream = new Streaming.AIChatStream({
                             stream,
                         });
-
+            
                         (async () => {
                             try {
                                 await ret.result.value.init_chat_stream({ chatStream });
@@ -564,10 +604,10 @@ class AIChatService extends BaseService {
                                 stream.end();
                             }
                         })();
-
+            
                         return retval;
                     }
-
+            
                     return ret.result.value.response;
                 } else {
                     await svc_event.emit('ai.prompt.report-usage', {
@@ -588,9 +628,9 @@ class AIChatService extends BaseService {
                     model_used,
                     service_used,
                 });
-
-
-                if ( parameters.response?.normalize ) {
+            
+            
+                if (parameters.response?.normalize) {
                     ret.result.message =
                        Messages.normalize_single_message(ret.result.message);
                     ret.result = {
@@ -599,7 +639,7 @@ class AIChatService extends BaseService {
                         normalized: true,
                     };
                 }
-
+            
                 return ret.result;
             }
         }
@@ -621,7 +661,7 @@ class AIChatService extends BaseService {
         const svc_event = this.services.get('event');
         const reading = await svc_permission.scan(actor, `paid-services:ai-chat`);
         const options = PermissionUtil.reading_to_options(reading);
-
+    
         // Query current ai usage in terms of cost
         const [row] = await this.db.read(
             'SELECT SUM(`cost`) AS sum FROM `ai_usage` ' +
@@ -639,10 +679,20 @@ class AIChatService extends BaseService {
             permission_options: options,
         };
         await svc_event.emit('ai.prompt.check-usage', event);
-        if ( event.error ) throw event.error;
-        if ( ! event.allowed ) {
-            throw new APIError('forbidden');
+        
+        // Check if usage is not allowed or there's an error
+        if (event.error || !event.allowed) {
+            // Instead of throwing an error, modify the intended_service
+            const client_driver_call = Context.get('client_driver_call');
+            client_driver_call.intended_service = 'usage-limited-chat';
+            client_driver_call.response_metadata.usage_limited = true;
+            
+            // Return false to indicate that usage is not allowed and service has been changed
+            return false;
         }
+        
+        // Usage is allowed
+        return true;
     }
     
 
