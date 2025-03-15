@@ -479,7 +479,7 @@ class AIChatService extends BaseService {
                             model, tried,
                         });
 
-                        if ( !fallback ) {
+                        if ( ! fallback ) {
                             throw new Error('no fallback model available');
                         }
 
@@ -592,7 +592,7 @@ class AIChatService extends BaseService {
                         const chatStream = new Streaming.AIChatStream({
                             stream,
                         });
-            
+
                         (async () => {
                             try {
                                 await ret.result.value.init_chat_stream({ chatStream });
