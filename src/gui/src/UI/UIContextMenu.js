@@ -360,6 +360,9 @@
     };
 })(jQuery);
 
+
+
+
 /**
  * Creates and manages a context menu UI component with support for nested submenus.
  * The menu supports keyboard navigation, touch events, and intelligent submenu positioning.
@@ -708,6 +711,7 @@ function UIContextMenu(options){
             $(e.target).removeClass('context-menu-item-active');
         },
     });
+
     
     // disabled item mousedown event
     $(`#context-menu-${menu_id} > li.context-menu-item-disabled`).on('mousedown', function (e) {
@@ -777,6 +781,7 @@ function UIContextMenu(options){
     };
 }
 
+
 window.select_ctxmenu_item = function ($ctxmenu_item){
     // remove active class from other items
     $($ctxmenu_item).siblings('.context-menu-item').removeClass('context-menu-item-active');
@@ -805,5 +810,8 @@ $(document).on('mouseenter', '.context-menu-divider', function(e){
     // unselect all items
     $(this).siblings('.context-menu-item:not(.has-open-context-menu-submenu)').removeClass('context-menu-item-active');
 })
+
+
+
 
 export default UIContextMenu;
