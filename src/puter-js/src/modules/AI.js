@@ -46,7 +46,6 @@ class AI{
         const modelsByProvider = {};
 
         const models = await puter.drivers.call('puter-chat-completion','ai-chat','models');
-        //console.log(models);
 
         if (!models || !models.result || !Array.isArray(models.result)) {
             return modelsByProvider;
@@ -58,7 +57,6 @@ class AI{
             modelsByProvider[item.provider].push(item.id);
         });
         
-        //console.log(modelsByProvider);
         return modelsByProvider;
     }
 
@@ -69,7 +67,6 @@ class AI{
     async listModelProviders() {
         let providers = [];
         const models = await puter.drivers.call('puter-chat-completion','ai-chat','models');
-        //console.log(models);
 
         if (!models || !models.result || !Array.isArray(models.result)) return providers; // if models is invalid then return empty array
         providers = new Set(); // Use a Set to store unique providers
