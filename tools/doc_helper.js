@@ -397,7 +397,7 @@ function formatEventsOutput(events) {
                 output += `            code: /*${event.example.language}*/\``;
                 
                 // Preserve the exact formatting of the example code
-                // Don't add extra newlines
+                // Don't add extra newlines and preserve escape sequences exactly as they are
                 output += event.example.code;
                 
                 output += `\`\n`;

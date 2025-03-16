@@ -19,7 +19,6 @@ whether the email is allowed
 - **Notes**:
   - If set to false, the email will be considered invalid.
 
-
 ### `core.request.measured`
 
 This event is emitted when a requests incoming and outgoing bytes
@@ -34,8 +33,7 @@ extension.on('core.request.measured', data => {
 
     const actor = data.actor; // instance of Actor
 
-    console.log('[36;1m === MEASUREMENT ===[0m
-', {
+    console.log('\x1B[36;1m === MEASUREMENT ===\x1B[0m\n', {
         actor: data.actor.uid,
         measurements: data.measurements
     });
@@ -82,7 +80,6 @@ parameters
 - **Type**: any
 - **Mutability**: mutable
 - **Notes**:
-
 
 ### `core.ai.prompt.complete`
 
