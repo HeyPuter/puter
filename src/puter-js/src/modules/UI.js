@@ -860,6 +860,19 @@ class UI extends EventListener {
         this.#postMessageWithObject('setMenubar', spec);
     }
 
+    requestPermission = function(options) {
+        return new Promise((resolve) => {
+            if (this.env === 'app') {
+                return new Promise((resolve) => {
+                    this.#postMessageWithCallback('requestPermission', resolve, { options });
+                })
+            } else {
+                // TODO: Implement for web
+                resolve(false);
+            }
+        })
+    }
+
     disableMenuItem = function(item_id) {
         this.#postMessageWithObject('disableMenuItem', {id: item_id});
     }

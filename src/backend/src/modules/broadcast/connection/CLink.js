@@ -61,7 +61,10 @@ class CLink extends BaseLink {
 
     connect () {
         let address = this.config.address;
-        if ( ! address.startsWith('https://') ) {
+        if ( ! (
+            address.startsWith('https://') ||
+            address.startsWith('http://')
+        ) ) {
             address = `https://${address}`;
         }
         const socket = this.modules.sioclient(address, {

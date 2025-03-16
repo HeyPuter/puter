@@ -19,31 +19,72 @@
 
 import UIWindow from './UIWindow.js'
 
-function UIAlert(options){
+function UIAlert(options) {
     // set sensible defaults
-    if(arguments.length > 0){
+    if (arguments.length > 0) {
         // if first argument is a string, then assume it is the message
-        if(window.isString(arguments[0])){
+        if (window.isString(arguments[0])) {
             options = {};
             options.message = arguments[0];
         }
         // if second argument is an array, then assume it is the buttons
-        if(arguments[1] && Array.isArray(arguments[1])){
+        if (arguments[1] && Array.isArray(arguments[1])) {
             options.buttons = arguments[1];
         }
     }
 
     return new Promise(async (resolve) => {
         // provide an 'OK' button if no buttons are provided
-        if(!options.buttons || options.buttons.length === 0){
+        if (!options.buttons || options.buttons.length === 0) {
             options.buttons = [
-                {label: i18n('ok'), value: true, type: 'primary'}
+                { label: i18n('ok'), value: true, type: 'primary' }
             ]
         }
+        // Define alert types
+        const alertTypes = {
+            error: { icon: "danger.svg", title: "Error!", color: "#D32F2F" },
+            warning: { icon: "warning-sign.svg", title: "Warning!", color: "#FFA000" },
+            info: { icon: "reminder.svg", title: "Info", color: "#1976D2" },
+            success: { icon: "c-check.svg", title: "Success!", color: "#388E3C" },
+            confirm: { icon: "question.svg", title: "Are you sure?", color: "#555555" }
+        };
 
-        // set body icon
-        options.body_icon = options.body_icon ?? window.icons['warning-sign.svg'];
-        if(options.type === 'success')
+        // Set default values
+        const alertType = alertTypes[options.type] || alertTypes.warning;
+        options.message = options.title || alertType.title;
+        options.body_icon = options.body_icon ?? window.icons[alertType.icon];
+        options.color = options.color ?? alertType.color;
+
+        // Define buttons if not provided
+        if (!options.buttons || options.buttons.length === 0) {
+            switch (options.type) {
+                case "confirm":
+                    options.buttons = [
+                        { label: "Yes", value: true, type: "primary" },
+                        { label: "No", value: false, type: "secondary" }
+                    ];
+                    break;
+                case "error":
+                    options.buttons = [
+                        { label: "Retry", value: "retry", type: "danger" },
+                        { label: "Cancel", value: "cancel", type: "secondary" }
+                    ];
+                    break;
+                default:
+                    options.buttons = [{ label: i18n('ok'), value: true, type: "primary" }];
+                    break;
+            }
+        }
+        // callback support with correct resolve handling
+        options.buttons.forEach(button => {
+            button.onClick = () => {
+                if (options.callback) {
+                    options.callback(button.value);
+                }
+                puter.ui.closeDialog();
+            };
+        });
+        if (options.type === 'success')
             options.body_icon = window.icons['c-check.svg'];
 
         let santized_message = html_encode(options.message);
@@ -62,9 +103,9 @@ function UIAlert(options){
         // message
         h += `<div class="window-alert-message">${santized_message}</div>`;
         // buttons
-        if(options.buttons && options.buttons.length > 0){
+        if (options.buttons && options.buttons.length > 0) {
             h += `<div style="overflow:hidden; margin-top:20px;">`;
-            for(let y=0; y<options.buttons.length; y++){
+            for (let y = 0; y < options.buttons.length; y++) {
                 h += `<button class="button button-block button-${html_encode(options.buttons[y].type)} alert-resp-button" 
                                 data-label="${html_encode(options.buttons[y].label)}"
                                 data-value="${html_encode(options.buttons[y].value ?? options.buttons[y].label)}"
@@ -96,7 +137,7 @@ function UIAlert(options){
             width: 350,
             parent_uuid: options.parent_uuid,
             ...options.window_options,
-            window_css:{
+            window_css: {
                 height: 'initial',
             },
             body_css: {
@@ -112,8 +153,8 @@ function UIAlert(options){
         // --------------------------------------------------------
         // Button pressed
         // --------------------------------------------------------
-        $(el_window).find('.alert-resp-button').on('click',  async function(event){
-            event.preventDefault(); 
+        $(el_window).find('.alert-resp-button').on('click', async function (event) {
+            event.preventDefault();
             event.stopPropagation();
             resolve($(this).attr('data-value'));
             $(el_window).close();
