@@ -39,34 +39,26 @@ class AI{
 
      /**
      * Returns a list of available AI models.
-     * @param {string} provider - The provider to filter the models by.
+     * @param {string} provider - The provider to filter the models returned.
      * @returns {Object} Object containing lists of available models by provider
      */
      async listModels(provider) {
         const modelsByProvider = {};
 
-        const modelsList = await puter.drivers.call('puter-chat-completion','ai-chat','models');
+        const models = await puter.drivers.call('puter-chat-completion','ai-chat','models');
+        //console.log(models);
 
-        if (modelsList && modelsList.result && Array.isArray(modelsList.result)) {
-            modelsList.result.forEach((item) => {
-                if (item.provider && item.id) {
-                    if (provider) {
-                        if (item.provider === provider) { // Only add models for the specified provider
-                            if (!modelsByProvider[item.provider]) {
-                                modelsByProvider[item.provider] = [];
-                            }
-                            modelsByProvider[item.provider].push(item.id);
-                        }
-                    } else { // Add all models
-                        if (!modelsByProvider[item.provider]) {
-                            modelsByProvider[item.provider] = [];
-                        }
-                        modelsByProvider[item.provider].push(item.id);
-                    }
-                }
-            });
+        if (!models || !models.result || !Array.isArray(models.result)) {
+            return modelsByProvider;
         }
- 
+        models.result.forEach(item => {
+            if (!item.provider || !item.id) return;
+            if (provider && item.provider !== provider) return;
+            if (!modelsByProvider[item.provider]) modelsByProvider[item.provider] = [];
+            modelsByProvider[item.provider].push(item.id);
+        });
+        
+        //console.log(modelsByProvider);
         return modelsByProvider;
     }
 
@@ -77,17 +69,14 @@ class AI{
     async listModelProviders() {
         let providers = [];
         const models = await puter.drivers.call('puter-chat-completion','ai-chat','models');
+        //console.log(models);
 
-        if (models && models.result && Array.isArray(models.result)) {
-            providers = new Set(); // Use a Set to store unique providers
-
-            models.result.forEach((item) => {
-            if (item.provider) {
-                providers.add(item.provider);
-            }
-            });
-            providers = Array.from(providers); // Convert Set to an array
-        }
+        if (!models || !models.result || !Array.isArray(models.result)) return providers; // if models is invalid then return empty array
+        providers = new Set(); // Use a Set to store unique providers
+        models.result.forEach(item => {
+            if (item.provider) providers.add(item.provider);
+        });
+        providers = Array.from(providers); // Convert Set to an array
         return providers;
     }
     
