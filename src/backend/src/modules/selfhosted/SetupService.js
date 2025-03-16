@@ -382,16 +382,65 @@ class SetupService extends BaseService {
           // Check if we need a restart based on the configuration changes
           const needsRestart = this.requiresRestart(config);
 
+          // Check if setup is completed (already marked as completed)
+          const fs = require("fs");
+          const path = require("path");
+          const setupCompletedPath = path.join(
+            process.cwd(),
+            "config",
+            "setup-completed"
+          );
+          const isSetupAlreadyCompleted = fs.existsSync(setupCompletedPath);
+
+          // Get the password message for the setup
+          let passwordMessage = "";
+          try {
+            // Only show the password if setup was not already completed (fresh install or reset)
+            if (!isSetupAlreadyCompleted) {
+              const defaultUserService = this.services.get("default-user");
+              if (defaultUserService) {
+                // Get user password info - either generated or custom
+                let passwordToDisplay = "";
+
+                if (config.__customPasswordProvided && config.__adminPassword) {
+                  // User provided a custom password, use it
+                  passwordToDisplay = config.__adminPassword;
+                } else {
+                  // No custom password provided, retrieve the generated one
+                  const result =
+                    await defaultUserService.ensureDefaultAdminPassword();
+                  if (result.success && result.generatedPassword) {
+                    passwordToDisplay = result.generatedPassword;
+                  }
+                }
+
+                // Add password to message if we have one
+                if (passwordToDisplay) {
+                  passwordMessage = ", Admin password: " + passwordToDisplay;
+                }
+              }
+            }
+          } catch (error) {
+            safeLog("warn", "Could not retrieve password for display", error);
+          }
+
+          // Include password directly in response for easier access
+          const adminPassword = passwordMessage.replace(
+            ", Admin password: ",
+            ""
+          );
+
           // Success response
           return res.json({
             success: true,
             message: "Setup completed successfully",
             requiresRestart: needsRestart,
+            adminPassword: adminPassword || null,
             instructions: needsRestart
-              ? "Your configuration has been saved. Please restart the Puter server to apply changes. Admin username: admin, Admin password: " +
-                (config.__adminPassword || "9668fafe")
-              : "Your configuration has been saved and applied successfully. Admin username: admin, Admin password: " +
-                (config.__adminPassword || "9668fafe"),
+              ? "Your configuration has been saved. Please restart the Puter server to apply changes. Admin username: admin" +
+                passwordMessage
+              : "Your configuration has been saved and applied successfully. Admin username: admin" +
+                passwordMessage,
           });
         } catch (error) {
           safeLog("error", "Setup configuration failed", error);
@@ -689,91 +738,91 @@ class SetupService extends BaseService {
    */
   getSetupWizardHTML(token = "") {
     return `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Puter Setup Wizard</title>
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-        <style>
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Puter Setup Wizard</title>
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+            <style>
             ${this.getWizardStyles()}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="card">
-                <div class="card-header">
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="card">
+                    <div class="card-header">
                     <h1>Puter Setup</h1>
                     <p>Configure your Puter server installation</p>
-                </div>
+                    </div>
                 <div class="card-body">
                     <form id="setup-form">
                         <input type="hidden" id="setupToken" value="${token}">
                         ${this.getWizardFormContent()}
-                    </form>
+                        </form>
+                    </div>
                 </div>
             </div>
-        </div>
-        
-        <script>
-            document.addEventListener('DOMContentLoaded', function() {
+            
+            <script>
+                document.addEventListener('DOMContentLoaded', function() {
                 // Radio button group functionality
-                function setupRadioGroup(groupId) {
-                    const radioGroup = document.getElementById(groupId);
+                    function setupRadioGroup(groupId) {
+                        const radioGroup = document.getElementById(groupId);
                     if (!radioGroup) return;
                     
-                    const radioItems = radioGroup.querySelectorAll('.radio-item');
-                    
-                    radioItems.forEach(item => {
-                        item.addEventListener('click', () => {
-                            // Remove checked class from all items
-                            radioItems.forEach(i => i.classList.remove('checked'));
-                            
-                            // Add checked class to the clicked item
-                            item.classList.add('checked');
-                            
-                            // Check the radio input
-                            const input = item.querySelector('input');
-                            input.checked = true;
-                            
-                            // Trigger change event
-                            const event = new Event('change');
-                            input.dispatchEvent(event);
+                        const radioItems = radioGroup.querySelectorAll('.radio-item');
+                        
+                        radioItems.forEach(item => {
+                            item.addEventListener('click', () => {
+                                // Remove checked class from all items
+                                radioItems.forEach(i => i.classList.remove('checked'));
+                                
+                                // Add checked class to the clicked item
+                                item.classList.add('checked');
+                                
+                                // Check the radio input
+                                const input = item.querySelector('input');
+                                input.checked = true;
+                                
+                                // Trigger change event
+                                const event = new Event('change');
+                                input.dispatchEvent(event);
+                            });
                         });
-                    });
-                }
-                
-                // Setup radio groups
-                setupRadioGroup('subdomain-radio-group');
-                setupRadioGroup('domain-radio-group');
-                
-                // Get user's IP for nip.io domain
+                    }
+                    
+                    // Setup radio groups
+                    setupRadioGroup('subdomain-radio-group');
+                    setupRadioGroup('domain-radio-group');
+                    
+                    // Get user's IP for nip.io domain
                 fetch('/api/status')
-                    .then(response => response.json())
+                        .then(response => response.json())
                     .catch(error => console.error('Error fetching status:', error));
-                
-                // Update nip.io preview
-                const userIp = window.location.hostname.split(':')[0];
+                    
+                    // Update nip.io preview
+                    const userIp = window.location.hostname.split(':')[0];
                 const nipioElement = document.getElementById('nipio-domain');
                 if (nipioElement) {
                     nipioElement.textContent = userIp.replace(/\\./g, '-') + '.nip.io';
                 }
-                
-                // Toggle subdomain warning
+                    
+                    // Toggle subdomain warning
                 const subdomainBehaviorInput = document.querySelector('input[name="subdomainBehavior"]');
                 if (subdomainBehaviorInput) {
                     subdomainBehaviorInput.addEventListener('change', function(e) {
                         const warningEl = document.getElementById('subdomain-warning');
                         if (warningEl) {
-                            warningEl.style.display = e.target.value === 'disabled' ? 'block' : 'none';
+                        warningEl.style.display = e.target.value === 'disabled' ? 'block' : 'none';
                         }
                     });
                 }
-                
-                // Toggle domain/nip.io inputs
+                    
+                    // Toggle domain/nip.io inputs
                 const domainTypeInput = document.querySelector('input[name="domainType"]');
                 if (domainTypeInput) {
                     domainTypeInput.addEventListener('change', function(e) {
@@ -794,17 +843,20 @@ class SetupService extends BaseService {
                 function showFeedback(message, isSuccess) {
                     const feedbackEl = document.getElementById('setup-feedback');
                     if (feedbackEl) {
-                        if (isSuccess) {
-                            feedbackEl.innerHTML = '<div class="success"><strong>' + message + '</strong></div>';
+                        // Check if message is already HTML content
+                        if (message.startsWith('<div')) {
+                            feedbackEl.innerHTML = message;
                         } else {
-                            feedbackEl.innerHTML = '<div class="error">' + message + '</div>';
+                            feedbackEl.innerHTML = '<div class="' + (isSuccess ? 'success' : 'error') + '">' +
+                                '<p>' + message + '</p>' +
+                                '</div>';
                         }
                         feedbackEl.className = '';
                         feedbackEl.style.display = 'block';
                     }
                 }
-                
-                // Form submission
+                    
+                    // Form submission
                 const setupForm = document.getElementById('setup-form');
                 if (setupForm) {
                     setupForm.addEventListener('submit', function(e) {
@@ -842,8 +894,8 @@ class SetupService extends BaseService {
                         // Submit button loading state
                         const submitBtn = document.getElementById('submit-btn');
                         if (submitBtn) {
-                            submitBtn.textContent = 'Setting up...';
-                            submitBtn.disabled = true;
+                        submitBtn.textContent = 'Setting up...';
+                        submitBtn.disabled = true;
                         }
                         
                         // Submit configuration with token in headers
@@ -857,17 +909,43 @@ class SetupService extends BaseService {
                         })
                         .then(response => response.json())
                         .then(data => {
+                            console.log('Setup response:', data); // Debug the whole response
+                            
                             if (data.success) {
+                                // Get the password directly from the response
+                                let password = data.adminPassword;
+                                console.log('Admin password from response:', password); // Debug the password value
+                                
+                                // Fallback: Try to extract password from instructions if adminPassword field is missing
+                                if (!password && data.instructions && data.instructions.includes("Admin password:")) {
+                                    const passwordMatch = data.instructions.match(/Admin password: ([^,\s]+)/);
+                                    if (passwordMatch && passwordMatch[1]) {
+                                        password = passwordMatch[1];
+                                        console.log('Extracted password from instructions:', password);
+                                    }
+                                }
+                                
                                 if (data.requiresRestart) {
-                                    // Show restart instructions instead of redirecting
+                                    // Show restart instructions with password
                                     const feedbackEl = document.getElementById('setup-feedback');
                                     if (feedbackEl) {
+                                        let credentialsHtml = 
+                                            '<div style="margin: 15px 0; padding: 10px; background-color: #f8f9fa; border-radius: 5px; text-align: left;">' +
+                                            '<p style="margin: 5px 0;"><strong>Admin Username:</strong> admin</p>';
+                                        
+                                        // Only add password if we have one
+                                        if (password) {
+                                            credentialsHtml += '<p style="margin: 5px 0; color: #2563eb;"><strong>Admin Password:</strong> ' + password + '</p>';
+                                        }
+                                        
+                                        credentialsHtml += '</div>';
+                                        
                                         feedbackEl.innerHTML = 
                                             '<div class="success">' +
-                                            '<strong>Setup Completed Successfully</strong>' +
-                                            '<p>' + (data.instructions || 'Please restart the Puter server to apply changes.') + '</p>' +
+                                            '<p><strong>Setup completed successfully!</strong></p>' +
+                                            credentialsHtml +
                                             '<div class="restart-instructions">' +
-                                            '<strong>How to restart:</strong>' +
+                                            '<p><strong>How to restart:</strong></p>' +
                                             '<ol>' +
                                             '<li>Stop the server (Ctrl+C in the terminal where Puter is running)</li>' +
                                             '<li>Start the server again</li>' +
@@ -884,39 +962,62 @@ class SetupService extends BaseService {
                                         submitBtn.disabled = true;
                                     }
                                 } else {
-                                    showFeedback('Setup completed successfully! Redirecting...', true);
+                                    // Show success message with credentials
+                                    const feedbackEl = document.getElementById('setup-feedback');
+                                    if (feedbackEl) {
+                                        let credentialsHtml = 
+                                            '<div style="margin: 15px 0; padding: 10px; background-color: #f8f9fa; border-radius: 5px; text-align: left;">' +
+                                            '<p style="margin: 5px 0;"><strong>Admin Username:</strong> admin</p>';
+                                        
+                                        // Only add password if we have one
+                                        if (password) {
+                                            credentialsHtml += '<p style="margin: 5px 0; color: #2563eb;"><strong>Admin Password:</strong> ' + password + '</p>';
+                                        }
+                                        
+                                        credentialsHtml += '</div>';
+                                        
+                                        feedbackEl.innerHTML = 
+                                            '<div class="success">' +
+                                            '<p><strong>Setup completed successfully!</strong></p>' +
+                                            credentialsHtml +
+                                            '<p>Redirecting to Puter...</p>' +
+                                            '</div>';
+                                        feedbackEl.style.display = 'block';
+                                    }
+                                    
+                                    // Set a longer timeout to give user time to see credentials
                                     setTimeout(() => {
                                         window.location.href = '/';
-                                    }, 1500);
+                                    }, 5000);
                                 }
                             } else {
                                 showFeedback('Error: ' + (data.message || 'Unknown error'), false);
                                 if (submitBtn) {
-                                    submitBtn.textContent = 'Complete Setup';
-                                    submitBtn.disabled = false;
+                                submitBtn.textContent = 'Complete Setup';
+                                submitBtn.disabled = false;
                                 }
                             }
                         })
                         .catch(error => {
                             showFeedback('Error: ' + error.message, false);
                             if (submitBtn) {
-                                submitBtn.textContent = 'Complete Setup';
-                                submitBtn.disabled = false;
+                            submitBtn.textContent = 'Complete Setup';
+                            submitBtn.disabled = false;
                             }
                         });
                     });
-                }
-            });
-        </script>
-    </body>
-    </html>
+                    }
+                });
+            </script>
+        </body>
+        </html>
     `;
   }
 
   // Extract styles to a separate method for better maintainability
   getWizardStyles() {
     return `
-      :root {
+            :root {
         --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
         
         --background: hsl(0 0% 100%);
@@ -946,9 +1047,9 @@ class SetupService extends BaseService {
         --border: hsl(220 13% 91%);
         --input: hsl(220 13% 91%);
         --ring: hsl(224 71.4% 4.1%);
-        
-        --radius: 0.5rem;
-      }
+                
+                --radius: 0.5rem;
+            }
 
       .dark {
         --background: hsl(224 71.4% 4.1%);
@@ -978,52 +1079,52 @@ class SetupService extends BaseService {
         --border: hsl(215 27.9% 16.9%);
         --input: hsl(215 27.9% 16.9%);
         --ring: hsl(216 12.2% 83.9%);
-      }
-      
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
+            }
+            
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
       
       html {
         font-family: var(--font-sans);
-      }
-      
-      body {
+            }
+            
+            body {
         background-color: var(--background);
-        color: var(--foreground);
+                color: var(--foreground);
         font-feature-settings: "rlig" 1, "calt" 1;
-        line-height: 1.5;
-      }
-      
-      .container {
+                line-height: 1.5;
+            }
+            
+            .container {
         max-width: 600px;
-        margin: 2rem auto;
-        padding: 1.5rem;
-      }
-
-      .card {
-        background-color: var(--card);
-        border-radius: var(--radius);
+                margin: 2rem auto;
+                padding: 1.5rem;
+            }
+            
+            .card {
+                background-color: var(--card);
+                border-radius: var(--radius);
         box-shadow: 0px 4px 25px rgba(0, 0, 0, 0.05);
-        overflow: hidden;
-      }
-      
-      .card-header {
+                overflow: hidden;
+            }
+            
+            .card-header {
         padding: 2rem 2rem 1.5rem;
-        border-bottom: 1px solid var(--border);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-      }
-      
+                border-bottom: 1px solid var(--border);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+            }
+            
       .card-header h1 {
         margin: 0 0 0.5rem;
         font-size: 1.75rem;
-        font-weight: 600;
-        color: var(--foreground);
+                font-weight: 600;
+                color: var(--foreground);
       }
       
       .card-body {
@@ -1033,15 +1134,15 @@ class SetupService extends BaseService {
       p {
         color: var(--muted-foreground);
         font-size: 0.9375rem;
-      }
-      
-      .form-group {
+            }
+            
+            .form-group {
         margin-bottom: 1.5rem;
-      }
-      
-      .form-group h2 {
+            }
+            
+            .form-group h2 {
         font-size: 1rem;
-        font-weight: 600;
+                font-weight: 600;
         margin-bottom: 0.75rem;
       }
       
@@ -1052,62 +1153,62 @@ class SetupService extends BaseService {
       
       .input-group {
         margin-bottom: 1rem;
-      }
-      
-      .label {
+            }
+            
+            .label {
         display: block;
-        font-size: 0.875rem;
-        font-weight: 500;
+                font-size: 0.875rem;
+                font-weight: 500;
         margin-bottom: 0.5rem;
-      }
-      
-      .input {
-        display: flex;
-        width: 100%;
+            }
+            
+            .input {
+                display: flex;
+                width: 100%;
         height: 2.5rem;
-        border-radius: var(--radius);
-        border: 1px solid var(--input);
-        background-color: transparent;
+                border-radius: var(--radius);
+                border: 1px solid var(--input);
+                background-color: transparent;
         padding: 0 0.75rem;
-        font-size: 0.875rem;
+                font-size: 0.875rem;
         transition: border-color 0.2s, box-shadow 0.2s;
-      }
-      
-      .input:focus {
-        outline: none;
+            }
+            
+            .input:focus {
+                outline: none;
         box-shadow: 0 0 0 2px var(--ring);
-        border-color: var(--ring);
-      }
-      
-      .radio-group {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
+                border-color: var(--ring);
+            }
+            
+            .radio-group {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
         gap: 0.75rem;
-      }
-      
-      .radio-item {
+            }
+            
+            .radio-item {
         position: relative;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
         padding: 0.75rem;
-        border-radius: var(--radius);
-        border: 1px solid var(--border);
+                border-radius: var(--radius);
+                border: 1px solid var(--border);
         background-color: var(--background);
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-      
-      .radio-item:hover {
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+            
+            .radio-item:hover {
         background-color: var(--secondary);
-      }
-      
-      .radio-item.checked {
-        border-color: var(--primary);
-        background-color: var(--accent);
-      }
-      
-      .radio-item input {
+            }
+            
+            .radio-item.checked {
+                border-color: var(--primary);
+                background-color: var(--accent);
+            }
+            
+            .radio-item input {
         position: absolute;
         opacity: 0;
         width: 0;
@@ -1116,60 +1217,60 @@ class SetupService extends BaseService {
       
       .radio-button {
         flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+                display: flex;
+                align-items: center;
+                justify-content: center;
         width: 1rem;
         height: 1rem;
         border-radius: 50%;
         border: 1.5px solid var(--muted-foreground);
-      }
-      
-      .radio-item.checked .radio-button {
-        border-color: var(--primary);
-      }
-      
-      .radio-item.checked .radio-button::after {
-        content: "";
+            }
+            
+            .radio-item.checked .radio-button {
+                border-color: var(--primary);
+            }
+            
+            .radio-item.checked .radio-button::after {
+                content: "";
         width: 0.5rem;
         height: 0.5rem;
-        border-radius: 50%;
-        background-color: var(--primary);
-      }
-      
+                border-radius: 50%;
+                background-color: var(--primary);
+            }
+            
       .radio-label {
-        font-size: 0.875rem;
-        font-weight: 500;
-      }
-      
-      .button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: var(--radius);
-        font-size: 0.875rem;
-        font-weight: 500;
-        height: 2.5rem;
-        padding-left: 1rem;
-        padding-right: 1rem;
-        transition: all 0.2s ease;
-        cursor: pointer;
-      }
-      
-      .button-primary {
-        background-color: var(--primary);
-        color: var(--primary-foreground);
-        border: none;
-      }
-      
-      .button-primary:hover {
-        opacity: 0.9;
-      }
-      
-      .button-primary:active {
-        opacity: 0.8;
-      }
-      
+                font-size: 0.875rem;
+                font-weight: 500;
+            }
+            
+            .button {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: var(--radius);
+                font-size: 0.875rem;
+                font-weight: 500;
+                height: 2.5rem;
+                padding-left: 1rem;
+                padding-right: 1rem;
+                transition: all 0.2s ease;
+                cursor: pointer;
+            }
+            
+            .button-primary {
+                background-color: var(--primary);
+                color: var(--primary-foreground);
+                border: none;
+            }
+            
+            .button-primary:hover {
+                opacity: 0.9;
+            }
+            
+            .button-primary:active {
+                opacity: 0.8;
+            }
+            
       .button-primary:disabled {
         opacity: 0.5;
         cursor: not-allowed;
@@ -1183,9 +1284,9 @@ class SetupService extends BaseService {
       }
       
       .alert {
-        border-radius: var(--radius);
+                border-radius: var(--radius);
         padding: 0.75rem;
-        font-size: 0.875rem;
+                font-size: 0.875rem;
         margin-top: 0.75rem;
         display: flex;
         gap: 0.5rem;
@@ -1210,45 +1311,33 @@ class SetupService extends BaseService {
       
       .conditional {
         margin-top: 0.75rem;
-      }
-      
-      #setup-feedback {
-        margin-top: 1.5rem;
-        border-radius: var(--radius);
-        padding: 1rem;
-        font-size: 0.9rem;
-        display: none;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-      }
-      
-      .success {
+            }
+            
+            #setup-feedback {
+                margin-top: 1rem;
+                border-radius: var(--radius);
+        padding: 0.75rem;
+                font-size: 0.875rem;
+                display: none;
+            }
+            
+            .success {
         background-color: hsl(142 76% 97%);
         border: 1px solid hsl(143 71% 48%);
         color: hsl(140 100% 27%);
-      }
-      
-      .success strong {
-        font-size: 1.1rem;
-        display: block;
-        margin-bottom: 0.75rem;
-      }
-      
-      .success p {
-        margin-bottom: 0.75rem;
-      }
-      
-      .error {
+            }
+            
+            .error {
         background-color: hsl(0 96% 97%);
         border: 1px solid hsl(0 72% 51%);
         color: hsl(0 74% 39%);
       }
       
       .restart-instructions {
-        margin-top: 1.5rem;
+        margin-top: 1rem;
         background: var(--secondary);
-        padding: 1.25rem;
+        padding: 1rem;
         border-radius: var(--radius);
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
       }
       
       .restart-instructions strong {
@@ -1278,7 +1367,7 @@ class SetupService extends BaseService {
         .radio-group {
           grid-template-columns: 1fr;
         }
-      }
+            }
     `;
   }
 
@@ -1292,7 +1381,7 @@ class SetupService extends BaseService {
         <div class="form-step" data-step-id="${step.id}">
           <h2>${step.title}</h2>
           ${step.template}
-          ${index < this.configSteps.length - 1 ? '<div class="divider"></div>' : ""}
+        ${index < this.configSteps.length - 1 ? '<div class="divider"></div>' : ""}
         </div>
       `;
     });
@@ -1300,7 +1389,7 @@ class SetupService extends BaseService {
     // Add the submit button and feedback area
     html += `
       <div class="form-actions">
-        <button type="submit" id="submit-btn" class="button button-primary">Complete Setup</button>
+      <button type="submit" id="submit-btn" class="button button-primary">Complete Setup</button>
       </div>
       <div id="setup-feedback" class="feedback"></div>
     `;
@@ -1313,21 +1402,21 @@ class SetupService extends BaseService {
     return `
       <div class="form-group">
         <p>Choose whether to enable or disable subdomains for your Puter instance.</p>
-        <div class="radio-group" id="subdomain-radio-group">
-          <label class="radio-item checked" data-value="enabled">
-            <input type="radio" name="subdomainBehavior" value="enabled" checked>
-            <span class="radio-button"></span>
-            <span class="radio-label">Enabled (Recommended)</span>
-          </label>
-          <label class="radio-item" data-value="disabled">
-            <input type="radio" name="subdomainBehavior" value="disabled">
-            <span class="radio-button"></span>
-            <span class="radio-label">Disabled</span>
-          </label>
-        </div>
-        
-        <div id="subdomain-warning" class="alert alert-warning" style="display: none;">
-          <span class="alert-icon">⚠️</span>
+      <div class="radio-group" id="subdomain-radio-group">
+        <label class="radio-item checked" data-value="enabled">
+          <input type="radio" name="subdomainBehavior" value="enabled" checked>
+          <span class="radio-button"></span>
+          <span class="radio-label">Enabled (Recommended)</span>
+        </label>
+        <label class="radio-item" data-value="disabled">
+          <input type="radio" name="subdomainBehavior" value="disabled">
+          <span class="radio-button"></span>
+          <span class="radio-label">Disabled</span>
+        </label>
+      </div>
+      
+      <div id="subdomain-warning" class="alert alert-warning" style="display: none;">
+        <span class="alert-icon">⚠️</span>
           <div>
             <strong>Security Warning</strong>
             <p style="margin-top: 0.25rem;">Disabling subdomains makes your deployment less secure. Only use this option if your hosting does not support subdomains.</p>
@@ -1341,29 +1430,29 @@ class SetupService extends BaseService {
     return `
       <div class="form-group">
         <p>Choose how users will access your Puter instance.</p>
-        <div class="radio-group" id="domain-radio-group">
-          <label class="radio-item checked" data-value="domain">
-            <input type="radio" name="domainType" value="domain" checked>
-            <span class="radio-button"></span>
-            <span class="radio-label">Custom Domain</span>
-          </label>
-          <label class="radio-item" data-value="nipio">
-            <input type="radio" name="domainType" value="nipio">
-            <span class="radio-button"></span>
-            <span class="radio-label">Use nip.io (IP-based)</span>
-          </label>
-        </div>
-        
-        <div id="domain-input" class="conditional">
+      <div class="radio-group" id="domain-radio-group">
+        <label class="radio-item checked" data-value="domain">
+          <input type="radio" name="domainType" value="domain" checked>
+          <span class="radio-button"></span>
+          <span class="radio-label">Custom Domain</span>
+        </label>
+        <label class="radio-item" data-value="nipio">
+          <input type="radio" name="domainType" value="nipio">
+          <span class="radio-button"></span>
+          <span class="radio-label">Use nip.io (IP-based)</span>
+        </label>
+      </div>
+      
+      <div id="domain-input" class="conditional">
           <div class="input-group">
-            <label class="label" for="domainName">Domain Name</label>
-            <input type="text" id="domainName" name="domainName" class="input" placeholder="e.g., yourdomain.com">
+        <label class="label" for="domainName">Domain Name</label>
+        <input type="text" id="domainName" name="domainName" class="input" placeholder="e.g., yourdomain.com">
           </div>
-        </div>
-        
-        <div id="nipio-info" class="conditional" style="display: none;">
+      </div>
+      
+      <div id="nipio-info" class="conditional" style="display: none;">
           <div class="alert alert-info">
-            <span class="alert-icon">ℹ️</span>
+          <span class="alert-icon">ℹ️</span>
             <div>
               <strong>Using nip.io</strong>
               <p style="margin-top: 0.25rem;">This will create a domain based on your server's IP address. Your Puter instance will be accessible at: <strong id="nipio-domain">--.--.--.---.nip.io</strong></p>
@@ -1379,12 +1468,12 @@ class SetupService extends BaseService {
       <div class="form-group">
         <p>Set a secure password for the admin user.</p>
         <div class="input-group">
-          <label class="label" for="adminPassword">Password</label>
-          <input type="password" id="adminPassword" name="adminPassword" class="input" placeholder="Enter a secure password">
-        </div>
+        <label class="label" for="adminPassword">Password</label>
+        <input type="password" id="adminPassword" name="adminPassword" class="input" placeholder="Enter a secure password">
+      </div>
         <div class="input-group">
-          <label class="label" for="confirmPassword">Confirm Password</label>
-          <input type="password" id="confirmPassword" name="confirmPassword" class="input" placeholder="Confirm your password">
+        <label class="label" for="confirmPassword">Confirm Password</label>
+        <input type="password" id="confirmPassword" name="confirmPassword" class="input" placeholder="Confirm your password">
         </div>
       </div>
     `;
@@ -1729,8 +1818,10 @@ class SetupService extends BaseService {
           try {
             await this.updateAdminPassword(data.adminPassword);
             this.safeLog("info", "Admin password updated successfully");
-            // Return an empty object since we're handling the password separately
-            return {};
+            // Return an object indicating a custom password was set
+            return {
+              __customPasswordProvided: true,
+            };
           } catch (passwordError) {
             this.safeLog(
               "error",
@@ -1738,10 +1829,14 @@ class SetupService extends BaseService {
               passwordError
             );
             // Don't throw error to allow setup to continue
-            return {};
+            return {
+              __customPasswordProvided: false,
+            };
           }
         }
-        return {};
+        return {
+          __customPasswordProvided: false,
+        };
       },
     });
   }
