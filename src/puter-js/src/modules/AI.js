@@ -122,6 +122,32 @@ class AI{
         }).call(this, options);
     }
 
+    listVoices = async (...args) => {
+        let options = {};
+        let testMode = false;
+    
+        // determine if test mode is enabled
+        if (
+            (typeof args[0] === "boolean" && args[0] === true) ||
+            (typeof args[1] === "boolean" && args[1] === true)
+        ) {
+            testMode = true;
+        }
+    
+        // if first argument is a string, it's the language
+        if (args[0] && typeof args[0] === "string") {
+            options.language = args[0];
+        }
+    
+        return await utils
+            .make_driver_method([], "puter-tts", "aws-polly", "list_voices", {
+                test_mode: testMode ?? false,
+                transform: async (result) => {
+                return result;
+            },
+        }).call(this, options);
+    };
+
     txt2speech = async (...args) => {
         let MAX_INPUT_SIZE = 3000;
         let options = {};

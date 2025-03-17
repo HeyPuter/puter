@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Puter AWS Polly Tester</title>
+        <link rel="stylesheet" href="styles.css" />
+        <script src="https://js.puter.com/v2/"></script>
+    </head>
+    <body>
+        <div class="container">
+            <h1>AWS Polly Text-to-Speech Tester</h1>
+
+            <div class="control-panel">
+                <div class="input-group">
+                    <label for="text-input"
+                        >Enter text to convert to speech:</label
+                    >
+                    <textarea
+                        id="text-input"
+                        rows="5"
+                        placeholder="Type your text here..."
+                    >
+Hello! This is a test of the AWS Polly text-to-speech service integrated with Puter.</textarea
+                    >
+                </div>
+
+                <div class="voice-controls">
+                    <div class="input-group">
+                        <label for="voice-select">Select Voice:</label>
+                        <select id="voice-select">
+                            <option value="loading">Loading voices...</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="language-select">Select Language:</label>
+                        <select id="language-select">
+                            <option value="loading">
+                                Loading languages...
+                            </option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="buttons">
+                    <button id="speak-btn" class="primary-btn">Speak</button>
+                    <button id="test-mode-btn">Test Mode</button>
+                    <button id="stop-btn" disabled>Stop</button>
+                </div>
+            </div>
+
+            <div class="audio-player">
+                <h3>Audio Player</h3>
+                <div id="audio-container"></div>
+            </div>
+
+            <div class="status">
+                <p id="status-message"></p>
+            </div>
+        </div>
+
+        <script src="https://puter.com/puter.js"></script>
+        <script src="app.js"></script>
+    </body>
+</html>
