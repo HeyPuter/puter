@@ -19,11 +19,19 @@
 
 import UIWindow from './UIWindow.js'
 import UIAlert from './UIAlert.js'
-import { LogService } from '../modules/core/LogService.js';
+// import { LogService } from '../modules/core/LogService.js';
 import _ from 'lodash';
 
+const notifLogger = {
+    info: (...args) => console.log('[NOTIF INFO]', ...args),
+    debug: (...args) => console.log('[NOTIF DEBUG]', ...args),
+    error: (...args) => console.error('[NOTIF ERROR]', ...args),
+    group: (name) => console.group(name),
+    groupEnd: () => console.groupEnd()
+  };
+
 // Create a logger instance for notifications
-const notifLogger = new LogService().create('NOTIF');
+// const notifLogger = new LogService().create('NOTIF');
 
 /**
  * Creates a notification sidebar that displays the user's notification history

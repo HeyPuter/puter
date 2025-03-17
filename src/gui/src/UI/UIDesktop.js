@@ -43,7 +43,7 @@ import launch_app from "../helpers/launch_app.js"
 import item_icon from "../helpers/item_icon.js"
 import UIWindowSearch from "./UIWindowSearch.js"
 import UIWindowNotifications from "./UIWindowNotifications.js"
-import { update_tab_notif_count_badge } from './UINotification.js'
+//import { update_tab_notif_count_badge } from './UINotification.js'
 
 // Helper function to get profile picture
 async function get_profile_picture(username) {
