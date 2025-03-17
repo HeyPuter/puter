@@ -66,9 +66,14 @@ class SetupService extends BaseService {
     try {
       const configPath = path.join(process.cwd(), "config", "setup-completed");
       await fs.access(configPath);
+      this.safeLog("info", "Setup is marked as completed");
       return true;
     } catch (error) {
       // File doesn't exist, setup not completed
+      this.safeLog(
+        "info",
+        "Setup is not marked as completed, will show wizard"
+      );
       return false;
     }
   }
@@ -150,6 +155,13 @@ class SetupService extends BaseService {
       );
       return;
     }
+
+    // Check setup status again in case it changed
+    this.setupCompleted = await this.isSetupCompleted();
+    this.safeLog(
+      "info",
+      `Setup completed status in install.routes: ${this.setupCompleted}`
+    );
 
     this.safeLog("info", "Installing setup wizard routes");
 
@@ -528,6 +540,7 @@ class SetupService extends BaseService {
       try {
         const existingConfigStr = await fs.readFile(mainConfigPath, "utf8");
         existingConfig = JSON.parse(existingConfigStr);
+        this.safeLog("info", "Read existing config.json successfully");
       } catch (err) {
         // File might not exist yet, which is fine
         this.safeLog(
@@ -547,12 +560,53 @@ class SetupService extends BaseService {
         }
       });
 
+      // Ensure there's at least a trailing comma object for the JSON
+      if (!("" in cleanConfig)) {
+        cleanConfig[""] = null;
+      }
+
+      // Make sure domain is properly set
+      if (
+        !cleanConfig.domain ||
+        cleanConfig.domain === "<user_choice_domain>"
+      ) {
+        this.safeLog(
+          "warn",
+          "Domain not set properly, defaulting to localhost"
+        );
+        cleanConfig.domain = "localhost";
+      }
+
       // Write the updated config
-      await fs.writeFile(
-        mainConfigPath,
-        JSON.stringify(cleanConfig, null, 2),
-        "utf8"
+      const configJson = JSON.stringify(cleanConfig, null, 2);
+      this.safeLog(
+        "info",
+        `Writing config to ${mainConfigPath}: ${configJson}`
       );
+
+      await fs.writeFile(mainConfigPath, configJson, "utf8");
+
+      // Also write to the volatile config directory for local development
+      try {
+        const volatileConfigDir = path.join(
+          process.cwd(),
+          "volatile",
+          "config"
+        );
+        await fs.mkdir(volatileConfigDir, { recursive: true });
+        const volatileConfigPath = path.join(volatileConfigDir, "config.json");
+        await fs.writeFile(volatileConfigPath, configJson, "utf8");
+        this.safeLog(
+          "info",
+          `Also wrote config to volatile directory: ${volatileConfigPath}`
+        );
+      } catch (err) {
+        this.safeLog(
+          "warn",
+          "Failed to write to volatile config directory, but continuing",
+          err
+        );
+      }
 
       this.safeLog("info", "Configuration updated and saved to files", {
         wizardConfigPath,
@@ -984,9 +1038,10 @@ class SetupService extends BaseService {
                                             '<p><strong>How to restart:</strong></p>' +
                                             '<ol>' +
                                             '<li>Stop the server (Ctrl+C in the terminal where Puter is running)</li>' +
-                                            '<li>Start the server again</li>' +
-                                            '<li>Return to this page after restart</li>' +
+                                            '<li>Start the server again with <code>npm start</code></li>' +
+                                            '<li>After restart, access your Puter instance at <strong>http://' + (formData.useNipIo ? document.getElementById("nipio-domain").textContent : (formData.domainName || "localhost")) + '</strong></li>' +
                                             '</ol>' +
+                                            '<p style="margin-top: 10px;"><strong>Important:</strong> Save your login credentials above - you\'ll need them to log in after restart!</p>' +
                                             '</div>' +
                                             '</div>';
                                         feedbackEl.style.display = 'block';
@@ -1484,10 +1539,9 @@ class SetupService extends BaseService {
       </div>
       
       <div id="domain-input" class="conditional">
-          <div class="input-group">
+        <p>Enter your domain name below:</p>
         <label class="label" for="domainName">Domain Name</label>
-        <input type="text" id="domainName" name="domainName" class="input" placeholder="e.g., yourdomain.com">
-          </div>
+        <input type="text" id="domainName" name="domainName" class="input" placeholder="localhost">
       </div>
       
       <div id="nipio-info" class="conditional" style="display: none;">
@@ -1837,13 +1891,45 @@ class SetupService extends BaseService {
       order: 20,
       template: this.getDomainStepTemplate(),
       process: async (data, req) => {
-        // Extract the IP address properly for nip.io configuration
-        const ipAddress = req.ip.replace(/::ffff:/, ""); // Handle IPv6-mapped IPv4 addresses
+        // Default domain is localhost
+        let domainValue = "localhost";
+
+        // Check if the user provided a domain name or wants to use nip.io
+        if (data.useNipIo) {
+          try {
+            // Extract the IP address properly for nip.io configuration
+            const ipAddress = req.ip.replace(/::ffff:/, ""); // Handle IPv6-mapped IPv4 addresses
+            domainValue = `${ipAddress.replace(/\./g, "-")}.nip.io`;
+            this.safeLog("info", `Using nip.io domain: ${domainValue}`);
+          } catch (error) {
+            this.safeLog(
+              "error",
+              "Error creating nip.io domain, falling back to localhost",
+              error
+            );
+          }
+        } else if (data.domainName && data.domainName.trim()) {
+          // User specified a custom domain
+          domainValue = data.domainName.trim();
+          this.safeLog("info", `Using custom domain: ${domainValue}`);
+        } else {
+          this.safeLog(
+            "info",
+            `No domain provided, using default: ${domainValue}`
+          );
+        }
+
+        // For local development without a domain, ensure localhost is available
+        if (domainValue === "localhost") {
+          // Also set allow_localhost_domains to true
+          return {
+            domain: domainValue,
+            allow_localhost_domains: true,
+          };
+        }
 
         return {
-          domain: data.useNipIo
-            ? `${ipAddress.replace(/\./g, "-")}.nip.io`
-            : data.domainName,
+          domain: domainValue,
         };
       },
     });
