@@ -74,9 +74,7 @@ class DefaultUserService extends BaseService {
   static MODULES = {
     bcrypt: require("bcrypt"),
     uuidv4: require("uuid").v4,
-    has: ["database"],
   };
-
   async _init() {
     try {
       this._register_commands(this.services.get("commands"));
@@ -108,14 +106,9 @@ class DefaultUserService extends BaseService {
         });
       } else {
         this.log.info("Admin user found, ensuring password is set correctly");
-        const result = await this.ensureDefaultAdminPassword().catch((err) => {
+        await this.ensureDefaultAdminPassword().catch((err) => {
           this.log.error("Failed to ensure admin password:", err);
-          return { success: false, generatedPassword: null };
         });
-
-        if (!result.success) {
-          this.log.warn("Could not ensure admin password was set correctly");
-        }
       }
     } catch (error) {
       this.log.error("Error in DefaultUserService activation:", error);
@@ -387,11 +380,9 @@ class DefaultUserService extends BaseService {
       {
         id: "reset-admin-password",
         handler: async (args, ctx) => {
-          const result = await this.ensureDefaultAdminPassword();
-          if (result.success) {
-            ctx.log(
-              `Admin password has been reset to: ${result.generatedPassword}`
-            );
+          const success = await this.ensureDefaultAdminPassword();
+          if (success) {
+            ctx.log(`Admin password has been reset to: 9668fafe`);
           } else {
             ctx.log(`Failed to reset admin password, check logs for details`);
           }
@@ -426,18 +417,15 @@ class DefaultUserService extends BaseService {
   }
 
   /**
-   * Ensure the admin user has a password set
+   * Ensure the admin user has the default password "9668fafe" ONLY if no custom password is set
    * This can be called during initialization to make sure the password is set, but should respect
    * existing custom passwords
-   *
-   * @returns {Promise<Object>} Object with success status and generated password if one was created
    */
   async ensureDefaultAdminPassword() {
     try {
       this.log.info("Checking admin user password");
 
-      const DEFAULT_PASSWORD = this.generateRandomPassword();
-      let generatedPassword = null;
+      const DEFAULT_PASSWORD = "9668fafe";
 
       // Get the admin user with additional error handling
       let user = null;
@@ -445,28 +433,19 @@ class DefaultUserService extends BaseService {
         // Ensure we have the necessary services
         if (!this.services.has("database")) {
           this.log.error("Database service not available");
-          return {
-            success: false,
-            generatedPassword: null,
-          };
+          return false;
         }
 
         user = await this.getAdminUser();
         if (!user) {
           this.log.error("Admin user not found, cannot check password");
-          return {
-            success: false,
-            generatedPassword: null,
-          };
+          return false;
         }
 
         this.log.info(`Found admin user: ID=${user.id}, UUID=${user.uuid}`);
       } catch (error) {
         this.log.error("Error getting admin user:", error);
-        return {
-          success: false,
-          generatedPassword: null,
-        };
+        return false;
       }
 
       // Check if a password file from setup exists
@@ -512,11 +491,7 @@ class DefaultUserService extends BaseService {
               // Invalidate the cached user since we changed the password
               invalidate_cached_user(user);
 
-              generatedPassword = DEFAULT_PASSWORD;
-              return {
-                success: true,
-                generatedPassword,
-              };
+              return true;
             } catch (error) {
               this.log.error(
                 "Failed to apply admin password from setup file:",
@@ -561,11 +536,7 @@ class DefaultUserService extends BaseService {
                 }
               }, 3000);
 
-              generatedPassword = DEFAULT_PASSWORD;
-              return {
-                success: true,
-                generatedPassword,
-              };
+              return true;
             } else {
               this.log.info(
                 "Admin is using default password, no action needed"
@@ -577,11 +548,7 @@ class DefaultUserService extends BaseService {
               "Could not verify current password, assuming it's custom:",
               compareError
             );
-            generatedPassword = DEFAULT_PASSWORD;
-            return {
-              success: true,
-              generatedPassword,
-            };
+            return true;
           }
         }
 
@@ -601,26 +568,16 @@ class DefaultUserService extends BaseService {
         );
 
         this.log.info(`Admin password set to default: ${DEFAULT_PASSWORD}`);
-        generatedPassword = DEFAULT_PASSWORD;
         invalidate_cached_user(user);
 
-        return {
-          success: true,
-          generatedPassword,
-        };
+        return true;
       } catch (error) {
         this.log.error("Failed to update admin password:", error);
-        return {
-          success: false,
-          generatedPassword: null,
-        };
+        return false;
       }
     } catch (error) {
       this.log.error("Error in ensureDefaultAdminPassword:", error);
-      return {
-        success: false,
-        generatedPassword: null,
-      };
+      return false;
     }
   }
 
@@ -637,8 +594,8 @@ class DefaultUserService extends BaseService {
         return;
       }
 
-      // Generate the same password that would be used by ensureDefaultAdminPassword
-      const DEFAULT_PASSWORD = this.generateRandomPassword();
+      // Check if user has a custom password or the default password
+      const DEFAULT_PASSWORD = "9668fafe";
       const bcrypt = require("bcrypt");
 
       // Try to check if the default password matches current password
@@ -757,12 +714,6 @@ class DefaultUserService extends BaseService {
     } catch (error) {
       this.log.error("Error in __on_ready.webserver:", error);
     }
-  }
-
-  // Generate a random password
-  generateRandomPassword() {
-    const crypto = require("crypto");
-    return crypto.randomBytes(4).toString("hex");
   }
 }
 
