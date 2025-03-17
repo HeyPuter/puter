@@ -33,7 +33,7 @@ Puter to zaawansowany, open-source'owy internetowy system operacyjny, zaprojekto
 <br/>
 
 ## Rozpoczęcie pracy
-## 💻 Instalacja Lokalna
+## 💻 Lokalne środowisko developerskie
 
 ```bash
 git clone https://github.com/HeyPuter/puter
