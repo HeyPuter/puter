@@ -499,7 +499,7 @@ class SetupService extends BaseService {
         }),
       });
 
-      // Save configuration to a file
+      // Save configuration to the wizard-config.json file (for reference)
       const configDir = path.join(process.cwd(), "config");
       try {
         await fs.mkdir(configDir, { recursive: true });
@@ -513,16 +513,52 @@ class SetupService extends BaseService {
       }
 
       // Write the configuration to a JSON file
-      const configPath = path.join(configDir, "wizard-config.json");
+      const wizardConfigPath = path.join(configDir, "wizard-config.json");
       await fs.writeFile(
-        configPath,
+        wizardConfigPath,
         JSON.stringify(newConfig, null, 2),
         "utf8"
       );
 
-      this.safeLog("info", "Configuration updated and saved to file", {
-        configPath,
+      // Also write to the main config.json file to ensure settings take effect
+      const mainConfigPath = path.join(configDir, "config.json");
+
+      // Read the existing config.json if it exists
+      let existingConfig = {};
+      try {
+        const existingConfigStr = await fs.readFile(mainConfigPath, "utf8");
+        existingConfig = JSON.parse(existingConfigStr);
+      } catch (err) {
+        // File might not exist yet, which is fine
+        this.safeLog(
+          "info",
+          "No existing config.json found, will create new one"
+        );
+      }
+
+      // Merge the new settings into the existing config
+      const mergedConfig = { ...existingConfig, ...newConfig };
+
+      // Remove any internal properties that start with __ (like __adminPassword)
+      const cleanConfig = { ...mergedConfig };
+      Object.keys(cleanConfig).forEach((key) => {
+        if (key.startsWith("__")) {
+          delete cleanConfig[key];
+        }
       });
+
+      // Write the updated config
+      await fs.writeFile(
+        mainConfigPath,
+        JSON.stringify(cleanConfig, null, 2),
+        "utf8"
+      );
+
+      this.safeLog("info", "Configuration updated and saved to files", {
+        wizardConfigPath,
+        mainConfigPath,
+      });
+
       return true;
     } catch (error) {
       this.safeLog("error", "Failed to update configuration", error);
@@ -1381,7 +1417,11 @@ class SetupService extends BaseService {
         <div class="form-step" data-step-id="${step.id}">
           <h2>${step.title}</h2>
           ${step.template}
-        ${index < this.configSteps.length - 1 ? '<div class="divider"></div>' : ""}
+        ${
+          index < this.configSteps.length - 1
+            ? '<div class="divider"></div>'
+            : ""
+        }
         </div>
       `;
     });
@@ -1797,9 +1837,12 @@ class SetupService extends BaseService {
       order: 20,
       template: this.getDomainStepTemplate(),
       process: async (data, req) => {
+        // Extract the IP address properly for nip.io configuration
+        const ipAddress = req.ip.replace(/::ffff:/, ""); // Handle IPv6-mapped IPv4 addresses
+
         return {
           domain: data.useNipIo
-            ? `${req.ip.replace(/\./g, "-")}.nip.io`
+            ? `${ipAddress.replace(/\./g, "-")}.nip.io`
             : data.domainName,
         };
       },
