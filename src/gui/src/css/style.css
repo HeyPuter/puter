@@ -1221,7 +1221,7 @@ span.header-sort-icon img {
     margin: 0;
     font-weight: bold;
     font-size: 13px;
-    color: #8f96a3;
+    color: var(--primary-color);
     text-shadow: 1px 1px rgb(247 247 247 / 15%);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
