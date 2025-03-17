@@ -1,7 +1,7 @@
 import putility from "@heyputer/putility";
-import { PuterAPIFilesystem } from "../lib/filesystem/APIFS";
-import { CachedFilesystem } from "../lib/filesystem/CacheFS";
-import { ProxyFilesystem, TFilesystem } from "../lib/filesystem/definitions";
+import { PuterAPIFilesystem } from "../lib/filesystem/APIFS.js";
+import { CachedFilesystem } from "../lib/filesystem/CacheFS.js";
+import { ProxyFilesystem, TFilesystem } from "../lib/filesystem/definitions.js";
 import io from '../lib/socket.io/socket.io.esm.min.js';
 import { PostMessageFilesystem } from "../lib/filesystem/PostMessageFS.js";
 

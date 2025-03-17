@@ -417,4 +417,4 @@ class PuterDialog extends HTMLElement {
 }
 customElements.define('puter-dialog', PuterDialog);
 
-module.exports = PuterDialog;
+export default PuterDialog;
