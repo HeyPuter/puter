@@ -247,6 +247,30 @@ class NotificationService extends BaseService {
                 }
             }
         }).attach(router);
+
+        // Adding count endpoint
+        Endpoint({
+            route: '/count',
+            methods: ['GET'],
+            handler: async (req, res) => {
+                try {
+                    const [result] = await this.db.read(
+                        'SELECT COUNT(*) as count FROM notification WHERE user_id = ? AND acknowledged IS NULL',
+                        [req.user.id]
+                    );
+                    
+                    res.json({
+                        success: true,
+                        count: result ? result.count : 0
+                    });
+                } catch (error) {
+                    res.status(500).json({ 
+                        success: false, 
+                        error: error.message 
+                    });
+                }
+            }
+        }).attach(router);
     }
     
 

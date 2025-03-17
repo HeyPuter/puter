@@ -40,6 +40,8 @@ function UINotification(options){
 
     const el_notification = document.getElementById(`ui-notification__${window.global_element_id}`);
 
+    $(el_notification).css('display', 'flex');
+
     // now wrap it in a div
     $(el_notification).wrap('<div class="notification-wrapper"></div>');
 
@@ -57,6 +59,10 @@ function UINotification(options){
             return;
         }
 
+        // Open the notification sidebar
+        $('.notifications-history-btn').addClass('active');
+        UIWindowNotifications();
+
         // click event
         if(options.click && typeof options.click === 'function'){
             options.click(options.value);
@@ -64,7 +70,7 @@ function UINotification(options){
 
         // close notification
         close_notification(el_notification);
-    })
+    });
 
     // Close Button Clicked
     $(el_notification).find('.notification-close').on('click', function(e, data){

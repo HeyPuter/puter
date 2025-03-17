@@ -152,6 +152,9 @@ function UIWindowNotifications(options = {}) {
                     try {
                         notifLogger.debug('Marking notification as acknowledged:', item.uid);
                         
+                        // Show loading state
+                        $(this).addClass('acknowledging');
+                        
                         const response = await fetch(`${window.api_origin}/notif/mark-acknowledged`, {
                             method: 'POST',
                             headers: {
@@ -162,23 +165,23 @@ function UIWindowNotifications(options = {}) {
                                 uid: item.uid
                             })
                         });
-
+            
                         if (!response.ok) {
                             throw new Error('Failed to mark notification as acknowledged');
                         }
-
+            
                         const data = await response.json();
                         
                         if (data.success) {
                             // Update UI state
                             $(this)
-                                .removeClass('unacknowledged')
+                                .removeClass('acknowledging unacknowledged')
                                 .addClass('acknowledged');
                             
                             $(this)
                                 .find('.notification-status')
                                 .html('<span class="acknowledged-status">Read</span>');
-
+            
                             // Update item state
                             item.acknowledged = true;
                             
@@ -194,13 +197,14 @@ function UIWindowNotifications(options = {}) {
                                     'transition': ''
                                 });
                             }, 300);
-
+            
                             // Update notification badge count
                             if (typeof window.update_notification_badge_count === 'function') {
                                 window.update_notification_badge_count();
                             }
                         }
                     } catch (error) {
+                        $(this).removeClass('acknowledging');
                         notifLogger.error('Failed to mark notification as acknowledged:', error);
                         UIAlert({
                             message: 'Failed to mark notification as read. Please try again.',

@@ -188,10 +188,13 @@ async function UIDesktop(options){
      * This event is triggered if a user receives a notification during
      * an active session.
      */
+
     window.socket.on('notif.message', async ({ uid, notification }) => {
+        console.log('Received notification:', notification); // Debug log
+        
         let icon = window.icons[notification.icon];
         let round_icon = false;
-
+    
         if(notification.template === "file-shared-with-you" && notification.fields?.username){
             let profile_pic = await get_profile_picture(notification.fields?.username);
             if(profile_pic){
@@ -200,7 +203,8 @@ async function UIDesktop(options){
             }
         }
         
-        UINotification({
+        // Create the notification with proper visibility
+        const notifElement = UINotification({
             title: notification.title,
             text: notification.text,
             icon: icon,
@@ -218,6 +222,11 @@ async function UIDesktop(options){
                 });
             },
             click: async (notif) => {
+                // Open the notification sidebar when clicked
+                $('.notifications-history-btn').addClass('active');
+                UIWindowNotifications();
+                
+                // Original click behavior
                 if(notification.template === "file-shared-with-you"){
                     let item_path = '/' + notification.fields.username;
                     UIWindow({
@@ -230,6 +239,9 @@ async function UIDesktop(options){
                 }
             },
         });
+        
+        // Ensure notification is visible
+        $(notifElement).css('display', 'flex');
         
         // Update notification badge
         window.update_notification_badge_count();
@@ -1168,9 +1180,11 @@ async function UIDesktop(options){
 
         // notifications button
         ht += `<div class="toolbar-btn notifications-history-btn" title="Notifications">
+            <div style="position: relative;">
                 <img src="${window.icons['bell.svg']}" alt="Notifications">
-                <div class="notification-count-badge" style="display: none;"></div>
-              </div>`;
+                <div class="notification-count-badge" style="position: absolute; top: -8px; right: -8px; background-color: #ff4040; color: white; border-radius: 50%; min-width: 16px; height: 16px; text-align: center; line-height: 16px; font-size: 10px; font-weight: bold; display: none;"></div>
+            </div>
+        </div>`;
 
         // user options menu
         ht += `<div class="toolbar-btn user-options-menu-btn profile-pic" style="display:block;">`;
@@ -1447,9 +1461,22 @@ $(document).on('click', '.notifications-history-btn', function(e) {
     // Toggle active state of the button
     $(this).toggleClass('active');
     
-    // Create or show notifications sidebar
-    UIWindowNotifications();
-})
+    // If sidebar already exists, toggle it
+    if ($('.notification-sidebar').length) {
+        $('.notification-sidebar').toggleClass('active');
+        
+        // If we're hiding it, remove after animation
+        if (!$('.notification-sidebar').hasClass('active')) {
+            setTimeout(() => {
+                $('.notification-sidebar').remove();
+            }, 300);
+        }
+    } else {
+        // Create sidebar if it doesn't exist
+        const sidebar = UIWindowNotifications();
+        $(sidebar).addClass('active');
+    }
+});
 
 $(document).on('click', '.notification', function() {
     // Update badge after notification is clicked

@@ -2770,18 +2770,18 @@ label {
 
 .notification-count-badge {
     position: absolute;
-    top: -4px;
-    right: -4px;
-    background-color: #ff4757;
+    top: -5px;
+    right: -5px;
+    background-color: #ff4040;
     color: white;
     border-radius: 50%;
-    width: 16px;
-    height: 16px;
-    font-size: 11px;
+    min-width: 18px;
+    height: 18px;
     text-align: center;
-    line-height: 16px;
+    line-height: 18px;
+    font-size: 11px;
     font-weight: bold;
-    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+    display: none; /* Will be shown when there are notifications */
 }
 
 /* Notification Sidebar Styles */
