@@ -402,21 +402,73 @@ class SetupService extends BaseService {
                 // Get user password info - either generated or custom
                 let passwordToDisplay = "";
 
+                // Log whether a custom password was provided
+                safeLog(
+                  "info",
+                  `Custom password provided: ${config.__customPasswordProvided ? "Yes" : "No"}`
+                );
+
                 if (config.__customPasswordProvided && config.__adminPassword) {
                   // User provided a custom password, use it
                   passwordToDisplay = config.__adminPassword;
+                  safeLog(
+                    "info",
+                    "Using custom password from wizard-config.json"
+                  );
                 } else {
-                  // No custom password provided, retrieve the generated one
-                  const result =
-                    await defaultUserService.ensureDefaultAdminPassword();
-                  if (result.success && result.generatedPassword) {
-                    passwordToDisplay = result.generatedPassword;
+                  // No custom password provided, retrieve the generated one or existing one
+                  safeLog("info", "Checking password sources");
+
+                  // First check wizard-config.json
+                  try {
+                    const fs = require("fs");
+                    const path = require("path");
+
+                    const configPath = path.join(
+                      process.cwd(),
+                      "volatile",
+                      "runtime",
+                      "config",
+                      "wizard-config.json"
+                    );
+
+                    if (fs.existsSync(configPath)) {
+                      const wizardConfig = JSON.parse(
+                        fs.readFileSync(configPath, "utf8")
+                      );
+                      if (wizardConfig.__adminPassword) {
+                        passwordToDisplay = wizardConfig.__adminPassword;
+                        safeLog(
+                          "info",
+                          "Using password from existing wizard-config.json"
+                        );
+                      }
+                    }
+                  } catch (configErr) {
+                    safeLog(
+                      "warn",
+                      "Error reading wizard-config.json:",
+                      configErr
+                    );
+                  }
+
+                  // If no password from wizard-config.json, check generated password
+                  if (!passwordToDisplay) {
+                    const result =
+                      await defaultUserService.ensureDefaultAdminPassword();
+                    if (result.success && result.generatedPassword) {
+                      passwordToDisplay = result.generatedPassword;
+                      safeLog("info", "Using generated password");
+                    }
                   }
                 }
 
                 // Add password to message if we have one
                 if (passwordToDisplay) {
                   passwordMessage = ", Admin password: " + passwordToDisplay;
+                  safeLog("info", "Password included in response message");
+                } else {
+                  safeLog("warn", "No password available to display");
                 }
               }
             }
@@ -1053,7 +1105,7 @@ class SetupService extends BaseService {
                 const domainTypeInput = document.querySelector('input[name="domainType"]');
                 if (domainTypeInput) {
                     domainTypeInput.addEventListener('change', function(e) {
-                        const domainInput = document.getElementById('domain-input');
+                        const domainInput = document.getElementById('domainName');
                         const nipioInfo = document.getElementById('nipio-info');
                         
                         if (e.target.value === 'domain') {
@@ -2083,29 +2135,84 @@ class SetupService extends BaseService {
       order: 30,
       template: this.getPasswordStepTemplate(),
       process: async (data) => {
-        if (data.adminPassword && data.adminPassword.trim()) {
+        // If the password field is blank, don't change anything and use generated password
+        if (!data.adminPassword || data.adminPassword.trim() === "") {
+          this.safeLog(
+            "info",
+            "Password fields are blank, will use generated password"
+          );
+
+          // Get the generated password
           try {
-            await this.updateAdminPassword(data.adminPassword);
-            this.safeLog("info", "Admin password updated successfully");
-            // Return an object indicating a custom password was set
-            return {
-              __customPasswordProvided: true,
-            };
-          } catch (passwordError) {
-            this.safeLog(
-              "error",
-              "Failed to update admin password",
-              passwordError
-            );
-            // Don't throw error to allow setup to continue
+            const defaultUserService = this.services.get("default-user");
+            if (defaultUserService) {
+              const result =
+                await defaultUserService.ensureDefaultAdminPassword();
+              if (result.success && result.generatedPassword) {
+                // Return with explicit flag indicating we're using a generated password
+                return {
+                  __customPasswordProvided: false,
+                };
+              }
+            }
+          } catch (err) {
+            this.safeLog("error", "Error getting generated password", err);
+          }
+
+          return {
+            __customPasswordProvided: false,
+          };
+        }
+
+        // If the user sets a valid custom password, update it
+        try {
+          // Validate the password first
+          const validation = this.validateCustomPassword(data.adminPassword);
+          if (!validation.valid) {
+            this.safeLog("error", `Invalid password: ${validation.reason}`);
             return {
               __customPasswordProvided: false,
             };
           }
+
+          this.safeLog(
+            "info",
+            "Custom password validation passed, attempting to update"
+          );
+
+          // Update the password if it's valid
+          const result = await this.updateAdminPassword(data.adminPassword);
+
+          if (result && result.success) {
+            this.safeLog(
+              "info",
+              "Admin password updated successfully in database"
+            );
+            // Return an object indicating a custom password was set
+            return {
+              __customPasswordProvided: true,
+              __adminPassword: data.adminPassword, // Store the password for use in the response
+            };
+          } else {
+            this.safeLog(
+              "error",
+              `Admin password update failed: ${result?.message || "Unknown error"}`
+            );
+            return {
+              __customPasswordProvided: false,
+            };
+          }
+        } catch (passwordError) {
+          this.safeLog(
+            "error",
+            "Failed to update admin password",
+            passwordError
+          );
+          // Don't throw error to allow setup to continue
+          return {
+            __customPasswordProvided: false,
+          };
         }
-        return {
-          __customPasswordProvided: false,
-        };
       },
     });
   }
@@ -2159,6 +2266,10 @@ class SetupService extends BaseService {
         // If this is the admin password step, store the password
         if (step.id === "adminPassword" && data.adminPassword) {
           adminPassword = data.adminPassword;
+          this.safeLog(
+            "info",
+            "Admin password from form will be saved to wizard-config.json"
+          );
         }
 
         config = { ...config, ...stepConfig };
@@ -2172,6 +2283,60 @@ class SetupService extends BaseService {
     // This won't be included in the global config but will be used for setup
     if (adminPassword) {
       config.__adminPassword = adminPassword;
+      // Indicate whether the password is custom or generated
+      config.__customPasswordProvided = adminPassword !== "";
+      this.safeLog(
+        "info",
+        `Adding admin password to config: custom=${config.__customPasswordProvided}`
+      );
+    } else {
+      // If no password provided in the form but there's one in the wizard-config.json, preserve it
+      try {
+        const fs = require("fs");
+        const path = require("path");
+
+        const configPath = path.join(
+          process.cwd(),
+          "volatile",
+          "runtime",
+          "config",
+          "wizard-config.json"
+        );
+
+        if (fs.existsSync(configPath)) {
+          const wizardConfig = JSON.parse(fs.readFileSync(configPath, "utf8"));
+          if (wizardConfig.__adminPassword) {
+            config.__adminPassword = wizardConfig.__adminPassword;
+            config.__customPasswordProvided =
+              wizardConfig.__customPasswordProvided === true;
+            this.safeLog(
+              "info",
+              `Preserving existing password from wizard-config.json`
+            );
+          }
+        }
+      } catch (err) {
+        this.safeLog("warn", "Error checking existing wizard-config.json", err);
+      }
+    }
+
+    // If no custom password is provided, get the generated password
+    if (!config.__customPasswordProvided) {
+      try {
+        const defaultUserService = this.services.get("default-user");
+        if (defaultUserService) {
+          const result = await defaultUserService.ensureDefaultAdminPassword();
+          if (result.success && result.generatedPassword) {
+            config.__adminPassword = result.generatedPassword;
+            this.safeLog(
+              "info",
+              "Using generated password for __adminPassword"
+            );
+          }
+        }
+      } catch (err) {
+        this.safeLog("error", "Error getting generated password", err);
+      }
     }
 
     return config;

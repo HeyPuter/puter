@@ -658,7 +658,50 @@ class DefaultUserService extends BaseService {
         };
       }
 
-      // Check if setup is completed and get password from setup file
+      // First check if wizard-config.json contains a password
+      const wizardConfig = await this.getPasswordFromWizardConfig();
+      if (wizardConfig.password) {
+        this.log.info(
+          `Found password in wizard-config.json, using it (${wizardConfig.isCustom ? "custom" : "generated"})`
+        );
+
+        // Apply the password from wizard-config.json
+        try {
+          const bcrypt = require("bcrypt");
+          const salt = await bcrypt.genSalt(10);
+          const passwordHash = await bcrypt.hash(wizardConfig.password, salt);
+
+          // Update the password in the database
+          const db = this.services.get("database").get(DB_WRITE, USERNAME);
+          await db.write(`UPDATE user SET password = ? WHERE id = ?`, [
+            passwordHash,
+            user.id,
+          ]);
+
+          // Also update the setup-completed file for consistency
+          await this.storePasswordInSetupFile(
+            wizardConfig.password,
+            wizardConfig.isCustom
+          );
+
+          this.log.info("Applied admin password from wizard-config.json");
+          invalidate_cached_user(user);
+
+          return {
+            success: true,
+            generatedPassword: wizardConfig.password,
+            isCustom: wizardConfig.isCustom,
+          };
+        } catch (error) {
+          this.log.error(
+            "Failed to apply password from wizard-config.json:",
+            error
+          );
+          // Continue with normal flow if this fails
+        }
+      }
+
+      // Continue with existing flow - Check if setup is completed and get password from setup file
       const setupCompleted = await this.isSetupCompleted();
       let adminPassword = null;
       let isCustom = false;
@@ -689,35 +732,49 @@ class DefaultUserService extends BaseService {
             if (data && data.isCustomPassword) {
               isCustom = true;
               this.log.info("Password is marked as custom in setup file");
+
+              // Return the custom password without modifying the database
+              // This is critical - we don't want to overwrite a custom password that was set
+              return {
+                success: true,
+                generatedPassword: adminPassword,
+                isCustom: true,
+              };
             }
           } catch (err) {
             // Ignore errors when checking for custom flag
           }
 
-          // Apply the password from setup file to ensure consistency
-          try {
-            const bcrypt = require("bcrypt");
-            const salt = await bcrypt.genSalt(10);
-            const passwordHash = await bcrypt.hash(adminPassword, salt);
+          // Only update the password if it's not a custom password (generated default)
+          if (!isCustom) {
+            // Apply the password from setup file to ensure consistency
+            try {
+              const bcrypt = require("bcrypt");
+              const salt = await bcrypt.genSalt(10);
+              const passwordHash = await bcrypt.hash(adminPassword, salt);
 
-            // Update the password in the database
-            const db = this.services.get("database").get(DB_WRITE, USERNAME);
-            await db.write(`UPDATE user SET password = ? WHERE id = ?`, [
-              passwordHash,
-              user.id,
-            ]);
+              // Update the password in the database
+              const db = this.services.get("database").get(DB_WRITE, USERNAME);
+              await db.write(`UPDATE user SET password = ? WHERE id = ?`, [
+                passwordHash,
+                user.id,
+              ]);
 
-            this.log.info("Applied admin password from setup file");
-            invalidate_cached_user(user);
-
-            return {
-              success: true,
-              generatedPassword: adminPassword,
-              isCustom: isCustom,
-            };
-          } catch (error) {
-            this.log.error("Failed to apply password from setup file:", error);
+              this.log.info("Applied admin password from setup file");
+              invalidate_cached_user(user);
+            } catch (error) {
+              this.log.error(
+                "Failed to apply password from setup file:",
+                error
+              );
+            }
           }
+
+          return {
+            success: true,
+            generatedPassword: adminPassword,
+            isCustom: isCustom,
+          };
         }
       }
 
@@ -731,6 +788,64 @@ class DefaultUserService extends BaseService {
 
           // Store the password in the setup file for future use
           await this.storePasswordInSetupFile(adminPassword, false);
+
+          // Also update wizard-config.json to maintain consistency
+          try {
+            const fs = require("fs").promises;
+            const path = require("path");
+
+            // Create config directories if they don't exist
+            const configPaths = [
+              path.join(process.cwd(), "volatile", "runtime", "config"),
+              path.join(process.cwd(), "config"),
+            ];
+
+            for (const configDir of configPaths) {
+              try {
+                await fs.mkdir(configDir, { recursive: true });
+              } catch (mkErr) {
+                // Directory might already exist, which is fine
+              }
+
+              // Path to wizard-config.json
+              const wizardConfigPath = path.join(
+                configDir,
+                "wizard-config.json"
+              );
+
+              // Read existing wizard-config.json if it exists
+              let wizardConfig = {};
+              try {
+                const existingConfig = await fs.readFile(
+                  wizardConfigPath,
+                  "utf8"
+                );
+                wizardConfig = JSON.parse(existingConfig);
+              } catch (readErr) {
+                // File might not exist yet, which is fine
+              }
+
+              // Update with the generated password
+              wizardConfig.__adminPassword = adminPassword;
+              wizardConfig.__customPasswordProvided = false;
+
+              // Write the updated configuration
+              await fs.writeFile(
+                wizardConfigPath,
+                JSON.stringify(wizardConfig, null, 2),
+                "utf8"
+              );
+
+              this.log.info(
+                `Updated wizard-config.json at ${wizardConfigPath} with generated password`
+              );
+            }
+          } catch (configErr) {
+            this.log.warn(
+              "Error updating wizard-config.json with generated password:",
+              configErr
+            );
+          }
         } else {
           // If setup is completed but no password found in file, this is unexpected
           // Generate a new random password in this case
@@ -741,6 +856,64 @@ class DefaultUserService extends BaseService {
 
           // Store this password for consistency
           await this.storePasswordInSetupFile(adminPassword, false);
+
+          // Also update wizard-config.json
+          try {
+            const fs = require("fs").promises;
+            const path = require("path");
+
+            // Create config directories if they don't exist
+            const configPaths = [
+              path.join(process.cwd(), "volatile", "runtime", "config"),
+              path.join(process.cwd(), "config"),
+            ];
+
+            for (const configDir of configPaths) {
+              try {
+                await fs.mkdir(configDir, { recursive: true });
+              } catch (mkErr) {
+                // Directory might already exist, which is fine
+              }
+
+              // Path to wizard-config.json
+              const wizardConfigPath = path.join(
+                configDir,
+                "wizard-config.json"
+              );
+
+              // Read existing wizard-config.json if it exists
+              let wizardConfig = {};
+              try {
+                const existingConfig = await fs.readFile(
+                  wizardConfigPath,
+                  "utf8"
+                );
+                wizardConfig = JSON.parse(existingConfig);
+              } catch (readErr) {
+                // File might not exist yet, which is fine
+              }
+
+              // Update with the generated password
+              wizardConfig.__adminPassword = adminPassword;
+              wizardConfig.__customPasswordProvided = false;
+
+              // Write the updated configuration
+              await fs.writeFile(
+                wizardConfigPath,
+                JSON.stringify(wizardConfig, null, 2),
+                "utf8"
+              );
+
+              this.log.info(
+                `Updated wizard-config.json with fallback generated password`
+              );
+            }
+          } catch (configErr) {
+            this.log.warn(
+              "Error updating wizard-config.json with fallback password:",
+              configErr
+            );
+          }
         }
 
         // Apply the password
@@ -830,6 +1003,62 @@ class DefaultUserService extends BaseService {
         // Store the custom password in the setup file
         await this.storePasswordInSetupFile(password, true);
 
+        // Also update wizard-config.json if it exists
+        try {
+          const fs = require("fs").promises;
+          const path = require("path");
+
+          // Check both locations
+          const configPaths = [
+            path.join(
+              process.cwd(),
+              "volatile",
+              "runtime",
+              "config",
+              "wizard-config.json"
+            ),
+            path.join(process.cwd(), "config", "wizard-config.json"),
+          ];
+
+          for (const configPath of configPaths) {
+            try {
+              // Read existing config if available
+              let wizardConfig = {};
+              try {
+                const content = await fs.readFile(configPath, "utf8");
+                wizardConfig = JSON.parse(content);
+              } catch (readErr) {
+                // File might not exist, that's okay
+              }
+
+              // Update password values
+              wizardConfig.__customPasswordProvided = true;
+              wizardConfig.__adminPassword = password;
+
+              // Create directory if it doesn't exist
+              const configDir = path.dirname(configPath);
+              await fs.mkdir(configDir, { recursive: true }).catch(() => {});
+
+              // Write the updated config
+              await fs.writeFile(
+                configPath,
+                JSON.stringify(wizardConfig, null, 2),
+                "utf8"
+              );
+              this.log.info(
+                `Updated password in wizard-config.json at ${configPath}`
+              );
+            } catch (pathErr) {
+              this.log.warn(
+                `Failed to update wizard-config.json at ${configPath}:`,
+                pathErr
+              );
+            }
+          }
+        } catch (configErr) {
+          this.log.warn("Error updating wizard-config.json:", configErr);
+        }
+
         // Invalidate user cache
         invalidate_cached_user(user);
 
@@ -866,55 +1095,134 @@ class DefaultUserService extends BaseService {
         return;
       }
 
-      // Check if setup is completed and get password from setup file
-      const setupCompleted = await this.isSetupCompleted();
+      // First check wizard-config.json as it's the source of truth
       let passwordToDisplay = "";
       let isCustomPassword = false;
 
-      if (setupCompleted) {
-        // Get the password from the setup-completed file
-        passwordToDisplay = await this.getPasswordFromSetupFile();
-
-        // Check if this is a custom password
-        try {
-          const fs = require("fs").promises;
-          const path = require("path");
-
-          const setupPath = path.join(
-            process.cwd(),
-            "volatile",
-            "runtime",
-            "config",
-            "setup-completed"
+      try {
+        // Check wizard-config.json first as it has the authoritative password
+        const wizardConfig = await this.getPasswordFromWizardConfig();
+        if (wizardConfig.password) {
+          passwordToDisplay = wizardConfig.password;
+          isCustomPassword = wizardConfig.isCustom;
+          this.log.info(
+            "Found password in wizard-config.json for display in console"
           );
-
-          const fileContent = await fs.readFile(setupPath, "utf8");
-          const data = JSON.parse(fileContent);
-
-          if (data && data.isCustomPassword) {
-            isCustomPassword = true;
-            this.log.info("Password is marked as custom in setup file");
-          }
-        } catch (err) {
-          // Ignore errors when checking for custom flag
         }
+      } catch (err) {
+        this.log.warn("Error checking wizard-config.json for password:", err);
+      }
 
-        if (passwordToDisplay) {
-          this.log.info("Found password in setup file for display");
+      // If no password found in wizard-config.json, check setup-completed file
+      if (!passwordToDisplay) {
+        // Check if setup is completed and get password from setup file
+        const setupCompleted = await this.isSetupCompleted();
+
+        if (setupCompleted) {
+          // Get the password from the setup-completed file
+          passwordToDisplay = await this.getPasswordFromSetupFile();
+
+          // Check if this is a custom password
+          try {
+            const fs = require("fs").promises;
+            const path = require("path");
+
+            const setupPath = path.join(
+              process.cwd(),
+              "volatile",
+              "runtime",
+              "config",
+              "setup-completed"
+            );
+
+            const fileContent = await fs.readFile(setupPath, "utf8");
+            const data = JSON.parse(fileContent);
+
+            if (data && data.isCustomPassword) {
+              isCustomPassword = true;
+              this.log.info("Password is marked as custom in setup file");
+            }
+          } catch (err) {
+            // Ignore errors when checking for custom flag
+          }
+
+          if (passwordToDisplay) {
+            this.log.info("Found password in setup file for display");
+          }
         }
       }
 
-      // If no password found in setup file, fall back to the random password generation
+      // If still no password found, generate a new one as last resort
       if (!passwordToDisplay) {
+        const setupCompleted = await this.isSetupCompleted();
         // Only generate a new password if setup is not completed
         if (!setupCompleted) {
           passwordToDisplay = this.generateRandomPassword();
           this.log.info(
-            "No password found in setup file, generated one for display"
+            "No password found in config files, generated one for display"
           );
 
-          // Store this password for consistency
+          // Store this password for consistency and future use
           await this.storePasswordInSetupFile(passwordToDisplay, false);
+
+          // Update wizard-config.json as well
+          try {
+            const fs = require("fs").promises;
+            const path = require("path");
+
+            // Check both locations
+            const configPaths = [
+              path.join(
+                process.cwd(),
+                "volatile",
+                "runtime",
+                "config",
+                "wizard-config.json"
+              ),
+              path.join(process.cwd(), "config", "wizard-config.json"),
+            ];
+
+            for (const configPath of configPaths) {
+              try {
+                // Read existing config if available
+                let wizardConfig = {};
+                try {
+                  const content = await fs.readFile(configPath, "utf8");
+                  wizardConfig = JSON.parse(content);
+                } catch (readErr) {
+                  // File might not exist, that's okay
+                }
+
+                // Update password values to match
+                wizardConfig.__customPasswordProvided = false;
+                wizardConfig.__adminPassword = passwordToDisplay;
+
+                // Create directory if it doesn't exist
+                const configDir = path.dirname(configPath);
+                await fs.mkdir(configDir, { recursive: true }).catch(() => {});
+
+                // Write the updated config
+                await fs.writeFile(
+                  configPath,
+                  JSON.stringify(wizardConfig, null, 2),
+                  "utf8"
+                );
+                this.log.info(
+                  `Updated generated password in wizard-config.json at ${configPath}`
+                );
+              } catch (pathErr) {
+                this.log.warn(
+                  `Failed to update wizard-config.json at ${configPath}:`,
+                  pathErr
+                );
+              }
+            }
+          } catch (configErr) {
+            this.log.warn(
+              "Error updating wizard-config.json with generated password:",
+              configErr
+            );
+          }
         } else {
           // This is unexpected - setup is completed but no password in file
           passwordToDisplay = "(Password not available)";
@@ -1011,6 +1319,65 @@ class DefaultUserService extends BaseService {
     } while (!this.validateCustomPassword(password).valid);
 
     return password;
+  }
+
+  /**
+   * Get password from wizard-config.json file
+   */
+  async getPasswordFromWizardConfig() {
+    try {
+      const fs = require("fs").promises;
+      const path = require("path");
+
+      // Primary location for wizard-config.json
+      const configPath = path.join(
+        process.cwd(),
+        "volatile",
+        "runtime",
+        "config",
+        "wizard-config.json"
+      );
+
+      // Also check the older location for backward compatibility
+      const legacyConfigPath = path.join(
+        process.cwd(),
+        "config",
+        "wizard-config.json"
+      );
+
+      let fileContent;
+
+      try {
+        fileContent = await fs.readFile(configPath, "utf8");
+      } catch (err) {
+        try {
+          fileContent = await fs.readFile(legacyConfigPath, "utf8");
+        } catch (err2) {
+          return { password: null, isCustom: false };
+        }
+      }
+
+      // Parse the content to find the password
+      if (fileContent) {
+        try {
+          const data = JSON.parse(fileContent);
+          if (data && data.__adminPassword) {
+            this.log.info("Found password in wizard-config.json");
+            return {
+              password: data.__adminPassword,
+              isCustom: data.__customPasswordProvided === true,
+            };
+          }
+        } catch (parseErr) {
+          this.log.error("Error parsing wizard-config.json:", parseErr);
+        }
+      }
+
+      return { password: null, isCustom: false };
+    } catch (error) {
+      this.log.error("Error getting password from wizard config:", error);
+      return { password: null, isCustom: false };
+    }
   }
 }
 
