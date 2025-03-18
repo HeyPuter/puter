@@ -43,7 +43,30 @@ import launch_app from "../helpers/launch_app.js"
 import item_icon from "../helpers/item_icon.js"
 import UIWindowSearch from "./UIWindowSearch.js"
 import UIWindowNotifications from "./UIWindowNotifications.js"
+
 //import { update_tab_notif_count_badge } from './UINotification.js'
+
+$('head').append(`
+    <style>
+      .notification-container {
+        position: fixed !important;
+        top: 40px !important;
+        right: 10px !important;
+        z-index: 9999999 !important;
+        display: block !important;
+        visibility: visible !important;
+        pointer-events: all !important;
+      }
+  
+      .notification {
+        display: flex !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        z-index: 9999999 !important;
+        pointer-events: all !important;
+      }
+    </style>
+  `);
 
 // Helper function to get profile picture
 async function get_profile_picture(username) {
@@ -189,17 +212,85 @@ async function UIDesktop(options){
      * an active session.
      */
 
+    window.update_tab_notif_count_badge = function(){
+        // count open notifications
+        let count = $('.notification').length;
+    
+        // see if title is in the format "(n) Title"
+        let title = document.title;
+        let titleMatch = title.match(/^\((\d+)\) (.*)/);
+        if(titleMatch){
+            // remove the count
+            title = titleMatch[2];
+        }
+    
+        // if there are notifications, add the count to the title
+        if(count > 0){
+            document.title = `(${count}) ${title}`;
+        }else{
+            document.title = title;
+        }
+    };
+
+    const notificationCss = `
+    .notification-container {
+    position: fixed !important;
+    top: 40px !important;
+    right: 10px !important;
+    z-index: 9999999 !important;
+    padding-top: 30px !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    }
+
+    .notification-wrapper {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    z-index: 9999999 !important;
+    pointer-events: auto !important;
+    margin-bottom: 10px !important;
+    }
+
+    .notification {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    z-index: 9999999 !important;
+    pointer-events: auto !important;
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2) !important;
+    min-width: 320px !important;
+    min-height: 54px !important;
+    border-radius: 11px !important;
+    }
+
+    .animate__animated {
+    animation-duration: 0.5s !important;
+    }
+    `;
+
+const styleElement = document.createElement('style');
+styleElement.textContent = notificationCss;
+document.head.appendChild(styleElement);
+    // Updated socket.on('notif.message') handler in UIDesktop.js
     window.socket.on('notif.message', async ({ uid, notification }) => {
-        console.log('Received notification:', notification); // Debug log
+        console.log('Received notification:', notification);
         
-        let icon = window.icons[notification.icon];
+        let icon = window.icons[notification.icon] || window.icons['bell.svg'];
         let round_icon = false;
     
         if(notification.template === "file-shared-with-you" && notification.fields?.username){
-            let profile_pic = await get_profile_picture(notification.fields?.username);
-            if(profile_pic){
-                icon = profile_pic;
-                round_icon = true;
+            try {
+                let profile_pic = await get_profile_picture(notification.fields?.username);
+                if(profile_pic){
+                    icon = profile_pic;
+                    round_icon = true;
+                }
+            } catch (error) {
+                console.warn('Could not load profile picture:', error);
             }
         }
         
@@ -212,36 +303,37 @@ async function UIDesktop(options){
             value: notification,
             uid,
             close: async () => {
-                await fetch(`${window.api_origin}/notif/mark-ack`, {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${puter.authToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ uid }),
-                });
+                try {
+                    await fetch(`${window.api_origin}/notif/mark-acknowledged`, {
+                        method: 'POST',
+                        headers: {
+                            Authorization: `Bearer ${window.auth_token}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ uid }),
+                    });
+                } catch (error) {
+                    console.error('Failed to mark notification as acknowledged:', error);
+                }
             },
             click: async (notif) => {
-                // Open the notification sidebar when clicked
+                // Open the notification sidebar
                 $('.notifications-history-btn').addClass('active');
                 UIWindowNotifications();
                 
-                // Original click behavior
-                if(notification.template === "file-shared-with-you"){
+                // Handle specific notification types
+                if(notification.template === "file-shared-with-you" && notification.fields?.username){
                     let item_path = '/' + notification.fields.username;
                     UIWindow({
-                        path: '/' + notification.fields.username,
+                        path: item_path,
                         title: path.basename(item_path),
                         icon: await item_icon({is_dir: true, path: item_path}),
                         is_dir: true,
                         app: 'explorer',
                     });
                 }
-            },
+            }
         });
-        
-        // Ensure notification is visible
-        $(notifElement).css('display', 'flex');
         
         // Update notification badge
         window.update_notification_badge_count();
@@ -257,45 +349,82 @@ async function UIDesktop(options){
      */
     window.__already_got_unreads = false;
     window.socket.on('notif.unreads', async ({ unreads }) => {
-        if ( window.__already_got_unreads ) return;
+        console.log('Received unread notifications:', unreads);
+        
+        if (window.__already_got_unreads) return;
         window.__already_got_unreads = true;
-
-        for ( const notif_info of unreads ) {
+    
+        // Skip if no unread notifications
+        if (!unreads || unreads.length === 0) {
+            console.log('No unread notifications to display');
+            return;
+        }
+        
+        console.log(`Displaying ${unreads.length} unread notifications as toasts`);
+    
+        // Process each unread notification sequentially with delays between them
+        for (let i = 0; i < unreads.length; i++) {
+            const notif_info = unreads[i];
             const notification = notif_info.notification;
-            let icon = window.icons[notification.icon];
+            
+            // Skip if already acknowledged
+            if (notif_info.acknowledged) {
+                console.log(`Skipping acknowledged notification: ${notification.title}`);
+                continue;
+            }
+            
+            console.log(`Creating toast for notification: ${notification.title}`);
+            
+            // Process notification icon
+            let icon = window.icons[notification.icon] || window.icons['bell.svg'];
             let round_icon = false;
-
-            if(notification.template === "file-shared-with-you" && notification.fields?.username){
-                let profile_pic = await get_profile_picture(notification.fields?.username);
-                if(profile_pic){
-                    icon = profile_pic;
-                    round_icon = true;
+    
+            if (notification.template === "file-shared-with-you" && notification.fields?.username) {
+                try {
+                    let profile_pic = await get_profile_picture(notification.fields?.username);
+                    if (profile_pic) {
+                        icon = profile_pic;
+                        round_icon = true;
+                    }
+                } catch (error) {
+                    console.warn('Could not load profile picture:', error);
                 }
             }
-    
-            UINotification({
-                icon,
-                round_icon,
-                title: notification.title,
-                text: notification.text ?? notification.title,
+        
+            // Create a toast notification for this unread
+            const notifElement = UINotification({
+                title: notification.title || "New Notification",
+                text: notification.text || notification.title || "",
+                icon: icon,
+                round_icon: round_icon,
+                value: notification,
                 uid: notif_info.uid,
                 close: async () => {
-                    await fetch(`${window.api_origin}/notif/mark-ack`, {
-                        method: 'POST',
-                        headers: {
-                            Authorization: `Bearer ${puter.authToken}`,
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            uid: notif_info.uid,
-                        }),
-                    });
+                    try {
+                        await fetch(`${window.api_origin}/notif/mark-acknowledged`, {
+                            method: 'POST',
+                            headers: {
+                                Authorization: `Bearer ${window.auth_token}`,
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                uid: notif_info.uid,
+                            }),
+                        });
+                    } catch (error) {
+                        console.error('Failed to mark notification as acknowledged:', error);
+                    }
                 },
                 click: async (notif) => {
-                    if(notification.template === "file-shared-with-you"){
-                        let item_path = '/' + notification.fields?.username;
+                    // Open the notification sidebar
+                    $('.notifications-history-btn').addClass('active');
+                    UIWindowNotifications();
+                    
+                    // Handle specific notification types
+                    if (notification.template === "file-shared-with-you" && notification.fields?.username) {
+                        let item_path = '/' + notification.fields.username;
                         UIWindow({
-                            path: '/' + notification.fields?.username,
+                            path: item_path,
                             title: path.basename(item_path),
                             icon: await item_icon({is_dir: true, path: item_path}),
                             is_dir: true,
@@ -304,11 +433,20 @@ async function UIDesktop(options){
                     }
                 },
             });
+            
+            // Add a small delay between notifications so they don't all appear at once
+            if (i < unreads.length - 1) {
+                console.log(`Waiting before showing next notification...`);
+                await new Promise(resolve => setTimeout(resolve, 800));
+            }
         }
         
-        // Update notification badge
-        window.update_notification_badge_count();
+        // Update notification badge count
+        if (typeof window.update_notification_badge_count === 'function') {
+            window.update_notification_badge_count();
+        }
     });
+    
 
     window.socket.on('notif.ack', ({ uid }) => {
         $(`.notification[data-uid="${uid}"]`).remove();

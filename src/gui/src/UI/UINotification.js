@@ -20,9 +20,28 @@
 function UINotification(options){
     window.global_element_id++;
     options.text = options.text ?? '';
+    
+    // Ensure notification container exists
+    if ($('.notification-container').length === 0) {
+        console.log('Creating missing notification container');
+        $('body').append('<div class="notification-container" style="position:fixed; top:40px; right:10px; z-index:9999999; padding-top:30px; display:block; visibility:visible; opacity:1; pointer-events:auto;"><div class="notifications-close-all">Close All</div></div>');
+    } else {
+        // Make sure the container is visible
+        $('.notification-container').css({
+        'position': 'fixed',
+        'top': '40px',
+        'right': '10px',
+        'z-index': '9999999',
+        'padding-top': '30px',
+        'display': 'block',
+        'visibility': 'visible',
+        'opacity': '1',
+        'pointer-events': 'auto'
+        });
+    }
 
     let h = '';
-    h += `<div id="ui-notification__${window.global_element_id}" data-uid="${html_encode(options.uid)}" data-el-id="${window.global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
+    h += `<div id="ui-notification__${window.global_element_id}" data-uid="${html_encode(options.uid)}" data-el-id="${window.global_element_id}" class="notification antialiased animate__animated animate__fadeInRight">`;
         h += `<img class="notification-close disable-user-select" src="${html_encode(window.icons['close.svg'])}">`;
         h += `<div class="notification-icon">`;
             h += `<img style="${options.round_icon ? 'border-radius: 50%;' : ''}" src="${html_encode(options.icon ?? window.icons['bell.svg'])}">`;
@@ -35,15 +54,18 @@ function UINotification(options){
 
     $('.notification-container').prepend(h);
 
-
-    update_tab_notif_count_badge();
+    window.update_tab_notif_count_badge();
 
     const el_notification = document.getElementById(`ui-notification__${window.global_element_id}`);
 
-    $(el_notification).css('display', 'flex');
+    $(el_notification).css({
+        'display': 'flex',
+        'opacity': 1,
+        'visibility': 'visible'
+    });
 
     // now wrap it in a div
-    $(el_notification).wrap('<div class="notification-wrapper"></div>');
+    $(el_notification).wrap('<div class="notification-wrapper" style="display: block; opacity: 1; visibility: visible;"></div>');
 
     $(el_notification).show(0, function(e){
         // options.onAppend()
@@ -115,11 +137,12 @@ function UINotification(options){
                 $('.notification-container').addClass('has-multiple');
             }
 
-            update_tab_notif_count_badge();
+            window.update_tab_notif_count_badge();
         }, 500);
     }
-    // Show Notification
-    $(el_notification).delay(100).show(0);
+    
+    // Show Notification immediately - don't delay
+    $(el_notification).show(0);
 
     // count notifications
     let count = $('.notification-container').find('.notification-wrapper').length;
@@ -151,24 +174,25 @@ $(document).on('click', '.notifications-close-all', function(e){
     return false;
 })
 
+
 window.update_tab_notif_count_badge = function(){
-    // count open notifications
+    // Count open notifications
     let count = $('.notification').length;
 
-    // see if title is in the format "(n) Title"
+    // See if title is in the format "(n) Title"
     let title = document.title;
     let titleMatch = title.match(/^\((\d+)\) (.*)/);
     if(titleMatch){
-        // remove the count
+        // Remove the count
         title = titleMatch[2];
     }
 
-    // if there are notifications, add the count to the title
+    // If there are notifications, add the count to the title
     if(count > 0){
         document.title = `(${count}) ${title}`;
     }else{
         document.title = title;
     }
-}
+};
 
 export default UINotification;
