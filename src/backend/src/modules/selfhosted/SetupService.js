@@ -64,84 +64,11 @@ class SetupService extends BaseService {
    */
   async isSetupCompleted() {
     try {
-      // First check the new location (/volatile/runtime/config/setup-completed)
-      const runtimeConfigPath = path.join(
-        process.cwd(),
-        "volatile",
-        "runtime",
-        "config",
-        "setup-completed"
-      );
-
-      try {
-        await fs.access(runtimeConfigPath);
-        this.safeLog(
-          "info",
-          `Setup completed marker found at: ${runtimeConfigPath}`
-        );
-        return true;
-      } catch (runtimeErr) {
-        // File doesn't exist at the new location, check legacy location
-        this.safeLog(
-          "info",
-          `Setup completed marker not found at runtime location, checking legacy location`
-        );
-      }
-
-      // Check legacy location (/config/setup-completed)
-      const legacyConfigPath = path.join(
-        process.cwd(),
-        "config",
-        "setup-completed"
-      );
-
-      try {
-        await fs.access(legacyConfigPath);
-        this.safeLog(
-          "info",
-          `Setup completed marker found at legacy location: ${legacyConfigPath}`
-        );
-
-        // If found in legacy location but not in runtime location, copy it to runtime location
-        try {
-          // Ensure runtime directory exists
-          const runtimeConfigDir = path.join(
-            process.cwd(),
-            "volatile",
-            "runtime",
-            "config"
-          );
-          await fs.mkdir(runtimeConfigDir, { recursive: true });
-
-          // Copy the file content
-          const content = await fs.readFile(legacyConfigPath, "utf8");
-          await fs.writeFile(runtimeConfigPath, content, "utf8");
-
-          this.safeLog(
-            "info",
-            "Copied setup-completed marker from legacy to runtime location"
-          );
-        } catch (copyErr) {
-          this.safeLog(
-            "warn",
-            "Failed to copy setup-completed to runtime location",
-            copyErr
-          );
-          // Continue anyway, we found the marker in the legacy location
-        }
-
-        return true;
-      } catch (legacyErr) {
-        // File doesn't exist in either location
-        this.safeLog(
-          "info",
-          "Setup completed marker not found in any location, setup not completed"
-        );
-        return false;
-      }
+      const configPath = path.join(process.cwd(), "config", "setup-completed");
+      await fs.access(configPath);
+      return true;
     } catch (error) {
-      // Error occurred during checking
-      this.safeLog("error", "Error checking if setup is completed", error);
+      // File doesn't exist, setup not completed
       return false;
     }
   }
@@ -152,132 +79,52 @@ class SetupService extends BaseService {
    */
   async markSetupCompleted(adminPassword) {
     try {
-      // Create the setup-completed marker in /config (legacy location)
       const configDir = path.join(process.cwd(), "config");
-      this.safeLog(
-        "info",
-        `Ensuring legacy config directory exists at: ${configDir}`
-      );
+      this.safeLog("info", `Ensuring config directory exists at: ${configDir}`);
 
       // Create config directory if it doesn't exist
       try {
         await fs.mkdir(configDir, { recursive: true });
-        this.safeLog(
-          "info",
-          "Legacy config directory created or already exists"
-        );
+        this.safeLog("info", "Config directory created or already exists");
       } catch (err) {
-        this.safeLog("error", "Error creating legacy config directory", err);
+        this.safeLog("error", "Error creating config directory", err);
         // Continue anyway, as the error might be that the directory already exists
       }
 
-      // Now create the setup-completed marker in /volatile/runtime/config (new location)
-      const runtimeConfigDir = path.join(
-        process.cwd(),
-        "volatile",
-        "runtime",
-        "config"
-      );
+      // Write a marker file to indicate setup is complete
+      const setupCompletedPath = path.join(configDir, "setup-completed");
       this.safeLog(
         "info",
-        `Ensuring runtime config directory exists at: ${runtimeConfigDir}`
+        `Writing setup completed marker to: ${setupCompletedPath}`
       );
 
       try {
-        await fs.mkdir(runtimeConfigDir, { recursive: true });
+        // Use current timestamp as content
+        const timestamp = new Date().toISOString();
+        await fs.writeFile(setupCompletedPath, timestamp, "utf8");
         this.safeLog(
           "info",
-          "Runtime config directory created or already exists"
+          `Setup completed marker file written successfully with timestamp: ${timestamp}`
         );
-      } catch (runtimeErr) {
-        this.safeLog(
-          "error",
-          "Error creating runtime config directory",
-          runtimeErr
-        );
-        // Continue anyway
-      }
 
-      // Prepare the data for both files
-      const timestamp = new Date().toISOString();
-      let fileContent = timestamp;
-
-      // If we have admin password info, store it as JSON
-      if (adminPassword) {
-        const setupData = {
-          timestamp: timestamp,
-          adminUsername: "admin",
-          adminPassword: adminPassword,
-          isCustomPassword: true,
-        };
-        fileContent = JSON.stringify(setupData, null, 2);
-      }
-
-      // Write the legacy setup-completed marker file
-      const legacySetupCompletedPath = path.join(configDir, "setup-completed");
-      this.safeLog(
-        "info",
-        `Writing setup completed marker to legacy location: ${legacySetupCompletedPath}`
-      );
-
-      try {
-        await fs.writeFile(legacySetupCompletedPath, fileContent, "utf8");
-        this.safeLog(
-          "info",
-          "Legacy setup completed marker file written successfully"
-        );
-      } catch (legacyWriteErr) {
-        this.safeLog(
-          "error",
-          "Error writing legacy setup-completed file",
-          legacyWriteErr
-        );
-        // Continue anyway to try the new location
-      }
-
-      // Write the new setup-completed marker file
-      const runtimeSetupCompletedPath = path.join(
-        runtimeConfigDir,
-        "setup-completed"
-      );
-      this.safeLog(
-        "info",
-        `Writing setup completed marker to runtime location: ${runtimeSetupCompletedPath}`
-      );
-
-      try {
-        await fs.writeFile(runtimeSetupCompletedPath, fileContent, "utf8");
-        this.safeLog(
-          "info",
-          "Runtime setup completed marker file written successfully"
-        );
-      } catch (runtimeWriteErr) {
-        this.safeLog(
-          "error",
-          "Error writing runtime setup-completed file",
-          runtimeWriteErr
-        );
-        // If this fails, we at least tried the legacy location
-      }
-
-      // If an admin password was provided, save it for server restart
-      if (adminPassword) {
-        const adminPassPath = path.join(configDir, "admin-password");
-        this.safeLog("info", "Saving admin password for server restart");
-        try {
+        // If an admin password was provided, save it for server restart
+        if (adminPassword) {
+          const adminPassPath = path.join(configDir, "admin-password");
+          this.safeLog("info", "Saving admin password for server restart");
           await fs.writeFile(adminPassPath, adminPassword, "utf8");
           this.safeLog("info", "Admin password saved for server restart");
-        } catch (passErr) {
-          this.safeLog("error", "Error saving admin password", passErr);
         }
+
+        // Update the in-memory flag
+        this.setupCompleted = true;
+
+        // Log success
+        this.safeLog("info", "Setup marked as completed in memory and on disk");
+        return true;
+      } catch (writeErr) {
+        this.safeLog("error", "Error writing setup-completed file", writeErr);
+        throw writeErr;
       }
-
-      // Update the in-memory flag
-      this.setupCompleted = true;
-
-      // Log success
-      this.safeLog("info", "Setup marked as completed in memory and on disk");
-      return true;
     } catch (error) {
       this.safeLog("error", "Failed to mark setup as completed", error);
       throw error;
@@ -682,85 +529,6 @@ class SetupService extends BaseService {
    */
   async updateConfig(newConfig) {
     try {
-      // Check if setup-completed exists at the very beginning
-      const setupCompletedPath = path.join(
-        process.cwd(),
-        "volatile",
-        "runtime",
-        "config",
-        "setup-completed"
-      );
-      this.safeLog(
-        "info",
-        `Checking for setup-completed file at: ${setupCompletedPath}`
-      );
-      const setupCompleted = await fs
-        .access(setupCompletedPath)
-        .then(() => true)
-        .catch(() => false);
-
-      this.safeLog(
-        "info",
-        `Setup completed file ${setupCompleted ? "exists" : "does not exist"}: ${setupCompletedPath}`
-      );
-
-      // If setup is not completed, modify the incoming config to use localhost domain
-      if (!setupCompleted) {
-        this.safeLog(
-          "info",
-          "Setup not completed, setting domain to localhost in config before any operations"
-        );
-        newConfig.domain = "localhost";
-
-        // Also update the main config.json file immediately
-        try {
-          const env = await this.context.get("environment");
-          const volatileConfigDir = path.join(
-            process.cwd(),
-            "volatile",
-            "config"
-          );
-          await fs.mkdir(volatileConfigDir, { recursive: true });
-          const volatileConfigPath = path.join(
-            volatileConfigDir,
-            "config.json"
-          );
-
-          // Read existing config if it exists
-          let existingConfig = {};
-          try {
-            const existingConfigStr = await fs.readFile(
-              volatileConfigPath,
-              "utf8"
-            );
-            existingConfig = JSON.parse(existingConfigStr);
-          } catch (err) {
-            // File might not exist yet, which is fine
-          }
-
-          // Force the domain to localhost
-          existingConfig.domain = "localhost";
-
-          // Write the updated config
-          await fs.writeFile(
-            volatileConfigPath,
-            JSON.stringify(existingConfig, null, 2),
-            "utf8"
-          );
-
-          this.safeLog(
-            "info",
-            "Immediately set domain to localhost in volatile/config/config.json"
-          );
-        } catch (err) {
-          this.safeLog(
-            "error",
-            "Failed to immediately set domain to localhost",
-            err
-          );
-        }
-      }
-
       // Get the current configuration
       const config = require("../../config");
 
@@ -995,11 +763,23 @@ class SetupService extends BaseService {
           );
         }
 
-        // Re-check setup-completed status (it might have changed during the operation)
-        const currentSetupCompleted = await fs
+        // Check if setup-completed exists under /volatile/runtime/config
+        const setupCompletedPath = path.join(
+          process.cwd(),
+          "volatile",
+          "runtime",
+          "config",
+          "setup-completed"
+        );
+        const setupCompleted = await fs
           .access(setupCompletedPath)
           .then(() => true)
           .catch(() => false);
+
+        this.safeLog(
+          "info",
+          `Setup completed file ${setupCompleted ? "exists" : "does not exist"}: ${setupCompletedPath}`
+        );
 
         // Read existing volatile config if it exists
         let volatileConfig = {};
@@ -1037,11 +817,11 @@ class SetupService extends BaseService {
             cleanVolatileConfig.http_port || "4100";
         }
 
-        // If setup-completed doesn't exist, ensure domain is set to localhost again
-        if (!currentSetupCompleted) {
+        // If setup-completed doesn't exist, set domain to localhost
+        if (!setupCompleted) {
           this.safeLog(
             "info",
-            "Setup still not completed, ensuring domain is localhost in volatile config"
+            "Setup not completed, setting domain to localhost in volatile config"
           );
           cleanVolatileConfig.domain = "localhost";
         }
@@ -1273,6 +1053,83 @@ class SetupService extends BaseService {
               "info",
               "Admin password updated and verified successfully"
             );
+
+            // Store the custom password in the setup-completed file
+            try {
+              const fs = require("fs").promises;
+              const path = require("path");
+
+              // Ensure the directory exists
+              const configDir = path.join(
+                process.cwd(),
+                "volatile",
+                "runtime",
+                "config"
+              );
+              await fs.mkdir(configDir, { recursive: true }).catch((err) => {
+                this.safeLog(
+                  "warn",
+                  "Could not create directory, might already exist",
+                  err
+                );
+              });
+
+              // Create or update the setup-completed file with the custom password
+              const setupCompletedPath = path.join(
+                configDir,
+                "setup-completed"
+              );
+
+              // Store in JSON format with custom password flag
+              const setupData = {
+                timestamp: new Date().toISOString(),
+                adminPassword: password,
+                adminUsername: "admin",
+                isCustomPassword: true,
+              };
+
+              await fs.writeFile(
+                setupCompletedPath,
+                JSON.stringify(setupData, null, 2),
+                "utf8"
+              );
+
+              this.safeLog(
+                "info",
+                "Stored custom password in setup-completed file"
+              );
+
+              // Also update the legacy location for backward compatibility
+              const legacyConfigDir = path.join(process.cwd(), "config");
+              await fs
+                .mkdir(legacyConfigDir, { recursive: true })
+                .catch((err) => {
+                  this.safeLog(
+                    "warn",
+                    "Could not create legacy directory",
+                    err
+                  );
+                });
+
+              const legacySetupPath = path.join(
+                legacyConfigDir,
+                "setup-completed"
+              );
+              await fs.writeFile(
+                legacySetupPath,
+                JSON.stringify(setupData, null, 2),
+                "utf8"
+              );
+
+              this.safeLog("info", "Updated legacy setup-completed file");
+            } catch (fileError) {
+              this.safeLog(
+                "warn",
+                "Could not store password in setup-completed file",
+                fileError
+              );
+              // Continue anyway, as this is just for persistence
+            }
 
             // Write password to a separate log file for reference (legacy)
             try {
