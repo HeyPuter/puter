@@ -534,12 +534,7 @@ class DefaultUserService extends BaseService {
       const path = require("path");
 
       // Create the directory structure if it doesn't exist
-      const configDir = path.join(
-        process.cwd(),
-        "volatile",
-        "runtime",
-        "config"
-      );
+      const configDir = path.join(process.cwd(), "volatile", "runtime");
 
       try {
         await fs.mkdir(configDir, { recursive: true });

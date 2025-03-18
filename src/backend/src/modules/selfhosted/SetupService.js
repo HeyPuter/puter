@@ -553,8 +553,14 @@ class SetupService extends BaseService {
         }),
       });
 
-      // Save configuration to the wizard-config.json file (for reference)
-      const configDir = path.join(process.cwd(), "config");
+      // Get environment to find proper config path
+      const env = await this.context.get("environment");
+      const config_path = env.config_path;
+
+      // Extract the config directory from the full config path
+      const configDir = path.dirname(config_path);
+      this.safeLog("info", `Using config directory: ${configDir}`);
+
       try {
         await fs.mkdir(configDir, { recursive: true });
       } catch (err) {
@@ -578,10 +584,10 @@ class SetupService extends BaseService {
       const mainConfigPath = path.join(configDir, "config.json");
 
       // Read the existing config.json if it exists
-      let existingConfig = {};
+      let mainConfig = {};
       try {
-        const existingConfigStr = await fs.readFile(mainConfigPath, "utf8");
-        existingConfig = JSON.parse(existingConfigStr);
+        const mainConfigStr = await fs.readFile(mainConfigPath, "utf8");
+        mainConfig = JSON.parse(mainConfigStr);
       } catch (err) {
         // File might not exist yet, which is fine
         this.safeLog(
@@ -591,9 +597,9 @@ class SetupService extends BaseService {
       }
 
       // Merge the new settings into the existing config
-      const mergedConfig = { ...existingConfig, ...newConfig };
+      const mergedConfig = { ...mainConfig, ...newConfig };
 
-      // Remove any internal properties that start with __ (like __adminPassword)
+      // Remove internal properties
       const cleanConfig = { ...mergedConfig };
       Object.keys(cleanConfig).forEach((key) => {
         if (key.startsWith("__")) {
@@ -610,17 +616,49 @@ class SetupService extends BaseService {
 
       // Also write to the volatile/config/config.json file for local development
       try {
-        const volatileConfigDir = path.join(
+        // Get the volatile config path from the environment if possible
+        let volatileConfigPath;
+        if (env.volatile_config_path) {
+          volatileConfigPath = env.volatile_config_path;
+          this.safeLog(
+            "info",
+            `Using volatile config path from environment: ${volatileConfigPath}`
+          );
+        } else {
+          // Fall back to the standard path structure if environment doesn't provide it
+          const volatileConfigDir = path.join(
+            process.cwd(),
+            "volatile",
+            "config"
+          );
+          await fs.mkdir(volatileConfigDir, { recursive: true });
+          volatileConfigPath = path.join(volatileConfigDir, "config.json");
+          this.safeLog(
+            "info",
+            `Using default volatile config path: ${volatileConfigPath}`
+          );
+        }
+
+        // Check if setup-completed exists under /volatile/runtime/config
+        const setupCompletedPath = path.join(
           process.cwd(),
           "volatile",
-          "config"
+          "runtime",
+          "config",
+          "setup-completed"
         );
-        await fs.mkdir(volatileConfigDir, { recursive: true });
+        const setupCompleted = await fs
+          .access(setupCompletedPath)
+          .then(() => true)
+          .catch(() => false);
+
+        this.safeLog(
+          "info",
+          `Setup completed file ${setupCompleted ? "exists" : "does not exist"}: ${setupCompletedPath}`
+        );
 
         // Read existing volatile config if it exists
         let volatileConfig = {};
-        const volatileConfigPath = path.join(volatileConfigDir, "config.json");
-
         try {
           const volatileConfigStr = await fs.readFile(
             volatileConfigPath,
@@ -631,7 +669,7 @@ class SetupService extends BaseService {
           // File might not exist yet, which is fine
           this.safeLog(
             "info",
-            "No existing volatile/config/config.json found, will create new one"
+            "No existing volatile config found, will create new one"
           );
         }
 
@@ -655,6 +693,15 @@ class SetupService extends BaseService {
             cleanVolatileConfig.http_port || "4100";
         }
 
+        // If setup-completed doesn't exist, set domain to localhost
+        if (!setupCompleted) {
+          this.safeLog(
+            "info",
+            "Setup not completed, setting domain to localhost in volatile config"
+          );
+          cleanVolatileConfig.domain = "localhost";
+        }
+
         // Write the updated volatile config
         await fs.writeFile(
           volatileConfigPath,
@@ -662,16 +709,9 @@ class SetupService extends BaseService {
           "utf8"
         );
 
-        this.safeLog(
-          "info",
-          "Configuration also updated in volatile/config/config.json"
-        );
+        this.safeLog("info", "Configuration also updated in volatile config");
       } catch (volatileErr) {
-        this.safeLog(
-          "warn",
-          "Could not update volatile/config/config.json",
-          volatileErr
-        );
+        this.safeLog("warn", "Could not update volatile config", volatileErr);
         // Continue anyway, this is just an extra configuration location
       }
 
@@ -2114,13 +2154,52 @@ class SetupService extends BaseService {
 
         // When using nip.io, include the http_port configuration
         if (data.useNipIo) {
-          return {
-            domain: `${ipAddress}.nip.io`,
-            http_port: "4100", // Set port explicitly for nip.io
+          const nipIoDomain = `${ipAddress}.nip.io`;
+          const updatedConfig = {
+            domain: nipIoDomain,
+            http_port: "4100", // Explicitly set for nip.io
+            allow_nipio_domains: true,
           };
+
+          // Get existing config and update static_hosting_domain if it contains puter.localhost
+          try {
+            const existingConfig = require("../../config");
+            if (
+              existingConfig.static_hosting_domain &&
+              existingConfig.static_hosting_domain.includes("puter.localhost")
+            ) {
+              updatedConfig.static_hosting_domain =
+                existingConfig.static_hosting_domain.replace(
+                  "puter.localhost",
+                  nipIoDomain
+                );
+            }
+          } catch (err) {
+            this.safeLog(
+              "warn",
+              "Could not update static_hosting_domain for nip.io",
+              err
+            );
+          }
+
+          return updatedConfig;
         } else {
+          // For custom domains, add "puter." prefix unless it already starts with it or is a nip.io domain
+          let customDomain = data.domainName;
+
+          if (
+            !customDomain.startsWith("puter.") &&
+            !customDomain.includes(".nip.io")
+          ) {
+            customDomain = `puter.${customDomain}`;
+            this.safeLog(
+              "info",
+              `Prefixed custom domain with 'puter.': ${customDomain}`
+            );
+          }
+
           return {
-            domain: data.domainName,
+            domain: customDomain,
           };
         }
       },
