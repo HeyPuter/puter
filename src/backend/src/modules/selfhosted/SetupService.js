@@ -572,13 +572,137 @@ class SetupService extends BaseService {
         );
       }
 
-      // Write the configuration to a JSON file
-      const wizardConfigPath = path.join(configDir, "wizard-config.json");
-      await fs.writeFile(
-        wizardConfigPath,
-        JSON.stringify(newConfig, null, 2),
-        "utf8"
+      // Create the proper directory for wizard-config.json in /volatile/runtime/config
+      const runtimeConfigDir = path.join(
+        process.cwd(),
+        "volatile",
+        "runtime",
+        "config"
       );
+      this.safeLog(
+        "info",
+        `Attempting to create runtime config directory at: ${runtimeConfigDir}`
+      );
+
+      try {
+        await fs.mkdir(runtimeConfigDir, { recursive: true });
+        this.safeLog(
+          "info",
+          `Ensured runtime config directory exists: ${runtimeConfigDir}`
+        );
+
+        // Check if directory was actually created
+        try {
+          await fs.access(runtimeConfigDir);
+          this.safeLog(
+            "info",
+            `Successfully verified runtime config directory exists`
+          );
+        } catch (accessErr) {
+          this.safeLog(
+            "error",
+            `Failed to verify runtime config directory exists: ${accessErr.message}`,
+            accessErr
+          );
+        }
+      } catch (err) {
+        this.safeLog(
+          "error",
+          `Error creating runtime config directory: ${err.message}`,
+          err
+        );
+      }
+
+      // Write the configuration to the wizard-config.json file in the runtime config directory
+      const wizardConfigPath = path.join(
+        runtimeConfigDir,
+        "wizard-config.json"
+      );
+      this.safeLog(
+        "info",
+        `Attempting to write wizard-config.json at: ${wizardConfigPath}`
+      );
+
+      try {
+        // First check if we can write to the directory
+        try {
+          // Create a test file to verify write permissions
+          const testPath = path.join(runtimeConfigDir, "test-write-perm.tmp");
+          await fs.writeFile(testPath, "test", "utf8");
+          await fs.unlink(testPath);
+          this.safeLog(
+            "info",
+            `Successfully verified write permissions in runtime config directory`
+          );
+        } catch (permErr) {
+          this.safeLog(
+            "error",
+            `No write permission to runtime config directory: ${permErr.message}`,
+            permErr
+          );
+        }
+
+        // Now try to write the actual config file
+        await fs.writeFile(
+          wizardConfigPath,
+          JSON.stringify(newConfig, null, 2),
+          "utf8"
+        );
+
+        // Verify the file was written
+        try {
+          await fs.access(wizardConfigPath);
+          const fileContent = await fs.readFile(wizardConfigPath, "utf8");
+          const fileSize = fileContent.length;
+          this.safeLog(
+            "info",
+            `Successfully wrote wizard-config.json (${fileSize} bytes) to: ${wizardConfigPath}`
+          );
+        } catch (verifyErr) {
+          this.safeLog(
+            "error",
+            `Failed to verify wizard-config.json was written: ${verifyErr.message}`,
+            verifyErr
+          );
+        }
+      } catch (writeErr) {
+        this.safeLog(
+          "error",
+          `Failed to write wizard-config.json: ${writeErr.message}`,
+          writeErr
+        );
+
+        // Try an alternate location if the primary fails
+        try {
+          const alternateConfigDir = path.join(
+            process.cwd(),
+            "volatile",
+            "config"
+          );
+          await fs.mkdir(alternateConfigDir, { recursive: true });
+
+          const alternateConfigPath = path.join(
+            alternateConfigDir,
+            "wizard-config.json"
+          );
+          await fs.writeFile(
+            alternateConfigPath,
+            JSON.stringify(newConfig, null, 2),
+            "utf8"
+          );
+
+          this.safeLog(
+            "info",
+            `Wrote wizard-config.json to alternate location: ${alternateConfigPath}`
+          );
+        } catch (altWriteErr) {
+          this.safeLog(
+            "error",
+            `Failed to write wizard-config.json to alternate location: ${altWriteErr.message}`,
+            altWriteErr
+          );
+        }
+      }
 
       // Also write to the main config.json file to ensure settings take effect
       const mainConfigPath = path.join(configDir, "config.json");
@@ -1804,8 +1928,8 @@ class SetupService extends BaseService {
           <span class="alert-icon">ℹ️</span>
             <div>
               <strong>Using nip.io</strong>
-              <p style="margin-top: 0.25rem;">This will create a domain based on your server's IP address. Your Puter instance will be accessible at: <strong id="nipio-domain">--.--.--.---.nip.io</strong>:4100</p>
-              <p style="margin-top: 0.5rem;">For local development, you can use <strong>127.0.0.1.nip.io:4100</strong></p>
+              <p style="margin-top: 0.25rem;">This will use 127.0.0.1.nip.io as your domain. Your Puter instance will be accessible at: <strong>127.0.0.1.nip.io:4100</strong></p>
+              <p style="margin-top: 0.5rem;">This is ideal for local development.</p>
             </div>
           </div>
         </div>
@@ -2149,12 +2273,12 @@ class SetupService extends BaseService {
       order: 20,
       template: this.getDomainStepTemplate(),
       process: async (data, req) => {
-        // Extract the IP address properly for nip.io configuration
-        const ipAddress = req.ip.replace(/::ffff:/, ""); // Handle IPv6-mapped IPv4 addresses
-
         // When using nip.io, include the http_port configuration
         if (data.useNipIo) {
-          const nipIoDomain = `${ipAddress}.nip.io`;
+          // Always use 127.0.0.1.nip.io instead of the client's IP
+          const nipIoDomain = "127.0.0.1.nip.io";
+          this.safeLog("info", `Using nip.io domain: ${nipIoDomain}`);
+
           const updatedConfig = {
             domain: nipIoDomain,
             http_port: "4100", // Explicitly set for nip.io
