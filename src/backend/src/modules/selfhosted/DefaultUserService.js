@@ -74,7 +74,9 @@ class DefaultUserService extends BaseService {
   static MODULES = {
     bcrypt: require("bcrypt"),
     uuidv4: require("uuid").v4,
+    has: ["database"],
   };
+
   async _init() {
     try {
       this._register_commands(this.services.get("commands"));
@@ -106,9 +108,14 @@ class DefaultUserService extends BaseService {
         });
       } else {
         this.log.info("Admin user found, ensuring password is set correctly");
-        await this.ensureDefaultAdminPassword().catch((err) => {
+        const result = await this.ensureDefaultAdminPassword().catch((err) => {
           this.log.error("Failed to ensure admin password:", err);
+          return { success: false, generatedPassword: null };
         });
+
+        if (!result.success) {
+          this.log.warn("Could not ensure admin password was set correctly");
+        }
       }
     } catch (error) {
       this.log.error("Error in DefaultUserService activation:", error);
@@ -122,7 +129,7 @@ class DefaultUserService extends BaseService {
     const userUuid = this.modules.uuidv4();
 
     // Set default admin password
-    const DEFAULT_PASSWORD = "9668fafe";
+    DEFAULT_PASSWORD = "9668fafe";
     const bcrypt = require("bcrypt");
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 8);
@@ -247,7 +254,7 @@ class DefaultUserService extends BaseService {
         .arun(async () => {
           // First, check if the user has a custom password
           const bcrypt = require("bcrypt");
-          const DEFAULT_PASSWORD = "9668fafe";
+          DEFAULT_PASSWORD = "9668fafe";
 
           // If the user has a password, check if it's custom
           if (user.password && user.password.trim() !== "") {
@@ -380,9 +387,11 @@ class DefaultUserService extends BaseService {
       {
         id: "reset-admin-password",
         handler: async (args, ctx) => {
-          const success = await this.ensureDefaultAdminPassword();
-          if (success) {
-            ctx.log(`Admin password has been reset to: 9668fafe`);
+          const result = await this.ensureDefaultAdminPassword();
+          if (result.success) {
+            ctx.log(
+              `Admin password has been reset to: ${result.generatedPassword}`
+            );
           } else {
             ctx.log(`Failed to reset admin password, check logs for details`);
           }
@@ -417,15 +426,207 @@ class DefaultUserService extends BaseService {
   }
 
   /**
-   * Ensure the admin user has the default password "9668fafe" ONLY if no custom password is set
+   * Check if setup has been completed
+   */
+  async isSetupCompleted() {
+    try {
+      const fs = require("fs").promises;
+      const path = require("path");
+
+      // Primary location for setup-completed
+      const setupPath = path.join(
+        process.cwd(),
+        "volatile",
+        "runtime",
+        "config",
+        "setup-completed"
+      );
+
+      // Also check the older location for backward compatibility
+      const legacySetupPath = path.join(
+        process.cwd(),
+        "config",
+        "setup-completed"
+      );
+
+      try {
+        await fs.access(setupPath);
+        return true;
+      } catch (err) {
+        try {
+          await fs.access(legacySetupPath);
+          return true;
+        } catch (err2) {
+          return false;
+        }
+      }
+    } catch (error) {
+      this.log.error("Error checking if setup is completed:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Get password from setup-completed file
+   */
+  async getPasswordFromSetupFile() {
+    try {
+      const fs = require("fs").promises;
+      const path = require("path");
+
+      // Primary location for setup-completed
+      const setupPath = path.join(
+        process.cwd(),
+        "volatile",
+        "runtime",
+        "config",
+        "setup-completed"
+      );
+
+      // Also check the older location for backward compatibility
+      const legacySetupPath = path.join(
+        process.cwd(),
+        "config",
+        "setup-completed"
+      );
+
+      let fileContent;
+
+      try {
+        fileContent = await fs.readFile(setupPath, "utf8");
+      } catch (err) {
+        try {
+          fileContent = await fs.readFile(legacySetupPath, "utf8");
+        } catch (err2) {
+          return null;
+        }
+      }
+
+      // Parse the content to find the password
+      if (fileContent) {
+        try {
+          const data = JSON.parse(fileContent);
+          if (data && data.adminPassword) {
+            return data.adminPassword;
+          }
+        } catch (parseErr) {
+          // If it's not JSON, check if it's the old format with password on a specific line
+          const passwordMatch = fileContent.match(/Admin password: ([^\s]+)/);
+          if (passwordMatch && passwordMatch[1]) {
+            return passwordMatch[1];
+          }
+        }
+      }
+
+      return null;
+    } catch (error) {
+      this.log.error("Error getting password from setup file:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Store password in setup-completed file
+   */
+  async storePasswordInSetupFile(password, isCustom = false) {
+    try {
+      const fs = require("fs").promises;
+      const path = require("path");
+
+      // Create the directory structure if it doesn't exist
+      const configDir = path.join(
+        process.cwd(),
+        "volatile",
+        "runtime",
+        "config"
+      );
+
+      try {
+        await fs.mkdir(configDir, { recursive: true });
+      } catch (mkdirErr) {
+        this.log.warn("Error creating config directory:", mkdirErr);
+      }
+
+      const setupPath = path.join(configDir, "setup-completed");
+
+      // Store the password in JSON format
+      const setupData = {
+        timestamp: new Date().toISOString(),
+        adminPassword: password,
+        adminUsername: USERNAME,
+        isCustomPassword: isCustom,
+      };
+
+      await fs.writeFile(setupPath, JSON.stringify(setupData, null, 2), "utf8");
+      this.log.info(
+        `Stored admin password in setup file (${isCustom ? "custom" : "random"})`
+      );
+
+      // Also update the legacy config location for compatibility
+      try {
+        const legacyConfigDir = path.join(process.cwd(), "config");
+        await fs.mkdir(legacyConfigDir, { recursive: true });
+
+        const legacySetupPath = path.join(legacyConfigDir, "setup-completed");
+        await fs.writeFile(
+          legacySetupPath,
+          JSON.stringify(setupData, null, 2),
+          "utf8"
+        );
+      } catch (legacyErr) {
+        this.log.warn("Could not update legacy setup file:", legacyErr);
+      }
+
+      return true;
+    } catch (error) {
+      this.log.error("Error storing password in setup file:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Validate custom password
+   * Requirements: minimum 4 characters, at least 1 letter, at least 1 number
+   */
+  validateCustomPassword(password) {
+    if (!password || typeof password !== "string") {
+      return { valid: false, reason: "Password must be a string" };
+    }
+
+    if (password.length < 4) {
+      return {
+        valid: false,
+        reason: "Password must be at least 4 characters long",
+      };
+    }
+
+    if (!/[a-zA-Z]/.test(password)) {
+      return {
+        valid: false,
+        reason: "Password must contain at least one letter",
+      };
+    }
+
+    if (!/[0-9]/.test(password)) {
+      return {
+        valid: false,
+        reason: "Password must contain at least one number",
+      };
+    }
+
+    return { valid: true };
+  }
+
+  /**
+   * Ensure the admin user has a password set
    * This can be called during initialization to make sure the password is set, but should respect
    * existing custom passwords
+   *
+   * @returns {Promise<Object>} Object with success status and generated password if one was created
    */
   async ensureDefaultAdminPassword() {
     try {
       this.log.info("Checking admin user password");
-
-      const DEFAULT_PASSWORD = "9668fafe";
 
       // Get the admin user with additional error handling
       let user = null;
@@ -433,151 +634,222 @@ class DefaultUserService extends BaseService {
         // Ensure we have the necessary services
         if (!this.services.has("database")) {
           this.log.error("Database service not available");
-          return false;
+          return {
+            success: false,
+            generatedPassword: null,
+          };
         }
 
         user = await this.getAdminUser();
         if (!user) {
           this.log.error("Admin user not found, cannot check password");
-          return false;
+          return {
+            success: false,
+            generatedPassword: null,
+          };
         }
 
         this.log.info(`Found admin user: ID=${user.id}, UUID=${user.uuid}`);
       } catch (error) {
         this.log.error("Error getting admin user:", error);
-        return false;
+        return {
+          success: false,
+          generatedPassword: null,
+        };
       }
 
-      // Check if a password file from setup exists
-      try {
-        const fs = require("fs").promises;
-        const path = require("path");
-        const configDir = path.join(process.cwd(), "config");
-        const adminPassPath = path.join(configDir, "admin-password");
+      // Check if setup is completed and get password from setup file
+      const setupCompleted = await this.isSetupCompleted();
+      let adminPassword = null;
+      let isCustom = false;
 
-        const adminPasswordExists = await fs
-          .access(adminPassPath)
-          .then(() => true)
-          .catch(() => false);
+      if (setupCompleted) {
+        // Get the password from the setup-completed file
+        adminPassword = await this.getPasswordFromSetupFile();
 
-        if (adminPasswordExists) {
-          this.log.info(
-            "Found saved admin password from setup, using it instead of default"
+        if (adminPassword) {
+          this.log.info("Found admin password in setup file, using it");
+
+          // Check if this is a custom password
+          try {
+            const fs = require("fs").promises;
+            const path = require("path");
+
+            const setupPath = path.join(
+              process.cwd(),
+              "volatile",
+              "runtime",
+              "config",
+              "setup-completed"
+            );
+
+            const fileContent = await fs.readFile(setupPath, "utf8");
+            const data = JSON.parse(fileContent);
+
+            if (data && data.isCustomPassword) {
+              isCustom = true;
+              this.log.info("Password is marked as custom in setup file");
+            }
+          } catch (err) {
+            // Ignore errors when checking for custom flag
+          }
+
+          // Apply the password from setup file to ensure consistency
+          try {
+            const bcrypt = require("bcrypt");
+            const salt = await bcrypt.genSalt(10);
+            const passwordHash = await bcrypt.hash(adminPassword, salt);
+
+            // Update the password in the database
+            const db = this.services.get("database").get(DB_WRITE, USERNAME);
+            await db.write(`UPDATE user SET password = ? WHERE id = ?`, [
+              passwordHash,
+              user.id,
+            ]);
+
+            this.log.info("Applied admin password from setup file");
+            invalidate_cached_user(user);
+
+            return {
+              success: true,
+              generatedPassword: adminPassword,
+              isCustom: isCustom,
+            };
+          } catch (error) {
+            this.log.error("Failed to apply password from setup file:", error);
+          }
+        }
+      }
+
+      // If we get here, either setup is not completed or no password was found in the setup file
+      if (!adminPassword) {
+        // Only generate a new password if setup is not completed
+        if (!setupCompleted) {
+          // Generate a new random password
+          adminPassword = this.generateRandomPassword();
+          this.log.info(`Generated new random password: ${adminPassword}`);
+
+          // Store the password in the setup file for future use
+          await this.storePasswordInSetupFile(adminPassword, false);
+        } else {
+          // If setup is completed but no password found in file, this is unexpected
+          // Generate a new random password in this case
+          adminPassword = this.generateRandomPassword();
+          this.log.warn(
+            `No password found in setup file. Generated new one: ${adminPassword}`
           );
 
-          // Read the password
-          const adminPassword = await fs.readFile(adminPassPath, "utf8");
-
-          if (adminPassword && adminPassword.trim()) {
-            try {
-              // Apply the password
-              const bcrypt = require("bcrypt");
-              const salt = await bcrypt.genSalt(10);
-              const passwordHash = await bcrypt.hash(adminPassword, salt);
-
-              // Update the password in the database
-              const db = this.services.get("database").get(DB_WRITE, USERNAME);
-              await db.write(`UPDATE user SET password = ? WHERE id = ?`, [
-                passwordHash,
-                user.id,
-              ]);
-
-              this.log.info("Applied admin password from setup file");
-
-              // Delete the password file after applying it
-              await fs.unlink(adminPassPath);
-              this.log.info("Deleted saved admin password file for security");
-
-              // Invalidate the cached user since we changed the password
-              invalidate_cached_user(user);
-
-              return true;
-            } catch (error) {
-              this.log.error(
-                "Failed to apply admin password from setup file:",
-                error
-              );
-            }
-          }
-        }
-      } catch (error) {
-        this.log.error("Error checking for saved admin password:", error);
-      }
-
-      // Check if the admin already has a custom password set
-      try {
-        const bcrypt = require("bcrypt");
-
-        // Only set default password if no password is set or if it's set to the temporary one
-        if (!user.password || user.password.trim() === "") {
-          this.log.info("Admin has no password set, setting default password");
-        } else {
-          // Try to check if the default password matches current password
-          try {
-            const isDefaultPassword = await bcrypt.compare(
-              DEFAULT_PASSWORD,
-              user.password
-            );
-
-            if (!isDefaultPassword) {
-              // User has a custom password set, don't override it
-              this.log.info(
-                "Admin already has a custom password set. Preserving it."
-              );
-
-              // Display admin username info but not the password since it's custom
-              setTimeout(() => {
-                try {
-                  console.log("\n\n*** Admin User Info ***");
-                  console.log(`username: ${USERNAME}`);
-                  console.log("(Using your custom password)\n\n");
-                } catch (error) {
-                  // Ignore any display errors
-                }
-              }, 3000);
-
-              return true;
-            } else {
-              this.log.info(
-                "Admin is using default password, no action needed"
-              );
-            }
-          } catch (compareError) {
-            // If we can't compare, assume it's a custom password for safety
-            this.log.warn(
-              "Could not verify current password, assuming it's custom:",
-              compareError
-            );
-            return true;
-          }
+          // Store this password for consistency
+          await this.storePasswordInSetupFile(adminPassword, false);
         }
 
-        // Only reach here if no custom password is set
-        // Set the default password
-        const salt = await bcrypt.genSalt(10);
-        const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 8);
+        // Apply the password
+        try {
+          const bcrypt = require("bcrypt");
+          const salt = await bcrypt.genSalt(10);
+          const passwordHash = await bcrypt.hash(adminPassword, salt);
 
-        // Get a database connection
-        const db = this.services.get("database").get(DB_WRITE, USERNAME);
+          // Update the password in the database
+          const db = this.services.get("database").get(DB_WRITE, USERNAME);
+          await db.write(`UPDATE user SET password = ? WHERE id = ?`, [
+            passwordHash,
+            user.id,
+          ]);
 
-        // Update the password only if no custom password is set
-        this.log.info(`Setting default admin password for user ID: ${user.id}`);
-        const result = await db.write(
-          `UPDATE user SET password = ? WHERE id = ?`,
-          [passwordHash, user.id]
-        );
-
-        this.log.info(`Admin password set to default: ${DEFAULT_PASSWORD}`);
-        invalidate_cached_user(user);
-
-        return true;
-      } catch (error) {
-        this.log.error("Failed to update admin password:", error);
-        return false;
+          this.log.info(`Admin password updated in database`);
+          invalidate_cached_user(user);
+        } catch (error) {
+          this.log.error("Failed to update admin password:", error);
+          return {
+            success: false,
+            generatedPassword: null,
+          };
+        }
       }
+
+      return {
+        success: true,
+        generatedPassword: adminPassword,
+        isCustom: isCustom,
+      };
     } catch (error) {
       this.log.error("Error in ensureDefaultAdminPassword:", error);
-      return false;
+      return {
+        success: false,
+        generatedPassword: null,
+      };
+    }
+  }
+
+  /**
+   * Updates the admin password with a custom password
+   * @param {string} password The new password to set
+   * @returns {Promise<Object>} Result object with success status
+   */
+  async updateAdminPassword(password) {
+    try {
+      this.log.info("Updating admin password with custom password");
+
+      // Validate the custom password
+      const validation = this.validateCustomPassword(password);
+      if (!validation.valid) {
+        this.log.error(
+          `Custom password validation failed: ${validation.reason}`
+        );
+        return {
+          success: false,
+          message: validation.reason,
+        };
+      }
+
+      // Get the admin user
+      const user = await this.getAdminUser();
+      if (!user) {
+        this.log.error("Admin user not found, cannot update password");
+        return {
+          success: false,
+          message: "Admin user not found",
+        };
+      }
+
+      // Hash the new password
+      const bcrypt = require("bcrypt");
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(password, salt);
+
+      // Update the password in the database
+      try {
+        const db = this.services.get("database").get(DB_WRITE, USERNAME);
+        await db.write(`UPDATE user SET password = ? WHERE id = ?`, [
+          passwordHash,
+          user.id,
+        ]);
+
+        this.log.info("Custom admin password updated in database");
+
+        // Store the custom password in the setup file
+        await this.storePasswordInSetupFile(password, true);
+
+        // Invalidate user cache
+        invalidate_cached_user(user);
+
+        return {
+          success: true,
+          message: "Admin password updated successfully",
+        };
+      } catch (dbError) {
+        this.log.error("Database error updating admin password:", dbError);
+        return {
+          success: false,
+          message: "Database error updating password",
+        };
+      }
+    } catch (error) {
+      this.log.error("Error updating admin password:", error);
+      return {
+        success: false,
+        message: "Internal error updating password",
+      };
     }
   }
 
@@ -594,126 +866,151 @@ class DefaultUserService extends BaseService {
         return;
       }
 
-      // Check if user has a custom password or the default password
-      const DEFAULT_PASSWORD = "9668fafe";
-      const bcrypt = require("bcrypt");
+      // Check if setup is completed and get password from setup file
+      const setupCompleted = await this.isSetupCompleted();
+      let passwordToDisplay = "";
+      let isCustomPassword = false;
 
-      // Try to check if the default password matches current password
-      try {
-        const isDefaultPassword = await bcrypt.compare(
-          DEFAULT_PASSWORD,
-          user.password
-        );
+      if (setupCompleted) {
+        // Get the password from the setup-completed file
+        passwordToDisplay = await this.getPasswordFromSetupFile();
 
-        if (isDefaultPassword) {
-          // User has the default password - show full credentials
-          // Log admin credentials at the end of startup
-          setTimeout(() => {
-            try {
-              const box_w = surrounding_box("Admin Credentials");
-              const message = `\n\n${box_w(`username: ${USERNAME}\npassword: ${DEFAULT_PASSWORD}`)}\n\n`;
-              console.log(message);
-            } catch (error) {
-              this.log.error("Error creating boxed admin credentials:", error);
-              // Fallback to simple console log
-              console.log("\n\n*** Admin Credentials ***");
-              console.log(`username: ${USERNAME}`);
-              console.log(`password: ${DEFAULT_PASSWORD}\n\n`);
-            }
-          }, 3000); // Longer delay to ensure it appears at the end
+        // Check if this is a custom password
+        try {
+          const fs = require("fs").promises;
+          const path = require("path");
 
-          // Set up widget for development console with default password
-          try {
-            this.default_user_widget = ({ is_docker }) => {
-              if (is_docker) {
-                return [
-                  "Admin username: " + USERNAME,
-                  "Admin password: " + DEFAULT_PASSWORD,
-                  "",
-                  "",
-                ];
-              }
+          const setupPath = path.join(
+            process.cwd(),
+            "volatile",
+            "runtime",
+            "config",
+            "setup-completed"
+          );
 
-              try {
-                const lines = [
-                  `Your admin user has been created!`,
-                  `\x1B[31;1musername:\x1B[0m ${USERNAME}`,
-                  `\x1B[32;1mpassword:\x1B[0m ${DEFAULT_PASSWORD}`,
-                  `(change the password to remove this message)`,
-                ];
-                surrounding_box("31;1", lines);
-                return lines;
-              } catch (error) {
-                return [
-                  "Admin username: " + USERNAME,
-                  "Admin password: " + DEFAULT_PASSWORD,
-                ];
-              }
-            };
-          } catch (error) {
-            this.log.error("Error setting up admin credentials widget:", error);
+          const fileContent = await fs.readFile(setupPath, "utf8");
+          const data = JSON.parse(fileContent);
+
+          if (data && data.isCustomPassword) {
+            isCustomPassword = true;
+            this.log.info("Password is marked as custom in setup file");
           }
+        } catch (err) {
+          // Ignore errors when checking for custom flag
+        }
+
+        if (passwordToDisplay) {
+          this.log.info("Found password in setup file for display");
+        }
+      }
+
+      // If no password found in setup file, fall back to the random password generation
+      if (!passwordToDisplay) {
+        // Only generate a new password if setup is not completed
+        if (!setupCompleted) {
+          passwordToDisplay = this.generateRandomPassword();
+          this.log.info(
+            "No password found in setup file, generated one for display"
+          );
+
+          // Store this password for consistency
+          await this.storePasswordInSetupFile(passwordToDisplay, false);
         } else {
-          // User has a custom password - only show username
-          setTimeout(() => {
-            console.log("\n\n*** Admin User Info ***");
-            console.log(`username: ${USERNAME}`);
-            console.log("(Using your custom password)\n\n");
-          }, 3000);
+          // This is unexpected - setup is completed but no password in file
+          passwordToDisplay = "(Password not available)";
+          this.log.warn("Setup is completed but no password found for display");
+        }
+      }
 
-          // Set up widget for development console with custom password notice
+      // Always display the admin credentials
+      setTimeout(() => {
+        try {
+          const box_w = surrounding_box("Admin Credentials");
+          const message = `\n\n${box_w(`username: ${USERNAME}\npassword: ${passwordToDisplay}${isCustomPassword ? " (custom)" : ""}`)}${isCustomPassword ? "\nNote: This is a custom password set during setup." : ""}\n\n`;
+          console.log(message);
+        } catch (error) {
+          this.log.error("Error creating boxed admin credentials:", error);
+          // Fallback to simple console log
+          console.log("\n\n*** Admin Credentials ***");
+          console.log(`username: ${USERNAME}`);
+          console.log(
+            `password: ${passwordToDisplay}${isCustomPassword ? " (custom)" : ""}\n\n`
+          );
+        }
+      }, 3000); // Longer delay to ensure it appears at the end
+
+      // Set up widget for development console
+      try {
+        this.default_user_widget = ({ is_docker }) => {
+          if (is_docker) {
+            return [
+              "Admin username: " + USERNAME,
+              "Admin password: " +
+                passwordToDisplay +
+                (isCustomPassword ? " (custom)" : ""),
+              "",
+              "",
+            ];
+          }
+
           try {
-            this.default_user_widget = ({ is_docker }) => {
-              if (is_docker) {
-                return [
-                  "Admin username: " + USERNAME,
-                  "(Custom password set)",
-                  "",
-                  "",
-                ];
-              }
-
-              try {
-                const lines = [
-                  `Admin user information:`,
-                  `\x1B[31;1musername:\x1B[0m ${USERNAME}`,
-                  `\x1B[32;1mpassword:\x1B[0m (Custom password set)`,
-                ];
-                surrounding_box("31;1", lines);
-                return lines;
-              } catch (error) {
-                return ["Admin username: " + USERNAME, "(Custom password set)"];
-              }
-            };
+            const lines = [
+              `Admin user information:`,
+              `\x1B[31;1musername:\x1B[0m ${USERNAME}`,
+              `\x1B[32;1mpassword:\x1B[0m ${passwordToDisplay}${isCustomPassword ? " (custom)" : ""}`,
+            ];
+            surrounding_box("31;1", lines);
+            return lines;
           } catch (error) {
-            this.log.error("Error setting up admin credentials widget:", error);
+            return [
+              "Admin username: " + USERNAME,
+              "Admin password: " +
+                passwordToDisplay +
+                (isCustomPassword ? " (custom)" : ""),
+            ];
           }
-        }
-
-        // Set the widget as critical and add to console
-        if (this.default_user_widget) {
-          this.default_user_widget.critical = true;
-
-          const svc_devConsole = this.services.get("dev-console");
-          if (
-            svc_devConsole &&
-            typeof svc_devConsole.add_widget === "function"
-          ) {
-            svc_devConsole.add_widget(this.default_user_widget);
-          }
-        }
+        };
       } catch (error) {
-        this.log.error("Error checking admin password:", error);
+        this.log.error("Error setting up admin credentials widget:", error);
+      }
 
-        // Display generic admin username info in case of error
-        setTimeout(() => {
-          console.log("\n\n*** Admin User Info ***");
-          console.log(`username: ${USERNAME}\n\n`);
-        }, 3000);
+      // Set the widget as critical and add to console
+      if (this.default_user_widget) {
+        this.default_user_widget.critical = true;
+
+        const svc_devConsole = this.services.get("dev-console");
+        if (svc_devConsole && typeof svc_devConsole.add_widget === "function") {
+          svc_devConsole.add_widget(this.default_user_widget);
+        }
       }
     } catch (error) {
       this.log.error("Error in __on_ready.webserver:", error);
     }
+  }
+
+  // Generate a random password
+  generateRandomPassword() {
+    const crypto = require("crypto");
+    // Ensure the random password meets our validation requirements
+    let password;
+    do {
+      // Generate 4 bytes of random data (8 hex characters)
+      password = crypto.randomBytes(4).toString("hex");
+      // Add a letter if there isn't one
+      if (!/[a-zA-Z]/.test(password)) {
+        const randomLetter = String.fromCharCode(
+          97 + Math.floor(Math.random() * 26)
+        );
+        password = randomLetter + password.substring(1);
+      }
+      // Add a number if there isn't one
+      if (!/[0-9]/.test(password)) {
+        const randomDigit = Math.floor(Math.random() * 10).toString();
+        password = password.substring(0, password.length - 1) + randomDigit;
+      }
+    } while (!this.validateCustomPassword(password).valid);
+
+    return password;
   }
 }
 
