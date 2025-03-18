@@ -321,6 +321,8 @@ class RuntimeEnvironment extends AdvancedBase {
             }
         }
 
+        environment.config_path = path_.join(config_path_entry.path, config_to_load);
+
         const loader = new ConfigLoader(this.logger, config_path_entry.path, config);
         loader.enable(config_to_load);
 
