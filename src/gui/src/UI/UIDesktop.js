@@ -51,13 +51,35 @@ async function UIDesktop(options) {
     channel.onmessage = function (e) {
     }
 
-    // Initialize desktop icons visibility preference
+    // Initialize desktop icons visibility preference - move this earlier in the initialization
+    // Add this near the very beginning of the UIDesktop function
+    window.desktop_icons_hidden = false; // Set default value immediately
+
+    // Initialize the preference early
     puter.kv.get('desktop_icons_hidden').then(async (val) => {
         window.desktop_icons_hidden = val === 'true';
+
+        // Apply the setting immediately if needed
         if (window.desktop_icons_hidden) {
             hideDesktopIcons();
         }
     });
+
+    // Modify the hide/show functions to use CSS rules that will apply to all icons, including future ones
+    window.hideDesktopIcons = function () {
+        // Add a CSS class to the desktop container that will hide all child icons
+        $('.desktop.item-container').addClass('desktop-icons-hidden');
+
+        // Add a style rule to hide all desktop icons
+        if (!$('#desktop-icons-style').length) {
+            $('head').append('<style id="desktop-icons-style">.desktop.item-container.desktop-icons-hidden > .item { visibility: hidden; }</style>');
+        }
+    };
+
+    window.showDesktopIcons = function () {
+        // Remove the CSS class to show all icons
+        $('.desktop.item-container').removeClass('desktop-icons-hidden');
+    };
 
     // Add this function to the global scope
     window.toggleDesktopIcons = function () {
@@ -71,20 +93,6 @@ async function UIDesktop(options) {
 
         // Save preference
         puter.kv.set('desktop_icons_hidden', window.desktop_icons_hidden.toString());
-    };
-
-    window.hideDesktopIcons = function () {
-        const desktopIcons = document.querySelectorAll('.desktop > .item');
-        desktopIcons.forEach(icon => {
-            icon.style.display = 'none';
-        });
-    };
-
-    window.showDesktopIcons = function () {
-        const desktopIcons = document.querySelectorAll('.desktop > .item');
-        desktopIcons.forEach(icon => {
-            icon.style.display = '';
-        });
     };
 
     // Give Camera and Recorder write permissions to Desktop
