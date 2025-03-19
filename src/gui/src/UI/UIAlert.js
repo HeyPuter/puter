@@ -50,8 +50,8 @@ function UIAlert(options) {
         };
 
         // Set default values
-        const alertType = alertTypes[options.type] || alertTypes.warning;
-        options.message = options.title || alertType.title;
+        const alertType = alertTypes[options.type] || alertTypes.info;
+        options.message = options.message || options.title || alertType.title;
         options.body_icon = options.body_icon ?? window.icons[alertType.icon];
         options.color = options.color ?? alertType.color;
 
