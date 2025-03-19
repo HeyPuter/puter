@@ -69,11 +69,6 @@ async function UIDesktop(options) {
     window.hideDesktopIcons = function () {
         // Add a CSS class to the desktop container that will hide all child icons
         $('.desktop.item-container').addClass('desktop-icons-hidden');
-
-        // Add a style rule to hide all desktop icons
-        if (!$('#desktop-icons-style').length) {
-            $('head').append('<style id="desktop-icons-style">.desktop.item-container.desktop-icons-hidden > .item { visibility: hidden; }</style>');
-        }
     };
 
     window.showDesktopIcons = function () {
