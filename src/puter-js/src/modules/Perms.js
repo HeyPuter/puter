@@ -1,4 +1,8 @@
 export default class Perms {
+    constructor (context) {
+        this.authToken = context.authToken;
+        this.APIOrigin = context.APIOrigin;
+    }
     setAuthToken (authToken) {
         this.authToken = authToken;
     }
@@ -38,6 +42,12 @@ export default class Perms {
         })
     }
 
+    async grantAppAnyUser (app_uid, permission) {
+        return await this.req_('/auth/grant-dev-app', {
+            app_uid, permission,
+        })
+    }
+
     async grantOrigin (origin, permission) {
         return await this.req_('/auth/grant-user-app', {
             origin, permission,
@@ -59,6 +69,12 @@ export default class Perms {
 
     async revokeApp (app_uid, permission) {
         return await this.req_('/auth/revoke-user-app', {
+            app_uid, permission,
+        })
+    }
+
+    async revokeAppAnyUser (app_uid, permission) {
+        return await this.req_('/auth/revoke-dev-app', {
             app_uid, permission,
         })
     }

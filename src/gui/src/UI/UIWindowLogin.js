@@ -70,6 +70,9 @@ async function UIWindowLogin(options){
                 h += `</form>`;
             h += `</div>`;
             // create account link
+            
+            // If show_signup_button is undefined, the default behavior is to show it.
+            // If show_signup_button is set to false, the button will not be shown.
             if(options.show_signup_button === undefined || options.show_signup_button){
                 h += `<div class="c2a-wrapper" style="padding:20px;">`;
                     h += `<button class="signup-c2a-clickable">${i18n('create_free_account')}</button>`;

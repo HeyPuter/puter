@@ -1,7 +1,7 @@
 import putility from "@heyputer/putility";
-import { RWLock } from "@heyputer/putility/src/libs/promise";
-import { ProxyFilesystem, TFilesystem } from "./definitions";
-import { uuidv4 } from "../utils";
+import { RWLock } from "@heyputer/putility/src/libs/promise.js";
+import { ProxyFilesystem, TFilesystem } from "./definitions.js";
+import { uuidv4 } from "../utils.js";
 
 export const ROOT_UUID = '00000000-0000-0000-0000-000000000000';
 const TTL = 5 * 1000;

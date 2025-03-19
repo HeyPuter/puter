@@ -119,14 +119,32 @@ class ThreadService extends BaseService {
             }
         }));
 
+        await this.init_event_listeners_();
         await this.init_socket_subs_();
+    }
+
+    async init_event_listeners_() {
+        const svc_event = this.services.get('event');
+        svc_event.on('outer.thread.notify-subscribers', async (_, {
+            uid, action, data,
+        }) => {
+
+            if ( ! this.socket_subs_[uid] ) return;
+
+            const svc_socketio = this.services.get('socketio');
+            await svc_socketio.send(
+                Array.from(this.socket_subs_[uid]).map(socket => ({ socket })),
+                'thread.' + action,
+                { ...data, subscription: uid },
+            );
+        })
     }
 
     async init_socket_subs_ () {
         this.socket_subs_ = {};
 
         const svc_event = this.services.get('event');
-        svc_event.on('web.socket.user-connected', async (_, { socket }) => {
+        svc_event.on('web.socket.connected', async (_, { socket }) => {
             socket.on('disconnect', () => {
                 for ( const uid in this.socket_subs_ ) {
                     this.socket_subs_[uid].delete(socket.id);
@@ -150,14 +168,8 @@ class ThreadService extends BaseService {
     }
 
     async notify_subscribers (uid, action, data) {
-        if ( ! this.socket_subs_[uid] ) return;
-
-        const svc_socketio = this.services.get('socketio');
-        await svc_socketio.send(
-            Array.from(this.socket_subs_[uid]).map(socket => ({ socket })),
-            'thread.' + action,
-            data,
-        );
+        const svc_event = this.services.get('event');
+        svc_event.emit('outer.thread.notify-subscribers', { uid, action, data });
     }
 
     async ['__on_install.routes'] (_, { app }) {
@@ -364,6 +376,7 @@ class ThreadService extends BaseService {
                         uid,
                     });
                 }
+                const parent_uid = thread.parent_uid;
 
                 const actor = Context.get('actor');
 
@@ -389,8 +402,13 @@ class ThreadService extends BaseService {
                 res.json({});
 
                 // Notify subscribers
-                await this.notify_subscribers(parent_uid, 'delete', {
+                await this.notify_subscribers(uid, 'delete', {
                     uid,
+                });
+
+                // Notify parent subscribers
+                await this.notify_subscribers(parent_uid, 'child-delete', {
+                    parent_uid,
                 });
             }
         }).attach(router);

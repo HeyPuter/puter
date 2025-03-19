@@ -1,5 +1,5 @@
 import putility from "@heyputer/putility";
-import EventListener from "./EventListener";
+import EventListener from "./EventListener.js";
 
 // TODO: this inheritance is an anti-pattern; we should use
 //       a trait or mixin for event emitters.

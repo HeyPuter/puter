@@ -1,6 +1,6 @@
 import * as utils from '../utils.js';
 import putility from "@heyputer/putility";
-import { TeePromise } from "@heyputer/putility/src/libs/promise";
+import { TeePromise } from "@heyputer/putility/src/libs/promise.js";
 import getAbsolutePathForApp from '../../modules/FileSystem/utils/getAbsolutePathForApp.js';
 import { TFilesystem } from './definitions.js';
 

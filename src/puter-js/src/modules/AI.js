@@ -37,6 +37,46 @@ class AI{
         this.APIOrigin = APIOrigin;
     }
 
+     /**
+     * Returns a list of available AI models.
+     * @param {string} provider - The provider to filter the models returned.
+     * @returns {Object} Object containing lists of available models by provider
+     */
+     async listModels(provider) {
+        const modelsByProvider = {};
+
+        const models = await puter.drivers.call('puter-chat-completion','ai-chat','models');
+
+        if (!models || !models.result || !Array.isArray(models.result)) {
+            return modelsByProvider;
+        }
+        models.result.forEach(item => {
+            if (!item.provider || !item.id) return;
+            if (provider && item.provider !== provider) return;
+            if (!modelsByProvider[item.provider]) modelsByProvider[item.provider] = [];
+            modelsByProvider[item.provider].push(item.id);
+        });
+        
+        return modelsByProvider;
+    }
+
+    /**
+     * Returns a list of all available AI providers
+     * @returns {Array} Array containing providers
+     */
+    async listModelProviders() {
+        let providers = [];
+        const models = await puter.drivers.call('puter-chat-completion','ai-chat','models');
+
+        if (!models || !models.result || !Array.isArray(models.result)) return providers; // if models is invalid then return empty array
+        providers = new Set(); // Use a Set to store unique providers
+        models.result.forEach(item => {
+            if (item.provider) providers.add(item.provider);
+        });
+        providers = Array.from(providers); // Convert Set to an array
+        return providers;
+    }
+    
     img2txt = async (...args) => {
         let MAX_INPUT_SIZE = 10 * 1024 * 1024;
         let options = {};

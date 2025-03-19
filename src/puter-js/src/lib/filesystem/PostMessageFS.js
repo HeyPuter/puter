@@ -1,5 +1,5 @@
 import putility from "@heyputer/putility";
-import { TFilesystem } from "./definitions";
+import { TFilesystem } from "./definitions.js";
 
 const example =     {
         "id": "f485f1ba-de07-422c-8c4b-c2da057d4a44",

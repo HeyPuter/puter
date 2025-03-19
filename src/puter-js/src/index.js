@@ -33,7 +33,7 @@ import Perms from './modules/Perms.js';
 //       (using defaultGUIOrigin breaks locally-hosted apps)
 const PROD_ORIGIN = 'https://puter.com';
 
-window.puter = (function() {
+export default window.puter = (function() {
     'use strict';
 
     class Puter{

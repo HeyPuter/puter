@@ -8,7 +8,7 @@
 # worry about Docker unless the build/run process changes.
 
 # Build stage
-FROM node:22-alpine AS build
+FROM node:23.9-alpine AS build
 
 # Install build dependencies
 RUN apk add --no-cache git python3 make g++ \
@@ -41,7 +41,7 @@ RUN npm cache clean --force && \
 RUN cd src/gui && npm run build && cd -
 
 # Production stage
-FROM node:22-alpine
+FROM node:23.9-alpine
 
 # Set labels
 LABEL repo="https://github.com/HeyPuter/puter"
