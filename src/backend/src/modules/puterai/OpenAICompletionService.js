@@ -52,15 +52,36 @@ class OpenAICompletionService extends BaseService {
     * @returns {Promise<void>} Resolves when initialization is complete
     * @private
     */
+
+    //New Updated Code (with backward compatibility)
+    //issue: #1180
     async _init () {
-        const sk_key =
-            this.config?.openai?.secret_key ??
-            this.global_config.openai?.secret_key;
-
+        // Check for the new format under `services.openai.apiKey`
+        let apiKey =
+            this.config?.services?.openai?.apiKey ??
+            this.global_config?.services?.openai?.apiKey;
+    
+        // Fallback to the old format for backward compatibility
+        if (!apiKey) {
+            apiKey =
+                this.config?.openai?.secret_key ??
+                this.global_config?.openai?.secret_key;
+    
+            // Log a warning to inform users about the deprecated format
+            this.log.warn(
+                'The `openai.secret_key` configuration format is deprecated. ' +
+                'Please use `services.openai.apiKey` instead.'
+            );
+        }
+    
+        if (!apiKey) {
+            throw new Error('OpenAI API key is missing in configuration.');
+        }
+    
         this.openai = new this.modules.openai.OpenAI({
-            apiKey: sk_key
+            apiKey: apiKey
         });
-
+    
         const svc_aiChat = this.services.get('ai-chat');
         svc_aiChat.register_provider({
             service_name: this.service_name,
