@@ -211,77 +211,10 @@ async function UIDesktop(options){
      * This event is triggered if a user receives a notification during
      * an active session.
      */
-
-    window.update_tab_notif_count_badge = function(){
-        // count open notifications
-        let count = $('.notification').length;
-    
-        // see if title is in the format "(n) Title"
-        let title = document.title;
-        let titleMatch = title.match(/^\((\d+)\) (.*)/);
-        if(titleMatch){
-            // remove the count
-            title = titleMatch[2];
-        }
-    
-        // if there are notifications, add the count to the title
-        if(count > 0){
-            document.title = `(${count}) ${title}`;
-        }else{
-            document.title = title;
-        }
-    };
-
-    const notificationCss = `
-    .notification-container {
-    position: fixed !important;
-    top: 40px !important;
-    right: 10px !important;
-    z-index: 9999999 !important;
-    padding-top: 30px !important;
-    display: block !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    pointer-events: auto !important;
-    }
-
-    .notification-wrapper {
-    display: block !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    z-index: 9999999 !important;
-    pointer-events: auto !important;
-    margin-bottom: 10px !important;
-    }
-
-    .notification {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    z-index: 9999999 !important;
-    pointer-events: auto !important;
-    background-color: rgba(255, 255, 255, 0.9) !important;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2) !important;
-    min-width: 320px !important;
-    min-height: 54px !important;
-    border-radius: 11px !important;
-    }
-
-    .animate__animated {
-    animation-duration: 0.5s !important;
-    }
-    `;
-
-const styleElement = document.createElement('style');
-styleElement.textContent = notificationCss;
-document.head.appendChild(styleElement);
-    // Updated socket.on('notif.message') handler in UIDesktop.js
     window.socket.on('notif.message', async ({ uid, notification }) => {
-        console.log('Received notification:', notification);
-        
-        let icon = window.icons[notification.icon] || window.icons['bell.svg'];
+        let icon = window.icons[notification.icon];
         let round_icon = false;
-    
+
         if(notification.template === "file-shared-with-you" && notification.fields?.username){
             try {
                 let profile_pic = await get_profile_picture(notification.fields?.username);
@@ -294,8 +227,7 @@ document.head.appendChild(styleElement);
             }
         }
         
-        // Create the notification with proper visibility
-        const notifElement = UINotification({
+        UINotification({
             title: notification.title,
             text: notification.text,
             icon: icon,
@@ -317,12 +249,7 @@ document.head.appendChild(styleElement);
                 }
             },
             click: async (notif) => {
-                // Open the notification sidebar
-                $('.notifications-history-btn').addClass('active');
-                UIWindowNotifications();
-                
-                // Handle specific notification types
-                if(notification.template === "file-shared-with-you" && notification.fields?.username){
+                if(notification.template === "file-shared-with-you"){
                     let item_path = '/' + notification.fields.username;
                     UIWindow({
                         path: item_path,
@@ -1318,11 +1245,9 @@ document.head.appendChild(styleElement);
 
         // notifications button
         ht += `<div class="toolbar-btn notifications-history-btn" title="Notifications">
-            <div style="position: relative;">
                 <img src="${window.icons['bell.svg']}" alt="Notifications">
-                <div class="notification-count-badge" style="position: absolute; top: -8px; right: -8px; background-color: #ff4040; color: white; border-radius: 50%; min-width: 16px; height: 16px; text-align: center; line-height: 16px; font-size: 10px; font-weight: bold; display: none;"></div>
-            </div>
-        </div>`;
+                <div class="notification-count-badge" style="display: none;"></div>
+              </div>`;
 
         // user options menu
         ht += `<div class="toolbar-btn user-options-menu-btn profile-pic" style="display:block;">`;
@@ -1599,22 +1524,9 @@ $(document).on('click', '.notifications-history-btn', function(e) {
     // Toggle active state of the button
     $(this).toggleClass('active');
     
-    // If sidebar already exists, toggle it
-    if ($('.notification-sidebar').length) {
-        $('.notification-sidebar').toggleClass('active');
-        
-        // If we're hiding it, remove after animation
-        if (!$('.notification-sidebar').hasClass('active')) {
-            setTimeout(() => {
-                $('.notification-sidebar').remove();
-            }, 300);
-        }
-    } else {
-        // Create sidebar if it doesn't exist
-        const sidebar = UIWindowNotifications();
-        $(sidebar).addClass('active');
-    }
-});
+    // Create or show notifications sidebar
+    UIWindowNotifications();
+})
 
 $(document).on('click', '.notification', function() {
     // Update badge after notification is clicked
