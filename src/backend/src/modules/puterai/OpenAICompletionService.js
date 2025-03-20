@@ -53,23 +53,6 @@ class OpenAICompletionService extends BaseService {
     * @private
     */
 
-    //Old code 
-    // async _init () {
-    //     const sk_key =
-    //         this.config?.openai?.secret_key ??
-    //         this.global_config.openai?.secret_key;
-
-    //     this.openai = new this.modules.openai.OpenAI({
-    //         apiKey: sk_key
-    //     });
-
-    //     const svc_aiChat = this.services.get('ai-chat');
-    //     svc_aiChat.register_provider({
-    //         service_name: this.service_name,
-    //         alias: true,
-    //     });
-    // }
-
     //New Updated Code (with backward compatibility)
     //issue: #1180
     async _init () {

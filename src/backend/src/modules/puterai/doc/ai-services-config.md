@@ -9,6 +9,9 @@ AI services are configured under the `services` block in the configuration file.
     "openai": {
       "apiKey": "sk-abcdefg..."
     },
+    "deepseek": {
+      "apiKey": "sk-xyz123..."
+    },
     "other-ai-service": {
       "apiKey": "sk-hijklmn..."
     }
