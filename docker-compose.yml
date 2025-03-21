@@ -3,6 +3,7 @@ version: "3.8"
 services:
   puter:
     container_name: puter
+    read_only: true
     image: ghcr.io/heyputer/puter:latest
     pull_policy: always
     # build: ./
