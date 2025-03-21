@@ -42,12 +42,56 @@ import UIWindowWelcome from "./UIWindowWelcome.js"
 import launch_app from "../helpers/launch_app.js"
 import item_icon from "../helpers/item_icon.js"
 import UIWindowSearch from "./UIWindowSearch.js"
+import UIWindowNotifications from "./UIWindowNotifications.js"
+
+//import { update_tab_notif_count_badge } from './UINotification.js'
+
+$('head').append(`
+    <style>
+      .notification-container {
+        position: fixed !important;
+        top: 40px !important;
+        right: 10px !important;
+        z-index: 9999999 !important;
+        display: block !important;
+        visibility: visible !important;
+        pointer-events: all !important;
+      }
+  
+      .notification {
+        display: flex !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        z-index: 9999999 !important;
+        pointer-events: all !important;
+      }
+    </style>
+  `);
+
+// Helper function to get profile picture
+async function get_profile_picture(username) {
+    try {
+        const response = await fetch(`${window.api_origin}/user/profile-picture/${username}`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${window.auth_token}`,
+            }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            return data.picture;
+        }
+    } catch (error) {
+        console.error('Failed to fetch profile picture:', error);
+    }
+    return null;
+}
 
 async function UIDesktop(options){
     let h = '';
 
     // Set up the desktop channel for communication between different tabs in the same browser
-    window.channel = new BroadcastChannel('puter-desktop-channel');
+    let channel = new BroadcastChannel('puter-desktop-channel');
     channel.onmessage = function(e){
     }
 
@@ -172,10 +216,14 @@ async function UIDesktop(options){
         let round_icon = false;
 
         if(notification.template === "file-shared-with-you" && notification.fields?.username){
-            let profile_pic = await get_profile_picture(notification.fields?.username);
-            if(profile_pic){
-                icon = profile_pic;
-                round_icon = true;
+            try {
+                let profile_pic = await get_profile_picture(notification.fields?.username);
+                if(profile_pic){
+                    icon = profile_pic;
+                    round_icon = true;
+                }
+            } catch (error) {
+                console.warn('Could not load profile picture:', error);
             }
         }
         
@@ -187,28 +235,35 @@ async function UIDesktop(options){
             value: notification,
             uid,
             close: async () => {
-                await fetch(`${window.api_origin}/notif/mark-ack`, {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${puter.authToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ uid }),
-                });
+                try {
+                    await fetch(`${window.api_origin}/notif/mark-acknowledged`, {
+                        method: 'POST',
+                        headers: {
+                            Authorization: `Bearer ${window.auth_token}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ uid }),
+                    });
+                } catch (error) {
+                    console.error('Failed to mark notification as acknowledged:', error);
+                }
             },
             click: async (notif) => {
                 if(notification.template === "file-shared-with-you"){
                     let item_path = '/' + notification.fields.username;
                     UIWindow({
-                        path: '/' + notification.fields.username,
+                        path: item_path,
                         title: path.basename(item_path),
                         icon: await item_icon({is_dir: true, path: item_path}),
                         is_dir: true,
                         app: 'explorer',
                     });
                 }
-            },
+            }
         });
+        
+        // Update notification badge
+        window.update_notification_badge_count();
     });
 
     /**
@@ -221,45 +276,82 @@ async function UIDesktop(options){
      */
     window.__already_got_unreads = false;
     window.socket.on('notif.unreads', async ({ unreads }) => {
-        if ( window.__already_got_unreads ) return;
+        console.log('Received unread notifications:', unreads);
+        
+        if (window.__already_got_unreads) return;
         window.__already_got_unreads = true;
-
-        for ( const notif_info of unreads ) {
+    
+        // Skip if no unread notifications
+        if (!unreads || unreads.length === 0) {
+            console.log('No unread notifications to display');
+            return;
+        }
+        
+        console.log(`Displaying ${unreads.length} unread notifications as toasts`);
+    
+        // Process each unread notification sequentially with delays between them
+        for (let i = 0; i < unreads.length; i++) {
+            const notif_info = unreads[i];
             const notification = notif_info.notification;
-            let icon = window.icons[notification.icon];
+            
+            // Skip if already acknowledged
+            if (notif_info.acknowledged) {
+                console.log(`Skipping acknowledged notification: ${notification.title}`);
+                continue;
+            }
+            
+            console.log(`Creating toast for notification: ${notification.title}`);
+            
+            // Process notification icon
+            let icon = window.icons[notification.icon] || window.icons['bell.svg'];
             let round_icon = false;
-
-            if(notification.template === "file-shared-with-you" && notification.fields?.username){
-                let profile_pic = await get_profile_picture(notification.fields?.username);
-                if(profile_pic){
-                    icon = profile_pic;
-                    round_icon = true;
+    
+            if (notification.template === "file-shared-with-you" && notification.fields?.username) {
+                try {
+                    let profile_pic = await get_profile_picture(notification.fields?.username);
+                    if (profile_pic) {
+                        icon = profile_pic;
+                        round_icon = true;
+                    }
+                } catch (error) {
+                    console.warn('Could not load profile picture:', error);
                 }
             }
-    
-            UINotification({
-                icon,
-                round_icon,
-                title: notification.title,
-                text: notification.text ?? notification.title,
+        
+            // Create a toast notification for this unread
+            const notifElement = UINotification({
+                title: notification.title || "New Notification",
+                text: notification.text || notification.title || "",
+                icon: icon,
+                round_icon: round_icon,
+                value: notification,
                 uid: notif_info.uid,
                 close: async () => {
-                    await fetch(`${window.api_origin}/notif/mark-ack`, {
-                        method: 'POST',
-                        headers: {
-                            Authorization: `Bearer ${puter.authToken}`,
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            uid: notif_info.uid,
-                        }),
-                    });
+                    try {
+                        await fetch(`${window.api_origin}/notif/mark-acknowledged`, {
+                            method: 'POST',
+                            headers: {
+                                Authorization: `Bearer ${window.auth_token}`,
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                uid: notif_info.uid,
+                            }),
+                        });
+                    } catch (error) {
+                        console.error('Failed to mark notification as acknowledged:', error);
+                    }
                 },
                 click: async (notif) => {
-                    if(notification.template === "file-shared-with-you"){
-                        let item_path = '/' + notification.fields?.username;
+                    // Open the notification sidebar
+                    $('.notifications-history-btn').addClass('active');
+                    UIWindowNotifications();
+                    
+                    // Handle specific notification types
+                    if (notification.template === "file-shared-with-you" && notification.fields?.username) {
+                        let item_path = '/' + notification.fields.username;
                         UIWindow({
-                            path: '/' + notification.fields?.username,
+                            path: item_path,
                             title: path.basename(item_path),
                             icon: await item_icon({is_dir: true, path: item_path}),
                             is_dir: true,
@@ -268,12 +360,27 @@ async function UIDesktop(options){
                     }
                 },
             });
+            
+            // Add a small delay between notifications so they don't all appear at once
+            if (i < unreads.length - 1) {
+                console.log(`Waiting before showing next notification...`);
+                await new Promise(resolve => setTimeout(resolve, 800));
+            }
+        }
+        
+        // Update notification badge count
+        if (typeof window.update_notification_badge_count === 'function') {
+            window.update_notification_badge_count();
         }
     });
+    
 
     window.socket.on('notif.ack', ({ uid }) => {
         $(`.notification[data-uid="${uid}"]`).remove();
         update_tab_notif_count_badge();
+        
+        // Update notification badge
+        window.update_notification_badge_count();
     });
 
     window.socket.on('app.opened', async (app) => {
@@ -654,6 +761,8 @@ async function UIDesktop(options){
                 data-path="${html_encode(window.desktop_path)}"
             >`;
     h += `</div>`;
+
+    h += `<span id='clock'></span>`;
 
     // Get window sidebar width
     puter.kv.get('window_sidebar_width').then(async (val) => {
@@ -1103,12 +1212,8 @@ async function UIDesktop(options){
     let ht = '';
     ht += `<div class="toolbar" style="height:${window.toolbar_height}px; min-height:${window.toolbar_height}px; max-height:${window.toolbar_height}px;">`;
         // logo
-        ht += `<div class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
-      
-    
-    // clock spacer
-    ht += `<div class="toolbar-spacer"></div>`;
-    
+        ht += `<div class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px; margin-right: auto;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
+
         // create account button
         ht += `<div class="toolbar-btn user-options-create-account-btn ${window.user.is_temp ? '' : 'hidden' }" style="padding:0; opacity:1;" title="Save Account">`;
             ht += `<svg style="width: 17px; height: 17px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px" height="48px" viewBox="0 0 48 48"><g transform="translate(0, 0)"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"></path></g></svg>`;
@@ -1138,9 +1243,11 @@ async function UIDesktop(options){
         // search button
         ht += `<div class="toolbar-btn search-btn" title="Search" style="background-image:url('${window.icons['search.svg']}')"></div>`;
 
-    
-        //clock 
-        ht += `<div id="clock" class="toolbar-clock" style="">12:00 AM Sun, Jan 01</div>`;
+        // notifications button
+        ht += `<div class="toolbar-btn notifications-history-btn" title="Notifications">
+                <img src="${window.icons['bell.svg']}" alt="Notifications">
+                <div class="notification-count-badge" style="display: none;"></div>
+              </div>`;
 
         // user options menu
         ht += `<div class="toolbar-btn user-options-menu-btn profile-pic" style="display:block;">`;
@@ -1151,17 +1258,44 @@ async function UIDesktop(options){
     // prepend toolbar to desktop
     $(ht).insertBefore(el_desktop);
 
-    
     // send event
     window.dispatchEvent(new CustomEvent('toolbar:ready'));
-    // init clock visibility
-    window.change_clock_visible();
-    
+
     // notification container
     $('body').append(`<div class="notification-container"><div class="notifications-close-all">${i18n('close_all')}</div></div>`);
 
     // adjust window container to take into account the toolbar height
     $('.window-container').css('top', window.toolbar_height);
+
+    // Function to update notification badge count
+    window.update_notification_badge_count = function() {
+        // Fetch unread notification count
+        fetch(`${window.api_origin}/notif/count`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${window.auth_token}`,
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            const count = data.count || 0;
+            const badge = $('.notification-count-badge');
+            
+            if (count > 0) {
+                badge.text(count > 99 ? '99+' : count);
+                badge.show();
+            } else {
+                badge.hide();
+            }
+        })
+        .catch(error => {
+            console.error('Failed to fetch notification count:', error);
+        });
+    };
+
+    // Initial update of notification badge
+    window.update_notification_badge_count();
 
     // track: checkpoint
     //-----------------------------
@@ -1276,7 +1410,6 @@ async function UIDesktop(options){
     })  
 
     function display_ct() {
-       
         var x = new Date()
         var ampm = x.getHours( ) >= 12 ? ' PM' : ' AM';
         let hours = x.getHours( ) % 12;
@@ -1289,20 +1422,19 @@ async function UIDesktop(options){
         var seconds=x.getSeconds().toString()
         seconds=seconds.length==1 ? 0+seconds : seconds;
         
-        var month = x.toLocaleString('default',{month : 'short'});
+        var month=(x.getMonth() +1).toString();
+        month=month.length==1 ? 0+month : month;
         
-        var dt = x.getDate().toString();
+        var dt=x.getDate().toString();
         dt=dt.length==1 ? 0+dt : dt;
         
-        var day = x.toLocaleString('default',{weekday : 'short'});
-       
-   
-        var x1= day + ", " + month + " " + dt; 
-        x1 =  hours + ":" +  minutes   + ampm + " " + x1;
+        var x1=month + "/" + dt + "/" + x.getFullYear(); 
+        x1 = x1 + " - " +  hours + ":" +  minutes + ":" +  seconds + " " + ampm;
         $('#clock').html(x1);
+        $('#clock').css('line-height', window.taskbar_height + 'px');
     }
-    display_ct()
-    setInterval(display_ct,1000);
+
+    setInterval(display_ct, 1000);
 
     // show referral notice window
     if(window.show_referral_notice && !window.user.email_confirmed){
@@ -1384,6 +1516,22 @@ $(document).on('click', '.qr-btn', async function (e) {
         text: window.gui_origin + '?auth_token=' + window.auth_token,
     });
 })
+
+$(document).on('click', '.notifications-history-btn', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Toggle active state of the button
+    $(this).toggleClass('active');
+    
+    // Create or show notifications sidebar
+    UIWindowNotifications();
+})
+
+$(document).on('click', '.notification', function() {
+    // Update badge after notification is clicked
+    setTimeout(window.update_notification_badge_count, 100);
+});
 
 $(document).on('click', '.user-options-menu-btn', async function(e){
     const pos = this.getBoundingClientRect();

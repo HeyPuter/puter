@@ -55,6 +55,8 @@
     "sharp-bmp": "^0.1.5",
     "sharp-ico": "^0.1.5",
     "simple-git": "^3.25.0",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7",
     "string-template": "^1.0.0",
     "uuid": "^9.0.1"
   }

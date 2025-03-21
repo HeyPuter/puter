@@ -1,5 +1,4 @@
-// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
-/*
+/**
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -24,12 +23,18 @@ const { TeePromise } = require('@heyputer/putility').libs.promise;
 const BaseService = require("./BaseService");
 const { DB_WRITE } = require("./database/consts");
 
+/**
+ * Selects a user by username for notification targeting
+ */
 const UsernameNotifSelector = username => async (self) => {
     const svc_getUser = self.services.get('get-user');
     const user = await svc_getUser.get_user({ username });
     return [user.id];
 };
 
+/**
+ * Selects a user by ID for notification targeting
+ */
 const UserIDNotifSelector = user_id => async (self) => {
     return [user_id];
 };
@@ -81,6 +86,7 @@ class NotificationService extends BaseService {
     */
     _construct () {
         this.merged_on_user_connected_ = {};
+        this.notifs_pending_write = {};
     }
 
 
@@ -114,8 +120,6 @@ class NotificationService extends BaseService {
         svc_event.on('sent-to-user.notif.message', (_, o) => {
             this.on_sent_to_user(o);
         })
-        
-        this.notifs_pending_write = {};
     }
     
     ['__on_install.routes'] (_, { app }) {
@@ -128,39 +132,121 @@ class NotificationService extends BaseService {
 
         const svc_event = this.services.get('event');
         
-        [['ack','acknowledged'],['read','read']].forEach(([ep_name, col_name]) => {
-            Endpoint({
-                route: '/mark-' + ep_name,
-                methods: ['POST'],
-                handler: async (req, res) => {
-                    // TODO: validate uid
-                    if ( typeof req.body.uid !== 'string' ) {
+        Endpoint({
+            route: '/mark-acknowledged',
+            methods: ['POST'],
+            handler: async (req, res) => {
+                try {
+                    // Validates uid
+                    if (typeof req.body.uid !== 'string') {
                         throw APIError.create('field_invalid', null, {
                             key: 'uid',
                             expected: 'a valid UUID',
                             got: 'non-string value'
-                        })
+                        });
                     }
                     
+                    // Updates acknowledgment timestamp in database
                     const ack_ts = Math.floor(Date.now() / 1000);
-                    await this.db.write(
-                        'UPDATE `notification` SET ' + col_name + ' = ? ' +
+                    const result = await this.db.write(
+                        'UPDATE notification SET acknowledged = ? ' +
                         'WHERE uid = ? AND user_id = ? ' +
                         'LIMIT 1',
-                        [ack_ts, req.body.uid, req.user.id],
+                        [ack_ts, req.body.uid, req.user.id]
                     );
 
+                    if (result.changes === 0) {
+                        throw new Error('Notification not found or already acknowledged');
+                    }
+
+                    // Emits event for GUI update
                     svc_event.emit('outer.gui.notif.ack', {
                         user_id_list: [req.user.id],
                         response: {
                             uid: req.body.uid,
+                            acknowledged: true,
+                            acknowledged_at: ack_ts
                         },
                     });
                     
-                    res.json({});
+                    res.json({ 
+                        success: true,
+                        acknowledged: true,
+                        acknowledged_at: ack_ts 
+                    });
+                } catch (error) {
+                    res.status(500).json({ 
+                        success: false, 
+                        error: error.message 
+                    });
                 }
-            }).attach(router);
-        });
+            }
+        }).attach(router);
+
+        // Update the history endpoint to fetch all notifications
+        Endpoint({
+            route: '/history',
+            methods: ['GET'],
+            handler: async (req, res) => {
+                try {
+                    const page = parseInt(req.query.page) || 1;
+                    const pageSize = parseInt(req.query.pageSize) || 4;
+                    const offset = (page - 1) * pageSize;
+
+                    // Get total count for pagination
+                    const [countResult] = await this.db.read(
+                        'SELECT COUNT(*) as total FROM notification WHERE user_id = ?',
+                        [req.user.id]
+                    );
+
+                    if (!countResult || countResult.total === 0) {
+                        return res.json({
+                            notifications: [],
+                            pagination: {
+                                page,
+                                pageSize,
+                                totalPages: 0,
+                                total: 0
+                            }
+                        });
+                    }
+
+                    // Get ALL notifications with acknowledged status, ordered by most recent first
+                    const notifications = await this.db.read(
+                        'SELECT uid, value, created_at, acknowledged ' +
+                        'FROM notification ' +
+                        'WHERE user_id = ? ' +
+                        'ORDER BY created_at DESC ' +
+                        'LIMIT ? OFFSET ?',
+                        [req.user.id, pageSize, offset]
+                    );
+
+                    // Format notifications for client, including acknowledged status
+                    const formattedNotifications = notifications.map(notif => ({
+                        uid: notif.uid,
+                        notification: JSON.parse(notif.value),
+                        created_at: Math.floor(new Date(notif.created_at).getTime() / 1000),
+                        acknowledged: notif.acknowledged !== null,
+                        acknowledged_at: notif.acknowledged ? Math.floor(new Date(notif.acknowledged).getTime() / 1000) : null
+                    }));
+
+                    res.json({
+                        notifications: formattedNotifications,
+                        pagination: {
+                            page,
+                            pageSize,
+                            totalPages: Math.ceil(countResult.total / pageSize),
+                            total: countResult.total
+                        }
+                    });
+                } catch (error) {
+                    res.status(500).json({ 
+                        success: false, 
+                        error: error.message 
+                    });
+                }
+            }
+        }).attach(router);
     }
     
 
@@ -198,7 +284,7 @@ class NotificationService extends BaseService {
     * @async
     */
     async do_on_user_connected ({ user }) {
-        // query the users unread notifications
+        // Query unacknowledged notifications
         const notifications = await this.db.read(
             'SELECT * FROM `notification` ' +
             'WHERE user_id=? AND shown IS NULL AND acknowledged IS NULL ' +
@@ -206,12 +292,12 @@ class NotificationService extends BaseService {
             [user.id]
         );
 
-        // set all the notifications to "shown"
+        // Set notifications as shown
         const shown_ts = Math.floor(Date.now() / 1000);
         await this.db.write(
             'UPDATE `notification` ' +
             'SET shown = ? ' +
-            'WHERE user_id=? AND shown IS NULL AND acknowledged IS NULL ',
+            'WHERE user_id=? AND shown IS NULL AND acknowledged IS NULL',
             [shown_ts, user.id]
         );
         
@@ -263,17 +349,16 @@ class NotificationService extends BaseService {
     * @param {string} params.response.uid - The unique identifier of the notification.
     */
     async on_sent_to_user ({ user_id, response }) {
-        console.log('GOT IT AND IT WORKED!!!', user_id, response);
         const shown_ts = Math.floor(Date.now() / 1000);
         if ( this.notifs_pending_write[response.uid] ) {
             await this.notifs_pending_write[response.uid];
         }
-        await this.db.write(...ll([
+        await this.db.write(
             'UPDATE `notification` ' +
             'SET shown = ? ' +
             'WHERE user_id=? AND uid=?',
             [shown_ts, user_id, response.uid]
-        ]));
+        );
     }
     
 
