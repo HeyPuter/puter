@@ -4719,3 +4719,8 @@ fieldset[name=number-code] {
 .device-phone .window-body.item-container * {
     touch-action: pan-y;
 }
+
+/* Hide desktop icons when the desktop-icons-hidden class is applied */
+.desktop.item-container.desktop-icons-hidden > .item {
+    visibility: hidden;
+}
