@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { Exit } from './coreutil_lib/exit.js';
-import builtins from '../coreutils/__exports__.js';
+import { BuiltinCommandProvider } from '../providers/BuiltinCommandProvider.js';
 
 export default {
     name: 'ai',
@@ -44,8 +44,13 @@ export default {
         }
         
         const tools = [];
-
-        for (const [name, command] of Object.entries(builtins)) {
+        
+        // Create instance of BuiltinCommandProvider and use it directly
+        const commandProvider = new BuiltinCommandProvider();
+        const commands = await commandProvider.list();
+        
+        // Process each command from the provider
+        for (const command of commands) {
             if (command.args && command.args.options) {
                 const parameters = {
                     type: "object",
@@ -127,7 +132,7 @@ export default {
                
                 else if (chunk.type === 'tool_use' && chunk.name) {
                     const args = chunk.input;
-                    const command = builtins[chunk.name];
+                    const command = await commandProvider.lookup(chunk.name);
 
                     if (command) {
                         let cmdString = chunk.name;
