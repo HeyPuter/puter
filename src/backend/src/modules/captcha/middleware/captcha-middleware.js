@@ -36,29 +36,36 @@ const checkCaptcha = (options = {}) => async (req, res, next) => {
     const strictMode = options.strictMode !== false;
     const eventType = options.eventType || 'default';
     
+    console.log(`CAPTCHA DIAGNOSTIC: checkCaptcha middleware called for ${eventType}, strictMode: ${strictMode}, always: ${options.always || false}`);
+    
     try {
-        // Get services from the Context instead of req.app
+        // Get services from the Context
         const services = Context.get('services');
-        
-        // Set default value (fail closed in strict mode)
-        let captchaRequired = strictMode;
         
         // Fail closed if services aren't available (in strict mode)
         if (!services) {
-            console.warn('Captcha middleware: services not available in Context');
-            req.captchaRequired = captchaRequired;
+            console.log('CAPTCHA DIAGNOSTIC: services not available in Context');
+            req.captchaRequired = strictMode;
             return next();
         }
         
+        // Get captcha and event services
         let captchaService;
         let eventService;
         
         try {
             captchaService = services.get('captcha');
-            eventService = services.get('event');
-        } catch (error) {
-            console.warn('Captcha middleware: required service not available', error);
-            req.captchaRequired = captchaRequired;
+            console.log('CAPTCHA DIAGNOSTIC: captchaService available, enabled:', captchaService.enabled);
+            
+            try {
+                eventService = services.get('event');
+            } catch (eventError) {
+                // Event service is optional
+                console.log('CAPTCHA DIAGNOSTIC: eventService not available');
+            }
+        } catch (captchaError) {
+            console.warn('CAPTCHA DIAGNOSTIC: captchaService not available:', captchaError.message);
+            req.captchaRequired = strictMode;
             return next();
         }
         
@@ -69,25 +76,26 @@ const checkCaptcha = (options = {}) => async (req, res, next) => {
             
             // For debugging - check environment variables to confirm it's intentionally disabled
             const explicitlyDisabled = process.env.CAPTCHA_ENABLED === 'false';
+            const isDevelopment = process.env.NODE_ENV === 'development';
             
-            if (explicitlyDisabled) {
-                console.info('Captcha middleware: CAPTCHA_ENABLED=false in environment');
+            if (explicitlyDisabled || isDevelopment) {
+                console.info('Captcha middleware: service disabled via environment or development mode');
                 req.captchaRequired = false;
                 return next();
             } else {
-                console.warn('Captcha middleware: service disabled but not via CAPTCHA_ENABLED environment variable');
+                console.warn('Captcha middleware: service disabled but not via environment variable');
                 if (strictMode) {
                     req.captchaRequired = true;
                 } else {
                     req.captchaRequired = false;
-            }
-            return next();
+                }
+                return next();
             }
         }
         
         // If captcha service doesn't exist or isn't properly initialized, set requirement based on strict mode
         if (!captchaService || typeof captchaService.verifyCaptcha !== 'function') {
-            console.error('Captcha middleware: invalid captcha service');
+            console.error('CAPTCHA DIAGNOSTIC: invalid captcha service');
             req.captchaRequired = strictMode;
             return next();
         }
@@ -99,38 +107,40 @@ const checkCaptcha = (options = {}) => async (req, res, next) => {
         
         // Default to requiring captcha based on options or requester flag
         let shouldRequireCaptcha = options.always || requester.requireCaptcha || false;
+        console.log('CAPTCHA DIAGNOSTIC: initial shouldRequireCaptcha =', shouldRequireCaptcha);
         
         // If event service is available, emit an event to allow extensions to control captcha requirement
         if (eventService) {
             try {
-                // Create event object with context information
-                const event = {
-                    require: shouldRequireCaptcha, // Default based on current logic
-                    type: eventType,               // Type of operation (login, signup, etc.)
-                    ip,                            // Client IP address
-                    userAgent,                     // Client user agent
-                    requester,                     // Requester object if available
-                    req                            // Full request object for additional context
+                // Create event data - this will be passed to all listeners
+                const eventData = {
+                    type: eventType,
+                    ip,
+                    userAgent,
+                    requester,
+                    requireCaptcha: shouldRequireCaptcha,
+                    options
                 };
                 
-                // Emit event and allow extensions to modify the 'require' property
-                await eventService.emit('captcha.validate', event);
+                // Emit the event and allow listeners to modify the data
+                await eventService.emitAsync('captcha:check', eventData);
                 
-                // Update requirement based on extension feedback
-                shouldRequireCaptcha = event.require;
-                
-                console.info(`Captcha middleware: Event emitted for ${eventType}, require captcha: ${shouldRequireCaptcha}`);
+                // Update requirement based on event handler changes
+                shouldRequireCaptcha = eventData.requireCaptcha;
+                console.log('CAPTCHA DIAGNOSTIC: after event shouldRequireCaptcha =', shouldRequireCaptcha);
             } catch (eventError) {
-                console.error('Captcha middleware: Error emitting event:', eventError);
-                // In strict mode, default to requiring captcha on event error
+                console.error('CAPTCHA DIAGNOSTIC: Error in captcha check event:', eventError);
+                // Fail closed on event error if in strict mode
                 if (strictMode) {
-                    shouldRequireCaptcha = true;
+                    req.captchaRequired = true;
+                    return next();
                 }
             }
         }
         
-        // Store the result in the request object
+        // Set the final value on the request
         req.captchaRequired = shouldRequireCaptcha;
+        console.log('CAPTCHA DIAGNOSTIC: final req.captchaRequired =', req.captchaRequired);
         
         if (shouldRequireCaptcha) {
             console.info('Captcha middleware: verification required for this request');
@@ -141,13 +151,9 @@ const checkCaptcha = (options = {}) => async (req, res, next) => {
         // Always continue to the next middleware
         next();
     } catch (error) {
-        // Don't swallow errors - forward all errors to error handler
-        console.error('Captcha middleware check error:', error);
-        
-        // Default to requiring captcha in case of errors (in strict mode)
+        console.error('CAPTCHA DIAGNOSTIC: Unhandled error in checkCaptcha middleware:', error);
+        // Fail closed on error if in strict mode
         req.captchaRequired = strictMode;
-        
-        // Continue to the next middleware (don't block the request at the check stage)
         next();
     }
 };

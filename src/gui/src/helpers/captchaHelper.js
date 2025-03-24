@@ -31,38 +31,44 @@ let captchaRequirementsCache = null;
  * @returns {Promise<boolean>} - Whether captcha is required for this action
  */
 async function isCaptchaRequired(actionType) {
+    console.log('CAPTCHA DIAGNOSTIC (Client): isCaptchaRequired called for', actionType);
+    
     // Check if we have the info in GUI parameters
     if (window.gui_params?.captchaRequired?.[actionType] !== undefined) {
-        console.log(`Captcha requirement for ${actionType} from GUI params: ${window.gui_params.captchaRequired[actionType]}`);
+        console.log(`CAPTCHA DIAGNOSTIC (Client): Requirement for ${actionType} from GUI params:`, window.gui_params.captchaRequired[actionType]);
+        console.log('CAPTCHA DIAGNOSTIC (Client): Full gui_params.captchaRequired =', JSON.stringify(window.gui_params.captchaRequired));
         return window.gui_params.captchaRequired[actionType];
     }
 
     // If not in GUI params, check the cache
     if (captchaRequirementsCache && captchaRequirementsCache.captchaRequired?.[actionType] !== undefined) {
-        console.log(`Captcha requirement for ${actionType} from cache: ${captchaRequirementsCache.captchaRequired[actionType]}`);
+        console.log(`CAPTCHA DIAGNOSTIC (Client): Requirement for ${actionType} from cache:`, captchaRequirementsCache.captchaRequired[actionType]);
+        console.log('CAPTCHA DIAGNOSTIC (Client): Full cache =', JSON.stringify(captchaRequirementsCache.captchaRequired));
         return captchaRequirementsCache.captchaRequired[actionType];
     }
 
     // If not in cache, fetch from the /whoarewe endpoint
     try {
+        console.log(`CAPTCHA DIAGNOSTIC (Client): Fetching from /whoarewe for ${actionType}`);
         const response = await fetch(window.api_origin + '/whoarewe');
         
         if (!response.ok) {
-            console.warn(`Failed to get captcha requirements: ${response.status}`);
+            console.warn(`CAPTCHA DIAGNOSTIC (Client): Failed to get requirements: ${response.status}`);
             return true; // Default to requiring captcha if we can't determine
         }
         
         const data = await response.json();
+        console.log(`CAPTCHA DIAGNOSTIC (Client): /whoarewe response:`, data);
         
         // Cache the result
         captchaRequirementsCache = data;
         
-        console.log(`Captcha requirement for ${actionType} from API: ${data.captchaRequired?.[actionType]}`);
-        
         // Return the requirement or default to true if not specified
-        return data.captchaRequired?.[actionType] ?? true;
+        const result = data.captchaRequired?.[actionType] ?? true;
+        console.log(`CAPTCHA DIAGNOSTIC (Client): Final result for ${actionType}:`, result);
+        return result;
     } catch (error) {
-        console.error('Error checking captcha requirements:', error);
+        console.error('CAPTCHA DIAGNOSTIC (Client): Error checking requirements:', error);
         return true; // Default to requiring captcha on error
     }
 }

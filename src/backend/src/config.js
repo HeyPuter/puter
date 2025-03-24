@@ -53,7 +53,7 @@ config.kv_max_value_size = 400 * 1024;
 
 // Captcha configuration
 config.captcha = {
-    enabled: true,                  // Enable captcha by default
+    enabled: false,                 // Enable captcha by default
     expirationTime: 10 * 60 * 1000, // 10 minutes default expiration time
     difficulty: 'medium'            // Default difficulty level
 };

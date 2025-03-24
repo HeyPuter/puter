@@ -56,7 +56,7 @@ const complete_ = async ({ req, res, user }) => {
 // -----------------------------------------------------------------------//
 // POST /file
 // -----------------------------------------------------------------------//
-router.post('/login', express.json(), body_parser_error_handler, requireCaptcha({ always: false, eventType: 'login' }), async (req, res, next)=>{
+router.post('/login', express.json(), body_parser_error_handler, requireCaptcha({ always: false, strictMode: false, eventType: 'login' }), async (req, res, next)=>{
     // either api. subdomain or no subdomain
     if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
         next();
@@ -152,7 +152,7 @@ router.post('/login', express.json(), body_parser_error_handler, requireCaptcha(
 
 })
 
-router.post('/login/otp', express.json(), body_parser_error_handler, requireCaptcha({ always: false, eventType: 'login_otp' }), async (req, res, next) => {
+router.post('/login/otp', express.json(), body_parser_error_handler, requireCaptcha({ always: false, strictMode: false, eventType: 'login_otp' }), async (req, res, next) => {
     // either api. subdomain or no subdomain
     if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
         next();
@@ -208,7 +208,7 @@ router.post('/login/otp', express.json(), body_parser_error_handler, requireCapt
     return await complete_({ req, res, user });
 });
 
-router.post('/login/recovery-code', express.json(), body_parser_error_handler, requireCaptcha({ always: false, eventType: 'login_recovery' }), async (req, res, next) => {
+router.post('/login/recovery-code', express.json(), body_parser_error_handler, requireCaptcha({ always: false, strictMode: false, eventType: 'login_recovery' }), async (req, res, next) => {
     // either api. subdomain or no subdomain
     if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
         next();

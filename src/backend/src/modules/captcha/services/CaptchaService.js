@@ -41,6 +41,8 @@ class CaptchaService extends BaseService {
         
         // Configuration (from service registration)
         this.enabled = this.config.enabled !== undefined ? this.config.enabled : true;
+        console.log('CAPTCHA DIAGNOSTIC: CaptchaService initialized with enabled =', this.enabled, 'from config.enabled =', this.config.enabled);
+        
         this.expirationTime = this.config.expirationTime || (10 * 60 * 1000); // 10 minutes default
         this.difficulty = this.config.difficulty || 'medium';
         

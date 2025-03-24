@@ -40,10 +40,15 @@ class CaptchaModule extends AdvancedBase {
         const captchaExpirationTime = config.captcha?.expirationTime || 10 * 60 * 1000; // 10 minutes
         const captchaDifficulty = config.captcha?.difficulty || 'medium';
         
+        console.log('CAPTCHA DIAGNOSTIC: CaptchaModule installing with config.captcha =', JSON.stringify(config.captcha));
+        console.log('CAPTCHA DIAGNOSTIC: captchaEnabled =', captchaEnabled);
+        console.log('CAPTCHA DIAGNOSTIC: Environment CAPTCHA_ENABLED =', process.env.CAPTCHA_ENABLED);
+        console.log('CAPTCHA DIAGNOSTIC: Environment NODE_ENV =', process.env.NODE_ENV);
+        
         // Register the captcha service
         services.registerService('captcha', CaptchaService, {
             // Configuration from config system
-            enabled: captchaEnabled,
+            enabled: captchaEnabled && process.env.CAPTCHA_ENABLED !== 'false',
             expirationTime: captchaExpirationTime,
             difficulty: captchaDifficulty
         });

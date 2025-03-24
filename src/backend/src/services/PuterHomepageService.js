@@ -88,6 +88,27 @@ class PuterHomepageService extends BaseService {
                 
                 // Get the captcha middleware
                 const captchaMiddleware = Context.get('check-captcha-middleware');
+                console.log('CAPTCHA DIAGNOSTIC: In /whoarewe, captchaMiddleware available:', !!captchaMiddleware);
+                console.log('CAPTCHA DIAGNOSTIC: In /whoarewe, captchaMiddleware type:', typeof captchaMiddleware);
+                console.log('CAPTCHA DIAGNOSTIC: In /whoarewe, Context keys:', Object.keys(Context.get()));
+                
+                // Get the captcha service directly to check its state
+                try {
+                    const services = Context.get('services');
+                    if (services) {
+                        const captchaService = services.get('captcha');
+                        console.log('CAPTCHA DIAGNOSTIC: Captcha service state:', {
+                            exists: !!captchaService,
+                            enabled: captchaService?.enabled,
+                            config: captchaService?.config,
+                            serviceType: typeof captchaService
+                        });
+                    } else {
+                        console.log('CAPTCHA DIAGNOSTIC: No services available in Context');
+                    }
+                } catch (error) {
+                    console.error('CAPTCHA DIAGNOSTIC: Error getting captcha service:', error);
+                }
                 
                 if (captchaMiddleware) {
                     // Check login captcha requirement
@@ -98,10 +119,11 @@ class PuterHomepageService extends BaseService {
                     };
                     
                     await new Promise(resolve => {
-                        captchaMiddleware({ eventType: 'login' })(loginReq, {}, resolve);
+                        captchaMiddleware({ eventType: 'login', strictMode: false })(loginReq, {}, resolve);
                     });
                     
                     responseData.captchaRequired.login = loginReq.captchaRequired || false;
+                    console.log('CAPTCHA DIAGNOSTIC: /whoarewe login captchaRequired =', responseData.captchaRequired.login);
                     
                     // Check signup captcha requirement
                     const signupReq = {
@@ -111,14 +133,26 @@ class PuterHomepageService extends BaseService {
                     };
                     
                     await new Promise(resolve => {
-                        captchaMiddleware({ eventType: 'signup' })(signupReq, {}, resolve);
+                        captchaMiddleware({ eventType: 'signup', strictMode: false })(signupReq, {}, resolve);
                     });
                     
                     responseData.captchaRequired.signup = signupReq.captchaRequired || false;
+                    console.log('CAPTCHA DIAGNOSTIC: /whoarewe signup captchaRequired =', responseData.captchaRequired.signup);
                 } else {
-                    // If middleware isn't available, assume captcha is required (fail closed)
-                    responseData.captchaRequired.login = true;
-                    responseData.captchaRequired.signup = true;
+                    // If middleware isn't available, check environment
+                    const isDevelopment = process.env.NODE_ENV === 'development';
+                    const explicitlyDisabled = process.env.CAPTCHA_ENABLED === 'false';
+                    
+                    if (isDevelopment || explicitlyDisabled) {
+                        console.log('CAPTCHA DIAGNOSTIC: /whoarewe in development mode or explicitly disabled, defaulting to not required');
+                        responseData.captchaRequired.login = false;
+                        responseData.captchaRequired.signup = false;
+                    } else {
+                        // If middleware isn't available and not in development, assume captcha is required (fail closed)
+                        console.log('CAPTCHA DIAGNOSTIC: /whoarewe no middleware and not in development, defaulting to required');
+                        responseData.captchaRequired.login = true;
+                        responseData.captchaRequired.signup = true;
+                    }
                 }
                 
                 // Add feature flags if available
