@@ -343,6 +343,10 @@ class AI{
         if(settings.stream !== undefined && typeof settings.stream === 'boolean'){
             options.stream = settings.stream;
         }
+        
+        if ( settings.driver ) {
+            driver = settings.driver;
+        }
 
         // settings to pass
         const SETTINGS_TO_PASS = ['tools', 'response'];
