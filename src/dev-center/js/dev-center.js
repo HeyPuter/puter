@@ -1081,6 +1081,10 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
 
     // Add custom paste event handler for CSV processing
     if (tagify) {
+        // Modify the Tagify settings to treat comma as a tag delimiter
+        tagify.settings.delimiters = ',';
+        
+        // Handle paste events to support bulk pasting of extensions
         tagify.DOM.input.addEventListener('paste', function(e) {
             // Get the pasted text
             const pastedText = e.clipboardData ? e.clipboardData.getData('text') : '';
@@ -1088,6 +1092,9 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
             // Check if the pasted text contains multiple items (using common delimiters)
             if (pastedText && /[,;\t\s]/.test(pastedText)) {
                 e.preventDefault(); // Prevent the default paste action
+                
+                // Remove any existing text in the input
+                tagify.DOM.input.textContent = '';
                 
                 // Split by common delimiters (comma, semicolon, tab, or space)
                 const extensions = pastedText.split(/[,;\t\s]+/)
@@ -1104,6 +1111,33 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                     tagify.addTags(extensions);
                     
                     // Trigger change event to enable save button
+                    setTimeout(() => {
+                        toggleSaveButton();
+                        toggleResetButton();
+                    }, 10);
+                }
+            }
+        });
+        
+        // Also handle keydown events to support comma key presses
+        tagify.DOM.input.addEventListener('keydown', function(e) {
+            // If comma is pressed and there's text in the input
+            if (e.key === ',' && tagify.DOM.input.textContent.trim()) {
+                e.preventDefault();
+                
+                const text = tagify.DOM.input.textContent.trim();
+                
+                // Validate the text
+                if ((text.startsWith('.') || text.includes('/')) && 
+                    tagify.settings.pattern.test(text)) {
+                    
+                    // Add as tag
+                    tagify.addTags([text]);
+                    
+                    // Clear the input
+                    tagify.DOM.input.textContent = '';
+                    
+                    // Trigger change event
                     setTimeout(() => {
                         toggleSaveButton();
                         toggleResetButton();
