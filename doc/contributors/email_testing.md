@@ -1,7 +1,7 @@
 # Local Email Testing
 - The local email testing is done through [MailHog](https://github.com/mailhog/MailHog) which provides email testing through a local email server.
-## Prequistes
-- Following the general instruction i.e. adding in `volatile/config.config.json`
+## Prerequisites
+- Following the general instruction i.e. adding in `volatile/config/config.json`
    ```json
     "email": {
     "host": "localhost",
@@ -23,7 +23,7 @@ npm install nodemailer
 
 ## Access Web Interface
 The MailHog UI can be accessed at [http://127.0.0.1:8025/](http://127.0.0.1:8025/).
-Here all the sent emails can be seen with recipts. 
+All sent emails and their recipients can be viewed here.
 
 ## Using Nodemailer to Send Emails
 - Using nodemailer as the transport method to send emails using SMTP which would be visible in MailHog instance.
