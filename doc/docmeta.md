@@ -30,6 +30,11 @@ The top-level `doc` directory contains the following subdirectories:
 - `self-hosters/` - Documentation for self-hosting Puter
 - `uncategorized/` - Miscellaneous documentation
 
+As well as some files:
+
+- `README.md` - Documentation overview optimized for humans.
+- `AI.md` - Documentation overview optimized for AI/LLM agents.
+
 Module-specific documentation follows a similar structure, with each module having its own `doc` directory. For contributor-specific documentation within a module, use a `contributors` subdirectory within the module's `doc` directory.
 
 ## Docs Styleguide
