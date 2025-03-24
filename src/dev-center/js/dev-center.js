@@ -1073,7 +1073,11 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
     // Focus on the first input
     $('#edit-app-title').focus();
 
-    activate_tippy();
+    try {
+        activate_tippy();
+    } catch (e) {
+        console.log('no tippy:', e);
+    }
 
     // Add custom paste event handler for CSV processing
     if (tagify) {
