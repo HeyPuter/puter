@@ -790,9 +790,13 @@ window.initgui = async function(options){
             UIWindowSessionList();
         }
         else{
+            const resp = await fetch(puter.defaultGUIOrigin + '/whoarewe');
+            const whoarewe = await resp.json();
             await UIWindowLogin({
+                // show_signup_button: 
                 reload_on_success: true,
                 send_confirmation_code: false,
+                show_signup_button: ( ! whoarewe.disable_user_signup ),
                 window_options:{
                     has_head: false
                 }

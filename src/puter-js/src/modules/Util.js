@@ -1,4 +1,4 @@
-import { $SCOPE, CallbackManager, Dehydrator, Hydrator } from "../lib/xdrpc";
+import { $SCOPE, CallbackManager, Dehydrator, Hydrator } from "../lib/xdrpc.js";
 
 /**
  * The Util module exposes utilities within puter.js itself.

@@ -451,6 +451,160 @@ class PermissionService extends BaseService {
 
 
     /**
+    * Grants an app a permission for any user, as long as the user granting the
+    * permission also has the permission.
+    * 
+    * @param {Actor} actor - The actor granting the permission (must be a user).
+    * @param {string} app_uid - The unique identifier or name of the app.
+    * @param {string} username - The username of the user receiving the permission.
+    * @param {string} permission - The permission string to grant.
+    * @param {Object} [extra={}] - Additional metadata or conditions for the permission.
+    * @param {Object} [meta] - Metadata for logging or auditing purposes.
+    * @throws {Error} If the user to grant permission to is not found or if attempting to grant permissions to oneself.
+    * @returns {Promise<void>}
+    */
+    async grant_dev_app_permission (actor, app_uid, permission, extra = {}, meta) {
+        permission = await this._rewrite_permission(permission);
+
+        let app = await get_app({ uid: app_uid });
+        if ( ! app ) app = await get_app({ name: app_uid });
+        
+        if ( ! app ) {
+            throw APIError.create('entity_not_found', null, {
+                identifier: 'app:' + app_uid,
+            });
+        }
+
+        const app_id = app.id;
+
+        // UPSERT permission
+        await this.db.write(
+            'INSERT INTO `dev_to_app_permissions` (`user_id`, `app_id`, `permission`, `extra`) ' +
+            'VALUES (?, ?, ?, ?) ' +
+            this.db.case({
+                mysql: 'ON DUPLICATE KEY UPDATE `extra` = ?',
+                otherwise: 'ON CONFLICT(`user_id`, `app_id`, `permission`) DO UPDATE SET `extra` = ?',
+            }),
+            [
+                actor.type.user.id,
+                app_id,
+                permission,
+                JSON.stringify(extra),
+                JSON.stringify(extra),
+            ]
+        );
+
+        // INSERT audit table
+        const audit_values = {
+            user_id: actor.type.user.id,
+            user_id_keep: actor.type.user.id,
+            app_id: app_id,
+            app_id_keep: app_id,
+            permission,
+            action: 'grant',
+            reason: meta?.reason || 'granted via PermissionService',
+        };
+
+        const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
+        const sql_vals = Object.keys(audit_values).map((key) => `?`).join(', ');
+
+        await this.db.write(
+            'INSERT INTO `audit_dev_to_app_permissions` (' + sql_cols + ') ' +
+            'VALUES (' + sql_vals + ')',
+            Object.values(audit_values)
+        );
+    }
+    async revoke_dev_app_permission (actor, app_uid, permission, meta) {
+        permission = await this._rewrite_permission(permission);
+
+        // For now, actor MUST be a user
+        if ( ! (actor.type instanceof UserActorType) ) {
+            throw new Error('actor must be a user');
+        }
+
+        let app = await get_app({ uid: app_uid });
+        if ( ! app ) app = await get_app({ name: app_uid });
+        if ( ! app ) {
+            throw APIError.create('entity_not_found', null, {
+                identifier: 'app' + app_uid,
+            })
+        }
+        const app_id = app.id;
+
+        // DELETE permission
+        await this.db.write(
+            'DELETE FROM `dev_to_app_permissions` ' +
+            'WHERE `user_id` = ? AND `app_id` = ? AND `permission` = ?',
+            [
+                actor.type.user.id,
+                app_id,
+                permission,
+            ]
+        );
+
+        // INSERT audit table
+        const audit_values = {
+            user_id: actor.type.user.id,
+            user_id_keep: actor.type.user.id,
+            app_id: app_id,
+            app_id_keep: app_id,
+            permission,
+            action: 'revoke',
+            reason: meta?.reason || 'revoked via PermissionService',
+        };
+
+        const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
+        const sql_vals = Object.keys(audit_values).map((key) => `?`).join(', ');
+
+        await this.db.write(
+            'INSERT INTO `audit_dev_to_app_permissions` (' + sql_cols + ') ' +
+            'VALUES (' + sql_vals + ')',
+            Object.values(audit_values)
+        );
+    }
+    async revoke_dev_app_all (actor, app_uid, meta) {
+        // For now, actor MUST be a user
+        if ( ! (actor.type instanceof UserActorType) ) {
+            throw new Error('actor must be a user');
+        }
+
+        let app = await get_app({ uid: app_uid });
+        if ( ! app ) app = await get_app({ name: app_uid });
+        const app_id = app.id;
+
+        // DELETE permissions
+        await this.db.write(
+            'DELETE FROM `dev_to_app_permissions` ' +
+            'WHERE `user_id` = ? AND `app_id` = ?',
+            [
+                actor.type.user.id,
+                app_id,
+            ]
+        );
+
+        // INSERT audit table
+        const audit_values = {
+            user_id: actor.type.user.id,
+            user_id_keep: actor.type.user.id,
+            app_id: app_id,
+            app_id_keep: app_id,
+            permission: '*',
+            action: 'revoke',
+            reason: meta?.reason || 'revoked all via PermissionService',
+        };
+
+        const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
+        const sql_vals = Object.keys(audit_values).map((key) => `?`).join(', ');
+
+        await this.db.write(
+            'INSERT INTO `audit_dev_to_app_permissions` (' + sql_cols + ') ' +
+            'VALUES (' + sql_vals + ')',
+            Object.values(audit_values)
+        );
+    }
+
+
+    /**
     * Grants a permission to a user for a specific app.
     * 
     * @param {Actor} actor - The actor granting the permission, must be a user.

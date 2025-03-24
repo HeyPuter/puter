@@ -28,12 +28,14 @@ module.exports = SimpleEntity({
         }
     },
     methods: {
-        async get_client_value () {
-            await this.fetch_members();
+        async get_client_value (options = {}) {
+            if ( options.members ) {
+                await this.fetch_members();
+            }
             const group = {
                 uid: this.values.uid,
                 metadata: this.values.metadata,
-                members: this.values.members,
+                ...(options.members ? { members: this.values.members } : {}),
             };
             return group;
         }

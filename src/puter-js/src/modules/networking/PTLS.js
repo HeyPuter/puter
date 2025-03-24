@@ -2,7 +2,7 @@
  * This file uses https://github.com/MercuryWorkshop/rustls-wasm authored by GitHub:@r58Playz under the MIT License
  */
 
-import { PSocket } from "./PSocket";
+import { PSocket } from "./PSocket.js";
 
 let rustls = undefined;
 

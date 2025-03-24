@@ -118,7 +118,60 @@ class ThreadService extends BaseService {
                 return {};
             }
         }));
+
+        await this.init_event_listeners_();
+        await this.init_socket_subs_();
     }
+
+    async init_event_listeners_() {
+        const svc_event = this.services.get('event');
+        svc_event.on('outer.thread.notify-subscribers', async (_, {
+            uid, action, data,
+        }) => {
+
+            if ( ! this.socket_subs_[uid] ) return;
+
+            const svc_socketio = this.services.get('socketio');
+            await svc_socketio.send(
+                Array.from(this.socket_subs_[uid]).map(socket => ({ socket })),
+                'thread.' + action,
+                { ...data, subscription: uid },
+            );
+        })
+    }
+
+    async init_socket_subs_ () {
+        this.socket_subs_ = {};
+
+        const svc_event = this.services.get('event');
+        svc_event.on('web.socket.connected', async (_, { socket }) => {
+            socket.on('disconnect', () => {
+                for ( const uid in this.socket_subs_ ) {
+                    this.socket_subs_[uid].delete(socket.id);
+                }
+            });
+
+            socket.on('thread.sub-request', async ({ uid }) => {
+                if ( ! this.socket_subs_[uid] ) {
+                    this.socket_subs_[uid] = new Set();
+                }
+
+                this.socket_subs_[uid].add(socket.id);
+            });
+
+            socket.on('thread.sub-cancel', async ({ uid }) => {
+                if ( this.socket_subs_[uid] ) {
+                    this.socket_subs_[uid].delete(socket.id);
+                }
+            });
+        });
+    }
+
+    async notify_subscribers (uid, action, data) {
+        const svc_event = this.services.get('event');
+        svc_event.emit('outer.thread.notify-subscribers', { uid, action, data });
+    }
+
     async ['__on_install.routes'] (_, { app }) {
         const r_threads = (() => {
             const require = this.require;
@@ -210,6 +263,16 @@ class ThreadService extends BaseService {
                 }
 
                 res.json({ uid });
+
+                // Notify subscribers
+                await this.notify_subscribers(parent_uid, 'post', {
+                    uid,
+                    text,
+                    user: {
+                        username: actor.type.user.username,
+                        uuid: actor.type.user.id,
+                    },
+                });
             }
         }).attach(router);
 
@@ -247,12 +310,12 @@ class ThreadService extends BaseService {
 
                 // Get existing thread
                 const thread = await this.get_thread({ uid });
-                console.log('thread???', thread);
                 if ( !thread ) {
                     throw APIError.create('thread_not_found', null, {
                         uid,
                     });
                 }
+                const parent_uid = thread.parent_uid;
 
                 const actor = Context.get('actor');
 
@@ -276,11 +339,23 @@ class ThreadService extends BaseService {
                 );
                 
                 res.json({});
+
+                // Notify subscribers
+                await this.notify_subscribers(uid, 'edit', {
+                    uid,
+                    text,
+                });
+
+                // Notify parent subscribers
+                await this.notify_subscribers(parent_uid, 'child-edit', {
+                    uid,
+                    text,
+                });
             }
         }).attach(router);
 
         Endpoint({
-            route: '/delete/:uid',
+            route: '/:uid',
             methods: ['DELETE'],
             mw: [configurable_auth()],
             handler: async (req, res) => {
@@ -301,6 +376,7 @@ class ThreadService extends BaseService {
                         uid,
                     });
                 }
+                const parent_uid = thread.parent_uid;
 
                 const actor = Context.get('actor');
 
@@ -324,6 +400,16 @@ class ThreadService extends BaseService {
                 );
                 
                 res.json({});
+
+                // Notify subscribers
+                await this.notify_subscribers(uid, 'delete', {
+                    uid,
+                });
+
+                // Notify parent subscribers
+                await this.notify_subscribers(parent_uid, 'child-delete', {
+                    parent_uid,
+                });
             }
         }).attach(router);
 
@@ -425,16 +511,24 @@ class ThreadService extends BaseService {
                     [uid, offset, limit]
                 );
 
-                res.json(threads.map(this.client_safe_thread));
+                res.json(await Promise.all(threads.map(
+                    this.client_safe_thread.bind(this))));
             }
         }).attach(router);
     }
 
-    client_safe_thread (thread) {
+    async client_safe_thread (thread) {
+        const svc_getUser = this.services.get('get-user');
+        const user = await svc_getUser.get_user({ id: thread.owner_user_id });
+
         return {
             uid: thread.uid,
             parent: thread.parent_uid,
             text: thread.text,
+            user: {
+                username: user.username,
+                uuid: user.uuid,
+            },
         };
     }
 

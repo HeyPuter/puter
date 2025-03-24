@@ -52,15 +52,36 @@ class OpenAICompletionService extends BaseService {
     * @returns {Promise<void>} Resolves when initialization is complete
     * @private
     */
+
+    //New Updated Code (with backward compatibility)
+    //issue: #1180
     async _init () {
-        const sk_key =
-            this.config?.openai?.secret_key ??
-            this.global_config.openai?.secret_key;
-
+        // Check for the new format under `services.openai.apiKey`
+        let apiKey =
+            this.config?.services?.openai?.apiKey ??
+            this.global_config?.services?.openai?.apiKey;
+    
+        // Fallback to the old format for backward compatibility
+        if (!apiKey) {
+            apiKey =
+                this.config?.openai?.secret_key ??
+                this.global_config?.openai?.secret_key;
+    
+            // Log a warning to inform users about the deprecated format
+            this.log.warn(
+                'The `openai.secret_key` configuration format is deprecated. ' +
+                'Please use `services.openai.apiKey` instead.'
+            );
+        }
+    
+        if (!apiKey) {
+            throw new Error('OpenAI API key is missing in configuration.');
+        }
+    
         this.openai = new this.modules.openai.OpenAI({
-            apiKey: sk_key
+            apiKey: apiKey
         });
-
+    
         const svc_aiChat = this.services.get('ai-chat');
         svc_aiChat.register_provider({
             service_name: this.service_name,
@@ -163,12 +184,14 @@ class OpenAICompletionService extends BaseService {
                 return model_names;
             },
 
-            async complete ({ messages, test_mode, stream, model, tools }) {
+            async complete ({ messages, test_mode, stream, model, tools, max_tokens, temperature }) {
                 return await this.complete(messages, {
                     model: model,
                     tools,
                     moderation: true,
                     stream,
+                    max_tokens,
+                    temperature
                 });
             }
         }
@@ -214,7 +237,10 @@ class OpenAICompletionService extends BaseService {
     * @returns {Promise<Object>} The completion response containing message and usage info
     * @throws {Error} If messages are invalid or content is flagged by moderation
     */
-    async complete (messages, { stream, moderation, model, tools }) {
+    async complete (messages, {
+        stream, moderation, model, tools,
+        temperature, max_tokens,
+    }) {
         // Validate messages
         if ( ! Array.isArray(messages) ) {
             throw new Error('`messages` must be an array');
@@ -252,7 +278,8 @@ class OpenAICompletionService extends BaseService {
             messages: messages,
             model: model,
             ...(tools ? { tools } : {}),
-            // max_tokens,
+            ...(max_tokens ? { max_tokens } : {}),
+            ...(temperature ? { temperature } : {}),
             stream,
             ...(stream ? {
                 stream_options: { include_usage: true },

@@ -1078,12 +1078,15 @@ const ipc_listener = async (event, handled) => {
         // disable parent window
         event.data.options.window_options.disable_parent_window = true;
 
-        let granted = await UIWindowRequestPermission({
-            origin: event.origin,
-            permission: event.data.options.permission,
-            window_options: event.data.options.window_options,
-        });
-
+        let granted = await UIWindowRequestPermission(
+            {
+                permission: event.data.options.permission,
+                window_options: event.data.options.window_options,
+                app_uid: app_uuid, 
+                app_name: app_name, 
+            }
+        );
+        
         // send selected font to requester window
         target_iframe.contentWindow.postMessage({
             msg: "permissionGranted", 

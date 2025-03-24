@@ -31,13 +31,17 @@ class GeminiService extends BaseService {
                 return model_names;
             },
 
-            async complete ({ messages, stream, model, tools }) {
+            async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
                 tools = FunctionCalling.make_gemini_tools(tools);
 
                 const genAI = new GoogleGenerativeAI(this.config.apiKey);
                 const genModel = genAI.getGenerativeModel({
                     model: model ?? 'gemini-2.0-flash',
                     tools,
+                    generationConfig: {
+                        temperature: temperature,                   // Set temperature (0.0 to 1.0). Defaults to 0.7
+                        maxOutputTokens: max_tokens,       // Note: it's maxOutputTokens, not max_tokens
+                      }
                 });
 
                 messages = await GeminiSquareHole.process_input_messages(messages);

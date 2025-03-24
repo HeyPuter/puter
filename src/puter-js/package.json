@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start-server": "npx http-server --cors -c-1",
     "start-webpack": "webpack && webpack --output-filename puter.dev.js --watch --devtool source-map",

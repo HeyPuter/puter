@@ -569,7 +569,8 @@ function generate_edit_app_section(app) {
 
                 <label for="edit-app-filetype-associations">File Associations</label>
                <p style="margin-top: 10px; font-size:13px;">A list of file type specifiers. For example if you include <code>.txt</code> your apps could be opened when a user clicks on a TXT file.</p>
-               <textarea id="edit-app-filetype-associations"  placeholder=".txt  .jpg    application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length)}</textarea>
+               <p style="margin-top: 5px; font-size:13px;">You can paste multiple extensions at once (comma, space, or tab separated) or press comma to add each extension.</p>
+               <textarea id="edit-app-filetype-associations"  placeholder="Paste multiple extensions like: .txt, .doc, .pdf, application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length).replace(/</g, '\\u003c')}</textarea>
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window</h3>
                 <div>
@@ -816,7 +817,8 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
     const filetype_association_input = document.querySelector('textarea[id=edit-app-filetype-associations]');
     let tagify = new Tagify(filetype_association_input, {
         pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/(?:[a-z0-9.-]+|\*))/,
-        delimiters: ", ",
+        delimiters: ",",  // Use comma as delimiter
+        duplicates: false, // Prevent duplicate tags
         enforceWhitelist: false,
         dropdown : {
             // show the dropdown immediately on focus (0 character typed)
@@ -1072,7 +1074,101 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
     // Focus on the first input
     $('#edit-app-title').focus();
 
-    activate_tippy();
+    try {
+        activate_tippy();
+    } catch (e) {
+        console.log('no tippy:', e);
+    }
+
+    // Custom function to handle bulk pasting of file extensions
+    if (tagify) {
+        // Create a completely separate paste handler
+        const handleBulkPaste = function(e) {
+            const clipboardData = e.clipboardData || window.clipboardData;
+            if (!clipboardData) return;
+            
+            const pastedText = clipboardData.getData('text');
+            if (!pastedText) return;
+            
+            // Check if the pasted text contains delimiters
+            if (/[,;\t\s]/.test(pastedText)) {
+                e.stopPropagation();
+                e.preventDefault();
+                
+                // Process the pasted text to extract extensions
+                const extensions = pastedText.split(/[,;\t\s]+/)
+                    .map(ext => ext.trim())
+                    .filter(ext => ext && (ext.startsWith('.') || ext.includes('/')));
+                
+                if (extensions.length > 0) {
+                    // Get existing values to prevent duplicates
+                    const existingValues = tagify.value.map(tag => tag.value);
+                    
+                    // Only add extensions that don't already exist
+                    const newExtensions = extensions.filter(ext => !existingValues.includes(ext));
+                    
+                    if (newExtensions.length > 0) {
+                        // Add the new tags
+                        tagify.addTags(newExtensions);
+                        
+                        // Update the UI
+                        setTimeout(() => {
+                            toggleSaveButton();
+                            toggleResetButton();
+                        }, 10);
+                    }
+                }
+                
+                // Clear the input element to prevent any text concatenation
+                setTimeout(() => {
+                    if (tagify.DOM.input) {
+                        tagify.DOM.input.textContent = '';
+                    }
+                }, 10);
+            }
+        };
+        
+        // Add the paste handler directly to the tagify wrapper element
+        const tagifyWrapper = tagify.DOM.scope;
+        if (tagifyWrapper) {
+            tagifyWrapper.addEventListener('paste', handleBulkPaste, true);
+        }
+        
+        // Also add it to the input element for better coverage
+        if (tagify.DOM.input) {
+            tagify.DOM.input.addEventListener('paste', handleBulkPaste, true);
+        }
+        
+        // Add a comma key handler to support adding tags with comma
+        tagify.DOM.input.addEventListener('keydown', function(e) {
+            if (e.key === ',' && tagify.DOM.input.textContent.trim()) {
+                e.preventDefault();
+                
+                const text = tagify.DOM.input.textContent.trim();
+                
+                // Only add valid extensions
+                if ((text.startsWith('.') || text.includes('/')) && 
+                    tagify.settings.pattern.test(text)) {
+                    
+                    // Check for duplicates
+                    const existingValues = tagify.value.map(tag => tag.value);
+                    
+                    if (!existingValues.includes(text)) {
+                        tagify.addTags([text]);
+                        
+                        // Update UI
+                        setTimeout(() => {
+                            toggleSaveButton();
+                            toggleResetButton();
+                        }, 10);
+                    }
+                    
+                    // Always clear the input
+                    tagify.DOM.input.textContent = '';
+                }
+            }
+        });
+    }
 }
 
 $('.jip-submit-btn').on('click', async function (e) {

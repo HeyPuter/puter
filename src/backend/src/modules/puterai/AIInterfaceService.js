@@ -80,6 +80,8 @@ class AIInterfaceService extends BaseService {
                         stream: { type: 'flag' },
                         response: { type: 'json' },
                         model: { type: 'string' },
+                        temperature: { type: 'number' },
+                        max_tokens: { type: 'number' },
                     },
                     result: { type: 'json' },
                 }
