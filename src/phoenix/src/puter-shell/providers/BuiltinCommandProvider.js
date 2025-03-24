@@ -36,4 +36,12 @@ export class BuiltinCommandProvider {
         return Object.keys(builtins)
             .filter(commandName => commandName.startsWith(query));
     }
+
+    async list() {
+        return Object.entries(builtins).map(([name, command]) => ({
+            name,
+            ...command
+        }));
+    }
+
 }

@@ -26,12 +26,6 @@ export const CreateChatHistoryPlugin = ctx => {
         {
             role: 'system',
             content:
-                // note: this really doesn't work at all; GPT is effectively incapable of following this instruction.
-                'You can provide commands to the user by prefixing a line in your response with %%%. The user will then be able to run the command by accepting confirmation.',
-        },
-        {
-            role: 'system',
-            content:
                 'If the user asks you about commands they have run, read them from system messages; if you don\'t see any, just let them know.',
         },
         {
