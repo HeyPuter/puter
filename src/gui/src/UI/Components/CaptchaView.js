@@ -146,7 +146,12 @@ function CaptchaView(options = {}) {
         refreshButton.setAttribute('title', i18n('refresh_captcha'));
         refreshButton.style.minWidth = '30px';
         refreshButton.style.height = '30px';
-        refreshButton.addEventListener('click', refresh);
+        refreshButton.setAttribute('type', 'button');
+        refreshButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            refresh();
+        });
         imageContainer.appendChild(refreshButton);
         
         // Input field
@@ -163,6 +168,16 @@ function CaptchaView(options = {}) {
         inputField.addEventListener('input', (e) => {
             state.answer = e.target.value;
         });
+        
+        // Prevent Enter key from triggering refresh and allow it to submit the form
+        inputField.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                // Don't prevent default here - let Enter bubble up to the form
+                // Just make sure we don't refresh the captcha
+                e.stopPropagation();
+            }
+        });
+        
         captchaWrapper.appendChild(inputField);
         
         // Helper text

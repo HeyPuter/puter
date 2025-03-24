@@ -83,7 +83,7 @@ async function UIWindowLogin(options){
                     // captcha-specific error message
                     h += `<div class="captcha-error-msg" style="color: #e74c3c; font-size: 12px; margin-top: 5px; display: none;" aria-live="polite"></div>`;
                     // login
-                    h += `<button type="button" class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
+                    h += `<button type="submit" class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
                     // password recovery
                     h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>`;
                 h += `</form>`;
@@ -583,6 +583,27 @@ async function UIWindowLogin(options){
         $(el_window).find('.login-form').on('submit', function(e){
             e.preventDefault();
             e.stopPropagation();
+            
+            // Instead of triggering the click event, process the login directly
+            const email_username = $(el_window).find('.email_or_username').val();
+            const password = $(el_window).find('.password').val();
+            
+            // Basic validation
+            if(!email_username) {
+                $(el_window).find('.login-error-msg').html(i18n('email_or_username_required') || 'Email or username is required');
+                $(el_window).find('.login-error-msg').fadeIn();
+                return false;
+            }
+            
+            if(!password) {
+                $(el_window).find('.login-error-msg').html(i18n('password_required') || 'Password is required');
+                $(el_window).find('.login-error-msg').fadeIn();
+                return false;
+            }
+            
+            // Process login using the same function as the button click
+            $(el_window).find('.login-btn').click();
+            
             return false;
         })
 
