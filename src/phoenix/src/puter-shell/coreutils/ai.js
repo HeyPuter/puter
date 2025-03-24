@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { Exit } from './coreutil_lib/exit.js';
-import { BuiltinCommandProvider } from '../providers/BuiltinCommandProvider.js';
+
 
 export default {
     name: 'ai',
@@ -45,11 +45,8 @@ export default {
         
         const tools = [];
         
-        // Create instance of BuiltinCommandProvider and use it directly
-        const commandProvider = new BuiltinCommandProvider();
-        const commands = await commandProvider.list();
+        const commands = await ctx.externs.commandProvider.list();
         
-        // Process each command from the provider
         for (const command of commands) {
             if (command.args && command.args.options) {
                 const parameters = {
@@ -132,7 +129,7 @@ export default {
                
                 else if (chunk.type === 'tool_use' && chunk.name) {
                     const args = chunk.input;
-                    const command = await commandProvider.lookup(chunk.name);
+                    const command = await ctx.externs.commandProvider.lookup(chunk.name);
 
                     if (command) {
                         let cmdString = chunk.name;
