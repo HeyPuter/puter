@@ -569,7 +569,8 @@ function generate_edit_app_section(app) {
 
                 <label for="edit-app-filetype-associations">File Associations</label>
                <p style="margin-top: 10px; font-size:13px;">A list of file type specifiers. For example if you include <code>.txt</code> your apps could be opened when a user clicks on a TXT file.</p>
-               <textarea id="edit-app-filetype-associations"  placeholder=".txt  .jpg    application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length)}</textarea>
+               <p style="margin-top: 5px; font-size:13px;">You can paste multiple extensions at once (comma, space, or tab separated).</p>
+               <textarea id="edit-app-filetype-associations"  placeholder="Paste multiple extensions: .txt, .doc, .pdf, application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length)}</textarea>
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window</h3>
                 <div>
@@ -818,6 +819,16 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
         pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/(?:[a-z0-9.-]+|\*))/,
         delimiters: ", ",
         enforceWhitelist: false,
+        pasteAsTags: true,
+        callbacks: {
+            add: function(e) {
+                // When tags are added, trigger change to enable save button
+                setTimeout(() => {
+                    toggleSaveButton();
+                    toggleResetButton();
+                }, 0);
+            }
+        },
         dropdown : {
             // show the dropdown immediately on focus (0 character typed)
             enabled: 0,
@@ -1073,6 +1084,34 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
     $('#edit-app-title').focus();
 
     activate_tippy();
+
+    // Add custom paste event handler for CSV processing
+    if (tagify) {
+        tagify.DOM.input.addEventListener('paste', function(e) {
+            // Let Tagify handle the paste event first
+            setTimeout(() => {
+                const pastedText = e.clipboardData ? e.clipboardData.getData('text') : '';
+                
+                // Check if the pasted text contains commas, semicolons, or tabs (common CSV delimiters)
+                if (pastedText && /[,;\t]/.test(pastedText)) {
+                    e.preventDefault();
+                    
+                    // Split by common CSV delimiters (comma, semicolon, tab, or space)
+                    const extensions = pastedText.split(/[,;\t\s]+/)
+                        .map(ext => ext.trim())
+                        .filter(ext => ext && 
+                            (ext.startsWith('.') || ext.includes('/')) && 
+                            tagify.settings.pattern.test(ext)
+                        );
+                    
+                    if (extensions.length > 0) {
+                        // Add all valid extensions as tags
+                        tagify.addTags(extensions);
+                    }
+                }
+            }, 0);
+        });
+    }
 }
 
 $('.jip-submit-btn').on('click', async function (e) {
