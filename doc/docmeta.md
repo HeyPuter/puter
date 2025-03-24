@@ -18,6 +18,20 @@ From [./contributors/structure.md](./contributors/structure.md):
 > the index file for the documentation. All documentation under a `doc`
 > directory should be accessible via a path of links starting from `README.md`.
 
+### Documentation Structure
+
+The top-level `doc` directory contains the following subdirectories:
+
+- `api/` - API documentation for Puter services
+- `contributors/` - Documentation for contributors to the Puter project
+- `devmeta/` - Meta documentation for developers
+- `i18n/` - Internationalization documentation
+- `planning/` - Project planning documentation
+- `self-hosters/` - Documentation for self-hosting Puter
+- `uncategorized/` - Miscellaneous documentation
+
+Module-specific documentation follows a similar structure, with each module having its own `doc` directory. For contributor-specific documentation within a module, use a `contributors` subdirectory within the module's `doc` directory.
+
 ## Docs Styleguide
 
 ### "is" and "is not"
