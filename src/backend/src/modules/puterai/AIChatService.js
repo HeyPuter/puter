@@ -78,7 +78,8 @@ class AIChatService extends BaseService {
 
         const svc_event = this.services.get('event');
         svc_event.on('ai.prompt.report-usage', async (_, details) => {
-            if ( details.service_used === 'fake-chat' ) return;
+            // Only skip usage reporting for fake-chat if it's not using the costly model
+            if ( details.service_used === 'fake-chat' && details.model_used !== 'costly' ) return;
 
             const values = {
                 user_id: details.actor?.type?.user?.id,
