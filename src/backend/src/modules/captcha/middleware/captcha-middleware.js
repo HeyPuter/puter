@@ -36,6 +36,13 @@ const checkCaptcha = (options = {}) => async (req, res, next) => {
     const strictMode = options.strictMode !== false;
     const eventType = options.eventType || 'default';
     
+    // Simple environment variable check at the start
+    if (process.env.CAPTCHA_ENABLED === 'false') {
+        console.log('CAPTCHA DIAGNOSTIC: Captcha disabled via environment variable');
+        req.captchaRequired = false;
+        return next();
+    }
+    
     console.log(`CAPTCHA DIAGNOSTIC: checkCaptcha middleware called for ${eventType}, strictMode: ${strictMode}, always: ${options.always || false}`);
     
     try {
