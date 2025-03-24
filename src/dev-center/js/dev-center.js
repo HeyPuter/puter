@@ -817,7 +817,8 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
     const filetype_association_input = document.querySelector('textarea[id=edit-app-filetype-associations]');
     let tagify = new Tagify(filetype_association_input, {
         pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/(?:[a-z0-9.-]+|\*))/,
-        delimiters: ", ",
+        delimiters: ",",  // Use comma as delimiter
+        duplicates: false, // Prevent duplicate tags
         enforceWhitelist: false,
         dropdown : {
             // show the dropdown immediately on focus (0 character typed)
@@ -1081,9 +1082,6 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
 
     // Add custom paste event handler for CSV processing
     if (tagify) {
-        // Modify the Tagify settings to treat comma as a tag delimiter
-        tagify.settings.delimiters = ',';
-        
         // Handle paste events to support bulk pasting of extensions
         tagify.DOM.input.addEventListener('paste', function(e) {
             // Get the pasted text
@@ -1093,7 +1091,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
             if (pastedText && /[,;\t\s]/.test(pastedText)) {
                 e.preventDefault(); // Prevent the default paste action
                 
-                // Remove any existing text in the input
+                // Clear the input field
                 tagify.DOM.input.textContent = '';
                 
                 // Split by common delimiters (comma, semicolon, tab, or space)
@@ -1107,14 +1105,22 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                     );
                 
                 if (extensions.length > 0) {
-                    // Add all valid extensions as tags
-                    tagify.addTags(extensions);
+                    // Get existing tag values to avoid duplicates
+                    const existingValues = tagify.value.map(tag => tag.value);
                     
-                    // Trigger change event to enable save button
-                    setTimeout(() => {
-                        toggleSaveButton();
-                        toggleResetButton();
-                    }, 10);
+                    // Filter out extensions that already exist as tags
+                    const newExtensions = extensions.filter(ext => !existingValues.includes(ext));
+                    
+                    if (newExtensions.length > 0) {
+                        // Add only new extensions as tags
+                        tagify.addTags(newExtensions);
+                        
+                        // Trigger change event to enable save button
+                        setTimeout(() => {
+                            toggleSaveButton();
+                            toggleResetButton();
+                        }, 10);
+                    }
                 }
             }
         });
@@ -1131,17 +1137,22 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                 if ((text.startsWith('.') || text.includes('/')) && 
                     tagify.settings.pattern.test(text)) {
                     
-                    // Add as tag
-                    tagify.addTags([text]);
+                    // Check if this tag already exists
+                    const existingValues = tagify.value.map(tag => tag.value);
                     
-                    // Clear the input
+                    if (!existingValues.includes(text)) {
+                        // Add as tag only if it doesn't already exist
+                        tagify.addTags([text]);
+                        
+                        // Trigger change event
+                        setTimeout(() => {
+                            toggleSaveButton();
+                            toggleResetButton();
+                        }, 10);
+                    }
+                    
+                    // Clear the input regardless
                     tagify.DOM.input.textContent = '';
-                    
-                    // Trigger change event
-                    setTimeout(() => {
-                        toggleSaveButton();
-                        toggleResetButton();
-                    }, 10);
                 }
             }
         });
