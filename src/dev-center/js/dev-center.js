@@ -570,7 +570,7 @@ function generate_edit_app_section(app) {
                 <label for="edit-app-filetype-associations">File Associations</label>
                <p style="margin-top: 10px; font-size:13px;">A list of file type specifiers. For example if you include <code>.txt</code> your apps could be opened when a user clicks on a TXT file.</p>
                <p style="margin-top: 5px; font-size:13px;">You can paste multiple extensions at once (comma, space, or tab separated) or press comma to add each extension.</p>
-               <textarea id="edit-app-filetype-associations"  placeholder="Paste multiple extensions like: .txt, .doc, .pdf, application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length)}</textarea>
+               <textarea id="edit-app-filetype-associations"  placeholder="Paste multiple extensions like: .txt, .doc, .pdf, application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length).replace(/</g, '\\u003c')}</textarea>
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window</h3>
                 <div>
