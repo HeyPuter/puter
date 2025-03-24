@@ -569,8 +569,8 @@ function generate_edit_app_section(app) {
 
                 <label for="edit-app-filetype-associations">File Associations</label>
                <p style="margin-top: 10px; font-size:13px;">A list of file type specifiers. For example if you include <code>.txt</code> your apps could be opened when a user clicks on a TXT file.</p>
-               <p style="margin-top: 5px; font-size:13px;">You can paste multiple extensions at once (comma, space, or tab separated).</p>
-               <textarea id="edit-app-filetype-associations"  placeholder="Paste multiple extensions: .txt, .doc, .pdf, application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length)}</textarea>
+               <p style="margin-top: 5px; font-size:13px;">You can paste multiple extensions at once (comma, space, or tab separated) or press comma to add each extension.</p>
+               <textarea id="edit-app-filetype-associations"  placeholder="Paste multiple extensions like: .txt, .doc, .pdf, application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length)}</textarea>
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window</h3>
                 <div>
@@ -1080,78 +1080,90 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
         console.log('no tippy:', e);
     }
 
-    // Add custom paste event handler for CSV processing
+    // Custom function to handle bulk pasting of file extensions
     if (tagify) {
-        // Handle paste events to support bulk pasting of extensions
-        tagify.DOM.input.addEventListener('paste', function(e) {
-            // Get the pasted text
-            const pastedText = e.clipboardData ? e.clipboardData.getData('text') : '';
+        // Create a completely separate paste handler
+        const handleBulkPaste = function(e) {
+            const clipboardData = e.clipboardData || window.clipboardData;
+            if (!clipboardData) return;
             
-            // Check if the pasted text contains multiple items (using common delimiters)
-            if (pastedText && /[,;\t\s]/.test(pastedText)) {
-                e.preventDefault(); // Prevent the default paste action
+            const pastedText = clipboardData.getData('text');
+            if (!pastedText) return;
+            
+            // Check if the pasted text contains delimiters
+            if (/[,;\t\s]/.test(pastedText)) {
+                e.stopPropagation();
+                e.preventDefault();
                 
-                // Clear the input field
-                tagify.DOM.input.textContent = '';
-                
-                // Split by common delimiters (comma, semicolon, tab, or space)
+                // Process the pasted text to extract extensions
                 const extensions = pastedText.split(/[,;\t\s]+/)
                     .map(ext => ext.trim())
-                    .filter(ext => ext && 
-                        // Make sure it's a valid extension format (starts with dot or contains slash for MIME types)
-                        (ext.startsWith('.') || ext.includes('/')) && 
-                        // Validate against the pattern
-                        tagify.settings.pattern.test(ext)
-                    );
+                    .filter(ext => ext && (ext.startsWith('.') || ext.includes('/')));
                 
                 if (extensions.length > 0) {
-                    // Get existing tag values to avoid duplicates
+                    // Get existing values to prevent duplicates
                     const existingValues = tagify.value.map(tag => tag.value);
                     
-                    // Filter out extensions that already exist as tags
+                    // Only add extensions that don't already exist
                     const newExtensions = extensions.filter(ext => !existingValues.includes(ext));
                     
                     if (newExtensions.length > 0) {
-                        // Add only new extensions as tags
+                        // Add the new tags
                         tagify.addTags(newExtensions);
                         
-                        // Trigger change event to enable save button
+                        // Update the UI
                         setTimeout(() => {
                             toggleSaveButton();
                             toggleResetButton();
                         }, 10);
                     }
                 }
+                
+                // Clear the input element to prevent any text concatenation
+                setTimeout(() => {
+                    if (tagify.DOM.input) {
+                        tagify.DOM.input.textContent = '';
+                    }
+                }, 10);
             }
-        });
+        };
         
-        // Also handle keydown events to support comma key presses
+        // Add the paste handler directly to the tagify wrapper element
+        const tagifyWrapper = tagify.DOM.scope;
+        if (tagifyWrapper) {
+            tagifyWrapper.addEventListener('paste', handleBulkPaste, true);
+        }
+        
+        // Also add it to the input element for better coverage
+        if (tagify.DOM.input) {
+            tagify.DOM.input.addEventListener('paste', handleBulkPaste, true);
+        }
+        
+        // Add a comma key handler to support adding tags with comma
         tagify.DOM.input.addEventListener('keydown', function(e) {
-            // If comma is pressed and there's text in the input
             if (e.key === ',' && tagify.DOM.input.textContent.trim()) {
                 e.preventDefault();
                 
                 const text = tagify.DOM.input.textContent.trim();
                 
-                // Validate the text
+                // Only add valid extensions
                 if ((text.startsWith('.') || text.includes('/')) && 
                     tagify.settings.pattern.test(text)) {
                     
-                    // Check if this tag already exists
+                    // Check for duplicates
                     const existingValues = tagify.value.map(tag => tag.value);
                     
                     if (!existingValues.includes(text)) {
-                        // Add as tag only if it doesn't already exist
                         tagify.addTags([text]);
                         
-                        // Trigger change event
+                        // Update UI
                         setTimeout(() => {
                             toggleSaveButton();
                             toggleResetButton();
                         }, 10);
                     }
                     
-                    // Clear the input regardless
+                    // Always clear the input
                     tagify.DOM.input.textContent = '';
                 }
             }
