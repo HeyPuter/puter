@@ -29,6 +29,19 @@ const BaseService = require("../../services/BaseService");
 * Implements the 'puter-chat-completion' interface with list() and complete() methods.
 */
 class FakeChatService extends BaseService {
+    /**
+     * Initializes the service and registers it as a provider with AIChatService
+     * @private
+     * @returns {Promise<void>}
+     */
+    async _init() {
+        const svc_aiChat = this.services.get('ai-chat');
+        svc_aiChat.register_provider({
+            service_name: this.service_name,
+            alias: true,
+        });
+    }
+
     get_default_model () {
         return 'fake';
     }
