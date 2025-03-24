@@ -819,16 +819,6 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
         pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/(?:[a-z0-9.-]+|\*))/,
         delimiters: ", ",
         enforceWhitelist: false,
-        pasteAsTags: true,
-        callbacks: {
-            add: function(e) {
-                // When tags are added, trigger change to enable save button
-                setTimeout(() => {
-                    toggleSaveButton();
-                    toggleResetButton();
-                }, 0);
-            }
-        },
         dropdown : {
             // show the dropdown immediately on focus (0 character typed)
             enabled: 0,
@@ -1088,28 +1078,34 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
     // Add custom paste event handler for CSV processing
     if (tagify) {
         tagify.DOM.input.addEventListener('paste', function(e) {
-            // Let Tagify handle the paste event first
-            setTimeout(() => {
-                const pastedText = e.clipboardData ? e.clipboardData.getData('text') : '';
+            // Get the pasted text
+            const pastedText = e.clipboardData ? e.clipboardData.getData('text') : '';
+            
+            // Check if the pasted text contains multiple items (using common delimiters)
+            if (pastedText && /[,;\t\s]/.test(pastedText)) {
+                e.preventDefault(); // Prevent the default paste action
                 
-                // Check if the pasted text contains commas, semicolons, or tabs (common CSV delimiters)
-                if (pastedText && /[,;\t]/.test(pastedText)) {
-                    e.preventDefault();
+                // Split by common delimiters (comma, semicolon, tab, or space)
+                const extensions = pastedText.split(/[,;\t\s]+/)
+                    .map(ext => ext.trim())
+                    .filter(ext => ext && 
+                        // Make sure it's a valid extension format (starts with dot or contains slash for MIME types)
+                        (ext.startsWith('.') || ext.includes('/')) && 
+                        // Validate against the pattern
+                        tagify.settings.pattern.test(ext)
+                    );
+                
+                if (extensions.length > 0) {
+                    // Add all valid extensions as tags
+                    tagify.addTags(extensions);
                     
-                    // Split by common CSV delimiters (comma, semicolon, tab, or space)
-                    const extensions = pastedText.split(/[,;\t\s]+/)
-                        .map(ext => ext.trim())
-                        .filter(ext => ext && 
-                            (ext.startsWith('.') || ext.includes('/')) && 
-                            tagify.settings.pattern.test(ext)
-                        );
-                    
-                    if (extensions.length > 0) {
-                        // Add all valid extensions as tags
-                        tagify.addTags(extensions);
-                    }
+                    // Trigger change event to enable save button
+                    setTimeout(() => {
+                        toggleSaveButton();
+                        toggleResetButton();
+                    }, 10);
                 }
-            }, 0);
+            }
         });
     }
 }
