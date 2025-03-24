@@ -25,7 +25,7 @@ npm install nodemailer
 The MailHog UI can be accessed at [http://127.0.0.1:8025/](http://127.0.0.1:8025/).
 All sent emails and their recipients can be viewed here.
 
-## Using Nodemailer to Send Emails
+## Using Nodemailer to Send Emails via SMTP, which will appear in the MailHog instance.
 - Using nodemailer as the transport method to send emails using SMTP which would be visible in MailHog instance.
 
 ```javascript
@@ -55,7 +55,7 @@ transporter.sendMail(mailOptions)
 - If the Mailhog is not working :
 ```bash
 ps aux | grep MailHog
-#Ensuring it is running
+#Ensure it is running
 ```
 
 
