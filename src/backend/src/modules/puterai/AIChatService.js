@@ -662,11 +662,15 @@ class AIChatService extends BaseService {
         const reading = await svc_permission.scan(actor, `paid-services:ai-chat`);
         const options = PermissionUtil.reading_to_options(reading);
 
-        // Query current ai usage in terms of cost
+        // Query current ai usage in terms of cost (only from the past month)
+        const oneMonthAgo = new Date();
+        oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+        const oneMonthAgoStr = oneMonthAgo.toISOString().slice(0, 19).replace('T', ' ');
+        
         const [row] = await this.db.read(
             'SELECT SUM(`cost`) AS sum FROM `ai_usage` ' +
-            'WHERE `user_id` = ?',
-            [actor.type.user.id]
+            'WHERE `user_id` = ? AND `created_at` >= ?',
+            [actor.type.user.id, oneMonthAgoStr]
         );
         
         const cost_used = row?.sum || 0;
