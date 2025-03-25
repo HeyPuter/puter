@@ -52,6 +52,8 @@
     "javascript-time-ago": "^2.5.11",
     "json-colorizer": "^3.0.1",
     "open": "^10.1.0",
+    "openai": "^4.73.1",
+    "qs": "^6.14.0",
     "sharp": "^0.33.5",
     "sharp-bmp": "^0.1.5",
     "sharp-ico": "^0.1.5",

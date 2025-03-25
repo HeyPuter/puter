@@ -49,6 +49,462 @@ const open_item = async function(options){
         UIAlert(`This shortcut can't be opened because its source has been deleted.`)
     }
     //----------------------------------------------------------------
+    // Is this a .weblink file?
+    //----------------------------------------------------------------
+    else if($(el_item).attr('data-name').toLowerCase().endsWith('.weblink')){
+        try {
+            // Log the file information
+            console.log("Opening weblink file:", {
+                name: $(el_item).attr('data-name'),
+                path: item_path,
+                uid: file_uid
+            });
+            
+            // First check localStorage using the file's UID
+            let url = null;
+            if (file_uid) {
+                url = localStorage.getItem('weblink_' + file_uid);
+                console.log("Retrieved URL from localStorage:", url);
+            }
+            
+            // Try to read the file content directly using the file's path
+            if (!url) {
+                try {
+                    // Convert Windows-style path to unix-style path
+                    const unixPath = item_path.replace(/\\/g, '/');
+                    console.log("Trying to read file content using unix-style path:", unixPath);
+                    
+                    // Try using the simpler puter.fs.read method with unix-style path
+                    const content = await puter.fs.read({
+                        path: unixPath
+                    });
+                    
+                    console.log("File content read successfully:", content);
+                    
+                    // Handle different content types
+                    if (content instanceof Blob) {
+                        // If content is a Blob, convert it to text
+                        console.log("Content is a Blob, converting to text");
+                        const text = await content.text();
+                        console.log("Blob converted to text:", text);
+                        
+                        // Try to parse the text as JSON
+                        try {
+                            const jsonData = JSON.parse(text);
+                            if (jsonData.url) {
+                                url = jsonData.url;
+                                console.log("Retrieved URL from Blob content (JSON):", url);
+                                
+                                // Check for icon data in the JSON (support both old and new formats)
+                                const iconUrl = jsonData.iconDataUrl || jsonData.faviconUrl;
+                                if (iconUrl) {
+                                    console.log("Found icon URL in JSON:", iconUrl);
+                                    
+                                    // Use the favicon URL directly without generating a custom icon
+                                    const customIconUrl = iconUrl;
+                                    
+                                    // Store the icon URL in a global cache to ensure it persists
+                                    if (!window.weblink_icon_cache) {
+                                        window.weblink_icon_cache = {};
+                                    }
+                                    
+                                    // Store by both UID and path for maximum reliability
+                                    if (file_uid) {
+                                        window.weblink_icon_cache[file_uid] = customIconUrl;
+                                    }
+                                    if (item_path) {
+                                        window.weblink_icon_cache[item_path] = customIconUrl;
+                                    }
+                                    
+                                    // Also store in localStorage for persistence across page refreshes
+                                    try {
+                                        localStorage.setItem(`weblink_icon_${file_uid}`, customIconUrl);
+                                        localStorage.setItem(`weblink_icon_${item_path.replace(/[^a-zA-Z0-9]/g, '_')}`, customIconUrl);
+                                    } catch (e) {
+                                        console.error("Error storing icon URL in localStorage:", e);
+                                    }
+                                    
+                                    // Create a new image element with the custom icon
+                                    const iconImg = document.createElement('img');
+                                    iconImg.src = customIconUrl;
+                                    iconImg.className = 'item-icon persistent-icon';
+                                    iconImg.style.width = '32px';
+                                    iconImg.style.height = '32px';
+                                    // Add important attributes to prevent the icon from being changed
+                                    iconImg.setAttribute('data-original-icon', customIconUrl);
+                                    iconImg.setAttribute('data-icon-locked', 'true');
+                                    
+                                    // Apply multiple approaches to ensure the icon persists
+                                    console.log("Applying persistent icon using multiple approaches");
+                                    
+                                    // APPROACH 1: Replace the icon element completely
+                                    const existingIcon = $(el_item).find('img.item-icon');
+                                    let iconUpdated = false;
+                                    if (existingIcon.length > 0) {
+                                        // Create a completely new element to avoid any references to the old one
+                                        const newIconElement = document.createElement('img');
+                                        newIconElement.className = 'item-icon persistent-icon';
+                                        newIconElement.src = customIconUrl;
+                                        newIconElement.style.width = '32px';
+                                        newIconElement.style.height = '32px';
+                                        newIconElement.setAttribute('data-original-icon', customIconUrl);
+                                        newIconElement.setAttribute('data-icon-locked', 'true');
+                                        
+                                        // Replace the existing icon with our new one
+                                        existingIcon[0].parentNode.replaceChild(newIconElement, existingIcon[0]);
+                                        console.log("Replaced icon with persistent icon (approach 1)");
+                                        iconUpdated = true;
+                                        
+                                        // Add event listener to prevent the src from being changed
+                                        newIconElement.addEventListener('load', function() {
+                                            console.log("Icon loaded successfully");
+                                        });
+                                        
+                                        // Handle favicon loading error
+                                        newIconElement.addEventListener('error', function() {
+                                            console.log("Icon failed to load, using fallback");
+                                            this.src = window.icons['link.svg'];
+                                        });
+                                    }
+                                    
+                                    // APPROACH 2: Update all img elements inside the item
+                                    const allImgs = $(el_item).find('img');
+                                    if (allImgs.length > 0) {
+                                        allImgs.each(function() {
+                                            $(this).attr('src', customIconUrl);
+                                            $(this).attr('data-original-icon', customIconUrl);
+                                            $(this).attr('data-icon-locked', 'true');
+                                            // Add !important to the style to prevent it from being overridden
+                                            $(this).attr('style', `width: 32px !important; height: 32px !important;`);
+                                        });
+                                        console.log("Updated all img elements with persistent icon (approach 2)");
+                                        iconUpdated = true;
+                                    }
+                                    
+                                    // APPROACH 3: Add CSS styles to force the icon
+                                    // Get a unique identifier for this item
+                                    const itemId = $(el_item).attr('id') || $(el_item).attr('data-uid') || `weblink-${Date.now()}`;
+                                    if (!$(el_item).attr('id')) {
+                                        $(el_item).attr('id', itemId);
+                                    }
+                                    
+                                    // Add a style tag with !important rules
+                                    const styleId = `style-${itemId}`;
+                                    let styleTag = document.getElementById(styleId);
+                                    if (!styleTag) {
+                                        styleTag = document.createElement('style');
+                                        styleTag.id = styleId;
+                                        document.head.appendChild(styleTag);
+                                    }
+                                    
+                                    styleTag.textContent = `
+                                        #${itemId} img.item-icon,
+                                        [data-uid="${file_uid}"] img.item-icon {
+                                            content: url('${customIconUrl}') !important;
+                                            background-image: url('${customIconUrl}') !important;
+                                        }
+                                    `;
+                                    
+                                    // APPROACH 4: Set data attributes on the item element
+                                    $(el_item).attr({
+                                        'data-icon': customIconUrl,
+                                        'data-original-icon': customIconUrl,
+                                        'data-icon-locked': 'true',
+                                        'data-weblink-icon': customIconUrl
+                                    });
+                                    
+                                    // APPROACH 5: Add a MutationObserver to ensure the icon persists
+                                    try {
+                                        // Create a MutationObserver to watch for changes to the icon
+                                        const observer = new MutationObserver((mutations) => {
+                                            mutations.forEach((mutation) => {
+                                                if (mutation.type === 'attributes' &&
+                                                    mutation.attributeName === 'src' &&
+                                                    mutation.target.classList.contains('item-icon')) {
+                                                    // If the src attribute of the icon was changed, set it back
+                                                    if (mutation.target.src !== customIconUrl) {
+                                                        console.log("MutationObserver: Icon src changed, resetting");
+                                                        mutation.target.src = customIconUrl;
+                                                    }
+                                                }
+                                            });
+                                        });
+                                        
+                                        // Start observing the item element
+                                        observer.observe(el_item, {
+                                            attributes: true,
+                                            childList: true,
+                                            subtree: true,
+                                            attributeFilter: ['src']
+                                        });
+                                        
+                                        // Store the observer in a global variable to prevent garbage collection
+                                        if (!window.icon_observers) {
+                                            window.icon_observers = {};
+                                        }
+                                        window.icon_observers[file_uid] = observer;
+                                        
+                                        console.log("Set up MutationObserver to ensure icon persists");
+                                    } catch (e) {
+                                        console.error("Error setting up MutationObserver:", e);
+                                    }
+                                    
+                                    // Force a refresh of the item's icon
+                                    if (!iconUpdated) {
+                                        console.log("Could not find icon element to replace, forcing refresh");
+                                        // Try to trigger a refresh of the item
+                                        setTimeout(() => {
+                                            $(el_item).trigger('icon_update', { icon: customIconUrl });
+                                        }, 100);
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.error("Error parsing Blob content as JSON:", e);
+                            // Not valid JSON, try using the content directly
+                            if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
+                                url = text;
+                                console.log("Using Blob content as URL (direct):", url);
+                            }
+                        }
+                    } else if (typeof content === 'string') {
+                        // If content is a string, try to parse it as JSON
+                        try {
+                            const jsonData = JSON.parse(content);
+                            if (jsonData.url) {
+                                url = jsonData.url;
+                                console.log("Retrieved URL from string content (JSON):", url);
+                                
+                                // Check for icon data in the JSON (support both old and new formats)
+                                const iconUrl = jsonData.iconDataUrl || jsonData.faviconUrl;
+                                if (iconUrl) {
+                                    console.log("Found icon URL in JSON:", iconUrl);
+                                    
+                                    // Use the favicon URL directly without generating a custom icon
+                                    const customIconUrl = iconUrl;
+                                    
+                                    // Store the icon URL in a global cache to ensure it persists
+                                    if (!window.weblink_icon_cache) {
+                                        window.weblink_icon_cache = {};
+                                    }
+                                    
+                                    // Store by both UID and path for maximum reliability
+                                    if (file_uid) {
+                                        window.weblink_icon_cache[file_uid] = customIconUrl;
+                                    }
+                                    if (item_path) {
+                                        window.weblink_icon_cache[item_path] = customIconUrl;
+                                    }
+                                    
+                                    // Also store in localStorage for persistence across page refreshes
+                                    try {
+                                        localStorage.setItem(`weblink_icon_${file_uid}`, customIconUrl);
+                                        localStorage.setItem(`weblink_icon_${item_path.replace(/[^a-zA-Z0-9]/g, '_')}`, customIconUrl);
+                                    } catch (e) {
+                                        console.error("Error storing icon URL in localStorage:", e);
+                                    }
+                                    
+                                    // Apply multiple approaches to ensure the icon persists
+                                    console.log("Applying persistent icon using multiple approaches");
+                                    
+                                    // APPROACH 1: Replace the icon element completely
+                                    const existingIcon = $(el_item).find('img.item-icon');
+                                    let iconUpdated = false;
+                                    if (existingIcon.length > 0) {
+                                        // Create a completely new element to avoid any references to the old one
+                                        const newIconElement = document.createElement('img');
+                                        newIconElement.className = 'item-icon persistent-icon';
+                                        newIconElement.src = customIconUrl;
+                                        newIconElement.style.width = '32px';
+                                        newIconElement.style.height = '32px';
+                                        newIconElement.setAttribute('data-original-icon', customIconUrl);
+                                        newIconElement.setAttribute('data-icon-locked', 'true');
+                                        
+                                        // Replace the existing icon with our new one
+                                        existingIcon[0].parentNode.replaceChild(newIconElement, existingIcon[0]);
+                                        console.log("Replaced icon with persistent icon (approach 1)");
+                                        iconUpdated = true;
+                                        
+                                        // Add event listener to prevent the src from being changed
+                                        newIconElement.addEventListener('load', function() {
+                                            console.log("Icon loaded successfully");
+                                        });
+                                        
+                                        // Handle favicon loading error
+                                        newIconElement.addEventListener('error', function() {
+                                            console.log("Icon failed to load, using fallback");
+                                            this.src = window.icons['link.svg'];
+                                        });
+                                    }
+                                    
+                                    // APPROACH 2: Update all img elements inside the item
+                                    const allImgs = $(el_item).find('img');
+                                    if (allImgs.length > 0) {
+                                        allImgs.each(function() {
+                                            $(this).attr('src', customIconUrl);
+                                            $(this).attr('data-original-icon', customIconUrl);
+                                            $(this).attr('data-icon-locked', 'true');
+                                            // Add !important to the style to prevent it from being overridden
+                                            $(this).attr('style', `width: 32px !important; height: 32px !important;`);
+                                        });
+                                        console.log("Updated all img elements with persistent icon (approach 2)");
+                                        iconUpdated = true;
+                                    }
+                                    
+                                    // APPROACH 3: Add CSS styles to force the icon
+                                    // Get a unique identifier for this item
+                                    const itemId = $(el_item).attr('id') || $(el_item).attr('data-uid') || `weblink-${Date.now()}`;
+                                    if (!$(el_item).attr('id')) {
+                                        $(el_item).attr('id', itemId);
+                                    }
+                                    
+                                    // Add a style tag with !important rules
+                                    const styleId = `style-${itemId}`;
+                                    let styleTag = document.getElementById(styleId);
+                                    if (!styleTag) {
+                                        styleTag = document.createElement('style');
+                                        styleTag.id = styleId;
+                                        document.head.appendChild(styleTag);
+                                    }
+                                    
+                                    styleTag.textContent = `
+                                        #${itemId} img.item-icon,
+                                        [data-uid="${file_uid}"] img.item-icon {
+                                            content: url('${customIconUrl}') !important;
+                                            background-image: url('${customIconUrl}') !important;
+                                        }
+                                    `;
+                                    
+                                    // APPROACH 4: Set data attributes on the item element
+                                    $(el_item).attr({
+                                        'data-icon': customIconUrl,
+                                        'data-original-icon': customIconUrl,
+                                        'data-icon-locked': 'true',
+                                        'data-weblink-icon': customIconUrl
+                                    });
+                                    
+                                    // APPROACH 5: Add a MutationObserver to ensure the icon persists
+                                    try {
+                                        // Create a MutationObserver to watch for changes to the icon
+                                        const observer = new MutationObserver((mutations) => {
+                                            mutations.forEach((mutation) => {
+                                                if (mutation.type === 'attributes' &&
+                                                    mutation.attributeName === 'src' &&
+                                                    mutation.target.classList.contains('item-icon')) {
+                                                    // If the src attribute of the icon was changed, set it back
+                                                    if (mutation.target.src !== customIconUrl) {
+                                                        console.log("MutationObserver: Icon src changed, resetting");
+                                                        mutation.target.src = customIconUrl;
+                                                    }
+                                                }
+                                            });
+                                        });
+                                        
+                                        // Start observing the item element
+                                        observer.observe(el_item, {
+                                            attributes: true,
+                                            childList: true,
+                                            subtree: true,
+                                            attributeFilter: ['src']
+                                        });
+                                        
+                                        // Store the observer in a global variable to prevent garbage collection
+                                        if (!window.icon_observers) {
+                                            window.icon_observers = {};
+                                        }
+                                        window.icon_observers[file_uid] = observer;
+                                        
+                                        console.log("Set up MutationObserver to ensure icon persists");
+                                    } catch (e) {
+                                        console.error("Error setting up MutationObserver:", e);
+                                    }
+                                    
+                                    // Force a refresh of the item's icon
+                                    if (!iconUpdated) {
+                                        console.log("Could not find icon element to replace, forcing refresh");
+                                        // Try to trigger a refresh of the item
+                                        setTimeout(() => {
+                                            $(el_item).trigger('icon_update', { icon: customIconUrl });
+                                        }, 100);
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.error("Error parsing string content as JSON:", e);
+                            // Not valid JSON, try using the content directly
+                            if (content && (content.startsWith('http://') || content.startsWith('https://'))) {
+                                url = content;
+                                console.log("Using string content as URL (direct):", url);
+                            }
+                        }
+                    } else {
+                        console.error("Unexpected content type:", typeof content);
+                    }
+                } catch (e) {
+                    console.error("Error reading file using path:", e);
+                    
+                    // Fallback to using AJAX with the file's UID
+                    try {
+                        console.log("Trying to read file content using UID:", file_uid);
+                        
+                        const content = await $.ajax({
+                            url: window.api_origin + "/fs/read",
+                            type: 'POST',
+                            contentType: "application/json",
+                            data: JSON.stringify({
+                                uid: file_uid
+                            }),
+                            headers: {
+                                "Authorization": "Bearer " + window.auth_token
+                            }
+                        });
+                        
+                        console.log("File content read successfully using AJAX:", content);
+                        
+                        // Try to parse the content as JSON
+                        if (content && content.content) {
+                            try {
+                                const jsonData = JSON.parse(content.content);
+                                if (jsonData.url) {
+                                    url = jsonData.url;
+                                    console.log("Retrieved URL from file content (AJAX JSON):", url);
+                                }
+                            } catch (e) {
+                                // Not valid JSON, try using the content directly
+                                if (content.content && (content.content.startsWith('http://') || content.content.startsWith('https://'))) {
+                                    url = content.content;
+                                    console.log("Using file content as URL (AJAX direct):", url);
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.error("Error reading file using AJAX:", e);
+                    }
+                }
+            }
+            
+            // If we have a valid URL, open it
+            if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+                console.log("Opening URL:", url);
+                window.open(url, '_blank', 'noopener,noreferrer');
+            } else {
+                // Show a more detailed error message
+                console.error("Failed to retrieve URL from all sources");
+                UIAlert(`Could not determine the URL for this web shortcut.
+                
+Technical details:
+- File name: ${$(el_item).attr('data-name')}
+- File path: ${item_path}
+- File UID: ${file_uid}
+
+Please try recreating the link.`);
+            }
+        } catch (error) {
+            console.error('Error opening web shortcut:', error);
+            UIAlert('Error opening web shortcut: ' + error.message);
+        }
+    }
+    //----------------------------------------------------------------
     // Is this a trashed file?
     //----------------------------------------------------------------
     else if(item_path.startsWith(window.trash_path + '/')){

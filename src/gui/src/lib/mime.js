@@ -36,10 +36,22 @@ function Mime() {
     let ext = last.replace(/^.*\./, "").toLowerCase();
     let hasPath = last.length < path.length;
     let hasDot = ext.length < last.length - 1;
+    
+    // Special case for .weblink files
+    if (ext === 'weblink') {
+      return 'application/x-weblink';
+    }
+    
     return (hasDot || !hasPath) && this._types[ext] || null;
   };
   Mime.prototype.getExtension = function(type) {
     type = /^\s*([^;\s]*)/.test(type) && RegExp.$1;
+    
+    // Special case for .weblink files
+    if (type === 'application/x-weblink') {
+      return 'weblink';
+    }
+    
     return type && this._extensions[type.toLowerCase()] || null;
   };
   var Mime_1 = Mime;

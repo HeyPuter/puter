@@ -1,0 +1,11 @@
+{
+    "name": "web-shortcuts",
+    "version": "1.0.0",
+    "description": "Create web shortcuts on the desktop",
+    "author": "Puter",
+    "license": "MIT",
+    "dependencies": {
+        "fs": "*",
+        "path": "*"
+    }
+} 
