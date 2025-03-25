@@ -43,19 +43,23 @@ Once MailHog is running, access the web interface at:
 
 All captured emails and their recipients will be displayed in this interface.
 
-### Sending Test Emails with Nodemailer
+### Testing Your MailHog Setup with Nodemailer
 
-Use Nodemailer as the transport method to send emails via SMTP. These emails will be captured by MailHog:
+You can verify that your MailHog instance is working correctly by creating a simple test script using Nodemailer. This allows you to send test emails that will be captured by MailHog without actually delivering them to real recipients.
+
+Here's a sample script you can use to test your MailHog setup:
 
 ```javascript
 import nodemailer from "nodemailer";
 
+// Configure transporter to use MailHog
 const transporter = nodemailer.createTransport({
-    host: "localhost", // SMTP server (MailHog in this case)
+    host: "localhost", // MailHog SMTP server address
     port: 1025,        // Default MailHog SMTP port
-    secure: false      // No SSL/TLS required
+    secure: false      // No SSL/TLS required for MailHog
 });
 
+// Define a test email
 const mailOptions = {
     from: "no-reply@example.com",
     to: "test@example.com",
@@ -63,12 +67,26 @@ const mailOptions = {
     text: "This is a test email sent using Nodemailer."
 };
 
+// Send the test email
 transporter.sendMail(mailOptions)
     .then(info => console.log("Email sent:", info.response))
     .catch(error => console.error("Error:", error));
 ```
 
-After sending an email, you can view it in the MailHog web interface:
+After sending an email with this script, you can view it in the MailHog web interface:
+
+### How Puter Uses Nodemailer
+
+Puter itself uses Nodemailer for sending emails through its `EmailService` class located in `/src/backend/src/services/EmailService.js`. This service handles various email templates for:
+
+- Account verification
+- Password recovery
+- Two-factor authentication notifications
+- File sharing notifications
+- App approval notifications
+- And more
+
+The service creates a Nodemailer transport using the configuration from your `config.json` file, which is why setting up MailHog correctly is important for testing Puter's email functionality during development.
 
 <img src="image.png" alt="Email in MailHog interface" width="300" height="200">
 
