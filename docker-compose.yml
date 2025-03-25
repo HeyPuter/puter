@@ -2,6 +2,8 @@
 version: "3.8"
 services:
   puter:
+    security_opt:
+      - no-new-privileges:true
     container_name: puter
     image: ghcr.io/heyputer/puter:latest
     pull_policy: always
