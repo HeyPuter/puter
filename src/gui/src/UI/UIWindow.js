@@ -578,8 +578,9 @@ async function UIWindow(options) {
     if(options.is_dir && (options.path.split('/').length - 1) === 1 && options.path !== '/'+window.user.username){
         $(el_window_head_icon).attr('src', window.icons['shared.svg']);
     }
-    // focus on this window and deactivate other windows
-    if ( options.is_visible ) {
+    // focus on this window and deactivate other windows only if it's visible
+    // and not a background app (background apps should never get focus)
+    if ( options.is_visible && !options.app_info?.background ) {
         $(el_window).focusWindow();
     }
 
