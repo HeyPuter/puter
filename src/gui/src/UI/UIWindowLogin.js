@@ -28,6 +28,7 @@ import JustHTML from './Components/JustHTML.js';
 import StepView from './Components/StepView.js';
 import Button from './Components/Button.js';
 import RecoveryCodeEntryView from './Components/RecoveryCodeEntryView.js';
+import play_startup_chime from '../helpers/play_startup_chime.js';
 
 async function UIWindowLogin(options){
     options = options ?? {};
