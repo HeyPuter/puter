@@ -1,32 +1,51 @@
 # Local Email Testing
-- The local email testing is done through [MailHog](https://github.com/mailhog/MailHog) which provides email testing through a local email server.
-## Prerequisites
-- Following the general instruction i.e. adding in `volatile/config/config.json`
-   ```json
-    "email": {
-    "host": "localhost",
-    "port": 1025
-    }
-   ```
-- Having MailHog installed in your machine.
+
+This guide describes how to set up and use [MailHog](https://github.com/mailhog/MailHog) for local email testing in Puter development. MailHog provides a local email server that captures outgoing emails for testing purposes without actually sending them to real recipients.
+
+## Setup
+
+### 1. Configure Puter
+
+Add the following configuration to your `volatile/config/config.json` file:
+
+```json
+"email": {
+  "host": "localhost",
+  "port": 1025
+}
+```
+
+### 2. Install MailHog
+
+Download and run MailHog on your local machine:
+
 ```bash
 # Install MailHog
 wget https://github.com/mailhog/MailHog/releases/download/v1.0.1/MailHog_linux_amd64
 chmod +x MailHog_linux_amd64
 ./MailHog_linux_amd64
 ```
-- Nodemailer to send email to SMTP server running in your machine.
-   To install nodemailer:
-``` zsh
+
+### 3. Install Nodemailer
+
+Install Nodemailer to send test emails to the SMTP server:
+
+```bash
 npm install nodemailer
 ```
 
-## Access Web Interface
-The MailHog UI can be accessed at [http://127.0.0.1:8025/](http://127.0.0.1:8025/).
-All sent emails and their recipients can be viewed here.
+## Using MailHog
 
-## Using Nodemailer to Send Emails via SMTP, which will appear in the MailHog instance.
-- Using nodemailer as the transport method to send emails using SMTP which would be visible in MailHog instance.
+### Access Web Interface
+
+Once MailHog is running, access the web interface at:
+[http://127.0.0.1:8025/](http://127.0.0.1:8025/)
+
+All captured emails and their recipients will be displayed in this interface.
+
+### Sending Test Emails with Nodemailer
+
+Use Nodemailer as the transport method to send emails via SMTP. These emails will be captured by MailHog:
 
 ```javascript
 import nodemailer from "nodemailer";
@@ -48,14 +67,21 @@ transporter.sendMail(mailOptions)
     .then(info => console.log("Email sent:", info.response))
     .catch(error => console.error("Error:", error));
 ```
-- Once the email is sent, you can see it in the MailHog web interface as shown in the screenshot below.
-<img src="image.png" alt="Alt text" width="300" height="200">
 
-## TroubleShooting
-- If the Mailhog is not working :
-```bash
-ps aux | grep MailHog
-#Ensure it is running
-```
+After sending an email, you can view it in the MailHog web interface:
 
+<img src="image.png" alt="Email in MailHog interface" width="300" height="200">
+
+## Troubleshooting
+
+If you encounter issues with MailHog:
+
+1. Check if MailHog is running:
+   ```bash
+   ps aux | grep MailHog
+   ```
+
+2. Ensure the correct port configurations in both MailHog and your application.
+
+3. Check for any error messages in the MailHog console output.
 
