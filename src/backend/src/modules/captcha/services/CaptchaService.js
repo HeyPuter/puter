@@ -39,8 +39,14 @@ class CaptchaService extends BaseService {
         // In-memory token storage with expiration
         this.captchaTokens = new Map();
         
+        // Extra debug logging
+        console.log('CAPTCHA DEBUG: config is', JSON.stringify(this.config));
+        console.log('CAPTCHA DEBUG: config.enabled type is', typeof this.config.enabled);
+        console.log('CAPTCHA DEBUG: config.enabled value is', this.config.enabled);
+        console.log('CAPTCHA DEBUG: config.enabled === true is', this.config.enabled === true);
+        
         // Configuration (from service registration)
-        this.enabled = this.config.enabled !== undefined ? this.config.enabled : true;
+        this.enabled = this.config.enabled === true; // Only enable if explicitly true
         console.log('CAPTCHA DIAGNOSTIC: CaptchaService initialized with enabled =', this.enabled, 'from config.enabled =', this.config.enabled);
         
         this.expirationTime = this.config.expirationTime || (10 * 60 * 1000); // 10 minutes default

@@ -30,10 +30,42 @@ const isValid = captchaService.verifyCaptcha(token, userAnswer);
 
 ## Configuration
 
-The CaptchaService can be configured with the following options:
+The CaptchaService can be configured with the following options in the configuration file (`config.json`):
 
-- `enabled`: Whether the captcha service is enabled (default: true)
-- `expirationTime`: How long captcha tokens are valid in milliseconds (default: 10 minutes)
-- `difficulty`: The difficulty level of the captcha ('easy', 'medium', 'hard') (default: 'medium')
+- `captcha.enabled`: Whether the captcha service is enabled (default: false)
+- `captcha.expirationTime`: How long captcha tokens are valid in milliseconds (default: 10 minutes)
+- `captcha.difficulty`: The difficulty level of the captcha ('easy', 'medium', 'hard') (default: 'medium')
+
+These options are set in the main configuration file. For example:
+
+```json
+{
+  "captcha": {
+    "enabled": false,
+    "expirationTime": 600000,
+    "difficulty": "medium"
+  }
+}
+```
+
+### Development Configuration
+
+For local development, you can disable captcha by creating or modifying your local configuration file (e.g., in `volatile/config/config.json` or using a profile configuration):
+
+```json
+{
+  "$version": "v1.1.0",
+  "$requires": [
+    "config.json"
+  ],
+  "config_name": "local",
+  
+  "captcha": {
+    "enabled": false
+  }
+}
+```
+
+Note: Setting `CAPTCHA_ENABLED=false` as an environment variable is no longer supported. Please use the configuration system instead.
 
 These options are set when registering the service in CaptchaModule.js. 

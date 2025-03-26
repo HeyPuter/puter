@@ -36,13 +36,6 @@ const checkCaptcha = (options = {}) => async (req, res, next) => {
     const strictMode = options.strictMode !== false;
     const eventType = options.eventType || 'default';
     
-    // Simple environment variable check at the start
-    if (process.env.CAPTCHA_ENABLED === 'false') {
-        console.log('CAPTCHA DIAGNOSTIC: Captcha disabled via environment variable');
-        req.captchaRequired = false;
-        return next();
-    }
-    
     console.log(`CAPTCHA DIAGNOSTIC: checkCaptcha middleware called for ${eventType}, strictMode: ${strictMode}, always: ${options.always || false}`);
     
     try {
@@ -64,6 +57,13 @@ const checkCaptcha = (options = {}) => async (req, res, next) => {
             captchaService = services.get('captcha');
             console.log('CAPTCHA DIAGNOSTIC: captchaService available, enabled:', captchaService.enabled);
             
+            // If captcha service exists but is explicitly disabled, set captchaRequired to false immediately
+            if (captchaService.enabled === false) {
+                console.log('CAPTCHA DIAGNOSTIC: captchaService is explicitly disabled, bypassing check');
+                req.captchaRequired = false;
+                return next();
+            }
+            
             try {
                 eventService = services.get('event');
             } catch (eventError) {
@@ -74,30 +74,6 @@ const checkCaptcha = (options = {}) => async (req, res, next) => {
             console.warn('CAPTCHA DIAGNOSTIC: captchaService not available:', captchaError.message);
             req.captchaRequired = strictMode;
             return next();
-        }
-        
-        // Check if captcha service is explicitly disabled (this is different from errors)
-        // Only proceed if the service is intentionally disabled by configuration
-        if (captchaService && captchaService.enabled === false) {
-            console.info('Captcha middleware: service is explicitly disabled by configuration');
-            
-            // For debugging - check environment variables to confirm it's intentionally disabled
-            const explicitlyDisabled = process.env.CAPTCHA_ENABLED === 'false';
-            const isDevelopment = process.env.NODE_ENV === 'development';
-            
-            if (explicitlyDisabled || isDevelopment) {
-                console.info('Captcha middleware: service disabled via environment or development mode');
-                req.captchaRequired = false;
-                return next();
-            } else {
-                console.warn('Captcha middleware: service disabled but not via environment variable');
-                if (strictMode) {
-                    req.captchaRequired = true;
-                } else {
-                    req.captchaRequired = false;
-                }
-                return next();
-            }
         }
         
         // If captcha service doesn't exist or isn't properly initialized, set requirement based on strict mode

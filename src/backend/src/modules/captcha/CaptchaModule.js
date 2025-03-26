@@ -36,19 +36,23 @@ class CaptchaModule extends AdvancedBase {
         const { CaptchaService } = require('./services/CaptchaService');
         
         // Get configuration from config system with fallbacks
-        const captchaEnabled = config.captcha?.enabled !== false; // Enabled by default
+        console.log('CAPTCHA DEBUG: config.captcha is', JSON.stringify(config.captcha));
+        console.log('CAPTCHA DEBUG: config.captcha?.enabled type is', typeof config.captcha?.enabled);
+        console.log('CAPTCHA DEBUG: config.captcha?.enabled value is', config.captcha?.enabled);
+        console.log('CAPTCHA DEBUG: config.captcha?.enabled === true is', config.captcha?.enabled === true);
+        
+        const captchaEnabled = config.captcha?.enabled === true; // Only enabled if explicitly true
         const captchaExpirationTime = config.captcha?.expirationTime || 10 * 60 * 1000; // 10 minutes
         const captchaDifficulty = config.captcha?.difficulty || 'medium';
         
         console.log('CAPTCHA DIAGNOSTIC: CaptchaModule installing with config.captcha =', JSON.stringify(config.captcha));
         console.log('CAPTCHA DIAGNOSTIC: captchaEnabled =', captchaEnabled);
-        console.log('CAPTCHA DIAGNOSTIC: Environment CAPTCHA_ENABLED =', process.env.CAPTCHA_ENABLED);
         console.log('CAPTCHA DIAGNOSTIC: Environment NODE_ENV =', process.env.NODE_ENV);
         
         // Register the captcha service
         services.registerService('captcha', CaptchaService, {
             // Configuration from config system
-            enabled: captchaEnabled && process.env.CAPTCHA_ENABLED !== 'false',
+            enabled: captchaEnabled,
             expirationTime: captchaExpirationTime,
             difficulty: captchaDifficulty
         });

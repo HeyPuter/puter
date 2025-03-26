@@ -103,6 +103,16 @@ class PuterHomepageService extends BaseService {
                             config: captchaService?.config,
                             serviceType: typeof captchaService
                         });
+                        
+                        // If captcha service exists but is explicitly disabled, 
+                        // set captchaRequired to false for all operations
+                        if (captchaService && captchaService.enabled === false) {
+                            console.log('CAPTCHA DIAGNOSTIC: Captcha service is explicitly disabled, setting all requirements to false');
+                            responseData.captchaRequired.login = false;
+                            responseData.captchaRequired.signup = false;
+                            // Return early since we've already determined requirements
+                            return res.json(responseData);
+                        }
                     } else {
                         console.log('CAPTCHA DIAGNOSTIC: No services available in Context');
                     }
@@ -139,12 +149,11 @@ class PuterHomepageService extends BaseService {
                     responseData.captchaRequired.signup = signupReq.captchaRequired || false;
                     console.log('CAPTCHA DIAGNOSTIC: /whoarewe signup captchaRequired =', responseData.captchaRequired.signup);
                 } else {
-                    // If middleware isn't available, check environment
+                    // If middleware isn't available, check if we're in development mode
                     const isDevelopment = process.env.NODE_ENV === 'development';
-                    const explicitlyDisabled = process.env.CAPTCHA_ENABLED === 'false';
                     
-                    if (isDevelopment || explicitlyDisabled) {
-                        console.log('CAPTCHA DIAGNOSTIC: /whoarewe in development mode or explicitly disabled, defaulting to not required');
+                    if (isDevelopment) {
+                        console.log('CAPTCHA DIAGNOSTIC: /whoarewe in development mode, defaulting to not required');
                         responseData.captchaRequired.login = false;
                         responseData.captchaRequired.signup = false;
                     } else {
