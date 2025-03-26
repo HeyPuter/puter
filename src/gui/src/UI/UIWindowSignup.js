@@ -229,6 +229,44 @@ function UIWindowSignup(options){
             e.stopPropagation();
             return false;
         })
+        
+        // Check for available OAuth providers
+        fetch('/oauth/providers')
+            .then(response => response.json())
+            .then(data => {
+                if (Object.keys(data.providers || {}).length > 0) {
+                    // Add OAuth section to the signup form
+                    const oauthSection = $(`
+                        <div class="oauth-signup-options" style="margin-top: 20px;">
+                            <p style="text-align:center; margin-bottom: 10px;">${i18n('or_signup_with') || 'Or sign up with'}</p>
+                            <div style="display: flex; justify-content: center; gap: 10px;"></div>
+                        </div>
+                    `);
+                    
+                    const buttonContainer = oauthSection.find('div');
+                    
+                    if (data.providers.google) {
+                        buttonContainer.append(`
+                            <a href="/auth/google" class="oauth-button" style="display: flex; align-items: center; justify-content: center; padding: 8px 16px; border-radius: 4px; background-color: #4285F4; color: white; text-decoration: none; font-weight: 500;">
+                                <span style="margin-left: 8px;">Google</span>
+                            </a>
+                        `);
+                    }
+                    
+                    if (data.providers.discord) {
+                        buttonContainer.append(`
+                            <a href="/auth/discord" class="oauth-button" style="display: flex; align-items: center; justify-content: center; padding: 8px 16px; border-radius: 4px; background-color: #5865F2; color: white; text-decoration: none; font-weight: 500;">
+                                <span style="margin-left: 8px;">Discord</span>
+                            </a>
+                        `);
+                    }
+                    
+                    $(el_window).find('.signup-form').append(oauthSection);
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching OAuth providers:', error);
+            });
             
         //remove login window
         $('.signup-c2a-clickable').parents('.window').close();
