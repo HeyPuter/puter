@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024-present Puter Technologies Inc.
+ * Copyright (C) 2025-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -17,8 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 "use strict";
-const BaseService = require("./BaseService");
+
 const passport = require('passport');
+
+const BaseService = require("./BaseService");
 
 /**
  * @class OAuthAPIService
@@ -33,11 +35,11 @@ class OAuthAPIService extends BaseService {
      * Sets up the routes for OAuth authentication.
      * This method registers various OAuth endpoints with the web server.
      */
-    async ['__on_install.routes'] () {
+    async ['__on_install.routes']() {
         const { app } = this.services.get('web-server');
         
         // Only register OAuth routes if OAuth is enabled
-        if (this.global_config.oauth?.enabled) {
+        if ( this.global_config.oauth?.enabled ) {
             // Initialize Passport middleware
             app.use(passport.initialize());
             
@@ -52,7 +54,7 @@ class OAuthAPIService extends BaseService {
      * Initialize the OAuth API service
      */
     async _init() {
-        if (this.global_config.oauth?.enabled) {
+        if ( this.global_config.oauth?.enabled ) {
             this.log.info('OAuth API service initialized');
         }
     }

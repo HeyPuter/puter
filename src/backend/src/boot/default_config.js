@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024-present Puter Technologies Inc.
+ * Copyright (C) 2025-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -37,7 +37,7 @@ module.exports = {
             clientID: 'YOUR_GOOGLE_CLIENT_ID',
             clientSecret: 'YOUR_GOOGLE_CLIENT_SECRET',
             callbackURL: '/auth/google/callback',
-            scope: ['profile', 'email']
+            scope: ['profile', 'email'],
         },
         
         // Discord OAuth configuration
@@ -46,8 +46,9 @@ module.exports = {
             clientID: 'YOUR_DISCORD_CLIENT_ID',
             clientSecret: 'YOUR_DISCORD_CLIENT_SECRET',
             callbackURL: '/auth/discord/callback',
-            scope: ['identify', 'email']
-        }
+            scope: ['identify', 'email'],
+        },
+    }
     },
 
     services: {

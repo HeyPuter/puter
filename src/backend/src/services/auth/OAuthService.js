@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024-present Puter Technologies Inc.
+ * Copyright (C) 2025-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -19,12 +19,12 @@
 "use strict";
 
 const BaseService = require("../BaseService");
-const { get_user } = require("../../helpers");
 const { DB_WRITE } = require("../database/consts");
 const { UserActorType } = require("./Actor");
 const { Actor } = require("./Actor");
-const { generate_identifier } = require("../../util/identifier");
+const { get_user } = require("../../helpers");
 const config = require("../../config");
+const { generate_identifier } = require("../../util/identifier");
 
 /**
  * @class OAuthService
@@ -44,15 +44,15 @@ class OAuthService extends BaseService {
         this.svc_auth = await this.services.get('auth');
         
         // Initialize passport only if OAuth is enabled
-        if (this.global_config.oauth?.enabled) {
-            this.initializePassport();
+        if ( this.global_config.oauth?.enabled ) {
+            this.initialize_passport();
         }
     }
 
     /**
      * Initialize Passport.js with OAuth strategies
      */
-    initializePassport() {
+    initialize_passport() {
         const passport = this.modules.passport;
         
         // Set up passport serialization/deserialization
@@ -70,20 +70,20 @@ class OAuthService extends BaseService {
         });
 
         // Configure Google OAuth strategy if enabled
-        if (this.global_config.oauth?.google?.enabled) {
-            this.configureGoogleStrategy();
+        if ( this.global_config.oauth?.google?.enabled ) {
+            this.configure_google_strategy();
         }
 
         // Configure Discord OAuth strategy if enabled
-        if (this.global_config.oauth?.discord?.enabled) {
-            this.configureDiscordStrategy();
+        if ( this.global_config.oauth?.discord?.enabled ) {
+            this.configure_discord_strategy();
         }
     }
 
     /**
      * Configure Google OAuth strategy
      */
-    configureGoogleStrategy() {
+    configure_google_strategy() {
         const googleConfig = this.global_config.oauth.google;
         const GoogleStrategy = this.modules.GoogleStrategy;
         
@@ -91,16 +91,16 @@ class OAuthService extends BaseService {
             clientID: googleConfig.clientID,
             clientSecret: googleConfig.clientSecret,
             callbackURL: `${this.global_config.api_base_url}${googleConfig.callbackURL}`,
-            scope: googleConfig.scope
+            scope: googleConfig.scope,
         }, (accessToken, refreshToken, profile, done) => {
-            this.verifyOAuthUser('google', profile, done);
+            this.verify_oauth_user('google', profile, done);
         }));
     }
 
     /**
      * Configure Discord OAuth strategy
      */
-    configureDiscordStrategy() {
+    configure_discord_strategy() {
         const discordConfig = this.global_config.oauth.discord;
         const DiscordStrategy = this.modules.DiscordStrategy;
         
@@ -108,9 +108,9 @@ class OAuthService extends BaseService {
             clientID: discordConfig.clientID,
             clientSecret: discordConfig.clientSecret,
             callbackURL: `${this.global_config.api_base_url}${discordConfig.callbackURL}`,
-            scope: discordConfig.scope
+            scope: discordConfig.scope,
         }, (accessToken, refreshToken, profile, done) => {
-            this.verifyOAuthUser('discord', profile, done);
+            this.verify_oauth_user('discord', profile, done);
         }));
     }
 
@@ -120,7 +120,7 @@ class OAuthService extends BaseService {
      * @param {Object} profile - User profile from OAuth provider
      * @param {Function} done - Passport callback
      */
-    async verifyOAuthUser(provider, profile, done) {
+    async verify_oauth_user(provider, profile, done) {
         try {
             // Find existing user by OAuth provider and ID
             const existingUsers = await this.db.read(
@@ -128,7 +128,7 @@ class OAuthService extends BaseService {
                 [provider, profile.id]
             );
 
-            if (existingUsers.length > 0) {
+            if ( existingUsers.length > 0 ) {
                 // User exists, return the user
                 const user = await get_user({ id: existingUsers[0].id });
                 return done(null, user);
@@ -137,19 +137,19 @@ class OAuthService extends BaseService {
             // Check if user exists with the same email
             let email = null;
             
-            if (provider === 'google') {
+            if ( provider === 'google' ) {
                 email = profile.emails[0]?.value;
-            } else if (provider === 'discord') {
+            } else if ( provider === 'discord' ) {
                 email = profile.email;
             }
 
-            if (email) {
+            if ( email ) {
                 const usersWithEmail = await this.db.read(
                     'SELECT * FROM user WHERE email = ? AND email_confirmed = 1 LIMIT 1',
                     [email]
                 );
 
-                if (usersWithEmail.length > 0) {
+                if ( usersWithEmail.length > 0 ) {
                     // Link OAuth to existing account
                     await this.db.write(
                         'UPDATE user SET oauth_provider = ?, oauth_id = ?, oauth_data = ? WHERE id = ?',
@@ -162,7 +162,7 @@ class OAuthService extends BaseService {
             }
 
             // Create a new user
-            const newUser = await this.createOAuthUser(provider, profile);
+            const newUser = await this.create_oauth_user(provider, profile);
             return done(null, newUser);
         } catch (error) {
             this.log.error('OAuth verification error', error);
@@ -176,15 +176,15 @@ class OAuthService extends BaseService {
      * @param {Object} profile - User profile from OAuth provider
      * @returns {Object} Newly created user
      */
-    async createOAuthUser(provider, profile) {
+    async create_oauth_user(provider, profile) {
         // Extract email and name from profile
         let email = null;
         let displayName = null;
         
-        if (provider === 'google') {
+        if ( provider === 'google' ) {
             email = profile.emails[0]?.value;
             displayName = profile.displayName || profile.name?.givenName;
-        } else if (provider === 'discord') {
+        } else if ( provider === 'discord' ) {
             email = profile.email;
             displayName = profile.username || profile.global_name;
         }
@@ -193,8 +193,8 @@ class OAuthService extends BaseService {
         let username = displayName ? displayName.replace(/[^a-zA-Z0-9_]/g, '') : null;
         
         // If username is empty or null, generate a random one
-        if (!username) {
-            username = await this.generateUniqueUsername();
+        if ( !username ) {
+            username = await this.generate_unique_username();
         } else {
             // Check if username exists
             const usernameExists = await this.db.read(
@@ -202,8 +202,8 @@ class OAuthService extends BaseService {
                 [username]
             );
             
-            if (usernameExists[0].username_exists) {
-                username = await this.generateUniqueUsername();
+            if ( usernameExists[0].username_exists ) {
+                username = await this.generate_unique_username();
             }
         }
 
@@ -269,7 +269,7 @@ class OAuthService extends BaseService {
      * Generate a unique username
      * @returns {string} Unique username
      */
-    async generateUniqueUsername() {
+    async generate_unique_username() {
         let username;
         let usernameExists;
         
@@ -282,7 +282,7 @@ class OAuthService extends BaseService {
             );
             
             usernameExists = result[0].username_exists;
-        } while (usernameExists);
+        } while ( usernameExists );
         
         return username;
     }
@@ -293,7 +293,7 @@ class OAuthService extends BaseService {
      * @param {Object} meta - Metadata for the session
      * @returns {Object} Session token
      */
-    async createOAuthSession(user, meta = {}) {
+    async create_oauth_session(user, meta = {}) {
         const { token } = await this.svc_auth.create_session_token(user, meta);
         return { token, user };
     }
@@ -304,15 +304,15 @@ class OAuthService extends BaseService {
      * @param {string} sessionUuid - Session UUID
      * @returns {Actor} Actor object
      */
-    createOAuthActor(user, sessionUuid) {
+    create_oauth_actor(user, sessionUuid) {
         const actorType = new UserActorType({
             user,
-            session: sessionUuid
+            session: sessionUuid,
         });
 
         return new Actor({
             user_uid: user.uuid,
-            type: actorType
+            type: actorType,
         });
     }
 }
