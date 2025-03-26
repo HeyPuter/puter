@@ -360,6 +360,9 @@
     };
 })(jQuery);
 
+
+
+
 /**
  * Creates and manages a context menu UI component with support for nested submenus.
  * The menu supports keyboard navigation, touch events, and intelligent submenu positioning.
@@ -439,6 +442,7 @@
  * @requires jQuery-menu-aim
  */
 
+
 function UIContextMenu(options){
     $('.window-active .window-app-iframe').css('pointer-events', 'none');
 
@@ -460,9 +464,12 @@ function UIContextMenu(options){
             
         for(let i=0; i < options.items.length; i++){
             // item
+
             if(!options.items[i].is_divider && options.items[i] !== '-'){
+               
                 // single item
                 if(options.items[i].items === undefined){
+
                     h += `<li data-action="${i}" 
                             class="context-menu-item ${options.items[i].disabled ? ' context-menu-item-disabled' : ''}"
                             >`;
@@ -704,6 +711,7 @@ function UIContextMenu(options){
             $(e.target).removeClass('context-menu-item-active');
         },
     });
+
     
     // disabled item mousedown event
     $(`#context-menu-${menu_id} > li.context-menu-item-disabled`).on('mousedown', function (e) {
@@ -773,6 +781,7 @@ function UIContextMenu(options){
     };
 }
 
+
 window.select_ctxmenu_item = function ($ctxmenu_item){
     // remove active class from other items
     $($ctxmenu_item).siblings('.context-menu-item').removeClass('context-menu-item-active');
@@ -801,5 +810,8 @@ $(document).on('mouseenter', '.context-menu-divider', function(e){
     // unselect all items
     $(this).siblings('.context-menu-item:not(.has-open-context-menu-submenu)').removeClass('context-menu-item-active');
 })
+
+
+
 
 export default UIContextMenu;
