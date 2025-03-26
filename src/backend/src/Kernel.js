@@ -399,7 +399,8 @@ class Kernel extends AdvancedBase {
     }
     
     async run_npm_install (path) {
-        const proc = spawn('npm', ['install'], { cwd: path, stdio: 'inherit' });
+        const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
+        const proc = spawn(npmCmd, ["install"], { cwd: path, shell: true, stdio: "inherit" });
         return new Promise((rslv, rjct) => {
             proc.on('close', code => {
                 if ( code !== 0 ) {
