@@ -232,31 +232,47 @@ function UIWindowSignup(options){
         
         // Check for available OAuth providers
         fetch('/oauth/providers')
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Network response was not ok: ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 if (Object.keys(data.providers || {}).length > 0) {
                     // Add OAuth section to the signup form
                     const oauthSection = $(`
-                        <div class="oauth-signup-options" style="margin-top: 20px;">
-                            <p style="text-align:center; margin-bottom: 10px;">${i18n('or_signup_with') || 'Or sign up with'}</p>
-                            <div style="display: flex; justify-content: center; gap: 10px;"></div>
+                        <div class="oauth-options">
+                            <p>${i18n('or_signup_with') || 'Or sign up with'}</p>
+                            <div class="oauth-buttons-container"></div>
                         </div>
                     `);
                     
-                    const buttonContainer = oauthSection.find('div');
+                    const buttonContainer = oauthSection.find('.oauth-buttons-container');
                     
                     if (data.providers.google) {
                         buttonContainer.append(`
-                            <a href="/auth/google" class="oauth-button" style="display: flex; align-items: center; justify-content: center; padding: 8px 16px; border-radius: 4px; background-color: #4285F4; color: white; text-decoration: none; font-weight: 500;">
-                                <span style="margin-left: 8px;">Google</span>
+                            <a href="/auth/google" class="oauth-button google">
+                                <img src="/src/gui/src/assets/img/oauth/oauth-google.svg" alt="Google">
+                                <span>Google</span>
                             </a>
                         `);
                     }
                     
                     if (data.providers.discord) {
                         buttonContainer.append(`
-                            <a href="/auth/discord" class="oauth-button" style="display: flex; align-items: center; justify-content: center; padding: 8px 16px; border-radius: 4px; background-color: #5865F2; color: white; text-decoration: none; font-weight: 500;">
-                                <span style="margin-left: 8px;">Discord</span>
+                            <a href="/auth/discord" class="oauth-button discord">
+                                <img src="/src/gui/src/assets/img/oauth/oauth-discord.svg" alt="Discord">
+                                <span>Discord</span>
+                            </a>
+                        `);
+                    }
+                    
+                    // Support for GitHub if added in the future
+                    if (data.providers.github) {
+                        buttonContainer.append(`
+                            <a href="/auth/github" class="oauth-button github">
+                                <span>GitHub</span>
                             </a>
                         `);
                     }

@@ -115,6 +115,63 @@ class OAuthService extends BaseService {
     }
 
     /**
+     * Extract email from OAuth profile
+     * @param {string} provider - OAuth provider name
+     * @param {Object} profile - User profile from OAuth provider
+     * @returns {string|null} Email address or null if not available
+     */
+    extractEmailFromProfile(provider, profile) {
+        if (!profile) return null;
+        
+        switch (provider) {
+            case 'google':
+                return profile.emails && profile.emails[0] ? profile.emails[0].value : null;
+            case 'discord':
+                return profile.email || null;
+            default:
+                return null;
+        }
+    }
+    
+    /**
+     * Extract display name from OAuth profile
+     * @param {string} provider - OAuth provider name
+     * @param {Object} profile - User profile from OAuth provider
+     * @returns {string|null} Display name or null if not available
+     */
+    extractDisplayNameFromProfile(provider, profile) {
+        if (!profile) return null;
+        
+        switch (provider) {
+            case 'google':
+                return profile.displayName || (profile.name ? profile.name.givenName : null);
+            case 'discord':
+                return profile.username || profile.global_name || null;
+            default:
+                return null;
+        }
+    }
+    
+    /**
+     * Extract and sanitize profile data for storage
+     * @param {string} provider - OAuth provider name
+     * @param {Object} profile - User profile from OAuth provider
+     * @returns {Object} Sanitized profile data
+     */
+    sanitizeProfileData(provider, profile) {
+        // Create a safe copy with only needed fields
+        const safeProfile = {
+            id: profile.id,
+            provider: provider,
+            displayName: this.extractDisplayNameFromProfile(provider, profile),
+            email: this.extractEmailFromProfile(provider, profile),
+            createdAt: new Date().toISOString()
+        };
+        
+        return safeProfile;
+    }
+    
+    /**
      * Verify or create a user from OAuth profile
      * @param {string} provider - OAuth provider (google, discord)
      * @param {Object} profile - User profile from OAuth provider
@@ -122,38 +179,39 @@ class OAuthService extends BaseService {
      */
     async verify_oauth_user(provider, profile, done) {
         try {
+            // Validate inputs
+            if (!provider || !profile || !profile.id) {
+                return done(new Error('Invalid OAuth profile data'), null);
+            }
+            
             // Find existing user by OAuth provider and ID
             const existingUsers = await this.db.read(
-                'SELECT * FROM user WHERE oauth_provider = ? AND oauth_id = ? LIMIT 1',
+                'SELECT id FROM user WHERE oauth_provider = ? AND oauth_id = ? LIMIT 1',
                 [provider, profile.id]
             );
 
-            if ( existingUsers.length > 0 ) {
+            if (existingUsers.length > 0) {
                 // User exists, return the user
                 const user = await get_user({ id: existingUsers[0].id });
                 return done(null, user);
             }
 
             // Check if user exists with the same email
-            let email = null;
-            
-            if ( provider === 'google' ) {
-                email = profile.emails[0]?.value;
-            } else if ( provider === 'discord' ) {
-                email = profile.email;
-            }
+            const email = this.extractEmailFromProfile(provider, profile);
 
-            if ( email ) {
+            if (email) {
                 const usersWithEmail = await this.db.read(
-                    'SELECT * FROM user WHERE email = ? AND email_confirmed = 1 LIMIT 1',
+                    'SELECT id FROM user WHERE email = ? AND email_confirmed = 1 LIMIT 1',
                     [email]
                 );
 
-                if ( usersWithEmail.length > 0 ) {
+                if (usersWithEmail.length > 0) {
                     // Link OAuth to existing account
+                    const safeProfileData = this.sanitizeProfileData(provider, profile);
+                    
                     await this.db.write(
                         'UPDATE user SET oauth_provider = ?, oauth_id = ?, oauth_data = ? WHERE id = ?',
-                        [provider, profile.id, JSON.stringify(profile), usersWithEmail[0].id]
+                        [provider, profile.id, JSON.stringify(safeProfileData), usersWithEmail[0].id]
                     );
                     
                     const user = await get_user({ id: usersWithEmail[0].id });
@@ -165,8 +223,9 @@ class OAuthService extends BaseService {
             const newUser = await this.create_oauth_user(provider, profile);
             return done(null, newUser);
         } catch (error) {
-            this.log.error('OAuth verification error', error);
-            return done(error, null);
+            // Log error without exposing sensitive data
+            this.log.error(`OAuth verification error for provider ${provider}: ${error.message}`);
+            return done(new Error('Authentication failed'), null);
         }
     }
 
@@ -177,92 +236,103 @@ class OAuthService extends BaseService {
      * @returns {Object} Newly created user
      */
     async create_oauth_user(provider, profile) {
-        // Extract email and name from profile
-        let email = null;
-        let displayName = null;
-        
-        if ( provider === 'google' ) {
-            email = profile.emails[0]?.value;
-            displayName = profile.displayName || profile.name?.givenName;
-        } else if ( provider === 'discord' ) {
-            email = profile.email;
-            displayName = profile.username || profile.global_name;
-        }
-
-        // Generate a username based on display name or a random identifier
-        let username = displayName ? displayName.replace(/[^a-zA-Z0-9_]/g, '') : null;
-        
-        // If username is empty or null, generate a random one
-        if ( !username ) {
-            username = await this.generate_unique_username();
-        } else {
-            // Check if username exists
-            const usernameExists = await this.db.read(
-                'SELECT EXISTS(SELECT 1 FROM user WHERE username = ?) AS username_exists',
-                [username]
-            );
+        try {
+            // Extract email and display name using our helper methods
+            const email = this.extractEmailFromProfile(provider, profile);
+            const displayName = this.extractDisplayNameFromProfile(provider, profile);
+    
+            // Generate a username based on display name or a random identifier
+            let username = null;
             
-            if ( usernameExists[0].username_exists ) {
-                username = await this.generate_unique_username();
+            if (displayName) {
+                // Sanitize display name to create a valid username
+                const sanitizedName = displayName.replace(/[^a-zA-Z0-9_]/g, '');
+                
+                // Only use display name if it results in a valid username
+                if (sanitizedName && sanitizedName.length >= 3) {
+                    username = sanitizedName;
+                }
             }
-        }
-
-        // Create user record
-        const userUuid = this.modules.uuidv4();
-        const emailConfirmToken = this.modules.uuidv4();
-        const emailConfirmCode = Math.floor(100000 + Math.random() * 900000);
-        
-        // Audit metadata
-        const auditMetadata = {
-            provider,
-            profile_id: profile.id,
-            oauth_signup: true
-        };
-
-        const insertResult = await this.db.write(
-            `INSERT INTO user
-            (
-                username, email, clean_email, password, uuid, 
-                email_confirm_code, email_confirm_token, free_storage, 
-                email_confirmed, oauth_provider, oauth_id, oauth_data,
-                audit_metadata
-            ) 
-            VALUES 
-            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                username,
-                email,
-                email, // clean_email (we assume OAuth providers give clean emails)
-                null, // password is null for OAuth users
-                userUuid,
-                emailConfirmCode,
-                emailConfirmToken,
-                config.storage_capacity,
-                1, // email_confirmed is true for OAuth users
+            
+            // If no valid username was created, generate a random one
+            if (!username) {
+                username = await this.generate_unique_username();
+            } else {
+                // Check if username exists
+                const usernameExists = await this.db.read(
+                    'SELECT EXISTS(SELECT 1 FROM user WHERE username = ?) AS username_exists',
+                    [username]
+                );
+                
+                if (usernameExists[0].username_exists) {
+                    username = await this.generate_unique_username();
+                }
+            }
+    
+            // Create user record with safe values
+            const userUuid = this.modules.uuidv4();
+            const emailConfirmToken = this.modules.uuidv4();
+            const emailConfirmCode = Math.floor(100000 + Math.random() * 900000);
+            
+            // Create sanitized profile data for storage
+            const safeProfileData = this.sanitizeProfileData(provider, profile);
+            
+            // Audit metadata - only store necessary information
+            const auditMetadata = {
                 provider,
-                profile.id,
-                JSON.stringify(profile),
-                JSON.stringify(auditMetadata)
-            ]
-        );
-
-        // Add user to default user group
-        const svc_group = await this.services.get('group');
-        await svc_group.add_users({
-            uid: config.default_user_group,
-            users: [username]
-        });
-
-        // Generate default file system entries
-        const svc_user = await this.services.get('user');
-        const user = await get_user({ id: insertResult.insertId });
-        await svc_user.generate_default_fsentries({ user });
-
-        // Add to mailchimp or other services
-        const svc_event = await this.services.get('event');
-        svc_event.emit('user.save_account', { user });
-
-        return user;
+                profile_id: profile.id,
+                oauth_signup: true,
+                created_at: new Date().toISOString()
+            };
+    
+            const insertResult = await this.db.write(
+                `INSERT INTO user
+                (
+                    username, email, clean_email, password, uuid, 
+                    email_confirm_code, email_confirm_token, free_storage, 
+                    email_confirmed, oauth_provider, oauth_id, oauth_data,
+                    audit_metadata
+                ) 
+                VALUES 
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    username,
+                    email,
+                    email, // clean_email (we assume OAuth providers give clean emails)
+                    null, // password is null for OAuth users
+                    userUuid,
+                    emailConfirmCode,
+                    emailConfirmToken,
+                    config.storage_capacity,
+                    email ? 1 : 0, // email_confirmed is true only if we have an email
+                    provider,
+                    profile.id,
+                    JSON.stringify(safeProfileData),
+                    JSON.stringify(auditMetadata)
+                ]
+            );
+    
+            // Add user to default user group
+            const svc_group = await this.services.get('group');
+            await svc_group.add_users({
+                uid: config.default_user_group,
+                users: [username]
+            });
+    
+            // Generate default file system entries
+            const svc_user = await this.services.get('user');
+            const user = await get_user({ id: insertResult.insertId });
+            await svc_user.generate_default_fsentries({ user });
+    
+            // Add to mailchimp or other services
+            const svc_event = await this.services.get('event');
+            svc_event.emit('user.save_account', { user });
+    
+            return user;
+        } catch (error) {
+            this.log.error(`Error creating OAuth user: ${error.message}`);
+            throw new Error('Failed to create user account');
+        }
     }
 
     /**

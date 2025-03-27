@@ -26,31 +26,6 @@ module.exports = {
     protocol: 'http',
     contact_email: 'hey@example.com',
 
-    // OAuth configuration
-    oauth: {
-        // Enable/disable OAuth providers
-        enabled: true,
-        
-        // Google OAuth configuration
-        google: {
-            enabled: false, // Set to true to enable Google OAuth
-            clientID: 'YOUR_GOOGLE_CLIENT_ID',
-            clientSecret: 'YOUR_GOOGLE_CLIENT_SECRET',
-            callbackURL: '/auth/google/callback',
-            scope: ['profile', 'email'],
-        },
-        
-        // Discord OAuth configuration
-        discord: {
-            enabled: false, // Set to true to enable Discord OAuth
-            clientID: 'YOUR_DISCORD_CLIENT_ID',
-            clientSecret: 'YOUR_DISCORD_CLIENT_SECRET',
-            callbackURL: '/auth/discord/callback',
-            scope: ['identify', 'email'],
-        },
-    }
-    },
-
     services: {
         database: {
             engine: 'sqlite',

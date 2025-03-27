@@ -56,11 +56,7 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/auth/configure-2fa'))
         
         // OAuth routes (only active if OAuth is enabled in config)
-        if (this.global_config.oauth?.enabled) {
-            const passport = require('passport');
-            app.use(passport.initialize());
-            app.use(require('../routers/auth/oauth'))
-        }
+        app.use(require('../routers/auth/oauth'))
         app.use(require('../routers/drivers/call'))
         app.use(require('../routers/drivers/list-interfaces'))
         app.use(require('../routers/drivers/usage'))
