@@ -605,24 +605,22 @@ class UI extends EventListener {
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
         if(!this.#onLaunchedWithItems){
             let URLParams = new URLSearchParams(window.location.search);
-            if(URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url')){
-                let fpath = URLParams.get('puter.item.path');
-
-                if(!fpath.startsWith('~/') && !fpath.startsWith('/'))
-                    fpath = '~/' + fpath;
-
-                callback([new FSItem({
-                    name: URLParams.get('puter.item.name'),
-                    path: fpath,
-                    uid: URLParams.get('puter.item.uid'),
-                    readURL: URLParams.get('puter.item.read_url'),
-                    writeURL: URLParams.get('puter.item.write_url'),
-                    metadataURL: URLParams.get('puter.item.metadata_url'),
-                    size: URLParams.get('puter.item.size'),
-                    accessed: URLParams.get('puter.item.accessed'),
-                    modified: URLParams.get('puter.item.modified'),
-                    created: URLParams.get('puter.item.created'),
-                })]);
+            if(URLParams.has('puter.item.uid')){
+                const fileUID = URLParams.get('puter.item.uid');
+                
+                // Fetch the complete file information using the UID
+                puter.fs.stat({ uid: fileUID })
+                    .then(fileInfo => {
+                        // Create an FSItem with the complete information
+                        callback([new FSItem(fileInfo)]);
+                    })
+                    .catch(error => {
+                        console.error('Error fetching file information:', error);
+                        // If there's an error, still call the callback with the minimal information
+                        callback([new FSItem({
+                            uid: fileUID
+                        })]);
+                    });
             }
         }
 
