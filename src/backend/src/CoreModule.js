@@ -367,6 +367,9 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { ThreadService } = require('./services/ThreadService');
     services.registerService('thread', ThreadService);
+
+    const { ChatAPIService } = require('./services/ChatAPIService');
+    services.registerService('__chat-api', ChatAPIService);
 }
 
 const install_legacy = async ({ services }) => {
