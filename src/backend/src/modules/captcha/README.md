@@ -66,6 +66,4 @@ For local development, you can disable captcha by creating or modifying your loc
 }
 ```
 
-Note: Setting `CAPTCHA_ENABLED=false` as an environment variable is no longer supported. Please use the configuration system instead.
-
 These options are set when registering the service in CaptchaModule.js. 
