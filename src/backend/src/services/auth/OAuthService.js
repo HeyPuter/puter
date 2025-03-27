@@ -547,4 +547,4 @@ class OAuthService extends BaseService {
     }
 }
 
-module.exports = OAuthService;
+module.exports = { OAuthService };

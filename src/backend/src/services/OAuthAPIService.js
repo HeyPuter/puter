@@ -60,4 +60,4 @@ class OAuthAPIService extends BaseService {
     }
 }
 
-module.exports = OAuthAPIService;
+module.exports = { OAuthAPIService };
