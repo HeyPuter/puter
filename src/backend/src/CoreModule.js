@@ -112,6 +112,8 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { RateLimitService } = require('./services/sla/RateLimitService');
     const { MonthlyUsageService } = require('./services/sla/MonthlyUsageService');
     const { AuthService } = require('./services/auth/AuthService');
+    const { OAuthService } = require('./services/auth/OAuthService');
+    const OAuthAPIService = require('./services/OAuthAPIService');
     const { SLAService } = require('./services/sla/SLAService');
     const { PermissionService } = require('./services/auth/PermissionService');
     const { ACLService } = require('./services/auth/ACLService');
@@ -223,6 +225,8 @@ const install = async ({ services, app, useapi, modapi }) => {
     services.registerService('rate-limit', RateLimitService);
     services.registerService('monthly-usage', MonthlyUsageService);
     services.registerService('auth', AuthService);
+    services.registerService('oauth', OAuthService);
+    services.registerService('__oauth-api', OAuthAPIService);
     services.registerService('permission', PermissionService);
     services.registerService('sla', SLAService);
     services.registerService('acl', ACLService);

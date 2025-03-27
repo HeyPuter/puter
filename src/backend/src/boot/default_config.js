@@ -26,6 +26,25 @@ module.exports = {
     protocol: 'http',
     contact_email: 'hey@example.com',
 
+    // OAuth configuration (disabled by default)
+    oauth: {
+        enabled: false,
+        google: {
+            enabled: false,
+            clientID: '',
+            clientSecret: '',
+            callbackURL: '/auth/google/callback',
+            scope: ['profile', 'email']
+        },
+        discord: {
+            enabled: false,
+            clientID: '',
+            clientSecret: '',
+            callbackURL: '/auth/discord/callback',
+            scope: ['identify', 'email']
+        }
+    },
+
     services: {
         database: {
             engine: 'sqlite',
