@@ -113,7 +113,7 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { MonthlyUsageService } = require('./services/sla/MonthlyUsageService');
     const { AuthService } = require('./services/auth/AuthService');
     const { OAuthService } = require('./services/auth/OAuthService');
-    const OAuthAPIService = require('./services/OAuthAPIService');
+    const { OAuthAPIService } = require('./services/OAuthAPIService');
     const { SLAService } = require('./services/sla/SLAService');
     const { PermissionService } = require('./services/auth/PermissionService');
     const { ACLService } = require('./services/auth/ACLService');
