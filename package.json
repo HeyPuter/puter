@@ -59,6 +59,7 @@
     "sharp-ico": "^0.1.5",
     "simple-git": "^3.25.0",
     "string-template": "^1.0.0",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "bcrypt": "^5.1.1"
   }
 }
