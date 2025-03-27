@@ -185,14 +185,31 @@ class OAuthService extends BaseService {
             }
             
             // Find existing user by OAuth provider and ID
-            const existingUsers = await this.db.read(
+            // First check the oauth_providers table (new approach)
+            const existingOAuthUsers = await this.db.read(
+                'SELECT user_id FROM oauth_providers WHERE provider = ? AND provider_user_id = ? LIMIT 1',
+                [provider, profile.id]
+            );
+            
+            if (existingOAuthUsers.length > 0) {
+                // User exists, return the user
+                const user = await get_user({ id: existingOAuthUsers[0].user_id });
+                return done(null, user);
+            }
+            
+            // Fallback to checking the user table directly (legacy approach)
+            const existingLegacyUsers = await this.db.read(
                 'SELECT id FROM user WHERE oauth_provider = ? AND oauth_id = ? LIMIT 1',
                 [provider, profile.id]
             );
 
-            if (existingUsers.length > 0) {
-                // User exists, return the user
-                const user = await get_user({ id: existingUsers[0].id });
+            if (existingLegacyUsers.length > 0) {
+                // User exists in legacy format, return the user
+                const user = await get_user({ id: existingLegacyUsers[0].id });
+                
+                // Migrate this user to the new table structure
+                await this.migrateUserToOAuthProvidersTable(existingLegacyUsers[0].id, provider, profile.id);
+                
                 return done(null, user);
             }
 
@@ -209,10 +226,37 @@ class OAuthService extends BaseService {
                     // Link OAuth to existing account
                     const safeProfileData = this.sanitizeProfileData(provider, profile);
                     
-                    await this.db.write(
-                        'UPDATE user SET oauth_provider = ?, oauth_id = ?, oauth_data = ? WHERE id = ?',
-                        [provider, profile.id, JSON.stringify(safeProfileData), usersWithEmail[0].id]
+                    // Check if this provider is already linked to this user
+                    const existingProvider = await this.db.read(
+                        'SELECT id FROM oauth_providers WHERE user_id = ? AND provider = ? LIMIT 1',
+                        [usersWithEmail[0].id, provider]
                     );
+                    
+                    if (existingProvider.length === 0) {
+                        // Add new OAuth provider to the user
+                        await this.db.write(
+                            'INSERT INTO oauth_providers (user_id, provider, provider_user_id, provider_data) VALUES (?, ?, ?, ?)',
+                            [usersWithEmail[0].id, provider, profile.id, JSON.stringify(safeProfileData)]
+                        );
+                        
+                        // For backward compatibility, also update the user table
+                        await this.db.write(
+                            'UPDATE user SET oauth_provider = ?, oauth_id = ?, oauth_data = ? WHERE id = ?',
+                            [provider, profile.id, JSON.stringify(safeProfileData), usersWithEmail[0].id]
+                        );
+                    } else {
+                        // Update existing provider data
+                        await this.db.write(
+                            'UPDATE oauth_providers SET provider_user_id = ?, provider_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                            [profile.id, JSON.stringify(safeProfileData), existingProvider[0].id]
+                        );
+                        
+                        // For backward compatibility, also update the user table
+                        await this.db.write(
+                            'UPDATE user SET oauth_provider = ?, oauth_id = ?, oauth_data = ? WHERE id = ?',
+                            [provider, profile.id, JSON.stringify(safeProfileData), usersWithEmail[0].id]
+                        );
+                    }
                     
                     const user = await get_user({ id: usersWithEmail[0].id });
                     return done(null, user);
@@ -285,32 +329,58 @@ class OAuthService extends BaseService {
                 created_at: new Date().toISOString()
             };
     
-            const insertResult = await this.db.write(
-                `INSERT INTO user
-                (
-                    username, email, clean_email, password, uuid, 
-                    email_confirm_code, email_confirm_token, free_storage, 
-                    email_confirmed, oauth_provider, oauth_id, oauth_data,
-                    audit_metadata
-                ) 
-                VALUES 
-                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                    username,
-                    email,
-                    email, // clean_email (we assume OAuth providers give clean emails)
-                    null, // password is null for OAuth users
-                    userUuid,
-                    emailConfirmCode,
-                    emailConfirmToken,
-                    config.storage_capacity,
-                    email ? 1 : 0, // email_confirmed is true only if we have an email
-                    provider,
-                    profile.id,
-                    JSON.stringify(safeProfileData),
-                    JSON.stringify(auditMetadata)
-                ]
-            );
+            // Start a transaction for creating user and OAuth provider
+            await this.db.write('BEGIN TRANSACTION');
+            
+            try {
+                // Create the user record first
+                const insertResult = await this.db.write(
+                    `INSERT INTO user
+                    (
+                        username, email, clean_email, password, uuid, 
+                        email_confirm_code, email_confirm_token, free_storage, 
+                        email_confirmed, oauth_provider, oauth_id, oauth_data, // Keep legacy fields for compatibility
+                        audit_metadata
+                    ) 
+                    VALUES 
+                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        username,
+                        email,
+                        email, // clean_email (we assume OAuth providers give clean emails)
+                        null, // password is null for OAuth users
+                        userUuid,
+                        emailConfirmCode,
+                        emailConfirmToken,
+                        config.storage_capacity,
+                        email ? 1 : 0, // email_confirmed is true only if we have an email
+                        provider, // Keep legacy field
+                        profile.id, // Keep legacy field
+                        JSON.stringify(safeProfileData), // Keep legacy field
+                        JSON.stringify(auditMetadata)
+                    ]
+                );
+                
+                // Now create the OAuth provider record
+                await this.db.write(
+                    `INSERT INTO oauth_providers
+                    (user_id, provider, provider_user_id, provider_data)
+                    VALUES (?, ?, ?, ?)`,
+                    [
+                        insertResult.insertId,
+                        provider,
+                        profile.id,
+                        JSON.stringify(safeProfileData)
+                    ]
+                );
+                
+                // Commit the transaction
+                await this.db.write('COMMIT');
+            } catch (error) {
+                // Rollback in case of error
+                await this.db.write('ROLLBACK');
+                throw error;
+            }
     
             // Add user to default user group
             const svc_group = await this.services.get('group');
@@ -384,6 +454,96 @@ class OAuthService extends BaseService {
             user_uid: user.uuid,
             type: actorType,
         });
+    }
+    
+    /**
+     * Migrate a user from the legacy OAuth format to the new oauth_providers table
+     * @param {number} userId - User ID
+     * @param {string} provider - OAuth provider name
+     * @param {string} providerId - Provider-specific user ID
+     * @returns {Promise<void>}
+     */
+    async migrateUserToOAuthProvidersTable(userId, provider, providerId) {
+        try {
+            // Get the user's OAuth data from the legacy format
+            const userData = await this.db.read(
+                'SELECT oauth_data FROM user WHERE id = ? LIMIT 1',
+                [userId]
+            );
+            
+            if (userData.length === 0 || !userData[0].oauth_data) {
+                return;
+            }
+            
+            // Check if this provider is already in the oauth_providers table
+            const existingProvider = await this.db.read(
+                'SELECT id FROM oauth_providers WHERE user_id = ? AND provider = ? LIMIT 1',
+                [userId, provider]
+            );
+            
+            if (existingProvider.length === 0) {
+                // Add to the oauth_providers table
+                await this.db.write(
+                    'INSERT INTO oauth_providers (user_id, provider, provider_user_id, provider_data) VALUES (?, ?, ?, ?)',
+                    [userId, provider, providerId, userData[0].oauth_data]
+                );
+                
+                this.log.info(`Migrated OAuth data for user ${userId} to oauth_providers table`);
+            }
+        } catch (error) {
+            this.log.error(`Error migrating OAuth data for user ${userId}: ${error.message}`);
+        }
+    }
+    
+    /**
+     * Get all OAuth providers for a user
+     * @param {number} userId - User ID
+     * @returns {Promise<Array>} - Array of OAuth providers
+     */
+    async getUserOAuthProviders(userId) {
+        try {
+            return await this.db.read(
+                'SELECT id, provider, provider_user_id, created_at, updated_at FROM oauth_providers WHERE user_id = ?',
+                [userId]
+            );
+        } catch (error) {
+            this.log.error(`Error getting OAuth providers for user ${userId}: ${error.message}`);
+            return [];
+        }
+    }
+    
+    /**
+     * Remove an OAuth provider from a user
+     * @param {number} userId - User ID
+     * @param {string} provider - Provider name
+     * @returns {Promise<boolean>} - Success status
+     */
+    async removeOAuthProvider(userId, provider) {
+        try {
+            await this.db.write(
+                'DELETE FROM oauth_providers WHERE user_id = ? AND provider = ?',
+                [userId, provider]
+            );
+            
+            // Check if this was the user's primary provider (in legacy table)
+            const userData = await this.db.read(
+                'SELECT oauth_provider FROM user WHERE id = ? LIMIT 1',
+                [userId]
+            );
+            
+            if (userData.length > 0 && userData[0].oauth_provider === provider) {
+                // Clear the legacy fields if this was the primary provider
+                await this.db.write(
+                    'UPDATE user SET oauth_provider = NULL, oauth_id = NULL, oauth_data = NULL WHERE id = ?',
+                    [userId]
+                );
+            }
+            
+            return true;
+        } catch (error) {
+            this.log.error(`Error removing OAuth provider ${provider} for user ${userId}: ${error.message}`);
+            return false;
+        }
     }
 }
 
