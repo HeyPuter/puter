@@ -49,7 +49,7 @@ class ChatAPIService extends BaseService {
         })();
 
         // Register the router with the Express app
-        app.use('/chat', router);
+        app.use('/puterai/chat', router);
 
         // Install endpoints
         this.install_chat_endpoints_({ router });
