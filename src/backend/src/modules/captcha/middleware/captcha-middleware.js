@@ -34,6 +34,7 @@ const checkCaptcha = ({ svc_captcha }) => async (req, res, next) => {
     const services = Context.get('services');
     
     if ( ! svc_captcha.enabled ) {
+        req.captchaRequired = false;
         return next();
     }
 
