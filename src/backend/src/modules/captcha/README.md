@@ -40,10 +40,12 @@ These options are set in the main configuration file. For example:
 
 ```json
 {
-  "captcha": {
-    "enabled": false,
-    "expirationTime": 600000,
-    "difficulty": "medium"
+  "services": {
+    "captcha": {
+      "enabled": false,
+      "expirationTime": 600000,
+      "difficulty": "medium"
+    }
   }
 }
 ```
@@ -60,8 +62,10 @@ For local development, you can disable captcha by creating or modifying your loc
   ],
   "config_name": "local",
   
-  "captcha": {
-    "enabled": false
+  "services": {
+    "captcha": {
+      "enabled": false
+    }
   }
 }
 ```

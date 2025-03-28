@@ -20,6 +20,7 @@
 
 const BaseService = require('../../../services/BaseService');
 const { Endpoint } = require('../../../util/expressutil');
+const { checkCaptcha } = require('../middleware/captcha-middleware');
 
 /**
  * @class CaptchaService
@@ -70,6 +71,11 @@ class CaptchaService extends BaseService {
         
         // Flag to track if endpoints are registered
         this.endpointsRegistered = false;
+    }
+
+    async ['__on_install.middlewares.context-aware'] (_, { app }) {
+        // Add express middleware
+        app.use(checkCaptcha({ svc_captcha: this }));
     }
 
     /**

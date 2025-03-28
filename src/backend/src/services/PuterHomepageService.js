@@ -84,98 +84,10 @@ class PuterHomepageService extends BaseService {
                 };
 
                 // Add captcha requirement information
-                responseData.captchaRequired = {};
-                
-                // Get the captcha middleware
-                const captchaMiddleware = Context.get('check-captcha-middleware');
-                console.log('CAPTCHA DIAGNOSTIC: In /whoarewe, captchaMiddleware available:', !!captchaMiddleware);
-                console.log('CAPTCHA DIAGNOSTIC: In /whoarewe, captchaMiddleware type:', typeof captchaMiddleware);
-                console.log('CAPTCHA DIAGNOSTIC: In /whoarewe, Context keys:', Object.keys(Context.get()));
-                
-                // Get the captcha service directly to check its state
-                try {
-                    const services = Context.get('services');
-                    if (services) {
-                        const captchaService = services.get('captcha');
-                        console.log('CAPTCHA DIAGNOSTIC: Captcha service state:', {
-                            exists: !!captchaService,
-                            enabled: captchaService?.enabled,
-                            config: captchaService?.config,
-                            serviceType: typeof captchaService
-                        });
-                        
-                        // If captcha service exists but is explicitly disabled, 
-                        // set captchaRequired to false for all operations
-                        if (captchaService && captchaService.enabled === false) {
-                            console.log('CAPTCHA DIAGNOSTIC: Captcha service is explicitly disabled, setting all requirements to false');
-                            responseData.captchaRequired.login = false;
-                            responseData.captchaRequired.signup = false;
-                            // Return early since we've already determined requirements
-                            return res.json(responseData);
-                        }
-                    } else {
-                        console.log('CAPTCHA DIAGNOSTIC: No services available in Context');
-                    }
-                } catch (error) {
-                    console.error('CAPTCHA DIAGNOSTIC: Error getting captcha service:', error);
-                }
-                
-                if (captchaMiddleware) {
-                    // Check login captcha requirement
-                    const loginReq = {
-                        ip: req.ip,
-                        headers: req.headers,
-                        connection: req.connection
-                    };
-                    
-                    await new Promise(resolve => {
-                        captchaMiddleware({ eventType: 'login', strictMode: false })(loginReq, {}, resolve);
-                    });
-                    
-                    responseData.captchaRequired.login = loginReq.captchaRequired || false;
-                    console.log('CAPTCHA DIAGNOSTIC: /whoarewe login captchaRequired =', responseData.captchaRequired.login);
-                    
-                    // Check signup captcha requirement
-                    const signupReq = {
-                        ip: req.ip,
-                        headers: req.headers,
-                        connection: req.connection
-                    };
-                    
-                    await new Promise(resolve => {
-                        captchaMiddleware({ eventType: 'signup', strictMode: false })(signupReq, {}, resolve);
-                    });
-                    
-                    responseData.captchaRequired.signup = signupReq.captchaRequired || false;
-                    console.log('CAPTCHA DIAGNOSTIC: /whoarewe signup captchaRequired =', responseData.captchaRequired.signup);
-                } else {
-                    // If middleware isn't available, check if we're in development mode
-                    const isDevelopment = process.env.NODE_ENV === 'development';
-                    
-                    if (isDevelopment) {
-                        console.log('CAPTCHA DIAGNOSTIC: /whoarewe in development mode, defaulting to not required');
-                        responseData.captchaRequired.login = false;
-                        responseData.captchaRequired.signup = false;
-                    } else {
-                        // If middleware isn't available and not in development, assume captcha is required (fail closed)
-                        console.log('CAPTCHA DIAGNOSTIC: /whoarewe no middleware and not in development, defaulting to required');
-                        responseData.captchaRequired.login = true;
-                        responseData.captchaRequired.signup = true;
-                    }
-                }
-                
-                // Add feature flags if available
-                try {
-                    const services = Context.get('services');
-                    if (services) {
-                        const featureFlagService = services.get('feature-flag');
-                        if (featureFlagService) {
-                            responseData.featureFlags = featureFlagService.getPublicFlags();
-                        }
-                    }
-                } catch (error) {
-                    console.warn('Error getting feature flags for /whoarewe:', error);
-                }
+                responseData.captchaRequired = {
+                    login: req.captchaRequired,
+                    signup: req.captchaRequired,
+                };
                 
                 res.json(responseData);
             }
@@ -208,39 +120,11 @@ class PuterHomepageService extends BaseService {
             }));
         }
         
-        // Check if captcha will be required for various operations
-        let captchaRequired = {};
-        
-        // Get the checkCaptcha middleware if available
-        const captchaMiddleware = Context.get('check-captcha-middleware');
-        
-        if (captchaMiddleware) {
-            // Check login captcha requirement
-            const loginReq = {
-                ip: req.ip,
-                headers: req.headers,
-                connection: req.connection
-            };
-            
-            await new Promise(resolve => {
-                captchaMiddleware({ eventType: 'login' })(loginReq, {}, resolve);
-            });
-            
-            captchaRequired.login = loginReq.captchaRequired || false;
-            
-            // Check signup captcha requirement
-            const signupReq = {
-                ip: req.ip,
-                headers: req.headers,
-                connection: req.connection
-            };
-            
-            await new Promise(resolve => {
-                captchaMiddleware({ eventType: 'signup' })(signupReq, {}, resolve);
-            });
-            
-            captchaRequired.signup = signupReq.captchaRequired || false;
-        }
+        // checkCaptcha middleware (in CaptchaService) sets req.captchaRequired
+        const captchaRequired = {
+            login: req.captchaRequired,
+            signup: req.captchaRequired,
+        };
         
         return res.send(this.generate_puter_page_html({
             env: config.env,
