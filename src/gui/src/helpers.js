@@ -30,6 +30,7 @@ import UIWindowProgress from './UI/UIWindowProgress.js';
 import globToRegExp from "./helpers/globToRegExp.js";
 import get_html_element_from_options from "./helpers/get_html_element_from_options.js";
 import item_icon from "./helpers/item_icon.js";
+import play_startup_chime from "./helpers/play_startup_chime.js";
 
 window.is_auth = ()=>{
     if(localStorage.getItem("auth_token") === null || window.auth_token === null)
@@ -435,6 +436,11 @@ window.refresh_user_data = async (auth_token)=>{
 window.update_auth_data = async (auth_token, user)=>{
     window.auth_token = auth_token;
     localStorage.setItem('auth_token', auth_token);
+
+    // Play startup chime if enabled
+    if (typeof play_startup_chime === 'function') {
+        play_startup_chime();
+    }
 
     // Has username changed?
     if(window.user?.username !== user.username)

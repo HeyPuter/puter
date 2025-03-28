@@ -18,6 +18,7 @@
  */
 import { Exit } from './coreutil_lib/exit.js';
 
+
 export default {
     name: 'ai',
     usage: 'ai PROMPT',
@@ -41,7 +42,46 @@ export default {
             await ctx.externs.err.write('ai: prompt must be wrapped in quotes\n');
             throw new Exit(1);
         }
+        
+        const tools = [];
+        
+        const commands = await ctx.externs.commandProvider.list();
+        
+        for (const command of commands) {
+            if (command.args && command.args.options) {
+                const parameters = {
+                    type: "object",
+                    properties: {},
+                    required: []
+                };
 
+                for (const [optName, opt] of Object.entries(command.args.options)) {
+                    parameters.properties[optName] = {
+                        type: opt.type === 'boolean' ? 'boolean' : 'string',
+                        description: opt.description,
+                        default: opt.default
+                    };
+                }
+
+                if (command.args.allowPositionals) {
+                    parameters.properties.path = {
+                        type: "string",
+                        description: "Path or name to operate on"
+                    };
+                    parameters.required.push("path");
+                }
+
+                tools.push({
+                    type: "function",
+                    function: {
+                        name: command.name,
+                        description: command.description,
+                        parameters: parameters,
+                        strict: true
+                    }
+                });
+            }
+        }
         const { drivers } = ctx.platform;
         const { chatHistory } = ctx.plugins;
 
@@ -54,21 +94,15 @@ export default {
                 ...chatHistory.get_messages(),
                 {
                     role: 'system',
-                    content: `You are a helpful AI assistant that helps users with shell commands.
-                    When a user asks to perform an action:
-                    1. If the action requires a command, wrap ONLY the command between %%% markers
-                    2. Keep the command simple and on a single line
-                    3. Do not ask for confirmation
-                    Example:
-                    User: "create a directory named test"
-                    You: "Creating directory 'test'
-                    %%%mkdir test%%%"`
+                    content: `You are a helpful AI assistant that helps users with shell commands. Use the provided tools to execute commands. `
                 },
                 {
                     role: 'user',
                     content: prompt,
                 }
             ],
+            tools: tools,
+            stream: true
         };
 
         console.log('THESE ARE THE MESSAGES', a_args.messages);
@@ -79,63 +113,97 @@ export default {
             args: a_args,
         });
 
-        const resobj = JSON.parse(await result.text(), null, 2);
-
-        if ( resobj.success !== true ) {
-            await ctx.externs.err.write('request failed\n');
-            await ctx.externs.err.write(resobj);
-            return;
-        }
-
-        const message = resobj?.result?.message?.content;
-
-        if ( ! message ) {
-            await ctx.externs.err.write('message not found in response\n');
-            await ctx.externs.err.write(result);
-            return;
-        }
-
+        const responseText = await result.text();
+        const lines = responseText.split('\n').filter(line => line.trim());
         
-        chatHistory.add_message(resobj?.result?.message);
-
-        const commandMatch = message.match(/%%%(.*?)%%%/);
-
-        if (commandMatch) {
-            const commandToExecute = commandMatch[1].trim();
-            const cleanMessage = message.replace(/%%%(.*?)%%%/, '');
-
-            await ctx.externs.out.write(cleanMessage + '\n');
-
-            await ctx.externs.out.write(`Execute command: '${commandToExecute}' (y/n): `);
-
+        let fullMessage = '';
+        
+        for (const line of lines) {
             try {
-                let line, done;
-                const next_line = async () => {
-                    ({ value: line, done } = await ctx.externs.in_.read());
+                const chunk = JSON.parse(line);
+                
+                if (chunk.type === 'text') {
+                    fullMessage += chunk.text;
+                    await ctx.externs.out.write(chunk.text);
                 }
+               
+                else if (chunk.type === 'tool_use' && chunk.name) {
+                    const args = chunk.input;
+                    const command = await ctx.externs.commandProvider.lookup(chunk.name);
 
-                await next_line();
+                    if (command) {
+                        let cmdString = chunk.name;
+                        
+                        if (command.args && command.args.options) {
+                            for (const [optName, value] of Object.entries(args)) {
+                                if (optName !== 'path' && value === true) {
+                                    cmdString += ` --${optName}`;
+                                }
+                            }
+                        }
 
-                const inputString = new TextDecoder().decode(line);
-                const response = (inputString ?? '').trim().toLowerCase();
+                        if (args.path) {
+                            cmdString += ` ${args.path}`;
+                        }
 
-                console.log('processed response', {response});
+                        await ctx.externs.out.write(`\nExecuting: ${cmdString}\n`);
+                        await ctx.externs.out.write('Proceed? (y/n): ');
 
-                if (!response.startsWith('y')) {
-                    await ctx.externs.out.write('\nCommand execution cancelled\n');
-                    return; 
+                        let { value: line } = await ctx.externs.in_.read();
+                        const inputString = new TextDecoder().decode(line);
+                        const response = inputString.trim().toLowerCase();
+                        
+                        await ctx.externs.out.write('\n');
+
+                        if (response.startsWith('y')) {
+                            try {
+                                await ctx.shell.runPipeline(cmdString);
+
+                                await drivers.call({
+                                    interface: 'puter-chat-completion',
+                                    method: 'complete',
+                                    args: {
+                                        messages: [
+                                            ...chatHistory.get_messages(),
+                                            {
+                                                role: "tool",
+                                                tool_call_id: chunk.id,
+                                                content: `Command executed successfully: ${cmdString}`
+                                            }
+                                        ]
+                                    }
+                                });
+                                
+                                fullMessage += `Command executed successfully: ${cmdString}`;
+                            } catch(error) {
+                                await ctx.externs.err.write(`Error executing command: ${error.message}\n`);
+                                fullMessage += `Failed to execute command: ${error.message}`;
+                                return;
+                            }
+                        } else {
+                            await ctx.externs.out.write('Operation cancelled.\n');
+                            fullMessage += 'Operation cancelled';
+                        }
+                    }
                 }
-
-                await ctx.externs.out.write('\n');
-                await ctx.shell.runPipeline(commandToExecute);
-                await ctx.externs.out.write(`Command executed: ${commandToExecute}\n`);
             } catch (error) {
-                await ctx.externs.err.write(`Error executing command: ${error.message}\n`);
-                return; 
+                await ctx.externs.err.write(`Error parsing chunk: ${error.message}\n`);
+                throw new Exit(1);
             }
-        } else {
-            await ctx.externs.out.write(message + '\n');
         }
 
-    }
+        await ctx.externs.out.write('\n');
+
+        if (!fullMessage) {
+            await ctx.externs.err.write('message not found in response\n');
+            return;
+        }
+
+        chatHistory.add_message({
+            role: 'assistant',
+            content: fullMessage
+        });
+
+    } 
+        
 }

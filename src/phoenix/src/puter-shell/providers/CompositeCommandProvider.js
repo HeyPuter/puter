@@ -54,4 +54,15 @@ export class CompositeCommandProvider {
         }
         return results;
     }
+
+    async list() {
+        const results = [];
+        for (const provider of this.providers) {
+            if (typeof provider.list === 'function') {
+                const commands = await provider.list();
+                results.push(...commands); 
+            }
+        }
+        return results;
+    }
 }

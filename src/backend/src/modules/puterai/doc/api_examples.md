@@ -1,3 +1,11 @@
+# PuterAI API Request Examples
+
+This document provides examples of API requests to the PuterAI services. These examples demonstrate how to interact with various AI capabilities of the Puter platform.
+
+## OCR (Optical Character Recognition)
+
+Example of using AWS Textract for OCR:
+
 ```javascript
 await (await fetch("http://api.puter.localhost:4100/drivers/call", {
     "headers": {
@@ -15,6 +23,10 @@ await (await fetch("http://api.puter.localhost:4100/drivers/call", {
     "method": "POST",
 })).json();
 ```
+
+## Chat Completion
+
+Example of using OpenAI for chat completion:
 
 ```javascript
 await (await fetch("http://api.puter.localhost:4100/drivers/call", {
@@ -43,6 +55,10 @@ await (await fetch("http://api.puter.localhost:4100/drivers/call", {
 })).json();
 ```
 
+## Image Generation
+
+Example of using OpenAI for image generation:
+
 ```javascript
 URL.createObjectURL(await (await fetch("http://api.puter.localhost:4100/drivers/call", {
   "headers": {
@@ -61,7 +77,9 @@ URL.createObjectURL(await (await fetch("http://api.puter.localhost:4100/drivers/
 })).blob());
 ```
 
-### Tool Use
+## Tool Use
+
+Example of using tool functions with AI:
 
 ```javascript
 await puter.ai.chat('What\'s the weather like in Vancouver?', {
@@ -88,6 +106,8 @@ await puter.ai.chat('What\'s the weather like in Vancouver?', {
     ]
 })
 ```
+
+Example with tool response:
 
 ```javascript
 await puter.ai.chat([
@@ -137,7 +157,9 @@ await puter.ai.chat([
 })
 ```
 
-### Claude Tool Use with Streaming
+## Claude Tool Use with Streaming
+
+Example of using Claude with streaming:
 
 ```javascript
 gen = await puter.ai.chat('What\'s the weather like in Vancouver?', {
@@ -182,7 +204,8 @@ Last item in the stream looks like this:
 }
 ```
 
-Respond like this:
+Responding to tool use:
+
 ```javascript
 gen = await puter.ai.chat([
     { role: 'user', content: `What's the weather like in Vancouver?` },
