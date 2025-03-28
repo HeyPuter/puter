@@ -39,6 +39,7 @@ const { InternetModule } = require("./src/modules/internet/InternetModule.js");
 const { PuterExecModule } = require("./src/modules/puterexec/PuterExecModule.js");
 const { MailModule } = require("./src/modules/mail/MailModule.js");
 const { ConvertModule } = require("./src/modules/convert/ConvertModule.js");
+const { CaptchaModule } = require("./src/modules/captcha/CaptchaModule.js");
 
 module.exports = {
     helloworld: () => {
@@ -61,6 +62,7 @@ module.exports = {
         WebModule,
         TemplateModule,
         AppsModule,
+        CaptchaModule,
     ],
 
     // Pre-built modules
@@ -76,6 +78,7 @@ module.exports = {
     InternetModule,
     MailModule,
     ConvertModule,
+    CaptchaModule,
     
     // Development modules
     PerfMonModule,

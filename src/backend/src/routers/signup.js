@@ -25,6 +25,7 @@ const { DB_WRITE } = require('../services/database/consts');
 const { generate_identifier } = require('../util/identifier');
 const { is_temp_users_disabled: lazy_temp_users, 
         is_user_signup_disabled: lazy_user_signup } = require("../helpers")
+const { requireCaptcha } = require('../modules/captcha/middleware/captcha-middleware');
 
 async function generate_random_username () {
     let username;
@@ -48,6 +49,7 @@ module.exports = eggspress(['/signup'], {
             res.status(400).send(`email username mismatch; please provide a password`);
         }
     },
+    mw: [requireCaptcha({ strictMode: true, eventType: 'signup' })], // Conditionally require captcha for signup
 }, async (req, res, next) => {
     // either api. subdomain or no subdomain
     if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')

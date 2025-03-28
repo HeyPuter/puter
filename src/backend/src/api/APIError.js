@@ -483,7 +483,17 @@ module.exports = class APIError {
         'not_yet_supported': {
             status: 400,
             message: ({ message }) => message,
-        }
+        },
+
+        // Captcha errors
+        'captcha_required': {
+            status: 400,
+            message: ({ message }) => message || 'Captcha verification required',
+        },
+        'captcha_invalid': {
+            status: 400,
+            message: ({ message }) => message || 'Invalid captcha response',
+        },
     };
 
     /**
