@@ -19,6 +19,7 @@
  */
 
 const BaseService = require('../../../services/BaseService');
+const { Endpoint } = require('../../../util/expressutil');
 
 /**
  * @class CaptchaService
@@ -133,23 +134,27 @@ class CaptchaService extends BaseService {
 
             const app = webService.app;
             
+            const api = this.require('express').Router();
+            app.use('/api/captcha', api);
+            
             // Generate captcha endpoint
-            app.get('/api/captcha/generate', (req, res) => {
-                try {
+            Endpoint({
+                route: '/generate',
+                methods: ['GET'],
+                handler: async (req, res) => {
                     const captcha = this.generateCaptcha();
                     res.json({
                         token: captcha.token,
                         image: captcha.data
                     });
-                } catch (error) {
-                    this.log.error(`Error generating captcha: ${error.message}`);
-                    res.status(500).json({ error: 'Failed to generate captcha' });
-                }
-            });
+                },
+            }).attach(api);
 
             // Verify captcha endpoint
-            app.post('/api/captcha/verify', (req, res) => {
-                try {
+            Endpoint({
+                route: '/verify',
+                methods: ['POST'],
+                handler: (req, res) => {
                     const { token, answer } = req.body;
                     
                     if (!token || !answer) {
@@ -161,14 +166,8 @@ class CaptchaService extends BaseService {
                     
                     const isValid = this.verifyCaptcha(token, answer);
                     res.json({ valid: isValid });
-                } catch (error) {
-                    this.log.error(`Error verifying captcha: ${error.message}`);
-                    res.status(500).json({ 
-                        valid: false, 
-                        error: 'Failed to verify captcha' 
-                    });
-                }
-            });
+                },
+            }).attach(api);
             
             // Special endpoint for automated testing
             // This should be disabled in production
