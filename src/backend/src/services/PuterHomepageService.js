@@ -168,7 +168,7 @@ class PuterHomepageService extends BaseService {
                 try {
                     const services = Context.get('services');
                     if (services) {
-                        const featureFlagService = services.get('featureflag');
+                        const featureFlagService = services.get('feature-flag');
                         if (featureFlagService) {
                             responseData.featureFlags = featureFlagService.getPublicFlags();
                         }
