@@ -65,10 +65,23 @@ function UIWindowSignup(options){
                         h += `<input id="email-${internal_id}" value="${html_encode(options.email ?? '')}" class="email" type="email" autocomplete="email" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                     h += `</div>`;
                     // password
-                    h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
+                    h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px; position: relative;">`;
                         h += `<label for="password-${internal_id}">${i18n('password')}</label>`;
-                        h += `<input id="password-${internal_id}" class="password" type="password" name="password" autocomplete="new-password" />`;
+                        h += `<input id="password-${internal_id}" class="password" type="${options.show_password ? "text" : "password"}" name="password" autocomplete="new-password" />`;
+                    // show/hide icon
+                        h += `<span style="position: absolute; right: 5%; top: 50%; cursor: pointer;" id="toggle-show-password-${internal_id}">
+                                    <img class="toggle-show-password-icon" src="${options.show_password ? window.icons["eye-closed.svg"] : window.icons["eye-open.svg"]}" width="20" height="20">
+                              </span>`;
                     h += `</div>`;
+                    // confirm password
+                    h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px; position: relative">`;
+                        h += `<label for="confirm-password-${internal_id}">${i18n('Confirm Password')}</label>`;
+                        h += `<input id="confirm-password-${internal_id}" class="confirm-password" type="${options.show_password ? "text" : "password"}" name="confirm-password" autocomplete="new-password" />`;
+                    // show/hide icon
+                        h += `<span style="position: absolute; right: 5%; top: 50%; cursor: pointer;" id="toggle-show-password-${internal_id}">
+                                     <img class="toggle-show-password-icon" src="${options.show_password ? window.icons["eye-closed.svg"] : window.icons["eye-open.svg"]}" width="20" height="20">
+                              </span>`;
+                    h += `</div>`;  
                     // captcha placeholder - will be replaced with actual captcha component
                     h += `<div class="captcha-container"></div>`;
                     // captcha-specific error message
@@ -230,6 +243,19 @@ function UIWindowSignup(options){
                 $(el_window).find('.signup-error-msg').fadeIn();
                 return;
             }
+        // get confirm password value
+            const confirmPassword = $(el_window).find('.confirm-password').val();
+            if (!confirmPassword) {
+                $(el_window).find('.signup-error-msg').html(i18n('confirm_password_required'));
+                $(el_window).find('.signup-error-msg').fadeIn();
+                return;
+            }
+             // check if passwords match
+             if (password !== confirmPassword) {
+                $(el_window).find('.signup-error-msg').html(i18n('passwords_do_not_match'));
+                $(el_window).find('.signup-error-msg').fadeIn();
+                return;
+}
 
             // Get captcha token and answer if required
             let captchaToken = null;
@@ -403,6 +429,17 @@ function UIWindowSignup(options){
             e.stopPropagation();
             return false;
         })
+
+        $(el_window).find(`#toggle-show-password-${internal_id}, #toggle-show-password-${internal_id}-confirm`).on("click", function (e) {
+            // hide/show password/confirm password and update icon
+            let inputField = $(this).siblings("input");
+            let isPasswordVisible = inputField.attr("type") === "text";
+            inputField.attr("type", isPasswordVisible ? "password" : "text");
+            $(this).find(".toggle-show-password-icon").attr(
+                "src",
+                isPasswordVisible ? window.icons["eye-open.svg"] : window.icons["eye-closed.svg"]
+            );
+        });
             
         //remove login window
         $('.signup-c2a-clickable').parents('.window').close();
