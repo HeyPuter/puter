@@ -23,20 +23,15 @@ const { Context } = require("../../../util/context");
 /**
  * Middleware that checks if captcha verification is required
  * This is the "first half" of the captcha verification process
- * It only determines if captcha is needed, but doesn't verify it
+ * It determines if verification is needed but doesn't perform verification
  * 
  * @param {Object} options - Configuration options
- * @param {boolean} [options.always=false] - Always require captcha regardless of rate limits
  * @param {boolean} [options.strictMode=true] - If true, fails closed on errors (more secure)
- * @param {string} [options.eventType='default'] - Type of event for extensions (e.g., 'login', 'signup')
  * @returns {Function} Express middleware function
  */
 const checkCaptcha = (options = {}) => async (req, res, next) => {
     // Default to strict mode for security
     const strictMode = options.strictMode !== false;
-    const eventType = options.eventType || 'default';
-    
-    console.log(`CAPTCHA DIAGNOSTIC: checkCaptcha middleware called for ${eventType}, strictMode: ${strictMode}, always: ${options.always || false}`);
     
     try {
         // Get services from the Context
@@ -49,10 +44,8 @@ const checkCaptcha = (options = {}) => async (req, res, next) => {
             return next();
         }
         
-        // Get captcha and event services
+        // Get captcha service
         let captchaService;
-        let eventService;
-        
         try {
             captchaService = services.get('captcha');
             console.log('CAPTCHA DIAGNOSTIC: captchaService available, enabled:', captchaService.enabled);
@@ -62,13 +55,6 @@ const checkCaptcha = (options = {}) => async (req, res, next) => {
                 console.log('CAPTCHA DIAGNOSTIC: captchaService is explicitly disabled, bypassing check');
                 req.captchaRequired = false;
                 return next();
-            }
-            
-            try {
-                eventService = services.get('event');
-            } catch (eventError) {
-                // Event service is optional
-                console.log('CAPTCHA DIAGNOSTIC: eventService not available');
             }
         } catch (captchaError) {
             console.warn('CAPTCHA DIAGNOSTIC: captchaService not available:', captchaError.message);
@@ -83,59 +69,11 @@ const checkCaptcha = (options = {}) => async (req, res, next) => {
             return next();
         }
         
-        // Prepare context information for the event
-        const requester = req.requester || {};
-        const ip = req.ip || req.connection.remoteAddress;
-        const userAgent = req.headers['user-agent'] || '';
-        
-        // Default to requiring captcha based on options or requester flag
-        let shouldRequireCaptcha = options.always || requester.requireCaptcha || false;
-        console.log('CAPTCHA DIAGNOSTIC: initial shouldRequireCaptcha =', shouldRequireCaptcha);
-        
-        // If event service is available, emit an event to allow extensions to control captcha requirement
-        if (eventService) {
-            try {
-                // Create event data - this will be passed to all listeners
-                const eventData = {
-                    type: eventType,
-                    ip,
-                    userAgent,
-                    requester,
-                    requireCaptcha: shouldRequireCaptcha,
-                    options
-                };
-                
-                // Emit the event and allow listeners to modify the data
-                await eventService.emitAsync('captcha:check', eventData);
-                
-                // Update requirement based on event handler changes
-                shouldRequireCaptcha = eventData.requireCaptcha;
-                console.log('CAPTCHA DIAGNOSTIC: after event shouldRequireCaptcha =', shouldRequireCaptcha);
-            } catch (eventError) {
-                console.error('CAPTCHA DIAGNOSTIC: Error in captcha check event:', eventError);
-                // Fail closed on event error if in strict mode
-                if (strictMode) {
-                    req.captchaRequired = true;
-                    return next();
-                }
-            }
-        }
-        
-        // Set the final value on the request
-        req.captchaRequired = shouldRequireCaptcha;
-        console.log('CAPTCHA DIAGNOSTIC: final req.captchaRequired =', req.captchaRequired);
-        
-        if (shouldRequireCaptcha) {
-            console.info('Captcha middleware: verification required for this request');
-        } else {
-            console.info('Captcha middleware: not required for this request');
-        }
-        
-        // Always continue to the next middleware
+        // Set captcha requirement based on service status
+        req.captchaRequired = true;
         next();
     } catch (error) {
-        console.error('CAPTCHA DIAGNOSTIC: Unhandled error in checkCaptcha middleware:', error);
-        // Fail closed on error if in strict mode
+        console.error('CAPTCHA DIAGNOSTIC: Error in checkCaptcha:', error);
         req.captchaRequired = strictMode;
         next();
     }
@@ -156,22 +94,17 @@ const requireCaptcha = (options = {}) => async (req, res, next) => {
     
     try {
         // Check if captcha is required based on previous middleware
-        // If checkCaptcha wasn't called, fall back to always requiring captcha in strict mode
         const captchaRequired = req.captchaRequired !== undefined ? req.captchaRequired : strictMode;
         
         if (!captchaRequired) {
-            console.info('Captcha verification: not required for this request (pre-determined)');
             return next();
         }
-
-        console.info('Captcha verification: required for this request (pre-determined)');
         
         // Get services from the Context
         const services = Context.get('services');
         
         // Fail closed if services aren't available (in strict mode)
         if (!services) {
-            console.warn('Captcha verification: services not available in Context');
             if (strictMode) {
                 return next(APIError.create('internal_error', null, {
                     message: 'Captcha service unavailable',
@@ -182,7 +115,6 @@ const requireCaptcha = (options = {}) => async (req, res, next) => {
         }
         
         let captchaService;
-        
         try {
             captchaService = services.get('captcha');
         } catch (error) {
@@ -198,7 +130,6 @@ const requireCaptcha = (options = {}) => async (req, res, next) => {
 
         // Fail closed if captcha service doesn't exist or isn't properly initialized
         if (!captchaService || typeof captchaService.verifyCaptcha !== 'function') {
-            console.error('Captcha verification: invalid captcha service');
             return next(APIError.create('internal_error', null, {
                 message: 'Captcha service misconfigured',
                 status: 500
@@ -210,14 +141,11 @@ const requireCaptcha = (options = {}) => async (req, res, next) => {
         const captchaAnswer = req.body.captchaAnswer;
 
         if (!captchaToken || !captchaAnswer) {
-            console.info('Captcha verification: missing token or answer');
             return next(APIError.create('captcha_required', null, {
                 message: 'Captcha verification required',
                 status: 400
             }));
         }
-
-        console.info(`Captcha verification: verifying token ${captchaToken.substring(0, 8)}...`);
         
         // Verify the captcha
         let isValid;
@@ -233,30 +161,23 @@ const requireCaptcha = (options = {}) => async (req, res, next) => {
         
         // Check verification result
         if (!isValid) {
-            console.info('Captcha verification: invalid captcha answer');
             return next(APIError.create('captcha_invalid', null, {
                 message: 'Invalid captcha response',
                 status: 400
             }));
         }
 
-        console.info('Captcha verification: successful');
         // Captcha verified successfully, continue
         next();
     } catch (error) {
-        // Don't swallow errors - forward all errors to error handler
-        console.error('Captcha verification error:', error);
-        
-        // If it's already an APIError, just forward it
-        if (error.name === 'APIError') {
-            return next(error);
+        console.error('Captcha verification: unexpected error', error);
+        if (strictMode) {
+            return next(APIError.create('internal_error', null, {
+                message: 'Captcha verification failed',
+                status: 500
+            }));
         }
-        
-        // Convert other errors to APIError and block the request
-        return next(APIError.create('captcha_error', null, {
-            message: 'Captcha verification failed: ' + (error.message || 'Unknown error'),
-            status: 400
-        }));
+        next();
     }
 };
 
