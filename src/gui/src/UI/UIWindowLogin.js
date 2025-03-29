@@ -606,6 +606,60 @@ async function UIWindowLogin(options){
             
             return false;
         })
+        
+        // Check for available OAuth providers
+        fetch('/oauth/providers')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Network response was not ok: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (Object.keys(data.providers || {}).length > 0) {
+                    // Add OAuth section to the login form
+                    const oauthSection = $(`
+                        <div class="oauth-options">
+                            <p>${i18n('or_login_with') || 'Or login with'}</p>
+                            <div class="oauth-buttons-container"></div>
+                        </div>
+                    `);
+                    
+                    const buttonContainer = oauthSection.find('.oauth-buttons-container');
+                    
+                    if (data.providers.google) {
+                        buttonContainer.append(`
+                            <a href="/auth/google" class="oauth-button google">
+                                <img src="/src/gui/src/assets/img/oauth/oauth-google.svg" alt="Google">
+                                <span>Google</span>
+                            </a>
+                        `);
+                    }
+                    
+                    if (data.providers.discord) {
+                        buttonContainer.append(`
+                            <a href="/auth/discord" class="oauth-button discord">
+                                <img src="/src/gui/src/assets/img/oauth/oauth-discord.svg" alt="Discord">
+                                <span>Discord</span>
+                            </a>
+                        `);
+                    }
+                    
+                    // Support for GitHub if added in the future
+                    if (data.providers.github) {
+                        buttonContainer.append(`
+                            <a href="/auth/github" class="oauth-button github">
+                                <span>GitHub</span>
+                            </a>
+                        `);
+                    }
+                    
+                    $(el_window).find('.login-form').append(oauthSection);
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching OAuth providers:', error);
+            });
 
         $(el_window).find('.signup-c2a-clickable').on('click', async function(e){
             //destroy this window

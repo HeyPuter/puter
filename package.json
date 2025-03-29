@@ -53,11 +53,15 @@
     "javascript-time-ago": "^2.5.11",
     "json-colorizer": "^3.0.1",
     "open": "^10.1.0",
+    "passport": "^0.7.0",
+    "passport-discord": "^0.1.4",
+    "passport-google-oauth20": "^2.0.0",
     "sharp": "^0.33.5",
     "sharp-bmp": "^0.1.5",
     "sharp-ico": "^0.1.5",
     "simple-git": "^3.25.0",
     "string-template": "^1.0.0",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "bcrypt": "^5.1.1"
   }
 }

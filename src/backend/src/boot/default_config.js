@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024-present Puter Technologies Inc.
+ * Copyright (C) 2025-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -25,6 +25,25 @@ module.exports = {
     domain: 'puter.localhost',
     protocol: 'http',
     contact_email: 'hey@example.com',
+
+    // OAuth configuration (disabled by default)
+    oauth: {
+        enabled: false,
+        google: {
+            enabled: false,
+            clientID: '',
+            clientSecret: '',
+            callbackURL: '/auth/google/callback',
+            scope: ['profile', 'email']
+        },
+        discord: {
+            enabled: false,
+            clientID: '',
+            clientSecret: '',
+            callbackURL: '/auth/discord/callback',
+            scope: ['identify', 'email']
+        }
+    },
 
     services: {
         database: {
