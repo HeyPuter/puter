@@ -15,19 +15,28 @@ class Convert {
 
     convert = async (...args) => {
         let options = {};
+        const requestParams = {};
+        
+        const usage = 'usage: convert({ source, dest, from, to }) or ' +
+            'convert(source, dest)';
 
         // If args is a single object, assume it is the options object
         if (typeof args[0] === 'object' && args[0] !== null) {
-            options = args[0];
+            Object.assign(requestParams, args.shift());
         } else {
-            // Otherwise, we assume separate arguments are provided
-            options = {
-                source: args[0],
-                to: args[1],
-                success: args[2],
-                error: args[3],
-            };
+            if ( args.length < 2 ) throw new Error(usage);
+
+            requestParams.source = args.shift();
+            const dest = args.shift();
+            if ( ! dest.includes('.') ) {
+                throw new Error('cannot infer type for: ' + args[1]);
+            }
+            requestParams.to = (a => a.slice(a.lastIndexOf('.')+1))(dest);
+            requestParams.dest = dest;
         }
+        
+        if ( args.length ) options.success = args.shift();
+        if ( args.length ) options.error = args.shift();
 
         try {
             const response = await fetch(`${this.APIOrigin}/drivers/call`, {
@@ -39,10 +48,7 @@ class Convert {
                 body: JSON.stringify({
                     interface: 'convert-files',
                     method: 'convert',
-                    args: {
-                        source: options.source,
-                        to: options.to
-                    }
+                    args: requestParams,
                 })
             });
 
