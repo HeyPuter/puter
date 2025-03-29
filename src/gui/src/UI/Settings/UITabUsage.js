@@ -62,9 +62,25 @@ export default {
                     if ( ! entry.usage_percentage ) {
                         entry.usage_percentage = (entry.used / entry.available * 100).toFixed(0);
                     }
+
+                    // Skip the 'ai-chat (complete)' entry since we've made it infinite for now
+                    if(entry.name === 'ai-chat (complete)')
+                        return;
+
+                    if(entry.name.startsWith('es:subdomain'))
+                        return;
+
+                    if(entry.name.startsWith('es:app'))
+                        return;
+
+                    let name = entry.name;
+
+                    if(name === 'convert-api (convert)')
+                        name = `File Conversions`;
+
                     h += `
                         <div class="driver-usage" style="margin-bottom: 10px;">
-                            <h3 style="margin-bottom: 5px; font-size: 14px;">${html_encode(entry.name)}:</h3>
+                            <h3 style="margin-bottom: 5px; font-size: 14px;">${html_encode(name)}:</h3>
                             <span style="font-size: 13px; margin-bottom: 3px;">${Number(entry.used)} used of ${Number(entry.available)}</span>
                             <div class="usage-progbar-wrapper" style="width: 100%;">
                                 <div class="usage-progbar" style="width: ${Number(entry.usage_percentage)}%;"><span class="usage-progbar-percent">${Number(entry.usage_percentage)}%</span></div>
