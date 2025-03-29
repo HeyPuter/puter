@@ -458,8 +458,9 @@ async function UIWindowLogin(options){
                     await p;
 
                     window.update_auth_data(data.token, data.user);
-                    
+
                     if(options.reload_on_success){
+                        sessionStorage.setItem('playChimeNextUpdate', 'yes');
                         window.onbeforeunload = null;
                         console.log('About to redirect, checking URL parameters:', window.location.search);
                         // Replace with a clean URL to prevent password leakage

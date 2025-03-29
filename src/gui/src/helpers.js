@@ -438,7 +438,8 @@ window.update_auth_data = async (auth_token, user)=>{
     localStorage.setItem('auth_token', auth_token);
 
     // Play startup chime if enabled
-    if (typeof play_startup_chime === 'function') {
+    if ( sessionStorage.getItem('playChimeNextUpdate') === 'yes' ) {
+        sessionStorage.setItem('playChimeNextUpdate', 'no');
         play_startup_chime();
     }
 
