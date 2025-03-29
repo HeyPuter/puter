@@ -51,6 +51,13 @@ config.require_email_verification_to_publish_website = false;
 config.kv_max_key_size = 1024;
 config.kv_max_value_size = 400 * 1024;
 
+// Captcha configuration
+config.captcha = {
+    enabled: false,                 // Enable captcha by default
+    expirationTime: 10 * 60 * 1000, // 10 minutes default expiration time
+    difficulty: 'medium'            // Default difficulty level
+};
+
 config.monitor = {
     metricsInterval: 60000,
     windowSize: 30,

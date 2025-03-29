@@ -29,43 +29,61 @@ import StepView from './Components/StepView.js';
 import Button from './Components/Button.js';
 import RecoveryCodeEntryView from './Components/RecoveryCodeEntryView.js';
 import play_startup_chime from '../helpers/play_startup_chime.js';
+import CaptchaView from './Components/CaptchaView.js'
+import { isCaptchaRequired } from '../helpers/captchaHelper.js';
 
 async function UIWindowLogin(options){
     options = options ?? {};
-    options.reload_on_success = options.reload_on_success ?? false;
-    options.has_head = options.has_head ?? true;
-    options.send_confirmation_code = options.send_confirmation_code ?? false;
-    options.show_password = options.show_password ?? false;
-
+    
+    if(options.reload_on_success === undefined)
+        options.reload_on_success = true;
+    
     return new Promise(async (resolve) => {
         const internal_id = window.uuidv4();
+        
+        // Check if captcha is required for login
+        const captchaRequired = await isCaptchaRequired('login');
+        console.log('Login captcha required:', captchaRequired);
+        
         let h = ``;
-        h += `<div style="max-width: 500px; min-width: 340px;">`;
-            if(!options.has_head && options.show_close_button !== false)
-                h += `<div class="generic-close-window-button"> &times; </div>`;
-            h += `<div style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">`;
-                // title
-                h += `<h1 class="login-form-title">${i18n('log_in')}</h1>`;
-                // login form
-                h += `<form class="login-form">`;
-                    // error msg
-                    h += `<div class="login-error-msg"></div>`;
-                    // username/email
-                    h += `<div style="overflow: hidden;">`;
-                        h += `<label for="email_or_username-${internal_id}">${i18n('email_or_username')}</label>`;
-                        h += `<input id="email_or_username-${internal_id}" class="email_or_username" type="text" name="email_or_username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false" autocomplete="username"/>`;
+        h += `<div style="max-width:100%; width:100%; height:100%; min-height:0; box-sizing:border-box; display:flex; flex-direction:column; justify-content:flex-start; align-items:stretch; padding:0; overflow:auto; color:var(--color-text);">`;
+            // logo
+            h += `<div class="logo-wrapper" style="display:flex; justify-content:center; padding:20px 20px 0 20px; margin-bottom: 0;">`;
+                h += `<img src="/dist/images/logo/logo.svg" style="height:45px;" />`;
+            h += `</div>`;
+            // title
+            h += `<div style="padding:10px 20px; text-align:center; margin-bottom:0;">`;
+                h += `<h1 style="font-size:18px; margin-bottom:0;">${i18n('log_in')}</h1>`;
+            h += `</div>`;
+            // form
+            h += `<div style="padding:20px; overflow-y:auto; overflow-x:hidden;">`;
+                h += `<form class="login-form" style="width:100%;">`;
+                    // server messages
+                    h += `<div class="login-error-msg" style="color:#e74c3c; display:none; margin-bottom:10px; line-height:15px; font-size:13px;"></div>`;
+                    // email or username
+                    h += `<div style="position: relative; margin-bottom: 20px;">`;
+                    h += `<label style="display:block; margin-bottom:5px;">${i18n('email_or_username')}</label>`;
+                    if(options.email_or_username){
+                        h += `<input type="text" class="email_or_username" value="${options.email_or_username}" autocomplete="username"/>`;
+                    }else{
+                        h += `<input type="text" class="email_or_username" autocomplete="username"/>`;
+                    }
                     h += `</div>`;
-                    // password with conditional type based based on options.show_password
-                    h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px; position: relative;">`;
-                    h += `<label for="password-${internal_id}">${i18n('password')}</label>`;
+                    // password
+                    h += `<div style="position: relative; margin-bottom: 20px;">`;
+                    h += `<label style="display:block; margin-bottom:5px;">${i18n('password')}</label>`;
                     h += `<input id="password-${internal_id}" class="password" type="${options.show_password ? "text" : "password"}" name="password" autocomplete="current-password"/>`;
                     // show/hide icon
                     h += `<span style="position: absolute; right: 5%; top: 50%; cursor: pointer;" id="toggle-show-password-${internal_id}">
                                 <img class="toggle-show-password-icon" src="${options.show_password ? window.icons["eye-closed.svg"] : window.icons["eye-open.svg"]}" width="20" height="20">
                             </span>`;
                     h += `</div>`;
+                    // captcha placeholder - will be replaced with actual captcha component
+                    h += `<div class="captcha-container"></div>`;
+                    // captcha-specific error message
+                    h += `<div class="captcha-error-msg" style="color: #e74c3c; font-size: 12px; margin-top: 5px; display: none;" aria-live="polite"></div>`;
                     // login
-                    h += `<button class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
+                    h += `<button type="submit" class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
                     // password recovery
                     h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>`;
                 h += `</form>`;
@@ -124,6 +142,46 @@ async function UIWindowLogin(options){
             }    
         })
 
+        // Initialize the captcha component with the required state
+        const captchaContainer = $(el_window).find('.captcha-container')[0];
+        const captcha = CaptchaView({ 
+            container: captchaContainer,
+            required: captchaRequired,
+        });
+
+        // Function to show captcha-specific error
+        const showCaptchaError = (message) => {
+            // Hide the general error message if shown
+            $(el_window).find('.login-error-msg').hide();
+            
+            // Show captcha-specific error
+            const captchaError = $(el_window).find('.captcha-error-msg');
+            captchaError.html(message);
+            captchaError.fadeIn();
+            
+            // Add visual indication of error to captcha container
+            $(captchaContainer).addClass('error');
+            $(captchaContainer).css('border', '1px solid #e74c3c');
+            $(captchaContainer).css('border-radius', '4px');
+            $(captchaContainer).css('padding', '10px');
+            
+            // Focus on the captcha input for better UX
+            setTimeout(() => {
+                const captchaInput = $(captchaContainer).find('.captcha-input');
+                if (captchaInput.length) {
+                    captchaInput.focus();
+                }
+            }, 100);
+        };
+
+        // Function to clear captcha errors
+        const clearCaptchaError = () => {
+            $(el_window).find('.captcha-error-msg').hide();
+            $(captchaContainer).removeClass('error');
+            $(captchaContainer).css('border', '');
+            $(captchaContainer).css('padding', '');
+        };
+
         $(el_window).find('.forgot-password-link').on('click', function(e){
             UIWindowRecoverPassword({
                 window_options: {
@@ -135,36 +193,105 @@ async function UIWindowLogin(options){
         })
 
         $(el_window).find('.login-btn').on('click', function(e){
+            // Prevent default button behavior (important for async requests)
+            e.preventDefault();
+            
+            // Clear previous error states
+            $(el_window).find('.login-error-msg').hide();
+            clearCaptchaError();
+
             const email_username = $(el_window).find('.email_or_username').val();
             const password = $(el_window).find('.password').val();
+            
+            // Basic validation for email/username and password
+            if(!email_username) {
+                $(el_window).find('.login-error-msg').html(i18n('email_or_username_required') || 'Email or username is required');
+                $(el_window).find('.login-error-msg').fadeIn();
+                return;
+            }
+            
+            if(!password) {
+                $(el_window).find('.login-error-msg').html(i18n('password_required') || 'Password is required');
+                $(el_window).find('.login-error-msg').fadeIn();
+                return;
+            }
+            
+            // Get captcha token and answer if required
+            let captchaToken = null;
+            let captchaAnswer = null;
+            
+            if (captcha.isRequired()) {
+                captchaToken = captcha.getToken();
+                captchaAnswer = captcha.getAnswer();
+                
+                // Validate captcha if it's required
+                if (!captcha || !captchaContainer) {
+                    $(el_window).find('.login-error-msg').html(i18n('captcha_system_error') || 'Verification system error. Please refresh the page.');
+                    $(el_window).find('.login-error-msg').fadeIn();
+                    return;
+                }
+                
+                if (!captchaToken) {
+                    showCaptchaError(i18n('captcha_load_error') || 'Could not load verification code. Please refresh the page or try again later.');
+                    return;
+                }
+                
+                if (!captchaAnswer) {
+                    showCaptchaError(i18n('captcha_required') || 'Please enter the verification code');
+                    return;
+                }
+                
+                if (captchaAnswer.trim().length < 3) {
+                    showCaptchaError(i18n('captcha_too_short') || 'Verification code answer is too short.');
+                    return;
+                }
+                
+                if (captchaAnswer.trim().length > 12) {
+                    showCaptchaError(i18n('captcha_too_long') || 'Verification code answer is too long.');
+                    return;
+                }
+            }
+            
+            // Prepare data for the request
             let data;
-        
             if(window.is_email(email_username)){
                 data = JSON.stringify({ 
                     email: email_username, 
-                    password: password
-                })
-            }else{
+                    password: password,
+                    ...(captchaToken && captchaAnswer ? { 
+                        captchaToken: captchaToken,
+                        captchaAnswer: captchaAnswer 
+                    } : {})
+                });
+            } else {
                 data = JSON.stringify({ 
                     username: email_username, 
-                    password: password
-                })
+                    password: password,
+                    ...(captchaToken && captchaAnswer ? { 
+                        captchaToken: captchaToken,
+                        captchaAnswer: captchaAnswer 
+                    } : {})
+                });
             }
-        
-            $(el_window).find('.login-error-msg').hide();
         
             let headers = {};
             if(window.custom_headers)
                 headers = window.custom_headers;
     
+            // Disable the login button to prevent multiple submissions
+            $(el_window).find('.login-btn').prop('disabled', true);
+    
+            console.log('Sending login AJAX request with async: true');
             $.ajax({
                 url: window.gui_origin + "/login",
                 type: 'POST',
-                async: false,
+                async: true,
                 headers: headers,
                 contentType: "application/json",
                 data: data,				
                 success: async function (data){
+                    console.log('Login request successful');
+                    // Keep the button disabled on success since we're redirecting or closing
                     let p = Promise.resolve();
                     if ( data.next_step === 'otp' ) {
                         p = new TeePromise();
@@ -334,12 +461,96 @@ async function UIWindowLogin(options){
                     
                     if(options.reload_on_success){
                         window.onbeforeunload = null;
-                        window.location.replace('/');
+                        console.log('About to redirect, checking URL parameters:', window.location.search);
+                        // Replace with a clean URL to prevent password leakage
+                        const cleanUrl = window.location.origin + window.location.pathname;
+                        window.location.replace(cleanUrl);
                     }else
                         resolve(true);
                     $(el_window).close();
                 },
                 error: function (err){
+                    console.log('Login AJAX request error:', err.status, err.statusText);
+                    
+                    // First, ensure URL is clean in case of error (prevent password leakage)
+                    if (window.location.search && (
+                        window.location.search.includes('password=') || 
+                        window.location.search.includes('username=') || 
+                        window.location.search.includes('email=')
+                    )) {
+                        console.log('Cleaning sensitive data from URL');
+                        const cleanUrl = window.location.origin + window.location.pathname;
+                        history.replaceState({}, document.title, cleanUrl);
+                    }
+                    
+                    // Enable 'Log In' button
+                    $(el_window).find('.login-btn').prop('disabled', false);
+                    
+                    // Handle captcha-specific errors
+                    const errorText = err.responseText || '';
+                    const errorStatus = err.status || 0;
+                    
+                    // Try to parse error as JSON
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        
+                        // Check for specific error codes
+                        if (errorJson.code === 'captcha_required') {
+                            // If captcha is now required but wasn't before, update the component
+                            if (!captcha.isRequired()) {
+                                captcha.setRequired(true);
+                                showCaptchaError(i18n('captcha_now_required') || 'Verification is now required. Please complete the verification below.');
+                            } else {
+                                showCaptchaError(i18n('captcha_required') || 'Please enter the verification code');
+                            }
+                            return;
+                        } 
+                        
+                        if (errorJson.code === 'captcha_invalid' || errorJson.code === 'captcha_error') {
+                            showCaptchaError(i18n('captcha_invalid') || 'Invalid verification code');
+                            // Refresh the captcha if it's invalid
+                            captcha.reset();
+                            return;
+                        }
+                        
+                        // If it's a message in the JSON, use that
+                        if (errorJson.message) {
+                            $(el_window).find('.login-error-msg').html(errorJson.message);
+                            $(el_window).find('.login-error-msg').fadeIn();
+                            return;
+                        }
+                    } catch (e) {
+                        // Not JSON, continue with text analysis
+                    }
+                    
+                    // Check for specific captcha errors using more robust detection for text responses
+                    if (
+                        errorText.includes('captcha_required') || 
+                        errorText.includes('Captcha verification required') ||
+                        (errorText.includes('captcha') && errorText.includes('required'))
+                    ) {
+                        // If captcha is now required but wasn't before, update the component
+                        if (!captcha.isRequired()) {
+                            captcha.setRequired(true);
+                            showCaptchaError(i18n('captcha_now_required') || 'Verification is now required. Please complete the verification below.');
+                        } else {
+                            showCaptchaError(i18n('captcha_required') || 'Please enter the verification code');
+                        }
+                        return;
+                    } 
+                    
+                    if (
+                        errorText.includes('captcha_invalid') || 
+                        errorText.includes('Invalid captcha') ||
+                        (errorText.includes('captcha') && (errorText.includes('invalid') || errorText.includes('incorrect')))
+                    ) {
+                        showCaptchaError(i18n('captcha_invalid') || 'Invalid verification code');
+                        // Refresh the captcha if it's invalid
+                        captcha.reset();
+                        return;
+                    }
+                    
+                    // Fall back to original error handling
                     const $errorMessage = $(el_window).find('.login-error-msg');
                     if (err.status === 404) {
                         // Don't include the whole 404 page
@@ -372,6 +583,27 @@ async function UIWindowLogin(options){
         $(el_window).find('.login-form').on('submit', function(e){
             e.preventDefault();
             e.stopPropagation();
+            
+            // Instead of triggering the click event, process the login directly
+            const email_username = $(el_window).find('.email_or_username').val();
+            const password = $(el_window).find('.password').val();
+            
+            // Basic validation
+            if(!email_username) {
+                $(el_window).find('.login-error-msg').html(i18n('email_or_username_required') || 'Email or username is required');
+                $(el_window).find('.login-error-msg').fadeIn();
+                return false;
+            }
+            
+            if(!password) {
+                $(el_window).find('.login-error-msg').html(i18n('password_required') || 'Password is required');
+                $(el_window).find('.login-error-msg').fadeIn();
+                return false;
+            }
+            
+            // Process login using the same function as the button click
+            $(el_window).find('.login-btn').click();
+            
             return false;
         })
 

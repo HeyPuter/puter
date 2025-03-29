@@ -21,6 +21,7 @@ const { PathBuilder } = require("../util/pathutil");
 const BaseService = require("./BaseService");
 const {is_valid_url} = require('../helpers');
 const { Endpoint } = require("../util/expressutil");
+const { Context } = require("../util/context");
 
 /**
  * PuterHomepageService serves the initial HTML page that loads the Puter GUI
@@ -72,10 +73,23 @@ class PuterHomepageService extends BaseService {
             route: '/whoarewe',
             methods: ['GET'],
             handler: async (req, res) => {
-                res.json({
+                // Get basic configuration information
+                const responseData = {
                     disable_user_signup: this.global_config.disable_user_signup,
                     disable_temp_users: this.global_config.disable_temp_users,
-                });
+                    environmentInfo: {
+                        env: this.global_config.env,
+                        version: process.env.VERSION || 'development'
+                    }
+                };
+
+                // Add captcha requirement information
+                responseData.captchaRequired = {
+                    login: req.captchaRequired,
+                    signup: req.captchaRequired,
+                };
+                
+                res.json(responseData);
             }
         }).attach(app);
     }
@@ -105,6 +119,12 @@ class PuterHomepageService extends BaseService {
                 message,
             }));
         }
+        
+        // checkCaptcha middleware (in CaptchaService) sets req.captchaRequired
+        const captchaRequired = {
+            login: req.captchaRequired,
+            signup: req.captchaRequired,
+        };
         
         return res.send(this.generate_puter_page_html({
             env: config.env,
@@ -144,6 +164,8 @@ class PuterHomepageService extends BaseService {
                 long_description: config.long_description,
                 disable_temp_users: config.disable_temp_users,
                 co_isolation_enabled: req.co_isolation_enabled,
+                // Add captcha requirements to GUI parameters
+                captchaRequired: captchaRequired,
             },
         }));
     }

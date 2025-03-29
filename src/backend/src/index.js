@@ -20,10 +20,12 @@
 
 const { Kernel } = require("./Kernel");
 const CoreModule = require("./CoreModule");
+const { CaptchaModule } = require("./modules/captcha/CaptchaModule"); // Add CaptchaModule
 
 const testlaunch = () => {
     const k = new Kernel();
     k.add_module(new CoreModule());
+    k.add_module(new CaptchaModule()); // Register the CaptchaModule
     k.boot();
 }
 
