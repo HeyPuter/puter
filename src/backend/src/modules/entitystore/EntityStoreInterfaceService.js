@@ -35,242 +35,91 @@ class EntityStoreInterfaceService extends BaseService {
         const svc_registry = this.services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');
         
+        // Define the standard CRUD interface methods that will be reused
+        const crudMethods = {
+            create: {
+                parameters: {
+                    object: {
+                        type: 'json',
+                        subtype: 'object',
+                        required: true,
+                    },
+                    options: { type: 'json' },
+                }
+            },
+            read: {
+                parameters: {
+                    uid: { type: 'string' },
+                    id: { type: 'json' },
+                    params: { type: 'json' },
+                }
+            },
+            select: {
+                parameters: {
+                    predicate: { type: 'json' },
+                    offset: { type: 'number' },
+                    limit: { type: 'number' },
+                    params: { type: 'json' },
+                }
+            },
+            update: {
+                parameters: {
+                    id: { type: 'json' },
+                    object: {
+                        type: 'json',
+                        subtype: 'object',
+                        required: true,
+                    },
+                    options: { type: 'json' },
+                }
+            },
+            upsert: {
+                parameters: {
+                    id: { type: 'json' },
+                    object: {
+                        type: 'json',
+                        subtype: 'object',
+                        required: true,
+                    },
+                    options: { type: 'json' },
+                }
+            },
+            delete: {
+                parameters: {
+                    uid: { type: 'string' },
+                    id: { type: 'json' },
+                }
+            },
+        };
+        
         // Register the crud-q interface
         col_interfaces.set('crud-q', {
-            methods: {
-                create: {
-                    parameters: {
-                        object: {
-                            type: 'json',
-                            subtype: 'object',
-                            required: true,
-                        },
-                        options: { type: 'json' },
-                    }
-                },
-                read: {
-                    parameters: {
-                        uid: { type: 'string' },
-                        id: { type: 'json' },
-                        params: { type: 'json' },
-                    }
-                },
-                select: {
-                    parameters: {
-                        predicate: { type: 'json' },
-                        offset: { type: 'number' },
-                        limit: { type: 'number' },
-                        params: { type: 'json' },
-                    }
-                },
-                update: {
-                    parameters: {
-                        id: { type: 'json' },
-                        object: {
-                            type: 'json',
-                            subtype: 'object',
-                            required: true,
-                        },
-                        options: { type: 'json' },
-                    }
-                },
-                upsert: {
-                    parameters: {
-                        id: { type: 'json' },
-                        object: {
-                            type: 'json',
-                            subtype: 'object',
-                            required: true,
-                        },
-                        options: { type: 'json' },
-                    }
-                },
-                delete: {
-                    parameters: {
-                        uid: { type: 'string' },
-                        id: { type: 'json' },
-                    }
-                },
-            },
+            methods: { ...crudMethods }
         });
 
         // Register entity-specific interfaces that use crud-q
-        col_interfaces.set('puter-apps', {
-            description: 'Manage a developer\'s apps on Puter.',
-            methods: {
-                create: {
-                    parameters: {
-                        object: {
-                            type: 'json',
-                            subtype: 'object',
-                            required: true,
-                        },
-                        options: { type: 'json' },
-                    }
-                },
-                read: {
-                    parameters: {
-                        uid: { type: 'string' },
-                        id: { type: 'json' },
-                        params: { type: 'json' },
-                    }
-                },
-                select: {
-                    parameters: {
-                        predicate: { type: 'json' },
-                        offset: { type: 'number' },
-                        limit: { type: 'number' },
-                        params: { type: 'json' },
-                    }
-                },
-                update: {
-                    parameters: {
-                        id: { type: 'json' },
-                        object: {
-                            type: 'json',
-                            subtype: 'object',
-                            required: true,
-                        },
-                        options: { type: 'json' },
-                    }
-                },
-                upsert: {
-                    parameters: {
-                        id: { type: 'json' },
-                        object: {
-                            type: 'json',
-                            subtype: 'object',
-                            required: true,
-                        },
-                        options: { type: 'json' },
-                    }
-                },
-                delete: {
-                    parameters: {
-                        uid: { type: 'string' },
-                        id: { type: 'json' },
-                    }
-                },
+        const entityInterfaces = [
+            {
+                name: 'puter-apps',
+                description: 'Manage a developer\'s apps on Puter.'
+            },
+            {
+                name: 'puter-subdomains',
+                description: 'Manage subdomains on Puter.'
+            },
+            {
+                name: 'puter-notifications',
+                description: 'Read notifications on Puter.'
             }
-        });
+        ];
 
-        col_interfaces.set('puter-subdomains', {
-            description: 'Manage subdomains on Puter.',
-            methods: {
-                create: {
-                    parameters: {
-                        object: {
-                            type: 'json',
-                            subtype: 'object',
-                            required: true,
-                        },
-                        options: { type: 'json' },
-                    }
-                },
-                read: {
-                    parameters: {
-                        uid: { type: 'string' },
-                        id: { type: 'json' },
-                        params: { type: 'json' },
-                    }
-                },
-                select: {
-                    parameters: {
-                        predicate: { type: 'json' },
-                        offset: { type: 'number' },
-                        limit: { type: 'number' },
-                        params: { type: 'json' },
-                    }
-                },
-                update: {
-                    parameters: {
-                        id: { type: 'json' },
-                        object: {
-                            type: 'json',
-                            subtype: 'object',
-                            required: true,
-                        },
-                        options: { type: 'json' },
-                    }
-                },
-                upsert: {
-                    parameters: {
-                        id: { type: 'json' },
-                        object: {
-                            type: 'json',
-                            subtype: 'object',
-                            required: true,
-                        },
-                        options: { type: 'json' },
-                    }
-                },
-                delete: {
-                    parameters: {
-                        uid: { type: 'string' },
-                        id: { type: 'json' },
-                    }
-                },
-            }
-        });
-
-        col_interfaces.set('puter-notifications', {
-            description: 'Read notifications on Puter.',
-            methods: {
-                create: {
-                    parameters: {
-                        object: {
-                            type: 'json',
-                            subtype: 'object',
-                            required: true,
-                        },
-                        options: { type: 'json' },
-                    }
-                },
-                read: {
-                    parameters: {
-                        uid: { type: 'string' },
-                        id: { type: 'json' },
-                        params: { type: 'json' },
-                    }
-                },
-                select: {
-                    parameters: {
-                        predicate: { type: 'json' },
-                        offset: { type: 'number' },
-                        limit: { type: 'number' },
-                        params: { type: 'json' },
-                    }
-                },
-                update: {
-                    parameters: {
-                        id: { type: 'json' },
-                        object: {
-                            type: 'json',
-                            subtype: 'object',
-                            required: true,
-                        },
-                        options: { type: 'json' },
-                    }
-                },
-                upsert: {
-                    parameters: {
-                        id: { type: 'json' },
-                        object: {
-                            type: 'json',
-                            subtype: 'object',
-                            required: true,
-                        },
-                        options: { type: 'json' },
-                    }
-                },
-                delete: {
-                    parameters: {
-                        uid: { type: 'string' },
-                        id: { type: 'json' },
-                    }
-                },
-            }
-        });
+        // Register each entity interface with the same CRUD methods
+        for (const entity of entityInterfaces) {
+            col_interfaces.set(entity.name, {
+                description: entity.description,
+                methods: { ...crudMethods }
+            });
+        }
     }
 }
 
