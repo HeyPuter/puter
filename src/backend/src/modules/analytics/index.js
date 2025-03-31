@@ -18,7 +18,9 @@
  */
 
 const { AnalyticsInterfaceService } = require('./AnalyticsInterfaceService');
+const { AnalyticsModule } = require('./AnalyticsModule');
 
 module.exports = {
     AnalyticsInterfaceService,
+    AnalyticsModule,
 };

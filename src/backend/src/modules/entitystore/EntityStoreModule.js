@@ -19,23 +19,20 @@
 
 // METADATA // {"ai-commented":{"service":"claude"}}
 const { AdvancedBase } = require("@heyputer/putility");
-const { EntityStoreInterfaceService } = require("../entitystore/EntityStoreInterfaceService");
-const { AnalyticsInterfaceService } = require("../analytics/AnalyticsInterfaceService");
+const { EntityStoreInterfaceService } = require("./EntityStoreInterfaceService");
 
 /**
- * A module for registering driver interfaces.
- * This module includes services for registering entity store and analytics interfaces.
+ * A module for registering entity store interfaces.
  */
-class InterfacesModule extends AdvancedBase {
+class EntityStoreModule extends AdvancedBase {
     async install(context) {
         const services = context.get('services');
         
         // Register interface services
         services.registerService('entitystore-interface', EntityStoreInterfaceService);
-        services.registerService('analytics-interface', AnalyticsInterfaceService);
     }
 }
 
 module.exports = {
-    InterfacesModule,
+    EntityStoreModule,
 };

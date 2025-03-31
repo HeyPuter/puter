@@ -18,7 +18,9 @@
  */
 
 const { EntityStoreInterfaceService } = require('./EntityStoreInterfaceService');
+const { EntityStoreModule } = require('./EntityStoreModule');
 
 module.exports = {
     EntityStoreInterfaceService,
+    EntityStoreModule,
 };

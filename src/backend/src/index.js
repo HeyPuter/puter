@@ -21,13 +21,15 @@
 const { Kernel } = require("./Kernel");
 const CoreModule = require("./CoreModule");
 const { CaptchaModule } = require("./modules/captcha/CaptchaModule"); // Add CaptchaModule
-const { InterfacesModule } = require("./modules/interfaces"); // Add InterfacesModule
+const { EntityStoreModule } = require("./modules/entitystore"); // Add EntityStoreModule
+const { AnalyticsModule } = require("./modules/analytics"); // Add AnalyticsModule
 
 const testlaunch = () => {
     const k = new Kernel();
     k.add_module(new CoreModule());
     k.add_module(new CaptchaModule()); // Register the CaptchaModule
-    k.add_module(new InterfacesModule()); // Register the InterfacesModule
+    k.add_module(new EntityStoreModule()); // Register the EntityStoreModule
+    k.add_module(new AnalyticsModule()); // Register the AnalyticsModule
     k.boot();
 }
 

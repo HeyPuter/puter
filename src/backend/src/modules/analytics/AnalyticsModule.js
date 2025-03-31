@@ -17,8 +17,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { InterfacesModule } = require('./InterfacesModule');
+// METADATA // {"ai-commented":{"service":"claude"}}
+const { AdvancedBase } = require("@heyputer/putility");
+const { AnalyticsInterfaceService } = require("./AnalyticsInterfaceService");
+
+/**
+ * A module for registering analytics interfaces.
+ */
+class AnalyticsModule extends AdvancedBase {
+    async install(context) {
+        const services = context.get('services');
+        
+        // Register interface services
+        services.registerService('analytics-interface', AnalyticsInterfaceService);
+    }
+}
 
 module.exports = {
-    InterfacesModule,
+    AnalyticsModule,
 };
