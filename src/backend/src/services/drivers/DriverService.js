@@ -112,12 +112,6 @@ class DriverService extends BaseService {
         const col_drivers = svc_registry.get('drivers');
         const col_types = svc_registry.get('types');
         {
-            const default_interfaces = require('./interfaces');
-            for ( const k in default_interfaces ) {
-                col_interfaces.set(k, default_interfaces[k]);
-            }
-        }
-        {
             const types = this.modules.types;
             for ( const k in types ) {
                 col_types.set(k, types[k]);
