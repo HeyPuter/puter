@@ -128,6 +128,92 @@ class NotificationService extends BaseService {
 
         const svc_event = this.services.get('event');
         
+        // Add new endpoint for notification history
+        Endpoint({
+            route: '/history',
+            methods: ['GET'],
+            handler: async (req, res) => {
+                try {
+                    const page = parseInt(req.query.page) || 1;
+                    const limit = parseInt(req.query.limit) || 20;
+                    const offset = (page - 1) * limit;
+
+                    // Get total count
+                    const [countResult] = await this.db.read(
+                        'SELECT COUNT(*) as total FROM `notification` WHERE user_id = ?',
+                        [req.user.id]
+                    );
+                    const total = countResult.total;
+
+                    // Get paginated notifications with proper ordering
+                    const notifications = await this.db.read(
+                        'SELECT * FROM `notification` ' +
+                        'WHERE user_id = ? ' +
+                        'ORDER BY created_at DESC, id DESC ' +
+                        'LIMIT ? OFFSET ?',
+                        [req.user.id, limit, offset]
+                    );
+
+                    console.log('Found notifications:', notifications.length); // Debug log
+
+                    // Parse notification values
+                    for (const n of notifications) {
+                        try {
+                            let value = this.db.case({
+                                mysql: () => n.value,
+                                otherwise: () => {
+                                    const parsed = JSON.parse(n.value ?? '{}');
+                                    return parsed;
+                                }
+                            })();
+
+                            // Ensure value is an object
+                            if (typeof value === 'string') {
+                                try {
+                                    value = JSON.parse(value);
+                                } catch (e) {
+                                    console.error('Error parsing notification value:', e);
+                                    value = {};
+                                }
+                            }
+
+                            n.value = value || {};
+                            
+                            // Ensure created_at is a valid timestamp
+                            if (n.created_at) {
+                                n.created_at = Math.floor(new Date(n.created_at).getTime() / 1000);
+                            }
+
+                            console.log('Processed notification:', {
+                                uid: n.uid,
+                                value: n.value,
+                                created_at: n.created_at
+                            }); // Debug log
+                        } catch (err) {
+                            console.error('Error processing notification:', err);
+                            n.value = {};
+                        }
+                    }
+
+                    res.json({
+                        notifications: notifications.filter(n => n.value && Object.keys(n.value).length > 0),
+                        pagination: {
+                            total,
+                            page,
+                            limit,
+                            total_pages: Math.ceil(total / limit)
+                        }
+                    });
+                } catch (error) {
+                    console.error('Error in notification history endpoint:', error);
+                    res.status(500).json({
+                        error: 'Internal server error',
+                        message: error.message
+                    });
+                }
+            }
+        }).attach(router);
+
         [['ack','acknowledged'],['read','read']].forEach(([ep_name, col_name]) => {
             Endpoint({
                 route: '/mark-' + ep_name,
@@ -292,32 +378,66 @@ class NotificationService extends BaseService {
         const svc_event = this.services.get('event');
         const user_id_list = await selector(this);
         this.notifs_pending_write[uid] = new TeePromise();
+        
+        // Ensure notification has required fields and proper structure
+        const notificationValue = {
+            source: notification.source || 'system',
+            icon_source: notification.icon_source || 'builtin',
+            icon: notification.icon || 'bell.svg',
+            title: notification.title || '',
+            text: notification.text || '',
+            round_icon: notification.round_icon || false,
+            timestamp: Math.floor(Date.now() / 1000),
+            template: notification.template,
+            fields: notification.fields,
+            ...notification
+        };
+
+        // Remove undefined values
+        Object.keys(notificationValue).forEach(key => {
+            if (notificationValue[key] === undefined) {
+                delete notificationValue[key];
+            }
+        });
+
         svc_event.emit('outer.gui.notif.message', {
             user_id_list,
             response: {
                 uid,
-                notification,
+                notification: notificationValue,
             },
         });
         
         (async () => {
-            for ( const user_id of user_id_list ) {
-                await this.db.write(
-                    'INSERT INTO `notification` ' +
-                    '(`user_id`, `uid`, `value`) ' +
-                    'VALUES (?, ?, ?)',
-                    [user_id, uid, JSON.stringify(notification)],
-                );
+            try {
+                for (const user_id of user_id_list) {
+                    await this.db.write(
+                        'INSERT INTO `notification` ' +
+                        '(`user_id`, `uid`, `value`, `created_at`) ' +
+                        'VALUES (?, ?, ?, ?)',
+                        [
+                            user_id,
+                            uid,
+                            JSON.stringify(notificationValue),
+                            notificationValue.timestamp
+                        ],
+                    );
+                }
+                const p = this.notifs_pending_write[uid];
+                delete this.notifs_pending_write[uid];
+                p.resolve();
+                svc_event.emit('outer.gui.notif.persisted', {
+                    user_id_list,
+                    response: {
+                        uid,
+                    },
+                });
+            } catch (error) {
+                console.error('Error storing notification:', error);
+                const p = this.notifs_pending_write[uid];
+                delete this.notifs_pending_write[uid];
+                p.reject(error);
             }
-            const p = this.notifs_pending_write[uid];
-            delete this.notifs_pending_write[uid];
-            p.resolve()
-            svc_event.emit('outer.gui.notif.persisted', {
-                user_id_list,
-                response: {
-                    uid,
-                },
-            });
         })();
     }
 }

@@ -42,6 +42,13 @@ import UIWindowWelcome from "./UIWindowWelcome.js"
 import launch_app from "../helpers/launch_app.js"
 import item_icon from "../helpers/item_icon.js"
 import UIWindowSearch from "./UIWindowSearch.js"
+import UIWindowNotificationHistory from "./UIWindowNotificationHistory.js"
+
+function formatDate(timestamp) {
+    // If timestamp is in seconds, convert to milliseconds
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleString();
+}
 
 async function UIDesktop(options) {
     let h = '';
@@ -1185,6 +1192,8 @@ async function UIDesktop(options) {
     // search button
     ht += `<div class="toolbar-btn search-btn" title="Search" style="background-image:url('${window.icons['search.svg']}')"></div>`;
 
+    // notification history button
+    ht += `<div class="toolbar-btn notification-history-btn" title="${i18n('notification_history')}" style="background-image:url('${window.icons['bell.svg']}')"></div>`;
 
     //clock 
     ht += `<div id="clock" class="toolbar-clock" style="">12:00 AM Sun, Jan 01</div>`;
@@ -1392,6 +1401,325 @@ async function UIDesktop(options) {
             });
         }
     }
+
+    // Function to create and setup notification panel
+    function createNotificationPanel() {
+        // Remove existing panel if it exists
+        const existingPanel = document.querySelector('.notification-history-panel');
+        if (existingPanel) {
+            existingPanel.remove();
+        }
+
+        const panel = document.createElement('div');
+        panel.className = 'notification-history-panel';
+        panel.innerHTML = `
+            <div class="notification-history-header">
+                <div class="notification-history-title">Notifications</div>
+            </div>
+            <div class="notification-history-list"></div>
+            <div class="notification-history-footer">
+                <div class="notification-history-loading" style="display: none;">Loading...</div>
+                <div class="notification-history-error" style="display: none;"></div>
+                <div class="notification-history-empty" style="display: none;">No notifications</div>
+            </div>
+        `;
+
+        // Position the panel below the bell icon
+        const bellIcon = document.querySelector('.notification-history-btn');
+        const bellRect = bellIcon.getBoundingClientRect();
+        panel.style.top = `${bellRect.bottom + 5}px`;
+        panel.style.right = `${window.innerWidth - bellRect.right - (bellRect.width / 2) + 160}px`;
+
+        // Add scroll event listener to load more notifications
+        const list = panel.querySelector('.notification-history-list');
+        list.addEventListener('scroll', () => {
+            if (!isLoading && hasMore && 
+                list.scrollHeight - list.scrollTop <= list.clientHeight + 50) {
+                loadNotifications(currentPage + 1);
+            }
+        });
+
+        // Add click outside handler
+        function handleClickOutside(e) {
+            if (!panel.contains(e.target) && 
+                !bellIcon.contains(e.target)) {
+                panel.remove();
+                document.removeEventListener('click', handleClickOutside);
+            }
+        }
+        document.addEventListener('click', handleClickOutside);
+
+        // Add to document
+        document.body.appendChild(panel);
+
+        // Load initial notifications
+        currentPage = 1;
+        loadNotifications(1);
+
+        return panel;
+    }
+
+    // Initialize notification-related variables
+    let currentPage = 1;
+    let isLoading = false;
+    let hasMore = false;
+    let loadError = null;
+    let bellIcon = null;
+
+    // Initialize bell icon reference
+    function initializeNotifications() {
+        bellIcon = document.querySelector('.notification-history-btn');
+        if (!bellIcon) {
+            console.error('Notification bell icon not found');
+            return;
+        }
+
+        // Add click handler for notification bell icon
+        bellIcon.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            createNotificationPanel();
+        });
+
+        // Update notification count on page load
+        updateNotificationBadgeCount();
+
+        // Update notification count when receiving new notifications
+        window.socket.on('notif.message', () => {
+            updateNotificationBadgeCount();
+            // Add glow effect to bell icon
+            bellIcon.classList.add('has-new-notification');
+            // Remove glow effect after 5 seconds
+            setTimeout(() => {
+                bellIcon.classList.remove('has-new-notification');
+            }, 5000);
+            // Reload notifications if panel is open
+            const panel = document.querySelector('.notification-history-panel');
+            if (panel) {
+                currentPage = 1;
+                loadNotifications(1);
+            }
+        });
+
+        // Update notification count when marking as read
+        window.socket.on('notif.ack', () => {
+            updateNotificationBadgeCount();
+        });
+    }
+
+    // Function to format time ago
+    function formatTimeAgo(date) {
+        const now = new Date();
+        const seconds = Math.floor((now - date) / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const hours = Math.floor(minutes / 60);
+        const days = Math.floor(hours / 24);
+
+        if (days > 0) {
+            return `${days} day${days > 1 ? 's' : ''} ago`;
+        } else if (hours > 0) {
+            return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+        } else if (minutes > 0) {
+            return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+        } else {
+            return 'Just now';
+        }
+    }
+
+    // Function to update notification badge count
+    async function updateNotificationBadgeCount() {
+        if (!bellIcon) return;
+        
+        try {
+            const response = await fetch(`${window.api_origin}/notif/history?page=1&limit=10`, {
+                headers: {
+                    'Authorization': `Bearer ${window.auth_token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch notifications');
+            }
+
+            const data = await response.json();
+            const unreadCount = data.notifications?.filter(n => !n.acknowledged).length || 0;
+            const badge = document.querySelector('.notification-count-badge');
+            
+            if (badge) {
+                if (unreadCount > 0) {
+                    badge.textContent = unreadCount;
+                    badge.style.display = 'block';
+                    bellIcon.classList.add('has-unread');
+                } else {
+                    badge.style.display = 'none';
+                    bellIcon.classList.remove('has-unread');
+                }
+            }
+        } catch (error) {
+            console.error('Error updating notification badge:', error);
+        }
+    }
+
+    // Initialize notifications after DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeNotifications);
+    } else {
+        initializeNotifications();
+    }
+
+    // Function to load notifications
+    async function loadNotifications(page = 1) {
+        const panel = document.querySelector('.notification-history-panel');
+        if (!panel) return;
+
+        const list = panel.querySelector('.notification-history-list');
+        const loadingEl = panel.querySelector('.notification-history-loading');
+        const errorEl = panel.querySelector('.notification-history-error');
+        const emptyEl = panel.querySelector('.notification-history-empty');
+
+        if (isLoading) return;
+        isLoading = true;
+        loadError = null;
+
+        try {
+            loadingEl.style.display = 'block';
+            errorEl.style.display = 'none';
+
+            const response = await fetch(`${window.api_origin}/notif/history?page=${page}&limit=10`, {
+                headers: {
+                    'Authorization': `Bearer ${window.auth_token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || 'Failed to load notifications');
+            }
+
+            if (!Array.isArray(data.notifications)) {
+                throw new Error('Invalid response format');
+            }
+
+            // Clear list if this is the first page
+            if (page === 1) {
+                list.innerHTML = '';
+            }
+
+            // Add notifications to the list
+            data.notifications.forEach(notification => {
+                if (notification.value && Object.keys(notification.value).length > 0) {
+                    const item = createNotificationItem(notification);
+                    list.appendChild(item);
+                }
+            });
+
+            // Update pagination state
+            currentPage = page;
+            hasMore = data.pagination.page < data.pagination.total_pages;
+
+            // Show/hide empty state
+            emptyEl.style.display = list.children.length === 0 ? 'block' : 'none';
+
+        } catch (error) {
+            console.error('Error loading notifications:', error);
+            loadError = error;
+            errorEl.textContent = error.message;
+            errorEl.style.display = 'block';
+        } finally {
+            isLoading = false;
+            loadingEl.style.display = 'none';
+        }
+    }
+
+    // Function to create a notification item
+    function createNotificationItem(notification) {
+        const item = document.createElement('div');
+        item.className = 'notification-history-item';
+        if (notification.acknowledged) {
+            item.classList.add('acknowledged');
+        } else {
+            item.classList.add('unread');
+        }
+
+        const value = notification.value || {};
+        const timestamp = notification.created_at ? new Date(notification.created_at * 1000) : new Date();
+        const timeAgo = formatTimeAgo(timestamp);
+
+        let iconSrc = value.icon || 'bell.svg';
+        if (value.icon_source === 'builtin') {
+            iconSrc = window.icons[iconSrc] || window.icons['bell.svg'];
+        }
+
+        item.innerHTML = `
+            <div class="notification-history-icon">
+                <img src="${iconSrc}" alt="notification icon" ${value.round_icon ? 'class="round"' : ''}>
+            </div>
+            <div class="notification-history-content">
+                <div class="notification-history-title">${value.title || ''}</div>
+                <div class="notification-history-text">${value.text || ''}</div>
+                <div class="notification-history-time">${timeAgo}</div>
+            </div>
+        `;
+
+        // Add click handler for file sharing notifications
+        if (value.template === "file-shared-with-you" && value.fields?.username) {
+            item.addEventListener('click', async () => {
+                const username = value.fields.username;
+                try {
+                    // Close the notification panel
+                    const panel = document.querySelector('.notification-history-panel');
+                    if (panel) {
+                        panel.remove();
+                    }
+
+                    // Open the shared folder in a new window
+                    UIWindow({
+                        app: 'explorer',
+                        title: `Files shared by ${username}`,
+                        path: `/${username}/shared-with-me`,
+                        is_maximized: window.is_mobile_or_tablet ? true : false,
+                    });
+
+                    // Mark notification as acknowledged if it isn't already
+                    if (!notification.acknowledged) {
+                        try {
+                            await fetch(`${window.api_origin}/notif/mark-acknowledged`, {
+                                method: 'POST',
+                                headers: {
+                                    'Authorization': `Bearer ${window.auth_token}`,
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({ uid: notification.uid })
+                            });
+                            
+                            // Update UI to show notification as acknowledged
+                            item.classList.remove('unread');
+                            item.classList.add('acknowledged');
+                            updateNotificationBadgeCount();
+                        } catch (error) {
+                            console.error('Error marking notification as acknowledged:', error);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error handling shared file notification:', error);
+                    UIAlert({ message: 'Could not open shared files. Please try again.' });
+                }
+            });
+        }
+
+        return item;
+    }
+
+    // Add event listeners
+    const loadMoreBtn = notificationPanel.querySelector('.notification-history-load-more');
+    loadMoreBtn.addEventListener('click', () => {
+        if (!isLoading && hasMore) {
+            loadNotifications(currentPage + 1);
+        }
+    });
 }
 
 $(document).on('contextmenu taphold', '.taskbar', function (event) {
