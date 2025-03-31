@@ -352,6 +352,13 @@ function UIWindowSignup(options){
                             return;
                         }
                         
+                        // Handle timeout specifically
+                        if (errorJson?.code === 'response_timeout' || errorText.includes('timeout')) {
+                            $(el_window).find('.signup-error-msg').html(i18n('server_timeout') || 'The server took too long to respond. Please try again.');
+                            $(el_window).find('.signup-error-msg').fadeIn();
+                            return;
+                        }
+                        
                         // If it's a message in the JSON, use that
                         if (errorJson.message) {
                             $(el_window).find('.signup-error-msg').html(errorJson.message);
@@ -380,13 +387,6 @@ function UIWindowSignup(options){
                         showCaptchaError(i18n('captcha_invalid'));
                         // Refresh the captcha if it's invalid
                         captcha.reset();
-                        return;
-                    }
-                    
-                    // Handle timeout specifically
-                    if (errorJson?.code === 'response_timeout' || errorText.includes('timeout')) {
-                        $(el_window).find('.signup-error-msg').html(i18n('server_timeout') || 'The server took too long to respond. Please try again.');
-                        $(el_window).find('.signup-error-msg').fadeIn();
                         return;
                     }
 
