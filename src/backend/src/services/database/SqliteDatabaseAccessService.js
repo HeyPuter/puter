@@ -161,6 +161,9 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [33, [
                 '0036_dev-to-app.sql',
             ]],
+            [34, [
+                '0037_oauth_providers.sql',
+            ]],
         ];
 
         // Database upgrade logic
