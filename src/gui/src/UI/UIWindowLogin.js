@@ -49,7 +49,7 @@ async function UIWindowLogin(options){
         h += `<div style="max-width:100%; width:100%; height:100%; min-height:0; box-sizing:border-box; display:flex; flex-direction:column; justify-content:flex-start; align-items:stretch; padding:0; overflow:auto; color:var(--color-text);">`;
             // logo
             h += `<div class="logo-wrapper" style="display:flex; justify-content:center; padding:20px 20px 0 20px; margin-bottom: 0;">`;
-                h += `<img src="/dist/images/logo/logo.svg" style="height:45px;" />`;
+                h += `<img src="${window.icons['logo-white.svg']}" style="width: 40px; height: 40px; margin: 0 auto; display: block; padding: 15px; background-color: blue; border-radius: 5px;">`;
             h += `</div>`;
             // title
             h += `<div style="padding:10px 20px; text-align:center; margin-bottom:0;">`;
