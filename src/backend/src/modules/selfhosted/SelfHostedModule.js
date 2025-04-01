@@ -35,6 +35,9 @@ class SelfHostedModule extends AdvancedBase {
         const DevWatcherService = require('./DevWatcherService');
         const path_ = require('path');
         
+        const PermissiveCreditService = require("./PermissiveCreditService");
+        services.registerService('__permissive-credit', PermissiveCreditService);
+        
         const { DBKVService } = require("../../services/DBKVService");
         services.registerService('puter-kvstore', DBKVService);
 

@@ -268,9 +268,20 @@ class DriverService extends BaseService {
             skip_usage = true;
         }
         
-        return await Context.sub({
+        const svc_event = this.services.get('event');
+        const event = {};
+        event.context = Context.sub({
             client_driver_call,
-        }).arun(async () => {
+        });
+        event.call_details = {
+            service: driver,
+            iface, method, args,
+            skip_usage,
+        };
+        
+        svc_event.emit('driver.create-call-context', event);
+        
+        return event.context.arun(async () => {
             const result = await this.call_new_({
                 actor,
                 service,

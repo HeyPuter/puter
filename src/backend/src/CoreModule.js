@@ -293,6 +293,9 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { DevTODService } = require('./services/DevTODService');
     services.registerService('__dev-tod', DevTODService);
 
+    const { CostService } = require("./services/drivers/CostService");
+    services.registerService('cost', CostService);
+
     const { DriverService } = require("./services/drivers/DriverService");
     services.registerService('driver', DriverService);
 
