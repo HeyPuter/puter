@@ -22,6 +22,9 @@ const jwt = require('jsonwebtoken');
 const validator = require('validator');
 const crypto = require('crypto');
 const config = require("../../config");
+const { send_email_verification_token } = require("../../helpers");
+const { Context } = require("../../util/context");
+const { v4: uuidv4 } = require('uuid');
 
 module.exports = {
     route: '/change-email',
@@ -65,6 +68,23 @@ module.exports = {
         // TODO: DRY: signup.js, save_account.js
         if ( rows[0].count > 0 ) {
             throw APIError.create('email_already_in_use', null, { email: new_email });
+        }
+        
+        // If user does not have a confirmed email, then update `email` directly
+        // and send a new confirmation email for their account instead.
+        if ( ! user.email_confirmed ) {
+            const email_confirm_token = uuidv4();
+            await db.write(
+                'UPDATE `user` SET `email` = ?, `email_confirm_token` = ? WHERE `id` = ?',
+                [new_email, email_confirm_token, user.id],
+            );
+
+            const svc_email = Context.get('services').get('email');
+            const link = `${config.origin}/confirm-email-by-token?user_uuid=${user.uuid}&token=${email_confirm_token}`;
+            svc_email.send_email({ email: new_email }, 'email_verification_link', { link });
+            
+            res.send({ success: true });
+            return;
         }
 
         // generate confirmation token
