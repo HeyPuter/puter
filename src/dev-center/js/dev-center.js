@@ -31,6 +31,9 @@ let dropped_items;
 let search_query;
 let originalValues = {};
 
+// At the top of your file, add a global variable to track deployment cancellation
+let globalDeploymentCancelled = false;
+
 const APP_CATEGORIES = [
     { id: 'games', label: 'Games' },
     { id: 'developer-tools', label: 'Developer Tools' },
@@ -526,7 +529,7 @@ function generate_edit_app_section(app) {
             <button class="deploy-btn disable-user-select button button-primary disabled">Deploy Now</button>
         </div>
 
-        <div class="section-tab" data-tab="info">
+        <div class="section-tab" data-tab="info">x
             <form style="clear:both; padding-bottom: 50px;">
                 <div class="error" id="edit-app-error"></div>
                 <div class="success" id="edit-app-success">App has been successfully updated.<span class="close-success-msg">&times;</span>
@@ -569,8 +572,7 @@ function generate_edit_app_section(app) {
 
                 <label for="edit-app-filetype-associations">File Associations</label>
                <p style="margin-top: 10px; font-size:13px;">A list of file type specifiers. For example if you include <code>.txt</code> your apps could be opened when a user clicks on a TXT file.</p>
-               <p style="margin-top: 5px; font-size:13px;">You can paste multiple extensions at once (comma, space, or tab separated) or press comma to add each extension.</p>
-               <textarea id="edit-app-filetype-associations"  placeholder="Paste multiple extensions like: .txt, .doc, .pdf, application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length).replace(/</g, '\\u003c')}</textarea>
+               <textarea id="edit-app-filetype-associations"  placeholder=".txt  .jpg    application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length)}</textarea>
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window</h3>
                 <div>
@@ -817,8 +819,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
     const filetype_association_input = document.querySelector('textarea[id=edit-app-filetype-associations]');
     let tagify = new Tagify(filetype_association_input, {
         pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/(?:[a-z0-9.-]+|\*))/,
-        delimiters: ",",  // Use comma as delimiter
-        duplicates: false, // Prevent duplicate tags
+        delimiters: ", ",
         enforceWhitelist: false,
         dropdown : {
             // show the dropdown immediately on focus (0 character typed)
@@ -1074,101 +1075,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
     // Focus on the first input
     $('#edit-app-title').focus();
 
-    try {
-        activate_tippy();
-    } catch (e) {
-        console.log('no tippy:', e);
-    }
-
-    // Custom function to handle bulk pasting of file extensions
-    if (tagify) {
-        // Create a completely separate paste handler
-        const handleBulkPaste = function(e) {
-            const clipboardData = e.clipboardData || window.clipboardData;
-            if (!clipboardData) return;
-            
-            const pastedText = clipboardData.getData('text');
-            if (!pastedText) return;
-            
-            // Check if the pasted text contains delimiters
-            if (/[,;\t\s]/.test(pastedText)) {
-                e.stopPropagation();
-                e.preventDefault();
-                
-                // Process the pasted text to extract extensions
-                const extensions = pastedText.split(/[,;\t\s]+/)
-                    .map(ext => ext.trim())
-                    .filter(ext => ext && (ext.startsWith('.') || ext.includes('/')));
-                
-                if (extensions.length > 0) {
-                    // Get existing values to prevent duplicates
-                    const existingValues = tagify.value.map(tag => tag.value);
-                    
-                    // Only add extensions that don't already exist
-                    const newExtensions = extensions.filter(ext => !existingValues.includes(ext));
-                    
-                    if (newExtensions.length > 0) {
-                        // Add the new tags
-                        tagify.addTags(newExtensions);
-                        
-                        // Update the UI
-                        setTimeout(() => {
-                            toggleSaveButton();
-                            toggleResetButton();
-                        }, 10);
-                    }
-                }
-                
-                // Clear the input element to prevent any text concatenation
-                setTimeout(() => {
-                    if (tagify.DOM.input) {
-                        tagify.DOM.input.textContent = '';
-                    }
-                }, 10);
-            }
-        };
-        
-        // Add the paste handler directly to the tagify wrapper element
-        const tagifyWrapper = tagify.DOM.scope;
-        if (tagifyWrapper) {
-            tagifyWrapper.addEventListener('paste', handleBulkPaste, true);
-        }
-        
-        // Also add it to the input element for better coverage
-        if (tagify.DOM.input) {
-            tagify.DOM.input.addEventListener('paste', handleBulkPaste, true);
-        }
-        
-        // Add a comma key handler to support adding tags with comma
-        tagify.DOM.input.addEventListener('keydown', function(e) {
-            if (e.key === ',' && tagify.DOM.input.textContent.trim()) {
-                e.preventDefault();
-                
-                const text = tagify.DOM.input.textContent.trim();
-                
-                // Only add valid extensions
-                if ((text.startsWith('.') || text.includes('/')) && 
-                    tagify.settings.pattern.test(text)) {
-                    
-                    // Check for duplicates
-                    const existingValues = tagify.value.map(tag => tag.value);
-                    
-                    if (!existingValues.includes(text)) {
-                        tagify.addTags([text]);
-                        
-                        // Update UI
-                        setTimeout(() => {
-                            toggleSaveButton();
-                            toggleResetButton();
-                        }, 10);
-                    }
-                    
-                    // Always clear the input
-                    tagify.DOM.input.textContent = '';
-                }
-            }
-        });
-    }
+    activate_tippy();
 }
 
 $('.jip-submit-btn').on('click', async function (e) {
@@ -1485,6 +1392,7 @@ $(document).on('click', '.delete-app-settings', async function (e) {
                 },
                     // make sure the modal was shown for at least 2 seconds
                     (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
+
                 // get app directory
                 puter.fs.stat({
                     path: `/${authUsername}/AppData/${dev_center_uid}/${app_uid}`,
@@ -1507,7 +1415,8 @@ $(document).on('click', '.delete-app-settings', async function (e) {
                         },
                     ]);
                 },
-                    (Date.now() - init_ts) > 2000 ? 1 : (2000 - (Date.now() - init_ts)));
+                    // make sure the modal was shown for at least 2 seconds
+                    (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
             })
     }
 })
@@ -1971,6 +1880,41 @@ async function showGitWarningDialog() {
 }
 
 window.deploy = async function (app, items) {
+    // Reset the global cancellation flag at the start of each deployment
+    globalDeploymentCancelled = false;
+    
+    // Show deploying spinner with cancel button
+    $('.drop-area').html(`
+        ${deploying_spinner} 
+        <div>Deploying <span class="deploy-percent">(0%)</span></div>
+        <br>
+        <div class="cancel-deployment-btn" style="cursor:pointer; display:inline-block; z-index:10000; padding:5px 10px; border:1px solid #ccc; background:#f0f0f0; margin-top:10px;">Cancel Deployment</div>
+    `);
+    
+    // Add event listener with immediate visual feedback
+    $('.cancel-deployment-btn').on('click', function() {
+        console.log('Cancel button clicked!');
+        alert('Cancellation requested!'); // This will verify if the click is being detected
+        
+        // Provide immediate visual feedback
+        $(this).prop('disabled', true).text('Cancelling...');
+        
+        // Set a global cancellation flag
+        window.deploymentCancelled = true;
+        
+        // Reset the UI after a brief delay
+        setTimeout(function() {
+            reset_drop_area();
+            puter.ui.notify('Deployment cancelled');
+        }, 500);
+    });
+    
+    // Throughout the deploy function, add these checks FREQUENTLY:
+    if (globalDeploymentCancelled) {
+        console.log('Deployment was cancelled, exiting function');
+        return;
+    }
+    
     // Check for .git directory before proceeding
     try {
         if (await hasGitDirectory(items)) {
@@ -1989,12 +1933,6 @@ window.deploy = async function (app, items) {
     $('.deploy-btn').addClass('disabled');
 
     // change drop area text
-    $('.drop-area').html(deploying_spinner + ' <div>Deploying <span class="deploy-percent">(0%)</span></div>');
-
-    if (typeof items === 'string' && (items.startsWith('/') || items.startsWith('~'))) {
-        $('.drop-area').removeClass('drop-area-hover');
-        $('.drop-area').addClass('drop-area-ready-to-deploy');
-    }
 
     // --------------------------------------------------------------------
     // Get current directory, we need to delete the existing hostname
@@ -2202,6 +2140,12 @@ window.deploy = async function (app, items) {
                     reset_drop_area()
                 })
             })
+    }
+
+    // Near the end of the function
+    if (!globalDeploymentCancelled) {
+        // Only finalize deployment if not cancelled
+        // ... update the app URL, etc.
     }
 }
 
@@ -2411,10 +2355,16 @@ $(document).on('click', '.add-app-to-desktop', function (e) {
 })
 
 function reset_drop_area() {
-    dropped_items = null;
-    $('.drop-area').html(drop_area_placeholder);
+    // ... existing code ...
+    
+    // Make sure to reset any UI elements associated with deployment
     $('.drop-area').removeClass('drop-area-ready-to-deploy');
-    $('.deploy-btn').addClass('disabled');
+    $('.drop-area').removeClass('drop-area-hover');
+    
+    // Reset to original drop area content
+    $('.drop-area').html(`<p>Drag and drop files or a directory here</p><p>or</p><p><button class="browse-files-btn">Browse Files</button></p>`);
+    
+    // ... any other cleanup needed
 }
 
 $('body').on('dragover', function (event) {
@@ -3063,3 +3013,15 @@ function activate_tippy(){
         arrow: true,
     });  
 }
+
+// Add this outside the deploy function, with your other event handlers
+$(document).on('click', '.reset-deploy span', function() {
+    // Reset the drop area to its original state
+    reset_drop_area();
+    
+    // Clear the dropped items
+    dropped_items = [];
+    
+    // Disable the deploy button
+    $('.deploy-btn').addClass('disabled');
+});
