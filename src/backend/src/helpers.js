@@ -1194,37 +1194,6 @@ async function jwt_auth(req){
     return ancestors;
 }
 
-function is_valid_uuid ( uuid ) {
-    let s = "" + uuid;
-    s = s.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
-    return !! s;
-}
-
-function is_valid_uuid4 ( uuid ) {
-    return is_valid_uuid(uuid);
-}
-
-function is_specifically_uuidv4 ( uuid ) {
-    let s = "" + uuid;
-
-    s = s.match(/^[0-9A-F]{8}-[0-9A-F]{4}-[4][0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}$/i);
-    if (!s) {
-      return false;
-    }
-    return true;
-}
-
-function is_valid_url ( url ) {
-    let s = "" + url;
-
-    try {
-        new URL(s);
-        return true;
-    } catch (e) {
-        return false;
-    }
-}
-
 function hyphenize_confirm_code(email_confirm_code){
     email_confirm_code = email_confirm_code.toString();
     email_confirm_code =
@@ -1679,12 +1648,9 @@ module.exports = {
     is_empty,
     is_shared_with,
     is_shared_with_anyone,
-    is_valid_uuid4,
-    is_valid_uuid,
-    is_specifically_uuidv4,
+    ...require('@heyputer/backend-core-0').validation,
     is_temp_users_disabled,
     is_user_signup_disabled,
-    is_valid_url,
     jwt_auth,
     mv,
     number_format,
