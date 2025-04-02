@@ -292,6 +292,11 @@ class AI{
             requestParams.model = 'deepseek-chat';
         }
 
+        // o1-mini to openrouter:openai/o1-mini
+        if ( requestParams.model === 'o1-mini' ) {
+            requestParams.model = 'openrouter:openai/o1-mini';
+        }
+
         // map model to the appropriate driver
         if (!requestParams.model || requestParams.model === 'gpt-4o' || requestParams.model === 'gpt-4o-mini') {
             driver = 'openai-completion';
