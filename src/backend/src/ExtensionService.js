@@ -80,6 +80,8 @@ class ExtensionService extends BaseService {
     }
     async _init (args) {
         this.state = args.state;
+        
+        this.state.values.set('services', this.services);
 
         // Create database access object for extension
         const db = this.services.get('database').get(DB_WRITE, 'extension');
