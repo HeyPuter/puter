@@ -89,15 +89,16 @@ class ExtensionService extends BaseService {
 
         // Propagate all events not from extensions to `core.`
         const svc_event = this.services.get('event');
-        svc_event.on_all((key, data, meta = {}) => {
+        svc_event.on_all(async (key, data, meta = {}) => {
             meta.from_outside_of_extension = true;
-            this.state.extension.emit(`core.${key}`, data, meta);
+
+            await this.state.extension.emit(`core.${key}`, data, meta);
         });
 
-        this.state.extension.on_all((key, data, meta) => {
+        this.state.extension.on_all(async (key, data, meta) => {
             if ( meta.from_outside_of_extension ) return;
-
-            svc_event.emit(key, data, meta);
+            
+            await svc_event.emit(key, data, meta);
         });
         
         this.state.extension.kv = (() => {
