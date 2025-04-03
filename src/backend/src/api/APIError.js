@@ -216,7 +216,9 @@ module.exports = class APIError {
         },
         'internal_error': {
             status: 500,
-            message: 'An internal error occurred.',
+            message: ({ message }) => message
+                ? 'An internal error occurred: ' + quot(message)
+                : 'An internal error occurred.',
         },
         'response_timeout': {
             status: 504,
@@ -347,6 +349,12 @@ module.exports = class APIError {
         'server_rate_exceeded': {
             status: 503,
             message: 'System-wide rate limit exceeded. Please try again later.',
+        },
+        
+        // New cost system
+        'insufficient_funds': {
+            status: 402,
+            message: 'Available funding is insufficient for this request.',
         },
 
         // auth
