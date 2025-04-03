@@ -10,7 +10,7 @@
     ·
     <a href="https://puter.com/app/app-center">App Store</a>
     ·
-    <a href="https://docs.puter.com" target="_blank">SDK</a>
+    <a href="https://developer.puter.com" target="_blank">Developers</a>
     ·
     <a href="https://github.com/heyputer/puter-cli" target="_blank">CLI</a>
     ·
