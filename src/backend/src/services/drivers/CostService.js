@@ -27,7 +27,7 @@ class CostService extends BaseService {
         return new CreditContext(this, params);
     }
 
-    async get_funding_allowed () {
+    async get_funding_allowed (options) {
         const cost_uuid = this.modules.uuidv4();
         const svc_event = this.services.get('event');
         const event = {
@@ -36,7 +36,11 @@ class CostService extends BaseService {
             cost_uuid,
         };
         await svc_event.emit('credit.check-available', event);
-        return event.available > 0;
+
+        // specified minimum or 1/10th of a cent
+        const minimum = options.minimum ?? 100;
+        
+        return event.available >= minimum;
     }
     async record_cost ({ cost }) {
         const svc_event = this.services.get('event');
