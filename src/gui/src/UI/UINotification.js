@@ -21,6 +21,23 @@ function UINotification(options){
     window.global_element_id++;
     options.text = options.text ?? '';
 
+    // Store notification in history
+    fetch(`${window.api_origin}/notif/create`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${window.auth_token}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            title: options.title,
+            text: options.text,
+            icon: options.icon,
+            value: options.value
+        })
+    }).catch(error => {
+        console.error('Error storing notification:', error);
+    });
+
     let h = '';
     h += `<div id="ui-notification__${window.global_element_id}" data-uid="${html_encode(options.uid)}" data-el-id="${window.global_element_id}" class="notification antialiased animate__animated animate__fadeInRight animate__slow">`;
         h += `<img class="notification-close disable-user-select" src="${html_encode(window.icons['close.svg'])}">`;

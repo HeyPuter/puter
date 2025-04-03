@@ -128,6 +128,32 @@ class NotificationService extends BaseService {
 
         const svc_event = this.services.get('event');
         
+        // Add endpoint for creating notifications
+        Endpoint({
+            route: '/create',
+            methods: ['POST'],
+            handler: async (req, res) => {
+                try {
+                    const { title, text, icon, value } = req.body;
+                    
+                    // Create notification
+                    await this.notify(UserIDNotifSelector(req.user.id), {
+                        source: 'toast',
+                        icon_source: 'builtin',
+                        icon: icon || 'bell.svg',
+                        title,
+                        text,
+                        value: value || {}
+                    });
+
+                    res.json({ success: true });
+                } catch (error) {
+                    console.error('Error creating notification:', error);
+                    res.status(500).json({ error: 'Failed to create notification' });
+                }
+            }
+        });
+        
         // Add new endpoint for notification history
         Endpoint({
             route: '/history',
