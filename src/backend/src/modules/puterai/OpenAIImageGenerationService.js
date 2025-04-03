@@ -173,16 +173,21 @@ class OpenAIImageGenerationService extends BaseService {
             });
         }
         
+        const exact_cost = this.models_[model][price_key]
+            * 100 // $ USD to cents USD
+            * Math.pow(10,6) // cents to microcents
+        
         const svc_cost = this.services.get('cost');
         const usageAllowed = await svc_cost.get_funding_allowed({
-            minimum: this.models_[model][price_key]
-                * 100 // $ USD to cents USD
-                * Math.pow(10,6) // cents to microcents
+            minimum: exact_cost,
         });
         
         if ( ! usageAllowed ) {
             throw APIError.create('insufficient_funds');
         }
+        
+        // We can charge immediately
+        await svc_cost.record_cost({ cost: exact_cost });
 
         const result = await this.openai.images.generate({
             user: user_private_uid,
