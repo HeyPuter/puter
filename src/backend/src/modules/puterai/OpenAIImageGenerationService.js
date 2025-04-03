@@ -18,6 +18,7 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
+const APIError = require("../../api/APIError");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
@@ -34,6 +35,25 @@ class OpenAIImageGenerationService extends BaseService {
     static MODULES = {
         openai: require('openai'),
     }
+    
+    _construct () {
+        this.models_ = {
+            'dall-e-3': {
+                '1024x1024': 0.04,
+                '1024x1792': 0.08,
+                '1792x1024': 0.08,
+                'hd:1024x1024': 0.08,
+                'hd:1024x1792': 0.12,
+                'hd:1792x1024': 0.12,
+            },
+            'dall-e-2': {
+                '1024x1024': 0.02,
+                '512x512': 0.018,
+                '256x256': 0.016,
+            },
+        };
+    }
+    
     /**
     * Initializes the OpenAI client with API credentials from config
     * @private
@@ -67,7 +87,7 @@ class OpenAIImageGenerationService extends BaseService {
             * @returns {Promise<string>} URL of the generated image
             * @throws {Error} If prompt is not a string or ratio is invalid
             */
-            async generate ({ prompt, test_mode }) {
+            async generate ({ prompt, quality, test_mode }) {
                 if ( test_mode ) {
                     return new TypedValue({
                         $: 'string:url:web',
@@ -76,6 +96,7 @@ class OpenAIImageGenerationService extends BaseService {
                 }
 
                 const url = await this.generate(prompt, {
+                    quality,
                     ratio: this.constructor.RATIO_SQUARE,
                 });
 
@@ -96,6 +117,7 @@ class OpenAIImageGenerationService extends BaseService {
     async generate (prompt, {
         ratio,
         model,
+        quality,
     }) {
         if ( typeof prompt !== 'string' ) {
             throw new Error('`prompt` must be a string');
@@ -106,7 +128,42 @@ class OpenAIImageGenerationService extends BaseService {
         }
 
         model = model ?? 'dall-e-3';
-
+        
+        if ( ! this.models_[model] ) {
+            throw APIError.create('field_invalid', null, {
+                key: 'model',
+                expected: 'one of: ' +
+                    Object.keys(this.models_).join(', '),
+                got: model,
+            });
+        }
+        
+        if ( quality && quality !== 'standard' && quality !== 'hd' ) {
+            throw APIError.create('field_invalid', null, {
+                key: 'quality',
+                expected: 'one of: standard, hd',
+                got: quality,
+            });
+        }
+        
+        console.log('SPECIFIED QUALITY:', quality);
+        
+        const size = `${ratio.w}x${ratio.h}`;
+        const price_key = (quality === 'hd' ? 'hd:' : '') + size;
+        if ( ! this.models_[model][price_key] ) {
+            throw APIError.create('field_invalid', null, {
+                key: 'size',
+                expected: 'one of: standard, hd',
+                got: quality,
+            });
+        }
+        
+        if ( ! this.models_[model][size] ) {
+            throw APIError.create('internal_error', null, {
+                message: `price of ${size} not known for model ${model}`
+            });
+        }
+        
         const user_private_uid = Context.get('actor')?.private_uid ?? 'UNKNOWN';
         if ( user_private_uid === 'UNKNOWN' ) {
             this.errors.report('chat-completion-service:unknown-user', {
@@ -115,13 +172,40 @@ class OpenAIImageGenerationService extends BaseService {
                 trace: true,
             });
         }
+        
+        const svc_cost = this.services.get('cost');
+        const usageAllowed = await svc_cost.get_funding_allowed({
+            minimum: this.models_[model][price_key]
+                * 100 // $ USD to cents USD
+                * Math.pow(10,6) // cents to microcents
+        });
+        
+        if ( ! usageAllowed ) {
+            throw APIError.create('insufficient_funds');
+        }
 
-        const result =
-            await this.openai.images.generate({
-                user: user_private_uid,
-                prompt,
-                size: `${ratio.w}x${ratio.h}`,
-            });
+        const result = await this.openai.images.generate({
+            user: user_private_uid,
+            prompt,
+            size,
+        });
+            
+        // Tiny base64 result for testing
+        // const result = {
+        //     data: [
+        //         {
+        //             url: 'data:image/png;base64,' +
+        //                 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAA' +
+        //                 '2ElEQVR4nADIADf/AkRgiOi4oaIHfdeNCE2vFMURlKdHdb/H' +
+        //                 '4wRTROeyGdCpn089i13t42v73DQSsCwSDAsEBLH783BZu1si' +
+        //                 'LkiwqfGwHAC/8bL0NggaA47QKDuRDp0NRgtALj8W+mSm9BIH' +
+        //                 'PMGYegR+bu/c85wWQGLYrjLhis9E8AE1F/AFbCMA53+9d73t' +
+        //                 '/QKPbbdLHZY8wB4OewzT8CrCBG3RE7kyWAXuJvaHHHzFhbIN' +
+        //                 '1hryGU5vvwD6liTD3hytRktVRRAaRi71k2PYCro6AlYBAAD/' +
+        //                 '/wWtWjI5xEefAAAAAElFTkSuQmCC'
+        //         }
+        //     ]
+        // };
 
         const spending_meta = {
             model,

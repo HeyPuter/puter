@@ -95,6 +95,7 @@ class AIInterfaceService extends BaseService {
                     description: 'Generate an image from a prompt.',
                     parameters: {
                         prompt: { type: 'string' },
+                        quality: { type: 'string' },
                     },
                     result_choices: [
                         {

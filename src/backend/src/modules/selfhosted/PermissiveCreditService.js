@@ -14,7 +14,8 @@ class PermissiveCreditService extends BaseService {
     _init () {
         const svc_event = this.services.get('event');
         svc_event.on(`credit.check-available`, (_, event) => {
-            event.available = Number.MAX_SAFE_INTEGER;
+            event.available = 4 * Math.pow(10,6);
+            // event.available = Number.MAX_SAFE_INTEGER;
         });
     }
 }
