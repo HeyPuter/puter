@@ -54,7 +54,7 @@ export default {
             // Delete Profile Picture Button
             h += `<button class="button button-danger delete_Profile_Picture" style="font-size: 14px; padding: 8px 15px; 
             display: flex; align-items: center; justify-content: center; background-color: #e74c3c;">${i18n('Remove Profile Picture')}</button>`; 
-
+        h += `</div>`;
         // change password button
         if(!window.user.is_temp){
             h += `<div class="settings-card">`;
