@@ -430,42 +430,6 @@ class DriverService extends BaseService {
                     },
                 },
                 {
-                    name: 'enforce monthly usage limit',
-                    on_call: async args => {
-                        if ( skip_usage ) return args;
-
-                        // Typo-Tolerance
-                        if ( effective_policy?.['monthy-limit'] ) {
-                            effective_policy['monthly-limit'] = effective_policy['monthy-limit'];
-                        }
-
-                        if ( ! effective_policy?.['monthly-limit'] ) return args;
-                        const svc_monthlyUsage = services.get('monthly-usage');
-                        const count = await svc_monthlyUsage.check_2(
-                            actor, method_key, 0
-                        );
-                        if ( count >= effective_policy['monthly-limit'] ) {
-                            throw APIError.create('monthly_limit_exceeded', null, {
-                                method_key,
-                                limit: effective_policy['monthly-limit'],
-                            });
-                        }
-                        return args;
-                    },
-                    on_return: async result => {
-                        if ( skip_usage ) return result;
-
-                        const svc_monthlyUsage = services.get('monthly-usage');
-                        const extra = {
-                            'driver.interface': iface,
-                            'driver.implementation': service_name,
-                            'driver.method': method,
-                        };
-                        await svc_monthlyUsage.increment(actor, method_key, extra);
-                        return result;
-                    },
-                },
-                {
                     name: 'add metadata',
                     on_return: async result => {
                         const service_meta = {};

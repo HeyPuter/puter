@@ -110,7 +110,6 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { NAPIThumbnailService } = require('./services/thumbnails/NAPIThumbnailService');
     const { DevConsoleService } = require('./services/DevConsoleService');
     const { RateLimitService } = require('./services/sla/RateLimitService');
-    const { MonthlyUsageService } = require('./services/sla/MonthlyUsageService');
     const { AuthService } = require('./services/auth/AuthService');
     const { SLAService } = require('./services/sla/SLAService');
     const { PermissionService } = require('./services/auth/PermissionService');
@@ -221,7 +220,6 @@ const install = async ({ services, app, useapi, modapi }) => {
         ]),
     })
     services.registerService('rate-limit', RateLimitService);
-    services.registerService('monthly-usage', MonthlyUsageService);
     services.registerService('auth', AuthService);
     services.registerService('permission', PermissionService);
     services.registerService('sla', SLAService);
