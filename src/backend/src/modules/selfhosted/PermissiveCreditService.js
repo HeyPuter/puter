@@ -20,9 +20,18 @@ class PermissiveCreditService extends BaseService {
             // Useful for testing with Polly
             // event.available = 9000;
             
+            // Useful for testing judge0
+            // event.available = 50_000;
+            // event.avaialble = 49_999;
+            
+            // Useful for testing ConvertAPI
+            // event.available = 4_500_000;
+            // event.available = 4_499_999;
+
+            
             // Useful for testing with textract
-            // event.available = 150000;
-            // event.available = 149999;
+            // event.available = 150_000;
+            // event.available = 149_999;
 
             event.available = Number.MAX_SAFE_INTEGER;
         });

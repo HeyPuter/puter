@@ -1,3 +1,4 @@
+const APIError = require("../../api/APIError");
 const { HLWrite } = require("../../filesystem/hl_operations/hl_write");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const BaseService = require("../../services/BaseService");
@@ -56,6 +57,8 @@ class ConvertAPIService extends BaseService {
     }
     
     async _init () {
+        this.microcents_per_conversion =
+            this.config.microcents_per_conversion ?? 4_500_000 // 4.5 cents
         this.convertapi = this.require('convertapi')(this.config.token);
     }
 
@@ -79,6 +82,19 @@ class ConvertAPIService extends BaseService {
                 });
                 
                 const name = await fsNode.get('name');
+                
+                {
+                    const svc_cost = this.services.get('cost')
+                    const usageAllowed = await svc_cost.get_funding_allowed({
+                        minimum: this.microcents_per_conversion,
+                    });
+                    if ( ! usageAllowed ) {
+                        throw APIError.create('insufficient_funds');
+                    }
+                    await svc_cost.record_cost({
+                        cost: this.microcents_per_conversion
+                    });
+                }
 
                 const uploadResult =
                     await convertapi.upload(stream, name);
