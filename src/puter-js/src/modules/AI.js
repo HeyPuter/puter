@@ -274,6 +274,9 @@ class AI{
         if (userParams.max_tokens) {
             requestParams.max_tokens = userParams.max_tokens;
         }
+        
+        // convert undefined to empty string so that .startsWith works
+        requestParams.model = requestParams.model ?? '';
 
         // convert to the correct model name if necessary
         if( requestParams.model === 'claude-3-5-sonnet'){
