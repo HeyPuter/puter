@@ -142,6 +142,24 @@ class AWSTextractService extends BaseService {
         const {
             client, document, using_s3
         } = await this._get_client_and_document(file_facade);
+        
+        const min_cost = 150 // cents per 1000 pages
+            * Math.pow(10,6) // microcents per cent
+            / 1000 // pages
+            ; // works out to 150,000 microcents per page
+            
+        const svc_cost = this.services.get('cost');
+        const usageAllowed = await svc_cost.get_funding_allowed({
+            minimum: min_cost,
+        });
+        
+        if ( ! usageAllowed ) {
+            throw APIError.create('insufficient_funds');
+        }
+        
+        // Note: we are using the synchronous command, so cost
+        // should always be the same (only 1 page allowed)
+        await svc_cost.record_cost({ cost: min_cost });
 
         const command = new AnalyzeDocumentCommand({
             Document: document,
