@@ -57,7 +57,6 @@ class SLAService extends BaseService {
                         max: 10,
                         period: 30000,
                     },
-                    monthly_limit: 80 * 1000,
                 },
             },
             // app_default: {
@@ -89,21 +88,18 @@ class SLAService extends BaseService {
                         max: 40,
                         period: 30000,
                     },
-                    monthly_limit: 20,
                 },
                 'driver:impl:public-openai-chat-completion:complete': {
                     rate_limit: {
                         max: 40,
                         period: 30000,
                     },
-                    monthly_limit: 100,
                 },
                 'driver:impl:public-openai-image-generation:generate': {
                     rate_limit: {
                         max: 40,
                         period: 30000,
                     },
-                    monthly_limit: 4,
                 },
             },
             user_verified: {
@@ -112,21 +108,18 @@ class SLAService extends BaseService {
                         max: 40,
                         period: 30000,
                     },
-                    monthly_limit: 100,
                 },
                 'driver:impl:public-openai-chat-completion:complete': {
                     rate_limit: {
                         max: 40,
                         period: 30000,
                     },
-                    monthly_limit: 3000,
                 },
                 'driver:impl:public-openai-image-generation:generate': {
                     rate_limit: {
                         max: 40,
                         period: 30000,
                     },
-                    monthly_limit: 5,
                 },
             }
         };
