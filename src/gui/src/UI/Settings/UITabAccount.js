@@ -34,11 +34,27 @@ export default {
         // h += `<h1>${i18n('account')}</h1>`;
 
         // profile picture
-        h += `<div style="overflow: hidden; display: flex; margin-bottom: 20px; flex-direction: column; align-items: center;">`;
-            h += `<div class="profile-picture change-profile-picture" style="background-image: url('${html_encode(window.user?.profile?.picture ?? window.icons['profile.svg'])}');">`;
-            h += `</div>`;
-        h += `</div>`;
+        h += `<div style="overflow: hidden; display: flex; flex-direction: column; align-items: center; margin-bottom: 10px;">`;
 
+        // Profile Picture at the top
+        // Check if the user has uploaded a valid profile picture
+        const profilePicture = window.user?.profile?.picture && window.user.profile.picture !== '' 
+            ? window.user.profile.picture 
+            : window.icons['profile.svg'];  // Fallback to default profile.svg
+
+        h += `<div class="profile-picture" style="background-image: url('${html_encode(profilePicture)}'); width: 150px; height: 150px; border-radius: 50%; background-size: cover; background-position: center; margin-bottom: 10px; cursor: default; display: inline-block;">`;
+        h += `</div>`;
+        h += `</div>`;
+        
+
+        h += `<div style="width: 100%; margin-bottom: 50px; display: flex; justify-content: center; align-items: center; gap: 10px;">`; 
+            // Change Profile Picture Button
+            h += `<button class="button change-profile-picture" style="font-size: 14px; padding: 8px 15px; 
+            display: flex; align-items: center; justify-content: center;">${i18n('Change Profile Picture')}</button>`;
+            // Delete Profile Picture Button
+            h += `<button class="button button-danger delete_Profile_Picture" style="font-size: 14px; padding: 8px 15px; 
+            display: flex; align-items: center; justify-content: center; background-color: #e74c3c;">${i18n('Remove Profile Picture')}</button>`; 
+        h += `</div>`;
         // change password button
         if(!window.user.is_temp){
             h += `<div class="settings-card">`;
@@ -150,6 +166,22 @@ export default {
             });    
         })
 
+        $el_window.find('.delete_Profile_Picture').on('click', async function (e) {
+            // Update the profile picture in the UI (set to a default image or placeholder)
+            window.user.profile.picture = window.icons['profile.svg'];
+            const defaultPicture = window.icons['profile.svg']; 
+            $el_window.find('.profile-picture').css('background-image', `url('${html_encode(defaultPicture)}')`);
+
+            // Update the profile picture displayed on the page
+            $('.profile-picture').css('background-image', `url('${html_encode(defaultPicture)}')`);
+            $('.profile-image').addClass('profile-image-has-picture'); 
+
+            // update the global profile image display
+            $('.profile-image').css('background-image', `url('${html_encode(defaultPicture)}')`);
+            $('.profile-image').addClass('profile-image-has-picture');
+            
+        });
+        
         $el_window.on('file_opened', async function(e){
             let selected_file = Array.isArray(e.detail) ? e.detail[0] : e.detail;
             // set profile picture

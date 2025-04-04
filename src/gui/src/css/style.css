@@ -3964,10 +3964,6 @@ fieldset[name=number-code] {
     background-color: #c5cdd4;
 }
 
-.profile-picture:hover {
-    background-color: #a6afb7;
-}
-
 .profile-image-has-picture {
     border: 1px solid white;
 }
