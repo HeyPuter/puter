@@ -25,6 +25,7 @@
 // it here.
 import console from 'node:console';
 import process from 'node:process';
+import {startWebDAVServer} from '../src/backend/webdav/webdav-server.js';
 
 const surrounding_box = (col, lines) => {
     const lengths = lines.map(line => line.length);
@@ -114,6 +115,17 @@ const main = async () => {
         k.add_module(new DevelopmentModule());
     }
     k.boot();
+    const webdavContext = {
+        get: (serviceName) => {
+            // Special case to get the services container itself
+            if (serviceName === 'services') return k.services;
+            
+            // Normal service resolution
+            return k.services.get(serviceName, { optional: true });
+        }
+    };
+    
+    startWebDAVServer(1900, webdavContext);
 };
 
 const early_init_errors = [
