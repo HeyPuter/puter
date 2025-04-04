@@ -44,12 +44,25 @@ class PermissiveCreditService extends BaseService {
             const username = event.actor.type.user.username;
             event.available = this.consume_user_credit_(
                 username, event.cost);
+            if ( ! this.config.simulated_credit ) return;
+
+            // Update usage settings tab in UI
+            svc_event.emit('outer.gui.usage.update', {
+                user_id_list: [event.actor.type.user.id],
+                response: {
+                    id: 'dev-credit',
+                    used: this.config.simulated_credit -
+                        this.get_user_credit_(username),
+                    available: this.config.simulated_credit,
+                },
+            });
         });
         
         svc_event.on('usages.query', (_, event) => {
             const username = event.actor.type.user.username;
             if ( ! this.config.simulated_credit ) {
                 event.usages.push({
+                    id: 'dev-credit',
                     name: `Unlimited Credit`,
                     used: 0,
                     available: 1,
@@ -57,6 +70,7 @@ class PermissiveCreditService extends BaseService {
                 return;
             }
             event.usages.push({
+                id: 'dev-credit',
                 name: `Simulated Credit (${this.config.simulated_credit})`,
                 used: this.config.simulated_credit -
                     this.get_user_credit_(username),

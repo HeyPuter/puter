@@ -309,6 +309,7 @@ const en = {
         unzipping: "Unzipping %strong%",
         upload: 'Upload',
         upload_here: 'Upload here',
+        used_of: '{{used}} used of {{available}}',
         usage: 'Usage',
         username: "Username",
         username_changed: 'Username updated successfully.',
