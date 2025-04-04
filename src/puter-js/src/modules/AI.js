@@ -297,6 +297,11 @@ class AI{
             requestParams.model = 'openrouter:openai/o1-mini';
         }
 
+        // if model starts with meta-llama/, prepend it with openrouter:
+        if ( requestParams.model.startsWith('meta-llama/') ) {
+            requestParams.model = 'openrouter:' + requestParams.model;
+        }
+
         // map model to the appropriate driver
         if (!requestParams.model || requestParams.model === 'gpt-4o' || requestParams.model === 'gpt-4o-mini') {
             driver = 'openai-completion';
