@@ -297,8 +297,12 @@ class AI{
             requestParams.model = 'openrouter:openai/o1-mini';
         }
 
-        // if model starts with meta-llama/, prepend it with openrouter:
-        if ( requestParams.model.startsWith('meta-llama/') ) {
+        // if model starts with: 
+        //      meta-llama/
+        //      google/
+        //      deepseek/
+        // prepend it with openrouter:
+        if ( requestParams.model.startsWith('meta-llama/') || requestParams.model.startsWith('google/') || requestParams.model.startsWith('deepseek/') ) {
             requestParams.model = 'openrouter:' + requestParams.model;
         }
 
