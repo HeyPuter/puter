@@ -208,21 +208,14 @@ const launch_app = async (options)=>{
         }
 
         if(file_signature){
+            // Only pass the file UUID to the app, and let onLaunchedWithItems
+            // fetch the complete file information via puter.js
             iframe_url.searchParams.append('puter.item.uid', file_signature.uid);
-            iframe_url.searchParams.append('puter.item.path', privacy_aware_path(options.file_path) || file_signature.path);
-            iframe_url.searchParams.append('puter.item.name', file_signature.fsentry_name);
-            iframe_url.searchParams.append('puter.item.read_url', file_signature.read_url);
-            iframe_url.searchParams.append('puter.item.write_url', file_signature.write_url);
-            iframe_url.searchParams.append('puter.item.metadata_url', file_signature.metadata_url);
-            iframe_url.searchParams.append('puter.item.size', file_signature.fsentry_size);
-            iframe_url.searchParams.append('puter.item.accessed', file_signature.fsentry_accessed);
-            iframe_url.searchParams.append('puter.item.modified', file_signature.fsentry_modified);
-            iframe_url.searchParams.append('puter.item.created', file_signature.fsentry_created);
         }
-        else if(options.readURL){
-            iframe_url.searchParams.append('puter.item.name', options.filename);
-            iframe_url.searchParams.append('puter.item.path', privacy_aware_path(options.file_path));
-            iframe_url.searchParams.append('puter.item.read_url', options.readURL);
+        else if(options.readURL && options.file_uid){
+            // Only pass the file UUID to the app, and let onLaunchedWithItems
+            // fetch the complete file information via puter.js
+            iframe_url.searchParams.append('puter.item.uid', options.file_uid);
         }
 
         // In godmode, we add the super token to the iframe URL
