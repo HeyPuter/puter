@@ -116,8 +116,23 @@ export default {
                         .innerText = used_of_str;
                 };
 
+                
+                const interval = setInterval(async () => {
+                    const resp = await fetch(`${window.api_origin}/drivers/usage`, {
+                        headers: {
+                            "Authorization": "Bearer " + window.auth_token
+                        },
+                    })
+                    const usages = (await resp.json()).usages;
+                    for ( const usage of usages ) {
+                        if ( ! usage.id ) continue;
+                        update_usage(usage);
+                    }
+                }, 2000);
+
                 divContent.on('remove', () => {
                     socket.off('usage.update', update_usage);
+                    clearInterval(interval);
                 });
                 socket.on('usage.update', update_usage);
             }
