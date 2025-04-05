@@ -163,21 +163,6 @@ class FakeChatService extends BaseService {
                     "output_tokens": usedModel === 'costly' ? outputTokens : 1
                 };
                 
-                // Emit an event to report usage for the costly model
-                if (usedModel === 'costly') {
-                    try {
-                        const svc_event = this.services.get('event');
-                        svc_event.emit('ai.prompt.report-usage', {
-                            actor: this.context?.actor,
-                            service_used: 'fake-chat',
-                            model_used: 'costly',
-                            usage: usage
-                        });
-                    } catch (error) {
-                        this.log.error('Failed to report usage', error);
-                    }
-                }
-                
                 return {
                     "index": 0,
                     message: {

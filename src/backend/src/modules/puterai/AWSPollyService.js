@@ -21,7 +21,10 @@
 const { PollyClient, SynthesizeSpeechCommand, DescribeVoicesCommand } = require("@aws-sdk/client-polly");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
+const APIError = require("../../api/APIError");
 
+// Polly price calculation
+const microcents_per_character = 400;
 
 /**
 * AWSPollyService class provides text-to-speech functionality using Amazon Polly.
@@ -89,6 +92,19 @@ class AWSPollyService extends BaseService {
                         content_type: 'audio',
                     }, url);
                 }
+                
+                const exact_cost = microcents_per_character * text.length;
+                
+                const svc_cost = this.services.get('cost');
+                const usageAllowed = await svc_cost.get_funding_allowed({
+                    minimum: exact_cost,
+                });
+
+                if ( ! usageAllowed ) {
+                    throw APIError.create('insufficient_funds');
+                }
+                // We can charge immediately
+                await svc_cost.record_cost({ cost: exact_cost });
     
                 const polly_speech = await this.synthesize_speech(text, {
                     format: 'mp3',

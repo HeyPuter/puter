@@ -27,7 +27,6 @@ class Judge0Client {
         if ( ! path.startsWith('/') ) {
             path = `/${path}`;
         }
-        console.log('how is this url invalid??', `${this.baseURL}${path}`);
         const resp = await axios.request({
             method: 'GET',
             url: `${this.baseURL}${path}`,

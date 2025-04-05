@@ -3,6 +3,7 @@ const BaseService = require("../../services/BaseService");
 const { Judge0Client } = require("./Judge0Client");
 const { Context } = require("../../util/context");
 const { find_highest_version } = require("../../util/versionutil");
+const APIError = require("../../api/APIError");
 
 class Judge0Service extends BaseService {
     _construct () {
@@ -14,6 +15,8 @@ class Judge0Service extends BaseService {
         this.client = new Judge0Client({
             token: this.config.token,
         });
+        this.microcents_per_call =
+            this.config.microcents_per_call ?? 50_000;
 
         // this.submissions_ = {};
     }
@@ -57,6 +60,19 @@ class Judge0Service extends BaseService {
 
         if ( !lang_id ) {
             throw new Error(`Language or runtime not found: ${runtime}`);
+        }
+
+        {
+            const svc_cost = this.services.get('cost')
+            const usageAllowed = await svc_cost.get_funding_allowed({
+                minimum: this.microcents_per_call,
+            });
+            if ( ! usageAllowed ) {
+                throw APIError.create('insufficient_funds');
+            }
+            await svc_cost.record_cost({
+                cost: this.microcents_per_call,
+            });
         }
 
         const result = await this.client.create_submission({

@@ -128,8 +128,9 @@ class AIChatService extends BaseService {
             this.log.noticeme('COST INFO', values);
 
 
-            await this.db.insert('ai_usage', values);
-
+            const svc_cost = this.services.get('cost');
+            svc_cost.record_cost({ cost: values.cost });
+            
             // USD cost from microcents
             const cost_usc = values.cost / 1000000;
             const cost_usd = cost_usc / 100;
@@ -404,11 +405,8 @@ class AIChatService extends BaseService {
                 });
 
                 // Updated: Check usage and get a boolean result instead of throwing error
-                const usageAllowed = await this.check_usage_({
-                    actor: Context.get('actor'),
-                    service: service_used,
-                    model: model_used,
-                });
+                const svc_cost = this.services.get('cost');
+                const usageAllowed = await svc_cost.get_funding_allowed();
 
                 // Handle usage limits reached case
                 if ( !usageAllowed ) {
@@ -496,11 +494,8 @@ class AIChatService extends BaseService {
                         });
 
                         // Check usage for fallback model too (with updated method)
-                        const fallbackUsageAllowed = await this.check_usage_({
-                            actor: Context.get('actor'),
-                            service: fallback_service_name,
-                            model: fallback_model_name,
-                        });
+                        const svc_cost = this.services.get('cost');
+                        const fallbackUsageAllowed = await svc_cost.get_funding_allowed();
                         
                         // If usage not allowed for fallback, use usage-limited-chat instead
                         if (!fallbackUsageAllowed) {

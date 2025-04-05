@@ -61,6 +61,17 @@ class Extension extends AdvancedBase {
         return db;
     }
 
+    get services () {
+        const services = this.service.values.get('services');
+        if ( ! services ) {
+            throw new Error(
+                'extension tried to access "services" before it was ' +
+                'initialized'
+            );
+        }
+        return services;
+    }
+
     /**
      * This will create a GET endpoint on the default service.
      * @param {*} path - route for the endpoint
