@@ -27,7 +27,7 @@ class CostService extends BaseService {
         return new CreditContext(this, params);
     }
 
-    async get_funding_allowed (options) {
+    async get_funding_allowed (options = {}) {
         const cost_uuid = this.modules.uuidv4();
         const svc_event = this.services.get('event');
         const event = {
