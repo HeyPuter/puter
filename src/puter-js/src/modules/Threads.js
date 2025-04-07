@@ -1,3 +1,5 @@
+import { RequestError } from "../lib/RequestError.js";
+
 export default class Threads {
     constructor (context) {
         this.authToken = context.authToken;
@@ -20,6 +22,12 @@ export default class Threads {
                 ...(body ? { body: JSON.stringify(body) } : {}),
             }
         );
+        if ( ! resp.ok ) {
+            const resp_data = await resp.json();
+            const err = new RequestError(resp_data.message);
+            err.response = resp_data;
+            throw err;
+        }
         return await resp.json();
     }
     
