@@ -1756,42 +1756,6 @@ label {
     padding-right: 10px;
 }
 
-.toolbar-btn {
-    padding: 3px;
-    font-size: 14px;
-    margin-left: 15px;
-    overflow: hidden !important;
-    background-size: contain;
-    background-repeat: no-repeat;
-    background-position: center;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    width: 22px;
-    height: 22px;
-    box-sizing: border-box;
-    background-origin: content-box;
-    opacity: 0.8;
-}
-
-.toolbar-btn:hover {
-    opacity: 1;
-}
-
-.toolbar-btn.user-options-menu-btn.profile-pic {
-    width: 22px;
-    height: 22px;
-    padding: 2px;
-    background-size: cover;
-    background-position: center;
-    border-radius: 50%;
-    margin-right: 5px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 1;
-}
-
 .show-desktop-btn {
     color: white;
     font-size: 11px !important;
@@ -1815,6 +1779,28 @@ label {
         background-color: #00000040;
         backdrop-filter: blur(10px);
     }
+}
+
+.toolbar-btn {
+    font-size: 14px;
+    margin-left: 20px;
+    overflow: hidden !important;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    width: 22px;
+    height: 22px;
+    padding: 3px;
+    box-sizing: border-box;
+    background-origin: content-box;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 0.8;
+}
+
+.toolbar-btn:hover {
+    opacity: 1;
 }
 
 .user-options-menu-btn.has-open-contextmenu {
@@ -4907,16 +4893,6 @@ fieldset[name=number-code] {
     color: #666;
 }
 
-.toolbar-btn {
-    width: 32px;
-    height: 32px;
-    background-size: 16px;
-    background-position: center;
-    background-repeat: no-repeat;
-    cursor: pointer;
-    position: relative;
-}
-
 .notification-history-btn {
     background-image: url('../icons/bell.svg');
     filter: brightness(0) invert(1);
@@ -5411,17 +5387,4 @@ fieldset[name=number-code] {
 .notification-history-item.unread {
     background-color: rgba(255, 0, 0, 0.05);
     border-left: 3px solid #ff0000;
-}
-
-.toolbar-btn.user-options-menu-btn.profile-pic {
-    width: 22px;
-    height: 22px;
-    padding: 2px;
-    background-size: cover;
-    background-position: center;
-    border-radius: 50%;
-    margin-right: 5px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
 }
