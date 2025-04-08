@@ -374,6 +374,10 @@ class AI{
                 requestParams[name] = userParams[name];
             }
         }
+        
+        if ( requestParams.model === '' ) {
+            delete requestParams.model;
+        }
 
         // Call the original chat.complete method
         return await utils.make_driver_method(['messages'], 'puter-chat-completion', driver, 'complete', {
