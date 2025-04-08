@@ -278,6 +278,15 @@ class AI{
         // convert undefined to empty string so that .startsWith works
         requestParams.model = requestParams.model ?? '';
 
+        // If model starts with "anthropic/", remove it
+        // later on we should standardize the model names to [vendor]/[model]
+        // for example: "claude-3-5-sonnet" should become "anthropic/claude-3-5-sonnet"
+        // but for now, we want to keep the old behavior
+        // so we remove the "anthropic/" prefix if it exists
+        if (requestParams.model && requestParams.model.startsWith('anthropic/')) {
+            requestParams.model = requestParams.model.replace('anthropic/', '');
+        }
+
         // convert to the correct model name if necessary
         if( requestParams.model === 'claude-3-5-sonnet'){
             requestParams.model = 'claude-3-5-sonnet-latest';
