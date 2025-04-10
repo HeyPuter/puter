@@ -36,9 +36,6 @@ class CostService extends BaseService {
             cost_uuid,
         };
         await svc_event.emit('credit.check-available', event);
-        
-        // Temporary update to test a theory
-        await new Promise(rslv => setTimeout(rslv, 500));
 
         // specified minimum or 1/10th of a cent
         const minimum = options.minimum ?? 100;
