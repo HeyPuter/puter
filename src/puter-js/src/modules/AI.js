@@ -313,8 +313,9 @@ class AI{
         //      meta-llama/
         //      google/
         //      deepseek/
+        //      x-ai/
         // prepend it with openrouter:
-        if ( requestParams.model.startsWith('meta-llama/') || requestParams.model.startsWith('google/') || requestParams.model.startsWith('deepseek/') ) {
+        if ( requestParams.model.startsWith('meta-llama/') || requestParams.model.startsWith('google/') || requestParams.model.startsWith('deepseek/') || requestParams.model.startsWith('x-ai/') ) {
             requestParams.model = 'openrouter:' + requestParams.model;
         }
 
