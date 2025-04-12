@@ -18,6 +18,7 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
+const APIError = require("../../api/APIError");
 const BaseService = require("../../services/BaseService");
 const OpenAIUtil = require("./lib/OpenAIUtil");
 
@@ -121,6 +122,14 @@ class OpenRouterService extends BaseService {
 
                 if ( model.startsWith('openrouter:') ) {
                     model = model.slice('openrouter:'.length);
+                }
+                
+                if ( model === 'openrouter/auto' ) {
+                    throw APIError.create('field_invalid', null, {
+                        key: 'model',
+                        expected: 'allowed model',
+                        got: 'disallowed model',
+                    })
                 }
 
                 messages = await OpenAIUtil.process_input_messages(messages);
