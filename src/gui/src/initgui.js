@@ -846,11 +846,9 @@ window.initgui = async function(options){
                 document.dispatchEvent(new Event("login", { bubbles: true}));
             },
             error: async (err) => {
-                // The solution to any error that might happen here is to reload the page.
-                // We only try to sign into a temporary user on the first visit, so if it
-                // didn't work reloading the page will produce the login screen.
-                console.log('could not create temporary user', err);
-                window.location.reload();
+                UIAlert({
+                    message: html_encode(err.responseText),
+                });
             }
         });
     }
