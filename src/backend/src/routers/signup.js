@@ -92,12 +92,12 @@ module.exports = eggspress(['/signup'], {
         body: req.body,
     };
 
-    const svc_event = Context.get('services').get('event');
-    await svc_event.emit('puter.signup', event)
+    // const svc_event = Context.get('services').get('event');
+    // await svc_event.emit('puter.signup', event)
 
-    if ( ! event.allow ) {
-        return res.status(400).send(event.error ?? 'You are not allowed to sign up.');
-    }
+    // if ( ! event.allow ) {
+    //     return res.status(400).send(event.error ?? 'You are not allowed to sign up.');
+    // }
 
     // check if user is already logged in
     if ( req.body.is_temp && req.cookies[config.cookie_name] ) {
