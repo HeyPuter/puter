@@ -216,7 +216,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                             if ( stmts[i].trim() === '' ) continue;
                             const stmt = stmts[i] + ';';
                             try {
-                                this.db.exec(stmt);
+                                await this.db.exec(stmt);
                             } catch (e) {
                                 debugger;
                                 throw new CompositeError(`failed to apply: ${basename} at line ${i}`, e);
