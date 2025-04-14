@@ -190,7 +190,7 @@ module.exports = eggspress(['/signup'], {
     const clean_email = svc_cleanEmail.clean(req.body.email);
     
     if (clean_email !== '' && !req.body.is_temp && ! await svc_cleanEmail.validate(clean_email) ) {
-        return res.status(400).send('Failed to create an account. Please try again.');
+        return res.status(400).send('This email does not seem to be valid.');
     }
 
     // duplicate username check
