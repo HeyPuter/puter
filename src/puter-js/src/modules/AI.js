@@ -304,6 +304,11 @@ class AI{
             requestParams.model = 'deepseek-chat';
         }
 
+        // o1-mini to openrouter:openai/o1-mini
+        if ( requestParams.model === 'o1-mini' ) {
+            requestParams.model = 'openrouter:openai/o1-mini';
+        }
+
         // if a model is prepended with "openai/", remove it
         if (requestParams.model && requestParams.model.startsWith('openai/')) {
             requestParams.model = requestParams.model.replace('openai/', '');
