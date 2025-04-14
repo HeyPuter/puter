@@ -110,7 +110,7 @@ function CaptchaView(options = {}) {
         // Captcha image and refresh button container
         const imageContainer = document.createElement('div');
         imageContainer.style.display = 'flex';
-        imageContainer.style.alignItems = 'center';
+        imageContainer.style.alignItems = 'stretch';
         imageContainer.style.justifyContent = 'space-between';
         imageContainer.style.gap = '10px';
         imageContainer.style.border = '1px solid #ced7e1';
@@ -142,10 +142,12 @@ function CaptchaView(options = {}) {
         // Refresh button
         const refreshButton = document.createElement('button');
         refreshButton.classList.add('button', 'button-small');
-        refreshButton.innerHTML = '<i class="fas fa-sync-alt"></i>';
+        refreshButton.innerHTML = '<i class="fas fa-sync-alt">⟳</i>';
         refreshButton.setAttribute('title', i18n('refresh_captcha'));
         refreshButton.style.minWidth = '30px';
-        refreshButton.style.height = '30px';
+        refreshButton.style.fontSize = '30px';
+        refreshButton.style.height = 'auto';
+        refreshButton.style.marginBottom = '4px';
         refreshButton.setAttribute('type', 'button');
         refreshButton.addEventListener('click', (e) => {
             e.preventDefault();

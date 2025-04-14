@@ -81,7 +81,7 @@ router.post('/save_account', auth, express.json(), async (req, res, next)=>{
     const clean_email = svc_cleanEmail.clean(req.body.email);
     
     if ( ! await svc_cleanEmail.validate(clean_email) ) {
-        return res.status(400).send('This email domain is not allowed.');
+        return res.status(400).send('This email does not seem to be valid.');
     }
 
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');

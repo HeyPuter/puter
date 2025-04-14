@@ -790,7 +790,7 @@ window.initgui = async function(options){
             UIWindowSessionList();
         }
         else{
-            const resp = await fetch(puter.defaultGUIOrigin + '/whoarewe');
+            const resp = await fetch(window.gui_origin + '/whoarewe');
             const whoarewe = await resp.json();
             await UIWindowLogin({
                 // show_signup_button: 
@@ -845,7 +845,7 @@ window.initgui = async function(options){
                 window.update_auth_data(data.token, data.user);
                 document.dispatchEvent(new Event("login", { bubbles: true}));
             },
-            error: function (err){
+            error: async (err) => {
                 UIAlert({
                     message: html_encode(err.responseText),
                 });

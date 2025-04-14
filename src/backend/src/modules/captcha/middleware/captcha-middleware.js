@@ -37,9 +37,12 @@ const checkCaptcha = ({ svc_captcha }) => async (req, res, next) => {
         req.captchaRequired = false;
         return next();
     }
+    const ip = req.headers?.['x-forwarded-for'] ||
+        req.connection?.remoteAddress;
 
     const svc_event = services.get('event');
     const event = {
+        ip,
         // By default, captcha always appears if enabled
         required: true,
     };

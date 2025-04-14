@@ -274,6 +274,18 @@ class AI{
         if (userParams.max_tokens) {
             requestParams.max_tokens = userParams.max_tokens;
         }
+        
+        // convert undefined to empty string so that .startsWith works
+        requestParams.model = requestParams.model ?? '';
+
+        // If model starts with "anthropic/", remove it
+        // later on we should standardize the model names to [vendor]/[model]
+        // for example: "claude-3-5-sonnet" should become "anthropic/claude-3-5-sonnet"
+        // but for now, we want to keep the old behavior
+        // so we remove the "anthropic/" prefix if it exists
+        if (requestParams.model && requestParams.model.startsWith('anthropic/')) {
+            requestParams.model = requestParams.model.replace('anthropic/', '');
+        }
 
         // convert to the correct model name if necessary
         if( requestParams.model === 'claude-3-5-sonnet'){
@@ -290,6 +302,21 @@ class AI{
         }
         if ( requestParams.model === 'deepseek' ) {
             requestParams.model = 'deepseek-chat';
+        }
+
+        // o1-mini to openrouter:openai/o1-mini
+        if ( requestParams.model === 'o1-mini' ) {
+            requestParams.model = 'openrouter:openai/o1-mini';
+        }
+
+        // if model starts with: 
+        //      meta-llama/
+        //      google/
+        //      deepseek/
+        //      x-ai/
+        // prepend it with openrouter:
+        if ( requestParams.model.startsWith('meta-llama/') || requestParams.model.startsWith('google/') || requestParams.model.startsWith('deepseek/') || requestParams.model.startsWith('x-ai/') ) {
+            requestParams.model = 'openrouter:' + requestParams.model;
         }
 
         // map model to the appropriate driver
@@ -356,6 +383,10 @@ class AI{
             if ( userParams[name] ) {
                 requestParams[name] = userParams[name];
             }
+        }
+        
+        if ( requestParams.model === '' ) {
+            delete requestParams.model;
         }
 
         // Call the original chat.complete method

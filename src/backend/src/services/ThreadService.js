@@ -19,6 +19,16 @@ class ThreadService extends BaseService {
         this.db = this.services.get('database').get(DB_WRITE, 'service:thread');
 
         this.thread_body_max_size = 4 * 1024; // 4KiB
+        
+        const svc_apiError = this.services.get('api-error');
+        svc_apiError.register({
+            'thread_not_found': {
+                status: 400,
+                message: ({ uid }) => {
+                    return `Thread with UID ${uid} was not found`;
+                }
+            },
+        });
 
         const svc_permission = this.services.get('permission');
         svc_permission.register_implicator(PermissionImplicator.create({
@@ -183,6 +193,8 @@ class ThreadService extends BaseService {
     }
 
     install_threads_endpoints_ ({ router }) {
+        const svc_apiError = this.services.get('api-error');
+
         Endpoint({
             route: '/create',
             methods: ['POST'],
@@ -223,7 +235,7 @@ class ThreadService extends BaseService {
                     {
                         const parent_thread = await this.get_thread({ uid: parent_uid });
                         if ( !parent_thread ) {
-                            throw APIError.create('thread_not_found', null, {
+                            throw svc_apiError.create('thread_not_found', {
                                 uid: parent_uid,
                             });
                         }
@@ -311,7 +323,7 @@ class ThreadService extends BaseService {
                 // Get existing thread
                 const thread = await this.get_thread({ uid });
                 if ( !thread ) {
-                    throw APIError.create('thread_not_found', null, {
+                    throw svc_apiError.create('thread_not_found', {
                         uid,
                     });
                 }
@@ -372,7 +384,7 @@ class ThreadService extends BaseService {
                 // Get existing thread
                 const thread = await this.get_thread({ uid });
                 if ( !thread ) {
-                    throw APIError.create('thread_not_found', null, {
+                    throw svc_apiError.create('thread_not_found', {
                         uid,
                     });
                 }
@@ -539,7 +551,8 @@ class ThreadService extends BaseService {
         );
 
         if ( !thread ) {
-            throw APIError.create('thread_not_found', null, {
+            const svc_apiError = this.services.get('api-error');
+            throw svc_apiError.create('thread_not_found', {
                 uid,
             });
         }

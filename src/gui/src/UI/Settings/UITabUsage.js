@@ -41,6 +41,7 @@ export default {
             </div>`;
     },
     init: ($el_window) => {
+        const sanitize_id = id => (''+id).replace(/[^A-Za-z0-9-]/g, '');
         $.ajax({
             url: window.api_origin + "/drivers/usage",
             type: 'GET',
@@ -79,52 +80,61 @@ export default {
                         name = `File Conversions`;
 
                     h += `
-                        <div class="driver-usage" style="margin-bottom: 10px;">
+                        <div
+                            class="driver-usage"
+                            style="margin-bottom: 10px;"
+                            data-id="${sanitize_id(entry.id)}"
+                        >
                             <h3 style="margin-bottom: 5px; font-size: 14px;">${html_encode(name)}:</h3>
-                            <span style="font-size: 13px; margin-bottom: 3px;">${Number(entry.used)} used of ${Number(entry.available)}</span>
+                            <span style="font-size: 13px; margin-bottom: 3px;">${i18n('used_of', entry)}</span>
                             <div class="usage-progbar-wrapper" style="width: 100%;">
                                 <div class="usage-progbar" style="width: ${Number(entry.usage_percentage)}%;"><span class="usage-progbar-percent">${Number(entry.usage_percentage)}%</span></div>
                             </div>
                         </div>
                     `;
                 });
-
-                // Loop through user services
-                res.user.forEach(service => {
-                    const { monthly_limit, monthly_usage } = service;
-                    let usageDisplay = ``;
-
-                    const first_identifier = false ||
-                        service.service['driver.implementation'] ||
-                        service.service['driver.interface'] ||
-                        '';
-
-                    if (monthly_limit !== null) {
-                        let usage_percentage = (monthly_usage / monthly_limit * 100).toFixed(0);
-                        usage_percentage = usage_percentage > 100 ? 100 : usage_percentage; // Cap at 100%
-                        usageDisplay = `
-                            <div class="driver-usage" style="margin-bottom: 10px;">
-                                <h3 style="margin-bottom: 5px; font-size: 14px;">${html_encode(first_identifier)} (${html_encode(service.service['driver.method'])}):</h3>
-                                <span style="font-size: 13px; margin-bottom: 3px;">${monthly_usage} used of ${monthly_limit}</span>
-                                <div class="usage-progbar-wrapper" style="width: 100%;">
-                                    <div class="usage-progbar" style="width: ${usage_percentage}%;"><span class="usage-progbar-percent">${usage_percentage}%</span></div>
-                                </div>
-                            </div>
-                        `;
-                    }
-                    else {
-                        usageDisplay = `
-                            <div class="driver-usage" style="margin-bottom: 10px;">
-                                <h3 style="margin-bottom: 5px; font-size: 14px;">${html_encode(first_identifier)} (${html_encode(service.service['driver.method'])}):</h3>
-                                <span style="font-size: 13px; margin-bottom: 3px;">${i18n('usage')}: ${monthly_usage} (${i18n('unlimited')})</span>
-                            </div>
-                        `;
-                    }
-                    h += usageDisplay;
-                });
+                
+                const divContent = $('.settings-content[data-settings="usage"]');
 
                 // Append driver usage bars to the container
-                $('.settings-content[data-settings="usage"]').append(`<div class="driver-usage-container">${h}</div>`);
+                divContent.append(`<div class="driver-usage-container">${h}</div>`);
+                
+                const update_usage = event => {
+                    if ( ! event.usage_percentage ) {
+                        event.usage_percentage = (event.used / event.available * 100).toFixed(0);
+                    }
+                    const el_divContent = divContent[0];
+                    el_divContent
+                        .querySelector(`[data-id=${sanitize_id(event.id)}] .usage-progbar`)
+                        .style.width = '' + Number(event.usage_percentage) + '%';
+                    el_divContent
+                        .querySelector(`[data-id=${sanitize_id(event.id)}] .usage-progbar span`)
+                        .innerText = '' + Number(event.usage_percentage) + '%';
+                    const used_of_str = i18n('used_of', event);
+                    el_divContent
+                        .querySelector(`[data-id=${sanitize_id(event.id)}] > span`)
+                        .innerText = used_of_str;
+                };
+
+                
+                const interval = setInterval(async () => {
+                    const resp = await fetch(`${window.api_origin}/drivers/usage`, {
+                        headers: {
+                            "Authorization": "Bearer " + window.auth_token
+                        },
+                    })
+                    const usages = (await resp.json()).usages;
+                    for ( const usage of usages ) {
+                        if ( ! usage.id ) continue;
+                        update_usage(usage);
+                    }
+                }, 2000);
+
+                divContent.on('remove', () => {
+                    socket.off('usage.update', update_usage);
+                    clearInterval(interval);
+                });
+                socket.on('usage.update', update_usage);
             }
         });
 

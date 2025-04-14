@@ -40,6 +40,9 @@ const { PuterExecModule } = require("./src/modules/puterexec/PuterExecModule.js"
 const { MailModule } = require("./src/modules/mail/MailModule.js");
 const { ConvertModule } = require("./src/modules/convert/ConvertModule.js");
 const { CaptchaModule } = require("./src/modules/captcha/CaptchaModule.js");
+const { EntityStoreModule } = require("./src/modules/entitystore/EntityStoreModule.js");
+const { AnalyticsModule } = require("./src/modules/analytics/AnalyticsModule.js");
+const { KVStoreModule } = require("./src/modules/kvstore/KVStoreModule.js");
 
 module.exports = {
     helloworld: () => {
@@ -63,6 +66,9 @@ module.exports = {
         TemplateModule,
         AppsModule,
         CaptchaModule,
+        EntityStoreModule,
+        AnalyticsModule,
+        KVStoreModule,
     ],
 
     // Pre-built modules
@@ -79,6 +85,7 @@ module.exports = {
     MailModule,
     ConvertModule,
     CaptchaModule,
+    KVStoreModule,
     
     // Development modules
     PerfMonModule,

@@ -216,7 +216,9 @@ module.exports = class APIError {
         },
         'internal_error': {
             status: 500,
-            message: 'An internal error occurred.',
+            message: ({ message }) => message
+                ? 'An internal error occurred: ' + quot(message)
+                : 'An internal error occurred.',
         },
         'response_timeout': {
             status: 504,
@@ -334,19 +336,15 @@ module.exports = class APIError {
             message: ({ method_name, rate_limit }) =>
                 `Rate limit exceeded for method ${quot(method_name)}: ${rate_limit.max} requests per ${rate_limit.period}ms.`,
         },
-        'monthly_limit_exceeded': {
-            status: 429,
-            message: ({ method_key, limit }) =>
-                `Monthly limit exceeded for method ${quot(method_key)}: ${limit} requests per month.`,
-        },
-        'monthly_usage_exceeded': {
-            status: 429,
-            message: ({ limit, unit }) =>
-                `Monthly limit exceeded: ${limit} ${unit} per month.`,
-        },
         'server_rate_exceeded': {
             status: 503,
             message: 'System-wide rate limit exceeded. Please try again later.',
+        },
+        
+        // New cost system
+        'insufficient_funds': {
+            status: 402,
+            message: 'Available funding is insufficient for this request.',
         },
 
         // auth
