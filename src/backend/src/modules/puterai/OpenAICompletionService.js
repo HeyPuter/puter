@@ -143,6 +143,24 @@ class OpenAICompletionService extends BaseService {
                 }
             },
             {
+                id: 'o1-pro',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 15000,
+                    output: 60000,
+                }
+            },
+            {
+                id: 'o1',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 1500,
+                    output: 6000,
+                }
+            },
+            {
                 id: 'o3-mini',
                 cost: {
                     currency: 'usd-cents',

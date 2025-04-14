@@ -309,6 +309,12 @@ class AI{
             requestParams.model = 'openrouter:openai/o1-mini';
         }
 
+        // if a model is prepended with "openai/", remove it
+        if (requestParams.model && requestParams.model.startsWith('openai/')) {
+            requestParams.model = requestParams.model.replace('openai/', '');
+            driver = 'openai-completion';
+        }
+
         // if model starts with: 
         //      meta-llama/
         //      google/
