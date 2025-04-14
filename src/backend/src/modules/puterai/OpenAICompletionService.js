@@ -151,6 +151,42 @@ class OpenAICompletionService extends BaseService {
                     output: 440,
                 }
             },
+            {
+                id: 'gpt-4.1',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 200,
+                    output: 800,
+                }
+            },
+            {
+                id: 'gpt-4.1-mini',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 40,
+                    output: 160,
+                }
+            },
+            {
+                id: 'gpt-4.1-nano',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 10,
+                    output: 40,
+                }
+            },
+            {
+                id: 'gpt-4.5-preview',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 7500,
+                    output: 15000,
+                }
+            }
         ];
     }
 
