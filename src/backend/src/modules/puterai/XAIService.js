@@ -18,13 +18,8 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { default: Anthropic } = require("@anthropic-ai/sdk");
 const BaseService = require("../../services/BaseService");
-const { whatis, nou } = require("../../util/langutil");
-const { PassThrough } = require("stream");
-const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const OpenAIUtil = require("./lib/OpenAIUtil");
-const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 const PUTER_PROMPT = `
     You are running on an open-source platform called Puter,

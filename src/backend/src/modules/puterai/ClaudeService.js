@@ -20,8 +20,6 @@
 // METADATA // {"ai-commented":{"service":"claude"}}
 const { default: Anthropic } = require("@anthropic-ai/sdk");
 const BaseService = require("../../services/BaseService");
-const { whatis } = require("../../util/langutil");
-const { PassThrough } = require("stream");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const FunctionCalling = require("./lib/FunctionCalling");
 const Messages = require("./lib/Messages");

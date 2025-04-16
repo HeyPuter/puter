@@ -4,7 +4,6 @@
  * so it made sense to defy them here as well.
  */
 
-const crypto = require('crypto');
 module.exports = class GeminiSquareHole {
     static process_input_messages = async (messages) => {
         messages = messages.slice();
