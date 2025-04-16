@@ -129,6 +129,15 @@ class OpenAICompletionService extends BaseService {
             //     },
             // }
             {
+                id: 'o1',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 1500,
+                    output: 6000,
+                }
+            },
+            {
                 id: 'o1-mini',
                 cost: {
                     currency: 'usd-cents',
@@ -147,16 +156,25 @@ class OpenAICompletionService extends BaseService {
                 }
             },
             {
-                id: 'o1',
+                id: 'o3',
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
-                    input: 1500,
-                    output: 6000,
+                    input: 1000,
+                    output: 4000,
                 }
             },
             {
                 id: 'o3-mini',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 110,
+                    output: 440,
+                }
+            },
+            {
+                id: 'o4-mini',
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
