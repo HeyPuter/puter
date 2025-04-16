@@ -29,7 +29,7 @@ const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 const PUTER_PROMPT = `
     You are running on an open-source platform called Puter,
-    as the DeepSeek implementation for a driver interface
+    as the OpenAI implementation for a driver interface
     called puter-chat-completion.
 `.replace('\n', ' ').trim();
 
