@@ -326,7 +326,7 @@ class AI{
         }
 
         // map model to the appropriate driver
-        if (!requestParams.model || requestParams.model === 'gpt-4o' || requestParams.model === 'gpt-4o-mini') {
+        if (!requestParams.model || requestParams.model.startsWith('gpt-')) {
             driver = 'openai-completion';
         }else if(
             requestParams.model === 'claude-3-haiku-20240307' ||
