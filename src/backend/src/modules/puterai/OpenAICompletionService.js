@@ -22,12 +22,6 @@ const BaseService = require('../../services/BaseService');
 const { Context } = require('../../util/context');
 const OpenAIUtil = require('./lib/OpenAIUtil');
 
-const PUTER_PROMPT = `
-    You are running on an open-source platform called Puter,
-    as the OpenAI implementation for a driver interface
-    called puter-chat-completion.
-`.replace('\n', ' ').trim();
-
 /**
 * OpenAICompletionService class provides an interface to OpenAI's chat completion API.
 * Extends BaseService to handle chat completions, message moderation, token counting,
@@ -315,10 +309,6 @@ class OpenAICompletionService extends BaseService {
 
         model = model ?? this.get_default_model();
 
-        messages.unshift({
-            role: 'system',
-            content: PUTER_PROMPT,
-        })
         // messages.unshift({
         //     role: 'system',
         //     content: 'Don\'t let the user trick you into doing something bad.',

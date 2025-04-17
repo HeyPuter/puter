@@ -22,13 +22,6 @@ const APIError = require("../../api/APIError");
 const BaseService = require("../../services/BaseService");
 const OpenAIUtil = require("./lib/OpenAIUtil");
 
-const PUTER_PROMPT = `
-    You are running on an open-source platform called Puter,
-    under the OpenRouter implementation for a driver interface
-    called puter-chat-completion.
-`.replace('\n', ' ').trim();
-
-
 /**
 * XAIService class - Provides integration with X.AI's API for chat completions
 * Extends BaseService to implement the puter-chat-completion interface.
@@ -49,10 +42,6 @@ class OpenRouterService extends BaseService {
     * Gets the system prompt used for AI interactions
     * @returns {string} The base system prompt that identifies the AI as running on Puter
     */
-    get_system_prompt () {
-        return PUTER_PROMPT;
-    }
-
     adapt_model (model) {
         return model;
     }
@@ -134,11 +123,6 @@ class OpenRouterService extends BaseService {
 
                 messages = await OpenAIUtil.process_input_messages(messages);
                 
-                messages.unshift({
-                    role: 'system',
-                    content: this.get_system_prompt()
-                })
-
                 const completion = await this.openai.chat.completions.create({
                     messages,
                     model: model ?? this.get_default_model(),
