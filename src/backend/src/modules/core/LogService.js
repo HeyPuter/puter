@@ -97,6 +97,9 @@ class LogContext {
             if ( x && x.get('trace_request') ) {
                 fields.trace_request = x.get('trace_request');
             }
+            if ( ! fields.actor && x && x.get('actor') ) {
+                fields.actor = x.get('actor').uid;
+            }
         }
         this.logService.log_(
             log_level,
