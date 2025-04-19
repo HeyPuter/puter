@@ -98,7 +98,11 @@ class LogContext {
                 fields.trace_request = x.get('trace_request');
             }
             if ( ! fields.actor && x && x.get('actor') ) {
-                fields.actor = x.get('actor').uid;
+                try {
+                    fields.actor = x.get('actor').uid;
+                } catch (e) {
+                    console.log('error logging actor (this is probably fine):', e);
+                }
             }
         }
         this.logService.log_(
