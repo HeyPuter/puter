@@ -1088,24 +1088,28 @@ async function deleteUser(user_id){
     /** @type BaseDatabaseAccessService */
     const db = services.get('database').get(DB_READ, 'filesystem');
 
-    // get a list of all files owned by this user
-    let files = await db.read(
-        `SELECT uuid, bucket, bucket_region FROM fsentries WHERE user_id = ? AND is_dir = 0`,
-        [user_id]
-    );
+    // get a list of up to 5000 files owned by this user
+    for ( let offset=0; true; offset += 5000 ) {
+        let files = await db.read(
+            `SELECT uuid, bucket, bucket_region FROM fsentries WHERE user_id = ? AND is_dir = 0 LIMIT 5000 OFFSET `+offset,
+            [user_id]
+        );
+        
+        if ( !files || files.length == 0 ) break;
 
-    // delete all files from S3
-    if(files !== null && files.length > 0){
-        for(let i=0; i<files.length; i++){
-            // init S3 SDK
-            const svc_fs = Context.get('services').get('filesystem');
-            const svc_mountpoint =
-                Context.get('services').get('mountpoint');
-            const storage = svc_mountpoint.get_storage();
-            const op_delete = storage.create_delete();
-            await op_delete.run({
-                node: await svc_fs.node(new NodeUIDSelector(files[i].uuid))
-            });
+        // delete all files from S3
+        if(files !== null && files.length > 0){
+            for(let i=0; i<files.length; i++){
+                // init S3 SDK
+                const svc_fs = Context.get('services').get('filesystem');
+                const svc_mountpoint =
+                    Context.get('services').get('mountpoint');
+                const storage = svc_mountpoint.get_storage();
+                const op_delete = storage.create_delete();
+                await op_delete.run({
+                    node: await svc_fs.node(new NodeUIDSelector(files[i].uuid))
+                });
+            }
         }
     }
 
