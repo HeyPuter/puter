@@ -89,6 +89,7 @@ const main = async () => {
         PuterAIModule,
         PuterExecModule,
         InternetModule,
+        ExternalExtrasModule,
         MailModule,
         ConvertModule,
         DevelopmentModule,
@@ -108,6 +109,7 @@ const main = async () => {
     k.add_module(new PuterAIModule());
     k.add_module(new PuterExecModule());
     k.add_module(new InternetModule());
+    k.add_module(new ExternalExtrasModule());
     k.add_module(new MailModule());
     k.add_module(new ConvertModule());
     if ( process.env.UNSAFE_PUTER_DEV ) {

@@ -43,6 +43,7 @@ const { CaptchaModule } = require("./src/modules/captcha/CaptchaModule.js");
 const { EntityStoreModule } = require("./src/modules/entitystore/EntityStoreModule.js");
 const { AnalyticsModule } = require("./src/modules/analytics/AnalyticsModule.js");
 const { KVStoreModule } = require("./src/modules/kvstore/KVStoreModule.js");
+const { ExternalExtrasModule } = require("./src/modules/external-extras/ExternalExtrasModule.js");
 
 module.exports = {
     helloworld: () => {
@@ -82,6 +83,7 @@ module.exports = {
     PuterExecModule,
     BroadcastModule,
     InternetModule,
+    ExternalExtrasModule,
     MailModule,
     ConvertModule,
     CaptchaModule,
