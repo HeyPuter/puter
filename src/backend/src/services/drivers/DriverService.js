@@ -270,14 +270,15 @@ class DriverService extends BaseService {
         
         const svc_event = this.services.get('event');
         const event = {};
-        event.context = Context.sub({
-            client_driver_call,
-        });
         event.call_details = {
             service: driver,
             iface, method, args,
             skip_usage,
         };
+        event.context = Context.sub({
+            client_driver_call,
+            call_details: event.call_details,
+        });
         
         svc_event.emit('driver.create-call-context', event);
         

@@ -48,6 +48,11 @@ class CostService extends BaseService {
             actor: Context.get('actor'),
             cost,
         };
+        this.log.info('cost record', {
+            actor: event.actor,
+            cost,
+            client_driver_call: Context.get('client_driver_call'),
+        });
         await svc_event.emit('credit.record-cost', event);
     }
 }
