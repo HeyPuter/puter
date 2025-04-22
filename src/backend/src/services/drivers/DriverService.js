@@ -517,7 +517,7 @@ class DriverService extends BaseService {
         }
         
         for ( const [arg_name, arg_descriptor] of Object.entries(method.parameters) ) {
-            const arg_value = args[arg_name];
+            const arg_value = arg_name === '*' ? args : args[arg_name];
             const arg_behaviour = c_types.get(arg_descriptor.type);
 
             // TODO: eventually put this in arg behaviour base class.
@@ -544,6 +544,13 @@ class DriverService extends BaseService {
                     message: e.message,
                 });
             }
+        }
+        
+        if ( typeof processed_args['*'] ==='object' ) {
+            for ( const k in processed_args['*'] ) {
+                processed_args[k] = processed_args['*'][k];
+            }
+            delete processed_args['*'];
         }
 
         return processed_args;
