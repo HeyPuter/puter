@@ -30,6 +30,7 @@ const winston = require('winston');
 const { Context } = require('../../util/context');
 const BaseService = require('../../services/BaseService');
 const { stringify_log_entry } = require('./lib/log');
+const { whatis } = require('../../util/langutil');
 require('winston-daily-rotate-file');
 
 const WINSTON_LEVELS = {
@@ -99,11 +100,17 @@ class LogContext {
             }
             if ( ! fields.actor && x && x.get('actor') ) {
                 try {
-                    fields.actor = x.get('actor').uid;
+                    fields.actor = x.get('actor');
                 } catch (e) {
                     console.log('error logging actor (this is probably fine):', e);
                 }
             }
+        }
+        for ( const k in fields ) {
+            if (
+                whatis(fields[k]) === 'object' &&
+                typeof fields[k].toLogFields === 'function'
+            ) fields[k] = fields[k].toLogFields();
         }
         this.logService.log_(
             log_level,
