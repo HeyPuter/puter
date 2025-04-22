@@ -5,9 +5,9 @@ class ExternalExtrasModule extends AdvancedBase {
     async install (context) {
         const services = context.get('services');
         
-        if ( !! config?.services?.['ip-geo'] ) {
+        if ( !! config?.services?.ipgeo ) {
             const { IPGeoService } = require('./IPGeoService');
-            services.registerService('ip-geo', IPGeoService);
+            services.registerService('ipgeo', IPGeoService);
         }
     }
 }

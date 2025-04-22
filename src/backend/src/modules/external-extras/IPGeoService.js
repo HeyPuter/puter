@@ -6,7 +6,7 @@ class IPGeoService extends BaseService {
         const svc_registry = this.services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');
         
-        col_interfaces.set('ip-geo', {
+        col_interfaces.set('ipgeo', {
             description: 'IP Geolocation',
             methods: {
                 ipgeo: {
@@ -25,7 +25,7 @@ class IPGeoService extends BaseService {
     }
     
     static IMPLEMENTS = {
-        ['ip-geo']: {
+        ipgeo: {
             async ipgeo ({ ip }) {
                 // doing this makes vscode recognize what's being required
                 const require = this.require;

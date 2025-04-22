@@ -144,6 +144,7 @@ class Drivers {
     }
     
     async get (iface_name, service_name) {
+        if ( ! service_name ) service_name = iface_name;
         const key = `${iface_name}:${service_name}`;
         if ( this.drivers_[key] ) return this.drivers_[key];
         
@@ -162,7 +163,41 @@ class Drivers {
         });
     }
     
-    async call (iface_name, service_name, method_name, parameters) {
+    async call (...a) {
+        let iface_name, service_name, method_name, parameters;
+        
+        // Services with the same name as an interface they implement
+        // are considered the default implementation for that interface.
+        //
+        // A method with the same name as the interface and service it is
+        // called on can be left unspecified in a driver call through puter.js.
+        //
+        // For example:
+        // puter.drivers.call('ipgeo', { ip: '1.2.3.4' });
+        //
+        // Is the same as:
+        // puter.drivers.call('ipgeo', 'ipgeo', 'ipgeo', { ip: '1.2.3.4' })
+        //
+        // This is commonly the case when an interface only exists to
+        // connect a particular service to the drivers API. In this case,
+        // the interface might not specify the structure of the response
+        // because it is only intended for that specific integration
+        // (and that integration alone is responsible for avoiding regressions)
+        
+        // interface name, service name, method name, parameters
+        if ( a.length === 4 ) {
+            ([iface_name, service_name, method_name, parameters] = a);
+        }
+        // interface name, method name, parameters
+        else if ( a.length === 3 ) {
+            ([iface_name, method_name, parameters] = a);
+        }
+        // interface name, parameters
+        else if ( a.length === 2 ) {
+            ([iface_name, parameters] = a);
+            method_name = iface_name;
+        }
+
         const driver = await this.get(iface_name, service_name);
         return await driver.call(method_name, parameters);
     }
