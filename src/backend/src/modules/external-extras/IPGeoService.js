@@ -1,3 +1,4 @@
+const APIError = require("../../api/APIError");
 const BaseService = require("../../services/BaseService");
 
 class IPGeoService extends BaseService {
@@ -39,6 +40,20 @@ class IPGeoService extends BaseService {
                     
                     ip,
                 });
+                
+                {
+                    const microcents_per_request = this.config.microcents_per_request
+                        ?? 7000;
+                    const svc_cost = this.services.get('cost');
+                    const usageAllowed = await svc_cost.get_funding_allowed({
+                        minimum: microcents_per_request,
+                    });
+                    if ( ! usageAllowed ) {
+                        throw APIError.create('insufficient_funds');
+                    }
+                    await svc_cost.record_cost({ cost: microcents_per_request });
+                }
+
                 
                 const resp = await axios.request({
                     method: 'GET',
