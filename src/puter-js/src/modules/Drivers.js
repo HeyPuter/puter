@@ -109,6 +109,10 @@ class Drivers {
             get: () => this.APIOrigin,
         });
     }
+    
+    _init ({ puter }) {
+        puter.call = this.call.bind(this);
+    }
 
     /**
      * Sets a new authentication token and resets the socket connection with the updated token, if applicable.

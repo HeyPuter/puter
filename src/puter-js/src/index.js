@@ -416,6 +416,7 @@ export default window.puter = (function() {
             const instance = new cls(this.context, parameters);
             this.modules_.push(name);
             this[name] = instance;
+            if ( instance._init ) instance._init({ puter: this });
         }
 
         updateSubmodules() {
