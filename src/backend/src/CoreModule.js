@@ -82,6 +82,7 @@ const install = async ({ services, app, useapi, modapi }) => {
         def('puter.middlewares.anticsrf', require('./middleware/anticsrf'));
         
         def('core.APIError', require('./api/APIError'));
+        def('core.Context', Context);
         
         def('core', require('./services/auth/Actor'), { assign: true });
         def('core.config', config);
