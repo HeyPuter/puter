@@ -904,7 +904,7 @@ span.header-sort-icon img {
     padding: 0;
     border: 1px solid #9a9a9a;
     box-shadow: 0px 0px 15px #00000066;
-    overflow: hidden;
+    /* overflow: hidden; */
     border-radius: 4px;
     border: none;
     transition: opacity .2s;
