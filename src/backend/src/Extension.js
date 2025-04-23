@@ -40,7 +40,20 @@ class Extension extends AdvancedBase {
     constructor (...a) {
         super(...a);
         this.service = null;
+        this.log = null;
         this.ensure_service_();
+        
+        this.log = (...a) => {
+            this.log_context.info(a.join(' '));
+        };
+        this.LOG = (...a) => {
+            this.log_context.noticeme(a.join(' '));
+        };
+        ['info','warn','debug','error','tick','noticeme','system'].forEach(lvl => {
+            this.log[lvl] = (...a) => {
+                this.log_context[lvl](...a);
+            }
+        });
     }
 
     example () {
@@ -70,6 +83,17 @@ class Extension extends AdvancedBase {
             );
         }
         return services;
+    }
+
+    get log_context () {
+        const log_context = this.service.values.get('log_context');
+        if ( ! log_context ) {
+            throw new Error(
+                'extension tried to access "log_context" before it was ' +
+                'initialized'
+            );
+        }
+        return log_context;
     }
 
     /**

@@ -82,6 +82,8 @@ class ExtensionService extends BaseService {
         this.state = args.state;
         
         this.state.values.set('services', this.services);
+        this.state.values.set('log_context', this.services.get('log-service').create(
+            this.state.extension.name));
 
         // Create database access object for extension
         const db = this.services.get('database').get(DB_WRITE, 'extension');
