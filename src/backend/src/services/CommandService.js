@@ -134,7 +134,9 @@ class CommandService extends BaseService {
         * @returns {Promise<void>}
         * @throws {Error} If command execution fails
         */
-        await globalThis.root_context.arun(async () => {
+        await globalThis.root_context.sub({
+            injected_logger: log,
+        }).arun(async () => {
             await command.execute(commandArgs, log);
         });
     }

@@ -112,6 +112,11 @@ class LogContext {
                 typeof fields[k].toLogFields === 'function'
             ) fields[k] = fields[k].toLogFields();
         }
+        if ( Context.get('injected_logger') ) {
+            Context.get('injected_logger').log(
+                message + (fields ? ('; fields: ' + JSON.stringify(fields)) : ''),
+            );
+        }
         this.logService.log_(
             log_level,
             this.crumbs,
