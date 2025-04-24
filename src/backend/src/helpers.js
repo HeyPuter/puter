@@ -199,7 +199,7 @@ async function get_user(options) {
  */
 function invalidate_cached_user (user) {
     kv.del('users:username:' + user.username);
-    kv.del('users:uuid:' + user.uuid);
+    // kv.del('users:uuid:' + user.uuid);
     kv.del('users:email:' + user.email);
     kv.del('users:id:' + user.id);
 }
