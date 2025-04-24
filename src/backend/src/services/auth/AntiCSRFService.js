@@ -94,6 +94,11 @@ class AntiCSRFService extends BaseService {
             if ( ! subdomain_check ) {
                 return res.status(404).send('Hey, stop that!');
             }
+            
+            if ( ! req.user ) {
+                res.status(403).send({});
+                return;
+            }
 
             // TODO: session uuid instead of user
             const token = this.create_token(req.user.uuid);
