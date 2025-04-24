@@ -9,6 +9,10 @@ class ExternalExtrasModule extends AdvancedBase {
             const { IPGeoService } = require('./IPGeoService');
             services.registerService('ipgeo', IPGeoService);
         }
+        if ( !! config?.services?.newsdata ) {
+            const { NewsDataService } = require('./NewsDataService');
+            services.registerService('newsdata', NewsDataService);
+        }
     }
 }
 
