@@ -356,6 +356,10 @@ module.exports = class APIError {
             status: 401,
             message: 'Authentication failed.',
         },
+        'user_not_found': {
+            status: 401,
+            message: 'User not found.',
+        },
         'token_unsupported': {
             status: 401,
             message: 'This authentication token is not supported here.',

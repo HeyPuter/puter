@@ -24,6 +24,7 @@ const { Context } = require("../../util/context");
 const APIError = require("../../api/APIError");
 const { DB_WRITE } = require("../database/consts");
 const { UUIDFPE } = require("../../util/uuidfpe");
+const { nou } = require("../../util/langutil");
 
 // This constant defines the namespace used for generating app UUIDs from their origins
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
@@ -106,6 +107,10 @@ class AuthService extends BaseService {
 
             const user = await get_user({ uuid: decoded.user_uid });
 
+            if ( nou(user) ) {
+                throw APIError.create('user_not_found');
+            }
+            
             const actor_type = new UserActorType({
                 user,
                 session: session.uuid,
