@@ -27,6 +27,8 @@ class NewsDataService extends BaseService {
     static IMPLEMENTS = {
         newsdata: {
             async newsdata (parameters) {
+                const cost_per_article =
+                    this.config.cost_per_article ?? 13000;
                 // doing this makes vscode recognize what's being required
                 const require = this.require;
 
@@ -46,6 +48,20 @@ class NewsDataService extends BaseService {
                     method: 'GET',
                     url: 'https://newsdata.io/api/1/latest?' + qstr,
                 });
+                
+                const amount_articles = resp.data.results.length;
+
+                {
+                    const cost = amount_articles * cost_per_article;
+                    const svc_cost = this.services.get('cost');
+                    const usageAllowed = await svc_cost.get_funding_allowed({
+                        minimum: cost,
+                    });
+                    if ( ! usageAllowed ) {
+                        throw APIError.create('insufficient_funds');
+                    }
+                    await svc_cost.record_cost({ cost });
+                }
                 
                 return resp.data;
             }
