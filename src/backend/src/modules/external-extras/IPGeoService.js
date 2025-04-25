@@ -11,6 +11,7 @@ class IPGeoService extends BaseService {
             methods: {
                 ipgeo: {
                     description: 'Report geolocation information',
+                    default_parameter: 'ip',
                     parameters: {
                         ip: {
                             type: 'string',

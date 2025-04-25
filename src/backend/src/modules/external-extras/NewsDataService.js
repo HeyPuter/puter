@@ -11,6 +11,7 @@ class NewsDataService extends BaseService {
             methods: {
                 newsdata: {
                     description: 'Report geolocation information',
+                    default_parameter: 'q',
                     parameters: {
                         '*': {
                             type: 'json',
