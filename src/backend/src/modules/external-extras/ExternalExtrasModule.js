@@ -13,6 +13,10 @@ class ExternalExtrasModule extends AdvancedBase {
             const { NewsDataService } = require('./NewsDataService');
             services.registerService('newsdata', NewsDataService);
         }
+        if ( !! config?.services?.weather ) {
+            const { WeatherService } = require('./WeatherService');
+            services.registerService('weather', WeatherService);
+        }
     }
 }
 

@@ -57,6 +57,8 @@ class Requester {
             ua: req.headers['user-agent'],
             ip: req.connection.remoteAddress,
             ip_forwarded: req.headers['x-forwarded-for'],
+            ip_user: req.headers['x-forwarded-for'] ||
+                req.connection.remoteAddress,
             origin: req.headers['origin'],
             referer: req.headers['referer'],
             referer_origin,
