@@ -286,6 +286,26 @@ class PermissionService extends BaseService {
     async _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'permissions');
         this._register_commands(this.services.get('commands'));
+        
+        // Register permission implicator for permission to configure permissions
+        // (yes, this part is incredibly meta)
+        const svc_permission = this;
+        svc_permission.register_implicator(PermissionImplicator.create({
+            id: 'user-can-configure-perms-from-self',
+            matcher: permission => {
+                return permission.startsWith('permission:config:');
+            },
+            checker: async ({ actor, permission }) => {
+                // This permission is only implied to user actors
+                if ( ! (actor.type instanceof UserActorType) ) return undefined;
+
+                // Granted if user UUID for "from" user matches
+                const [_0, _1, fromUserUID] = PermissionUtil.split(permission);
+                if ( fromUserUID === actor.type.user.uuid ) return {};
+
+                return undefined;
+            }
+        }))
     }
 
 

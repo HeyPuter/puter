@@ -19,14 +19,14 @@
  */
 const APIError = require("../../api/APIError");
 const FSNodeParam = require("../../api/filesystem/FSNodeParam");
-const { NodePathSelector } = require("../../filesystem/node/selectors");
+const { NodePathSelector, NodeUIDSelector } = require("../../filesystem/node/selectors");
 const { get_user } = require("../../helpers");
 const configurable_auth = require("../../middleware/configurable_auth");
 const { Context } = require("../../util/context");
 const { Endpoint } = require("../../util/expressutil");
 const BaseService = require("../BaseService");
 const { AppUnderUserActorType, UserActorType, Actor, SystemActorType, AccessTokenActorType } = require("./Actor");
-const { PermissionUtil } = require("./PermissionService");
+const { PermissionUtil, PermissionImplicator } = require("./PermissionService");
 
 
 /**
@@ -58,6 +58,79 @@ class ACLService extends BaseService {
             $: 'config-flag',
             value: this.global_config.enable_public_folders ?? false,
         });
+        
+        const svc_fs = this.services.get('filesystem');
+        
+        const svc_permission = this.services.get('permission');
+        svc_permission.register_implicator(PermissionImplicator.create({
+            id: 'apps-can-config-perms-on-appdata',
+            matcher: permission => {
+                console.log('\x1B[32;1m 1245124512451245', permission);
+                return permission.startsWith('permission:config:');
+            },
+            checker: async ({ actor, permission }) => {
+                if ( !(actor.type instanceof AppUnderUserActorType) ) {
+                    return undefined;
+                }
+
+                const [_0, _1, userUUID, ...innerPerm] = PermissionUtil.split(permission);
+                
+                // The current actor must be the permission issuer of the
+                // permission being configured, otherwise this implicator
+                // is not applicable.
+                if ( actor.type.user.uuid !== userUUID ) {
+                    return undefined;
+                }
+
+                
+                // For this permission implicator we're only concerned with
+                // `fs:`-scoped permissions that specify a node.
+                if ( innerPerm.length < 2 || innerPerm[0] !== 'fs' ) {
+                    return undefined;
+                }
+                
+                const node = await svc_fs.node(
+                    innerPerm[1].startsWith('/')
+                        ? new NodePathSelector(innerPerm[1])
+                        : new NodeUIDSelector(innerPerm[1])
+                );
+
+                if ( ! await node.exists() ) {
+                    return undefined;
+                }
+
+                const owner_id = await node.get('user_id');
+                
+                // These conditions should never happen
+                if ( ! owner_id || ! actor.type.user.id ) {
+                    throw new Error(
+                        'something unexpected happened'
+                    );
+                }
+
+                // If this file isn't owner by the current user, we're going to
+                // play it safe and not involve this permission implicator.
+                if ( owner_id !== actor.type.user.id ) {
+                    return undefined;
+                }
+
+                // Is this file in the current app's AppData subdirectory?
+                // If it is, the app is allowed to configure permissions on it
+                const appdata_path = `/${actor.type.user.username}/AppData/${actor.type.app.uid}`;
+                const appdata_node = await svc_fs.node(new NodePathSelector(appdata_path));
+
+                if (
+                    await appdata_node.exists() && (
+                        await appdata_node.is(node) ||
+                        await appdata_node.is_above(node)
+                    )
+                ) {
+                    return true;
+                }
+
+                return undefined;
+            },
+        }));
     }
     /**
     * Checks if an actor has permission to perform a specific mode of access on a resource

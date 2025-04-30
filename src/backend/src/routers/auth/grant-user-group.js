@@ -31,8 +31,21 @@ module.exports = eggspress('/auth/grant-user-group', {
 
     // Only users can grant user-group permissions
     const actor = Context.get('actor');
-    if ( ! (actor.type instanceof UserActorType) ) {
-        throw APIError.create('forbidden');
+
+    // Check for permission to configure permissions
+    {
+        if ( ! (
+            actor.type instanceof UserActorType ||
+            actor.type instanceof AppUnderUserActorType
+        ) ) throw APIError.create('forbidden');
+
+        const perm = PermissionUtil.join(
+            'permission', 'config', actor.type.user.uuid,
+            ...PermissionUtil.split(req.body.permission),
+        );
+        if ( ! await svc_permission.check(actor, perm) ) {
+            throw APIError.create('forbidden');
+        }
     }
 
     if ( ! req.body.group_uid ) {
