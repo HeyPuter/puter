@@ -904,13 +904,13 @@ span.header-sort-icon img {
     padding: 0;
     border: 1px solid #9a9a9a;
     box-shadow: 0px 0px 15px #00000066;
-    overflow: hidden;
     border-radius: 4px;
     border: none;
     transition: opacity .2s;
     user-select: none !important;
     -moz-user-select: none !important;
     -webkit-user-select: none;
+    contain: paint;
 }
 
 .window[data-is_maximized="1"] {
