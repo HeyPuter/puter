@@ -359,7 +359,12 @@ class WebServerService extends BaseService {
                 ].join(' ');
 
                 const log = this.services.get('log-service').create('morgan');
-                log.info(message, fields);
+                try {
+                    log.info(message, fields);
+                } catch (e) {
+                    console.log('failed to log this message properly:', message, fields);
+                    console.error(e);
+                }
             }
             };
 

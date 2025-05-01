@@ -44,6 +44,7 @@ const { EntityStoreModule } = require("./src/modules/entitystore/EntityStoreModu
 const { AnalyticsModule } = require("./src/modules/analytics/AnalyticsModule.js");
 const { KVStoreModule } = require("./src/modules/kvstore/KVStoreModule.js");
 const { ExternalExtrasModule } = require("./src/modules/external-extras/ExternalExtrasModule.js");
+const { FirebaseModule } = require("./src/modules/firebase/FirebaseModule.js");
 
 module.exports = {
     helloworld: () => {
@@ -88,6 +89,7 @@ module.exports = {
     ConvertModule,
     CaptchaModule,
     KVStoreModule,
+    FirebaseModule,
     
     // Development modules
     PerfMonModule,

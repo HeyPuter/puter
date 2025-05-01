@@ -37,6 +37,7 @@
     "dedent": "^1.5.3",
     "express": "^4.18.2",
     "file-type": "^18.5.0",
+    "firebase-admin": "^13.3.0",
     "form-data": "^4.0.0",
     "groq-sdk": "^0.5.0",
     "handlebars": "^4.7.8",

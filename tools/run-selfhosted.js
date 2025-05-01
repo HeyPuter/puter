@@ -93,6 +93,7 @@ const main = async () => {
         MailModule,
         ConvertModule,
         DevelopmentModule,
+        FirebaseModule,
     } = (await import('@heyputer/backend')).default;
 
     const k = new Kernel({
@@ -112,6 +113,7 @@ const main = async () => {
     k.add_module(new ExternalExtrasModule());
     k.add_module(new MailModule());
     k.add_module(new ConvertModule());
+    k.add_module(new FirebaseModule());
     if ( process.env.UNSAFE_PUTER_DEV ) {
         k.add_module(new DevelopmentModule());
     }
