@@ -94,7 +94,7 @@ export default {
                     `;
                 });
                 
-                const divContent = $('.settings-content[data-settings="usage"]');
+                const divContent = $el_window.find('.settings-content[data-settings="usage"]');
 
                 // Append driver usage bars to the container
                 divContent.append(`<div class="driver-usage-container">${h}</div>`);
