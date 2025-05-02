@@ -1,4 +1,55 @@
-.dockerignore
+# Version control
+.git
+.github
+.gitignore
+
+# Docker files
 Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Development files
 node_modules
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# Build artifacts
 /puter
+/build
+/dist
+*.tgz
+
+# Environment and configuration
+.env
+.env.*
+*.env
+.DS_Store
+
+# Test files
+/test
+/tests
+/coverage
+.nyc_output
+
+# Documentation
+/docs
+*.md
+!README.md
+!LICENSE.md
+
+# Editor configs
+.vscode
+.idea
+*.swp
+*.swo
+.editorconfig
+
+# Temporary files
+/tmp
+/temp
+*.tmp
