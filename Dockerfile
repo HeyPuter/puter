@@ -1,5 +1,4 @@
 # /!\ NOTICE /!\
-
 # Many of the developers DO NOT USE the Dockerfile or image.
 # While we do test new changes to Docker configuration, it's
 # possible that future changes to the repo might break it.
@@ -10,6 +9,11 @@
 # Build stage
 FROM node:23.9-alpine AS build
 
+# Set environment variables to reduce npm verbosity and improve performance
+ENV NODE_ENV=production \
+    NPM_CONFIG_LOGLEVEL=error \
+    NPM_CONFIG_PROGRESS=false
+
 # Install build dependencies
 RUN apk add --no-cache git python3 make g++ \
     && ln -sf /usr/bin/python3 /usr/bin/python
@@ -17,62 +21,73 @@ RUN apk add --no-cache git python3 make g++ \
 # Set up working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json
+# Copy package files first (better layer caching)
 COPY package*.json ./
 
-# Copy the source files
-COPY . .
-
-# Install mocha
+# Install mocha globally
 RUN npm install -g mocha
 
-# Install node modules
+# Try to install dependencies with better error handling and retries
 RUN npm cache clean --force && \
     for i in 1 2 3; do \
+        echo "Attempt $i: Installing dependencies..." && \
         npm ci && break || \
         if [ $i -lt 3 ]; then \
+            echo "Retrying in 15 seconds..." && \
             sleep 15; \
         else \
+            echo "Failed to install dependencies after 3 attempts" && \
             exit 1; \
         fi; \
     done
 
-# Run the build command if necessary
-RUN cd src/gui && npm run build && cd -
+# Copy source files after dependency installation
+COPY . .
+
+# Build the GUI
+RUN cd src/gui && npm run build
 
 # Production stage
 FROM node:23.9-alpine
 
+# Set environment variables
+ENV NODE_ENV=production \
+    NPM_CONFIG_LOGLEVEL=error \
+    NO_VAR_RUNTUME=1
+
 # Set labels
-LABEL repo="https://github.com/HeyPuter/puter"
-LABEL license="AGPL-3.0,https://github.com/HeyPuter/puter/blob/master/LICENSE.txt"
-LABEL version="1.2.46-beta-1"
+LABEL repo="https://github.com/HeyPuter/puter" \
+      license="AGPL-3.0,https://github.com/HeyPuter/puter/blob/master/LICENSE.txt" \
+      version="1.2.46-beta-1" \
+      maintainer="Puter Team"
 
 # Install git (required by Puter to check version)
-RUN apk add --no-cache git
+RUN apk add --no-cache git curl
+
+# Create directory structure and set permissions before copying files
+RUN mkdir -p /opt/puter/app && \
+    chown -R node:node /opt/puter
 
 # Set up working directory
-RUN mkdir -p /opt/puter/app
 WORKDIR /opt/puter/app
 
-# Copy built artifacts and necessary files from the build stage
-COPY --from=build /app/src/gui/dist ./dist
-COPY --from=build /app/node_modules ./node_modules
-COPY . .
+# Copy only necessary files from the build stage
+COPY --from=build --chown=node:node /app/src/gui/dist ./src/gui/dist
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/package*.json ./
+COPY --from=build --chown=node:node /app/src ./src
+COPY --from=build --chown=node:node /app/config ./config
+COPY --from=build --chown=node:node /app/LICENSE.txt ./
 
-# Set permissions
-RUN chown -R node:node /opt/puter/app
+# Switch to non-root user
 USER node
 
+# Expose the service port
 EXPOSE 4100
 
-HEALTHCHECK --interval=30s --timeout=3s \
-    CMD wget --no-verbose --tries=1 --spider http://puter.localhost:4100/test || exit 1
+# Improved healthcheck that uses curl (more reliable than wget)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://puter.localhost:4100/test || exit 1
 
-ENV NO_VAR_RUNTUME=1
-
-# Attempt to fix `lru-cache@11.0.2` missing after build stage
-# by doing a redundant `npm install` at this stage
-RUN npm install
-
-CMD ["npm", "start"]
+# Start the application
+CMD ["node", "src/index.js"]
