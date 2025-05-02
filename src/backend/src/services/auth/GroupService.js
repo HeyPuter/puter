@@ -105,8 +105,11 @@ class GroupService extends BaseService {
 
         const [{ n_groups }] = await this.db.read(
             "SELECT COUNT(*) AS n_groups FROM `group` WHERE " +
-            "owner_user_id=? AND " +
-            "created_at >= datetime('now', '-1 hour')",
+            "owner_user_id=? AND created_at >= " +
+            this.db.case({
+                sqlite: "datetime('now', '-1 hour')",
+                otherwise: "NOW() - INTERVAL 1 HOUR"
+            }),
             [owner_user_id]
         );
 
