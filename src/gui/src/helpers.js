@@ -440,7 +440,7 @@ window.update_auth_data = async (auth_token, user)=>{
     // Play startup chime if enabled
     if ( sessionStorage.getItem('playChimeNextUpdate') === 'yes' ) {
         sessionStorage.setItem('playChimeNextUpdate', 'no');
-        play_startup_chime();
+        // play_startup_chime();
     }
 
     // Has username changed?
