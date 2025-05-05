@@ -474,6 +474,11 @@ class AIChatService extends BaseService {
                         error: e,
                     });
                     while ( !! error ) {
+                        // No fallbacks for pseudo-models
+                        if ( intended_service === 'fake-chat' ) {
+                            break;
+                        }
+
                         const fallback = this.get_fallback_model({
                             model, tried,
                         });
@@ -845,6 +850,7 @@ class AIChatService extends BaseService {
 
         for ( const model of sorted_models ) {
             if ( tried.includes(model.id) ) continue;
+            if ( model.provider === 'fake-chat' ) continue;
 
             return {
                 fallback_service_name: model.provider,
