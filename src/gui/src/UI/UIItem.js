@@ -513,6 +513,98 @@ function UIItem(options){
             $('.item-container').droppable( 'enable' )    
         }
     });
+    // --------------------------------------------------------
+    // Droppable/sidebar
+    // -------------------------------------------------------- 
+    function initializeSidebarDroppable() {
+        $('.window-sidebar').droppable({
+            accept: '.item',
+            tolerance: 'pointer',
+            hoverClass: 'window-sidebar-drop-hover',
+            drop: function(event, ui) {
+                console.log('Item dropped on sidebar');
+                const $draggedItem = $(ui.draggable);
+                
+                if (!$draggedItem.attr('data-path')) {
+                    return false;
+                }
+                
+                let favorites = [];
+                try {
+                    favorites = JSON.parse(window.sidebar_items || "[]");
+                } catch (e) {
+                    console.error('Error parsing sidebar_items:', e);
+                    favorites = [];
+                }
+                
+                let path = $draggedItem.attr('data-path');
+                if (path) {
+                    path = path.replace(/\\/g, '/');
+                    if (path.charAt(0) !== '/') {
+                        path = '/' + path;
+                    }
+                }
+                
+                // Create the favorite's object
+                let item = {
+                    name: $draggedItem.attr('data-name'),
+                    path: path,
+                    label: $draggedItem.attr('data-name'),
+                    type: $draggedItem.attr('data-is_dir') === 'true' || $draggedItem.attr('data-is_dir') === '1' ? 'folder' : 'file',
+                    file_uid: $draggedItem.attr('data-uid')
+                };
+                
+                // Check if already in favorites
+                let is_favorite = favorites.some(fav => fav.path === item.path);
+                
+                if (!is_favorite) {
+                    
+                    favorites.push(item);
+                    window.sidebar_items = JSON.stringify(favorites);
+                    localStorage.setItem("sidebar_items", window.sidebar_items);
+                    
+                    if (typeof rebuild_all_sidebars === 'function') {
+                        rebuild_all_sidebars();
+                    } else {
+
+                        setTimeout(() => {
+                            if (typeof load_dir === 'function') {
+                                load_dir(window.current_path);
+                            }
+                        }, 200);
+                    }
+                    
+                    console.log('Added to favorites:', item.name);
+                }
+                
+                $draggedItem.removeClass('item-selected');
+
+                return false;
+            }
+        });
+        
+        console.log('Sidebar droppable initialized');
+        
+        //  CSS for the hover effect
+        const style = document.createElement('style');
+        style.textContent = `
+        .window-sidebar-drop-hover {
+            border: 2px solid #2196F3; 
+            border-radius: 4px;
+        }
+    `;
+        document.head.appendChild(style);
+    }
+
+    $(document).ready(function() {
+        setTimeout(initializeSidebarDroppable, 1000);
+    });
+
+    $(document).on('window-opened window-focused', function() {
+        setTimeout(initializeSidebarDroppable, 300);
+    });
+    
+
 
     // --------------------------------------------------------
     // Double Click/Single Tap on Item
@@ -875,6 +967,58 @@ function UIItem(options){
                     }
                 });
             }
+
+            // -------------------------------------------
+            // Add all to favorites
+            // -------------------------------------------
+            menu_items.push({
+                html: i18n('Add all to Favorites'),
+                onClick: function(){
+                    // Get current favorites
+                    let favorites = JSON.parse(window.sidebar_items || "[]");
+                    let addedCount = 0;
+                    
+                    //loop through selected items
+                    $selected_items.each(function() {
+                        // Skip trash items
+                        if ($(this).attr('data-trashed') === '1' || $(this).attr('data-trash') === '1') {
+                            return;
+                        }
+                        
+                        // Get path and ensure consistency
+                        let path = $(this).attr('data-path');
+                        if (path) {
+                            path = path.replace(/\\/g, '/');
+                            if (path.charAt(0) !== '/') {
+                                path = '/' + path;
+                            }
+                        } else {
+                            return; // Skip items without a path
+                        }
+                        
+                        let item = {
+                            name: $(this).attr('data-name'),
+                            path: path,
+                            label: $(this).attr('data-name'),
+                            type: $(this).attr('data-type') || ($(this).attr('data-is_dir') === '1' ? 'folder' : 'file'),
+                            file_uid: $(this).attr('data-uid')
+                        };
+                        
+                        // Only add if it's not already in favorites
+                        if (!favorites.some(fav => fav.path === item.path)) {
+                            favorites.push(item);
+                            addedCount++;
+                        }
+                    });
+                    
+                    // Save back to window.sidebar_items
+                    window.sidebar_items = JSON.stringify(favorites);
+                    localStorage.setItem("sidebar_items", JSON.stringify(favorites)); 
+                    rebuild_all_sidebars();
+                    
+                }
+            });
+
             // -------------------------------------------
             // -
             // -------------------------------------------
@@ -1381,6 +1525,53 @@ function UIItem(options){
                     );
                 }
             });
+
+             
+            // -------------------------------------------
+            // Add or Remove from Favorites
+            // -------------------------------------------
+
+            if ($(el_item).attr('data-immutable') === '0' && !is_trashed && !is_trash) {
+                let favorites = JSON.parse(window.sidebar_items || "[]");
+
+                let path = $(el_item).attr('data-path');
+                if (path) {
+                    path = path.replace(/\\/g, '/');  
+                    if (path.charAt(0) !== '/') {
+                        path = '/' + path;
+                    }
+                }
+
+                let item = {
+                    name: $(el_item).attr('data-name'),
+                    path: path,
+                    label: $(el_item).attr('data-name'),
+                    type: $(el_item).attr('data-type'), // Add file type 
+                    file_uid: $(el_item).attr('data-uid')
+                };
+
+                let is_favorite = favorites.some(fav => fav.path === item.path);
+
+                menu_items.push({
+                    html: is_favorite ? i18n('Remove from favorites') : i18n('Add to favorites'),
+                    onClick: function() {
+                        if (is_favorite) {
+                        
+                            favorites = favorites.filter(fav => fav.path !== item.path);
+                            // alert("Removed from favorites: " + item.path);
+                        } else {
+                        
+                            favorites.push(item);
+                            // alert("Added to favorites: " + item.path);
+                        }
+                        
+                        window.sidebar_items = JSON.stringify(favorites);
+                        localStorage.setItem("sidebar_items", JSON.stringify(favorites)); 
+                        rebuild_all_sidebars();
+                    }
+                });
+            }
+
         }     
         
         // Create ContextMenu
@@ -1413,6 +1604,63 @@ function UIItem(options){
         window.activate_item_name_editor(el_item)
     }
 }
+
+//Rebuilds all sidebar favorites lists in all windows
+function rebuild_all_sidebars() {
+    $('.window-sidebar').each(function() {
+        
+        // Generate new sidebar HTML
+        let h = '';
+        h += `<h2 class="window-sidebar-title disable-user-select">${i18n('favorites')}</h2>`;
+        
+        // Parse all items
+        let items = JSON.parse(window.sidebar_items);
+        for(let item of items) {
+            let icon;
+            var filename = item.name;
+                
+            if(item.path === window.home_path) 
+                icon = window.icons['sidebar-folder-home.svg'];
+            else if(item.path === window.docs_path)
+                icon = window.icons['sidebar-folder-documents.svg'];
+            else if(item.path === window.public_path)
+                icon = window.icons['sidebar-folder-public.svg'];
+            else if(item.path === window.pictures_path)
+                icon = window.icons['sidebar-folder-pictures.svg'];
+            else if(item.path === window.desktop_path)
+                icon = window.icons['sidebar-folder-desktop.svg'];
+            else if(item.path === window.videos_path)
+                icon = window.icons['sidebar-folder-videos.svg'];
+            else if (item.type === 'folder') {
+                icon = window.icons['sidebar-folder.svg'];  
+            } else if(filename && filename.includes('.')) {
+                // Get the extension type  
+                var extension = filename.split('.').pop().toLowerCase();
+                if(extension == 'txt') {
+                    iconName = 'file.svg';
+                } else {
+                    // Create the SVG icon name string
+                    var iconName = `file-${extension}.svg`;
+                }
+                icon = window.icons[iconName];
+            } else {
+                //default folder icon
+                icon = window.icons['sidebar-folder.svg'];
+            }
+            
+            // Get the current window's path
+            const current_window = $(this).closest('.ui-window');
+            const current_path = current_window.data('path') || '';
+            
+            h += `<div title="${html_encode(item.label)}" class="window-sidebar-item disable-user-select ${current_path === item.path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(item.path)}" data-is_dir="${item.type === 'folder' ? 'true' : 'false'}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(icon)}">${html_encode(item.name)}</div>`;
+        }
+        
+        // Replace the sidebar content
+        $(this).html(h);
+
+    });
+}
+
 
 // Create item-name-shadow
 // This element has the exact styling as item name editor and allows us

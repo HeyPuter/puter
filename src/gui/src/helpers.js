@@ -810,6 +810,13 @@ window.create_folder = async(basedir, appendto_element)=>{
 
     // create folder
     try{
+        //Modified the path so that it works correctly
+        //for Windows developpers as well
+        dirname = dirname.replace(/\\/g, '/')
+        if (dirname.charAt(0) !== '/') {
+            dirname = '/' + dirname;
+        }
+
         await puter.fs.mkdir({
             path: dirname + '/'+folder_name,
             rename: true,
