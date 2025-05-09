@@ -500,7 +500,11 @@ class WebServerService extends BaseService {
             if (allowedDomains.some(allowedDomain => hostName === allowedDomain || hostName.endsWith('.' + allowedDomain))) {
                 next(); // Proceed if the host is valid
             } else {
-                return res.status(400).send('Invalid Host header.');
+                if ( ! config.custom_domains_enabled ) {
+                    return res.status(400).send('Invalid Host header.');
+                }
+                req.is_custom_domain = true;
+                next();
             }
         })
         
