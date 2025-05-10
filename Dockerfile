@@ -23,6 +23,8 @@ WORKDIR /app
 
 # Copy package files first (better layer caching)
 COPY package*.json ./
+# Copy workspace package.json files (for workspaces like gui)
+COPY src/gui/package*.json ./src/gui/
 
 # Install mocha globally
 RUN npm install -g mocha
@@ -41,11 +43,14 @@ RUN npm cache clean --force && \
         fi; \
     done
 
+# Ensure html-entities is installed (addressing specific dependency issue)
+RUN npm install html-entities
+
 # Copy source files after dependency installation
 COPY . .
 
-# Build the GUI
-RUN cd src/gui && npm run build
+# Install GUI dependencies if needed and build
+RUN cd src/gui && npm ci && npm run build
 
 # Production stage
 FROM node:23.9-alpine
