@@ -86,7 +86,11 @@ export default {
                             data-id="${sanitize_id(entry.id)}"
                         >
                             <h3 style="margin-bottom: 5px; font-size: 14px;">${html_encode(name)}:</h3>
-                            <span style="font-size: 13px; margin-bottom: 3px;">${i18n('used_of', entry)}</span>
+                            <span style="font-size: 13px; margin-bottom: 3px;">${i18n('used_of', {
+                                ...entry,
+                                used: window.format_SI(entry.used),
+                                available: window.format_SI(entry.available),
+                            })}</span>
                             <div class="usage-progbar-wrapper" style="width: 100%;">
                                 <div class="usage-progbar" style="width: ${Number(entry.usage_percentage)}%;"><span class="usage-progbar-percent">${Number(entry.usage_percentage)}%</span></div>
                             </div>
@@ -110,7 +114,11 @@ export default {
                     el_divContent
                         .querySelector(`[data-id=${sanitize_id(event.id)}] .usage-progbar span`)
                         .innerText = '' + Number(event.usage_percentage) + '%';
-                    const used_of_str = i18n('used_of', event);
+                    const used_of_str = i18n('used_of', {
+                        ...event,
+                        used: window.format_SI(event.used),
+                        available: window.format_SI(event.available),
+                    });
                     el_divContent
                         .querySelector(`[data-id=${sanitize_id(event.id)}] > span`)
                         .innerText = used_of_str;

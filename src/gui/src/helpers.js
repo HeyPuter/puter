@@ -2729,3 +2729,27 @@ window.get_profile_picture = async function(username){
 
     return icon;
 }
+
+window.format_SI = (num) => {
+  if ( num === 0 ) return "0";
+
+  const mulUnits = ["", "K", "M", "G", "T", "P", "E", "Z", "Y"];
+  const divUnits = ["m", "µ", "n", "p", "f", "a", "z", "y"];
+
+  const abs = Math.abs(num);
+  let exp = Math.floor(Math.log10(abs) / 3);
+  let symbol = "";
+
+  symbol = exp >= 0
+    ? mulUnits[exp]
+    : divUnits[-exp - 1] ;
+
+  if ( ! symbol ) {
+    symbol = `e${exp * 3}`;
+  }
+
+  const scaled = num / Math.pow(10, exp * 3);
+  const rounded = Number.parseFloat(scaled.toPrecision(3));
+
+  return `${rounded}${symbol}`;
+};
