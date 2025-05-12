@@ -933,14 +933,13 @@ window.available_templates = async () => {
 }
 
 window.create_shortcut = async(filename, is_dir, basedir, appendto_element, shortcut_to, shortcut_to_path)=>{
-    let dirname = basedir;
     const extname = path.extname(filename);
     const basename = path.basename(filename, extname) + ' - Shortcut';
     filename = basename + extname;
 
     // create file shortcut
     try{
-        await puter.fs.upload(new File([], filename), dirname, {
+        await puter.fs.upload(new File([], filename), basedir, {
             overwrite: false,
             shortcutTo: shortcut_to_path ?? shortcut_to,
             dedupeName: true,

@@ -924,6 +924,7 @@ function UIItem(options){
             if(!are_trashed && window.feature_flags.create_shortcut){
                 menu_items.push({
                     html: i18n('create_shortcut'),
+                    html: is_shared_with_me ? i18n('create_desktop_shortcut_s') : i18n('create_shortcut_s'),
                     onClick: async function(){
                         $selected_items.each(function() {
                             let base_dir = path.dirname($(this).attr('data-path'));
@@ -931,6 +932,7 @@ function UIItem(options){
                             if($(this).attr('data-path') && $(this).closest('.item-container').attr('data-path') === window.desktop_path){
                                 base_dir = window.desktop_path;
                             }
+                            if ( is_shared_with_me ) base_dir = window.desktop_path;
                             // create shortcut
                             window.create_shortcut(
                                 path.basename($(this).attr('data-path')), 
@@ -1273,13 +1275,15 @@ function UIItem(options){
             // -------------------------------------------
             if(!is_trashed && window.feature_flags.create_shortcut){
                 menu_items.push({
-                    html: i18n('create_shortcut'),
+                    html: is_shared_with_me ? i18n('create_desktop_shortcut') : i18n('create_shortcut'),
                     onClick: async function(){
                         let base_dir = path.dirname($(el_item).attr('data-path'));
                         // Trash on Desktop is a special case
                         if($(el_item).attr('data-path') && $(el_item).closest('.item-container').attr('data-path') === window.desktop_path){
                             base_dir = window.desktop_path;
                         }
+
+                        if ( is_shared_with_me ) base_dir = window.desktop_path;
 
                         window.create_shortcut(
                             path.basename($(el_item).attr('data-path')), 
