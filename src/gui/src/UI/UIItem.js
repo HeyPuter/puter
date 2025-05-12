@@ -24,7 +24,7 @@ import path from "../lib/path.js"
 import truncate_filename from '../helpers/truncate_filename.js';
 import launch_app from "../helpers/launch_app.js"
 import open_item from "../helpers/open_item.js"
-import { add_multiple_select_menu_items, add_single_select_menu_items } from './lib/ui_item.js';
+import { add_common_select_menu_items, add_multiple_select_menu_items, add_single_select_menu_items } from './lib/ui_item.js';
 
 function UIItem(options){
     const matching_appendto_count = $(options.appendTo).length;
@@ -753,6 +753,10 @@ function UIItem(options){
         event.preventDefault();
         let menu_items = [];
         const $selected_items = $(el_item).closest('.item-container').find('.item-selected').not(el_item).addBack();
+        
+        add_common_select_menu_items(menu_items, {
+            $selected_items,
+        });
 
         // Multiple items selected
         if($selected_items.length > 1){

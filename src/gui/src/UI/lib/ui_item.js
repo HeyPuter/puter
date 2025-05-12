@@ -8,6 +8,41 @@ import path from "../../lib/path.js"
 import launch_app from "../../helpers/launch_app.js"
 import open_item from "../../helpers/open_item.js"
 
+export const add_common_select_menu_items = (menu_items, {
+    $selected_items,
+    is_shared_with_me,
+}) => {
+    const are_trashed = $selected_items.attr('data-path').startsWith(window.trash_path + '/');
+    const plural = $selected_items.length > 1;
+
+    if(!are_trashed && window.feature_flags.create_shortcut){
+        menu_items.push({
+            html: is_shared_with_me
+                ? i18n('create_desktop_shortcut' + (plural ? '_s' : ''))
+                : i18n('create_shortcut' + (plural ? '_s' : '')),
+            onClick: async function(){
+                $selected_items.each(function() {
+                    let base_dir = path.dirname($(this).attr('data-path'));
+                    // Trash on Desktop is a special case
+                    if($(this).attr('data-path') && $(this).closest('.item-container').attr('data-path') === window.desktop_path){
+                        base_dir = window.desktop_path;
+                    }
+                    if ( is_shared_with_me ) base_dir = window.desktop_path;
+                    // create shortcut
+                    window.create_shortcut(
+                        path.basename($(this).attr('data-path')), 
+                        $(this).attr('data-is_dir') === '1', 
+                        base_dir, 
+                        $(this).closest('.item-container'), 
+                        $(this).attr('data-shortcut_to') === '' ? $(this).attr('data-uid') : $(this).attr('data-shortcut_to'),
+                        $(this).attr('data-shortcut_to_path') === '' ? $(this).attr('data-path') : $(this).attr('data-shortcut_to_path'),
+                    );
+                })
+            }
+        });
+    }
+};
+
 export const add_multiple_select_menu_items = (menu_items, {
     $selected_items,
     el_item,
@@ -166,34 +201,6 @@ export const add_multiple_select_menu_items = (menu_items, {
                         $(`.window[data-path="${html_encode(window.trash_path)}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
                     }            
                 }
-            }
-        });
-    }
-    // -------------------------------------------
-    // Create Shortcut
-    // -------------------------------------------
-    if(!are_trashed && window.feature_flags.create_shortcut){
-        menu_items.push({
-            html: i18n('create_shortcut'),
-            html: is_shared_with_me ? i18n('create_desktop_shortcut_s') : i18n('create_shortcut_s'),
-            onClick: async function(){
-                $selected_items.each(function() {
-                    let base_dir = path.dirname($(this).attr('data-path'));
-                    // Trash on Desktop is a special case
-                    if($(this).attr('data-path') && $(this).closest('.item-container').attr('data-path') === window.desktop_path){
-                        base_dir = window.desktop_path;
-                    }
-                    if ( is_shared_with_me ) base_dir = window.desktop_path;
-                    // create shortcut
-                    window.create_shortcut(
-                        path.basename($(this).attr('data-path')), 
-                        $(this).attr('data-is_dir') === '1', 
-                        base_dir, 
-                        $(this).closest('.item-container'), 
-                        $(this).attr('data-shortcut_to') === '' ? $(this).attr('data-uid') : $(this).attr('data-shortcut_to'),
-                        $(this).attr('data-shortcut_to_path') === '' ? $(this).attr('data-path') : $(this).attr('data-shortcut_to_path'),
-                    );
-                })
             }
         });
     }
@@ -521,32 +528,6 @@ export const add_single_select_menu_items = async (menu_items, {
     // -------------------------------------------
     if($(el_item).attr('data-immutable') === '0' && !is_trash){
         menu_items.push('-')
-    }
-    // -------------------------------------------
-    // Create Shortcut
-    // -------------------------------------------
-    if(!is_trashed && window.feature_flags.create_shortcut){
-        menu_items.push({
-            html: is_shared_with_me ? i18n('create_desktop_shortcut') : i18n('create_shortcut'),
-            onClick: async function(){
-                let base_dir = path.dirname($(el_item).attr('data-path'));
-                // Trash on Desktop is a special case
-                if($(el_item).attr('data-path') && $(el_item).closest('.item-container').attr('data-path') === window.desktop_path){
-                    base_dir = window.desktop_path;
-                }
-
-                if ( is_shared_with_me ) base_dir = window.desktop_path;
-
-                window.create_shortcut(
-                    path.basename($(el_item).attr('data-path')), 
-                    options.is_dir, 
-                    base_dir, 
-                    options.appendTo, 
-                    options.shortcut_to === '' ? options.uid : options.shortcut_to,
-                    options.shortcut_to_path === '' ? options.path : options.shortcut_to_path,
-                );
-            }
-        });
     }
     // -------------------------------------------
     // Delete
