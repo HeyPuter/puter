@@ -45,6 +45,7 @@ const { AnalyticsModule } = require("./src/modules/analytics/AnalyticsModule.js"
 const { KVStoreModule } = require("./src/modules/kvstore/KVStoreModule.js");
 const { ExternalExtrasModule } = require("./src/modules/external-extras/ExternalExtrasModule.js");
 const { FirebaseModule } = require("./src/modules/firebase/FirebaseModule.js");
+const { DomainModule } = require("./src/modules/domain/DomainModule.js");
 
 module.exports = {
     helloworld: () => {
@@ -71,6 +72,7 @@ module.exports = {
         EntityStoreModule,
         AnalyticsModule,
         KVStoreModule,
+        DomainModule,
     ],
 
     // Pre-built modules
