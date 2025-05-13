@@ -39,6 +39,9 @@ const { InternetModule } = require("./src/modules/internet/InternetModule.js");
 const { CaptchaModule } = require("./src/modules/captcha/CaptchaModule.js");
 const { EntityStoreModule } = require("./src/modules/entitystore/EntityStoreModule.js");
 const { KVStoreModule } = require("./src/modules/kvstore/KVStoreModule.js");
+const { ExternalExtrasModule } = require("./src/modules/external-extras/ExternalExtrasModule.js");
+const { FirebaseModule } = require("./src/modules/firebase/FirebaseModule.js");
+const { DomainModule } = require("./src/modules/domain/DomainModule.js");
 
 module.exports = {
     helloworld: () => {
@@ -64,6 +67,7 @@ module.exports = {
         CaptchaModule,
         EntityStoreModule,
         KVStoreModule,
+        DomainModule,
     ],
 
     // Pre-built modules
