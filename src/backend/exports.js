@@ -46,6 +46,7 @@ const { KVStoreModule } = require("./src/modules/kvstore/KVStoreModule.js");
 const { ExternalExtrasModule } = require("./src/modules/external-extras/ExternalExtrasModule.js");
 const { FirebaseModule } = require("./src/modules/firebase/FirebaseModule.js");
 const { DomainModule } = require("./src/modules/domain/DomainModule.js");
+const { DNSModule } = require("./src/modules/dns/DNSModule.js");
 
 module.exports = {
     helloworld: () => {
@@ -92,6 +93,7 @@ module.exports = {
     CaptchaModule,
     KVStoreModule,
     FirebaseModule,
+    DNSModule,
     
     // Development modules
     PerfMonModule,
