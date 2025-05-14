@@ -42,7 +42,7 @@ class HLMkShortcut extends HLFilesystemOperation {
         const { context, values } = this;
         const fs = context.get('services').get('filesystem');
 
-        const { target, parent, user } = values;
+        const { target, parent, user, actor } = values;
         let { name, dedupe_name } = values;
 
         if ( ! await target.exists() ) {
@@ -55,8 +55,10 @@ class HLMkShortcut extends HLFilesystemOperation {
         }
 
         {
-            const has_perm = await chkperm(target.entry, values.user.id, 'read');
-            if ( ! has_perm ) throw APIError.create('permission_denied');
+            const svc_acl = context.get('services').get('acl');
+            if ( ! await svc_acl.check(actor, target, 'read') ) {
+                throw await svc_acl.get_safe_acl_error(actor, target, 'read');
+            }
         }
 
         if ( ! await parent.exists() ) {

@@ -940,14 +940,13 @@ window.available_templates = async () => {
 }
 
 window.create_shortcut = async(filename, is_dir, basedir, appendto_element, shortcut_to, shortcut_to_path)=>{
-    let dirname = basedir;
     const extname = path.extname(filename);
     const basename = path.basename(filename, extname) + ' - Shortcut';
     filename = basename + extname;
 
     // create file shortcut
     try{
-        await puter.fs.upload(new File([], filename), dirname, {
+        await puter.fs.upload(new File([], filename), basedir, {
             overwrite: false,
             shortcutTo: shortcut_to_path ?? shortcut_to,
             dedupeName: true,
@@ -2737,3 +2736,27 @@ window.get_profile_picture = async function(username){
 
     return icon;
 }
+
+window.format_SI = (num) => {
+  if ( num === 0 ) return "0";
+
+  const mulUnits = ["", "K", "M", "G", "T", "P", "E", "Z", "Y"];
+  const divUnits = ["m", "µ", "n", "p", "f", "a", "z", "y"];
+
+  const abs = Math.abs(num);
+  let exp = Math.floor(Math.log10(abs) / 3);
+  let symbol = "";
+
+  symbol = exp >= 0
+    ? mulUnits[exp]
+    : divUnits[-exp - 1] ;
+
+  if ( ! symbol ) {
+    symbol = `e${exp * 3}`;
+  }
+
+  const scaled = num / Math.pow(10, exp * 3);
+  const rounded = Number.parseFloat(scaled.toPrecision(3));
+
+  return `${rounded}${symbol}`;
+};

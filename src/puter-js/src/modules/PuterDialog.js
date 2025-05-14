@@ -322,7 +322,7 @@ class PuterDialog extends HTMLElement {
                         <button class="button button-auth" id="launch-auth-popup-cancel">Cancel</button>
                         <button class="button button-primary button-auth" id="launch-auth-popup" style="margin-left:10px;">Continue</button>
                     </div>
-                    <p style="text-align: center; margin-top: -15px; font-size: 14px;">Powered by <a href="https://docs.puter.com/" target="_blank">Puter.js</a></p>
+                    <p style="text-align: center; margin-top: -15px; font-size: 14px;">Powered by <a href="https://developer.puter.com/?utm_source=sdk-splash" target="_blank">Puter</a></p>
                     <p class="launch-auth-popup-footnote">By clicking 'Continue' you agree to Puter's <a href="https://puter.com/terms" target="_blank">Terms of Service</a> and <a href="https://puter.com/privacy" target="_blank">Privacy Policy</a>.</p>
                 </div>
             </dialog>`;
