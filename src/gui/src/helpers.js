@@ -2730,7 +2730,7 @@ window.get_profile_picture = async function(username){
     return icon;
 }
 
-window.format_SI = (num) => {
+window.format_with_units = (num, { mulUnits, divUnits, precision = 3 }) => {
   if ( num === 0 ) return "0";
 
   const mulUnits = ["", "K", "M", "G", "T", "P", "E", "Z", "Y"];
@@ -2749,7 +2749,24 @@ window.format_SI = (num) => {
   }
 
   const scaled = num / Math.pow(10, exp * 3);
-  const rounded = Number.parseFloat(scaled.toPrecision(3));
+  const rounded = Number.parseFloat(scaled.toPrecision(precision));
 
   return `${rounded}${symbol}`;
+};
+
+window.format_SI = (num) => {
+  if ( num === 0 ) return "0";
+
+  const mulUnits = ["", "K", "M", "G", "T", "P", "E", "Z", "Y"];
+  const divUnits = ["m", "µ", "n", "p", "f", "a", "z", "y"];
+  
+  return window.format_with_units(num, { mulUnits, divUnits });
+};
+
+window.format_credits = (num) => {
+  if ( num === 0 ) return "0";
+  
+  const mulUnits = ["", "K", "M", "B", "T", "Q"];
+
+  return window.format_with_units(num, { mulUnits })
 };
