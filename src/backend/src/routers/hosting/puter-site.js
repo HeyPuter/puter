@@ -19,7 +19,7 @@
 const { AdvancedBase } = require("@heyputer/putility");
 const api_error_handler = require("../../modules/web/lib/api_error_handler");
 const config = require("../../config");
-const { get_user, get_app, id2path } = require("../../helpers");
+const { get_user, get_app } = require("../../helpers");
 const { Context } = require("../../util/context");
 const { NodeInternalIDSelector, NodePathSelector } = require("../../filesystem/node/selectors");
 const { TYPE_DIRECTORY } = require("../../filesystem/FSNodeContext");

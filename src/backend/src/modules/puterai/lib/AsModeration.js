@@ -86,7 +86,6 @@ class AsModeration {
             '{ "violation": true }';
         
         const parsed = JSON.parse(str);
-        console.log('parsed?', parsed);
         return ! parsed.violation;
     }
 }

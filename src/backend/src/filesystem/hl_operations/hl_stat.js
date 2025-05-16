@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { chkperm } = require("../../helpers");
 const { Context } = require("../../util/context");
 const { HLFilesystemOperation } = require("./definitions");
 const APIError = require('../../api/APIError');

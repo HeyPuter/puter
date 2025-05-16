@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { invalidate_cached_user, get_user } = require("../helpers");
+const { get_user } = require("../helpers");
 const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
 const { MINUTE, SECOND } = require("@heyputer/putility").libs.time;
 const BaseService = require("./BaseService");

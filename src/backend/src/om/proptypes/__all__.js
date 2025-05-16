@@ -18,13 +18,12 @@
  */
 const APIError = require("../../api/APIError");
 const { NodeUIDSelector, NodeInternalIDSelector, NodePathSelector } = require("../../filesystem/node/selectors");
-const { is_valid_uuid4, is_valid_url, is_valid_uuid } = require("../../helpers");
+const { is_valid_uuid4, is_valid_uuid } = require("../../helpers");
 const validator = require("validator");
 const { Context } = require("../../util/context");
 const { is_valid_path } = require("../../filesystem/validation");
 const FSNodeContext = require("../../filesystem/FSNodeContext");
 const { Entity } = require("../entitystorage/Entity");
-const { UserActorType } = require("../../services/auth/Actor");
 
 class OMTypeError extends Error {
     constructor ({ expected, got }) {

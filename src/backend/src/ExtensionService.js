@@ -22,7 +22,7 @@ const BaseService = require("./services/BaseService");
 const { Endpoint } = require("./util/expressutil");
 const configurable_auth = require("./middleware/configurable_auth");
 const { Context } = require("./util/context");
-const { DB_READ, DB_WRITE } = require("./services/database/consts");
+const { DB_WRITE } = require("./services/database/consts");
 const { Actor } = require("./services/auth/Actor");
 
 /**

@@ -63,7 +63,6 @@ module.exports = class Messages {
             }
         }
 
-        console.log('???', message)
         return message;
     }
     static normalize_messages (messages, params = {}) {

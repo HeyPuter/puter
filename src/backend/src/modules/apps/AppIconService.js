@@ -140,7 +140,6 @@ class AppIconService extends BaseService {
 
         // Get icon file node
         const dir_app_icons = await this.get_app_icons();
-        console.log('APP UID', app_uid);
         const node = await dir_app_icons.getChild(`${app_uid}-${size}.png`);
 
         const get_fallback_icon = async () => {

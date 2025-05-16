@@ -18,10 +18,7 @@
  */
 "use strict"
 const APIError = require('../api/APIError');
-const {jwt_auth} = require('../helpers');
 const { UserActorType } = require('../services/auth/Actor');
-const { DB_WRITE } = require('../services/database/consts');
-const { Context } = require('../util/context');
 const auth2 = require('./auth2');
 
 const auth = async (req, res, next)=>{

@@ -133,7 +133,6 @@ class ClaudeService extends BaseService {
 
                         let message, contentBlock;
                         for await ( const event of completion ) {
-                            // console.log('EVENT', event);
                             const input_tokens =
                                 (event?.usage ?? event?.message?.usage)?.input_tokens;
                             const output_tokens =

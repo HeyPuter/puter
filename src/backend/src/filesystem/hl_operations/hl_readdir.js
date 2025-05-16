@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require("../../api/APIError");
-const { chkperm } = require("../../helpers");
 const { stream_to_buffer } = require("../../util/streamutil");
 const { TYPE_DIRECTORY, TYPE_SYMLINK } = require("../FSNodeContext");
 const { LLListUsers } = require("../ll_operations/ll_listusers");
