@@ -7,7 +7,6 @@ import UIAlert from '../UIAlert.js'
 import path from "../../lib/path.js"
 import launch_app from "../../helpers/launch_app.js"
 import open_item from "../../helpers/open_item.js"
-import i18n from '../../i18n/i18n.js';
 
 export const add_common_select_menu_items = (menu_items, {
     $selected_items,
