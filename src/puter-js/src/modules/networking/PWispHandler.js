@@ -4,6 +4,7 @@ export class PWispHandler {
     _ws;
     _nextStreamID = 1;
     _bufferMax;
+    onReady = undefined;
     streamMap = new Map();
     constructor(wispURL, puterAuth) {
         const setup = () => {
@@ -20,6 +21,9 @@ export class PWispHandler {
                             this._bufferMax = parsed.remainingBuffer;
                             this._ws.onclose = () => {
                                 setTimeout(setup(), 1000);
+                            }
+                            if (this.onReady) {
+                                this.onReady();
                             }
                             return;
                         }

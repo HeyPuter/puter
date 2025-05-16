@@ -1,5 +1,6 @@
 import EventListener from "../../lib/EventListener.js";
 import { errors } from "./parsers.js";
+import { PWispHandler } from "./PWispHandler.js";
 const texten = new TextEncoder();
 
 export let wispInfo = {
@@ -12,23 +13,52 @@ export class PSocket extends EventListener {
     _streamID;
     constructor(host, port) {
         super(["data", "drain", "open", "error", "close", "tlsdata", "tlsopen"]);
-        const callbacks = {
-            dataCallBack: (data) => {
-                this.emit("data", data);
-            },
-            closeCallBack: (reason) => {
-                if (reason !== 0x02) {
-                    this.emit("error", new Error(errors[reason]));
-                    this.emit("close", true);
-                    return;    
-                }
-                this.emit("close", false);
-            }
-        }
 
-        this._streamID = wispInfo.handler.register(host, port, callbacks);
-        setTimeout(() => {this.emit("open", undefined)}, 0);
-        
+        (async () => {
+            if(!puter.authToken && puter.env === 'web'){
+                try{
+                    await puter.ui.authenticateWithPuter();
+                    console.log("auth'd", puter.authToken)
+                    
+                    // We have to remake the handler since the old one was done with improper auth, so we'll just talk with the auth server directly
+                    const { token: wispToken, server: wispServer } = (await (await fetch(puter.APIOrigin + '/wisp/relay-token/create', {
+                        method: 'POST',
+                        headers: {
+                            Authorization: `Bearer ${puter.authToken}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({}),
+                    })).json());
+
+                    wispInfo.handler = new PWispHandler(wispServer, wispToken);
+
+                    // Wait for websocket to fully open
+                    await new Promise((res, req) => {
+                        wispInfo.handler.onReady = res;
+                    });
+                }catch(e){
+                    // if authentication fails, throw an error
+                    throw (e);
+                }
+            }
+            const callbacks = {
+                dataCallBack: (data) => {
+                    this.emit("data", data);
+                },
+                closeCallBack: (reason) => {
+                    if (reason !== 0x02) {
+                        this.emit("error", new Error(errors[reason]));
+                        this.emit("close", true);
+                        return;    
+                    }
+                    this.emit("close", false);
+                }
+            }
+    
+            this._streamID = wispInfo.handler.register(host, port, callbacks);
+            setTimeout(() => {this.emit("open", undefined)}, 0);
+
+        })();
     }
     addListener(...args) {
         this.on(...args);
