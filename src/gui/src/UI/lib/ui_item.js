@@ -7,6 +7,7 @@ import UIAlert from '../UIAlert.js'
 import path from "../../lib/path.js"
 import launch_app from "../../helpers/launch_app.js"
 import open_item from "../../helpers/open_item.js"
+import i18n from '../../i18n/i18n.js';
 
 export const add_common_select_menu_items = (menu_items, {
     $selected_items,
@@ -70,7 +71,7 @@ export const add_multiple_select_menu_items = (menu_items, {
     }
     if(!are_trashed){
         menu_items.push({
-            html: 'Share With…',
+            html: i18n('Share With…'),
             onClick: async function(){
                 if(window.user.is_temp && 
                     !await UIWindowSaveAccount({
@@ -349,7 +350,7 @@ export const add_single_select_menu_items = async (menu_items, {
     // -------------------------------------------
     if(!is_trashed && !is_trash){
         menu_items.push({
-            html: 'Share With…',
+            html: i18n('Share With…'),
             onClick: async function(){
                 if(window.user.is_temp && 
                     !await UIWindowSaveAccount({
