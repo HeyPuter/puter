@@ -2733,8 +2733,8 @@ window.get_profile_picture = async function(username){
 window.format_with_units = (num, { mulUnits, divUnits, precision = 3 }) => {
   if ( num === 0 ) return "0";
 
-  const mulUnits = ["", "K", "M", "G", "T", "P", "E", "Z", "Y"];
-  const divUnits = ["m", "µ", "n", "p", "f", "a", "z", "y"];
+  mulUnits = mulUnits ?? ["", "K", "M", "G", "T", "P", "E", "Z", "Y"];
+  divUnits = divUnits ?? ["m", "µ", "n", "p", "f", "a", "z", "y"];
 
   const abs = Math.abs(num);
   let exp = Math.floor(Math.log10(abs) / 3);
