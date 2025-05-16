@@ -9,7 +9,7 @@ let rustls = undefined;
 export class PTLSSocket extends PSocket {
     constructor(...args) {
         super(...args);
-        (async() => {
+        super.on("open", (async() => {
             if (!rustls) {
                 rustls = (await import( /* webpackIgnore: true */ "https://puter-net.b-cdn.net/rustls.js"))
                 await rustls.default("https://puter-net.b-cdn.net/rustls.wasm")
@@ -42,7 +42,7 @@ export class PTLSSocket extends PSocket {
     
             const writable = new WritableStream({
                 write: (chunk) => { super.write(chunk); },
-                abort: () => { console.log("hello"); super.close(); },
+                abort: () => { super.close(); },
                 close: () => { super.close(); },
             })
 
@@ -74,7 +74,7 @@ export class PTLSSocket extends PSocket {
                 this.emit("error", e)
             }
             // this.emit("close", undefined);
-        })();
+        }));
     }
     on(event, callback) {
         if (event === "data" || event === "open") {

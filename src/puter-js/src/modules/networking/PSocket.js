@@ -18,29 +18,32 @@ export class PSocket extends EventListener {
             if(!puter.authToken && puter.env === 'web'){
                 try{
                     await puter.ui.authenticateWithPuter();
-                    console.log("auth'd", puter.authToken)
                     
-                    // We have to remake the handler since the old one was done with improper auth, so we'll just talk with the auth server directly
-                    const { token: wispToken, server: wispServer } = (await (await fetch(puter.APIOrigin + '/wisp/relay-token/create', {
-                        method: 'POST',
-                        headers: {
-                            Authorization: `Bearer ${puter.authToken}`,
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({}),
-                    })).json());
-
-                    wispInfo.handler = new PWispHandler(wispServer, wispToken);
-
-                    // Wait for websocket to fully open
-                    await new Promise((res, req) => {
-                        wispInfo.handler.onReady = res;
-                    });
                 }catch(e){
                     // if authentication fails, throw an error
                     throw (e);
                 }
             }
+            if (!wispInfo.handler) {
+                // first launch -- lets init the socket
+                const { token: wispToken, server: wispServer } = (await (await fetch(puter.APIOrigin + '/wisp/relay-token/create', {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${puter.authToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({}),
+                })).json());
+    
+                wispInfo.handler = new PWispHandler(wispServer, wispToken);
+            }
+
+
+            // Wait for websocket to fully open
+            await new Promise((res, req) => {
+                wispInfo.handler.onReady = res;
+            });
+
             const callbacks = {
                 dataCallBack: (data) => {
                     this.emit("data", data);
