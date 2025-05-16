@@ -48,13 +48,6 @@ export default {
                     <option value="show">${i18n('clock_visible_show')}</option>
                 </select>
             </div>
-            <div class="settings-card">
-                <strong style="flex-grow:1;">Startup Sound</strong>
-                <label class="switch">
-                    <input type="checkbox" class="startup-chime-toggle">
-                    <span class="slider round"></span>
-                </label>
-            </div>
             <div class="settings-card" style="display: block; height: auto;">
                 <strong style="margin: 15px 0 30px; display: block;">${i18n('menubar_style')}</strong>
                 <div style="flex-grow:1; margin-top: 10px;">
@@ -108,19 +101,6 @@ export default {
         });
 
         window.change_clock_visible();
-
-        // Initialize startup chime toggle
-        puter.kv.get('startup_chime_enabled').then(async (val) => {
-            // Default to enabled if not set
-            const enabled = val === 'false' ? false : true;
-            $el_window.find('.startup-chime-toggle').prop('checked', enabled);
-        });
-
-        // Handle startup chime toggle change
-        $el_window.find('.startup-chime-toggle').on('change', function(e) {
-            const enabled = $(this).is(':checked');
-            puter.kv.set('startup_chime_enabled', enabled.toString());
-        });
 
         puter.kv.get('menubar_style').then(async (val) => {
             if(val === 'system' || !val){

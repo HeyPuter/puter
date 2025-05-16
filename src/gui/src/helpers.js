@@ -436,12 +436,6 @@ window.update_auth_data = async (auth_token, user)=>{
     window.auth_token = auth_token;
     localStorage.setItem('auth_token', auth_token);
 
-    // Play startup chime if enabled
-    if ( sessionStorage.getItem('playChimeNextUpdate') === 'yes' ) {
-        sessionStorage.setItem('playChimeNextUpdate', 'no');
-        // play_startup_chime();
-    }
-
     // Has username changed?
     if(window.user?.username !== user.username)
         update_username_in_gui(user.username);
