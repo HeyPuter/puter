@@ -19,7 +19,7 @@ import { APIAccessService } from './services/APIAccess.js';
 import { XDIncomingService } from './services/XDIncoming.js';
 import { NoPuterYetService } from './services/NoPuterYet.js';
 import { Debug } from './modules/Debug.js';
-import { PSocket, wispInfo } from './modules/networking/PSocket.js';
+import { PSocket } from './modules/networking/PSocket.js';
 import { PTLSSocket } from "./modules/networking/PTLS.js"
 import { PWispHandler } from './modules/networking/PWispHandler.js';
 import { make_http_api } from './lib/http.js';
@@ -333,41 +333,31 @@ export default window.puter = (function() {
             // TODO: This should be separated into modules called "Net" and "Http".
             //       Modules need to be refactored first because right now they
             //       are too tightly-coupled with authentication state.
-            (async () => {
-                // === puter.net ===
-                const { token: wispToken, server: wispServer } = (await (await fetch(this.APIOrigin + '/wisp/relay-token/create', {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${this.authToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({}),
-                })).json());
-                wispInfo.handler = new PWispHandler(wispServer, wispToken);
-                this.net = {
-                    generateWispV1URL: async () => {
-                        const { token: wispToken, server: wispServer } = (await (await fetch(this.APIOrigin + '/wisp/relay-token/create', {
-                            method: 'POST',
-                            headers: {
-                                Authorization: `Bearer ${this.authToken}`,
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({}),
-                        })).json());
-                        return `${wispServer}/${wispToken}/`
-                    },
-                    Socket: PSocket,
-                    tls: {
-                        TLSSocket: PTLSSocket
-                    }
+
+
+            this.net = {
+                generateWispV1URL: async () => {
+                    const { token: wispToken, server: wispServer } = (await (await fetch(this.APIOrigin + '/wisp/relay-token/create', {
+                        method: 'POST',
+                        headers: {
+                            Authorization: `Bearer ${this.authToken}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({}),
+                    })).json());
+                    return `${wispServer}/${wispToken}/`
+                },
+                Socket: PSocket,
+                tls: {
+                    TLSSocket: PTLSSocket
                 }
-                
-                // === puter.http ===
-                this.http = make_http_api(
-                    { Socket: this.net.Socket, DEFAULT_PORT: 80 });
-                this.https = make_http_api(
-                    { Socket: this.net.tls.TLSSocket, DEFAULT_PORT: 443 });
-            })();
+            }
+            
+            // === puter.http ===
+            this.http = make_http_api(
+                { Socket: this.net.Socket, DEFAULT_PORT: 80 });
+            this.https = make_http_api(
+                { Socket: this.net.tls.TLSSocket, DEFAULT_PORT: 443 });
 
 
         }
