@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require("../../api/APIError");
-const { NodeInternalIDSelector } = require("../../filesystem/node/selectors");
 const { Context } = require("../../util/context");
 const { BaseES } = require("./BaseES");
 

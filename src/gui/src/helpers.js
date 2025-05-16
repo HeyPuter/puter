@@ -30,7 +30,6 @@ import UIWindowProgress from './UI/UIWindowProgress.js';
 import globToRegExp from "./helpers/globToRegExp.js";
 import get_html_element_from_options from "./helpers/get_html_element_from_options.js";
 import item_icon from "./helpers/item_icon.js";
-import play_startup_chime from "./helpers/play_startup_chime.js";
 
 window.is_auth = ()=>{
     if(localStorage.getItem("auth_token") === null || window.auth_token === null)
@@ -436,12 +435,6 @@ window.refresh_user_data = async (auth_token)=>{
 window.update_auth_data = async (auth_token, user)=>{
     window.auth_token = auth_token;
     localStorage.setItem('auth_token', auth_token);
-
-    // Play startup chime if enabled
-    if ( sessionStorage.getItem('playChimeNextUpdate') === 'yes' ) {
-        sessionStorage.setItem('playChimeNextUpdate', 'no');
-        // play_startup_chime();
-    }
 
     // Has username changed?
     if(window.user?.username !== user.username)
@@ -2737,11 +2730,11 @@ window.get_profile_picture = async function(username){
     return icon;
 }
 
-window.format_SI = (num) => {
+window.format_with_units = (num, { mulUnits, divUnits, precision = 3 }) => {
   if ( num === 0 ) return "0";
 
-  const mulUnits = ["", "K", "M", "G", "T", "P", "E", "Z", "Y"];
-  const divUnits = ["m", "µ", "n", "p", "f", "a", "z", "y"];
+  mulUnits = mulUnits ?? ["", "K", "M", "G", "T", "P", "E", "Z", "Y"];
+  divUnits = divUnits ?? ["m", "µ", "n", "p", "f", "a", "z", "y"];
 
   const abs = Math.abs(num);
   let exp = Math.floor(Math.log10(abs) / 3);
@@ -2756,7 +2749,24 @@ window.format_SI = (num) => {
   }
 
   const scaled = num / Math.pow(10, exp * 3);
-  const rounded = Number.parseFloat(scaled.toPrecision(3));
+  const rounded = Number.parseFloat(scaled.toPrecision(precision));
 
   return `${rounded}${symbol}`;
+};
+
+window.format_SI = (num) => {
+  if ( num === 0 ) return "0";
+
+  const mulUnits = ["", "K", "M", "G", "T", "P", "E", "Z", "Y"];
+  const divUnits = ["m", "µ", "n", "p", "f", "a", "z", "y"];
+  
+  return window.format_with_units(num, { mulUnits, divUnits });
+};
+
+window.format_credits = (num) => {
+  if ( num === 0 ) return "0";
+  
+  const mulUnits = ["", "K", "M", "B", "T", "Q"];
+
+  return window.format_with_units(num, { mulUnits })
 };

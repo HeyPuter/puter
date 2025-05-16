@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { LLMkdir } = require("../filesystem/ll_operations/ll_mkdir");
 const { RootNodeSelector, NodeChildSelector } = require("../filesystem/node/selectors");
 const { invalidate_cached_user } = require("../helpers");
 const BaseService = require("./BaseService");

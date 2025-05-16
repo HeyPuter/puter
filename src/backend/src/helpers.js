@@ -1084,7 +1084,6 @@ async function gen_public_token(file_uuid, ttl = 24 * 60 * 60){
 }
 
 async function deleteUser(user_id){
-    console.log('THIS IS deleteUser ---');
     /** @type BaseDatabaseAccessService */
     const db = services.get('database').get(DB_READ, 'filesystem');
 

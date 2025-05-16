@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 "use strict"
-const config = require('../../config');
 const eggspress = require('../../api/eggspress');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam');
 const { HLMkdir } = require('../../filesystem/hl_operations/hl_mkdir');

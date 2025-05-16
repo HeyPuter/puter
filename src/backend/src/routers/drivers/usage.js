@@ -18,11 +18,9 @@
  */
 const APIError = require("../../api/APIError");
 const eggspress = require("../../api/eggspress");
-const { get_app } = require("../../helpers");
 const { UserActorType } = require("../../services/auth/Actor");
 const { DB_READ } = require("../../services/database/consts");
 const { Context } = require("../../util/context");
-const { hash_serializable_object } = require("../../util/datautil");
 
 module.exports = eggspress('/drivers/usage', {
     subdomain: 'api',

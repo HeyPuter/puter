@@ -19,8 +19,6 @@
 const { get_user, get_dir_size, id2path, id2uuid, is_empty, is_shared_with_anyone, suggest_app_for_fsentry, get_app } = require("../helpers");
 
 const putility = require('@heyputer/putility');
-const { MultiDetachable } = putility.libs.listener;
-const { TDetachable } = putility.traits;
 const config = require("../config");
 const _path = require('path');
 const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSelector, NodePathSelector } = require("./node/selectors");

@@ -22,7 +22,6 @@ const jwt = require('jsonwebtoken');
 const validator = require('validator');
 const crypto = require('crypto');
 const config = require("../../config");
-const { send_email_verification_token } = require("../../helpers");
 const { Context } = require("../../util/context");
 const { v4: uuidv4 } = require('uuid');
 

@@ -20,7 +20,6 @@ const APIError = require("../../api/APIError");
 const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 const FlagParam = require("../../api/filesystem/FlagParam");
 const StringParam = require("../../api/filesystem/StringParam");
-const { chkperm } = require("../../helpers");
 const { TYPE_DIRECTORY } = require("../FSNodeContext");
 const { HLFilesystemOperation } = require("./definitions");
 

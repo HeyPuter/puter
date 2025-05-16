@@ -20,7 +20,6 @@ const APIError = require("../../api/APIError");
 const { Sequence } = require("../../codex/Sequence");
 
 const { DB_WRITE } = require("../../services/database/consts");
-const { Context } = require("../../util/context");
 const { buffer_to_stream } = require("../../util/streamutil");
 const { TYPE_SYMLINK, TYPE_DIRECTORY } = require("../FSNodeContext");
 const { LLFilesystemOperation } = require("./definitions");

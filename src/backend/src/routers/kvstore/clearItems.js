@@ -18,8 +18,6 @@
  */
 const APIError = require("../../api/APIError");
 const eggspress = require("../../api/eggspress");
-const config = require("../../config");
-
 
 module.exports = eggspress('/clearItems', {
     subdomain: 'api',
