@@ -648,6 +648,7 @@ span.header-sort-icon img {
     white-space: nowrap;
     text-align: left;
     max-width: 220px;
+    margin-bottom: 3px;
 }
 
 .item-name-shadow {
