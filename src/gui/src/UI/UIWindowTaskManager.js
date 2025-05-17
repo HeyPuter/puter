@@ -21,7 +21,6 @@ import UIAlert from "./UIAlert.js";
 import UIContextMenu from "./UIContextMenu.js";
 import { Component, defineComponent } from '../util/Component.js';
 import UIComponentWindow from './UIComponentWindow.js';
-import Table from './Components/Table.js';
 
 const end_process = async (uuid, force) => {
     const svc_process = globalThis.services.get('process');
@@ -78,49 +77,68 @@ class TaskManagerTable extends Component {
             border: 2px inset rgba(127, 127, 127, 0.3);
             overflow: auto;
         }
+
+        table {
+            box-sizing: border-box;
+            border-collapse: collapse;
+            width: 100%;
+        }
+        
+        thead th {
+            box-shadow: 0 1px 4px -2px rgba(0,0,0,0.2);
+            backdrop-filter: blur(2px);
+            position: sticky;
+            z-index: 100;
+            padding:
+                calc(10 * var(--scale))
+                calc(2.5 * var(--scale))
+                calc(5 * var(--scale))
+                calc(2.5 * var(--scale));
+            top: 0;
+            background-color: hsla(0, 0%, 100%, 0.8);
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        thead th:not(:last-of-type) {
+            border-right: 1px solid #e0e0e0;
+        }
+        
+        tbody > tr > td {
+            border-bottom: 1px solid #e0e0e0;
+            padding: 0 calc(2.5 * var(--scale));
+            vertical-align: middle;
+        }
     `;
 
     #svc_process = globalThis.services.get('process');
 
     create_template ({ template }) {
         $(template).html(`
-            <div class="taskmgr-taskarea"></div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>${i18n('taskmgr_header_name')}</th>
+                        <th>${i18n('taskmgr_header_type')}</th>
+                        <th>${i18n('taskmgr_header_status')}</th>
+                    </tr>
+                </thead>
+                <tbody class="taskmgr-taskarea">
+                </tbody>
+            </table>
         `);
     }
 
     on_ready ({ listen }) {
-        this.table = new Table({
-            headings: [
-                i18n('taskmgr_header_name'),
-                i18n('taskmgr_header_type'),
-                i18n('taskmgr_header_status'),
-            ]
-        });
-        this.table.attach(this.dom_.querySelector('.taskmgr-taskarea'));
-
         listen('tasks', tasks => {
             const row_data = this.#iter_tasks(tasks, { indent_level: 0, is_last_item_stack: [] });
-            const new_uuids = row_data.map(it => it.uuid);
+            const tbody = $(this.dom_).find('.taskmgr-taskarea');
+            tbody.empty();
 
-            const old_rows = this.table.get('rows');
-
-            const rows = [];
             for (const data of row_data) {
-                // Try to reuse old row
-                const old_row = old_rows.find(it => data.uuid === it.get('uuid'));
-                if (old_row) {
-                    for (const property in data) {
-                        old_row.set(property, data[property]);
-                    }
-                    rows.push(old_row);
-                    continue;
-                }
-
-                // Create a new row
-                rows.push(new TaskManagerRow(data));
+                const row = new TaskManagerRow(data);
+                row.attach(tbody[0]);
             }
-
-            this.table.set('rows', rows);
         });
     }
 
