@@ -118,6 +118,17 @@ async function UIWindowSettings(options){
             }
         });
 
+        // If options.tab is provided, open that tab
+        if (options.tab) {
+            const $tabToOpen = $el_window.find(`.settings-sidebar-item[data-settings="${options.tab}"]`);
+            if ($tabToOpen.length > 0) {
+                console.log('tabToOpen', $tabToOpen);
+                setTimeout(() => {
+                    $tabToOpen.trigger('click');
+                }, 50);
+            }
+        }
+
         $(el_window).on('click', '.settings-sidebar-item', function(){
             const $this = $(this);
             const settings = $this.attr('data-settings');

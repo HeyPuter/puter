@@ -1249,8 +1249,9 @@ async function UIDesktop(options) {
     else if (window.url_paths[0]?.toLocaleLowerCase() === 'settings') {
         // open settings
         UIWindowSettings({
+            tab: window.url_paths[1] || 'about',
             window_options: {
-                // is_fullpage: true,
+                is_fullpage: true,
             }
         });
     }
