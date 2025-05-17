@@ -349,6 +349,7 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
         uid: null,
         is_dir: false,
         message: 'message',
+        single_instance: true,
         app: 'taskmgr',
         // body_icon: options.body_icon,
         // backdrop: options.backdrop ?? false,
