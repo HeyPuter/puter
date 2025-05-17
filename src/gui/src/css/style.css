@@ -3802,7 +3802,7 @@ fieldset[name=number-code] {
     position: fixed;
     margin-top: 1px;
     height: 100%;
-    z-index: 1000;
+    z-index: 2;
 }
 
 
