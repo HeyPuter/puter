@@ -41,10 +41,17 @@ class PuterSiteMiddleware extends AdvancedBase {
         app.use(this.run.bind(this));
     }
     async run (req, res, next) {
-        if (
-            ! req.hostname.endsWith(config.static_hosting_domain)
-            && ( req.subdomains[0] !== 'devtest' )
-        ) return next();
+        
+        ! req.hostname.endsWith(config.static_hosting_domain)
+        && ( req.subdomains[0] !== 'devtest' )
+        
+        const is_subdomain =
+            req.hostname.endsWith(config.static_hosting_domain)
+            ||
+            req.subdomains[0] === 'devtest'
+            ;
+
+        if ( ! is_subdomain && ! req.is_custom_domain ) return next();
 
         res.setHeader('Access-Control-Allow-Origin', '*');
 
@@ -64,6 +71,7 @@ class PuterSiteMiddleware extends AdvancedBase {
     }
     async run_ (req, res, next) {
         const subdomain =
+            req.is_custom_domain ? req.hostname :
             req.subdomains[0] === 'devtest' ? 'devtest' :
             req.hostname.slice(0, -1 * (config.static_hosting_domain.length + 1));
 
@@ -100,7 +108,9 @@ class PuterSiteMiddleware extends AdvancedBase {
             await get_username_site() ||
             await (async () => {
                 const svc_puterSite = services.get('puter-site');
-                const site = await svc_puterSite.get_subdomain(subdomain);
+                const site = await svc_puterSite.get_subdomain(subdomain, {
+                    is_custom_domain: req.is_custom_domain,
+                });
                 return site;
             })();
 
