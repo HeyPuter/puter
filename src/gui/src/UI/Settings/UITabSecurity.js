@@ -17,10 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import TeePromise from "../../util/TeePromise.js";
-import Button from "../Components/Button.js";
-import Flexer from "../Components/Flexer.js";
-import JustHTML from "../Components/JustHTML.js";
-import PasswordEntry from "../Components/PasswordEntry.js";
 import UIComponentWindow from "../UIComponentWindow.js";
 import UIWindow2FASetup from "../UIWindow2FASetup.js";
 
@@ -112,47 +108,22 @@ export default {
                 password_confirm_promise.resolve(true);
                 $(win).close();
             }
-            const password_confirm = new Flexer({
-                children: [
-                    new JustHTML({
-                        html: /*html*/`
-                            <h3 style="text-align:center; font-weight: 500; font-size: 20px;">${
-                                i18n('disable_2fa_confirm')
-                            }</h3>
-                            <p style="text-align:center; padding: 0 20px;">${
-                                i18n('disable_2fa_instructions')
-                            }</p>
-                        `
-                    }),
-                    new Flexer({
-                        gap: '5pt',
-                        children: [
-                            new PasswordEntry({
-                                _ref: me => password_entry = me,
-                                on_submit: async () => {
-                                    try_password();
-                                }
-                            }),
-                            new Button({
-                                label: i18n('disable_2fa'),
-                                on_click: async () => {
-                                    try_password();
-                                }
-                            }),
-                            new Button({
-                                label: i18n('cancel'),
-                                style: 'secondary',
-                                on_click: async () => {
-                                    password_confirm_promise.resolve(false);
-                                    $(win).close();
-                                }
-                            })
-                        ]
-                    }),
-                ]
-            });
+
+            let h = '';
+            h += `<div style="display: flex; flex-direction: column; gap: 20pt; justify-content: center;">`;
+            h += `<div>`;
+            h += `<h3 style="text-align:center; font-weight: 500; font-size: 20px;">${i18n('disable_2fa_confirm')}</h3>`;
+            h += `<p style="text-align:center; padding: 0 20px;">${i18n('disable_2fa_instructions')}</p>`;
+            h += `</div>`;
+            h += `<div style="display: flex; gap: 5pt;">`;
+            h += `<input type="password" class="password-entry" />`;
+            h += `<button class="button confirm-disable-2fa">${i18n('disable_2fa')}</button>`;
+            h += `<button class="button secondary cancel-disable-2fa">${i18n('cancel')}</button>`;
+            h += `</div>`;
+            h += `</div>`;
+
             win = await UIComponentWindow({
-                component: password_confirm,
+                html: h,
                 width: 500,
                 backdrop: true,
                 is_resizable: false,
@@ -163,7 +134,27 @@ export default {
                     padding: '20px',
                 },
             });
-            password_entry.focus();
+
+            // Set up event listeners
+            const $win = $(win);
+            const $password_entry = $win.find('.password-entry');
+            
+            $password_entry.on('keypress', (e) => {
+                if(e.which === 13) { // Enter key
+                    try_password();
+                }
+            });
+
+            $win.find('.confirm-disable-2fa').on('click', () => {
+                try_password();
+            });
+
+            $win.find('.cancel-disable-2fa').on('click', () => {
+                password_confirm_promise.resolve(false);
+                $win.close();
+            });
+
+            $password_entry.focus();
 
             const ok = await password_confirm_promise;
             if ( ! ok ) return;
