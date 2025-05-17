@@ -378,6 +378,7 @@ const pl = {
         "billing.subscription_cancelled_description": 'Dostęp do Twojej subskrypcji będzie możliwy do końca tego okresu rozliczeniowego.',
         "billing.offering.free": 'Darmowy',
         "billing.offering.pro": 'Pro',
+        "billing.offering.professional": 'Profesjonalny',
         "billing.offering.business": 'Dla Firm',
         "billing.cloud_storage": 'Pamięć w Chmurze',
         "billing.ai_access": 'Możliwość Dostępu do AI',

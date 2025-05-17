@@ -414,6 +414,7 @@ const ru = {
     "billing.subscription_cancelled_description": 'Вы можете пользоваться подпиской до конца оплаченного периода', // In English: "You will still have access to your subscription until the end of this billing period."
     "billing.offering.free": 'Бесплатно', // In English: "Free"
     "billing.offering.pro": 'Профессиональная', // In English: "Professional"
+    "billing.offering.professional": 'Профессиональная', // In English: "Professional"
     "billing.offering.business": 'Бизнес', // In English: "Business"
     "billing.cloud_storage": 'Облачное хранилище', // In English: "Cloud Storage"
     "billing.ai_access": 'Доступ к ИИ', // In English: "AI Access"

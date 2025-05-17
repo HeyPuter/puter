@@ -408,6 +408,7 @@ const fa = {
     "billing.subscription_cancelled_description": "شما تا پایان این دوره صورتحساب همچنان به اشتراک خود دسترسی خواهید داشت.",
     "billing.offering.free": "رایگان",
     "billing.offering.pro": "حرفه‌ای",
+    "billing.offering.professional": "حرفه‌ای",
     "billing.offering.business": "تجاری",
     "billing.cloud_storage": "فضای ذخیره‌سازی ابری",
     "billing.ai_access": "دسترسی به هوش مصنوعی",

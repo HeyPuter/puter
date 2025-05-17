@@ -470,6 +470,7 @@ const fi = {
     "billing.subscription_cancelled_description": "Voit jatkaa tilauksesi käyttöä laskutuskauden loppuun asti.", // In English: "You will still have access to your subscription until the end of this billing period."
     "billing.offering.free": "Ilmainen", // In English: "Free"
     "billing.offering.pro": "Ammattilainen", // In English: "Professional"
+    "billing.offering.professional": "Ammattilainen", // In English: "Professional"
     "billing.offering.business": "Yritys", // In English: "Business"
     "billing.cloud_storage": "Pilvitallennustila", // In English: "Cloud Storage"
     "billing.ai_access": "Tekoälykäyttö", // In English: "AI Access"

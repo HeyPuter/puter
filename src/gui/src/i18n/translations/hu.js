@@ -366,6 +366,7 @@ const hu = {
         "billing.subscription_cancelled_description": "Az aktuális számlázási időszak végéig továbbra is hozzáférsz az előfizetésedhez.", // In English: "You will still have access to your subscription until the end of this billing period."
         "billing.offering.free": "Ingyenes", // In English: "Free"
         "billing.offering.pro": "Professzionális", // In English: "Professional"
+        "billing.offering.professional": "Professzionális", // In English: "Professional"
         "billing.offering.business": "Üzleti", // In English: "Business"
         "billing.cloud_storage": "Felhő Tárhely", // In English: "Cloud Storage"
         "billing.ai_access": "AI hozzáférés", // In English: "AI Access"

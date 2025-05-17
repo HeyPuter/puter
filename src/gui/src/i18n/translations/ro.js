@@ -374,6 +374,7 @@ const ro = {
         "billing.subscription_cancelled_description": "Vei avea în continuare acces la abonament până la sfârșitul perioadei de facturare actuale.",
         "billing.offering.free": "Gratis",
         "billing.offering.pro": "Profesional", 
+        "billing.offering.professional": "Profesional", // In English: "Professional"
         "billing.offering.business": "Business", // Keeping "Business" as it's commonly used in Romanian
         "billing.cloud_storage": "Stocare în cloud",
         "billing.ai_access": "Acces AI",

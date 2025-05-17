@@ -380,6 +380,7 @@ const ja = {
         "billing.subscription_cancelled_description": "この請求期間の終了までサブスクリプションを利用できます。", // In English: "You will still have access to your subscription until the end of this billing period."
         "billing.offering.free": "無料", // In English: "Free"
         "billing.offering.pro": "プロフェッショナル", // In English: "Professional"
+        "billing.offering.professional": "プロフェッショナル", // In English: "Professional"
         "billing.offering.business": "ビジネス", // In English: "Business"
         "billing.cloud_storage": "クラウドストレージ", // In English: "Cloud Storage"
         "billing.ai_access": "AIアクセス", // In English: "AI Access"

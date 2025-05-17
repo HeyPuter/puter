@@ -404,6 +404,7 @@ const ko = {
       "청구 기간이 끝날 때까지 구독을 계속 이용할 수 있습니다.", // In English: "You will still have access to your subscription until the end of this billing period."
     "billing.offering.free": "무료", // In English: "Free"
     "billing.offering.pro": "프로", // In English: "Professional"
+    "billing.offering.professional": "프로", // In English: "Professional"
     "billing.offering.business": "비즈니스", // In English: "Business"
     "billing.cloud_storage": "클라우드 저장소", // In English: "Cloud Storage"
     "billing.ai_access": "AI 접근", // In English: "AI Access"

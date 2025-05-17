@@ -413,6 +413,7 @@ const it = {
         // In English: "You will still have access to your subscription until the end of this billing period."
         "billing.offering.free": "Gratuito", // In English: "Free"
         "billing.offering.pro": "Professionale", // In English: "Professional"
+        "billing.offering.professional": "Professionale", // In English: "Professional"
         "billing.offering.business": "Business", // In English: "Business"
         "billing.cloud_storage": "Archiviazione cloud", // In English: "Cloud Storage"
         "billing.ai_access": "Accesso AI", // In English: "AI Access"

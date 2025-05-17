@@ -403,6 +403,7 @@ const ig = {
       "Ị ka ga-enwe ike ịnweta ndenye aha gị ruo na njedebe nke oge ịgba ụgwọ a", // In English: "You will still have access to your subscription until the end of this billing period."
     "billing.offering.free": "N'efu", // In English: "Free"
     "billing.offering.pro": "Ọkachamara", // In English: "Professional"
+    "billing.offering.professional": "Ọkachamara", // In English: "Professional"
     "billing.offering.business": "Azụmahịa", // In English: "Business"
     "billing.cloud_storage": "Nchekwa igwe ojii", // In English: "Cloud Storage"
     "billing.ai_access": "Nweta AI", // In English: "AI Access"

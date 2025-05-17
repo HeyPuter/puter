@@ -377,6 +377,7 @@ const nl = {
         "billing.subscription_cancelled_description": 'U behoudt toegang tot uw abonnement tot het einde van deze factureringsperiode.', // In English: 'You will still have access to your subscription until the end of this billing period."
         "billing.offering.free": 'Gratis', // In English: 'Free"
         "billing.offering.pro": 'Professioneel', // In English: 'Professional"
+        "billing.offering.professional": 'Professioneel', // In English: 'Professional"
         "billing.offering.business": 'Bedrijf', // In English: 'Business"
         "billing.cloud_storage": 'Cloudopslag', // In English: 'Cloud Storage"
         "billing.ai_access": 'AI Toegang', // In English: 'AI Access"

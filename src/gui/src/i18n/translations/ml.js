@@ -376,6 +376,7 @@ const ml = {
     'billing.subscription_cancelled_description': 'ഈ ബില്ലിംഗ് കാലാവധിയുടെ അവസാനം വരെ നിങ്ങൾക്ക് നിങ്ങളുടെ സബ്സ്ക്രിപ്ഷൻ ആക്സസ് ലഭിക്കും.',
     'billing.offering.free': 'ഫ്രീ',
     'billing.offering.pro': 'പ്രൊഫഷണൽ',
+    'billing.offering.professional': 'പ്രൊഫഷണൽ',
     'billing.offering.business': 'ബിസിനസ്',
     'billing.cloud_storage': 'ക്ലൗഡ് സ്റ്റോറേജ്',
     'billing.ai_access': 'AI ആക്സസ്',

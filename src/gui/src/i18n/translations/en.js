@@ -382,6 +382,7 @@ const en = {
         'billing.offering.free': 'Free',
         'billing.offering.basic': 'Basic',
         'billing.offering.pro': 'Professional',
+        'billing.offering.professional': 'Professional',
         'billing.offering.business': 'Business',
         'billing.cloud_storage': 'Cloud Storage',
         'billing.ai_access': 'AI Access',

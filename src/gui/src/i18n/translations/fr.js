@@ -377,6 +377,7 @@ const fr = {
         "billing.subscription_cancelled_description": "Vous aurez toujours accès à votre abonnement jusqu'à la fin de cette période de facturation.", 
         "billing.offering.free": "Gratuit", 
         "billing.offering.pro": "Professionnel",
+        "billing.offering.professional": "Professionnel",
         "billing.offering.business": "Entreprise", 
         "billing.cloud_storage": "Stockage Cloud", 
         "billing.ai_access": "Accès IA", 
