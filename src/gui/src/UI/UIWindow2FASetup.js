@@ -47,7 +47,7 @@ import QRCodeView from "./Components/QRCode.js";
 import RecoveryCodesView from "./Components/RecoveryCodesView.js";
 import StepHeading from "./Components/StepHeading.js";
 import StepView from "./Components/StepView.js";
-import StringView from "./Components/StringView.js";
+import JustHTML from "./Components/JustHTML.js";
 import UIComponentWindow from "./UIComponentWindow.js";
 
 const UIWindow2FASetup = async function UIWindow2FASetup () {
@@ -113,9 +113,8 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                             symbol: '1',
                             text: i18n('setup2fa_1_step_heading'),
                         }),
-                        new StringView({
-                            text: i18n('setup2fa_1_instructions', [], false),
-                            no_html_encode: true,
+                        new JustHTML({
+                            html: `<div style="color: #3b4863">${i18n('setup2fa_1_instructions', [], false)}</div>`
                         }),
                         new StepHeading({
                             symbol: '2',
@@ -152,8 +151,8 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                             symbol: '4',
                             text: i18n('setup2fa_4_step_heading')
                         }),
-                        new StringView({
-                            text: i18n('setup2fa_4_instructions', [], false)
+                        new JustHTML({
+                            html: `<div style="color: #3b4863">${i18n('setup2fa_4_instructions', [], false)}</div>`
                         }),
                         new RecoveryCodesView({
                             values: data.codes,
