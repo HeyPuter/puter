@@ -31,6 +31,7 @@ import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequir
 import launch_app from "../helpers/launch_app.js"
 import UIWindowShare from './UIWindowShare.js';
 import item_icon from '../helpers/item_icon.js';
+import open_item from "../helpers/open_item.js"
 
 const el_body = document.getElementsByTagName('body')[0];
 
@@ -269,34 +270,42 @@ async function UIWindow(options) {
                 >`;
                 // favorites
                 h += `<h2 class="window-sidebar-title disable-user-select">${i18n('favorites')}</h2>`;
-                // default items if sidebar_items is not set
-                if(!window.sidebar_items){
-                    h += `<div draggable="false" title="${i18n('home')}" class="window-sidebar-item disable-user-select ${options.path === window.home_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.home_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-home.svg'])}">${i18n('home')}</div>`;
-                    h += `<div draggable="false" title="${i18n('documents')}" class="window-sidebar-item disable-user-select ${options.path === window.docs_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.docs_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-documents.svg'])}">${i18n('documents')}</div>`;
-                    h += `<div draggable="false" title="${i18n('public')}" class="window-sidebar-item disable-user-select ${options.path === window.public_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.public_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-public.svg'])}">${i18n('public')}</div>`;
-                    h += `<div draggable="false" title="${i18n('pictures')}" class="window-sidebar-item disable-user-select ${options.path === window.pictures_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.pictures_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-pictures.svg'])}">${i18n('pictures')}</div>`;
-                    h += `<div draggable="false" title="${i18n('desktop')}" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-desktop.svg'])}">${i18n('desktop')}</div>`;
-                    h += `<div draggable="false" title="${i18n('videos')}" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-videos.svg'])}">${i18n('videos')}</div>`;
-                }else{
-                    let items = JSON.parse(window.sidebar_items);
-                    for(let item of items){
-                        let icon;
-                        if(item.path === window.home_path)
-                            icon = window.icons['sidebar-folder-home.svg'];
-                        else if(item.path === window.docs_path)
-                            icon = window.icons['sidebar-folder-documents.svg'];
-                        else if(item.path === window.public_path)
-                            icon = window.icons['sidebar-folder-public.svg'];
-                        else if(item.path === window.pictures_path)
-                            icon = window.icons['sidebar-folder-pictures.svg'];
-                        else if(item.path === window.desktop_path)
-                            icon = window.icons['sidebar-folder-desktop.svg'];
-                        else if(item.path === window.videos_path)
-                            icon = window.icons['sidebar-folder-videos.svg'];
-                        else
-                            icon = window.icons['sidebar-folder.svg'];
-                        h += `<div title="${html_encode(item.label)}" class="window-sidebar-item disable-user-select ${options.path === item.path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(item.path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(icon)}">${html_encode(item.name)}</div>`;
+                
+                //add correct sidebar icons according to item type
+                let items = JSON.parse(window.sidebar_items);
+                for(let item of items){
+                    let icon;
+                    var filename = item.name;
+                        
+                    if(item.path === window.home_path) 
+                        icon = window.icons['sidebar-folder-home.svg'];
+                    else if(item.path === window.docs_path)
+                        icon = window.icons['sidebar-folder-documents.svg'];
+                    else if(item.path === window.public_path)
+                        icon = window.icons['sidebar-folder-public.svg'];
+                    else if(item.path === window.pictures_path)
+                        icon = window.icons['sidebar-folder-pictures.svg'];
+                    else if(item.path === window.desktop_path)
+                        icon = window.icons['sidebar-folder-desktop.svg'];
+                    else if(item.path === window.videos_path)
+                        icon = window.icons['sidebar-folder-videos.svg'];
+                    else if (item.type === 'folder') {
+                            icon = window.icons['sidebar-folder.svg'];  
+                    } else if(filename && filename.includes('.') ){
+                        // Get the extension type
+                        var extension = filename.split('.').pop().toLowerCase();
+                        if(extension == 'txt') {
+                            iconName = 'file.svg';
+                        } else {
+                        // Create the SVG icon name string
+                        var iconName = `file-${extension}.svg`;
+                        }
+                        icon = window.icons[iconName];
+                    }else {
+                        //default folder icon
+                        icon = window.icons['sidebar-folder.svg'];
                     }
+                    h += `<div title="${html_encode(item.label)}" class="window-sidebar-item disable-user-select ${options.path === item.path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(item.path)}" data-is_dir="${item.type === 'folder' ? 'true' : 'false'}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(icon)}">${html_encode(item.name)}</div>`;                
                 }
             h += `</div>`;
         }
@@ -2504,6 +2513,78 @@ function delete_window_element (el_window){
         window.window_counter = 0;
 }
 
+//open file from favorites 
+
+$(document).on('click', '.window-sidebar-item', function(e) {
+    const $el = $(this);
+    const el_window = $el.closest('.window');
+    const parent_win_id = el_window.attr('data-id');
+    const item_path = $el.attr('data-path');
+
+    // Get file/folder metadata
+    puter.fs.stat(item_path, async function(fsentry) {
+        if (fsentry.is_dir) {
+            // === Handle folders ===
+            if (e.metaKey || e.ctrlKey) {
+                // Open folder in a new window (Ctrl/Cmd + click)
+                UIWindow({
+                    path: item_path,
+                    title: path.basename(item_path),
+                    icon: await item_icon({ is_dir: true, path: item_path }),
+                    is_dir: true,
+                    app: 'explorer',
+                });
+            } else if (item_path !== el_window.attr('data-path')) {
+                // Navigate to folder in the current window
+                window.window_nav_history[parent_win_id] = window.window_nav_history[parent_win_id].slice(0, window.window_nav_history_current_position[parent_win_id] + 1);
+                window.window_nav_history[parent_win_id].push(item_path);
+                window.window_nav_history_current_position[parent_win_id]++;
+                window.update_window_path(el_window, item_path);
+            }
+        } else {
+            // === Handle file ===
+            const uid = fsentry.id;
+            const name = fsentry.name;
+            const associated_app_name = fsentry.associated_app?.name || '';
+
+            const fakeItem = createFakeItem({
+                path: item_path,
+                is_dir: false,
+                uid,
+                name,
+                associated_app_name
+            });
+
+            if (e.ctrlKey || e.metaKey) {
+                open_item({ item: fakeItem, new_window: true });
+            } else {
+                open_item({ item: fakeItem });
+            }
+        }
+    });
+    // Prevent default link behavior
+    return false;
+});
+
+
+
+// Create a fake DOM element representing a file or folder,
+// so it can be used as if it was a real file system item
+
+function createFakeItem({ path, is_dir, uid, name = null, associated_app_name = '' }) {
+    const $el = $('<div></div>');
+    $el.attr('data-type', is_dir ? 'directory' : 'file');  
+    $el.attr('data-is_dir', is_dir ? '1' : '0');
+    $el.attr('data-path', path);
+    $el.attr('data-uid', uid || '');
+    $el.attr('data-name', name || path.split('/').pop());
+    $el.attr('data-associated_app_name', associated_app_name);
+    $el.attr('data-is_shortcut', '0');
+    $el.attr('data-shortcut_to', '');
+    $el.attr('data-shortcut_to_path', '');
+    return $el;
+}
+
 $(document).on('click', '.window-sidebar-item', async function(e){
     const el_window = $(this).closest('.window');
     const parent_win_id = $(el_window).attr('data-id');
@@ -2550,50 +2631,147 @@ $(document).on('contextmenu taphold', '.window-sidebar-item', function(event){
 
     event.preventDefault();
     event.stopPropagation();
-    // todo
-    // $(this).addClass('window-sidebar-item-highlighted');
     const item = this;
-    UIContextMenu({
-        parent_element: $(this),
-        items: [
-            //--------------------------------------------------
-            // Open
-            //--------------------------------------------------
-            {
-                html: "Open",
-                onClick: function(){
-                    $(item).trigger('click');
-                }
-            },
-            //--------------------------------------------------
-            // Open in New Window
-            //--------------------------------------------------
-            {
-                html: "Open in New Window",
-                onClick: async function(){
-                    let item_path = $(item).attr('data-path');
+    const $el = $(this);
+    const item_path = $el.attr('data-path');
 
-                    UIWindow({
-                        path: item_path,
-                        title: path.basename(item_path),
-                        icon: await item_icon({is_dir: true, path: item_path}),
-                        // todo
-                        // uid: $(el_item).attr('data-uid'),
-                        is_dir: true,
-                        // todo
-                        // sort_by: $(el_item).attr('data-sort_by'),
-                        app: 'explorer',
-                        // top: options.maximized ? 0 : undefined,
-                        // left: options.maximized ? 0 : undefined,
-                        // height: options.maximized ? `calc(100% - ${window.taskbar_height + 1}px)` : undefined,
-                        // width: options.maximized ? `100%` : undefined,
-                    });            
+    // Get file/folder metadata first, then create the context menu
+    puter.fs.stat(item_path, async function(fsentry) {
+        
+        // Create context menu after we know if it's a file or folder
+        UIContextMenu({
+            parent_element: $(item),
+            items: (function() {
+                const menu_items = [];
+            
+                //--------------------------------------------------
+                // Open 
+                //--------------------------------------------------
+                menu_items.push({
+                    html: "Open",
+                    onClick: function() {
+                        $(item).trigger('click');
+                    }
+                });
+
+                // --------------------------------------------------
+                // Open in New Window (only for folders)
+                // --------------------------------------------------
+                if (fsentry.is_dir) {
+                    menu_items.push({
+                        html: "Open in New Window",
+                        onClick: async function() {
+                            UIWindow({
+                                path: item_path,
+                                title: path.basename(item_path),
+                                icon: await item_icon({is_dir: true, path: item_path}),
+                                is_dir: true,
+                                app: 'explorer',
+                            });    
+                        }
+                    });
                 }
-            }
-        ]
+                
+                //--------------------------------------------------
+                // Remove from Favorites (if applicable) and rebuild side bar
+                //--------------------------------------------------
+                let path2 = item_path;
+                if (path2) {
+                    path2 = path2.replace(/\\/g, '/');
+                    if (path2.charAt(0) !== '/') {
+                        path2 = '/' + path2;
+                    }
+
+                    const favorites = JSON.parse(window.sidebar_items || "[]");
+                    const is_favorite = favorites.some(fav => fav.path === path2);
+
+                    const is_system_path = [
+                        window.home_path,
+                        window.docs_path,
+                        window.public_path,
+                        window.pictures_path,
+                        window.desktop_path,
+                        window.videos_path
+                    ].includes(path2);
+
+                    if (is_favorite && !is_system_path) {
+                        menu_items.push({
+                            html: 'Remove From Favorites',
+                            onClick: function() {
+                                const updated = favorites.filter(fav => fav.path !== path2);
+                                window.sidebar_items = JSON.stringify(updated);
+                                localStorage.setItem("sidebar_items", JSON.stringify(updated));
+                        
+                                rebuild_all_sidebars();
+                            }
+                        });
+                    }
+                }
+
+                return menu_items;
+            })()
+        });
     });
-    return false;
-})
+
+    return false;  // Prevent default context menu from showing
+});
+
+//Rebuilds all sidebar favorites lists in all windows
+function rebuild_all_sidebars() {
+    $('.window-sidebar').each(function() {
+        
+        // Generate new sidebar HTML
+        let h = '';
+        h += `<h2 class="window-sidebar-title disable-user-select">${i18n('favorites')}</h2>`;
+        
+        // Parse all items
+        let items = JSON.parse(window.sidebar_items);
+        for(let item of items) {
+            let icon;
+            var filename = item.name;
+                
+            if(item.path === window.home_path) 
+                icon = window.icons['sidebar-folder-home.svg'];
+            else if(item.path === window.docs_path)
+                icon = window.icons['sidebar-folder-documents.svg'];
+            else if(item.path === window.public_path)
+                icon = window.icons['sidebar-folder-public.svg'];
+            else if(item.path === window.pictures_path)
+                icon = window.icons['sidebar-folder-pictures.svg'];
+            else if(item.path === window.desktop_path)
+                icon = window.icons['sidebar-folder-desktop.svg'];
+            else if(item.path === window.videos_path)
+                icon = window.icons['sidebar-folder-videos.svg'];
+            else if (item.type === 'folder') {
+                icon = window.icons['sidebar-folder.svg'];  
+            } else if(filename && filename.includes('.')) {
+                // Get the extension type  
+                var extension = filename.split('.').pop().toLowerCase();
+                if(extension == 'txt') {
+                    iconName = 'file.svg';
+                } else {
+                    // Create the SVG icon name string
+                    var iconName = `file-${extension}.svg`;
+                }
+                icon = window.icons[iconName];
+            } else {
+                //default folder icon
+                icon = window.icons['sidebar-folder.svg'];
+            }
+            
+            // Get the current window's path
+            const current_window = $(this).closest('.ui-window');
+            const current_path = current_window.data('path') || '';
+            
+            h += `<div title="${html_encode(item.label)}" class="window-sidebar-item disable-user-select ${current_path === item.path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(item.path)}" data-is_dir="${item.type === 'folder' ? 'true' : 'false'}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(icon)}">${html_encode(item.name)}</div>`;
+        }
+        
+        // Replace the sidebar content
+        $(this).html(h);
+
+    });
+}
+
 
 $(document).on('dblclick', '.window .ui-resizable-handle', function(e){
     let el_window = $(this).closest('.window');
