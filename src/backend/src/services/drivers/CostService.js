@@ -55,6 +55,15 @@ class CostService extends BaseService {
         });
         await svc_event.emit('credit.record-cost', event);
     }
+    async record_funding_update ({ old_amount, new_amount }) {
+        const svc_event = this.services.get('event');
+        const event = {
+            actor: Context.get('actor'),
+            old_amount,
+            new_amount,
+        };
+        await svc_event.emit('credit.funding-update', event);
+    }
 }
 
 module.exports = {
