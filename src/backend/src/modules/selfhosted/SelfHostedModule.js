@@ -40,6 +40,9 @@ class SelfHostedModule extends AdvancedBase {
         
         const { DBKVService } = require("../../services/DBKVService");
         services.registerService('puter-kvstore', DBKVService);
+        
+        const MinLogService = require('./MinLogService');
+        services.registerService('min-log', MinLogService);
 
         // TODO: sucks
         const RELATIVE_PATH = '../../../../../';

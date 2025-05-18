@@ -38,6 +38,8 @@ const strutil = require('@heyputer/putility').libs.string;
 * It also validates the host header and IP addresses to prevent security vulnerabilities.
 */
 class WebServerService extends BaseService {
+    static CONCERN = 'web';
+
     static MODULES = {
         https: require('https'),
         http: require('http'),
@@ -358,7 +360,9 @@ class WebServerService extends BaseService {
                     fields.status, fields.responseTime,
                 ].join(' ');
 
-                const log = this.services.get('log-service').create('morgan');
+                const log = this.services.get('log-service').create('morgan', {
+                    concern: 'web'
+                });
                 try {
                     log.info(message, fields);
                 } catch (e) {
@@ -540,7 +544,6 @@ class WebServerService extends BaseService {
                     req.query[k] = undefined;
                 }
             }
-            console.log('\x1B[36;1m======= ok???', req.query);
             next();
         });
         

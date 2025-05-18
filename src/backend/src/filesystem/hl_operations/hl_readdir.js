@@ -25,6 +25,7 @@ const { LLReadShares } = require("../ll_operations/ll_readshares");
 const { HLFilesystemOperation } = require("./definitions");
 
 class HLReadDir extends HLFilesystemOperation {
+    static CONCERN = 'filesystem';
     async _run () {
         const { subject: subject_let, user, no_thumbs, no_assocs, actor } = this.values;
         let subject = subject_let;

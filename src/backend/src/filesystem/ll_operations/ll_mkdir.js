@@ -24,6 +24,7 @@ const { RESOURCE_STATUS_PENDING_CREATE } = require("../../modules/puterfs/Resour
 const { LLFilesystemOperation } = require("./definitions");
 
 class LLMkdir extends LLFilesystemOperation {
+    static CONCERN = 'filesystem';
     static MODULES = {
         _path: require('path'),
         uuidv4: require('uuid').v4,

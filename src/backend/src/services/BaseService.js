@@ -85,7 +85,11 @@ class BaseService extends concepts.Service {
     */
     async init () {
         const services = this.services;
-        this.log = services.get('log-service').create(this.service_name);
+        const log_fields = {};
+        if ( this.constructor.CONCERN ) {
+            log_fields.concern = this.constructor.CONCERN;
+        }
+        this.log = services.get('log-service').create(this.service_name, log_fields);
         this.errors = services.get('error-service').create(this.log);
 
         await (this._init || NOOP).call(this, this.args);
