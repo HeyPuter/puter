@@ -210,6 +210,7 @@ class ShortcutCommand extends BatchCommand {
             name: parameters.name,
             actor: executor.actor,
             target: shortcut_to,
+            dedupe_name: parameters.dedupe_name,
 
             // TODO: handle these with event service instead
             socket_id: parameters.socket_id,
