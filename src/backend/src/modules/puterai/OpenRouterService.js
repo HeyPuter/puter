@@ -127,7 +127,7 @@ class OpenRouterService extends BaseService {
                     messages,
                     model: model ?? this.get_default_model(),
                     ...(tools ? { tools } : {}),
-                    max_tokens: max_tokens || 1000,
+                    max_tokens,
                     temperature: temperature, // default to 1.0
                     stream,
                     ...(stream ? {
