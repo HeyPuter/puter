@@ -469,16 +469,13 @@ async function UIWindowLogin(options){
                         resolve(true);
                     $(el_window).close();
                 },
-                error: function (err){
-                    console.log('Login AJAX request error:', err.status, err.statusText);
-                    
+                error: function (err){                    
                     // First, ensure URL is clean in case of error (prevent password leakage)
                     if (window.location.search && (
                         window.location.search.includes('password=') || 
                         window.location.search.includes('username=') || 
                         window.location.search.includes('email=')
                     )) {
-                        console.log('Cleaning sensitive data from URL');
                         const cleanUrl = window.location.origin + window.location.pathname;
                         history.replaceState({}, document.title, cleanUrl);
                     }

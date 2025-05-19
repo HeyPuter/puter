@@ -122,7 +122,6 @@ async function UIWindowSettings(options){
         if (options.tab) {
             const $tabToOpen = $el_window.find(`.settings-sidebar-item[data-settings="${options.tab}"]`);
             if ($tabToOpen.length > 0) {
-                console.log('tabToOpen', $tabToOpen);
                 setTimeout(() => {
                     $tabToOpen.trigger('click');
                 }, 50);

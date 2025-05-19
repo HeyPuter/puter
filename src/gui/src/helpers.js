@@ -1660,7 +1660,6 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
 
     // log stats to console
     let move_duration = (Date.now() - move_init_ts);
-    // console.log(`moved ${el_items.length} item${el_items.length > 1 ? 's':''} in ${move_duration}ms`);
 
     // -----------------------------------------------------------------------
     // DONE! close progress window with delay to allow user to see 100% progress

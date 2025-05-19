@@ -139,10 +139,6 @@ export class ExecService extends Service {
             throw new Error('Caller process not found');
         }
 
-        console.log(
-            caller_process.name,
-            app_name,
-        );
         // TODO: permissions integration; for now it's hardcoded
         if ( caller_process.name !== 'phoenix' ) {
             throw new Error('Connection not allowed.');
