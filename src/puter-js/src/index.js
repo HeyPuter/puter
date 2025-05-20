@@ -27,6 +27,7 @@ import Exec from './modules/Exec.js';
 import Convert from './modules/Convert.js';
 import Threads from './modules/Threads.js';
 import Perms from './modules/Perms.js';
+import { pFetch } from './modules/networking/requests.js';
 
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
@@ -350,7 +351,8 @@ export default window.puter = (function() {
                 Socket: PSocket,
                 tls: {
                     TLSSocket: PTLSSocket
-                }
+                },
+                fetch: pFetch
             }
             
             // === puter.http ===
