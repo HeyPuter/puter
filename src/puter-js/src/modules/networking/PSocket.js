@@ -36,13 +36,13 @@ export class PSocket extends EventListener {
                 })).json());
     
                 wispInfo.handler = new PWispHandler(wispServer, wispToken);
+                // Wait for websocket to fully open
+                await new Promise((res, req) => {
+                    wispInfo.handler.onReady = res;
+                });
             }
 
 
-            // Wait for websocket to fully open
-            await new Promise((res, req) => {
-                wispInfo.handler.onReady = res;
-            });
 
             const callbacks = {
                 dataCallBack: (data) => {
