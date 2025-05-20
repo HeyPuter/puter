@@ -91,7 +91,7 @@ export function pFetch(...args) {
                     responseHead += decoder.decode(data, { stream: true });
 
                     // See if we have the HEAD of an HTTP/1.1 yet
-                    if (reqHead.indexOf("\r\n\r\n") !== -1) {
+                    if (responseHead.indexOf("\r\n\r\n") !== -1) {
                         dataOffset = responseHead.indexOf("\r\n\r\n");
                         responseHead = responseHead.slice(0, dataOffset);
                         const parsedHead = parseHTTPHead(responseHead);
