@@ -134,8 +134,10 @@ export function pFetch(...args) {
                                 .decode(buffer.slice(0, idx))
                                 .trim();
                             currentChunkLeft = parseInt(sizeText, 16);
-                            if (isNaN(currentChunkLeft)) { 
-                                controller.error("Invalid chunk length from server")
+                            if (isNaN(currentChunkLeft)) {
+                                controller.error(
+                                    "Invalid chunk length from server",
+                                );
                             }
                             // strip off the size line + CRLF
                             buffer = buffer.slice(idx + 2);
