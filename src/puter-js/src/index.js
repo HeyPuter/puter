@@ -21,8 +21,6 @@ import { NoPuterYetService } from './services/NoPuterYet.js';
 import { Debug } from './modules/Debug.js';
 import { PSocket } from './modules/networking/PSocket.js';
 import { PTLSSocket } from "./modules/networking/PTLS.js"
-import { PWispHandler } from './modules/networking/PWispHandler.js';
-import { make_http_api } from './lib/http.js';
 import Exec from './modules/Exec.js';
 import Convert from './modules/Convert.js';
 import Threads from './modules/Threads.js';
@@ -330,10 +328,6 @@ export default window.puter = (function() {
                 await this.services.wait_for_init(['api-access']);
                 this.p_can_request_rao_.resolve();
             })();
-            
-            // TODO: This should be separated into modules called "Net" and "Http".
-            //       Modules need to be refactored first because right now they
-            //       are too tightly-coupled with authentication state.
 
 
             this.net = {
@@ -354,12 +348,6 @@ export default window.puter = (function() {
                 },
                 fetch: pFetch
             }
-            
-            // === puter.http ===
-            this.http = make_http_api(
-                { Socket: this.net.Socket, DEFAULT_PORT: 80 });
-            this.https = make_http_api(
-                { Socket: this.net.tls.TLSSocket, DEFAULT_PORT: 443 });
 
 
         }
