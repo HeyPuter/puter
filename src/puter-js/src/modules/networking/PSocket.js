@@ -12,7 +12,7 @@ export class PSocket extends EventListener {
     _events = new Map();
     _streamID;
     constructor(host, port) {
-        super(["data", "drain", "open", "error", "close", "tlsdata", "tlsopen"]);
+        super(["data", "drain", "open", "error", "close", "tlsdata", "tlsopen", "tlsclose"]);
 
         (async () => {
             if(!puter.authToken && puter.env === 'web'){

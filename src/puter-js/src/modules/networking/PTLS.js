@@ -70,14 +70,16 @@ export class PTLSSocket extends PSocket {
                         this.emit("tlsdata", value);
                     }
                 }
+                this.emit("tlsclose", false);
             } catch (e) {
                 this.emit("error", e)
+                this.emit("tlsclose", true);
             }
-            // this.emit("close", undefined);
+            
         }));
     }
     on(event, callback) {
-        if (event === "data" || event === "open") {
+        if (event === "data" || event === "open" || event === "close") {
             return super.on("tls" + event, callback)
         } else {
             return super.on(event, callback);
