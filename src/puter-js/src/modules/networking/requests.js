@@ -30,7 +30,7 @@ function parseHTTPHead(head) {
 }
 
 // Trivial stream based HTTP 1.1 client
-// TODO redirects, chunked encoding
+// TODO optional redirect handling
 
 export function pFetch(...args) {
     return new Promise((res, rej) => {
