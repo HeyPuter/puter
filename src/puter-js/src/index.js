@@ -524,7 +524,8 @@ export default window.puter = (function() {
 
         print = function(...args){
             for(let arg of args){
-                document.body.innerHTML += arg;
+                const textNode = document.createTextNode(arg);
+                document.body.appendChild(textNode);
             }
         }
     }
