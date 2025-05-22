@@ -51,3 +51,24 @@ sudo apk add build-base
 ### Gentoo
 
 You know what you're doing; you just wanted to see if we mentioned Gentoo.
+
+## "Could not load the "sharp" module using the freebsd-x64 runtime"
+
+In order to get it to work on FreeBSD, you will need to build sharp from source and link it to the project.
+
+```
+pkg install vips
+git clone --depth=1 https://github.com/lovell/sharp.git
+cd sharp
+yarn install
+sudo npm link
+```
+
+After `npm install` you can link the prebuilt module
+
+```
+# cd puter
+# npm install
+npm link sharp
+npm start
+```
