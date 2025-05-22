@@ -329,11 +329,7 @@ class AI{
         if (!requestParams.model || requestParams.model.startsWith('gpt-')) {
             driver = 'openai-completion';
         }else if(
-            requestParams.model === 'claude-3-haiku-20240307' ||
-            requestParams.model === 'claude-3-5-sonnet-20240620' ||
-            requestParams.model === 'claude-3-5-sonnet-20241022' ||
-            requestParams.model === 'claude-3-5-sonnet-latest' ||
-            requestParams.model === 'claude-3-7-sonnet-latest'
+            requestParams.model.startsWith('claude-')
         ){
             driver = 'claude';
         }else if(requestParams.model === 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo' || requestParams.model === 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo' || requestParams.model === 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo' || requestParams.model === `google/gemma-2-27b-it`){
