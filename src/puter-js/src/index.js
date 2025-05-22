@@ -523,12 +523,6 @@ export default window.puter = (function() {
         }
 
         print = function(...args){
-            for(let arg of args){
-                document.body.innerHTML += arg;
-            }
-        }
-
-        log = function(...args) {
             let container = document.getElementById("--puter-printbox");
             if (!container) {
                 document.body.innerHTML += `<pre><code id="--puter-printbox"></code></pre>`
@@ -545,7 +539,7 @@ export default window.puter = (function() {
                     container.innerText += '\n';
                 }
             }
-        };
+        }
     }
 
     // Create a new Puter object and return it
