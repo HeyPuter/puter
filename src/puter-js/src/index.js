@@ -329,7 +329,6 @@ export default window.puter = (function() {
                 this.p_can_request_rao_.resolve();
             })();
 
-
             this.net = {
                 generateWispV1URL: async () => {
                     const { token: wispToken, server: wispServer } = (await (await fetch(this.APIOrigin + '/wisp/relay-token/create', {
@@ -348,8 +347,6 @@ export default window.puter = (function() {
                 },
                 fetch: pFetch
             }
-
-
         }
 
         /**
@@ -523,43 +520,8 @@ export default window.puter = (function() {
         }
 
         print = function(...args){
-            let container = document.getElementById("--puter-printbox");
-            if (!container) {
-                document.body.innerHTML += `<pre><code id="--puter-printbox"></code></pre>`
-                container = document.getElementById("--puter-printbox");
-            }
-
-            // Copy args to avoid modifying the original array
-            let processedArgs = [...args];
-            
-            // Check if the last argument is an options object
-            const lastArg = processedArgs.length > 0 ? processedArgs[processedArgs.length - 1] : null;
-            let options = { newline: false };
-            
-            if (lastArg && typeof lastArg === 'object' && lastArg !== null && 
-                !Array.isArray(lastArg) && 
-                Object.getPrototypeOf(lastArg) === Object.prototype &&
-                typeof lastArg.toString === 'undefined') {
-                options = processedArgs.pop();
-            }
-
-            // Process each argument
-            for(let arg of processedArgs) {
-                // If arg has custom toString, use it
-                if (arg && typeof arg === 'object' && typeof arg.toString === 'function') {
-                    const stringValue = arg.toString();
-                    if (typeof stringValue === 'string') {
-                        container.innerText += stringValue;
-                    } else {
-                        container.innerText += String(arg);
-                    }
-                } else {
-                    container.innerText += arg;
-                }
-                
-                if (options.newline) {
-                    container.innerText += '\n';
-                }
+            for(let arg of args){
+                document.body.innerHTML += arg;
             }
         }
     }
