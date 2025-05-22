@@ -524,10 +524,28 @@ export default window.puter = (function() {
 
         print = function(...args){
             for(let arg of args){
-                const textNode = document.createTextNode(arg);
-                document.body.appendChild(textNode);
+                document.body.innerHTML += arg;
             }
         }
+
+        log = function(...args) {
+            let container = document.getElementById("--puter-printbox");
+            if (!container) {
+                document.body.innerHTML += `<pre><code id="--puter-printbox"></code></pre>`
+                container = document.getElementById("--puter-printbox");
+            }
+
+            // Check if the last argument is an options object
+            const options = typeof args[args.length - 1] === 'object' && args[args.length - 1] !== null ? args.pop() : { newline: false };
+
+            // Process each argument
+            for(let arg of args) {
+                container.innerText += arg;
+                if (options.newline) {
+                    container.innerText += '\n';
+                }
+            }
+        };
     }
 
     // Create a new Puter object and return it
