@@ -30,3 +30,6 @@ dist/
 # Local Netlify folder
 .netlify
 src/emulator/release/
+
+# Dinamic dev documentation files
+doc/dev_doc/site
