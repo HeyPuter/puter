@@ -173,7 +173,7 @@ class ServerHealthService extends BaseService {
                     );
                     check_failures.push({ name });
                     
-                    this.log.error(`Error for healthcheck fail on ${name}: ` + e.stack);
+                    this.log.error(`Error for healthcheck fail on ${name}: ` + err.stack);
 
                     // Run the on_fail handlers
                     for ( const fn of chainable.on_fail_ ) {
