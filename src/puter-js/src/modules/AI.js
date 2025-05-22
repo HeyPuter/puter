@@ -294,6 +294,12 @@ class AI{
         if( requestParams.model === 'claude-3-7-sonnet' || requestParams.model === 'claude'){
             requestParams.model = 'claude-3-7-sonnet-latest';
         }
+        if( requestParams.model === 'claude-sonnet-4' || requestParams.model === 'claude-sonnet-4-latest'){
+            requestParams.model = 'claude-sonnet-4-20250514';
+        }
+        if( requestParams.model === 'claude-opus-4' || requestParams.model === 'claude-opus-4-latest') {
+            requestParams.model = 'claude-opus-4-20250514';
+        }
         if ( requestParams.model === 'mistral' ) {
             requestParams.model = 'mistral-large-latest';
         }
