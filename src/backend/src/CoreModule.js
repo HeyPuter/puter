@@ -223,7 +223,7 @@ const install = async ({ services, app, useapi, modapi }) => {
     })
     services.registerService('rate-limit', RateLimitService);
     services.registerService('auth', AuthService);
-    services.registerService('preauth', PreAuthService);
+    // services.registerService('preauth', PreAuthService);
     services.registerService('permission', PermissionService);
     services.registerService('sla', SLAService);
     services.registerService('acl', ACLService);
