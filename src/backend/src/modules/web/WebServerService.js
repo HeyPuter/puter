@@ -65,6 +65,7 @@ class WebServerService extends BaseService {
         const app = this.app;
         const services = this.services;
         await services.emit('install.middlewares.context-aware', { app });
+        this.install_post_middlewares_({ app });
         await services.emit('install.routes', {
             app,
             router_webhooks: this.router_webhooks,
@@ -72,6 +73,17 @@ class WebServerService extends BaseService {
         await services.emit('install.routes-gui', { app });
         
         this.log.noticeme('web server setup done');
+    }
+    
+    install_post_middlewares_ ({ app }) {
+        app.use(async (req, res, next) => {
+            const svc_event = this.services.get('event');
+            const event = {
+                req, res,
+            };
+            await svc_event.emit('request.will-be-handled', event);
+            next();
+        });
     }
 
 
