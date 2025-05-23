@@ -78,11 +78,16 @@ class WebServerService extends BaseService {
     install_post_middlewares_ ({ app }) {
         app.use(async (req, res, next) => {
             const svc_event = this.services.get('event');
+
             const event = {
                 req, res,
+                end: false,
+                end () {
+                    this.end_ = true;
+                }
             };
             await svc_event.emit('request.will-be-handled', event);
-            next();
+            if ( ! event.end_ ) next();
         });
     }
 
