@@ -112,6 +112,7 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { DevConsoleService } = require('./services/DevConsoleService');
     const { RateLimitService } = require('./services/sla/RateLimitService');
     const { AuthService } = require('./services/auth/AuthService');
+    const { PreAuthService } = require("./services/auth/PreAuthService");
     const { SLAService } = require('./services/sla/SLAService');
     const { PermissionService } = require('./services/auth/PermissionService');
     const { ACLService } = require('./services/auth/ACLService');
@@ -222,6 +223,7 @@ const install = async ({ services, app, useapi, modapi }) => {
     })
     services.registerService('rate-limit', RateLimitService);
     services.registerService('auth', AuthService);
+    services.registerService('preauth', PreAuthService);
     services.registerService('permission', PermissionService);
     services.registerService('sla', SLAService);
     services.registerService('acl', ACLService);

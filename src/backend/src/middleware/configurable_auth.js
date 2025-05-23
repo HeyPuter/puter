@@ -42,6 +42,9 @@ const is_whoami = (req) => {
 const configurable_auth = options => async (req, res, next) => {
     const optional = options?.optional;
 
+    // Request might already have been authed (PreAuthService)
+    if ( req.actor ) next();
+
     // === Getting the Token ===
     // This step came from jwt_auth in src/helpers.js
     // However, since request-response handling is a concern of the

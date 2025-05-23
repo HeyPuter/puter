@@ -64,6 +64,7 @@ class WebServerService extends BaseService {
     async ['__on_boot.consolidation'] () {
         const app = this.app;
         const services = this.services;
+        await services.emit('install.middlewares.early', { app });
         await services.emit('install.middlewares.context-aware', { app });
         this.install_post_middlewares_({ app });
         await services.emit('install.routes', {
@@ -81,7 +82,7 @@ class WebServerService extends BaseService {
 
             const event = {
                 req, res,
-                end: false,
+                end_: false,
                 end () {
                     this.end_ = true;
                 }
