@@ -1307,7 +1307,7 @@ class UI extends EventListener {
     #showTime = null;
     #hideTimeout = null;
 
-    showSpinner() {
+    showSpinner(html) {
         if (this.#overlayActive) return;
     
         // Create and add stylesheet for spinner if it doesn't exist
@@ -1330,6 +1330,7 @@ class UI extends EventListener {
                     font-size: 16px;
                     margin-top: 10px;
                     text-align: center;
+                    width: 100%;
                 }
     
                 @keyframes spin {
@@ -1342,10 +1343,11 @@ class UI extends EventListener {
                     flex-direction: column;
                     align-items: center;
                     justify-content: center;
-                    width: 120px; 
-                    height: 120px; 
+                    min-height: 120px; 
                     background: #ffffff; 
                     border-radius: 10px;
+                    padding: 20px;
+                    min-width: 120px;
                 }
             `;
             document.head.appendChild(styleSheet);
@@ -1377,7 +1379,7 @@ class UI extends EventListener {
         // Add spinner and text
         container.innerHTML = `
             <div class="puter-loading-spinner"></div>
-            <div class="puter-loading-text">Working...</div>
+            <div class="puter-loading-text">${html ?? 'Working...'}</div>
         `;
         
         overlay.appendChild(container);
