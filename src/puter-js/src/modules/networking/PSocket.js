@@ -2,9 +2,10 @@ import EventListener from "../../lib/EventListener.js";
 import { errors } from "./parsers.js";
 import { PWispHandler } from "./PWispHandler.js";
 const texten = new TextEncoder();
+const requireAuth = false; // for initial launch
 
 export let wispInfo = {
-    server: "wss://puter.cafe/",
+    server: "wss://puter.cafe/", // Unused currently
     handler: undefined
 };
 
@@ -15,7 +16,7 @@ export class PSocket extends EventListener {
         super(["data", "drain", "open", "error", "close", "tlsdata", "tlsopen", "tlsclose"]);
 
         (async () => {
-            if(!puter.authToken && puter.env === 'web'){
+            if(!puter.authToken && puter.env === 'web' && requireAuth){
                 try{
                     await puter.ui.authenticateWithPuter();
                     
