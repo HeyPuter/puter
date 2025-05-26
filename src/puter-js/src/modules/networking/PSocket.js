@@ -30,7 +30,7 @@ export class PSocket extends EventListener {
                 const { token: wispToken, server: wispServer } = (await (await fetch(puter.APIOrigin + '/wisp/relay-token/create', {
                     method: 'POST',
                     headers: {
-                        Authorization: `Bearer ${puter.authToken}`,
+                        Authorization: puter.authToken ? `Bearer ${puter.authToken}`:'',
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({}),
