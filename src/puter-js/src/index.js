@@ -520,21 +520,28 @@ export default window.puter = (function() {
         }
 
         print = function(...args){
-            // Check if the last argument is an options object with escapeHTML property
+            // Check if the last argument is an options object with escapeHTML or code property
             let options = {};
-            if(args.length > 0 && typeof args[args.length - 1] === 'object' && args[args.length - 1] !== null && 'escapeHTML' in args[args.length - 1]) {
+            if(args.length > 0 && typeof args[args.length - 1] === 'object' && args[args.length - 1] !== null && 
+               ('escapeHTML' in args[args.length - 1] || 'code' in args[args.length - 1])) {
                 options = args.pop();
             }
             
             for(let arg of args){
-                // Escape HTML if the option is set to true
-                if(options.escapeHTML === true && typeof arg === 'string') {
+                // Escape HTML if the option is set to true or if code option is true
+                if((options.escapeHTML === true || options.code === true) && typeof arg === 'string') {
                     arg = arg.replace(/&/g, '&amp;')
                              .replace(/</g, '&lt;')
                              .replace(/>/g, '&gt;')
                              .replace(/"/g, '&quot;')
                              .replace(/'/g, '&#039;');
                 }
+                
+                // Wrap in code/pre tags if code option is true
+                if(options.code === true) {
+                    arg = `<code><pre>${arg}</pre></code>`;
+                }
+                
                 document.body.innerHTML += arg;
             }
         }
