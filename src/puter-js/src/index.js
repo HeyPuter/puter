@@ -214,7 +214,7 @@ export default window.puter = (function() {
             const cat_logger = logger;
             
             // create facade for easy logging
-            this.log = new putility.libs.log.LoggerFacade({
+            this.logger = new putility.libs.log.LoggerFacade({
                 impl: logger,
                 cat: cat_logger,
             });
@@ -313,7 +313,7 @@ export default window.puter = (function() {
                         '] ',
                 });
 
-                this.log.impl = logger;
+                this.logger.impl = logger;
             })();
             
             // Lock to prevent multiple requests to `/rao`

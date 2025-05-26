@@ -42,7 +42,7 @@ export class ExecService extends Service {
             handler: this.connectToInstance.bind(this),
         });
 
-        this.log = puter.log.fields({
+        this.log = puter.logger.fields({
             category: 'ipc'
         });
     }

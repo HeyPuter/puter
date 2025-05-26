@@ -42,7 +42,7 @@ class AppConnection extends EventListener {
         this.#isOpen = true;
         this.#usesSDK = usesSDK;
 
-        this.log = context.puter.log.fields({
+        this.log = context.puter.logger.fields({
             category: 'ipc',
         });
         this.log.fields({
