@@ -87,7 +87,6 @@ export function pFetch(...args) {
             socket.on("open", async () => {
                 socket.write(reqHead); // Send headers
                 if (requestBody) {
-                    console.log("Sending body", requestBody);
                     socket.write(requestBody); // Send body if present
                 }
             });
