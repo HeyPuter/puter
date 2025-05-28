@@ -7,6 +7,10 @@ Services are conditionally registered based on configuration settings, allowing 
 flexible deployment with different AI providers like AWS, OpenAI, Claude, Together AI,
 Mistral, Groq, and XAI.
 
+## Metered Services
+
+This module makes use of Puter's metered services system for tracking and managing costs of AI operations. For detailed information about how metered services work in Puter, including cost tracking, credit management, and integration details, please see the [Metered Services Documentation](../../doc/features/metered-services.md).
+
 ## Services
 
 ### AIChatService
@@ -26,6 +30,7 @@ and populating model lists/maps from providers.
 
 Registers each provider as an 'ai-chat' service alias and fetches their
 available models and pricing information. Populates:
+
 - simple_model_list: Basic list of supported models
 - detail_model_list: Detailed model info including costs
 - detail_model_map: Maps model IDs/aliases to their details
@@ -33,8 +38,6 @@ available models and pricing information. Populates:
 #### Methods
 
 ##### `register_provider`
-
-
 
 ##### `moderate`
 
@@ -62,8 +65,6 @@ the first one that is not in the tried list.
 - **param0:** null
 
 ##### `get_model_from_request`
-
-
 
 ### AIInterfaceService
 
@@ -141,8 +142,6 @@ in the Puter platform's chat completion interface.
 Service that emulates Claude's behavior using alternative AI models
 
 ##### `adapt_model`
-
-
 
 ### ClaudeService
 
@@ -240,8 +239,6 @@ validation, and spending tracking.
 
 ##### `generate`
 
-
-
 ### TogetherAIService
 
 TogetherAIService class provides integration with Together AI's language models.
@@ -270,8 +267,6 @@ Gets the system prompt used for AI interactions
 
 ##### `adapt_model`
 
-
-
 ##### `get_default_model`
 
 Returns the default model identifier for the XAI service
@@ -285,6 +280,7 @@ removed it may become possible to move this module to an
 extension.
 
 **Imports:**
+
 - `../../api/APIError`
 - `../../services/auth/PermissionService`
 - `../../services/BaseService` (use.BaseService)
