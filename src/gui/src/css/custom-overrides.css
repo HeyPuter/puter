@@ -1,0 +1,15 @@
+/* Custom overrides for Bootstrap styles */
+
+/* Override App-header sticky positioning */
+.App-header {
+  position: relative !important;
+  top: auto !important;
+}
+
+/* Override i4k-symbols-list dl sticky positioning */
+.i4k-symbols-list dl {
+  position: relative !important;
+  top: auto !important;
+}
+
+/* Use !important to ensure our styles take precedence over Bootstrap */
