@@ -22,9 +22,6 @@ import { MakeTestContext } from './harness.js'
 import builtins from '../../src/puter-shell/coreutils/__exports__.js';
 
 export const runDateTests = () => {
-    // These tests are disabled for now.
-    // (broken, very low priority)
-    return;
     describe('date', function () {
         beforeEach(() => {
             ck.freeze();
