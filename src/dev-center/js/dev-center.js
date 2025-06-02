@@ -292,6 +292,7 @@ async function create_app(title, source_path = null, items = null) {
             dedupeName: true,
             metadata: {
                 window_resizable: true,
+                fullpage_on_landing: true,
             },
     
         })
