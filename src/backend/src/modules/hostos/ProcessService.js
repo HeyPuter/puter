@@ -26,6 +26,8 @@ class ProxyLogger {
 }
 
 class ProcessService extends BaseService {
+    static CONCERN = 'workers';
+
     static MODULES = {
         path: require('path'),
         spawn: require('child_process').spawn,

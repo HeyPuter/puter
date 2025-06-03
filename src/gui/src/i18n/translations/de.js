@@ -377,6 +377,7 @@ const de = {
         "billing.subscription_cancelled_description": "Bis zum Ende des Abrechnungszeitraums haben Sie weiterhin Zugriff auf Ihr Abonnement.", // In English: "You will still have access to your subscription until the end of this billing period."
         "billing.offering.free": "Kostenlos", // In English: "Free"
         "billing.offering.pro": "Professionell", // In English: "Professional"
+        "billing.offering.professional": "Professionell", // In English: "Professional"
         "billing.offering.business": "Unternehmen", // In English: "Business"
         "billing.cloud_storage": "Cloud Speicher", // In English: "Cloud Storage"
         "billing.ai_access": "KI Zugang", // In English: "AI Access"

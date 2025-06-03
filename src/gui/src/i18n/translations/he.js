@@ -394,6 +394,7 @@ const en = {
     "billing.subscription_cancelled_description": "עדיין תהיה לכם גישה למנוי עד סוף תקופת החיוב.", // In English: "You will still have access to your subscription until the end of this billing period."
     "billing.offering.free": "חינם", // In English: "Free"
     "billing.offering.pro": "מקצועי", // In English: "Professional"
+    "billing.offering.professional": "מקצועי", // In English: "Professional"
     "billing.offering.business": "עסקי", // In English: "Business"
     "billing.cloud_storage": "אחסון בענן", // In English: "Cloud Storage"
     "billing.ai_access": "גישה לAI", // In English: "AI Access"

@@ -372,6 +372,7 @@ const nn = {
         "billing.subscription_cancelled_description": undefined, // In English: "You will still have access to your subscription until the end of this billing period."
         "billing.offering.free": undefined, // In English: "Free"
         "billing.offering.pro": undefined, // In English: "Professional"
+        "billing.offering.professional": undefined, // In English: "Professional"
         "billing.offering.business": undefined, // In English: "Business"
         "billing.cloud_storage": undefined, // In English: "Cloud Storage"
         "billing.ai_access": undefined, // In English: "AI Access"

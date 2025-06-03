@@ -378,6 +378,7 @@ const th = {
         "billing.subscription_cancelled_description": "คุณยังเป็นสมาชิกอยู่จนถึงวันสิ้นสุดรอบบิลนี้", // In English: "You will still have access to your subscription until the end of this billing period."
         "billing.offering.free": "ฟรี", // In English: "Free"
         "billing.offering.pro": "มืออาชีพ", // In English: "Professional"
+        "billing.offering.professional": "มืออาชีพ", // In English: "Professional"
         "billing.offering.business": "ธุรกิจ", // In English: "Business"
         "billing.cloud_storage": "จัดเก็บบนคลาวด์", // In English: "Cloud Storage"
         "billing.ai_access": "การเข้าถึงโดย AI", // In English: "AI Access"

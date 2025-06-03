@@ -21,6 +21,7 @@ const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector, NodeChildSele
 const BaseService = require("../../services/BaseService");
 
 module.exports = class DatabaseFSEntryFetcher extends BaseService {
+    static CONCERN = 'filesystem';
     _construct () {
         this.defaultProperties = [
             'id',

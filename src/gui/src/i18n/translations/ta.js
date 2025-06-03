@@ -379,6 +379,7 @@ const ta = {
         "billing.subscription_cancelled_description": "நீங்கள் இந்த பில்லிங் காலத்தின் முடிவுவரை உங்கள் சப்ஸ்கிரிப்ஷனுக்கு அணுகல் பெறுவீர்கள்.", // In English: "You will still have access to your subscription until the end of this billing period."
         "billing.offering.free": "இலவசம்", // In English: "Free"
         "billing.offering.pro": "தொழில்முறை", // In English: "Professional"
+        "billing.offering.professional": "தொழில்முறை", // In English: "Professional"
         "billing.offering.business": "வியாபாரம்", // In English: "Business"
         "billing.cloud_storage": "மேக சேமிப்பு", // In English: "Cloud Storage"
         "billing.ai_access": "AI அணுகல்", // In English: "AI Access"

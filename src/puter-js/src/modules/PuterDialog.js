@@ -10,10 +10,58 @@ class PuterDialog extends HTMLElement {
     
     constructor(resolve, reject) {
         super();
-        this.attachShadow({ mode: 'open' });
-
         this.reject = reject;
         this.resolve = resolve;
+        this.popupLaunched = false; // Track if popup was successfully launched
+
+        /**
+         * Detects if there's a recent user activation that would allow popup opening
+         * @returns {boolean} True if user activation is available, false otherwise.
+         */
+        this.hasUserActivation = () => {
+            // Modern browsers support navigator.userActivation
+            if (navigator.userActivation) {
+                return navigator.userActivation.hasBeenActive && navigator.userActivation.isActive;
+            }
+            
+            // Fallback: try to detect user activation by attempting to open a popup
+            // This is a bit hacky but works as a fallback
+            try {
+                const testPopup = window.open('', '_blank', 'width=1,height=1,left=-1000,top=-1000');
+                if (testPopup) {
+                    testPopup.close();
+                    return true;
+                }
+                return false;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        /**
+         * Launches the authentication popup window
+         * @returns {Window|null} The popup window reference or null if failed
+         */
+        this.launchPopup = () => {
+            try {
+                let w = 600;
+                let h = 400;
+                let title = 'Puter';
+                var left = (screen.width/2)-(w/2);
+                var top = (screen.height/2)-(h/2);
+                const popup = window.open(
+                    puter.defaultGUIOrigin + '/?embedded_in_popup=true&request_auth=true' + (window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''), 
+                    title, 
+                    'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left
+                );
+                return popup;
+            } catch (e) {
+                console.error('Failed to open popup:', e);
+                return null;
+            }
+        }
+
+        this.attachShadow({ mode: 'open' });
 
         let h;
         // Dialog
@@ -408,7 +456,20 @@ class PuterDialog extends HTMLElement {
     }
 
     open() {
-        this.shadowRoot.querySelector('dialog').showModal();
+        console.log(this.hasUserActivation());
+        if(this.hasUserActivation()){
+            let w = 600;
+            let h = 400;
+            let title = 'Puter';
+            var left = (screen.width/2)-(w/2);
+            var top = (screen.height/2)-(h/2);
+            window.open(puter.defaultGUIOrigin + '/?embedded_in_popup=true&request_auth=true' + (window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''), 
+            title, 
+            'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left);
+        }
+        else{
+            this.shadowRoot.querySelector('dialog').showModal();
+        }
     }
 
     close() {

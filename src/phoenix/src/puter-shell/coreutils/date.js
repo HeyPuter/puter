@@ -108,6 +108,15 @@ export default {
         const locale = 'en-US'; // TODO: POSIX: Pull this from the user's settings.
         const timeZone = values.utc ? 'UTC' : undefined;
 
+        // Helper functions to get date/time values respecting UTC option
+        const getYear = () => values.utc ? date.getUTCFullYear() : date.getFullYear();
+        const getMonth = () => values.utc ? date.getUTCMonth() : date.getMonth();
+        const getDate = () => values.utc ? date.getUTCDate() : date.getDate();
+        const getDay = () => values.utc ? date.getUTCDay() : date.getDay();
+        const getHours = () => values.utc ? date.getUTCHours() : date.getHours();
+        const getMinutes = () => values.utc ? date.getUTCMinutes() : date.getMinutes();
+        const getSeconds = () => values.utc ? date.getUTCSeconds() : date.getSeconds();
+
         let output = '';
         for (let i = 0; i < format.length; i++) {
             let char = format[i];
@@ -148,21 +157,21 @@ export default {
 
                     // "Century (a year divided by 100 and truncated to an integer) as a decimal number [00,99]."
                     case 'C': {
-                        output += Math.trunc(date.getFullYear() / 100);
+                        output += Math.trunc(getYear() / 100);
                         break;
                     }
 
                     // "Day of the month as a decimal number [01,31]."
                     case 'd': {
-                        output += padStart(date.getDate(), 2, '0');
+                        output += padStart(getDate(), 2, '0');
                         break;
                     }
 
                     // "Date in the format mm/dd/yy."
                     case 'D': {
-                        const month = padStart(date.getMonth() + 1, 2, '0');
-                        const day = padStart(date.getDate(), 2, '0');
-                        const year = padStart(date.getFullYear() % 100, 2, '0');
+                        const month = padStart(getMonth() + 1, 2, '0');
+                        const day = padStart(getDate(), 2, '0');
+                        const year = padStart(getYear() % 100, 2, '0');
                         output += `${month}/${day}/${year}`;
                         break;
                     }
@@ -170,19 +179,19 @@ export default {
                     // "Day of the month as a decimal number [1,31] in a two-digit field with leading <space>
                     // character fill."
                     case 'e': {
-                        output += padStart(date.getDate(), 2, ' ');
+                        output += padStart(getDate(), 2, ' ');
                         break;
                     }
 
                     // "Hour (24-hour clock) as a decimal number [00,23]."
                     case 'H': {
-                        output += padStart(date.getHours(), 2, '0');
+                        output += padStart(getHours(), 2, '0');
                         break;
                     }
 
                     // "Hour (12-hour clock) as a decimal number [01,12]."
                     case 'I': {
-                        output += padStart((date.getHours() % 12) || 12, 2, '0');
+                        output += padStart((getHours() % 12) || 12, 2, '0');
                         break;
                     }
 
@@ -192,13 +201,13 @@ export default {
                     // "Month as a decimal number [01,12]."
                     case 'm': {
                         // getMonth() starts at 0 for January
-                        output += padStart(date.getMonth() + 1, 2, '0');
+                        output += padStart(getMonth() + 1, 2, '0');
                         break;
                     }
 
                     // "Minute as a decimal number [00,59]."
                     case 'M': {
-                        output += padStart(date.getMinutes(), 2, '0');
+                        output += padStart(getMinutes(), 2, '0');
                         break;
                     }
 
@@ -208,26 +217,26 @@ export default {
                     // "Locale's equivalent of either AM or PM."
                     case 'p': {
                         // TODO: We should access this from the locale.
-                        output += date.getHours() < 12 ? 'AM' : 'PM';
+                        output += getHours() < 12 ? 'AM' : 'PM';
                         break;
                     }
 
                     // "12-hour clock time [01,12] using the AM/PM notation; in the POSIX locale, this shall be
                     // equivalent to %I : %M : %S %p."
                     case 'r': {
-                        const rawHours = date.getHours();
+                        const rawHours = getHours();
                         const hours = padStart((rawHours % 12) || 12, 2, '0');
                         // TODO: We should access this from the locale.
                         const am_pm = rawHours < 12 ? 'AM' : 'PM';
-                        const minutes = padStart(date.getMinutes(), 2, '0');
-                        const seconds = padStart(date.getSeconds(), 2, '0');
+                        const minutes = padStart(getMinutes(), 2, '0');
+                        const seconds = padStart(getSeconds(), 2, '0');
                         output += `${hours}:${minutes}:${seconds} ${am_pm}`;
                         break;
                     }
 
                     // "Seconds as a decimal number [00,60]."
                     case 'S': {
-                        output += padStart(date.getSeconds(), 2, '0');
+                        output += padStart(getSeconds(), 2, '0');
                         break;
                     }
 
@@ -236,9 +245,9 @@ export default {
 
                     // "24-hour clock time [00,23] in the format HH:MM:SS."
                     case 'T': {
-                        const hours = padStart(date.getHours(), 2, '0');
-                        const minutes = padStart(date.getMinutes(), 2, '0');
-                        const seconds = padStart(date.getSeconds(), 2, '0');
+                        const hours = padStart(getHours(), 2, '0');
+                        const minutes = padStart(getMinutes(), 2, '0');
+                        const seconds = padStart(getSeconds(), 2, '0');
                         output += `${hours}:${minutes}:${seconds}`;
                         break;
                     }
@@ -246,7 +255,7 @@ export default {
                     // "Weekday as a decimal number [1,7] (1=Monday)."
                     case 'u': {
                         // getDay() returns 0 for Sunday
-                        output += date.getDay() || 7;
+                        output += getDay() || 7;
                         break;
                     }
 
@@ -262,7 +271,7 @@ export default {
 
                     // "Weekday as a decimal number [0,6] (0=Sunday)."
                     case 'w': {
-                        output += date.getDay();
+                        output += getDay();
                         break;
                     }
 
@@ -284,13 +293,13 @@ export default {
 
                     // "Year within century [00,99]."
                     case 'y': {
-                        output += date.getFullYear() % 100;
+                        output += getYear() % 100;
                         break;
                     }
 
                     // "Year with century as a decimal number."
                     case 'Y': {
-                        output += date.getFullYear();
+                        output += getYear();
                         break;
                     }
 

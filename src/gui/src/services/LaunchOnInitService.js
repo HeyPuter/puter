@@ -34,7 +34,6 @@ export class LaunchOnInitService extends Service {
 
         if ( launch_options.on_initialized ) {
             for ( const command of launch_options.on_initialized ) {
-                console.log('running', command)
                 this.run_(command);
             }
         }

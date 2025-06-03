@@ -378,6 +378,7 @@ const zh = {
         "billing.subscription_cancelled_description": '在此账单期结束前，您仍可使用您的订阅服务。', // In English: "You will still have access to your subscription until the end of this billing period."
         "billing.offering.free": '免费', // In English: "Free"
         "billing.offering.pro": '专业', // In English: "Professional"
+        "billing.offering.professional": '专业', // In English: "Professional"
         "billing.offering.business": '商业', // In English: "Business"
         "billing.cloud_storage": '云存储', // In English: "Cloud Storage"
         "billing.ai_access": '人工智能访问', // In English: "AI Access"

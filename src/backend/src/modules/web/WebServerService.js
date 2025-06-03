@@ -38,6 +38,8 @@ const strutil = require('@heyputer/putility').libs.string;
 * It also validates the host header and IP addresses to prevent security vulnerabilities.
 */
 class WebServerService extends BaseService {
+    static CONCERN = 'web';
+
     static MODULES = {
         https: require('https'),
         http: require('http'),
@@ -62,7 +64,9 @@ class WebServerService extends BaseService {
     async ['__on_boot.consolidation'] () {
         const app = this.app;
         const services = this.services;
+        await services.emit('install.middlewares.early', { app });
         await services.emit('install.middlewares.context-aware', { app });
+        this.install_post_middlewares_({ app });
         await services.emit('install.routes', {
             app,
             router_webhooks: this.router_webhooks,
@@ -70,6 +74,22 @@ class WebServerService extends BaseService {
         await services.emit('install.routes-gui', { app });
         
         this.log.noticeme('web server setup done');
+    }
+    
+    install_post_middlewares_ ({ app }) {
+        app.use(async (req, res, next) => {
+            const svc_event = this.services.get('event');
+
+            const event = {
+                req, res,
+                end_: false,
+                end () {
+                    this.end_ = true;
+                }
+            };
+            await svc_event.emit('request.will-be-handled', event);
+            if ( ! event.end_ ) next();
+        });
     }
 
 
@@ -358,7 +378,9 @@ class WebServerService extends BaseService {
                     fields.status, fields.responseTime,
                 ].join(' ');
 
-                const log = this.services.get('log-service').create('morgan');
+                const log = this.services.get('log-service').create('morgan', {
+                    concern: 'web'
+                });
                 try {
                     log.info(message, fields);
                 } catch (e) {
@@ -540,7 +562,6 @@ class WebServerService extends BaseService {
                     req.query[k] = undefined;
                 }
             }
-            console.log('\x1B[36;1m======= ok???', req.query);
             next();
         });
         

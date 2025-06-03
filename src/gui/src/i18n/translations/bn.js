@@ -383,6 +383,7 @@ const bn = {
     "billing.subscription_cancelled_description": "এই বিলিং পিরিয়ডের শেষ পর্যন্ত আপনি আপনার সাবস্ক্রিপশনটি ব্যবহার করতে পারবেন।",
     "billing.offering.free": "বিনামূল্য",
     "billing.offering.pro": "প্রফেশনাল",
+    "billing.offering.professional": "প্রফেশনাল",
     "billing.offering.business": "ব্যবসায়িক",
     "billing.cloud_storage": "ক্লাউড স্টোরেজ",
     "billing.ai_access": "এআই অ্যাক্সেস",

@@ -407,6 +407,7 @@ const ur = {
     "billing.subscription_cancelled_description": "آپ کو اس بلنگ مدت کے اختتام تک اپنی سبسکرپشن تک رسائی حاصل رہے گی۔", // In English: "You will still have access to your subscription until the end of this billing period."
     "billing.offering.free": "مفت", // In English: "Free"
     "billing.offering.pro": "پروفیشنل", // In English: "Professional"
+    "billing.offering.professional": "پروفیشنل", // In English: "Professional"
     "billing.offering.business": "کاروبار", // In English: "Business"
     "billing.cloud_storage": "کلاؤڈ اسٹوریج", // In English: "Cloud Storage"
     "billing.ai_access": "اے آئی تک رسائی", // In English: "AI Access"

@@ -42,7 +42,7 @@ export class DebugService extends Service {
             category,
         };
         this.enabled_logs.push(category);
-        puter.log.on(category);
+        puter.logger.on(category);
         $('iframe').each(function () {
             this.contentWindow.postMessage(msg);
         });

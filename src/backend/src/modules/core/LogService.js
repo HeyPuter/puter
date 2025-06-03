@@ -23,8 +23,8 @@ const LOG_LEVEL_WARN = logSeverity(1, 'WARN', '33;1', 'warn');
 const LOG_LEVEL_INFO = logSeverity(2, 'INFO', '36;1', 'info');
 const LOG_LEVEL_TICK = logSeverity(10, 'TICK', '34;1', 'info');
 const LOG_LEVEL_DEBU = logSeverity(4, 'DEBU', '37;1', 'debug');
-const LOG_LEVEL_NOTICEME = logSeverity(4, 'NOTICE_ME', '33;1', 'error');
-const LOG_LEVEL_SYSTEM = logSeverity(4, 'SYSTEM', '33;1', 'system');
+const LOG_LEVEL_NOTICEME = logSeverity(3, 'NOTICE_ME', '33;1', 'error');
+const LOG_LEVEL_SYSTEM = logSeverity(3, 'SYSTEM', '33;1', 'system');
 
 const winston = require('winston');
 const { Context } = require('../../util/context');
@@ -192,6 +192,8 @@ class DevLogger {
         }
 
         if ( this.off ) return;
+        
+        if ( ! process.env.DEBUG && log_lvl.ordinal >= 4 ) return;
 
         const ld = Context.get('logdent', { allow_fallback: true })
         const prefix = globalThis.dev_console_indent_on
@@ -308,23 +310,44 @@ class CustomLogger {
         this.delegate = delegate;
         this.callback = callback;
     }
-    onLogMessage (log_lvl, crumbs, message, fields, ...a) {
+    async onLogMessage (log_lvl, crumbs, message, fields, ...a) {
         // Logging is allowed to be performed without a context, but we
         // don't want log functions to be asynchronous which rules out
         // wrapping with Context.allow_fallback. Instead we provide a
         // context as a parameter.
         const context = Context.get(undefined, { allow_fallback: true });
 
+        let ret;
+        try {
+            ret = await this.callback({
+                context,
+                log_lvl, crumbs, message, fields, args: a,
+            });
+        } catch (e) {
+            console.error('error?', e);
+        }
+        
+        if ( ret && ret.skip ) return;
+
+        if ( ! ret ) {
+            this.delegate.onLogMessage(
+                log_lvl,
+                crumbs,
+                message,
+                fields,
+                ...a,
+            );
+            return;
+        }
+        
         const {
             log_lvl: _log_lvl,
             crumbs: _crumbs,
             message: _message,
             fields: _fields,
             args,
-        } = this.callback({
-            context,
-            log_lvl, crumbs, message, fields, args: a,
-        });
+        } = ret;
+
         this.delegate.onLogMessage(
             _log_lvl ?? log_lvl,
             _crumbs ?? crumbs,

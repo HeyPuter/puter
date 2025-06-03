@@ -370,6 +370,7 @@ const nb = {
         "billing.subscription_cancelled_description": "Du vil fortsatt ha tilgang til abonnementet ditt ut denne fakturaperioden.",
         "billing.offering.free": "Gratis", 
         "billing.offering.pro": "Professional",
+        "billing.offering.professional": "Profesjonell",
         "billing.offering.business": "Business",
         "billing.cloud_storage": "Skylagring",
         "billing.ai_access": "AI-tilgang",

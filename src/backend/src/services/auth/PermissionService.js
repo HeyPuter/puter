@@ -264,6 +264,7 @@ class PermissionUtil {
 * This service interacts with the database to manage permissions and logs actions for auditing purposes.
 */
 class PermissionService extends BaseService {
+    static CONCERN = 'permissions';
     /**
     * Initializes the PermissionService by setting up internal arrays for permission handling.
     * 

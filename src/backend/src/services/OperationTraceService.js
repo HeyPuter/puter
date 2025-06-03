@@ -47,7 +47,8 @@ class OperationFrame {
         this.id = require('uuid').v4();
 
         this.log = (x ?? Context).get('services').get('log-service').create(
-            `frame:${this.id}`
+            `frame:${this.id}`,
+            { concern: 'filesystem' },
         );
     }
 
@@ -232,8 +233,12 @@ class OperationFrame {
 * This service is essential for monitoring and logging the lifecycle of operations within the system.
 */
 class OperationTraceService {
+    static CONCERN = 'filesystem';
+
     constructor ({ services }) {
-        this.log = services.get('log-service').create('operation-trace');
+        this.log = services.get('log-service').create('operation-trace', {
+            concern: this.constructor.CONCERN,
+        });
 
         // TODO: replace with kv.js set
         this.ongoing = {};
@@ -334,7 +339,12 @@ class BaseOperation extends AdvancedBase {
 
         // let's make the logger for it too
         this.log = x.get('services').get('log-service').create(
-            this.constructor.name, { operation: frame.id });
+            this.constructor.name, {
+                operation: frame.id,
+                ...(this.constructor.CONCERN ? {
+                    concern: this.constructor.CONCERN,
+                } : {})
+            });
 
         // Run operation in new context
         try {

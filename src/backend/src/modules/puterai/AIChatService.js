@@ -598,6 +598,9 @@ class AIChatService extends BaseService {
                             try {
                                 await ret.result.value.init_chat_stream({ chatStream });
                             } catch (e) {
+                                this.errors.report('error during stream response', {
+                                    source: e,
+                                })
                                 stream.write(JSON.stringify({
                                     type: 'error',
                                     message: e.message,

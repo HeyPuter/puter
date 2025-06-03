@@ -19,14 +19,13 @@ import { APIAccessService } from './services/APIAccess.js';
 import { XDIncomingService } from './services/XDIncoming.js';
 import { NoPuterYetService } from './services/NoPuterYet.js';
 import { Debug } from './modules/Debug.js';
-import { PSocket, wispInfo } from './modules/networking/PSocket.js';
+import { PSocket } from './modules/networking/PSocket.js';
 import { PTLSSocket } from "./modules/networking/PTLS.js"
-import { PWispHandler } from './modules/networking/PWispHandler.js';
-import { make_http_api } from './lib/http.js';
 import Exec from './modules/Exec.js';
 import Convert from './modules/Convert.js';
 import Threads from './modules/Threads.js';
 import Perms from './modules/Perms.js';
+import { pFetch } from './modules/networking/requests.js';
 
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
@@ -215,7 +214,7 @@ export default window.puter = (function() {
             const cat_logger = logger;
             
             // create facade for easy logging
-            this.log = new putility.libs.log.LoggerFacade({
+            this.logger = new putility.libs.log.LoggerFacade({
                 impl: logger,
                 cat: cat_logger,
             });
@@ -314,7 +313,7 @@ export default window.puter = (function() {
                         '] ',
                 });
 
-                this.log.impl = logger;
+                this.logger.impl = logger;
             })();
             
             // Lock to prevent multiple requests to `/rao`
@@ -329,47 +328,25 @@ export default window.puter = (function() {
                 await this.services.wait_for_init(['api-access']);
                 this.p_can_request_rao_.resolve();
             })();
-            
-            // TODO: This should be separated into modules called "Net" and "Http".
-            //       Modules need to be refactored first because right now they
-            //       are too tightly-coupled with authentication state.
-            (async () => {
-                // === puter.net ===
-                const { token: wispToken, server: wispServer } = (await (await fetch(this.APIOrigin + '/wisp/relay-token/create', {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${this.authToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({}),
-                })).json());
-                wispInfo.handler = new PWispHandler(wispServer, wispToken);
-                this.net = {
-                    generateWispV1URL: async () => {
-                        const { token: wispToken, server: wispServer } = (await (await fetch(this.APIOrigin + '/wisp/relay-token/create', {
-                            method: 'POST',
-                            headers: {
-                                Authorization: `Bearer ${this.authToken}`,
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({}),
-                        })).json());
-                        return `${wispServer}/${wispToken}/`
-                    },
-                    Socket: PSocket,
-                    tls: {
-                        TLSSocket: PTLSSocket
-                    }
-                }
-                
-                // === puter.http ===
-                this.http = make_http_api(
-                    { Socket: this.net.Socket, DEFAULT_PORT: 80 });
-                this.https = make_http_api(
-                    { Socket: this.net.tls.TLSSocket, DEFAULT_PORT: 443 });
-            })();
 
-
+            this.net = {
+                generateWispV1URL: async () => {
+                    const { token: wispToken, server: wispServer } = (await (await fetch(this.APIOrigin + '/wisp/relay-token/create', {
+                        method: 'POST',
+                        headers: {
+                            Authorization: `Bearer ${this.authToken}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({}),
+                    })).json());
+                    return `${wispServer}/${wispToken}/`
+                },
+                Socket: PSocket,
+                tls: {
+                    TLSSocket: PTLSSocket
+                },
+                fetch: pFetch
+            }
         }
 
         /**
@@ -543,7 +520,28 @@ export default window.puter = (function() {
         }
 
         print = function(...args){
+            // Check if the last argument is an options object with escapeHTML or code property
+            let options = {};
+            if(args.length > 0 && typeof args[args.length - 1] === 'object' && args[args.length - 1] !== null && 
+               ('escapeHTML' in args[args.length - 1] || 'code' in args[args.length - 1])) {
+                options = args.pop();
+            }
+            
             for(let arg of args){
+                // Escape HTML if the option is set to true or if code option is true
+                if((options.escapeHTML === true || options.code === true) && typeof arg === 'string') {
+                    arg = arg.replace(/&/g, '&amp;')
+                             .replace(/</g, '&lt;')
+                             .replace(/>/g, '&gt;')
+                             .replace(/"/g, '&quot;')
+                             .replace(/'/g, '&#039;');
+                }
+                
+                // Wrap in code/pre tags if code option is true
+                if(options.code === true) {
+                    arg = `<code><pre>${arg}</pre></code>`;
+                }
+                
                 document.body.innerHTML += arg;
             }
         }

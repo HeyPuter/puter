@@ -84,7 +84,9 @@ class BaseES extends AdvancedBase {
         }
 
         this.log = Context.get('services').get('log-service')
-            .create(`ES:${this.entity_name}:${this.constructor.name}`);
+            .create(`ES:${this.entity_name}:${this.constructor.name}`, {
+                concern: 'es',
+            });
     }
 
     async provide_context ( args ) {

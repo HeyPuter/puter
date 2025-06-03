@@ -35,6 +35,8 @@ const strutil = require('@heyputer/putility').libs.string;
  * It provides methods for registering drivers, calling driver methods, and handling driver errors.
  */
 class DriverService extends BaseService {
+    static CONCERN = 'drivers';
+
     static MODULES = {
         types: require('./types'),
     }

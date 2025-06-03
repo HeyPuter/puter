@@ -829,6 +829,13 @@ window.initgui = async function(options){
         let headers = {};
         if(window.custom_headers)
             headers = window.custom_headers;
+
+        // if this is a popup, show a spinner
+        let spinner_init_ts = Date.now();
+        if(window.embedded_in_popup){
+            puter.ui.showSpinner('Setting up your <a href="https://puter.com" target="_blank">Puter</a> account for secure AI and Cloud features...');
+        }
+
         $.ajax({
             url: window.gui_origin + "/signup",
             type: 'POST',
@@ -841,18 +848,34 @@ window.initgui = async function(options){
                 is_temp: true,
             }),
             success: async function (data){
-                window.update_auth_data(data.token, data.user);
-                document.dispatchEvent(new Event("login", { bubbles: true}));
+                // if this is a popup, hide the spinner, make sure it was visible for at least 2 seconds
+                if(window.embedded_in_popup){
+                    let spinner_duration = (Date.now() - spinner_init_ts);
+                    setTimeout(() => {
+                        window.update_auth_data(data.token, data.user);
+                        document.dispatchEvent(new Event("login", { bubbles: true}));        
+                        puter.ui.hideSpinner();
+                    }, spinner_duration > 2000 ? 10 : 2000 - spinner_duration);
+
+                    return;
+                }else{
+                    window.update_auth_data(data.token, data.user);
+                    document.dispatchEvent(new Event("login", { bubbles: true}));
+                }
             },
             error: async (err) => {
                 UIAlert({
                     message: html_encode(err.responseText),
                 });
+            },
+            complete: function(){
+                
             }
         });
+
     }
 
-    // if there is at least one window open (only non-Explorer windows), ask user for confirmation when navigating away
+    // if there is at least one window open (only non-Explorer windows), ask user for confirmation when navigating away from puter
     if(window.feature_flags.prompt_user_when_navigation_away_from_puter){
         window.onbeforeunload = function(){
             if($(`.window:not(.window[data-app="explorer"])`).length > 0)

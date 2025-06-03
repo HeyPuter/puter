@@ -648,6 +648,7 @@ span.header-sort-icon img {
     white-space: nowrap;
     text-align: left;
     max-width: 220px;
+    margin-bottom: 3px;
 }
 
 .item-name-shadow {
@@ -3791,6 +3792,7 @@ fieldset[name=number-code] {
     -webkit-font-smoothing: antialiased;
     flex-grow: 1;
     position: relative;
+    height: 500px;
 }
 
 .settings-sidebar {
@@ -3798,9 +3800,12 @@ fieldset[name=number-code] {
     background-color: #f9f9f9;
     border-right: 1px solid #e0e0e0;
     padding: 20px;
-    position: relative;
+    position: fixed;
     margin-top: 1px;
+    height: 100%;
+    z-index: 2;
 }
+
 
 .settings-sidebar-title {
     margin-bottom: 20px;
@@ -3834,8 +3839,12 @@ fieldset[name=number-code] {
 .settings-content-container {
     flex: 1;
     padding: 20px 30px;
-    height: 500px;
     overflow-y: auto;
+    margin-left: 240px;
+}
+
+.device-phone .settings-content-container {
+    margin-left: 0;
 }
 
 .settings-content {

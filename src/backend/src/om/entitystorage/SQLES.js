@@ -115,10 +115,6 @@ class SQLES extends BaseES {
             const values = [];
             if ( predicate ) values.push(...(predicate.values || []));
 
-            if ( this.debug ) {
-                this.log.info('-> SQL STMT', { stmt, values });
-            }
-
             const rows = await this.db.read(stmt, values);
 
             const entities = [];

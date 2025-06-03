@@ -43,7 +43,9 @@ module.exports = eggspress('/readdir', {
 }, async (req, res, next) => {
     let log; {
         const x = Context.get();
-        log = x.get('services').get('log-service').create('readdir');
+        log = x.get('services').get('log-service').create('readdir', {
+            concern: 'filesystem',
+        });
         log.info(`readdir: ${req.body.path}`);
     }
 

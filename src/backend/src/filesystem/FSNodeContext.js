@@ -46,6 +46,8 @@ const { PermissionUtil } = require("../services/auth/PermissionService");
  * @property {string} uid the UUID of the filesystem entry
  */
 module.exports = class FSNodeContext {
+    static CONCERN = 'filesystem';
+
     static TYPE_FILE = { label: 'File' };
     static TYPE_DIRECTORY = { label: 'Directory' };
     static TYPE_SYMLINK = {};
@@ -75,7 +77,9 @@ module.exports = class FSNodeContext {
         provider,
         fs
     }) {
-        this.log = services.get('log-service').create('fsnode-context');
+        this.log = services.get('log-service').create('fsnode-context', {
+            concern: this.constructor.CONCERN,
+        });
         this.selector_ = null;
         this.selectors_ = [];
         this.selector = selector;

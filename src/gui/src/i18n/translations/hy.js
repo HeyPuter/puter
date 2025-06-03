@@ -376,6 +376,7 @@ const hy = {
         "billing.subscription_cancelled_description": "Դուք դեռ կունենաք ձեր բաժանորդագրությանը մուտք մինչև այս վճարային ժամանակահատվածի ավարտը",
         "billing.offering.free": "Անվճար",
         "billing.offering.pro": "Պրոֆեսիոնալ",
+        "billing.offering.professional": "Պրոֆեսիոնալ",
         "billing.offering.business": "Բիզնես",
         "billing.cloud_storage": "Ամպային պահեստավորում",
         "billing.ai_access": "ԱԲ հասանելիություն",

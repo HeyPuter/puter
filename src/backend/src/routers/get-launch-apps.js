@@ -81,7 +81,6 @@ module.exports = async (req, res) => {
     // prepare each app for returning to user by only returning the necessary fields
     // and adding them to the retobj array
     result.recent = [];
-    console.log('\x1B[36;1m -------- RECENT APPS -------- \x1B[0m', apps);
     for ( const { app_uid: uid } of apps ) {
         console.log('\x1B[36;1m -------- UID -------- \x1B[0m', uid);
         const app = await get_app({ uid });

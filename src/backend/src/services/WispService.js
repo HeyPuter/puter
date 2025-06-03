@@ -34,21 +34,40 @@ class WispService extends BaseService {
         Endpoint({
             route: '/relay-token/create',
             methods: ['POST'],
-            mw: [configurable_auth()],
+            mw: [configurable_auth({ optional: true })],
             handler: async (req, res) => {
                 const svc_token = this.services.get('token');
                 const actor = req.actor;
-                const token = svc_token.sign('wisp', {
-                    $: 'token:wisp',
-                    $v: '0.0.0',
-                    user_uid: actor.type.user.uuid,
-                }, {
-                    expiresIn: '1d',
-                });
-                res.json({
-                    token,
-                    server: this.config.server,
-                });
+                
+                if ( actor ) {
+                    const token = svc_token.sign('wisp', {
+                        $: 'token:wisp',
+                        $v: '0.0.0',
+                        user_uid: actor.type.user.uuid,
+                    }, {
+                        expiresIn: '1d',
+                    });
+                    this.log.info(`creating wisp token`, {
+                        actor: actor.uid,
+                        token: token,
+                    });
+                    res.json({
+                        token,
+                        server: this.config.server,
+                    });
+                } else {
+                    const token = svc_token.sign('wisp', {
+                        $: 'token:wisp',
+                        $v: '0.0.0',
+                        guest: true,
+                    }, {
+                        expiresIn: '1d',
+                    });
+                    res.json({
+                        token,
+                        server: this.config.server,
+                    });
+                }
             }
         }).attach(r_wisp);
 
@@ -77,7 +96,8 @@ class WispService extends BaseService {
                 const event = {
                     allow: true,
                     policy: { allow: true },
-                    user: await svc_getUser.get_user({
+                    guest: decoded.guest,
+                    user: decoded.guest ? undefined : await svc_getUser.get_user({
                         uuid: decoded.user_uid,
                     }),
                 };

@@ -26,6 +26,7 @@ const {
 const auth = require('../middleware/auth.js');
 const config = require('../config');
 const { DB_WRITE } = require('../services/database/consts');
+const { SECOND } = require('@heyputer/putility/src/libs/time.js');
 
 // -----------------------------------------------------------------------//
 // POST /save_account
@@ -93,10 +94,7 @@ router.post('/save_account', auth, express.json(), async (req, res, next)=>{
     return svc_lock.lock([
         `save-account:username:${req.body.username}`,
         `save-account:email:${req.body.email}`
-    ], async () => {
-        await new Promise((rslv) => {
-            setTimeout(rslv, 5000);
-        });
+    ], { timeout: 5 * SECOND }, async () => {
         // duplicate username check, do this only if user has supplied a new username
         if(req.body.username !== req.user.username && await username_exists(req.body.username))
             return res.status(400).send('This username already exists in our database. Please use another one.');
