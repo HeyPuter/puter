@@ -55,8 +55,15 @@ const configurable_auth = options => async (req, res, next) => {
     if(req.body && req.body.auth_token)
         token = req.body.auth_token;
     // HTTML Auth header
-    else if(req.header && req.header('Authorization'))
+    else if(req.header && req.header('Authorization')) {
         token = req.header('Authorization');
+        token = token.replace('Bearer ', '').trim();
+        if ( token === 'undefined' ) {
+            APIError.create('unexpected_undefined', null,
+                `The Authorization token cannot be the string "undefined"`
+            );
+        }
+    }
     // Cookie
     else if(req.cookies && req.cookies[config.cookie_name])
         token = req.cookies[config.cookie_name];

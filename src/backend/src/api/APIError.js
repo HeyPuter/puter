@@ -352,6 +352,10 @@ module.exports = class APIError {
             status: 401,
             message: 'Missing authentication token.',
         },
+        'unexpected_undefined': {
+            status: 401,
+            message: msg => msg ?? "unexpected string undefined"
+        },
         'token_auth_failed': {
             status: 401,
             message: 'Authentication failed.',
