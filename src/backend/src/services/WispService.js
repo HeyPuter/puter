@@ -47,6 +47,10 @@ class WispService extends BaseService {
                     }, {
                         expiresIn: '1d',
                     });
+                    this.log.info(`creating wisp token`, {
+                        actor: actor.uid,
+                        token: token,
+                    });
                     res.json({
                         token,
                         server: this.config.server,
