@@ -522,7 +522,6 @@ function UIItem(options){
             tolerance: 'pointer',
             hoverClass: 'window-sidebar-drop-hover',
             drop: function(event, ui) {
-                console.log('Item dropped on sidebar');
                 const $draggedItem = $(ui.draggable);
                 
                 if (!$draggedItem.attr('data-path')) {
@@ -531,6 +530,7 @@ function UIItem(options){
                 
                 let favorites = [];
                 try {
+                    
                     favorites = JSON.parse(window.sidebar_items || "[]");
                 } catch (e) {
                     console.error('Error parsing sidebar_items:', e);
@@ -573,8 +573,6 @@ function UIItem(options){
                             }
                         }, 200);
                     }
-                    
-                    console.log('Added to favorites:', item.name);
                 }
                 
                 $draggedItem.removeClass('item-selected');
@@ -582,8 +580,6 @@ function UIItem(options){
                 return false;
             }
         });
-        
-        console.log('Sidebar droppable initialized');
         
         //  CSS for the hover effect
         const style = document.createElement('style');
@@ -976,6 +972,7 @@ function UIItem(options){
                 html: i18n('Add all to Favorites'),
                 onClick: function(){
                     // Get current favorites
+                    
                     let favorites = JSON.parse(window.sidebar_items || "[]");
                     let addedCount = 0;
                     
@@ -1541,6 +1538,7 @@ function UIItem(options){
             // -------------------------------------------
 
             if ($(el_item).attr('data-immutable') === '0' && !is_trashed && !is_trash) {
+                
                 let favorites = JSON.parse(window.sidebar_items || "[]");
 
                 let path = $(el_item).attr('data-path');
@@ -1628,44 +1626,53 @@ function rebuild_all_sidebars() {
             let icon;
             var filename = item.name;
                 
-            if(item.path === window.home_path) 
-                icon = window.icons['sidebar-folder-home.svg'];
-            else if(item.path === window.docs_path)
-                icon = window.icons['sidebar-folder-documents.svg'];
-            else if(item.path === window.public_path)
-                icon = window.icons['sidebar-folder-public.svg'];
-            else if(item.path === window.pictures_path)
-                icon = window.icons['sidebar-folder-pictures.svg'];
-            else if(item.path === window.desktop_path)
-                icon = window.icons['sidebar-folder-desktop.svg'];
-            else if(item.path === window.videos_path)
-                icon = window.icons['sidebar-folder-videos.svg'];
-            else if (item.type === 'folder') {
-                icon = window.icons['sidebar-folder.svg'];  
-            } else if(filename && filename.includes('.')) {
-                // Get the extension type  
-                var extension = filename.split('.').pop().toLowerCase();
-                if(extension == 'txt') {
-                    iconName = 'file.svg';
+            if(!window.sidebar_items){
+                h += `<div draggable="false" title="${i18n('home')}" class="window-sidebar-item disable-user-select ${options.path === window.home_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.home_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-home.svg'])}">${i18n('home')}</div>`;
+                h += `<div draggable="false" title="${i18n('documents')}" class="window-sidebar-item disable-user-select ${options.path === window.docs_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.docs_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-documents.svg'])}">${i18n('documents')}</div>`;
+                h += `<div draggable="false" title="${i18n('public')}" class="window-sidebar-item disable-user-select ${options.path === window.public_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.public_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-public.svg'])}">${i18n('public')}</div>`;
+                h += `<div draggable="false" title="${i18n('pictures')}" class="window-sidebar-item disable-user-select ${options.path === window.pictures_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.pictures_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-pictures.svg'])}">${i18n('pictures')}</div>`;
+                h += `<div draggable="false" title="${i18n('desktop')}" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-desktop.svg'])}">${i18n('desktop')}</div>`;
+                h += `<div draggable="false" title="${i18n('videos')}" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-videos.svg'])}">${i18n('videos')}</div>`;
+            }else{
+                if(item.path === window.home_path) 
+                    icon = window.icons['sidebar-folder-home.svg'];
+                else if(item.path === window.docs_path)
+                    icon = window.icons['sidebar-folder-documents.svg'];
+                else if(item.path === window.public_path)
+                    icon = window.icons['sidebar-folder-public.svg'];
+                else if(item.path === window.pictures_path)
+                    icon = window.icons['sidebar-folder-pictures.svg'];
+                else if(item.path === window.desktop_path)
+                    icon = window.icons['sidebar-folder-desktop.svg'];
+                else if(item.path === window.videos_path)
+                    icon = window.icons['sidebar-folder-videos.svg'];
+                else if (item.type === 'folder') {
+                    icon = window.icons['sidebar-folder.svg'];  
+                } else if(filename && filename.includes('.')) {
+                    // Get the extension type  
+                    var extension = filename.split('.').pop().toLowerCase();
+                    if(extension == 'txt') {
+                        iconName = 'file.svg';
+                    } else {
+                        // Create the SVG icon name string
+                        var iconName = `file-${extension}.svg`;
+                    }
+                    icon = window.icons[iconName];
                 } else {
-                    // Create the SVG icon name string
-                    var iconName = `file-${extension}.svg`;
+                    //default folder icon
+                    icon = window.icons['sidebar-folder.svg'];
                 }
-                icon = window.icons[iconName];
-            } else {
-                //default folder icon
-                icon = window.icons['sidebar-folder.svg'];
+                
+                // Get the current window's path
+                const current_window = $(this).closest('.ui-window');
+                const current_path = current_window.data('path') || '';
+                
+                h += `<div title="${html_encode(item.label)}" class="window-sidebar-item disable-user-select ${current_path === item.path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(item.path)}" data-is_dir="${item.type === 'folder' ? 'true' : 'false'}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(icon)}">${html_encode(item.name)}</div>`;
             }
             
-            // Get the current window's path
-            const current_window = $(this).closest('.ui-window');
-            const current_path = current_window.data('path') || '';
-            
-            h += `<div title="${html_encode(item.label)}" class="window-sidebar-item disable-user-select ${current_path === item.path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(item.path)}" data-is_dir="${item.type === 'folder' ? 'true' : 'false'}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(icon)}">${html_encode(item.name)}</div>`;
+            // Replace the sidebar content
+            $(this).html(h);
         }
-        
-        // Replace the sidebar content
-        $(this).html(h);
 
     });
 }

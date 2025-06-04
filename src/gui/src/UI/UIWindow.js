@@ -262,6 +262,53 @@ async function UIWindow(options) {
             h += `</div>`;
         }
 
+        function initialize_sidebar() {
+            // Only set the default folders if sidebar_items is missing or empty
+            if (!window.sidebar_items ) {
+                // Default system folders
+                const system_directories = [
+                    {
+                        path: window.home_path,
+                        name: i18n('home'),
+                        label: i18n('home'),
+                        type: 'folder'
+                    },
+                    {
+                        path: window.docs_path,
+                        name: i18n('documents'),
+                        label: i18n('documents'),
+                        type: 'folder'
+                    },
+                    {
+                        path: window.public_path,
+                        name: i18n('public'),
+                        label: i18n('public'),
+                        type: 'folder'
+                    },
+                    {
+                        path: window.pictures_path,
+                        name: i18n('pictures'),
+                        label: i18n('pictures'),
+                        type: 'folder'
+                    },
+                    {
+                        path: window.desktop_path,
+                        name: i18n('desktop'),
+                        label: i18n('desktop'),
+                        type: 'folder'
+                    },
+                    {
+                        path: window.videos_path,
+                        name: i18n('videos'),
+                        label: i18n('videos'),
+                        type: 'folder'
+                    }
+                ];
+
+                // Store it as JSON string so downstream code can parse it
+                window.sidebar_items = JSON.stringify(system_directories);
+            }
+        }
         // Sidebar
         if(options.is_dir && !isMobile.phone){
             h += `<div class="window-sidebar disable-user-select hide-scrollbar"
@@ -270,6 +317,8 @@ async function UIWindow(options) {
                 >`;
                 // favorites
                 h += `<h2 class="window-sidebar-title disable-user-select">${i18n('favorites')}</h2>`;
+
+                initialize_sidebar();
                 
                 //add correct sidebar icons according to item type
                 let items = JSON.parse(window.sidebar_items);
@@ -2681,7 +2730,7 @@ $(document).on('contextmenu taphold', '.window-sidebar-item', function(event){
                     if (path2.charAt(0) !== '/') {
                         path2 = '/' + path2;
                     }
-
+                    
                     const favorites = JSON.parse(window.sidebar_items || "[]");
                     const is_favorite = favorites.some(fav => fav.path === path2);
 
@@ -2723,51 +2772,61 @@ function rebuild_all_sidebars() {
         // Generate new sidebar HTML
         let h = '';
         h += `<h2 class="window-sidebar-title disable-user-select">${i18n('favorites')}</h2>`;
+
         
         // Parse all items
         let items = JSON.parse(window.sidebar_items);
         for(let item of items) {
             let icon;
             var filename = item.name;
-                
-            if(item.path === window.home_path) 
-                icon = window.icons['sidebar-folder-home.svg'];
-            else if(item.path === window.docs_path)
-                icon = window.icons['sidebar-folder-documents.svg'];
-            else if(item.path === window.public_path)
-                icon = window.icons['sidebar-folder-public.svg'];
-            else if(item.path === window.pictures_path)
-                icon = window.icons['sidebar-folder-pictures.svg'];
-            else if(item.path === window.desktop_path)
-                icon = window.icons['sidebar-folder-desktop.svg'];
-            else if(item.path === window.videos_path)
-                icon = window.icons['sidebar-folder-videos.svg'];
-            else if (item.type === 'folder') {
-                icon = window.icons['sidebar-folder.svg'];  
-            } else if(filename && filename.includes('.')) {
-                // Get the extension type  
-                var extension = filename.split('.').pop().toLowerCase();
-                if(extension == 'txt') {
-                    iconName = 'file.svg';
+               
+            if(!window.sidebar_items){
+                h += `<div draggable="false" title="${i18n('home')}" class="window-sidebar-item disable-user-select ${options.path === window.home_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.home_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-home.svg'])}">${i18n('home')}</div>`;
+                h += `<div draggable="false" title="${i18n('documents')}" class="window-sidebar-item disable-user-select ${options.path === window.docs_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.docs_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-documents.svg'])}">${i18n('documents')}</div>`;
+                h += `<div draggable="false" title="${i18n('public')}" class="window-sidebar-item disable-user-select ${options.path === window.public_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.public_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-public.svg'])}">${i18n('public')}</div>`;
+                h += `<div draggable="false" title="${i18n('pictures')}" class="window-sidebar-item disable-user-select ${options.path === window.pictures_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.pictures_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-pictures.svg'])}">${i18n('pictures')}</div>`;
+                h += `<div draggable="false" title="${i18n('desktop')}" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-desktop.svg'])}">${i18n('desktop')}</div>`;
+                h += `<div draggable="false" title="${i18n('videos')}" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-videos.svg'])}">${i18n('videos')}</div>`;
+            }else{
+                if(item.path === window.home_path) 
+                    icon = window.icons['sidebar-folder-home.svg'];
+                else if(item.path === window.docs_path)
+                    icon = window.icons['sidebar-folder-documents.svg'];
+                else if(item.path === window.public_path)
+                    icon = window.icons['sidebar-folder-public.svg'];
+                else if(item.path === window.pictures_path)
+                    icon = window.icons['sidebar-folder-pictures.svg'];
+                else if(item.path === window.desktop_path)
+                    icon = window.icons['sidebar-folder-desktop.svg'];
+                else if(item.path === window.videos_path)
+                    icon = window.icons['sidebar-folder-videos.svg'];
+                else if (item.type === 'folder') {
+                    icon = window.icons['sidebar-folder.svg'];  
+                } else if(filename && filename.includes('.')) {
+                    // Get the extension type  
+                    var extension = filename.split('.').pop().toLowerCase();
+                    if(extension == 'txt') {
+                        iconName = 'file.svg';
+                    } else {
+                        // Create the SVG icon name string
+                        var iconName = `file-${extension}.svg`;
+                    }
+                    icon = window.icons[iconName];
                 } else {
-                    // Create the SVG icon name string
-                    var iconName = `file-${extension}.svg`;
+                    //default folder icon
+                    icon = window.icons['sidebar-folder.svg'];
                 }
-                icon = window.icons[iconName];
-            } else {
-                //default folder icon
-                icon = window.icons['sidebar-folder.svg'];
+                
+                // Get the current window's path
+                const current_window = $(this).closest('.ui-window');
+                const current_path = current_window.data('path') || '';
+                
+                h += `<div title="${html_encode(item.label)}" class="window-sidebar-item disable-user-select ${current_path === item.path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(item.path)}" data-is_dir="${item.type === 'folder' ? 'true' : 'false'}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(icon)}">${html_encode(item.name)}</div>`;
             }
             
-            // Get the current window's path
-            const current_window = $(this).closest('.ui-window');
-            const current_path = current_window.data('path') || '';
-            
-            h += `<div title="${html_encode(item.label)}" class="window-sidebar-item disable-user-select ${current_path === item.path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(item.path)}" data-is_dir="${item.type === 'folder' ? 'true' : 'false'}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(icon)}">${html_encode(item.name)}</div>`;
+            // Replace the sidebar content
+            $(this).html(h);
         }
-        
-        // Replace the sidebar content
-        $(this).html(h);
 
     });
 }
