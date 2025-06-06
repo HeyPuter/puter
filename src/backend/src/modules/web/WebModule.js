@@ -30,6 +30,9 @@ class WebModule extends AdvancedBase {
         const useapi = context.get('useapi');
         useapi.def('web', require('./lib/__lib__.js'), { assign: true });
         
+        // Prevent extensions from loading incompatible versions of express
+        useapi.def('web.express', require('express'));
+        
         // === SERVICES === //
         const services = context.get('services');
         

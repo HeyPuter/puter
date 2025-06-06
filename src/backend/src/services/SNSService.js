@@ -63,6 +63,11 @@ class SNSService extends BaseService {
             maxAge: 1000 * 60,
         });
     }
+    
+    _init () {
+        const svc_web = this.services.get('web-server');
+        svc_web.allow_undefined_origin('/sns', '/sns/');
+    }
 
     async ['__on_install.routes'] (_, { app }) {
         Endpoint({

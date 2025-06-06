@@ -51,6 +51,14 @@ class WebServerService extends BaseService {
         ['on-finished']: require('on-finished'),
         morgan: require('morgan'),
     };
+    
+    _construct () {
+        this.undefined_origin_allowed = [];
+    }
+    
+    allow_undefined_origin (route) {
+        this.undefined_origin_allowed.push(route);
+    }
 
 
     /**
@@ -504,10 +512,13 @@ class WebServerService extends BaseService {
                 ip: req.headers?.['x-forwarded-for'] ||
                     req.connection?.remoteAddress,
             };
-            await svc_event.emit('ip.validate', event);
+
+            if ( ! this.config.disable_ip_validate_event ) {
+                await svc_event.emit('ip.validate', event);
+            }
 
             // rules that don't apply to notification endpoints
-            if ( req.path !== '/sns' && req.path !== '/sns/' ) {
+            if ( ! this.undefined_origin_allowed.includes(req.path) ) {
                 // check if no origin
                 if ( req.method === 'POST' && req.headers.origin === undefined ) {
                     event.allow = false;
