@@ -22,6 +22,7 @@ const Library = require("./definitions/Library");
 const { NotificationES } = require("./om/entitystorage/NotificationES");
 const { ProtectedAppES } = require("./om/entitystorage/ProtectedAppES");
 const { Context } = require('./util/context');
+const { LLOWrite } = require("./filesystem/ll_operations/ll_write");
 
 
 
@@ -86,6 +87,16 @@ const install = async ({ services, app, useapi, modapi }) => {
         
         def('core', require('./services/auth/Actor'), { assign: true });
         def('core.config', config);
+        
+        // Note: this is an incomplete export; it was added for a proprietary
+        // extension. Contributors may wish to add definitions in the 'fs.'
+        // scope. Needing to add these individually is possibly a symptom of an
+        // anti-pattern; "export filesystem operations to extensions" is one
+        // statement in English, so maybe it should be one statement of code.
+        def('core.fs', {
+            LLOWrite,
+        });
+        def('core.fs.selectors', require('./filesystem/node/selectors'));
     });
     
     useapi.withuse(() => {
