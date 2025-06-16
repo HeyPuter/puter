@@ -189,8 +189,10 @@ class LLOWrite extends LLWriteBase {
             }
         });
 
-        fsentry_tmp.thumbnail = await fsentry_tmp.thumbnail_promise;
-        delete fsentry_tmp.thumbnail_promise;
+        if ( fsentry_tmp?.thumbnail_promise ) {
+            fsentry_tmp.thumbnail = await fsentry_tmp.thumbnail_promise;
+            delete fsentry_tmp.thumbnail_promise;
+        }
 
         const ts = Math.round(Date.now() / 1000);
         const raw_fsentry_delta = {
