@@ -518,7 +518,11 @@ class WebServerService extends BaseService {
             }
 
             // rules that don't apply to notification endpoints
-            if ( ! this.undefined_origin_allowed.includes(req.path) ) {
+            const undefined_origin_allowed = this.undefined_origin_allowed.some(rule => {
+                if ( typeof rule === 'string' ) return rule === req.path;
+                return rule.test(req.path);
+            });
+            if ( ! undefined_origin_allowed ) {
                 // check if no origin
                 if ( req.method === 'POST' && req.headers.origin === undefined ) {
                     event.allow = false;
