@@ -240,3 +240,4 @@ to verify permisison is granted.
 
 - [Access Configuration](./services/config.md)
 - [Output Logs](./services/log.md)
+- [Add HTTP Routes](./services/http.md)
