@@ -3,6 +3,7 @@
 
 # Dependencies
 node_modules/
+package-lock.json
 
 *.zip
 *.tgz
@@ -30,3 +31,4 @@ dist/
 # Local Netlify folder
 .netlify
 src/emulator/release/
+.qodo

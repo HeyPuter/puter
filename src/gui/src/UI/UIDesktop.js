@@ -42,6 +42,50 @@ import UIWindowWelcome from "./UIWindowWelcome.js"
 import launch_app from "../helpers/launch_app.js"
 import item_icon from "../helpers/item_icon.js"
 import UIWindowSearch from "./UIWindowSearch.js"
+import UIWindowNotificationHistory from "./UIWindowNotificationHistory.js"
+
+function formatDate(timestamp) {
+    // If timestamp is in seconds, convert to milliseconds
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleString();
+}
+
+// Define set_desktop_background in the global scope
+window.set_desktop_background = function (options) {
+    if (options.fit) {
+        let fit = options.fit;
+        if (fit === 'cover' || fit === 'contain') {
+            $('body').css('background-size', fit);
+            $('body').css('background-repeat', `no-repeat`);
+            $('body').css('background-position', `center center`);
+        }
+        else if (fit === 'center') {
+            $('body').css('background-size', 'auto');
+            $('body').css('background-repeat', `no-repeat`);
+            $('body').css('background-position', `center center`);
+        }
+
+        else if (fit === 'repeat') {
+            $('body').css('background-size', `auto`);
+            $('body').css('background-repeat', `repeat`);
+        }
+        window.desktop_bg_fit = fit;
+    }
+
+    if (options.url) {
+        $('body').css('background-image', `url(${options.url})`);
+        window.desktop_bg_url = options.url;
+        window.desktop_bg_color = undefined;
+    }
+    else if (options.color) {
+        $('body').css({
+            'background-image': `none`,
+            'background-color': options.color,
+        });
+        window.desktop_bg_color = options.color;
+        window.desktop_bg_url = undefined;
+    }
+}
 
 async function UIDesktop(options) {
     let h = '';
@@ -1185,6 +1229,8 @@ async function UIDesktop(options) {
     // search button
     ht += `<div class="toolbar-btn search-btn" title="${i18n('toolbar.search')}" style="background-image:url('${window.icons['search.svg']}')"></div>`;
 
+    // notification history button
+    ht += `<div class="toolbar-btn notification-history-btn" title="${i18n('notification_history')}" style="background-image:url('${window.icons['bell.svg']}')"></div>`;
 
     //clock 
     ht += `<div id="clock" class="toolbar-clock" style="">12:00 AM Sun, Jan 01</div>`;
@@ -1467,499 +1513,774 @@ async function UIDesktop(options) {
             app: 'explorer',
         });
     }
-}
 
-$(document).on('contextmenu taphold', '.taskbar', function (event) {
-    // dismiss taphold on regular devices
-    if (event.type === 'taphold' && !isMobile.phone && !isMobile.tablet)
-        return;
+    // Function to create and setup notification panel
+    function createNotificationPanel() {
+        // Remove existing panel if it exists
+        const existingPanel = document.querySelector('.notification-history-panel');
+        if (existingPanel) {
+            existingPanel.remove();
+        }
 
-    event.preventDefault();
-    event.stopPropagation();
-    UIContextMenu({
-        parent_element: $('.taskbar'),
-        items: [
-            //--------------------------------------------------
-            // Show open windows
-            //--------------------------------------------------
-            {
-                html: "Show open windows",
-                onClick: function () {
-                    $(`.window`).showWindow();
-                }
-            },
-            //--------------------------------------------------
-            // Show the desktop
-            //--------------------------------------------------
-            {
-                html: "Show the desktop",
-                onClick: function () {
-                    $(`.window`).hideWindow();
-                }
+        const panel = document.createElement('div');
+        panel.className = 'notification-history-panel';
+        panel.innerHTML = `
+            <div class="notification-history-header">
+                <div class="notification-history-title">Notifications</div>
+            </div>
+            <div class="notification-history-list"></div>
+            <div class="notification-history-footer">
+                <div class="notification-history-loading" style="display: none;">Loading...</div>
+                <div class="notification-history-error" style="display: none;"></div>
+                <div class="notification-history-empty" style="display: none;">No notifications</div>
+            </div>
+        `;
+
+        // Position the panel below the bell icon
+        const bellIcon = document.querySelector('.notification-history-btn');
+        if (!bellIcon) {
+            console.error('Bell icon not found');
+            return null;
+        }
+
+        const bellRect = bellIcon.getBoundingClientRect();
+        panel.style.top = `${bellRect.bottom + 5}px`;
+        panel.style.right = `${window.innerWidth - bellRect.right - (bellRect.width / 2) + 160}px`;
+
+        // Add scroll event listener to load more notifications
+        const list = panel.querySelector('.notification-history-list');
+        list.addEventListener('scroll', () => {
+            if (!isLoading && hasMore && 
+                list.scrollHeight - list.scrollTop <= list.clientHeight + 50) {
+                loadNotifications(currentPage + 1);
             }
-        ]
-    });
-    return false;
-})
-
-$(document).on('click', '.qr-btn', async function (e) {
-    UIWindowQR({
-        message_i18n_key: 'scan_qr_c2a',
-        text: window.gui_origin + '?auth_token=' + window.auth_token,
-    });
-})
-
-$(document).on('click', '.user-options-menu-btn', async function (e) {
-    const pos = this.getBoundingClientRect();
-    if ($('.context-menu[data-id="user-options-menu"]').length > 0)
-        return;
-
-    let items = [];
-    let parent_element = this;
-    //--------------------------------------------------
-    // Save Session
-    //--------------------------------------------------
-    if (window.user.is_temp) {
-        items.push(
-            {
-                html: i18n('save_session'),
-                icon: `<svg style="margin-bottom: -4px; width: 16px; height: 16px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px" height="48px" viewBox="0 0 48 48"><g transform="translate(0, 0)"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"></path></g></svg>`,
-                icon_active: `<svg style="margin-bottom: -4px; width: 16px; height: 16px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px" height="48px" viewBox="0 0 48 48"><g transform="translate(0, 0)"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"></path></g></svg>`,
-                onClick: async function () {
-                    UIWindowSaveAccount({
-                        send_confirmation_code: false,
-                        default_username: window.user.username
-                    });
-                }
-            },
-        )
-        // -------------------------------------------
-        // -
-        // -------------------------------------------
-        items.push('-')
-    }
-
-    // -------------------------------------------
-    // Logged in users
-    // -------------------------------------------
-    if (window.logged_in_users.length > 0) {
-        let users_arr = window.logged_in_users;
-
-        // bring logged in user's item to top
-        users_arr.sort(function (x, y) { return x.uuid === window.user.uuid ? -1 : y.uuid == window.user.uuid ? 1 : 0; });
-
-        // create menu items
-        users_arr.forEach(l_user => {
-            items.push(
-                {
-                    html: l_user.username,
-                    icon: l_user.username === window.user.username ? '✓' : '',
-                    onClick: async function (val) {
-                        // don't reload everything if clicked on already-logged-in user
-                        if (l_user.username === window.user.username)
-                            return;
-                        // update auth data
-                        window.update_auth_data(l_user.auth_token, l_user);
-                        // refresh
-                        location.reload();
-                    }
-
-                },
-            )
         });
-        // -------------------------------------------
-        // -
-        // -------------------------------------------
-        items.push('-')
 
-        items.push(
-            {
-                html: i18n('add_existing_account'),
-                // icon: l_user.username === user.username ? '✓' : '',
-                onClick: async function (val) {
-                    await UIWindowLogin({
-                        reload_on_success: true,
-                        send_confirmation_code: false,
-                        window_options: {
-                            has_head: true
-                        }
-                    });
-                }
-            },
-        )
-
-        // -------------------------------------------
-        // -
-        // -------------------------------------------
-        items.push('-')
-
-    }
-
-    // -------------------------------------------
-    // Load available languages
-    // -------------------------------------------
-    const supportedLanguagesItems = window.listSupportedLanguages().map(lang => {
-        return {
-            html: lang.name,
-            icon: window.locale === lang.code ? '✓' : '',
-            onClick: async function () {
-                changeLanguage(lang.code);
+        // Add click outside handler
+        function handleClickOutside(e) {
+            if (!panel.contains(e.target) && 
+                !bellIcon.contains(e.target)) {
+                panel.remove();
+                document.removeEventListener('click', handleClickOutside);
             }
         }
-    });
+        document.addEventListener('click', handleClickOutside);
 
-    UIContextMenu({
-        id: 'user-options-menu',
-        parent_element: parent_element,
-        position: { top: pos.top + 28, left: pos.left + pos.width - 15 },
-        items: [
-            ...items,
-            //--------------------------------------------------
-            // Settings
-            //--------------------------------------------------
-            {
-                html: i18n('settings'),
-                id: 'settings',
-                onClick: async function () {
-                    UIWindowSettings();
+        // Add to document
+        document.body.appendChild(panel);
+
+        // Load initial notifications
+        currentPage = 1;
+        loadNotifications(1);
+
+        return panel;
+    }
+
+    // Initialize notification-related variables
+    let currentPage = 1;
+    let isLoading = false;
+    let hasMore = false;
+    let loadError = null;
+    let bellIcon = null;
+
+    // Initialize bell icon reference
+    function initializeNotifications() {
+        bellIcon = document.querySelector('.notification-history-btn');
+        if (!bellIcon) {
+            console.error('Notification bell icon not found');
+            return;
+        }
+
+        // Add click handler for notification bell icon
+        bellIcon.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            createNotificationPanel();
+        });
+
+        // Update notification count on page load
+        updateNotificationBadgeCount();
+
+        // Update notification count and panel when receiving new notifications
+        window.socket.on('notif.message', (data) => {
+            console.log('New notification received:', data);
+            updateNotificationBadgeCount();
+            
+            // Add glow effect to bell icon
+            bellIcon.classList.add('has-new-notification');
+            
+            // Remove glow effect after 5 seconds
+            setTimeout(() => {
+                bellIcon.classList.remove('has-new-notification');
+            }, 5000);
+
+            // Refresh notifications if panel is open
+            const notificationPanel = document.querySelector('.notification-history-panel');
+            if (notificationPanel) {
+                // Reset to first page and reload
+                currentPage = 1;
+                loadNotifications(1, true);
+            }
+        });
+
+        // Update notification count when marking as read
+        window.socket.on('notif.ack', () => {
+            updateNotificationBadgeCount();
+        });
+    }
+
+    // Function to format time ago
+    function formatTimeAgo(date) {
+        const now = new Date();
+        const seconds = Math.floor((now - date) / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const hours = Math.floor(minutes / 60);
+        const days = Math.floor(hours / 24);
+
+        if (days > 0) {
+            return `${days} day${days > 1 ? 's' : ''} ago`;
+        } else if (hours > 0) {
+            return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+        } else if (minutes > 0) {
+            return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+        } else {
+            return 'Just now';
+        }
+    }
+
+    // Function to update notification badge count
+    async function updateNotificationBadgeCount() {
+        if (!bellIcon) return;
+        
+        try {
+            const response = await fetch(`${window.api_origin}/notif/history?page=1&limit=10`, {
+                headers: {
+                    'Authorization': `Bearer ${window.auth_token}`,
+                    'Content-Type': 'application/json'
                 }
-            },
-            //--------------------------------------------------
-            // My Websites
-            //--------------------------------------------------
-            {
-                html: i18n('my_websites'),
-                id: 'my_websites',
-                onClick: async function () {
-                    UIWindowMyWebsites();
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch notifications');
+            }
+
+            const data = await response.json();
+            const unreadCount = data.notifications?.filter(n => !n.acknowledged).length || 0;
+            const badge = document.querySelector('.notification-count-badge');
+            
+            if (badge) {
+                if (unreadCount > 0) {
+                    badge.textContent = unreadCount;
+                    badge.style.display = 'block';
+                    bellIcon.classList.add('has-unread');
+                } else {
+                    badge.style.display = 'none';
+                    bellIcon.classList.remove('has-unread');
                 }
-            },
-            //--------------------------------------------------
-            // Task Manager
-            //--------------------------------------------------
-            {
-                html: i18n('task_manager'),
-                id: 'task_manager',
-                onClick: async function () {
-                    UIWindowTaskManager();
+            }
+
+            // Log notification count for debugging
+            console.log('Unread notification count:', unreadCount);
+        } catch (error) {
+            console.error('Error updating notification badge:', error);
+        }
+    }
+
+    // Initialize notifications after DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeNotifications);
+    } else {
+        initializeNotifications();
+    }
+
+    // Function to load notifications
+    async function loadNotifications(page = 1, forceRefresh = false) {
+        const panel = document.querySelector('.notification-history-panel');
+        if (!panel) return;
+
+        const list = panel.querySelector('.notification-history-list');
+        const loadingEl = panel.querySelector('.notification-history-loading');
+        const errorEl = panel.querySelector('.notification-history-error');
+        const emptyEl = panel.querySelector('.notification-history-empty');
+
+        if (isLoading) return;
+        isLoading = true;
+        loadError = null;
+
+        try {
+            loadingEl.style.display = 'block';
+            errorEl.style.display = 'none';
+
+            const response = await fetch(`${window.api_origin}/notif/history?page=${page}&limit=10`, {
+                headers: {
+                    'Authorization': `Bearer ${window.auth_token}`,
+                    'Content-Type': 'application/json'
                 }
-            },
-            //--------------------------------------------------
-            // Contact Us
-            //--------------------------------------------------
-            {
-                html: i18n('contact_us'),
-                id: 'contact_us',
-                onClick: async function () {
-                    UIWindowFeedback();
+            });
+            
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || 'Failed to load notifications');
+            }
+
+            if (!Array.isArray(data.notifications)) {
+                throw new Error('Invalid response format');
+            }
+
+            // Clear list if this is the first page or if forcing refresh
+            if (page === 1 || forceRefresh) {
+                list.innerHTML = '';
+                currentPage = 1;
+            }
+
+            // Add notifications to the list
+            data.notifications.forEach(notification => {
+                if (notification.value && Object.keys(notification.value).length > 0) {
+                    const item = createNotificationItem(notification);
+                    list.appendChild(item);
                 }
-            },
+            });
+
+            // Update pagination state
+            if (!forceRefresh) {
+                currentPage = page;
+            }
+            hasMore = data.pagination.page < data.pagination.total_pages;
+
+            // Show/hide empty state
+            emptyEl.style.display = list.children.length === 0 ? 'block' : 'none';
+
+        } catch (error) {
+            console.error('Error loading notifications:', error);
+            loadError = error;
+            errorEl.textContent = error.message;
+            errorEl.style.display = 'block';
+        } finally {
+            isLoading = false;
+            loadingEl.style.display = 'none';
+        }
+    }
+
+    // Function to create a notification item
+    function createNotificationItem(notification) {
+        const item = document.createElement('div');
+        item.className = 'notification-history-item';
+        if (notification.acknowledged) {
+            item.classList.add('acknowledged');
+        } else {
+            item.classList.add('unread');
+        }
+
+        const value = notification.value || {};
+        const timestamp = notification.created_at ? new Date(notification.created_at * 1000) : new Date();
+        const timeAgo = formatTimeAgo(timestamp);
+
+        let iconSrc = value.icon || 'bell.svg';
+        if (value.icon_source === 'builtin') {
+            iconSrc = window.icons[iconSrc] || window.icons['bell.svg'];
+        }
+
+        item.innerHTML = `
+            <div class="notification-history-icon">
+                <img src="${iconSrc}" alt="notification icon" ${value.round_icon ? 'class="round"' : ''}>
+            </div>
+            <div class="notification-history-content">
+                <div class="notification-history-title">${value.title || ''}</div>
+                <div class="notification-history-text">${value.text || ''}</div>
+                <div class="notification-history-time">${timeAgo}</div>
+            </div>
+        `;
+
+        // Add click handler to mark notification as read
+        if (!notification.acknowledged) {
+            item.addEventListener('click', async () => {
+                try {
+                    const response = await fetch(`${window.api_origin}/notif/mark-ack`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${window.auth_token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ uid: notification.uid })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to mark notification as read');
+                    }
+
+                    // Update UI
+                    item.classList.remove('unread');
+                    item.classList.add('acknowledged');
+                    
+                    // Update badge count
+                    updateNotificationBadgeCount();
+                } catch (error) {
+                    console.error('Error marking notification as read:', error);
+                }
+            });
+        }
+
+        return item;
+    }
+
+    // Add event listeners
+    $(document).on('contextmenu taphold', '.taskbar', function (event) {
+        // dismiss taphold on regular devices
+        if (!window.is_mobile_or_tablet && event.type === 'taphold')
+            return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        UIContextMenu({
+            parent_element: $('.taskbar'),
+            items: [
+                //--------------------------------------------------
+                // Show open windows
+                //--------------------------------------------------
+                {
+                    html: "Show open windows",
+                    onClick: function () {
+                        $(`.window`).showWindow();
+                    }
+                },
+                //--------------------------------------------------
+                // Show the desktop
+                //--------------------------------------------------
+                {
+                    html: "Show the desktop",
+                    onClick: function () {
+                        $(`.window`).hideWindow();
+                    }
+                }
+            ]
+        });
+        return false;
+    })
+
+    $(document).on('click', '.qr-btn', async function (e) {
+        UIWindowQR({
+            message_i18n_key: 'scan_qr_c2a',
+            text: window.gui_origin + '?auth_token=' + window.auth_token,
+        });
+    })
+
+    $(document).on('click', '.user-options-menu-btn', async function (e) {
+        const pos = this.getBoundingClientRect();
+        if ($('.context-menu[data-id="user-options-menu"]').length > 0)
+            return;
+
+        let items = [];
+        let parent_element = this;
+        //--------------------------------------------------
+        // Save Session
+        //--------------------------------------------------
+        if (window.user.is_temp) {
+            items.push(
+                {
+                    html: i18n('save_session'),
+                    icon: `<svg style="margin-bottom: -4px; width: 16px; height: 16px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px" height="48px" viewBox="0 0 48 48"><g transform="translate(0, 0)"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"></path></g></svg>`,
+                    icon_active: `<svg style="margin-bottom: -4px; width: 16px; height: 16px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px" height="48px" viewBox="0 0 48 48"><g transform="translate(0, 0)"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"></path></g></svg>`,
+                    onClick: async function () {
+                        UIWindowSaveAccount({
+                            send_confirmation_code: false,
+                            default_username: window.user.username
+                        });
+                    }
+                },
+            )
             // -------------------------------------------
             // -
             // -------------------------------------------
-            '-',
+            items.push('-')
+        }
 
-            //--------------------------------------------------
-            // Log Out
-            //--------------------------------------------------
-            {
-                html: i18n('log_out'),
+        // -------------------------------------------
+        // Logged in users
+        // -------------------------------------------
+        if (window.logged_in_users.length > 0) {
+            let users_arr = window.logged_in_users;
+
+            // bring logged in user's item to top
+            users_arr.sort(function (x, y) { return x.uuid === window.user.uuid ? -1 : y.uuid == window.user.uuid ? 1 : 0; });
+
+            // create menu items
+            users_arr.forEach(l_user => {
+                items.push(
+                    {
+                        html: l_user.username,
+                        icon: l_user.username === window.user.username ? '✓' : '',
+                        onClick: async function (val) {
+                            // don't reload everything if clicked on already-logged-in user
+                            if (l_user.username === window.user.username)
+                                return;
+                            // update auth data
+                            window.update_auth_data(l_user.auth_token, l_user);
+                            // refresh
+                            location.reload();
+                        }
+
+                    },
+                )
+            });
+            // -------------------------------------------
+            // -
+            // -------------------------------------------
+            items.push('-')
+
+            items.push(
+                {
+                    html: i18n('add_existing_account'),
+                    // icon: l_user.username === user.username ? '✓' : '',
+                    onClick: async function (val) {
+                        await UIWindowLogin({
+                            reload_on_success: true,
+                            send_confirmation_code: false,
+                            window_options: {
+                                has_head: true
+                            }
+                        });
+                    }
+                },
+            )
+
+            // -------------------------------------------
+            // -
+            // -------------------------------------------
+            items.push('-')
+
+        }
+
+        // -------------------------------------------
+        // Load available languages
+        // -------------------------------------------
+        const supportedLanguagesItems = window.listSupportedLanguages().map(lang => {
+            return {
+                html: lang.name,
+                icon: window.locale === lang.code ? '✓' : '',
                 onClick: async function () {
-                    // see if there are any open windows, if yes notify user
-                    if ($('.window-app').length > 0) {
-                        const alert_resp = await UIAlert({
-                            message: `<p>${i18n('confirm_open_apps_log_out')}</p>`,
-                            buttons: [
-                                {
-                                    label: i18n('close_all_windows_and_log_out'),
-                                    value: 'close_and_log_out',
-                                    type: 'primary',
-                                },
-                                {
-                                    label: i18n('cancel')
-                                },
-                            ]
-                        })
-                        if (alert_resp === 'close_and_log_out')
+                    changeLanguage(lang.code);
+                }
+            }
+        });
+
+        UIContextMenu({
+            id: 'user-options-menu',
+            parent_element: parent_element,
+            position: { top: pos.top + 28, left: pos.left + pos.width - 15 },
+            items: [
+                ...items,
+                //--------------------------------------------------
+                // Settings
+                //--------------------------------------------------
+                {
+                    html: i18n('settings'),
+                    id: 'settings',
+                    onClick: async function () {
+                        UIWindowSettings();
+                    }
+                },
+                //--------------------------------------------------
+                // My Websites
+                //--------------------------------------------------
+                {
+                    html: i18n('my_websites'),
+                    id: 'my_websites',
+                    onClick: async function () {
+                        UIWindowMyWebsites();
+                    }
+                },
+                //--------------------------------------------------
+                // Task Manager
+                //--------------------------------------------------
+                {
+                    html: i18n('task_manager'),
+                    id: 'task_manager',
+                    onClick: async function () {
+                        UIWindowTaskManager();
+                    }
+                },
+                //--------------------------------------------------
+                // Contact Us
+                //--------------------------------------------------
+                {
+                    html: i18n('contact_us'),
+                    id: 'contact_us',
+                    onClick: async function () {
+                        UIWindowFeedback();
+                    }
+                },
+                // -------------------------------------------
+                // -
+                // -------------------------------------------
+                '-',
+
+                //--------------------------------------------------
+                // Log Out
+                //--------------------------------------------------
+                {
+                    html: i18n('log_out'),
+                    onClick: async function () {
+                        // see if there are any open windows, if yes notify user
+                        if ($('.window-app').length > 0) {
+                            const alert_resp = await UIAlert({
+                                message: `<p>${i18n('confirm_open_apps_log_out')}</p>`,
+                                buttons: [
+                                    {
+                                        label: i18n('close_all_windows_and_log_out'),
+                                        value: 'close_and_log_out',
+                                        type: 'primary',
+                                    },
+                                    {
+                                        label: i18n('cancel')
+                                    },
+                                ]
+                            })
+                            if (alert_resp === 'close_and_log_out')
+                                window.logout();
+                        }
+                        // no open windows
+                        else
                             window.logout();
                     }
-                    // no open windows
-                    else
-                        window.logout();
-                }
-            },
-        ]
-    });
-})
-
-$(document).on('click', '.fullscreen-btn', async function (e) {
-    if (!window.is_fullscreen()) {
-        var elem = document.documentElement;
-        if (elem.requestFullscreen) {
-            elem.requestFullscreen();
-        } else if (elem.webkitRequestFullscreen) { /* Safari */
-            elem.webkitRequestFullscreen();
-        } else if (elem.mozRequestFullScreen) { /* moz */
-            elem.mozRequestFullScreen();
-        } else if (elem.msRequestFullscreen) { /* IE11 */
-            elem.msRequestFullscreen();
-        }
-    }
-    else {
-        if (document.exitFullscreen) {
-            document.exitFullscreen();
-        } else if (document.webkitExitFullscreen) {
-            document.webkitExitFullscreen();
-        } else if (document.mozCancelFullScreen) {
-            document.mozCancelFullScreen();
-        } else if (document.msExitFullscreen) {
-            document.msExitFullscreen();
-        }
-    }
-})
-
-$(document).on('click', '.close-launch-popover', function () {
-    $(".launch-popover").closest('.popover').fadeOut(200, function () {
-        $(".launch-popover").closest('.popover').remove();
-    });
-});
-
-$(document).on('click', '.search-btn', function () {
-    UIWindowSearch();
-})
-
-$(document).on('click', '.toolbar-puter-logo', function () {
-    UIWindowSettings();
-})
-
-$(document).on('click', '.user-options-create-account-btn', async function (e) {
-    UIWindowSaveAccount({
-        send_confirmation_code: false,
-        default_username: window.user.username,
-    });
-})
-
-$(document).on('click', '.refer-btn', async function (e) {
-    UIWindowRefer();
-})
-
-$(document).on('click', '.start-app', async function (e) {
-    launch_app({
-        name: $(this).attr('data-app-name')
-    })
-    // close popovers
-    $(".popover").fadeOut(200, function () {
-        $(".popover").remove();
-    });
-})
-
-$(document).on('click', '.user-options-login-btn', async function (e) {
-    const alert_resp = await UIAlert({
-        message: `<strong>Save session before exiting!</strong><p>You are in a temporary session and logging into another account will erase all data in your current session.</p>`,
-        buttons: [
-            {
-                label: i18n('save_session'),
-                value: 'save-session',
-                type: 'primary',
-            },
-            {
-                label: i18n('log_into_another_account_anyway'),
-                value: 'login',
-            },
-            {
-                label: i18n('cancel')
-            },
-        ]
+                },
+            ]
+        });
     })
 
-    if (alert_resp === 'save-session') {
-        let saved = await UIWindowSaveAccount({
+    $(document).on('click', '.fullscreen-btn', async function (e) {
+        if (!window.is_fullscreen()) {
+            var elem = document.documentElement;
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen();
+            } else if (elem.webkitRequestFullscreen) { /* Safari */
+                elem.webkitRequestFullscreen();
+            } else if (elem.mozRequestFullScreen) { /* moz */
+                elem.mozRequestFullScreen();
+            } else if (elem.msRequestFullscreen) { /* IE11 */
+                elem.msRequestFullscreen();
+            }
+        }
+        else {
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.mozCancelFullScreen) {
+                document.mozCancelFullScreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+        }
+    })
+
+    $(document).on('click', '.close-launch-popover', function () {
+        $(".launch-popover").closest('.popover').fadeOut(200, function () {
+            $(".launch-popover").closest('.popover').remove();
+        });
+    });
+
+    $(document).on('click', '.search-btn', function () {
+        UIWindowSearch();
+    })
+
+    $(document).on('click', '.toolbar-puter-logo', function () {
+        UIWindowSettings();
+    })
+
+    $(document).on('click', '.user-options-create-account-btn', async function (e) {
+        UIWindowSaveAccount({
             send_confirmation_code: false,
+            default_username: window.user.username,
         });
-        if (saved)
-            UIWindowLogin({ show_signup_button: false, reload_on_success: true });
-    } else if (alert_resp === 'login') {
-        UIWindowLogin({
-            show_signup_button: false,
-            reload_on_success: true,
-            window_options: {
-                backdrop: true,
-                close_on_backdrop_click: false,
-            }
+    })
+
+    $(document).on('click', '.refer-btn', async function (e) {
+        UIWindowRefer();
+    })
+
+    $(document).on('click', '.start-app', async function (e) {
+        launch_app({
+            name: $(this).attr('data-app-name')
+        })
+        // close popovers
+        $(".popover").fadeOut(200, function () {
+            $(".popover").remove();
         });
-    }
-})
+    })
 
-$(document).on('click mousedown', '.launch-search, .launch-popover', function (e) {
-    $(this).focus();
-    e.stopPropagation();
-    e.preventDefault();
-    // don't let click bubble up to window
-    e.stopImmediatePropagation();
-})
+    $(document).on('click', '.user-options-login-btn', async function (e) {
+        const alert_resp = await UIAlert({
+            message: `<strong>Save session before exiting!</strong><p>You are in a temporary session and logging into another account will erase all data in your current session.</p>`,
+            buttons: [
+                {
+                    label: i18n('save_session'),
+                    value: 'save-session',
+                    type: 'primary',
+                },
+                {
+                    label: i18n('log_into_another_account_anyway'),
+                    value: 'login',
+                },
+                {
+                    label: i18n('cancel')
+                },
+            ]
+        })
 
-$(document).on('focus', '.launch-search', function (e) {
-    // remove all selected items in start menu
-    $('.launch-app-selected').removeClass('launch-app-selected');
-    // scroll popover to top
-    $('.launch-popover').scrollTop(0);
-})
+        if (alert_resp === 'save-session') {
+            let saved = await UIWindowSaveAccount({
+                send_confirmation_code: false,
+            });
+            if (saved)
+                UIWindowLogin({ show_signup_button: false, reload_on_success: true });
+        } else if (alert_resp === 'login') {
+            UIWindowLogin({
+                show_signup_button: false,
+                reload_on_success: true,
+                window_options: {
+                    backdrop: true,
+                    close_on_backdrop_click: false,
+                }
+            });
+        }
+    })
 
-$(document).on('change keyup keypress keydown paste', '.launch-search', function (e) {
-    // search window.launch_apps.recommended for query
-    const query = $(this).val().toLowerCase();
-    if (query === '') {
-        $('.launch-search-clear').hide();
-        $(`.start-app-card`).show();
-        $('.launch-apps-recent').show();
-        $('.start-section-heading').show();
-    } else {
-        $('.launch-apps-recent').hide();
-        $('.start-section-heading').hide();
-        $('.launch-search-clear').show();
-        window.launch_apps.recommended.forEach((app) => {
-            if (app.title.toLowerCase().includes(query.toLowerCase())) {
-                $(`.start-app-card[data-name="${app.name}"]`).show();
-            } else {
-                $(`.start-app-card[data-name="${app.name}"]`).hide();
-            }
+    $(document).on('click mousedown', '.launch-search, .launch-popover', function (e) {
+        $(this).focus();
+        e.stopPropagation();
+        e.preventDefault();
+        // don't let click bubble up to window
+        e.stopImmediatePropagation();
+    })
+
+    $(document).on('focus', '.launch-search', function (e) {
+        // remove all selected items in start menu
+        $('.launch-app-selected').removeClass('launch-app-selected');
+        // scroll popover to top
+        $('.launch-popover').scrollTop(0);
+    })
+
+    $(document).on('change keyup keypress keydown paste', '.launch-search', function (e) {
+        // search window.launch_apps.recommended for query
+        const query = $(this).val().toLowerCase();
+        if (query === '') {
+            $('.launch-search-clear').hide();
+            $(`.start-app-card`).show();
+            $('.launch-apps-recent').show();
+            $('.start-section-heading').show();
+        } else {
+            $('.launch-apps-recent').hide();
+            $('.start-section-heading').hide();
+            $('.launch-search-clear').show();
+            window.launch_apps.recommended.forEach((app) => {
+                if (app.title.toLowerCase().includes(query.toLowerCase())) {
+                    $(`.start-app-card[data-name="${app.name}"]`).show();
+                } else {
+                    $(`.start-app-card[data-name="${app.name}"]`).hide();
+                }
+            })
+        }
+    })
+
+    $(document).on('click', '.launch-search-clear', function (e) {
+        $('.launch-search').val('');
+        $('.launch-search').trigger('change');
+        $('.launch-search').focus();
+    })
+
+    document.addEventListener('fullscreenchange', (event) => {
+        // document.fullscreenElement will point to the element that
+        // is in fullscreen mode if there is one. If there isn't one,
+        // the value of the property is null.
+
+        if (document.fullscreenElement) {
+            $('.fullscreen-btn').css('background-image', `url(${window.icons['shrink.svg']})`);
+            $('.fullscreen-btn').attr('title', 'Exit Full Screen');
+            window.user_preferences.clock_visible === 'auto' && $('#clock').show();
+        } else {
+            $('.fullscreen-btn').css('background-image', `url(${window.icons['fullscreen.svg']})`);
+            $('.fullscreen-btn').attr('title', 'Enter Full Screen');
+            window.user_preferences.clock_visible === 'auto' && $('#clock').hide();
+        }
+    })
+
+    window.update_taskbar = function () {
+        let items = []
+        $('.taskbar-item-sortable[data-keep-in-taskbar="true"]').each(function (index) {
+            items.push({
+                name: $(this).attr('data-app'),
+                type: 'app',
+            })
+        })
+
+        // update taskbar in the server-side
+        $.ajax({
+            url: window.api_origin + "/update-taskbar-items",
+            type: 'POST',
+            data: JSON.stringify({
+                items: items,
+            }),
+            async: true,
+            contentType: "application/json",
+            headers: {
+                "Authorization": "Bearer " + window.auth_token
+            },
         })
     }
-})
 
-$(document).on('click', '.launch-search-clear', function (e) {
-    $('.launch-search').val('');
-    $('.launch-search').trigger('change');
-    $('.launch-search').focus();
-})
+    window.remove_taskbar_item = function (item) {
+        $(item).find('*').fadeOut(100, function () { });
 
-document.addEventListener('fullscreenchange', (event) => {
-    // document.fullscreenElement will point to the element that
-    // is in fullscreen mode if there is one. If there isn't one,
-    // the value of the property is null.
-
-    if (document.fullscreenElement) {
-        $('.fullscreen-btn').css('background-image', `url(${window.icons['shrink.svg']})`);
-        $('.fullscreen-btn').attr('title', 'Exit Full Screen');
-        window.user_preferences.clock_visible === 'auto' && $('#clock').show();
-    } else {
-        $('.fullscreen-btn').css('background-image', `url(${window.icons['fullscreen.svg']})`);
-        $('.fullscreen-btn').attr('title', 'Enter Full Screen');
-        window.user_preferences.clock_visible === 'auto' && $('#clock').hide();
-    }
-})
-
-window.set_desktop_background = function (options) {
-    if (options.fit) {
-        let fit = options.fit;
-        if (fit === 'cover' || fit === 'contain') {
-            $('body').css('background-size', fit);
-            $('body').css('background-repeat', `no-repeat`);
-            $('body').css('background-position', `center center`);
-        }
-        else if (fit === 'center') {
-            $('body').css('background-size', 'auto');
-            $('body').css('background-repeat', `no-repeat`);
-            $('body').css('background-position', `center center`);
-        }
-
-        else if (fit === 'repeat') {
-            $('body').css('background-size', `auto`);
-            $('body').css('background-repeat', `repeat`);
-        }
-        window.desktop_bg_fit = fit;
-    }
-
-    if (options.url) {
-        $('body').css('background-image', `url(${options.url})`);
-        window.desktop_bg_url = options.url;
-        window.desktop_bg_color = undefined;
-    }
-    else if (options.color) {
-        $('body').css({
-            'background-image': `none`,
-            'background-color': options.color,
-        });
-        window.desktop_bg_color = options.color;
-        window.desktop_bg_url = undefined;
-    }
-}
-
-window.update_taskbar = function () {
-    let items = []
-    $('.taskbar-item-sortable[data-keep-in-taskbar="true"]').each(function (index) {
-        items.push({
-            name: $(this).attr('data-app'),
-            type: 'app',
+        $(item).animate({ width: 0 }, 200, function () {
+            $(item).remove();
         })
-    })
-
-    // update taskbar in the server-side
-    $.ajax({
-        url: window.api_origin + "/update-taskbar-items",
-        type: 'POST',
-        data: JSON.stringify({
-            items: items,
-        }),
-        async: true,
-        contentType: "application/json",
-        headers: {
-            "Authorization": "Bearer " + window.auth_token
-        },
-    })
-}
-
-window.remove_taskbar_item = function (item) {
-    $(item).find('*').fadeOut(100, function () { });
-
-    $(item).animate({ width: 0 }, 200, function () {
-        $(item).remove();
-    })
-}
-
-window.enter_fullpage_mode = (el_window) => {
-    $('.taskbar').hide();
-    $(el_window).find('.window-head').hide();
-    $('body').addClass('fullpage-mode');
-    $(el_window).css({
-        width: '100%',
-        height: '100%',
-        top: window.toolbar_height + 'px',
-        left: 0,
-        'border-radius': 0,
-    });
-}
-
-window.exit_fullpage_mode = (el_window) => {
-    $('body').removeClass('fullpage-mode');
-    window.taskbar_height = window.default_taskbar_height;
-    $('.taskbar').css('height', window.taskbar_height);
-    $('.taskbar').show();
-    refresh_item_container($('.desktop.item-container'), { fadeInItems: true });
-    $(el_window).removeAttr('data-is_fullpage');
-    if (el_window) {
-        window.reset_window_size_and_position(el_window)
-        $(el_window).find('.window-head').show();
     }
 
-    // reset dektop height to take into account the taskbar height
-    $('.desktop').css('height', `calc(100vh - ${window.taskbar_height + window.toolbar_height}px)`);
+    window.enter_fullpage_mode = (el_window) => {
+        $('.taskbar').hide();
+        $(el_window).find('.window-head').hide();
+        $('body').addClass('fullpage-mode');
+        $(el_window).css({
+            width: '100%',
+            height: '100%',
+            top: window.toolbar_height + 'px',
+            left: 0,
+            'border-radius': 0,
+        });
+    }
 
-    // hide the 'Show Desktop' button in toolbar
-    $('.show-desktop-btn').hide();
+    window.exit_fullpage_mode = (el_window) => {
+        $('body').removeClass('fullpage-mode');
+        window.taskbar_height = window.default_taskbar_height;
+        $('.taskbar').css('height', window.taskbar_height);
+        $('.taskbar').show();
+        refresh_item_container($('.desktop.item-container'), { fadeInItems: true });
+        $(el_window).removeAttr('data-is_fullpage');
+        if (el_window) {
+            window.reset_window_size_and_position(el_window)
+            $(el_window).find('.window-head').show();
+        }
 
-    // refresh desktop background
-    window.refresh_desktop_background();
-}
+        // reset dektop height to take into account the taskbar height
+        $('.desktop').css('height', `calc(100vh - ${window.taskbar_height + window.toolbar_height}px)`);
 
-window.reset_window_size_and_position = (el_window) => {
-    $(el_window).css({
-        width: 680,
-        height: 380,
-        'border-radius': window.window_border_radius,
-        top: 'calc(50% - 190px)',
-        left: 'calc(50% - 340px)',
-    });
+        // hide the 'Show Desktop' button in toolbar
+        $('.show-desktop-btn').hide();
+
+        // refresh desktop background
+        window.refresh_desktop_background();
+    }
+
+    window.reset_window_size_and_position = (el_window) => {
+        $(el_window).css({
+            width: 680,
+            height: 380,
+            'border-radius': window.window_border_radius,
+            top: 'calc(50% - 190px)',
+            left: 'calc(50% - 340px)',
+        });
+    }
 }
 
 export default UIDesktop;
