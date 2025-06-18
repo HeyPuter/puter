@@ -1217,39 +1217,6 @@ const ipc_listener = async (event, handled) => {
         $el_parent_disable_mask.css('z-index', parseInt($el_parent_window.css('z-index')) + 1);
         $(target_iframe).blur();
         
-        const handle_url_save = async ({ target_path }) => {
-            // download progress tracker
-            let dl_op_id = window.operation_id++;
-
-            // upload progress tracker defaults
-            window.progress_tracker[dl_op_id] = [];
-            window.progress_tracker[dl_op_id][0] = {};
-            window.progress_tracker[dl_op_id][0].total = 0;
-            window.progress_tracker[dl_op_id][0].ajax_uploaded = 0;
-            window.progress_tracker[dl_op_id][0].cloud_uploaded = 0;
-
-            let item_with_same_name_already_exists = true;
-            while(item_with_same_name_already_exists){
-                await download({
-                    url: event.data.url, 
-                    name: path.basename(target_path),
-                    dest_path: path.dirname(target_path),
-                    auth_token: window.auth_token,
-                    api_origin: window.api_origin,
-                    dedupe_name: false,
-                    overwrite: false,
-                    operation_id: dl_op_id,
-                    item_upload_id: 0,
-                    success: function(res){
-                    },
-                    error: function(err){
-                        UIAlert(err && err.message ? err.message : "Download failed.");
-                    }
-                });
-                item_with_same_name_already_exists = false;
-            }
-        };
-        
         const write_file_tell_caller_and_update_views = async ({
             target_path, el_filedialog_window,
             file_to_upload, overwrite,
@@ -1309,6 +1276,39 @@ const ipc_listener = async (event, handled) => {
             $(el_filedialog_window).close();
             window.show_save_account_notice_if_needed();
         }
+        
+        const handle_url_save = async ({ target_path }) => {
+            // download progress tracker
+            let dl_op_id = window.operation_id++;
+
+            // upload progress tracker defaults
+            window.progress_tracker[dl_op_id] = [];
+            window.progress_tracker[dl_op_id][0] = {};
+            window.progress_tracker[dl_op_id][0].total = 0;
+            window.progress_tracker[dl_op_id][0].ajax_uploaded = 0;
+            window.progress_tracker[dl_op_id][0].cloud_uploaded = 0;
+
+            let item_with_same_name_already_exists = true;
+            while(item_with_same_name_already_exists){
+                await download({
+                    url: event.data.url, 
+                    name: path.basename(target_path),
+                    dest_path: path.dirname(target_path),
+                    auth_token: window.auth_token,
+                    api_origin: window.api_origin,
+                    dedupe_name: false,
+                    overwrite: false,
+                    operation_id: dl_op_id,
+                    item_upload_id: 0,
+                    success: function(res){
+                    },
+                    error: function(err){
+                        UIAlert(err && err.message ? err.message : "Download failed.");
+                    }
+                });
+                item_with_same_name_already_exists = false;
+            }
+        };
         
         const handle_data_save = async ({ target_path, el_filedialog_window }) => {
             let file_to_upload = new File([event.data.content], path.basename(target_path));
