@@ -68,14 +68,12 @@ class WorkerService extends BaseService {
                 });
                 // console.log(req.body)
                 let responseFromAPI;
-
-                switch (operation) {
-                    case "create":
-                        responseFromAPI = await createWorker(userData, authorization, workerId, preamble + req.body, PREAMBLE_LENGTH);
-                        break;
-                    default:
-                        throw response.status(400) && response.send("Invalid worker operation " + JSON.stringify(req.params));
+                if (operation === "create" && req.method === "PUT") {
+                    responseFromAPI = await createWorker(userData, authorization, workerId, preamble + req.body, PREAMBLE_LENGTH);
+                } else if (operation === "destroy" && req.method === "DELETE") {
+                    responseFromAPI = await deleteWorker(userData, authorization, workerId);
                 }
+
                 response.send(responseFromAPI);
             }
         }).attach(r_workers);
