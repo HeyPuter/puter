@@ -85,7 +85,7 @@ class WorkerService extends BaseService {
         ['workers']: {
             async create({ fileData, workerName, authorization }) {
                 try {
-                    const userData = await getUserInfo(authorization);
+                    const userData = await getUserInfo(authorization, this.global_config.api_base_url);
                     return await createWorker(userData, authorization, workerName, preamble + fileData, PREAMBLE_LENGTH);
                 } catch (e) {
                     return {success: false, e}
@@ -93,7 +93,7 @@ class WorkerService extends BaseService {
             },
             async destroy({ workerName, authorization }) {
                 try {
-                    const userData = await getUserInfo(authorization);
+                    const userData = await getUserInfo(authorization, this.global_config.api_base_url);
                     return await deleteWorker(userData, authorization, workerName);
                 } catch (e) {
                     return {success: false, e}
