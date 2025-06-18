@@ -22,7 +22,11 @@ const { Endpoint } = require("../../util/expressutil");
 const BaseService = require("../BaseService");
 const fs = require("node:fs");
 
-const {createWorker, setCloudflareKeys} = require("./workerUtils/cloudflareDeploy")
+const { createWorker, setCloudflareKeys, deleteWorker } = require("./workerUtils/cloudflareDeploy");
+const { getUserInfo } = require("./workerUtils/puterUtils");
+
+const preamble = fs.readFileSync("../../src/backend/src/services/worker/res/workerPreamble.js", "utf-8");
+const PREAMBLE_LENGTH = preamble.split("\n").length - 1
 
 class WorkerService extends BaseService {
     ['__on_install.routes'](_, { app }) {
@@ -32,8 +36,7 @@ class WorkerService extends BaseService {
             return express.Router();
         })();
         setCloudflareKeys(this.config);
-        const preamble = fs.readFileSync("../../src/backend/src/services/worker/res/workerPreamble.js", "utf-8");
-        const PREAMBLE_LENGTH = preamble.split("\n").length - 1
+
         app.use('/workers', r_workers);
 
         Endpoint({
@@ -77,6 +80,102 @@ class WorkerService extends BaseService {
             }
         }).attach(r_workers);
 
+    }
+    static IMPLEMENTS = {
+        ['workers']: {
+            async create({ fileData, workerName, authorization }) {
+                try {
+                    const userData = await getUserInfo(authorization);
+                    return await createWorker(userData, authorization, workerName, preamble + fileData, PREAMBLE_LENGTH);
+                } catch (e) {
+                    return {success: false, e}
+                }
+            },
+            async destroy({ workerName, authorization }) {
+                try {
+                    const userData = await getUserInfo(authorization);
+                    return await deleteWorker(userData, authorization, workerName);
+                } catch (e) {
+                    return {success: false, e}
+                }
+            },
+            async startLogs({ workerName, authorization }) {
+                return await this.exec_({ runtime, code });
+            },
+            async endLogs({ workerName, authorization }) {
+                return await this.exec_({ runtime, code });
+            },
+        }
+    }
+    async ['__on_driver.register.interfaces']() {
+        const svc_registry = this.services.get('registry');
+        const col_interfaces = svc_registry.get('interfaces');
+
+        col_interfaces.set('workers', {
+            description: 'Execute code with various languages.',
+            methods: {
+                create: {
+                    description: 'Create a backend worker',
+                    parameters: {
+                        fileData: {
+                            type: "string",
+                            description: "The code of the worker to upload"
+                        },
+                        workerName: {
+                            type: "string",
+                            description: "The name of the worker you want to upload"
+                        },
+                        authorization: {
+                            type: "string",
+                            description: "Puter token"
+                        }
+                    },
+                    result: { type: 'json' },
+                },
+                startLogs: {
+                    description: 'Get logs for your backend worker',
+                    parameters: {
+                        workerName: {
+                            type: "string",
+                            description: "The name of the worker you want the logs of"
+                        },
+                        authorization: {
+                            type: "string",
+                            description: "Puter token"
+                        }
+                    },
+                    result: { type: 'json' },
+                },
+                endLogs: {
+                    description: 'Get logs for your backend worker',
+                    parameters: {
+                        workerName: {
+                            type: "string",
+                            description: "The name of the worker you want the logs of"
+                        },
+                        authorization: {
+                            type: "string",
+                            description: "Puter token"
+                        }
+                    },
+                    result: { type: 'json' },
+                },
+                destroy: {
+                    description: 'Get rid of your backend worker',
+                    parameters: {
+                        workerName: {
+                            type: "string",
+                            description: "The name of the worker you want to destroy"
+                        },
+                        authorization: {
+                            type: "string",
+                            description: "Puter token"
+                        }
+                    },
+                    result: { type: 'json' },
+                },
+            }
+        });
     }
 }
 

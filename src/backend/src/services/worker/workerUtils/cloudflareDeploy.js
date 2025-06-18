@@ -86,7 +86,8 @@ function setCloudflareKeys(givenConfig) {
 
 }
 
-function deleteWorker(userData, authorization, workerId) {
+async function deleteWorker(userData, authorization, workerId) {
+    return await (await cfFetch(`${WORKERS_BASE_URL}/scripts/${calculateWorkerName(userData.username, workerId)}/`, "DELETE")).json();
 
 }
 
