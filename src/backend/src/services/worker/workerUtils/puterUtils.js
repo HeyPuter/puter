@@ -1,15 +1,10 @@
 export function getUserInfo(authorization) {
-    return fetch("https://api.puter.localhost:4100/whoami", { headers: { authorization } }).then(res => {
+    return fetch("http://api.puter.localhost:4100/whoami", { headers: { authorization, origin: "https://docs.puter.com" } }).then(async res => {
         if (res.status != 200) {
-            response.status(403);
-            response.send("User data endpoint returned error code");
+            throw ("User data endpoint returned error code " + await res.text());
             return;
         }
 
-        console.log("hai")
         return res.json();
-    }).catch(e => {
-        console.log(e)
-        throw response.status(500) && response.send("Unable to parse user data");
-    });
+    })
 }
