@@ -713,17 +713,22 @@ class UI extends EventListener {
         })
     }
 
-    showSaveFilePicker = function(content, suggestedName){
+    showSaveFilePicker = function(content, suggestedName, type){
         return new Promise((resolve) => {
             const msg_id = this.#messageID++;
-            const url = (Object.prototype.toString.call(content) === '[object URL]' ? content : undefined);
+            if ( ! type && Object.prototype.toString.call(content) === '[object URL]' ) {
+                type = 'url';
+            }
+            const url = type === 'url' ? content.toString() : undefined;
+            const source_path = type === 'move' ? content : undefined;
 
             if(this.env === 'app'){
                 this.messageTarget?.postMessage({
                     msg: "showSaveFilePicker",
                     appInstanceID: this.appInstanceID,
                     content: url ? undefined : content,
-                    url: url ? url.toString() : undefined,
+                    url,
+                    source_path,
                     suggestedName: suggestedName ?? '',
                     env: this.env,
                     uuid: msg_id

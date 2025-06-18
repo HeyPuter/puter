@@ -2781,6 +2781,7 @@ window.handle_same_name_exists = async ({
 }) => {
     try {
         await action({ overwrite: false });
+        return true;
     } catch ( err ) {
         if ( err.code !== 'item_with_same_name_exists' ) {
             console.error(err);

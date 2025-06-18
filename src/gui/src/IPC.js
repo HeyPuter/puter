@@ -1326,6 +1326,38 @@ const ipc_listener = async (event, handled) => {
             if ( written ) return true;
             $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
         };
+        
+        const handle_move_save = async ({ source_path, target_path, el_filedialog_window }) => {
+            // source path must be in appdata directory
+            const stat_info = await puter.fs.stat(source_path);
+            if ( ! stat_info.appdata_app ) {
+                await puter.ui.alert(`the app ${app_uuid} attempted to ` +
+                    `move data owned by the user illegaly`);
+                return;
+            }
+            
+            if ( stat_info.appdata_app !== app_uuid ) {
+                await puter.ui.alert(`the app ${app_uuid} attempted to ` +
+                    `move data owned by ${stat_info.appdata_app}`);
+                return;
+            }
+            
+            console.log('supposedly we\'re writing this file now');
+            
+            const written = await window.handle_same_name_exists({
+                action: async ({ overwrite }) => {
+                    if ( overwrite ) {
+                        await puter.fs.delete(target_path);
+                    }
+                    console.log('performing move operation', {source_path, target_path});
+                    await puter.fs.move(source_path, target_path);
+                },
+                parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
+            });
+
+            if ( written ) return true;
+            $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
+        };
 
         await UIWindow({
             path: '/' + window.user.username + '/Desktop',
@@ -1348,6 +1380,11 @@ const ipc_listener = async (event, handled) => {
 
                 if (event.data.url){
                     done = await handle_url_save({ target_path });
+                } else if ( event.data.source_path ) {
+                    done = await handle_move_save({
+                        source_path: event.data.source_path,
+                        target_path,
+                    });
                 } else {
                     done = await handle_data_save({ target_path, el_filedialog_window });
                 }
