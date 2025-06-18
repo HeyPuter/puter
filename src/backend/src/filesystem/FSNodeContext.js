@@ -814,6 +814,12 @@ module.exports = class FSNodeContext {
             const app = await get_app({ id: fsentry.associated_app_id });
             fsentry.associated_app = app;
         }
+        
+        // If this file is in an appdata directory, add `appdata_app`
+        const components = await this.getPathComponents();
+        if ( components[1] === 'AppData' ) {
+            fsentry.appdata_app = components[2];
+        }
 
         fsentry.is_dir = !! fsentry.is_dir;
 
