@@ -1217,19 +1217,11 @@ const ipc_listener = async (event, handled) => {
         $el_parent_disable_mask.css('z-index', parseInt($el_parent_window.css('z-index')) + 1);
         $(target_iframe).blur();
         
-        const write_file_tell_caller_and_update_views = async ({
-            target_path, el_filedialog_window,
-            file_to_upload, overwrite,
+        const tell_caller_and_update_views = async ({
+            target_path,
+            el_filedialog_window,
+            res,
         }) => {
-            const res = await puter.fs.write(
-                target_path,
-                file_to_upload, 
-                { 
-                    dedupeName: false,
-                    overwrite: overwrite
-                }
-            );
-
             let file_signature = await puter.fs.sign(app_uuid, {uid: res.uid, action: 'write'});
             file_signature = file_signature.items;
 
@@ -1275,6 +1267,22 @@ const ipc_listener = async (event, handled) => {
             });                            
             $(el_filedialog_window).close();
             window.show_save_account_notice_if_needed();
+        };
+        
+        const write_file_tell_caller_and_update_views = async ({
+            target_path, el_filedialog_window,
+            file_to_upload, overwrite,
+        }) => {
+            const res = await puter.fs.write(
+                target_path,
+                file_to_upload, 
+                { 
+                    dedupeName: false,
+                    overwrite: overwrite
+                }
+            );
+            
+            await tell_caller_and_update_views({ res, el_filedialog_window, target_path });
         }
         
         const handle_url_save = async ({ target_path }) => {
@@ -1344,16 +1352,20 @@ const ipc_listener = async (event, handled) => {
             
             console.log('supposedly we\'re writing this file now');
             
+            let node;
             const written = await window.handle_same_name_exists({
                 action: async ({ overwrite }) => {
                     if ( overwrite ) {
                         await puter.fs.delete(target_path);
                     }
-                    console.log('performing move operation', {source_path, target_path});
                     await puter.fs.move(source_path, target_path);
+                    node = await puter.fs.stat(target_path);
+                    console.log('the move operation just happened', { node });
                 },
                 parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
             });
+
+            await tell_caller_and_update_views({ res: node, el_filedialog_window, target_path });
 
             if ( written ) return true;
             $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
