@@ -1217,42 +1217,6 @@ const ipc_listener = async (event, handled) => {
         $el_parent_disable_mask.css('z-index', parseInt($el_parent_window.css('z-index')) + 1);
         $(target_iframe).blur();
         
-        const handle_same_name_exists = async ({
-            action, parent_uuid,
-        }) => {
-            try {
-                await action({ overwrite: false });
-            } catch ( err ) {
-                if ( err.code !== 'item_with_same_name_exists' ) {
-                    await UIAlert({
-                        message: err.message ?? "Upload failed.",
-                        parent_uuid,
-                    });
-                    return false;
-                }
-                const alert_resp = await UIAlert({
-                    message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
-                    buttons:[
-                        {
-                            label: i18n('replace'),
-                            value: 'replace',
-                            type: 'primary',
-                        },
-                        {
-                            label: i18n('cancel'),
-                            value: 'cancel',
-                        },
-                    ],
-                    parent_uuid,
-                });
-                if ( alert_resp === 'replace' ) {
-                    await action({ overwrite: true });
-                    return true;
-                }
-                return false;
-            }
-        }
-        
         const handle_url_save = async ({ target_path }) => {
             // download progress tracker
             let dl_op_id = window.operation_id++;
@@ -1348,7 +1312,7 @@ const ipc_listener = async (event, handled) => {
         
         const handle_data_save = async ({ target_path, el_filedialog_window }) => {
             let file_to_upload = new File([event.data.content], path.basename(target_path));
-            const written = await handle_same_name_exists({
+            const written = await window.handle_same_name_exists({
                 action: async ({ overwrite }) => {
                     console.log('action with overwrite flag:', overwrite);
                     await write_file_tell_caller_and_update_views({

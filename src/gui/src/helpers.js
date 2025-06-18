@@ -2762,3 +2762,53 @@ window.format_credits = (num) => {
 
   return window.format_with_units(num, { mulUnits })
 };
+
+/**
+ * This function will call the provided action function in a try...catch
+ * and handle the 'item_with_same_name_exists' error by re-calling the
+ * action with `{ overwrite: true }` if the user specifies they want to
+ * do so.
+ * 
+ * All exceptions are trapped by this function. The user will see
+ * "Upload failed." if an error occurs and the error object will
+ * be logged to the console.
+ * 
+ * A parent_uuid for a window should be specified for alert boxes to
+ * behave correctly.
+ */
+window.handle_same_name_exists = async ({
+    action, parent_uuid,
+}) => {
+    try {
+        await action({ overwrite: false });
+    } catch ( err ) {
+        if ( err.code !== 'item_with_same_name_exists' ) {
+            console.error(err);
+            await UIAlert({
+                message: err.message ?? "Upload failed.",
+                parent_uuid,
+            });
+            return false;
+        }
+        const alert_resp = await UIAlert({
+            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+            buttons:[
+                {
+                    label: i18n('replace'),
+                    value: 'replace',
+                    type: 'primary',
+                },
+                {
+                    label: i18n('cancel'),
+                    value: 'cancel',
+                },
+            ],
+            parent_uuid,
+        });
+        if ( alert_resp === 'replace' ) {
+            await action({ overwrite: true });
+            return true;
+        }
+        return false;
+    }
+}
