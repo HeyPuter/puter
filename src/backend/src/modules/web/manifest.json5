@@ -1,0 +1,14 @@
+{
+    name: "web",
+    "manifest-version": 1,
+
+    // When "base" and "new" are present, we don't auto-load any of the files;
+    // this is a legacy module undergoing migration. Files that have been
+    // migrated will be listed under "new". Once "new" lists all the files in
+    // this module, we can remove these two properties entirely.
+
+    base: "WebModule.js",
+    new: [
+        "export.js"
+    ]
+}
