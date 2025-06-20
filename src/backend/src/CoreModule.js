@@ -101,6 +101,7 @@ const install = async ({ services, app, useapi, modapi }) => {
         });
         def('core.fs.selectors', require('./filesystem/node/selectors'));
         def('core.util.stream', require('./util/streamutil'));
+        def('web', require('./util/expressutil'));
         def('core.validation', require('@heyputer/backend-core-0').validation);
     });
     
