@@ -17,9 +17,9 @@ export class Debug {
             this.context.puter.logger.on(category);
         }
 
-        window.addEventListener('message', async e => {
+        globalThis.addEventListener('message', async e => {
             // Ensure message is from parent window
-            if ( e.source !== window.parent ) return;
+            if ( e.source !== globalThis.parent ) return;
             // (parent window is allowed to be anything)
 
             // Check if it's a debug message

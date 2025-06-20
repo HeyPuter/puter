@@ -42,7 +42,7 @@ export class FilesystemService extends putility.concepts.Service {
 
     init_app_fs_ () {
         this.fs_nocache_ = new PostMessageFilesystem({
-            messageTarget: window.parent,
+            messageTarget: globalThis.parent,
             rpc: this._.context.util.rpc,
         }).as(TFilesystem);
         this.filesystem = this.fs_nocache_;

@@ -53,7 +53,7 @@ class AppConnection extends EventListener {
 
         // TODO: Set this.#puterOrigin to the puter origin
 
-        window.addEventListener('message', event => {
+        (globalThis.document) && window.addEventListener('message', event => {
             if (event.data.msg === 'messageToApp') {
                 if (event.data.appInstanceID !== this.targetAppInstanceID) {
                     // Message is from a different AppConnection; ignore it.
@@ -261,7 +261,7 @@ class UI extends EventListener {
         }, '*');
 
         // When this app's window is focused send a message to the host environment
-        window.addEventListener('focus', (e) => {
+        (globalThis.document) && window.addEventListener('focus', (e) => {
             this.messageTarget?.postMessage({
                 msg: "windowFocused",
                 appInstanceID: this.appInstanceID,
@@ -270,7 +270,7 @@ class UI extends EventListener {
 
         // Bind the message event listener to the window
         let lastDraggedOverElement = null;
-        window.addEventListener('message', async (e) => {
+        (globalThis.document) && window.addEventListener('message', async (e) => {
             // `error`
             if(e.data.error){
                 throw e.data.error;
@@ -520,7 +520,7 @@ class UI extends EventListener {
         // and the host environment needs to know the mouse position to show these elements correctly.
         // The host environment can't just get the mouse position since when the mouse is over an iframe it 
         // will not be able to get the mouse position. So we need to send the mouse position to the host environment.
-        document.addEventListener('mousemove', async (event)=>{
+        globalThis.document?.addEventListener('mousemove', async (event)=>{
             // Get the mouse position from the event object
             this.mouseX = event.clientX;
             this.mouseY = event.clientY;
@@ -535,7 +535,7 @@ class UI extends EventListener {
         });
 
         // click
-        document.addEventListener('click', async (event)=>{
+        globalThis.document?.addEventListener('click', async (event)=>{
             // Get the mouse position from the event object
             this.mouseX = event.clientX;
             this.mouseY = event.clientY;
@@ -563,7 +563,7 @@ class UI extends EventListener {
         // This should also be done only the very first time the callback is set (hence the if(!this.#onItemsOpened) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
         if(!this.#onItemsOpened){
-            let URLParams = new URLSearchParams(window.location.search);
+            let URLParams = new URLSearchParams(globalThis.location.search);
             if(URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url')){
                 let fpath = URLParams.get('puter.item.path');
 
@@ -591,7 +591,7 @@ class UI extends EventListener {
     // Check if the app was launched with items
     // This is useful for apps that are launched with items (e.g. when a file is opened with the app)
     wasLaunchedWithItems = function() {
-        const URLParams = new URLSearchParams(window.location.search);
+        const URLParams = new URLSearchParams(globalThis.location.search);
         return URLParams.has('puter.item.name') && 
                URLParams.has('puter.item.uid') && 
                URLParams.has('puter.item.read_url');
@@ -604,7 +604,7 @@ class UI extends EventListener {
         // This should also be done only the very first time the callback is set (hence the if(!this.#onLaunchedWithItems) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
         if(!this.#onLaunchedWithItems){
-            let URLParams = new URLSearchParams(window.location.search);
+            let URLParams = new URLSearchParams(globalThis.location.search);
             if(URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url')){
                 let fpath = URLParams.get('puter.item.path');
 
@@ -648,7 +648,10 @@ class UI extends EventListener {
     }
 
     showDirectoryPicker = function(options, callback){
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
+            if (!globalThis.open) {
+                return reject("This API is not compatible in Web Workers.");
+            }
             const msg_id = this.#messageID++;
             if(this.env === 'app'){
                 this.messageTarget?.postMessage({
@@ -675,7 +678,10 @@ class UI extends EventListener {
     }
 
     showOpenFilePicker = function(options, callback){
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
+            if (!globalThis.open) {
+                return reject("This API is not compatible in Web Workers.");
+            }
             const msg_id = this.#messageID++;
 
             if(this.env === 'app'){
@@ -714,7 +720,10 @@ class UI extends EventListener {
     }
 
     showSaveFilePicker = function(content, suggestedName, type){
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
+            if (!globalThis.open) {
+                return reject("This API is not compatible in Web Workers.");
+            }
             const msg_id = this.#messageID++;
             if ( ! type && Object.prototype.toString.call(content) === '[object URL]' ) {
                 type = 'url';
