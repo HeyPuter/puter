@@ -59,9 +59,9 @@ const configurable_auth = options => async (req, res, next) => {
         token = req.header('Authorization');
         token = token.replace('Bearer ', '').trim();
         if ( token === 'undefined' ) {
-            APIError.create('unexpected_undefined', null,
-                `The Authorization token cannot be the string "undefined"`
-            );
+            APIError.create('unexpected_undefined', null, {
+                msg: `The Authorization token cannot be the string "undefined"`
+            });
         }
     }
     // Cookie
