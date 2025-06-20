@@ -1,4 +1,4 @@
-class PuterDialog extends HTMLElement {
+class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall back to only extending Object in environments without a DOM
     /**
      * Detects if the current page is loaded using the file:// protocol.
      * @returns {boolean} True if using file:// protocol, false otherwise.
@@ -475,6 +475,7 @@ class PuterDialog extends HTMLElement {
         this.shadowRoot.querySelector('dialog').close();
     }
 }
-customElements.define('puter-dialog', PuterDialog);
+if (PuterDialog.__proto__  === globalThis.HTMLElement)
+    customElements.define('puter-dialog', PuterDialog);
 
 export default PuterDialog;
