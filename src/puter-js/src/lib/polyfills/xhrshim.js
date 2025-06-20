@@ -161,6 +161,7 @@ const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
           this.response = await resp.json();
           break;
       }
+      this.readyState = this.constructor.DONE;
       this[sDispatch](new CustomEvent("load"));
     }, err => {
       let eventName = "abort";
@@ -170,9 +171,9 @@ const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
       } else if (this[sTimedOut]) {
         eventName = "timeout";
       }
+      this.readyState = this.constructor.DONE;
       this[sDispatch](new CustomEvent(eventName));
     }).finally(() => this[sDispatch](new CustomEvent("loadend"))).finally(() => {
-      this.readyState = this.constructor.DONE;
       clearTimeout(this[sTimeout]);
       this[sDispatch](new CustomEvent("loadstart"));
     });
