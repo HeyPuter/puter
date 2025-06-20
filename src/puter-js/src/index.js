@@ -159,7 +159,6 @@ export default globalThis.puter = (function() {
                 if (!globalThis.addEventListener) {
                     globalThis.addEventListener = () => {} // API Stub
                 }
-                console.log("is nodejs")
             } else {
                 this.env = 'web';
             }
@@ -328,9 +327,7 @@ export default globalThis.puter = (function() {
                     console.error('Error accessing localStorage:', error);
                 }
             } else if (this.env === 'web-worker' || this.env === 'service-worker' || this.env === 'nodejs') {
-                console.log("initing");
                 this.initSubmodules();
-                console.log("inited!");
             }
 
             // Add prefix logger (needed to happen after modules are initialized)
