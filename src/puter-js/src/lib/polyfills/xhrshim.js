@@ -3,6 +3,7 @@
 /* global module */
 /* global EventTarget, AbortController, DOMException */
 
+const sReadyState = Symbol("readyState");
 const sHeaders = Symbol("headers");
 const sRespHeaders = Symbol("response headers");
 const sAbortController = Symbol("AbortController");
@@ -16,6 +17,20 @@ const sTimedOut = Symbol("timedOut");
 const sIsResponseText = Symbol("isResponseText");
 
 const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
+  onreadystatechange() {
+
+  }
+
+  set readyState(value) {
+    this[sReadyState] = value;
+    this.dispatchEvent(new Event("readystatechange"));
+    this.onreadystatechange(new Event("readystatechange"));
+
+  }
+  get readyState() {
+    return this[sReadyState];
+  }
+
   constructor() {
     super();
     this.readyState = this.constructor.UNSENT;
@@ -52,6 +67,11 @@ const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
   }
   static get DONE() {
     return 4;
+  }
+  upload = {
+    addEventListener() {
+      // stub, doesn't do anything since its not possible to monitor with fetch and http/1.1
+    }
   }
   get responseText() {
     if (this[sErrored]) return null;
@@ -95,10 +115,10 @@ const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
   }
   getAllResponseHeaders() {
     if (this[sErrored] || this.readyState < this.constructor.HEADERS_RECEIVED) return "";
-    return Object.entries(this[sRespHeaders]).map(([header, value]) => `${header}: ${value}`).join("\r\n");
+    return Array.from(this[sRespHeaders].entries().map(([header, value]) => `${header}: ${value}`)).join("\r\n");
   }
   getResponseHeader(headerName) {
-    const value = this[sRespHeaders][String(headerName).toLowerCase()];
+    const value = this[sRespHeaders].get(String(headerName).toLowerCase());
     return typeof value === "string" ? value : null;
   }
   send(body = null) {
@@ -110,22 +130,23 @@ const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
     }
     const responseType = this.responseType || "text";
     this[sIsResponseText] = responseType === "text";
+
+    this.setRequestHeader('user-agent', "puter-js/1.0")
+    this.setRequestHeader('origin', "https://puter.work");
+    this.setRequestHeader('referer', "https://puter.work/");
+
     fetch(this[sURL], {
       method: this[sMethod] || "GET",
       signal: this[sAbortController].signal,
       headers: this[sHeaders],
       credentials: this.withCredentials ? "include" : "same-origin",
       body
-    }).finally(() => {
-      this.readyState = this.constructor.DONE;
-      clearTimeout(this[sTimeout]);
-      this[sDispatch](new CustomEvent("loadstart"));
     }).then(async resp => {
       this.responseURL = resp.url;
       this.status = resp.status;
       this.statusText = resp.statusText;
-      const finalMIME = this[sMIME] || this[sRespHeaders]["content-type"] || "text/plain";
-      Object.assign(this[sRespHeaders], resp.headers);
+      this[sRespHeaders] = resp.headers;
+      const finalMIME = this[sMIME] || this[sRespHeaders].get("content-type") || "text/plain";
       switch (responseType) {
         case "text":
           this.response = await resp.text();
@@ -150,7 +171,11 @@ const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
         eventName = "timeout";
       }
       this[sDispatch](new CustomEvent(eventName));
-    }).finally(() => this[sDispatch](new CustomEvent("loadend")));
+    }).finally(() => this[sDispatch](new CustomEvent("loadend"))).finally(() => {
+      this.readyState = this.constructor.DONE;
+      clearTimeout(this[sTimeout]);
+      this[sDispatch](new CustomEvent("loadstart"));
+    });
   }
 }
 
