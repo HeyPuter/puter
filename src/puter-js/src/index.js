@@ -1,7 +1,6 @@
 import OS from './modules/OS.js';
 import { PuterJSFileSystemModule } from './modules/FileSystem/index.js';
 import Hosting from './modules/Hosting.js';
-import Email from './modules/Email.js';
 import Apps from './modules/Apps.js';
 import UI from './modules/UI.js';
 import KV from './modules/KV.js';
@@ -21,8 +20,6 @@ import { NoPuterYetService } from './services/NoPuterYet.js';
 import { Debug } from './modules/Debug.js';
 import { PSocket } from './modules/networking/PSocket.js';
 import { PTLSSocket } from "./modules/networking/PTLS.js"
-import Exec from './modules/Exec.js';
-import Convert from './modules/Convert.js';
 import Threads from './modules/Threads.js';
 import Perms from './modules/Perms.js';
 import { pFetch } from './modules/networking/requests.js';
@@ -95,7 +92,6 @@ export default window.puter = (function() {
                 parentInstanceID: this.parentInstanceID,
             });
             this.registerModule('hosting', Hosting);
-            this.registerModule('email', Email);
             this.registerModule('apps', Apps);
             this.registerModule('ai', AI);
             this.registerModule('kv', KV);
@@ -103,8 +99,6 @@ export default window.puter = (function() {
             this.registerModule('perms', Perms);
             this.registerModule('drivers', Drivers);
             this.registerModule('debug', Debug);
-            this.registerModule('exec', Exec);
-            this.registerModule('convert', Convert);
 
             // Path
             this.path = path;
