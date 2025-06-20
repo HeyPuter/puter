@@ -18,7 +18,7 @@
  */
 const eggspress = require("../api/eggspress");
 
-const Endpoint = function Endpoint (spec) {
+const Endpoint = function Endpoint (spec, handler) {
     return {
         attach (route) {
             const eggspress_options = {
@@ -31,7 +31,7 @@ const Endpoint = function Endpoint (spec) {
             const eggspress_router = eggspress(
                 spec.route,
                 eggspress_options,
-                spec.handler,
+                handler ?? spec.handler,
             );
             route.use(eggspress_router);
         },
