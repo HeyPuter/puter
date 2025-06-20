@@ -24,6 +24,7 @@ import Threads from './modules/Threads.js';
 import Perms from './modules/Perms.js';
 import { pFetch } from './modules/networking/requests.js';
 import localStorageMemory from './lib/polyfills/localStorage.js'
+import xhrshim from './lib/polyfills/xhrshim.js'
 
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
@@ -124,7 +125,7 @@ export default globalThis.puter = (function() {
             context.services = this.services;
 
             // Holds the query parameters found in the current URL
-            let URLParams = new URLSearchParams(globalThis.location.search);
+            let URLParams = new URLSearchParams(globalThis.location?.search);
 
             // Figure out the environment in which the SDK is running
             if (URLParams.has('puter.app_instance_id'))
@@ -134,6 +135,9 @@ export default globalThis.puter = (function() {
             else if (globalThis.WorkerGlobalScope) {
                 if (globalThis.clients) {
                     this.env = 'service-worker'
+                    if (!globalThis.XMLHttpRequest) {
+                        globalThis.XMLHttpRequest = xhrshim
+                    }
                     // XHRShimGlobalize here
                 } else {
                     this.env = 'web-worker'
@@ -141,6 +145,21 @@ export default globalThis.puter = (function() {
                 if (!globalThis.localStorage) {
                     globalThis.localStorage = localStorageMemory;
                 }
+            } else if (globalThis.process) {
+                this.env = 'nodejs';
+                if (!globalThis.localStorage) {
+                    globalThis.localStorage = localStorageMemory;
+                }
+                if (!globalThis.XMLHttpRequest) {
+                    globalThis.XMLHttpRequest = xhrshim
+                }
+                if (!globalThis.location) {
+                    globalThis.location = new URL("https://nonexistent.com/");
+                }
+                if (!globalThis.addEventListener) {
+                    globalThis.addEventListener = () => {} // API Stub
+                }
+                console.log("is nodejs")
             } else {
                 this.env = 'web';
             }
@@ -308,8 +327,10 @@ export default globalThis.puter = (function() {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
                 }
-            } else if (this.env === 'web-worker' || this.env === 'service-worker') {
+            } else if (this.env === 'web-worker' || this.env === 'service-worker' || this.env === 'nodejs') {
+                console.log("initing");
                 this.initSubmodules();
+                console.log("inited!");
             }
 
             // Add prefix logger (needed to happen after modules are initialized)
@@ -521,7 +542,6 @@ export default globalThis.puter = (function() {
     
             return new Promise((resolve, reject) => {
                 const xhr = utils.initXhr('/whoami', this.APIOrigin, this.authToken, 'get');
-    
                 // set up event handlers for load and error events
                 utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
     
