@@ -26,13 +26,14 @@ import Convert from './modules/Convert.js';
 import Threads from './modules/Threads.js';
 import Perms from './modules/Perms.js';
 import { pFetch } from './modules/networking/requests.js';
+import localStorageMemory from './lib/polyfills/localStorage.js'
 
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
 //       (using defaultGUIOrigin breaks locally-hosted apps)
 const PROD_ORIGIN = 'https://puter.com';
 
-export default window.puter = (function() {
+export default globalThis.puter = (function() {
     'use strict';
 
     class Puter{
@@ -129,15 +130,28 @@ export default window.puter = (function() {
             context.services = this.services;
 
             // Holds the query parameters found in the current URL
-            let URLParams = new URLSearchParams(window.location.search);
+            let URLParams = new URLSearchParams(globalThis.location.search);
 
             // Figure out the environment in which the SDK is running
             if (URLParams.has('puter.app_instance_id'))
                 this.env = 'app';
-            else if(window.puter_gui_enabled === true)
+            else if(globalThis.puter_gui_enabled === true)
                 this.env = 'gui';
-            else
+            else if (globalThis.WorkerGlobalScope) {
+                if (globalThis.clients) {
+                    this.env = 'service-worker'
+                    // XHRShimGlobalize here
+                } else {
+                    this.env = 'web-worker'
+                }
+                if (!globalThis.localStorage) {
+                    globalThis.localStorage = localStorageMemory;
+                }
+            } else {
                 this.env = 'web';
+            }
+                
+
 
             // There are some specific situations where puter is definitely loaded in GUI mode
             // we're going to check for those situations here so that we don't break anything unintentionally
@@ -300,6 +314,8 @@ export default window.puter = (function() {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
                 }
+            } else if (this.env === 'web-worker' || this.env === 'service-worker') {
+                this.initSubmodules();
             }
 
             // Add prefix logger (needed to happen after modules are initialized)
@@ -460,7 +476,7 @@ export default window.puter = (function() {
                 statusCode = 1;
             }
 
-            window.parent.postMessage({
+            globalThis.parent.postMessage({
                 msg: "exit",
                 appInstanceID: this.appInstanceID,
                 statusCode,
@@ -554,7 +570,7 @@ export default window.puter = (function() {
     return puterobj;
 }());
 
-window.addEventListener('message', async (event) => {
+globalThis.addEventListener('message', async (event) => {
     // if the message is not from Puter, then ignore it
     if(event.origin !== puter.defaultGUIOrigin) return;
 
