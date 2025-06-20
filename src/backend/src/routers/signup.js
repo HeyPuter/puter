@@ -189,7 +189,7 @@ module.exports = eggspress(['/signup'], {
     const svc_cleanEmail = req.services.get('clean-email');
     const clean_email = svc_cleanEmail.clean(req.body.email);
     
-    if (clean_email !== '' && !req.body.is_temp && ! await svc_cleanEmail.validate(clean_email) ) {
+    if (!req.body.is_temp && ! await svc_cleanEmail.validate(clean_email) ) {
         return res.status(400).send('This email does not seem to be valid.');
     }
 
