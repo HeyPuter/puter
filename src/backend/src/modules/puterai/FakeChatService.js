@@ -100,7 +100,7 @@ class FakeChatService extends BaseService {
             * @param {string} params.model - The model to use ('fake', 'costly', or 'abuse')
             * @returns {Object} A simulated chat completion response with Lorem Ipsum content
             */
-            async complete ({ messages, stream, model, max_tokens }) {
+            async complete ({ messages, stream, model, max_tokens, custom }) {
                 const { LoremIpsum } = require('lorem-ipsum');
                 const li = new LoremIpsum({
                     sentencesPerParagraph: {
@@ -117,7 +117,7 @@ class FakeChatService extends BaseService {
                 const usedModel = model || this.get_default_model();
                 
                 // For the costly model, simulate actual token counting
-                const resp = this.get_response({ usedModel });
+                const resp = this.get_response({ usedModel, custom, max_tokens });
                 
                 if ( stream ) {
                     return new TypedValue({ $: 'ai-chat-intermediate' }, {
@@ -139,7 +139,7 @@ class FakeChatService extends BaseService {
         }
     }
 
-    get_response ({ usedModel, message }) {
+    get_response ({ usedModel, message, custom, max_tokens }) {
         let inputTokens = 0;
         let outputTokens = 0;
         
@@ -177,6 +177,7 @@ class FakeChatService extends BaseService {
             responseText = dedent(`
                 <h2>Free AI and Cloud for everyone!</h2><br />
                 Come on down to <a href="https://puter.com">puter.com</a> and try it out!
+                ${custom ?? ''}
             `);
         } else {
             // Generate 1-3 paragraphs for both fake and costly models
