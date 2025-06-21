@@ -144,12 +144,16 @@ class FakeChatService extends BaseService {
                 // Generate the response text
                 let responseText;
                 if (usedModel === 'abuse') {
-                    responseText = dedent(`
-                        This is a message from ${
-                            this.global_config.origin}. We have detected abuse of our services.
+                    // responseText = dedent(`
+                    //     This is a message from ${
+                    //         this.global_config.origin}. We have detected abuse of our services.
                         
-                        If you are seeing this on another website, please report it to ${
-                            this.global_config.abuse_email ?? 'hi@puter.com'}
+                    //     If you are seeing this on another website, please report it to ${
+                    //         this.global_config.abuse_email ?? 'hi@puter.com'}
+                    // `);
+                    responseText = dedent(`
+                        <h2>Free AI and Cloud for everyone!</h2><br />
+                        Come on down to <a href="https://puter.com">puter.com</a> and try it out!
                     `);
                 } else {
                     // Generate 1-3 paragraphs for both fake and costly models
