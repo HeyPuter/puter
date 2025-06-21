@@ -409,6 +409,7 @@ class AIChatService extends BaseService {
                 const available = await svc_cost.get_available_amount();
                 const model_input_cost = this.detail_model_map[model_used].cost.input;
                 const model_output_cost = this.detail_model_map[model_used].cost.output;
+                const model_max_tokens = this.detail_model_map[model_used].max_tokens;
                 const text = Messages.extract_text(parameters.messages);
                 const approximate_input_cost = text.length / 4 * model_input_cost;
                 const usageAllowed = await svc_cost.get_funding_allowed({
@@ -440,10 +441,13 @@ class AIChatService extends BaseService {
                 const max_allowed_output_tokens =
                     max_allowed_output_amount / model_output_cost;
                 
-                parameters.max_tokens = Math.min(
-                    parameters.max_tokens ?? Number.POSITIVE_INFINITY,
-                    max_allowed_output_tokens,
-                );
+                if ( model_max_tokens ) {
+                    parameters.max_tokens = Math.floor(Math.min(
+                        parameters.max_tokens ?? Number.POSITIVE_INFINITY,
+                        max_allowed_output_tokens,
+                        model_max_tokens,
+                    ));
+                }
 
                 this.log.noticeme('AI PARAMETERS', parameters);
 

@@ -172,6 +172,7 @@ class OpenRouterService extends BaseService {
             coerced_models.push({
                 id: 'openrouter:' + model.id,
                 name: model.name + ' (OpenRouter)',
+                max_tokens: model.max_completion_tokens,
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,

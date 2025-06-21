@@ -106,6 +106,7 @@ class OpenAICompletionService extends BaseService {
             },
             {
                 id: 'gpt-4o-mini',
+                max_tokens: 16384,
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
@@ -169,6 +170,7 @@ class OpenAICompletionService extends BaseService {
             },
             {
                 id: 'o4-mini',
+                max_tokens: 100000,
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
@@ -335,7 +337,7 @@ class OpenAICompletionService extends BaseService {
             messages: messages,
             model: model,
             ...(tools ? { tools } : {}),
-            ...(max_tokens ? { max_tokens } : {}),
+            ...(max_tokens ? { max_completion_tokens: max_tokens } : {}),
             ...(temperature ? { temperature } : {}),
             stream,
             ...(stream ? {
