@@ -104,6 +104,7 @@ class GeminiService extends BaseService {
                     input: 7.5,
                     output: 30,
                 },
+                max_tokens: 8192,
             },
             {
                 id: 'gemini-2.0-flash',
@@ -115,6 +116,7 @@ class GeminiService extends BaseService {
                     input: 10,
                     output: 40,
                 },
+                max_tokens: 8192,
             },
         ];
     }

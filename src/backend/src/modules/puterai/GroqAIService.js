@@ -152,7 +152,8 @@ class GroqAIService extends BaseService {
                     tokens: 1_000_000,
                     input: 20,
                     output: 20,
-                }
+                },
+                max_tokens: 8192,
             },
             {
                 id: 'gemma-7b-it',
@@ -214,13 +215,38 @@ class GroqAIService extends BaseService {
             {
                 "id": "llama-3.1-8b-instant",
                 "name": "Llama 3.1 8B Instant 128k",
-                "context": 128000,
+                "context": 131072,
                 "cost": {
                     "currency": "usd-cents",
                     "tokens": 1000000,
                     "input": 5,
                     "output": 8
-                }
+                },
+                max_tokens: 131072,
+            },
+            {
+                id: 'meta-llama/llama-guard-4-12b',
+                name: 'Llama Guard 4 12B',
+                context: 131072,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1000000,
+                    input: 20,
+                    output: 20,
+                },
+                max_tokens:1024,
+            },
+            {
+                id: 'meta-llama/llama-prompt-guard-2-86m',
+                name: 'Prompt Guard 2 86M',
+                context: 512,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1000000,
+                    input: 4,
+                    output: 4,
+                },
+                max_tokens:512,
             },
             {
                 "id": "llama-3.2-1b-preview",
@@ -231,7 +257,7 @@ class GroqAIService extends BaseService {
                     "tokens": 1000000,
                     "input": 4,
                     "output": 4
-                }
+                },
             },
             {
                 "id": "llama-3.2-3b-preview",

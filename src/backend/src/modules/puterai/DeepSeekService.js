@@ -186,6 +186,7 @@ class DeepSeekService extends BaseService {
                     input: 14,
                     output: 28,
                 },
+                max_tokens: 8000,
             },
             {
                 id: 'deepseek-reasoner',
@@ -197,6 +198,7 @@ class DeepSeekService extends BaseService {
                     input: 55,
                     output: 219,
                 },
+                max_tokens: 64000,
             }
         ];
     }
