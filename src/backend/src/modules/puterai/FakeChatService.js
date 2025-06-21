@@ -100,7 +100,7 @@ class FakeChatService extends BaseService {
             * @param {string} params.model - The model to use ('fake', 'costly', or 'abuse')
             * @returns {Object} A simulated chat completion response with Lorem Ipsum content
             */
-            async complete ({ messages, stream, model }) {
+            async complete ({ messages, stream, model, max_tokens }) {
                 const { LoremIpsum } = require('lorem-ipsum');
                 const li = new LoremIpsum({
                     sentencesPerParagraph: {
@@ -137,7 +137,8 @@ class FakeChatService extends BaseService {
                     }
                     
                     // Generate random output token count between 50 and 200
-                    outputTokens = Math.floor(Math.random() * 150) + 50;
+                    outputTokens = Math.floor(Math.min((Math.random() * 150)+50, max_tokens));
+                    // outputTokens = Math.floor(Math.random() * 150) + 50;
                 }
                 
                 // Generate the response text

@@ -28,6 +28,11 @@ class CostService extends BaseService {
     }
 
     async get_funding_allowed (options = {}) {
+        return (options.available ?? await this.get_available_amount())
+            >= (options.minimum ?? 100);
+    }
+
+    async get_available_amount () {
         const cost_uuid = this.modules.uuidv4();
         const svc_event = this.services.get('event');
         const event = {
@@ -36,11 +41,8 @@ class CostService extends BaseService {
             cost_uuid,
         };
         await svc_event.emit('credit.check-available', event);
-
-        // specified minimum or 1/10th of a cent
-        const minimum = options.minimum ?? 100;
         
-        return event.available >= minimum;
+        return event.available;
     }
     async record_cost ({ cost }) {
         const svc_event = this.services.get('event');

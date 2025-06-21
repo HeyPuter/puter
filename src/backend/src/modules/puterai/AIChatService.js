@@ -406,16 +406,46 @@ class AIChatService extends BaseService {
 
                 // Updated: Check usage and get a boolean result instead of throwing error
                 const svc_cost = this.services.get('cost');
-                const usageAllowed = await svc_cost.get_funding_allowed();
-
+                const available = await svc_cost.get_available_amount();
+                const model_input_cost = this.detail_model_map[model_used].cost.input;
+                const model_output_cost = this.detail_model_map[model_used].cost.output;
+                const text = Messages.extract_text(parameters.messages);
+                const approximate_input_cost = text.length / 4 * model_input_cost;
+                const usageAllowed = await svc_cost.get_funding_allowed({
+                    available,
+                    minimum: approximate_input_cost,
+                });
+                
                 // Handle usage limits reached case
+                this.log.noticeme('DEBUGGING VALUES', {
+                    messages: parameters.messages,
+                    text,
+                    available,
+                    model_input_cost,
+                    model_output_cost,
+                    approximate_input_cost,
+                    usageAllowed,
+                })
                 if ( !usageAllowed ) {
-                    // The check_usage_ method has already updated the intended_service to 'usage-limited-chat'
+                    // The check_usage_ method has eady updated the intended_service to 'usage-limited-chat'
                     service_used = 'usage-limited-chat';
                     model_used = 'usage-limited';
                     // Update intended_service to match service_used
                     intended_service = service_used;
                 }
+                
+                const max_allowed_output_amount =
+                    available - approximate_input_cost;
+                
+                const max_allowed_output_tokens =
+                    max_allowed_output_amount / model_output_cost;
+                
+                parameters.max_tokens = Math.min(
+                    parameters.max_tokens ?? Number.POSITIVE_INFINITY,
+                    max_allowed_output_tokens,
+                );
+
+                this.log.noticeme('AI PARAMETERS', parameters);
 
                 try {
                     ret = await svc_driver.call_new_({
