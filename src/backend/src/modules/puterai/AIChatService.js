@@ -360,6 +360,7 @@ class AIChatService extends BaseService {
                 this.log.noticeme('AIChatService.complete', { intended_service, parameters, test_mode });
                 const svc_event = this.services.get('event');
                 const event = {
+                    actor: Context.get('actor'),
                     allow: true,
                     intended_service,
                     parameters
