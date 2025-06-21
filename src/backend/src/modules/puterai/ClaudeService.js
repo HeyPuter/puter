@@ -234,6 +234,7 @@ class ClaudeService extends BaseService {
                     input: 1500,
                     output: 7500,
                 },
+                max_tokens: 32000,
             },
             {
                 id: 'claude-sonnet-4-20250514',
@@ -258,7 +259,7 @@ class ClaudeService extends BaseService {
                     input: 300,
                     output: 1500,
                 },
-                max_output: 8192,
+                max_tokens: 8192,
             },
             {
                 id: 'claude-3-5-sonnet-20241022',
@@ -272,7 +273,7 @@ class ClaudeService extends BaseService {
                     output: 1500,
                 },
                 qualitative_speed: 'fast',
-                max_output: 8192,
+                max_tokens: 8192,
                 training_cutoff: '2024-04',
             },
             {
