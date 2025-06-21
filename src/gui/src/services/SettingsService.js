@@ -23,6 +23,7 @@ import UsageTab from '../UI/Settings/UITabUsage.js';
 import AccountTab from '../UI/Settings/UITabAccount.js';
 import SecurityTab from '../UI/Settings/UITabSecurity.js';
 import PersonalizationTab from '../UI/Settings/UITabPersonalization.js';
+import WidgetTab from '../UI/Settings/UITabWidget.js';  // widget BETA
 import LanguageTag from '../UI/Settings/UITabLanguage.js';
 import UIElement from "../UI/UIElement.js";
 const TSettingsTab = use('ui.traits.TSettingsTab');
@@ -35,6 +36,7 @@ export class SettingsService extends Service {
             AccountTab,
             SecurityTab,
             PersonalizationTab,
+            WidgetTab, // new
             LanguageTag,
             AboutTab,
         ].forEach(tab => {
