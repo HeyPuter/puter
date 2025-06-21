@@ -176,8 +176,8 @@ class OpenRouterService extends BaseService {
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
-                    input: model.pricing.prompt * 1000000,
-                    output: model.pricing.completion * 1000000,
+                    input: model.pricing.prompt * 1000000 * 100,
+                    output: model.pricing.completion * 1000000 * 100,
                 }
             });
         }
