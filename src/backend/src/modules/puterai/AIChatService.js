@@ -47,6 +47,7 @@ class AIChatService extends BaseService {
     static MODULES = {
         kv: globalThis.kv,
         uuidv4: require('uuid').v4,
+        cuid2: require('@paralleldrive/cuid2').createId,
     }
 
 
@@ -87,6 +88,8 @@ class AIChatService extends BaseService {
                 service_name: details.service_used,
                 model_name: details.model_used,
             };
+            
+            let model_details;
 
             // New format
             if ( Array.isArray(details.usage) ) {
@@ -97,7 +100,7 @@ class AIChatService extends BaseService {
                 values.value_uint_1 = details.usage?.input_tokens;
                 values.value_uint_2 = details.usage?.output_tokens;
 
-                let model_details = this.detail_model_map[details.model_used];
+                model_details = this.detail_model_map[details.model_used];
                 if ( Array.isArray(model_details) ) {
                     for ( const model of model_details ) {
                         if ( model.provider === details.service_used ) {
@@ -127,6 +130,15 @@ class AIChatService extends BaseService {
             this.log.noticeme('USAGE INFO', { usage: details.usage });
             this.log.noticeme('COST INFO', values);
 
+            await svc_event.emit('ai.prompt.cost-calculated', {
+                actor: Context.get('actor'),
+                model_details,
+                usage: details.usage,
+                completionId: details.completionId,
+                service: values.service_name,
+                model: values.model_name,
+                cost: values.cost,
+            });
 
             const svc_cost = this.services.get('cost');
             svc_cost.record_cost({ cost: values.cost });
@@ -357,10 +369,13 @@ class AIChatService extends BaseService {
                 const client_driver_call = Context.get('client_driver_call');
                 let { test_mode, intended_service, response_metadata } = client_driver_call;
                 
+                const completionId = this.modules.cuid2();
+                
                 this.log.noticeme('AIChatService.complete', { intended_service, parameters, test_mode });
                 const svc_event = this.services.get('event');
                 const event = {
                     actor: Context.get('actor'),
+                    completionId,
                     allow: true,
                     intended_service,
                     parameters
@@ -612,6 +627,7 @@ class AIChatService extends BaseService {
                         const usage = await usage_promise;
                         await svc_event.emit('ai.prompt.report-usage', {
                             actor: Context.get('actor'),
+                            completionId,
                             service_used,
                             model_used,
                             usage,
@@ -652,6 +668,7 @@ class AIChatService extends BaseService {
                 } else {
                     await svc_event.emit('ai.prompt.report-usage', {
                         actor: Context.get('actor'),
+                        completionId,
                         username,
                         service_used,
                         model_used,
