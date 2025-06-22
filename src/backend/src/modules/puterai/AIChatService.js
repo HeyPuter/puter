@@ -65,6 +65,23 @@ class AIChatService extends BaseService {
         this.detail_model_list = [];
         this.detail_model_map = {};
     }
+    
+    get_model_details (model_name, context) {
+        let model_details = this.detail_model_map[model_name];
+        if ( Array.isArray(model_details) && context ) {
+            for ( const model of model_details ) {
+                if ( model.provider === context.service_used ) {
+                    model_details = model;
+                    break;
+                }
+            }
+        }
+        if ( Array.isArray(model_details) ) {
+            model_details = model_details[0];
+        }
+        return model_details;
+    }
+    
     /**
     * Initializes the service by setting up empty arrays and maps for providers and models.
     * This method is called during service construction to establish the initial state.
@@ -81,6 +98,7 @@ class AIChatService extends BaseService {
         svc_event.on('ai.prompt.report-usage', async (_, details) => {
             // Only skip usage reporting for fake-chat if it's not using the costly model
             if ( details.service_used === 'fake-chat' && details.model_used !== 'costly' ) return;
+            if ( details.service_used === 'usage-limited-chat' ) return;
 
             const values = {
                 user_id: details.actor?.type?.user?.id,
@@ -100,18 +118,9 @@ class AIChatService extends BaseService {
                 values.value_uint_1 = details.usage?.input_tokens;
                 values.value_uint_2 = details.usage?.output_tokens;
 
-                model_details = this.detail_model_map[details.model_used];
-                if ( Array.isArray(model_details) ) {
-                    for ( const model of model_details ) {
-                        if ( model.provider === details.service_used ) {
-                            model_details = model;
-                            break;
-                        }
-                    }
-                }
-                if ( Array.isArray(model_details) ) {
-                    model_details = model_details[0];
-                }
+                model_details = this.get_model_details(values.model_name, {
+                    service_used: values.service_name,
+                });
                 if ( model_details ) {
                     values.cost = 0 + // for formatting
 
@@ -424,9 +433,14 @@ class AIChatService extends BaseService {
                 // Updated: Check usage and get a boolean result instead of throwing error
                 const svc_cost = this.services.get('cost');
                 const available = await svc_cost.get_available_amount();
-                const model_input_cost = this.detail_model_map[model_used].cost.input;
-                const model_output_cost = this.detail_model_map[model_used].cost.output;
-                const model_max_tokens = this.detail_model_map[model_used].max_tokens;
+                
+                const model_details = this.get_model_details(model_used, {
+                    service_used,
+                });
+                
+                const model_input_cost = model_details.cost.input;
+                const model_output_cost = model_details.cost.output;
+                const model_max_tokens = model_details.max_tokens;
                 const text = Messages.extract_text(parameters.messages);
                 const approximate_input_cost = text.length / 4 * model_input_cost;
                 const usageAllowed = await svc_cost.get_funding_allowed({

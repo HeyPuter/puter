@@ -273,6 +273,10 @@ class MistralAIService extends BaseService {
                         },
                         chunk_but_like_actually: chunk => chunk.data,
                         index_tool_calls_from_stream_choice: choice => choice.delta.toolCalls,
+                        coerce_completion_usage: completion => ({
+                            prompt_tokens: completion.usage.promptTokens,
+                            completion_tokens: completion.usage.completionTokens,
+                        }),
                     },
                     completion, stream,
                     usage_calculator: OpenAIUtil.create_usage_calculator({

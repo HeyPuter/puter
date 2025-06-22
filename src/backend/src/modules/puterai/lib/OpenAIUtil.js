@@ -162,6 +162,11 @@ module.exports = class OpenAIUtil {
         stream, completion, moderate,
         usage_calculator,
     }) {
+        deviations = Object.assign({
+            // affected by: Mistral
+            coerce_completion_usage: completion => completion.usage,
+        }, deviations);
+
         if ( stream ) {
             let usage_promise = new putility.libs.promise.TeePromise();
         
@@ -202,10 +207,18 @@ module.exports = class OpenAIUtil {
         }
         
         const ret = completion.choices[0];
-        ret.usage = usage_calculator ? usage_calculator(completion) : {
-            input_tokens: completion.usage.prompt_tokens,
-            output_tokens: completion.usage.completion_tokens,
+        const completion_usage = deviations.coerce_completion_usage(completion);
+        ret.usage = usage_calculator ? usage_calculator({
+            ...completion,
+            usage: completion_usage,
+        }) : {
+            input_tokens: completion_usage.prompt_tokens,
+            output_tokens: completion_usage.completion_tokens,
         };
+        // TODO: turn these into toggle logs
+        // console.log('ORIGINAL COMPLETION', completion);
+        // console.log('COMPLETION USAGE', completion_usage);
+        // console.log('RETURN VALUE', ret);
         return ret;
     }
 };
