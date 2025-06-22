@@ -84,7 +84,7 @@ class OpenAICompletionService extends BaseService {
     * @returns {string} The default model ID 'gpt-4o-mini'
     */
     get_default_model () {
-        return 'gpt-4o-mini';
+        return 'gpt-4.1-nano';
     }
 
 
