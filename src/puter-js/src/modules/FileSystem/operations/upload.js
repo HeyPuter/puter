@@ -4,6 +4,10 @@ import path from "../../../lib/path.js"
 
 const upload = async function(items, dirPath, options = {}){
     return new Promise(async (resolve, reject) => {
+        const DataTransferItem = globalThis.DataTransfer || (class DataTransferItem {});
+        const FileList = globalThis.FileList || (class FileList {});
+        const DataTransferItemList = globalThis.DataTransferItemList || (class DataTransferItemList {});
+
         // If auth token is not provided and we are in the web environment, 
         // try to authenticate with Puter
         if(!puter.authToken && puter.env === 'web'){

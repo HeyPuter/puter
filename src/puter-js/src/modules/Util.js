@@ -17,7 +17,7 @@ export default class Util {
 class UtilRPC {
     constructor () {
         this.callbackManager = new CallbackManager();
-        this.callbackManager.attach_to_source(window);
+        this.callbackManager.attach_to_source(globalThis);
     }
 
     getDehydrator () {
