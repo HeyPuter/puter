@@ -69,7 +69,8 @@ class FakeChatService extends BaseService {
                         cost: {
                             input: 1000,  // 1000 microcents per million tokens (0.001 cents per 1000 tokens)
                             output: 2000  // 2000 microcents per million tokens (0.002 cents per 1000 tokens)
-                        }
+                        },
+                        max_tokens: 8192,
                     },
                     {
                         id: 'abuse',
@@ -117,7 +118,7 @@ class FakeChatService extends BaseService {
                 const usedModel = model || this.get_default_model();
                 
                 // For the costly model, simulate actual token counting
-                const resp = this.get_response({ usedModel, custom, max_tokens, messages });
+                const resp = this.get_response({ li, usedModel, custom, max_tokens, messages });
                 
                 if ( stream ) {
                     return new TypedValue({ $: 'ai-chat-intermediate' }, {
@@ -139,7 +140,7 @@ class FakeChatService extends BaseService {
         }
     }
 
-    get_response ({ usedModel, messages, custom, max_tokens }) {
+    get_response ({ li, usedModel, messages, custom, max_tokens }) {
         let inputTokens = 0;
         let outputTokens = 0;
         
