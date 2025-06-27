@@ -101,7 +101,7 @@ class OpenAICompletionService extends BaseService {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
                     input: 250,
-                    output: 500,
+                    output: 1000, // https://platform.openai.com/docs/pricing
                 },
                 max_tokens: 16384,
             },
@@ -111,8 +111,8 @@ class OpenAICompletionService extends BaseService {
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
-                    input: 60,
-                    output: 240,
+                    input: 15,
+                    output: 60,
                 },
                 max_tokens: 16384,
             },
