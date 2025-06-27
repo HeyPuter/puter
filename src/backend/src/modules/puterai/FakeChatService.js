@@ -117,7 +117,7 @@ class FakeChatService extends BaseService {
                 const usedModel = model || this.get_default_model();
                 
                 // For the costly model, simulate actual token counting
-                const resp = this.get_response({ usedModel, custom, max_tokens });
+                const resp = this.get_response({ usedModel, custom, max_tokens, messages });
                 
                 if ( stream ) {
                     return new TypedValue({ $: 'ai-chat-intermediate' }, {
@@ -139,7 +139,7 @@ class FakeChatService extends BaseService {
         }
     }
 
-    get_response ({ usedModel, message, custom, max_tokens }) {
+    get_response ({ usedModel, messages, custom, max_tokens }) {
         let inputTokens = 0;
         let outputTokens = 0;
         
