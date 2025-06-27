@@ -32,6 +32,7 @@ function checkForDuplicateEvent(eventId, filePath, seenEvents) {
 
 function extractEventsFromFile(filePath, seenEvents, debugMode) {
     const content = fs.readFileSync(filePath, 'utf-8');
+
     
     // Use a more general regex to capture all event emissions
     // This captures the event name and whatever is passed as the second argument
@@ -40,7 +41,7 @@ function extractEventsFromFile(filePath, seenEvents, debugMode) {
     
     while ((match = regex.exec(content)) !== null) {
         const eventName = match[1];
-        const eventId = `core.${eventName}`;
+        const eventId = eventName;
         const eventArg = match[2].trim();
         
         // Check if this file contains code that might affect event.allow
@@ -103,10 +104,24 @@ function extractEventsFromFile(filePath, seenEvents, debugMode) {
 
 // Helper function to extract properties from a properties text string
 function extractProperties(propertiesText, propertyDetails, hasAllowEffect, eventName) {
-    const properties = propertiesText
+    // filter out all comments (lines starting with //)
+    const lines = propertiesText.split('\n').map(line => line.trim()).filter(line => !line.startsWith('//'));
+
+    // glue all lines together, then split by commas
+    const gluedTest = lines.join('\n');
+
+    const properties = gluedTest
         .split(/\s*,\s*/)
-        .map(prop => prop.split(':')[0].trim())
+        .map(prop => prop.split(/[^_A-Za-z0-9]/)[0].trim())
         .filter(prop => prop);
+
+    // // const event = { allow: true, email };
+    // // text: allow: true, email
+    // // split to: [allow: true] [email]
+    // const properties = propertiesText
+    //     .split(/\s*,\s*/)
+    //     .map(prop => prop.split(':')[0].trim())
+    //     .filter(prop => prop);
     
     // Generate property details
     properties.forEach(prop => {
@@ -216,6 +231,8 @@ function main() {
     const args = process.argv.slice(2);
     if (args.length < 1) {
         console.error('Usage: node doc_helper.js <directory> [output_file] [--generate-test] [--test-dir=<directory>] [--debug]');
+        // node tools/doc_helper.js . doc/contributors/extensions/events.json.js
+        // [output_file] [--generate-test] [--test-dir=<directory>] [--debug]');
         process.exit(1);
     }
     
