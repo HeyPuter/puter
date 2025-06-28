@@ -1341,7 +1341,9 @@ span.header-sort-icon img {
 .window-body-app {
     height: calc(100% - 30px);
 }
-
+.window-with-menubar .window-body-app {
+    height: calc(100% - 65px);
+}
 .fullpage-mode.device-phone .window-body-app {
     height: calc(100%);
 }

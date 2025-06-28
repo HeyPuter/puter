@@ -132,6 +132,9 @@ export default {
                         $(el).insertAfter('.toolbar-puter-logo');
                         // add window-menubar-global
                         $(el).addClass('window-menubar-global');
+                        // remove window-with-menubar from the window
+                        let win_id = $(el).attr('data-window-id');
+                        $('.window[data-id="'+win_id+'"]').removeClass('window-with-menubar');
                         // hide
                         $(el).hide();
                     })
@@ -142,6 +145,8 @@ export default {
                         $(el).insertAfter('.window[data-id="'+win_id+'"] .window-head');
                         // remove window-menubar-global
                         $(el).removeClass('window-menubar-global');
+                        // add window-with-menubar to the window
+                        $('.window[data-id="'+win_id+'"]').addClass('window-with-menubar');
                         // show
                         $(el).css('display', 'flex');
                     })
