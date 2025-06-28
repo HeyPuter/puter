@@ -20,9 +20,6 @@
 import UIPrompt from '../UI/UIPrompt.js';
 import UIAlert from '../UI/UIAlert.js';
 
-// Initialize the favicon cache if it doesn't exist
-window.favicon_cache = window.favicon_cache || {};
-
 /**
  * Returns a context menu item to create a new folder and a variety of file types.
  * 
