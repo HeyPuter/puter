@@ -212,95 +212,119 @@ $(document).bind('keydown', async function(e){
         // ----------------------------------------------
         // Navigate items in the active item container
         // ----------------------------------------------
-        else if(!$(focused_el).is('input') && !$(focused_el).is('textarea') && (e.which === 37 || e.which === 38 || e.which === 39 || e.which === 40)){
-            let item_width = 110, item_height = 110, selected_item;
-            // select first item in container if none is selected
-            if($(window.active_item_container).find('.item-selected').length === 0){
-                selected_item = $(window.active_item_container).find('.item').get(0);
-                window.active_element = selected_item;
-                $(window.active_item_container).find('.item-selected').removeClass('item-selected');
-                $(selected_item).addClass('item-selected');
-                return false;
-            }
-            // if Shift key is pressed and ONE item is already selected, pick that item
-            else if($(window.active_item_container).find('.item-selected').length === 1 && e.shiftKey){
-                selected_item = $(window.active_item_container).find('.item-selected').get(0);
-            }
-            // if Shift key is pressed and MORE THAN ONE item is selected, pick the latest active item
-            else if($(window.active_item_container).find('.item-selected').length > 1 && e.shiftKey){
-                selected_item = $(window.active_element).hasClass('item') ? window.active_element : $(window.active_element).closest('.item').get(0);
-            }
-            // otherwise if an item is selected, pick that item
-            else if($(window.active_item_container).find('.item-selected').length === 1){
-                selected_item = $(window.active_item_container).find('.item-selected').get(0);
-            }
-            else{
-                selected_item = $(window.active_element).hasClass('item') ? window.active_element : $(window.active_element).closest('.item').get(0);
+        else if(!$(focused_el).is('input, textarea') && [37,38,39,40].includes(e.which)){
+            function getActiveItem(){
+                let selected = $(window.active_item_container).find('.item-selected');
+                if (selected.length === 1){
+                    return selected.get(0);
+                }
+                if (selected.length > 1 && window.latest_selected_item){
+                    return window.latest_selected_item;
+                }
+                if (window.active_element && $(window.active_element).hasClass('item')){
+                    return window.active_element;
+                }
+                return $(window.active_item_container).find('.item').get(0);
             }
 
-            // override the default behavior of ctrl/meta key
-            // in some browsers ctrl/meta key + arrow keys will scroll the page or go back/forward in history
-            if(e.ctrlKey || e.metaKey){
+            function findNeighbor(current, direction) {
+                const cx = current.centerX;
+                const cy = current.centerY;
+
+                const isVertical = direction === 'up' || direction === 'down';
+                const axisThreshold = 30; // allowable offset on perpendicular axis
+
+                let candidates = grid.filter(i => i !== current);
+                candidates = candidates.filter(i => {
+                    if (isVertical) {
+                        return Math.abs(i.centerX - cx) < axisThreshold &&
+                            (direction === 'up' ? i.centerY < cy : i.centerY > cy);
+                    } else {
+                        return Math.abs(i.centerY - cy) < axisThreshold &&
+                            (direction === 'left' ? i.centerX < cx : i.centerX > cx);
+                    }
+                });
+
+                // allows wrapping
+                if (candidates.length === 0) {
+                    candidates = grid.filter(i => i !== current);
+                    if (isVertical) {
+                        candidates = candidates.filter(i => Math.abs(i.centerX - cx) < axisThreshold);
+                        candidates.sort((a, b) => direction === 'up'
+                            ? b.centerY - a.centerY
+                            : a.centerY - b.centerY);
+                    } else {
+                        candidates = candidates.filter(i => Math.abs(i.centerY - cy) < axisThreshold);
+                        candidates.sort((a, b) => direction === 'left'
+                            ? b.centerX - a.centerX
+                            : a.centerX - b.centerX);
+                    }
+                    return candidates[0];
+                }
+                // Sort remaining by Euclidean distance
+                candidates.sort((a, b) => {
+                    const da = Math.hypot(a.centerX - cx, a.centerY - cy);
+                    const db = Math.hypot(b.centerX - cx, b.centerY - cy);
+                    return da - db;
+                });
+                return candidates[0];
+            }
+
+            // disable default crtl/meta behaveiour from browsers
+            if (e.ctrlKey || e.metaKey){
                 e.preventDefault();
                 e.stopPropagation();
             }
 
-            // get the position of the selected item
-            let active_el_pos = $(selected_item).hasClass('item') ? selected_item.getBoundingClientRect() : $(selected_item).closest('.item').get(0).getBoundingClientRect();
-            let xpos = active_el_pos.left + item_width/2;
-            let ypos = active_el_pos.top + item_height/2;
-            // these hold next item's position on the grid
-            let x_nxtpos, y_nxtpos;
-            // these hold the amount of pixels to scroll the container
-            let x_scroll = 0, y_scroll = 0;
-            // determine next item's position on the grid
-            // left
-            if(e.which === 37){
-                x_nxtpos = (xpos - item_width) > 0 ? (xpos - item_width) : 0;
-                y_nxtpos = (ypos);
-                x_scroll = (item_width / 2);
-            }
-            // up
-            else if(e.which === 38){
-                x_nxtpos = (xpos);
-                y_nxtpos = (ypos - item_height) > 0 ? (ypos - item_height) : 0;
-                y_scroll = -1 * (item_height / 2);
-            }
-            // right
-            else if(e.which === 39){
-                x_nxtpos = (xpos + item_width);
-                y_nxtpos = (ypos);
-                x_scroll = -1 * (item_width / 2);
-            }
-            // down
-            else if(e.which === 40){
-                x_nxtpos = (xpos);
-                y_nxtpos = (ypos + item_height);
-                y_scroll = (item_height / 2);
-            }
-
-            let elements_at_next_pos = document.elementsFromPoint(x_nxtpos, y_nxtpos);
-            let next_item;
-            for (let index = 0; index < elements_at_next_pos.length; index++) {
-                const elem_at_next_pos = elements_at_next_pos[index];
-                if($(elem_at_next_pos).hasClass('item') && $(elem_at_next_pos).closest('.item-container').is(window.active_item_container)){
-                    next_item = elem_at_next_pos;
-                    break;
+            // select first item if none are already selected
+            const selected = $(window.active_item_container).find('.item-selected');
+            if (selected.length === 0){
+                const first = $(window.active_item_container).find('.item').get(0);
+                if (first) {
+                    $(first).addClass('item-selected');
+                    window.active_element = first;
+                    window.latest_selected_item = first;
+                    first.scrollIntoView({ block: 'nearest', inline: 'nearest' });
                 }
+                return;
             }
 
-            if(next_item){
-                selected_item = next_item;
-                window.active_element = next_item;
-                // if ctrl or meta key is not pressed, unselect all items
-                if(!e.shiftKey){
+            // virtual grid layout to determine item layout and next items
+            const items = Array.from($(window.active_item_container).find('.item'));
+            const grid = items.map(item => {
+                const rect = item.getBoundingClientRect();
+                return {
+                    el: item,
+                    top: rect.top,
+                    left: rect.left,
+                    centerX: rect.left + rect.width / 2,
+                    centerY: rect.top + rect.height / 2,
+                };
+            });
+
+            if (!selected) return;
+            const key = e.which;
+            const dir = {37:'left', 38:'up', 39:'right', 40:'down'}[key];
+            if (!dir) return;
+
+            const currentEl = getActiveItem();
+            const current = grid.find(i => i.el === currentEl);
+            const next = findNeighbor(current, dir);
+
+            // apply new selection(s)
+            if (next) {
+                window.active_element = next.el;
+                window.latest_selected_item = next.el;
+
+                if (!e.shiftKey){
+                    // Normal navigation — clear previous selection
                     $(window.active_item_container).find('.item').removeClass('item-selected');
+                    $(next.el).addClass('item-selected');
+                } else{
+                    // Shift + arrow: add to selection
+                    $(next.el).addClass('item-selected');
                 }
-                $(next_item).addClass('item-selected');
-                window.latest_selected_item = next_item;
-                // scroll to the selected item only if this was a down or up move
-                if(e.which === 38 || e.which === 40)
-                    next_item.scrollIntoView(false);
+                next.el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
             }
         }
         // ----------------------------------------------
