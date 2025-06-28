@@ -196,58 +196,6 @@ const item_icon = async (fsentry)=>{
     }
     // *.weblink
     else if(fsentry.name.toLowerCase().endsWith('.weblink')){
-        let faviconUrl = null;
-
-        // First try to get icon from data attribute
-        if (fsentry.icon) {
-            faviconUrl = fsentry.icon;
-        }
-        // Then try metadata
-        else if (fsentry.metadata) {
-            try {
-                const metadata = JSON.parse(fsentry.metadata);
-                if (metadata && metadata.faviconUrl) {
-                    faviconUrl = metadata.faviconUrl;
-                } else if (metadata && metadata.url) {
-                    // If we have the URL but no favicon, generate the Google favicon URL
-                    const urlObj = new URL(metadata.url);
-                    faviconUrl = `https://www.google.com/s2/favicons?domain=${urlObj.hostname}&sz=64`;
-                }
-            } catch (e) {
-                console.error("Error parsing weblink metadata:", e);
-            }
-        }
-        // Finally try content
-        else if (fsentry.content) {
-            try {
-                const content = JSON.parse(fsentry.content);
-                if (content && content.faviconUrl) {
-                    faviconUrl = content.faviconUrl;
-                } else if (content && content.url) {
-                    // If we have the URL but no favicon, generate the Google favicon URL
-                    const urlObj = new URL(content.url);
-                    faviconUrl = `https://www.google.com/s2/favicons?domain=${urlObj.hostname}&sz=64`;
-                }
-            } catch (e) {
-                console.error("Error parsing weblink content:", e);
-            }
-        }
-
-        // If we found a favicon URL, use it
-        if (faviconUrl) {
-            return {
-                image: faviconUrl,
-                type: 'icon',
-                onerror: function() {
-                    // If favicon fails to load, switch to default icon
-                    const $icons = $(`img[data-icon="${faviconUrl}"]`);
-                    $icons.attr('src', window.icons['link.svg']);
-                    return window.icons['link.svg'];
-                }
-            };
-        }
-
-        // Fallback to default link icon
         return {image: window.icons['link.svg'], type: 'icon'};
     }
     // --------------------------------------------------

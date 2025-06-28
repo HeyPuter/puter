@@ -307,10 +307,10 @@ const new_context_menu_item = function(dirname, append_to_element){
                 });
                 
                 if (url) {
-                    // Extract domain for naming and favicon
-                        try {
-                            const urlObj = new URL(url);
-                            const domain = urlObj.hostname;
+                    // Extract domain for naming
+                    try {
+                        const urlObj = new URL(url);
+                        const domain = urlObj.hostname;
                             
                         // Extract a simple name from the domain (e.g., "google" from "google.com")
                         let siteName = domain.replace(/^www\./, '');
@@ -325,21 +325,9 @@ const new_context_menu_item = function(dirname, append_to_element){
                         let linkName = siteName;
                         let fileName = linkName + '.weblink';
                         
-                        // Get favicon URL from Google favicon service
-                        let faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
-                        
-                        // Check if we have a cached favicon
-                        if (window.favicon_cache[domain]) {
-                            faviconUrl = window.favicon_cache[domain];
-                        }
-                        
-                        // Store in favicon cache
-                        window.favicon_cache[domain] = faviconUrl;
-
-                        // Store the URL and favicon in a comprehensive JSON object
+                        // Store the URL in a simple JSON object
                         const weblink_content = JSON.stringify({
                             url: url,
-                            faviconUrl: faviconUrl,
                             type: 'weblink',
                             domain: domain,
                             created: Date.now(),
@@ -347,22 +335,20 @@ const new_context_menu_item = function(dirname, append_to_element){
                             version: '2.0',
                             metadata: {
                                 originalUrl: url,
-                                originalFaviconUrl: faviconUrl,
                                 linkName: linkName,
                                 simpleName: siteName
                             }
                         });
                         
-                        // Create the file with favicon
+                        // Create the file with standard link icon
                         const item = await window.create_file({
                             dirname: dirname,
                             append_to_element: append_to_element,
                             name: fileName,
                             content: weblink_content,
-                            icon: faviconUrl,
+                            icon: window.icons['link.svg'],
                             type: 'weblink',
                             metadata: JSON.stringify({
-                                faviconUrl: faviconUrl,
                                 url: url,
                                 domain: domain,
                                 timestamp: Date.now(),
@@ -370,7 +356,7 @@ const new_context_menu_item = function(dirname, append_to_element){
                             }),
                             html_attributes: {
                                 'data-weblink': 'true',
-                                'data-icon': faviconUrl,
+                                'data-icon': window.icons['link.svg'],
                                 'data-url': url,
                                 'data-domain': domain,
                                 'data-display-name': linkName,
@@ -379,49 +365,6 @@ const new_context_menu_item = function(dirname, append_to_element){
                             force_refresh: true,
                             class: 'weblink-item'
                         });
-                        
-                        // Apply icon using our consolidated function
-                        if (item) {
-                            applyWeblinkIcon(item, faviconUrl, url);
-                            
-                            // Ensure the item is visible in the container
-                            const container = append_to_element || document.querySelector('.desktop, .explorer-container.active, .files-container.active');
-                            if (container) {
-                                // Force a refresh of the container
-                                await refresh_item_container(dirname);
-                                
-                                // Hide the extension in the displayed name
-                                const $item = $(item);
-                                const $nameElement = $item.find('.item-name');
-                                if ($nameElement.length > 0) {
-                                    // Store the original name for reference
-                                    $nameElement.attr('data-full-name', fileName);
-                                    $nameElement.attr('data-display-name', linkName);
-                                    
-                                    // Set the text directly (no extension)
-                                    $nameElement.text(linkName);
-                                }
-                                
-                                // If this is the desktop, trigger a desktop refresh
-                                if (container.classList.contains('desktop')) {
-                                    if (typeof window.refresh_desktop === 'function') {
-                                        window.refresh_desktop();
-                                    } else if (typeof window.refresh_desktop_items === 'function') {
-                                        window.refresh_desktop_items();
-                                    }
-                                }
-                                
-                                // Trigger a custom event to ensure icon is properly applied
-                                const event = new CustomEvent('weblink-created', {
-                                    detail: {
-                                        item: item,
-                                        url: url,
-                                        faviconUrl: faviconUrl
-                                    }
-                                });
-                                document.dispatchEvent(event);
-                            }
-                        }
                     } catch (error) {
                         console.error("Error creating web link:", error);
                         UIAlert("Error creating web link: " + error.message);
