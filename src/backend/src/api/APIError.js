@@ -216,7 +216,9 @@ module.exports = class APIError {
         },
         'internal_error': {
             status: 500,
-            message: 'An internal error occurred.',
+            message: ({ message }) => message
+                ? 'An internal error occurred: ' + quot(message)
+                : 'An internal error occurred.',
         },
         'response_timeout': {
             status: 504,
@@ -334,19 +336,15 @@ module.exports = class APIError {
             message: ({ method_name, rate_limit }) =>
                 `Rate limit exceeded for method ${quot(method_name)}: ${rate_limit.max} requests per ${rate_limit.period}ms.`,
         },
-        'monthly_limit_exceeded': {
-            status: 429,
-            message: ({ method_key, limit }) =>
-                `Monthly limit exceeded for method ${quot(method_key)}: ${limit} requests per month.`,
-        },
-        'monthly_usage_exceeded': {
-            status: 429,
-            message: ({ limit, unit }) =>
-                `Monthly limit exceeded: ${limit} ${unit} per month.`,
-        },
         'server_rate_exceeded': {
             status: 503,
             message: 'System-wide rate limit exceeded. Please try again later.',
+        },
+        
+        // New cost system
+        'insufficient_funds': {
+            status: 402,
+            message: 'Available funding is insufficient for this request.',
         },
 
         // auth
@@ -354,9 +352,17 @@ module.exports = class APIError {
             status: 401,
             message: 'Missing authentication token.',
         },
+        'unexpected_undefined': {
+            status: 401,
+            message: msg => msg ?? "unexpected string undefined"
+        },
         'token_auth_failed': {
             status: 401,
             message: 'Authentication failed.',
+        },
+        'user_not_found': {
+            status: 401,
+            message: 'User not found.',
         },
         'token_unsupported': {
             status: 401,
@@ -483,7 +489,17 @@ module.exports = class APIError {
         'not_yet_supported': {
             status: 400,
             message: ({ message }) => message,
-        }
+        },
+
+        // Captcha errors
+        'captcha_required': {
+            status: 400,
+            message: ({ message }) => message || 'Captcha verification required',
+        },
+        'captcha_invalid': {
+            status: 400,
+            message: ({ message }) => message || 'Invalid captcha response',
+        },
     };
 
     /**

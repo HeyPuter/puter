@@ -88,8 +88,6 @@ export class Hydrator {
         ) {
             const { id } = value;
             return (...args) => {
-                // console.log('sending message', { $SCOPE, id, args });
-                // console.log('target', this.target);
                 this.target.postMessage({ $SCOPE, id, args }, '*');
             };
         } else if (Array.isArray(value)) {

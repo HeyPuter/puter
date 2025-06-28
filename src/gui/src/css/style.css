@@ -89,6 +89,8 @@ pre {
     --primary-lightness: 93.33%;
     --primary-alpha: 0.8;
     --primary-color: #373e44;
+    --primary-color-icon: invert(0);
+    --primary-color-sidebar-item: #fefeff;
 
     --window-head-hue: var(--primary-hue);
     --window-head-saturation: var(--primary-saturation);
@@ -646,6 +648,7 @@ span.header-sort-icon img {
     white-space: nowrap;
     text-align: left;
     max-width: 220px;
+    margin-bottom: 3px;
 }
 
 .item-name-shadow {
@@ -902,13 +905,13 @@ span.header-sort-icon img {
     padding: 0;
     border: 1px solid #9a9a9a;
     box-shadow: 0px 0px 15px #00000066;
-    overflow: hidden;
     border-radius: 4px;
     border: none;
     transition: opacity .2s;
     user-select: none !important;
     -moz-user-select: none !important;
     -webkit-user-select: none;
+    contain: paint;
 }
 
 .window[data-is_maximized="1"] {
@@ -1219,7 +1222,7 @@ span.header-sort-icon img {
     margin: 0;
     font-weight: bold;
     font-size: 13px;
-    color: #8f96a3;
+    color: var(--primary-color);
     text-shadow: 1px 1px rgb(247 247 247 / 15%);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -1235,7 +1238,7 @@ span.header-sort-icon img {
 }
 
 .window-sidebar-item:hover, .window-sidebar-item.has-open-contextmenu {
-    background-color: rgba(243, 243, 243, 0.8);
+    background-color: #5a5d6155;
     cursor: pointer;
 }
 
@@ -1244,7 +1247,7 @@ span.header-sort-icon img {
     margin-top: 2px;
     padding: 4px;
     border-radius: 3px;
-    color: #444444;
+    color: var(--primary-color);
     font-size: 13px;
     cursor: pointer;
     transition: 0.15s background-color;
@@ -1256,7 +1259,7 @@ span.header-sort-icon img {
 }
 
 .window-sidebar-item-active, .window-sidebar-item-drag-active, .window-sidebar-item-active:hover {
-    background-color: #fefeff;
+    background-color: var(--primary-color-sidebar-item);
 }
 
 .window-sidebar-item-placeholder {
@@ -1404,6 +1407,7 @@ span.header-sort-icon img {
     -moz-user-select: none;
     -webkit-user-select: none;
     -ms-user-select: none;
+    filter: var(--primary-color-icon);
 }
 
 .window-action-btn:hover>img {
@@ -2230,6 +2234,27 @@ label {
     -webkit-font-smoothing: antialiased;
 }
 
+.sharing-form {
+    padding: 30px 40px 20px;
+    border-bottom: 1px solid #ced7e1;
+}
+
+.sharing-item-name {
+    font-size: 17px;
+    margin-top: 0;
+    text-align: center;
+    margin-bottom: 40px;
+    font-weight: 400;
+    color: #303d49;
+}
+
+.sharing-already-shared {
+    font-size: 14px;
+    margin-bottom: 0px;
+    color: #303d49;
+    text-shadow: 1px 1px white;
+}
+
 .hide-sharing-success-alert {
     position: absolute;
     color: #8d8c8c;
@@ -2307,10 +2332,10 @@ label {
     transform: translateX(-50%);
 
     /* that sweet sweet subtle shadow */
-    box-shadow: 
-    inset 0 0 0 0.5px rgba(255, 255, 255, 0.2),
-    0 0 0 0.5px rgba(0, 0, 0, 0.2),
-    0 4px 16px rgba(0, 0, 0, 0.2);
+    box-shadow:
+        inset 0 0 0 0.5px rgba(255, 255, 255, 0.2),
+        0 0 0 0.5px rgba(0, 0, 0, 0.2),
+        0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
 .taskbar .taskbar-item {
@@ -2377,8 +2402,8 @@ label {
     border-radius: 3px;
 }
 
-.device-phone .active-taskbar-indicator{
-    display: none !important; 
+.device-phone .active-taskbar-indicator {
+    display: none !important;
 }
 
 .taskbar .taskbar-icon img {
@@ -2395,12 +2420,23 @@ label {
 
 #clock {
     display: none;
-    position: absolute;
-    right: 15px;
     color: white;
-    text-shadow: 0px 0px 3px #00000082, 0px 0px 3px #00000082, 0px 0px 3px #00000082;
     font-size: 13px;
-    bottom: 5px;
+    background-color: #00000056;
+    margin-left: 20px;
+    /* prevent clock from moving other taskbar items */
+    height: 22px;
+    line-height: 22px;
+
+    /* line-height above handles vertical padding */
+    padding: 0 5px;
+
+    border-radius: 5px;
+    opacity: 0.8;
+}
+
+.toolbar-spacer {
+    margin-right: auto;
 }
 
 .device-phone #clock {
@@ -2445,7 +2481,7 @@ label {
         overflow-y: hidden !important;
         max-width: calc(100% - 40px);
     }
-    
+
     .taskbar .taskbar-item, .taskbar .taskbar-item-sortable-placeholder {
         width: 40px !important;
         height: 40px !important;
@@ -2453,26 +2489,26 @@ label {
         overflow: visible !important;
         padding: 5px 5px 10px 5px;
     }
-    
+
     .taskbar-icon {
         height: 40px;
         width: 40px;
     }
-    
+
     /* Hide scrollbar for Chrome, Safari and Opera */
     .taskbar ::-webkit-scrollbar {
         width: 0 !important;
         display: none;
     }
-    
+
     /* Hide scrollbar for IE, Edge and Firefox */
     .taskbar {
         -ms-overflow-style: none;
         /* IE and Edge */
         scrollbar-width: none;
         /* Firefox */
-    }    
-    
+    }
+
 }
 
 /*****************************************************
@@ -3756,6 +3792,7 @@ fieldset[name=number-code] {
     -webkit-font-smoothing: antialiased;
     flex-grow: 1;
     position: relative;
+    height: 500px;
 }
 
 .settings-sidebar {
@@ -3763,9 +3800,12 @@ fieldset[name=number-code] {
     background-color: #f9f9f9;
     border-right: 1px solid #e0e0e0;
     padding: 20px;
-    position: relative;
+    position: fixed;
     margin-top: 1px;
+    height: 100%;
+    z-index: 2;
 }
+
 
 .settings-sidebar-title {
     margin-bottom: 20px;
@@ -3799,8 +3839,12 @@ fieldset[name=number-code] {
 .settings-content-container {
     flex: 1;
     padding: 20px 30px;
-    height: 500px;
     overflow-y: auto;
+    margin-left: 240px;
+}
+
+.device-phone .settings-content-container {
+    margin-left: 0;
 }
 
 .settings-content {
@@ -3929,13 +3973,10 @@ fieldset[name=number-code] {
     background-color: #c5cdd4;
 }
 
-.profile-picture:hover {
-    background-color: #a6afb7;
-}
-
-.profile-image-has-picture{
+.profile-image-has-picture {
     border: 1px solid white;
 }
+
 .driver-usage {
     background-color: white;
     bottom: 0;
@@ -4440,12 +4481,12 @@ fieldset[name=number-code] {
     width: 100%;
 }
 
-.device-phone .window.window-explore{
+.device-phone .window.window-explore {
     border-radius: 0;
     height: 100dvh !important;
 }
 
-.device-phone .window.window-search{
+.device-phone .window.window-search {
     left: 50% !important;
     transform: translateX(-50%) !important;
     width: calc(100% - 40px);
@@ -4455,16 +4496,17 @@ fieldset[name=number-code] {
 
 }
 
-.device-phone .window.window-qr, 
-.device-phone .window.window-progress, 
+.device-phone .window.window-qr,
+.device-phone .window.window-progress,
 .device-phone .window.window-login-progress,
-.device-phone .window-confirm-email-using-code{
+.device-phone .window-confirm-email-using-code {
     left: 50% !important;
     transform: translate(-50%) !important;
     height: initial !important;
     max-width: calc(100% - 30px);
 }
-.device-phone .window.window-refer-friend{
+
+.device-phone .window.window-refer-friend {
     left: 50% !important;
     transform: translate(-50%) !important;
     height: initial !important;
@@ -4475,11 +4517,11 @@ fieldset[name=number-code] {
     height: initial !important;
 }
 
-.device-phone .window.window-feedback{
-    height: initial !important; 
+.device-phone .window.window-feedback {
+    height: initial !important;
 }
 
-.device-phone .window.window-filedialog{
+.device-phone .window.window-filedialog {
     transform: none;
     width: 100% !important;
     left: 0 !important;
@@ -4489,7 +4531,7 @@ fieldset[name=number-code] {
     border-radius: 0 !important;
 }
 
-.device-phone .window.window-app{
+.device-phone .window.window-app {
     transform: none;
     width: 100%;
     left: 0;
@@ -4499,14 +4541,14 @@ fieldset[name=number-code] {
     border-radius: 0;
 }
 
-.device-phone .window.window-login-2fa{
+.device-phone .window.window-login-2fa {
     left: 50% !important;
     transform: translate(-50%) !important;
     height: initial !important;
     max-width: calc(100% - 30px);
 }
 
-.device-phone .window.window-explorer{
+.device-phone .window.window-explorer {
     transform: none;
     width: 100%;
     left: 0;
@@ -4516,7 +4558,7 @@ fieldset[name=number-code] {
     border-radius: 0 !important;
 }
 
-.device-phone .window.window-settings{
+.device-phone .window.window-settings {
     transform: none;
     width: 100% !important;
     left: 0 !important;
@@ -4525,16 +4567,16 @@ fieldset[name=number-code] {
     border-radius: 0;
 }
 
-.device-phone .window-signup{
+.device-phone .window-signup {
     transform: none;
-    width: 100% ;
+    width: 100%;
     left: 0;
     top: 50%;
     transform: translateY(-50%);
     border-radius: 0;
 }
 
-.device-phone .send-feedback-btn{
+.device-phone .send-feedback-btn {
     width: 100%;
 }
 
@@ -4549,7 +4591,7 @@ fieldset[name=number-code] {
     /* Hide scrollbars while keeping functionality */
     scrollbar-width: none;
     -ms-overflow-style: none;
-    
+
     /* Base styling */
     display: flex;
     justify-content: left;
@@ -4568,13 +4610,14 @@ fieldset[name=number-code] {
     user-select: none;
     -webkit-user-select: none;
     cursor: grab;
-    
+
     /* Base styling */
     display: flex;
     align-items: center;
     justify-content: center;
 }
-.device-phone .popover-launcher, .device-phone .launch-popover{
+
+.device-phone .popover-launcher, .device-phone .launch-popover {
     border-radius: 0;
 }
 
@@ -4589,7 +4632,7 @@ fieldset[name=number-code] {
     /* Base dimensions */
     width: 100%;
     height: 100%;
-    
+
     /* Scrolling behavior */
     overflow-y: scroll;
     overflow-x: hidden;
@@ -4625,11 +4668,12 @@ fieldset[name=number-code] {
     background: rgba(231, 238, 245);
     padding-top: 7px;
 }
+
 .device-phone .launch-search-wrapper {
     top: 0;
 }
 
-.device-phone .popover-launcher{
+.device-phone .popover-launcher {
     left: 50% !important;
     border-radius: 10px;
     top: 5px !important;
@@ -4639,19 +4683,20 @@ fieldset[name=number-code] {
     height: calc(100dvh - 65px);
 }
 
-.device-phone .start-app-card{
+.device-phone .start-app-card {
     width: 25%;
 }
-.device-phone .start-app-icon{
+
+.device-phone .start-app-icon {
     width: 50px;
     height: 50px;
 }
 
-.device-phone .start-app-title{
+.device-phone .start-app-title {
     margin-top: 5px;
 }
 
-.device-phone .desktop{
+.device-phone .desktop {
     position: relative;
 
     /* Enable smooth scrolling on iOS */
@@ -4680,20 +4725,20 @@ fieldset[name=number-code] {
 }
 
 /* height of 100% should not be applied to file dialogs */
-.device-phone .window:not(.window-filedialog) .window-body.item-container{
+.device-phone .window:not(.window-filedialog) .window-body.item-container {
     height: 100%;
 }
 
-.device-phone .window-body.item-container{
+.device-phone .window-body.item-container {
     /* Enable smooth scrolling on iOS */
     -webkit-overflow-scrolling: touch;
 
     /* Allow vertical touch scrolling while preventing horizontal */
     touch-action: pan-y;
-    
+
     /* Base dimensions */
     width: 100%;
-    
+
     /* Scrolling behavior */
     overflow-y: scroll;
     overflow-x: hidden;
@@ -4702,6 +4747,29 @@ fieldset[name=number-code] {
     scrollbar-width: none;
     -ms-overflow-style: none;
 }
+
 .device-phone .window-body.item-container * {
     touch-action: pan-y;
+}
+
+/* Hide desktop icons when the desktop-icons-hidden class is applied */
+.desktop.item-container.desktop-icons-hidden>.item {
+    visibility: hidden;
+}
+
+.refer-friend-c2a {
+    text-align: center;
+    font-size: 16px;
+    padding: 20px;
+    font-weight: 400;
+    margin: -10px 10px 20px 10px;
+    -webkit-font-smoothing: antialiased;
+    color: #5f626d;
+}
+.progress-report{
+    font-size:15px; 
+    overflow: hidden; 
+    flex-grow: 1; 
+    text-overflow: ellipsis; 
+    white-space: nowrap;
 }

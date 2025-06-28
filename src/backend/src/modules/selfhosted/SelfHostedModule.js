@@ -35,8 +35,14 @@ class SelfHostedModule extends AdvancedBase {
         const DevWatcherService = require('./DevWatcherService');
         const path_ = require('path');
         
+        const DevCreditService = require("./DevCreditService");
+        services.registerService('dev-credit', DevCreditService);
+        
         const { DBKVService } = require("../../services/DBKVService");
         services.registerService('puter-kvstore', DBKVService);
+        
+        const MinLogService = require('./MinLogService');
+        services.registerService('min-log', MinLogService);
 
         // TODO: sucks
         const RELATIVE_PATH = '../../../../../';

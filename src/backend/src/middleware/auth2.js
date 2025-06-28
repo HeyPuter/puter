@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const config = require("../config");
 const configurable_auth = require("./configurable_auth");
 
 const auth2 = configurable_auth({ optional: false });

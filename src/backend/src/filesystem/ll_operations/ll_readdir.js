@@ -24,6 +24,7 @@ const { NodeUIDSelector, NodeChildSelector } = require("../node/selectors");
 const { LLFilesystemOperation } = require("./definitions");
 
 class LLReadDir extends LLFilesystemOperation {
+    static CONCERN = 'filesystem';
     async _run () {
         const { context } = this;
         const { subject: subject_let, actor, no_acl } = this.values;

@@ -19,7 +19,6 @@
 const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 const StringParam = require("../../api/filesystem/StringParam");
 const { HLFilesystemOperation } = require("./definitions");
-const { chkperm } = require("../../helpers");
 const APIError = require("../../api/APIError");
 const { TYPE_DIRECTORY } = require("../FSNodeContext");
 

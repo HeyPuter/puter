@@ -87,17 +87,11 @@ class PuterAIModule extends AdvancedBase {
         if ( !! config?.services?.['xai'] ) {
             const { XAIService } = require('./XAIService');
             services.registerService('xai', XAIService);
-
-            // const { ClaudeEnoughService } = require('./ClaudeEnoughService');
-            // services.registerService('claude', ClaudeEnoughService);
         }
 
         if ( !! config?.services?.['deepseek'] ) {
             const { DeepSeekService } = require('./DeepSeekService');
             services.registerService('deepseek', DeepSeekService);
-
-            // const { ClaudeEnoughService } = require('./ClaudeEnoughService');
-            // services.registerService('claude', ClaudeEnoughService);
         }
         if ( !! config?.services?.['gemini'] ) {
             const { GeminiService } = require('./GeminiService');
@@ -116,6 +110,9 @@ class PuterAIModule extends AdvancedBase {
 
         const{ AITestModeService } = require('./AITestModeService');
         services.registerService('ai-test-mode', AITestModeService);
+
+        const { UsageLimitedChatService } = require('./UsageLimitedChatService');
+        services.registerService('usage-limited-chat', UsageLimitedChatService);
     }
 }
 

@@ -1,4 +1,10 @@
+import { RequestError } from "../lib/RequestError.js";
+
 export default class Threads {
+    constructor (context) {
+        this.authToken = context.authToken;
+        this.APIOrigin = context.APIOrigin;
+    }
     setAuthToken (authToken) {
         this.authToken = authToken;
     }
@@ -16,12 +22,18 @@ export default class Threads {
                 ...(body ? { body: JSON.stringify(body) } : {}),
             }
         );
+        if ( ! resp.ok ) {
+            const resp_data = await resp.json();
+            const err = new RequestError(resp_data.message);
+            err.response = resp_data;
+            throw err;
+        }
         return await resp.json();
     }
     
     async create (spec, parent) {
         if ( typeof spec === 'string' ) spec = { text: spec };
-        await this.req_('POST', '/threads/create', {
+        return await this.req_('POST', '/threads/create', {
             ...spec,
             ...(parent ? { parent } : {}),
         });
@@ -43,5 +55,21 @@ export default class Threads {
             '/threads/list/' + encodeURIComponent(uid) + '/' + page,
             options ?? {},
         );
+    }
+
+    async subscribe (uid, callback) {
+        puter.fs.socket.emit('thread.sub-request', { uid });
+
+        // socket.io, which we use unfortunatelly, doesn't handle
+        // wildcard events, so we have to just put them all here.
+        const events = [
+            'post', 'edit', 'delete', 'child-edit', 'child-delete',
+        ];
+
+        for ( const event of events ) {
+            puter.fs.socket.on(`thread.${event}`, (data) => {
+                if ( data.subscription === uid ) callback(event, data);
+            });
+        }
     }
 }

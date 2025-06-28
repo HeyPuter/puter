@@ -33,7 +33,6 @@ import UIWindowRequestPermission from './UI/UIWindowRequestPermission.js';
 import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
-import PuterDialog from './UI/PuterDialog.js';
 import { ThemeService } from './services/ThemeService.js';
 import { BroadcastService } from './services/BroadcastService.js';
 import { ProcessService } from './services/ProcessService.js';
@@ -790,9 +789,13 @@ window.initgui = async function(options){
             UIWindowSessionList();
         }
         else{
+            const resp = await fetch(window.gui_origin + '/whoarewe');
+            const whoarewe = await resp.json();
             await UIWindowLogin({
+                // show_signup_button: 
                 reload_on_success: true,
                 send_confirmation_code: false,
+                show_signup_button: ( ! whoarewe.disable_user_signup ),
                 window_options:{
                     has_head: false
                 }
@@ -826,6 +829,13 @@ window.initgui = async function(options){
         let headers = {};
         if(window.custom_headers)
             headers = window.custom_headers;
+
+        // if this is a popup, show a spinner
+        let spinner_init_ts = Date.now();
+        if(window.embedded_in_popup){
+            puter.ui.showSpinner('Setting up your <a href="https://puter.com" target="_blank">Puter</a> account for secure AI and Cloud features...');
+        }
+
         $.ajax({
             url: window.gui_origin + "/signup",
             type: 'POST',
@@ -838,18 +848,34 @@ window.initgui = async function(options){
                 is_temp: true,
             }),
             success: async function (data){
-                window.update_auth_data(data.token, data.user);
-                document.dispatchEvent(new Event("login", { bubbles: true}));
+                // if this is a popup, hide the spinner, make sure it was visible for at least 2 seconds
+                if(window.embedded_in_popup){
+                    let spinner_duration = (Date.now() - spinner_init_ts);
+                    setTimeout(() => {
+                        window.update_auth_data(data.token, data.user);
+                        document.dispatchEvent(new Event("login", { bubbles: true}));        
+                        puter.ui.hideSpinner();
+                    }, spinner_duration > 2000 ? 10 : 2000 - spinner_duration);
+
+                    return;
+                }else{
+                    window.update_auth_data(data.token, data.user);
+                    document.dispatchEvent(new Event("login", { bubbles: true}));
+                }
             },
-            error: function (err){
+            error: async (err) => {
                 UIAlert({
                     message: html_encode(err.responseText),
                 });
+            },
+            complete: function(){
+                
             }
         });
+
     }
 
-    // if there is at least one window open (only non-Explorer windows), ask user for confirmation when navigating away
+    // if there is at least one window open (only non-Explorer windows), ask user for confirmation when navigating away from puter
     if(window.feature_flags.prompt_user_when_navigation_away_from_puter){
         window.onbeforeunload = function(){
             if($(`.window:not(.window[data-app="explorer"])`).length > 0)
@@ -1422,3 +1448,11 @@ $(document).on('contextmenu', '.disable-context-menu', function(e){
 
 // util/desktop.js
 window.privacy_aware_path = privacy_aware_path({ window });
+
+$(window).on('system-logout-event', function(){
+    // Clear cookie
+    document.cookie = 'puter=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+    // Redirect to clean URL without any query parameters
+    const cleanUrl = window.location.origin + window.location.pathname;
+    window.location.replace(cleanUrl);
+});

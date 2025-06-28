@@ -376,6 +376,7 @@ const zhtw = {
 	"billing.subscription_cancelled_description": "在本計費週期結束之前，您仍然可以使用您的訂閱。", // You will still have access to your subscription until the end of this billing period.
 	"billing.offering.free": "免費", // Free
 	"billing.offering.pro": "專業版", // Professional
+	"billing.offering.professional": "專業版", // Professional
 	"billing.offering.business": "商業版", // Business
 	"billing.cloud_storage": "雲端儲存空間", // Cloud Storage
 	"billing.ai_access": "AI 使用權限", // AI Access

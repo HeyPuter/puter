@@ -408,6 +408,7 @@ const ku = {
     "billing.subscription_cancelled_description": "تا کۆتایی ئەم ماوەیە تۆ هێشتا دەستت بە بەشداربوونەکەت هەیە",
     "billing.offering.free": "بە خۆڕایی",
     "billing.offering.pro": "پیشەیی",
+    "billing.offering.professional": "پیشەیی",
     "billing.offering.business": "بزنس",
     "billing.cloud_storage": "خزێنەی هەور",
     "billing.ai_access": "دەستڕاگەیشتن بە AI",

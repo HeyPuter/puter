@@ -25,6 +25,7 @@ const { DB_WRITE } = require('../services/database/consts');
 const { generate_identifier } = require('../util/identifier');
 const { is_temp_users_disabled: lazy_temp_users, 
         is_user_signup_disabled: lazy_user_signup } = require("../helpers")
+const { requireCaptcha } = require('../modules/captcha/middleware/captcha-middleware');
 
 async function generate_random_username () {
     let username;
@@ -48,6 +49,7 @@ module.exports = eggspress(['/signup'], {
             res.status(400).send(`email username mismatch; please provide a password`);
         }
     },
+    mw: [requireCaptcha({ strictMode: true, eventType: 'signup' })], // Conditionally require captcha for signup
 }, async (req, res, next) => {
     // either api. subdomain or no subdomain
     if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
@@ -82,17 +84,6 @@ module.exports = eggspress(['/signup'], {
 
 
     // send event
-    async function emitAsync(eventName, data) {
-        const listeners = process.listeners(eventName);
-        
-        if (listeners.length === 0) {
-            return data;
-        }
-        
-        await Promise.all(listeners.map(listener => listener(data)));
-        return data;
-    }
-
     let event = {
         allow: true,
         ip: req.headers?.['x-forwarded-for'] ||
@@ -101,11 +92,8 @@ module.exports = eggspress(['/signup'], {
         body: req.body,
     };
 
-    const MAX_WAIT = 5 * 1000;
-    await Promise.race([
-        emitAsync('puter.signup', event),
-        new Promise(resolve => setTimeout(() => resolve(), MAX_WAIT)),
-    ])
+    const svc_event = Context.get('services').get('event');
+    await svc_event.emit('puter.signup', event)
 
     if ( ! event.allow ) {
         return res.status(400).send(event.error ?? 'You are not allowed to sign up.');
@@ -201,8 +189,8 @@ module.exports = eggspress(['/signup'], {
     const svc_cleanEmail = req.services.get('clean-email');
     const clean_email = svc_cleanEmail.clean(req.body.email);
     
-    if ( ! await svc_cleanEmail.validate(clean_email) ) {
-        return res.status(400).send('This email domain is not allowed');
+    if (!req.body.is_temp && ! await svc_cleanEmail.validate(clean_email) ) {
+        return res.status(400).send('This email does not seem to be valid.');
     }
 
     // duplicate username check

@@ -42,7 +42,7 @@ class AppConnection extends EventListener {
         this.#isOpen = true;
         this.#usesSDK = usesSDK;
 
-        this.log = context.puter.log.fields({
+        this.log = context.puter.logger.fields({
             category: 'ipc',
         });
         this.log.fields({
@@ -713,17 +713,22 @@ class UI extends EventListener {
         })
     }
 
-    showSaveFilePicker = function(content, suggestedName){
+    showSaveFilePicker = function(content, suggestedName, type){
         return new Promise((resolve) => {
             const msg_id = this.#messageID++;
-            const url = (Object.prototype.toString.call(content) === '[object URL]' ? content : undefined);
+            if ( ! type && Object.prototype.toString.call(content) === '[object URL]' ) {
+                type = 'url';
+            }
+            const url = type === 'url' ? content.toString() : undefined;
+            const source_path = type === 'move' ? content : undefined;
 
             if(this.env === 'app'){
                 this.messageTarget?.postMessage({
                     msg: "showSaveFilePicker",
                     appInstanceID: this.appInstanceID,
                     content: url ? undefined : content,
-                    url: url ? url.toString() : undefined,
+                    url,
+                    source_path,
                     suggestedName: suggestedName ?? '',
                     env: this.env,
                     uuid: msg_id
@@ -858,6 +863,19 @@ class UI extends EventListener {
 
     setMenubar = function(spec) {
         this.#postMessageWithObject('setMenubar', spec);
+    }
+
+    requestPermission = function(options) {
+        return new Promise((resolve) => {
+            if (this.env === 'app') {
+                return new Promise((resolve) => {
+                    this.#postMessageWithCallback('requestPermission', resolve, { options });
+                })
+            } else {
+                // TODO: Implement for web
+                resolve(false);
+            }
+        })
     }
 
     disableMenuItem = function(item_id) {
@@ -1294,7 +1312,7 @@ class UI extends EventListener {
     #showTime = null;
     #hideTimeout = null;
 
-    showSpinner() {
+    showSpinner(html) {
         if (this.#overlayActive) return;
     
         // Create and add stylesheet for spinner if it doesn't exist
@@ -1317,6 +1335,7 @@ class UI extends EventListener {
                     font-size: 16px;
                     margin-top: 10px;
                     text-align: center;
+                    width: 100%;
                 }
     
                 @keyframes spin {
@@ -1329,10 +1348,11 @@ class UI extends EventListener {
                     flex-direction: column;
                     align-items: center;
                     justify-content: center;
-                    width: 120px; 
-                    height: 120px; 
+                    min-height: 120px; 
                     background: #ffffff; 
                     border-radius: 10px;
+                    padding: 20px;
+                    min-width: 120px;
                 }
             `;
             document.head.appendChild(styleSheet);
@@ -1364,7 +1384,7 @@ class UI extends EventListener {
         // Add spinner and text
         container.innerHTML = `
             <div class="puter-loading-spinner"></div>
-            <div class="puter-loading-text">Working...</div>
+            <div class="puter-loading-text">${html ?? 'Working...'}</div>
         `;
         
         overlay.appendChild(container);

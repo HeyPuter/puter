@@ -1078,12 +1078,15 @@ const ipc_listener = async (event, handled) => {
         // disable parent window
         event.data.options.window_options.disable_parent_window = true;
 
-        let granted = await UIWindowRequestPermission({
-            origin: event.origin,
-            permission: event.data.options.permission,
-            window_options: event.data.options.window_options,
-        });
-
+        let granted = await UIWindowRequestPermission(
+            {
+                permission: event.data.options.permission,
+                window_options: event.data.options.window_options,
+                app_uid: app_uuid, 
+                app_name: app_name, 
+            }
+        );
+        
         // send selected font to requester window
         target_iframe.contentWindow.postMessage({
             msg: "permissionGranted", 
@@ -1213,6 +1216,160 @@ const ipc_listener = async (event, handled) => {
         $el_parent_disable_mask.show();
         $el_parent_disable_mask.css('z-index', parseInt($el_parent_window.css('z-index')) + 1);
         $(target_iframe).blur();
+        
+        const tell_caller_and_update_views = async ({
+            target_path,
+            el_filedialog_window,
+            res,
+        }) => {
+            let file_signature = await puter.fs.sign(app_uuid, {uid: res.uid, action: 'write'});
+            file_signature = file_signature.items;
+
+            target_iframe.contentWindow.postMessage({
+                msg: "fileSaved", 
+                original_msg_id: msg_id, 
+                filename: res.name,
+                saved_file: {
+                    name: file_signature.fsentry_name,
+                    readURL: file_signature.read_url,
+                    writeURL: file_signature.write_url,
+                    metadataURL: file_signature.metadata_url,
+                    type: file_signature.type,
+                    uid: file_signature.uid,
+                    path: privacy_aware_path(res.path)
+                },
+            }, '*');
+
+            $(target_iframe).get(0).focus({preventScroll:true});
+            // Update matching items on open windows
+            // todo don't blanket-update, mostly files with thumbnails really need to be updated
+            // first remove overwritten items
+            $(`.item[data-uid="${res.uid}"]`).removeItems();
+            // now add new items
+            UIItem({
+                appendTo: $(`.item-container[data-path="${html_encode(path.dirname(target_path))}" i]`),
+                immutable: res.immutable || res.writable === false,
+                associated_app_name: res.associated_app?.name,
+                path: target_path,
+                icon: await item_icon(res),
+                name: path.basename(target_path),
+                uid: res.uid,
+                size: res.size,
+                modified: res.modified,
+                type: res.type,
+                is_dir: false,
+                is_shared: res.is_shared,
+                suggested_apps: res.suggested_apps,
+            });
+            // sort each window
+            $(`.item-container[data-path="${html_encode(path.dirname(target_path))}" i]`).each(function(){
+                window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'))
+            });                            
+            $(el_filedialog_window).close();
+            window.show_save_account_notice_if_needed();
+        };
+        
+        const write_file_tell_caller_and_update_views = async ({
+            target_path, el_filedialog_window,
+            file_to_upload, overwrite,
+        }) => {
+            const res = await puter.fs.write(
+                target_path,
+                file_to_upload, 
+                { 
+                    dedupeName: false,
+                    overwrite: overwrite
+                }
+            );
+            
+            await tell_caller_and_update_views({ res, el_filedialog_window, target_path });
+        }
+        
+        const handle_url_save = async ({ target_path }) => {
+            // download progress tracker
+            let dl_op_id = window.operation_id++;
+
+            // upload progress tracker defaults
+            window.progress_tracker[dl_op_id] = [];
+            window.progress_tracker[dl_op_id][0] = {};
+            window.progress_tracker[dl_op_id][0].total = 0;
+            window.progress_tracker[dl_op_id][0].ajax_uploaded = 0;
+            window.progress_tracker[dl_op_id][0].cloud_uploaded = 0;
+
+            let item_with_same_name_already_exists = true;
+            while(item_with_same_name_already_exists){
+                await download({
+                    url: event.data.url, 
+                    name: path.basename(target_path),
+                    dest_path: path.dirname(target_path),
+                    auth_token: window.auth_token,
+                    api_origin: window.api_origin,
+                    dedupe_name: false,
+                    overwrite: false,
+                    operation_id: dl_op_id,
+                    item_upload_id: 0,
+                    success: function(res){
+                    },
+                    error: function(err){
+                        UIAlert(err && err.message ? err.message : "Download failed.");
+                    }
+                });
+                item_with_same_name_already_exists = false;
+            }
+        };
+        
+        const handle_data_save = async ({ target_path, el_filedialog_window }) => {
+            let file_to_upload = new File([event.data.content], path.basename(target_path));
+            const written = await window.handle_same_name_exists({
+                action: async ({ overwrite }) => {
+                    console.log('action with overwrite flag:', overwrite);
+                    await write_file_tell_caller_and_update_views({
+                        target_path, el_filedialog_window,
+                        file_to_upload, overwrite,
+                    });
+                },
+                parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
+            });
+
+            if ( written ) return true;
+            $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
+        };
+        
+        const handle_move_save = async ({ source_path, target_path, el_filedialog_window }) => {
+            // source path must be in appdata directory
+            const stat_info = await puter.fs.stat(source_path);
+            if ( ! stat_info.appdata_app ) {
+                await puter.ui.alert(`the app ${app_uuid} attempted to ` +
+                    `move data owned by the user illegaly`);
+                return;
+            }
+            
+            if ( stat_info.appdata_app !== app_uuid ) {
+                await puter.ui.alert(`the app ${app_uuid} attempted to ` +
+                    `move data owned by ${stat_info.appdata_app}`);
+                return;
+            }
+            
+            console.log('supposedly we\'re writing this file now');
+            
+            let node;
+            const written = await window.handle_same_name_exists({
+                action: async ({ overwrite }) => {
+                    if ( overwrite ) {
+                        await puter.fs.delete(target_path);
+                    }
+                    await puter.fs.move(source_path, target_path);
+                    node = await puter.fs.stat(target_path);
+                    console.log('the move operation just happened', { node });
+                },
+                parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
+            });
+
+            await tell_caller_and_update_views({ res: node, el_filedialog_window, target_path });
+
+            if ( written ) return true;
+            $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
+        };
 
         await UIWindow({
             path: '/' + window.user.username + '/Desktop',
@@ -1231,150 +1388,20 @@ const ipc_listener = async (event, handled) => {
             onSaveFileDialogSave: async function(target_path, el_filedialog_window){
                 $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
                 let busy_init_ts = Date.now();
+                let done;
 
-                // -------------------------------------
-                // URL
-                // -------------------------------------
-                if(event.data.url){
-                    // download progress tracker
-                    let dl_op_id = window.operation_id++;
-
-                    // upload progress tracker defaults
-                    window.progress_tracker[dl_op_id] = [];
-                    window.progress_tracker[dl_op_id][0] = {};
-                    window.progress_tracker[dl_op_id][0].total = 0;
-                    window.progress_tracker[dl_op_id][0].ajax_uploaded = 0;
-                    window.progress_tracker[dl_op_id][0].cloud_uploaded = 0;
-
-                    let item_with_same_name_already_exists = true;
-                    while(item_with_same_name_already_exists){
-                        await download({
-                            url: event.data.url, 
-                            name: path.basename(target_path),
-                            dest_path: path.dirname(target_path),
-                            auth_token: window.auth_token,
-                            api_origin: window.api_origin,
-                            dedupe_name: false,
-                            overwrite: false,
-                            operation_id: dl_op_id,
-                            item_upload_id: 0,
-                            success: function(res){
-                            },
-                            error: function(err){
-                                UIAlert(err && err.message ? err.message : "Download failed.");
-                            }
-                        });
-                        item_with_same_name_already_exists = false;
-                    }
+                if (event.data.url){
+                    done = await handle_url_save({ target_path });
+                } else if ( event.data.source_path ) {
+                    done = await handle_move_save({
+                        source_path: event.data.source_path,
+                        target_path,
+                    });
+                } else {
+                    done = await handle_data_save({ target_path, el_filedialog_window });
                 }
-                // -------------------------------------
-                // File
-                // -------------------------------------
-                else{
-                    let overwrite = false;
-                    let file_to_upload = new File([event.data.content], path.basename(target_path));
-                    let item_with_same_name_already_exists = true;
-                    while(item_with_same_name_already_exists){
-                        // overwrite?
-                        if(overwrite)
-                            item_with_same_name_already_exists = false;
-                        // upload
-                        try{
-                            const res = await puter.fs.write(
-                                target_path,
-                                file_to_upload, 
-                                { 
-                                    dedupeName: false,
-                                    overwrite: overwrite
-                                }
-                            );
-
-                            let file_signature = await puter.fs.sign(app_uuid, {uid: res.uid, action: 'write'});
-                            file_signature = file_signature.items;
-
-                            item_with_same_name_already_exists = false;
-                            target_iframe.contentWindow.postMessage({
-                                msg: "fileSaved", 
-                                original_msg_id: msg_id, 
-                                filename: res.name,
-                                saved_file: {
-                                    name: file_signature.fsentry_name,
-                                    readURL: file_signature.read_url,
-                                    writeURL: file_signature.write_url,
-                                    metadataURL: file_signature.metadata_url,
-                                    type: file_signature.type,
-                                    uid: file_signature.uid,
-                                    path: privacy_aware_path(res.path)
-                                },
-                            }, '*');
-
-                            $(target_iframe).get(0).focus({preventScroll:true});
-                            // Update matching items on open windows
-                            // todo don't blanket-update, mostly files with thumbnails really need to be updated
-                            // first remove overwritten items
-                            $(`.item[data-uid="${res.uid}"]`).removeItems();
-                            // now add new items
-                            UIItem({
-                                appendTo: $(`.item-container[data-path="${html_encode(path.dirname(target_path))}" i]`),
-                                immutable: res.immutable || res.writable === false,
-                                associated_app_name: res.associated_app?.name,
-                                path: target_path,
-                                icon: await item_icon(res),
-                                name: path.basename(target_path),
-                                uid: res.uid,
-                                size: res.size,
-                                modified: res.modified,
-                                type: res.type,
-                                is_dir: false,
-                                is_shared: res.is_shared,
-                                suggested_apps: res.suggested_apps,
-                            });
-                            // sort each window
-                            $(`.item-container[data-path="${html_encode(path.dirname(target_path))}" i]`).each(function(){
-                                window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'))
-                            });                            
-                            $(el_filedialog_window).close();
-                            window.show_save_account_notice_if_needed();
-                        }
-                        catch(err){
-                            // item with same name exists
-                            if(err.code === 'item_with_same_name_exists'){
-                                const alert_resp = await UIAlert({
-                                    message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
-                                    buttons:[
-                                        {
-                                            label: i18n('replace'),
-                                            value: 'replace',
-                                            type: 'primary',
-                                        },
-                                        {
-                                            label: i18n('cancel'),
-                                            value: 'cancel',
-                                        },
-                                    ],
-                                    parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
-                                })
-                                if(alert_resp === 'replace'){
-                                    overwrite = true;
-                                }else if(alert_resp === 'cancel'){
-                                    // enable parent window
-                                    $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
-                                    return;
-                                }
-                            }
-                            else{
-                                // show error
-                                await UIAlert({
-                                    message: err.message ?? "Upload failed.",
-                                    parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
-                                });
-                                // enable parent window
-                                $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
-                                return;
-                            }
-                        }
-                    }
-                }
+                
+                if ( ! done ) return;
 
                 // done
                 let busy_duration = (Date.now() - busy_init_ts);

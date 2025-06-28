@@ -126,7 +126,9 @@ export default def(class UIElement extends AdvancedBase {
             style.textContent = this.constructor.CSS;
             document.head.appendChild(style);
         }
-        this.make(this);
+        if ( ! this.constructor.LAZY_RENDER ) {
+            this.make(this);
+        }
     }
     
     reinitialize () {

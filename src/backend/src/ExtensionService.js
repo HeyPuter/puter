@@ -22,7 +22,7 @@ const BaseService = require("./services/BaseService");
 const { Endpoint } = require("./util/expressutil");
 const configurable_auth = require("./middleware/configurable_auth");
 const { Context } = require("./util/context");
-const { DB_READ, DB_WRITE } = require("./services/database/consts");
+const { DB_WRITE } = require("./services/database/consts");
 const { Actor } = require("./services/auth/Actor");
 
 /**
@@ -80,6 +80,10 @@ class ExtensionService extends BaseService {
     }
     async _init (args) {
         this.state = args.state;
+        
+        this.state.values.set('services', this.services);
+        this.state.values.set('log_context', this.services.get('log-service').create(
+            this.state.extension.name));
 
         // Create database access object for extension
         const db = this.services.get('database').get(DB_WRITE, 'extension');
@@ -87,15 +91,16 @@ class ExtensionService extends BaseService {
 
         // Propagate all events not from extensions to `core.`
         const svc_event = this.services.get('event');
-        svc_event.on_all((key, data, meta = {}) => {
+        svc_event.on_all(async (key, data, meta = {}) => {
             meta.from_outside_of_extension = true;
-            this.state.extension.emit(`core.${key}`, data, meta);
+
+            await this.state.extension.emit(`core.${key}`, data, meta);
         });
 
-        this.state.extension.on_all((key, data, meta) => {
+        this.state.extension.on_all(async (key, data, meta) => {
             if ( meta.from_outside_of_extension ) return;
-
-            svc_event.emit(key, data, meta);
+            
+            await svc_event.emit(key, data, meta);
         });
         
         this.state.extension.kv = (() => {

@@ -43,24 +43,62 @@ import launch_app from "../helpers/launch_app.js"
 import item_icon from "../helpers/item_icon.js"
 import UIWindowSearch from "./UIWindowSearch.js"
 
-async function UIDesktop(options){
+async function UIDesktop(options) {
     let h = '';
 
     // Set up the desktop channel for communication between different tabs in the same browser
     window.channel = new BroadcastChannel('puter-desktop-channel');
-    channel.onmessage = function(e){
+    channel.onmessage = function (e) {
     }
 
+    // Initialize desktop icons visibility preference - move this earlier in the initialization
+    // Add this near the very beginning of the UIDesktop function
+    window.desktop_icons_hidden = false; // Set default value immediately
+
+    // Initialize the preference early
+    puter.kv.get('desktop_icons_hidden').then(async (val) => {
+        window.desktop_icons_hidden = val === 'true';
+
+        // Apply the setting immediately if needed
+        if (window.desktop_icons_hidden) {
+            hideDesktopIcons();
+        }
+    });
+
+    // Modify the hide/show functions to use CSS rules that will apply to all icons, including future ones
+    window.hideDesktopIcons = function () {
+        // Add a CSS class to the desktop container that will hide all child icons
+        $('.desktop.item-container').addClass('desktop-icons-hidden');
+    };
+
+    window.showDesktopIcons = function () {
+        // Remove the CSS class to show all icons
+        $('.desktop.item-container').removeClass('desktop-icons-hidden');
+    };
+
+    // Add this function to the global scope
+    window.toggleDesktopIcons = function () {
+        window.desktop_icons_hidden = !window.desktop_icons_hidden;
+
+        if (window.desktop_icons_hidden) {
+            hideDesktopIcons();
+        } else {
+            showDesktopIcons();
+        }
+
+        // Save preference
+        puter.kv.set('desktop_icons_hidden', window.desktop_icons_hidden.toString());
+    };
 
     // Give Camera and Recorder write permissions to Desktop
     puter.kv.get('has_set_default_app_user_permissions').then(async (user_permissions) => {
-        if(!user_permissions){
+        if (!user_permissions) {
             // Camera
-            try{
-                await fetch( window.api_origin + "/auth/grant-user-app", {
+            try {
+                await fetch(window.api_origin + "/auth/grant-user-app", {
                     "headers": {
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer " + window.auth_token,
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer " + window.auth_token,
                     },
                     "body": JSON.stringify({
                         app_uid: 'app-5584fbf7-ed69-41fc-99cd-85da21b1ef51',
@@ -68,16 +106,16 @@ async function UIDesktop(options){
                     }),
                     "method": "POST",
                 });
-            }catch(err){
+            } catch (err) {
                 console.error(err);
             }
 
             // Recorder
-            try{
-                await fetch( window.api_origin + "/auth/grant-user-app", {
+            try {
+                await fetch(window.api_origin + "/auth/grant-user-app", {
                     "headers": {
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer " + window.auth_token,
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer " + window.auth_token,
                     },
                     "body": JSON.stringify({
                         app_uid: 'app-7bdca1a4-6373-4c98-ad97-03ff2d608ca1',
@@ -85,7 +123,7 @@ async function UIDesktop(options){
                     }),
                     "method": "POST",
                 });
-            }catch(err){
+            } catch (err) {
                 console.error(err);
             }
 
@@ -103,13 +141,13 @@ async function UIDesktop(options){
     window.socket.on('error', (error) => {
         console.error('GUI Socket Error:', error);
     });
-      
-    window.socket.on('connect', function(){
+
+    window.socket.on('connect', function () {
         // console.log('GUI Socket: Connected', window.socket.id);
         window.socket.emit('puter_is_actually_open');
     });
 
-    window.socket.on('reconnect', function(){
+    window.socket.on('reconnect', function () {
         console.log('GUI Socket: Reconnected', window.socket.id);
     });
 
@@ -138,17 +176,17 @@ async function UIDesktop(options){
     });
 
     window.socket.on('upload.progress', (msg) => {
-        if(window.progress_tracker[msg.operation_id]){
+        if (window.progress_tracker[msg.operation_id]) {
             window.progress_tracker[msg.operation_id].cloud_uploaded += msg.loaded_diff
-            if(window.progress_tracker[msg.operation_id][msg.item_upload_id]){
+            if (window.progress_tracker[msg.operation_id][msg.item_upload_id]) {
                 window.progress_tracker[msg.operation_id][msg.item_upload_id].cloud_uploaded = msg.loaded;
             }
         }
     });
 
     window.socket.on('download.progress', (msg) => {
-        if(window.progress_tracker[msg.operation_id]){
-            if(window.progress_tracker[msg.operation_id][msg.item_upload_id]){
+        if (window.progress_tracker[msg.operation_id]) {
+            if (window.progress_tracker[msg.operation_id][msg.item_upload_id]) {
                 window.progress_tracker[msg.operation_id][msg.item_upload_id].downloaded = msg.loaded;
                 window.progress_tracker[msg.operation_id][msg.item_upload_id].total = msg.total;
             }
@@ -159,10 +197,10 @@ async function UIDesktop(options){
         $(`.item[data-path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', msg.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg']);
         $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', msg.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg']);
         // empty trash windows if needed
-        if(msg.is_empty)
+        if (msg.is_empty)
             $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.item-container').empty();
     })
-    
+
     /**
      * This event is triggered if a user receives a notification during
      * an active session.
@@ -171,14 +209,14 @@ async function UIDesktop(options){
         let icon = window.icons[notification.icon];
         let round_icon = false;
 
-        if(notification.template === "file-shared-with-you" && notification.fields?.username){
+        if (notification.template === "file-shared-with-you" && notification.fields?.username) {
             let profile_pic = await get_profile_picture(notification.fields?.username);
-            if(profile_pic){
+            if (profile_pic) {
                 icon = profile_pic;
                 round_icon = true;
             }
         }
-        
+
         UINotification({
             title: notification.title,
             text: notification.text,
@@ -197,12 +235,12 @@ async function UIDesktop(options){
                 });
             },
             click: async (notif) => {
-                if(notification.template === "file-shared-with-you"){
+                if (notification.template === "file-shared-with-you") {
                     let item_path = '/' + notification.fields.username;
                     UIWindow({
                         path: '/' + notification.fields.username,
                         title: path.basename(item_path),
-                        icon: await item_icon({is_dir: true, path: item_path}),
+                        icon: await item_icon({ is_dir: true, path: item_path }),
                         is_dir: true,
                         app: 'explorer',
                     });
@@ -221,22 +259,22 @@ async function UIDesktop(options){
      */
     window.__already_got_unreads = false;
     window.socket.on('notif.unreads', async ({ unreads }) => {
-        if ( window.__already_got_unreads ) return;
+        if (window.__already_got_unreads) return;
         window.__already_got_unreads = true;
 
-        for ( const notif_info of unreads ) {
+        for (const notif_info of unreads) {
             const notification = notif_info.notification;
             let icon = window.icons[notification.icon];
             let round_icon = false;
 
-            if(notification.template === "file-shared-with-you" && notification.fields?.username){
+            if (notification.template === "file-shared-with-you" && notification.fields?.username) {
                 let profile_pic = await get_profile_picture(notification.fields?.username);
-                if(profile_pic){
+                if (profile_pic) {
                     icon = profile_pic;
                     round_icon = true;
                 }
             }
-    
+
             UINotification({
                 icon,
                 round_icon,
@@ -256,12 +294,12 @@ async function UIDesktop(options){
                     });
                 },
                 click: async (notif) => {
-                    if(notification.template === "file-shared-with-you"){
+                    if (notification.template === "file-shared-with-you") {
                         let item_path = '/' + notification.fields?.username;
                         UIWindow({
                             path: '/' + notification.fields?.username,
                             title: path.basename(item_path),
-                            icon: await item_icon({is_dir: true, path: item_path}),
+                            icon: await item_icon({ is_dir: true, path: item_path }),
                             is_dir: true,
                             app: 'explorer',
                         });
@@ -278,9 +316,9 @@ async function UIDesktop(options){
 
     window.socket.on('app.opened', async (app) => {
         // don't update if this is the original client that initiated the action
-        if(app.original_client_socket_id === window.socket.id)
+        if (app.original_client_socket_id === window.socket.id)
             return;
-        
+
         // add the app to the beginning of the array
         window.launch_apps.recent.unshift(app);
 
@@ -293,15 +331,15 @@ async function UIDesktop(options){
 
     window.socket.on('item.removed', async (item) => {
         // don't update if this is the original client that initiated the action
-        if(item.original_client_socket_id === window.socket.id)
+        if (item.original_client_socket_id === window.socket.id)
             return;
 
         // don't remove items if this was a descendants_only operation
-        if(item.descendants_only)
+        if (item.descendants_only)
             return;
 
         // hide all UIItems with matching uids 
-        $(`.item[data-path='${item.path}']`).fadeOut(150, function(){
+        $(`.item[data-path='${item.path}']`).fadeOut(150, function () {
             // close all windows with matching uids
             // $('.window-' + item.uid).close();
             // close all windows that belong to a descendant of this item
@@ -312,7 +350,7 @@ async function UIDesktop(options){
 
     window.socket.on('item.updated', async (item) => {
         // Don't update if this is the original client that initiated the action
-        if(item.original_client_socket_id === window.socket.id)
+        if (item.original_client_socket_id === window.socket.id)
             return;
 
         // Update matching items
@@ -342,31 +380,31 @@ async function UIDesktop(options){
         $(`.window-${item.uid}`).attr('data-path', new_path);
 
         // Update all elements that have matching paths
-        $(`[data-path="${html_encode(item.old_path)}" i]`).each(function(){            
+        $(`[data-path="${html_encode(item.old_path)}" i]`).each(function () {
             $(this).attr('data-path', new_path)
-            if($(this).hasClass('window-navbar-path-dirname'))
+            if ($(this).hasClass('window-navbar-path-dirname'))
                 $(this).text(item.name);
         });
 
         // Update all elements whose paths start with old_path
-        $(`[data-path^="${html_encode(item.old_path) + '/'}"]`).each(function(){    
-            const new_el_path = _.replace($(this).attr('data-path'), item.old_path + '/', new_path+'/');
+        $(`[data-path^="${html_encode(item.old_path) + '/'}"]`).each(function () {
+            const new_el_path = _.replace($(this).attr('data-path'), item.old_path + '/', new_path + '/');
             $(this).attr('data-path', new_el_path);
         });
 
         // Update all exact-matching windows
-        $(`.window-${item.uid}`).each(function(){
+        $(`.window-${item.uid}`).each(function () {
             window.update_window_path(this, new_path);
         })
         // Set new name for matching open windows
         $(`.window-${item.uid} .window-head-title`).text(item.name);
 
         // Re-sort all matching item containers
-        $(`.item[data-uid='${item.uid}']`).parent('.item-container').each(function(){
+        $(`.item[data-uid='${item.uid}']`).parent('.item-container').each(function () {
             window.sort_items(this, $(this).closest('.item-container').attr('data-sort_by'), $(this).closest('.item-container').attr('data-sort_order'));
         })
     })
-    
+
     window.socket.on('item.moved', async (resp) => {
         let fsentry = resp;
         // Notify all apps that are watching this item
@@ -377,7 +415,7 @@ async function UIDesktop(options){
         })
 
         // don't update if this is the original client that initiated the action
-        if(resp.original_client_socket_id === window.socket.id)
+        if (resp.original_client_socket_id === window.socket.id)
             return;
 
         let dest_path = path.dirname(fsentry.path);
@@ -385,40 +423,40 @@ async function UIDesktop(options){
 
         // update all shortcut_to_path
         $(`.item[data-shortcut_to_path="${html_encode(resp.old_path)}" i]`).attr(`data-shortcut_to_path`, html_encode(fsentry.path));
-        
+
         // remove all items with matching uids
-        $(`.item[data-uid='${fsentry.uid}']`).fadeOut(150, function(){
+        $(`.item[data-uid='${fsentry.uid}']`).fadeOut(150, function () {
             // find all parent windows that contain this item
             let parent_windows = $(`.item[data-uid='${fsentry.uid}']`).closest('.window');
             // remove this item
             $(this).removeItems();
             // update parent windows' item counts
-            $(parent_windows).each(function(index){
+            $(parent_windows).each(function (index) {
                 window.update_explorer_footer_item_count(this);
                 window.update_explorer_footer_selected_items_count(this)
             });
         })
 
         // if trashing, close windows of trashed items and its descendants
-        if(dest_path === window.trash_path){
+        if (dest_path === window.trash_path) {
             $(`.window[data-path="${html_encode(resp.old_path)}" i]`).close();
             // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
             $(`.window[data-path^="${html_encode(resp.old_path)}/"]`).close();
         }
 
         // update all paths of its and its descendants' open windows
-        else{
+        else {
             // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
-            $(`.window[data-path^="${html_encode(resp.old_path)}/"], .window[data-path="${html_encode(resp.old_path)}" i]`).each(function(){
+            $(`.window[data-path^="${html_encode(resp.old_path)}/"], .window[data-path="${html_encode(resp.old_path)}" i]`).each(function () {
                 window.update_window_path(this, $(this).attr('data-path').replace(resp.old_path, fsentry.path));
             })
         }
 
-        if(dest_path === window.trash_path){
+        if (dest_path === window.trash_path) {
             $(`.item[data-uid="${fsentry.uid}"]`).find('.item-is-shared').fadeOut(300);
 
             // if trashing dir... 
-            if(fsentry.is_dir){
+            if (fsentry.is_dir) {
                 // remove website badge
                 $(`.mywebsites-dir-path[data-uuid="${fsentry.uid}"]`).remove();
                 // remove the website badge from all instances of the dir
@@ -429,7 +467,7 @@ async function UIDesktop(options){
             }
         }
         // if replacing an existing item, remove the old item that was just replaced
-        if(fsentry.overwritten_uid !== undefined)
+        if (fsentry.overwritten_uid !== undefined)
             $(`.item[data-uid=${fsentry.overwritten_uid}]`).removeItems();
 
         // if this is trash, get original name from item metadata
@@ -456,14 +494,14 @@ async function UIDesktop(options){
             metadata: JSON.stringify(fsentry.metadata) ?? '',
         });
 
-        if(fsentry.parent_dirs_created && fsentry.parent_dirs_created.length > 0){
+        if (fsentry.parent_dirs_created && fsentry.parent_dirs_created.length > 0) {
             // this operation may have created some missing directories, 
             // see if any of the directories in the path of this file is new AND
             // if these new path have any open parents that need to be updated
-                
+
             fsentry.parent_dirs_created.forEach(async dir => {
                 let item_container = $(`.item-container[data-path='${html_encode(path.dirname(dir.path))}' i]`);
-                if(item_container.length > 0 && $(`.item[data-path="${html_encode(dir.path)}" i]`).length === 0){
+                if (item_container.length > 0 && $(`.item[data-path="${html_encode(dir.path)}" i]`).length === 0) {
                     UIItem({
                         appendTo: item_container,
                         immutable: false,
@@ -478,20 +516,20 @@ async function UIDesktop(options){
                         is_selected: false,
                         is_shared: dir.is_shared,
                         has_website: false,
-                    });                                                    
-                }                                    
+                    });
+                }
                 window.sort_items(item_container, $(item_container).attr('data-sort_by'), $(item_container).attr('data-sort_order'));
-            }); 
+            });
         }
         //sort each container
-        $(`.item-container[data-path='${html_encode(dest_path)}' i]`).each(function(){
+        $(`.item-container[data-path='${html_encode(dest_path)}' i]`).each(function () {
             window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'))
         })
     });
-    
+
     window.socket.on('user.email_confirmed', (msg) => {
         // don't update if this is the original client that initiated the action
-        if(msg.original_client_socket_id === window.socket.id)
+        if (msg.original_client_socket_id === window.socket.id)
             return;
 
         window.refresh_user_data(window.auth_token);
@@ -499,7 +537,7 @@ async function UIDesktop(options){
 
     window.socket.on('user.email_changed', (msg) => {
         // don't update if this is the original client that initiated the action
-        if(msg.original_client_socket_id === window.socket.id)
+        if (msg.original_client_socket_id === window.socket.id)
             return;
 
         window.refresh_user_data(window.auth_token);
@@ -516,7 +554,7 @@ async function UIDesktop(options){
         })
 
         // Don't update if this is the original client that initiated the action
-        if(item.original_client_socket_id === window.socket.id)
+        if (item.original_client_socket_id === window.socket.id)
             return;
 
         // Update matching items
@@ -545,34 +583,34 @@ async function UIDesktop(options){
         $(`.window-${item.uid}`).attr('data-path', new_path);
 
         // Update all elements that have matching paths
-        $(`[data-path="${html_encode(item.old_path)}" i]`).each(function(){            
+        $(`[data-path="${html_encode(item.old_path)}" i]`).each(function () {
             $(this).attr('data-path', new_path)
-            if($(this).hasClass('window-navbar-path-dirname'))
+            if ($(this).hasClass('window-navbar-path-dirname'))
                 $(this).text(item.name);
         });
 
         // Update all elements whose paths start with old_path
-        $(`[data-path^="${html_encode(item.old_path) + '/'}"]`).each(function(){    
-            const new_el_path = _.replace($(this).attr('data-path'), item.old_path + '/', new_path+'/');
+        $(`[data-path^="${html_encode(item.old_path) + '/'}"]`).each(function () {
+            const new_el_path = _.replace($(this).attr('data-path'), item.old_path + '/', new_path + '/');
             $(this).attr('data-path', new_el_path);
         });
 
         // Update all exact-matching windows
-        $(`.window-${item.uid}`).each(function(){
+        $(`.window-${item.uid}`).each(function () {
             window.update_window_path(this, new_path);
         })
         // Set new name for matching open windows
         $(`.window-${item.uid} .window-head-title`).text(item.name);
 
         // Re-sort all matching item containers
-        $(`.item[data-uid='${item.uid}']`).parent('.item-container').each(function(){
+        $(`.item[data-uid='${item.uid}']`).parent('.item-container').each(function () {
             window.sort_items(this, $(this).closest('.item-container').attr('data-sort_by'), $(this).closest('.item-container').attr('data-sort_order'));
         })
     });
 
     window.socket.on('item.added', async (item) => {
         // if item is empty, don't proceed
-        if(_.isEmpty(item))
+        if (_.isEmpty(item))
             return;
 
         // Notify all apps that are watching this item
@@ -586,11 +624,11 @@ async function UIDesktop(options){
         });
 
         // Don't update if this is the original client that initiated the action
-        if(item.original_client_socket_id === window.socket.id)
+        if (item.original_client_socket_id === window.socket.id)
             return;
 
         // Update replaced items with matching uids
-        if(item.overwritten_uid){
+        if (item.overwritten_uid) {
             $(`.item[data-uid='${item.overwritten_uid}']`).attr({
                 'data-immutable': item.immutable,
                 'data-path': item.path,
@@ -603,13 +641,13 @@ async function UIDesktop(options){
             // set new icon
             const new_icon = (item.is_dir ? window.icons['folder.svg'] : (await item_icon(item)).image);
             $(`.item[data-uid="${item.overwritten_uid}"]`).find('.item-icon > img').attr('src', new_icon);
-            
+
             //sort each window
-            $(`.item-container[data-path='${html_encode(item.dirpath)}' i]`).each(function(){
+            $(`.item-container[data-path='${html_encode(item.dirpath)}' i]`).each(function () {
                 window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'))
-            })            
+            })
         }
-        else{
+        else {
             UIItem({
                 appendTo: $(`.item-container[data-path='${html_encode(item.dirpath)}' i]`),
                 uid: item.uid,
@@ -629,7 +667,7 @@ async function UIDesktop(options){
             });
 
             //sort each window
-            $(`.item-container[data-path='${html_encode(item.dirpath)}' i]`).each(function(){
+            $(`.item-container[data-path='${html_encode(item.dirpath)}' i]`).each(function () {
                 window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'))
             })
         }
@@ -641,9 +679,9 @@ async function UIDesktop(options){
             <input type="hidden" name="path" id="upload-target-path" value="">
             <input type="file" name="file" id="upload-file-dialog" style="display: none;" multiple="multiple">
         </form>`;
-    
+
     h += `<div class="window-container"></div>`;
-    
+
     // Desktop
     // If desktop is not in fullpage/embedded mode, we hide it until files and directories are loaded and then fade in the UI
     // This gives a calm and smooth experience for the user
@@ -655,13 +693,11 @@ async function UIDesktop(options){
             >`;
     h += `</div>`;
 
-    h += `<span id='clock'></span></div>`;
-
     // Get window sidebar width
     puter.kv.get('window_sidebar_width').then(async (val) => {
         let value = parseInt(val);
         // if value is a valid number
-        if(!isNaN(value) && value > 0){
+        if (!isNaN(value) && value > 0) {
             window.window_sidebar_width = value;
         }
     })
@@ -680,29 +716,29 @@ async function UIDesktop(options){
     // Get menubar style
     puter.kv.get('menubar_style').then(async (val) => {
         let value = val;
-        if(value === 'system' || value === 'desktop' || value === 'window'){
+        if (value === 'system' || value === 'desktop' || value === 'window') {
             window.menubar_style = value;
-        }else{
+        } else {
             window.menubar_style = 'system';
         }
 
-        if(window.menubar_style === 'system'){
-            if(window.detectHostOS() === 'macos')
+        if (window.menubar_style === 'system') {
+            if (window.detectHostOS() === 'macos')
                 window.menubar_style = 'desktop';
             else
                 window.menubar_style = 'window';
         }
 
         // set menubar style class to body
-        if(window.menubar_style === 'desktop'){
+        if (window.menubar_style === 'desktop') {
             $('body').addClass('menubar-style-desktop');
         }
     })
 
 
     // Remove `?ref=...` from navbar URL
-    if(window.url_query_params.has('ref')){
-        window.history.pushState(null, document.title, '/');    
+    if (window.url_query_params.has('ref')) {
+        window.history.pushState(null, document.title, '/');
     }
 
     // update local user preferences
@@ -714,7 +750,7 @@ async function UIDesktop(options){
 
     // update default apps
     puter.kv.list('user_preferences.default_apps.*').then(async (default_app_keys) => {
-        for(let key in default_app_keys){
+        for (let key in default_app_keys) {
             user_preferences[default_app_keys[key].substring(17)] = await puter.kv.get(default_app_keys[key]);
         }
 
@@ -749,10 +785,10 @@ async function UIDesktop(options){
         drop: async function (dragsterEvent, event) {
             const e = event.originalEvent;
             // no drop on item
-            if($(event.target).hasClass('item') || $(event.target).parent('.item').length > 0)
+            if ($(event.target).hasClass('item') || $(event.target).parent('.item').length > 0)
                 return false;
             // recursively create directories and upload files
-            if(e.dataTransfer?.items?.length>0){
+            if (e.dataTransfer?.items?.length > 0) {
                 window.upload_items(e.dataTransfer.items, window.desktop_path);
             }
 
@@ -768,21 +804,21 @@ async function UIDesktop(options){
     $(el_desktop).droppable({
         accept: '.item',
         tolerance: "intersect",
-        drop: function( event, ui ) {
+        drop: function (event, ui) {
             // Check if item was actually dropped on desktop and not a window
-            if(window.mouseover_window !== undefined)
+            if (window.mouseover_window !== undefined)
                 return;
-    
+
             // Can't drop anything but UIItems on desktop
-            if(!$(ui.draggable).hasClass('item'))
+            if (!$(ui.draggable).hasClass('item'))
                 return;
-    
+
             // Don't move an item to its current directory
-            if( path.dirname($(ui.draggable).attr('data-path')) === window.desktop_path && !event.ctrlKey)
+            if (path.dirname($(ui.draggable).attr('data-path')) === window.desktop_path && !event.ctrlKey)
                 return;
-            
+
             // If ctrl is pressed and source is Trashed, cancel whole operation
-            if(event.ctrlKey && path.dirname($(ui.draggable).attr('data-path')) === window.trash_path)
+            if (event.ctrlKey && path.dirname($(ui.draggable).attr('data-path')) === window.trash_path)
                 return;
 
             // Unselect previously selected items
@@ -794,22 +830,22 @@ async function UIDesktop(options){
 
             // all subsequent items
             const cloned_items = document.getElementsByClassName('item-selected-clone');
-            for(let i =0; i<cloned_items.length; i++){
+            for (let i = 0; i < cloned_items.length; i++) {
                 const source_item = document.getElementById('item-' + $(cloned_items[i]).attr('data-id'));
-                if(source_item !== null)
+                if (source_item !== null)
                     items_to_move.push(source_item);
             }
 
             // if ctrl key is down, copy items
-            if(event.ctrlKey){
+            if (event.ctrlKey) {
                 // unless source is Trash
-                if(path.dirname($(ui.draggable).attr('data-path')) === window.trash_path)
+                if (path.dirname($(ui.draggable).attr('data-path')) === window.trash_path)
                     return;
 
                 window.copy_items(items_to_move, window.desktop_path)
             }
             // otherwise, move items
-            else{
+            else {
                 window.move_items(items_to_move, window.desktop_path);
             }
         }
@@ -820,17 +856,17 @@ async function UIDesktop(options){
     //--------------------------------------------------
     $(el_desktop).bind("contextmenu taphold", function (event) {
         // dismiss taphold on regular devices
-        if(event.type==='taphold' && !isMobile.phone && !isMobile.tablet)
+        if (event.type === 'taphold' && !isMobile.phone && !isMobile.tablet)
             return;
 
         const $target = $(event.target);
 
         // elements that should retain native ctxmenu
-        if($target.is('input') || $target.is('textarea'))
+        if ($target.is('input') || $target.is('textarea'))
             return true
 
         // custom ctxmenu for all other elements
-        if(event.target === el_desktop){
+        if (event.target === el_desktop) {
             event.preventDefault();
             UIContextMenu({
                 items: [
@@ -843,14 +879,14 @@ async function UIDesktop(options){
                             {
                                 html: i18n('auto_arrange'),
                                 icon: window.is_auto_arrange_enabled ? '✓' : '',
-                                onClick: async function(){
+                                onClick: async function () {
                                     window.is_auto_arrange_enabled = !window.is_auto_arrange_enabled;
                                     window.store_auto_arrange_preference(window.is_auto_arrange_enabled);
-                                    if(window.is_auto_arrange_enabled){
+                                    if (window.is_auto_arrange_enabled) {
                                         window.sort_items(el_desktop, $(el_desktop).attr('data-sort_by'), $(el_desktop).attr('data-sort_order'));
                                         window.set_sort_by(options.desktop_fsentry.uid, $(el_desktop).attr('data-sort_by'), $(el_desktop).attr('data-sort_order'))
                                         window.clear_desktop_item_positions(el_desktop);
-                                    }else{
+                                    } else {
                                         window.set_desktop_item_positions(el_desktop)
                                     }
                                 }
@@ -863,7 +899,7 @@ async function UIDesktop(options){
                                 html: i18n('name'),
                                 disabled: !window.is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_by') === 'name' ? '✓' : '',
-                                onClick: async function(){
+                                onClick: async function () {
                                     window.sort_items(el_desktop, 'name', $(el_desktop).attr('data-sort_order'));
                                     window.set_sort_by(options.desktop_fsentry.uid, 'name', $(el_desktop).attr('data-sort_order'))
                                 }
@@ -872,7 +908,7 @@ async function UIDesktop(options){
                                 html: i18n('date_modified'),
                                 disabled: !window.is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_by') === 'modified' ? '✓' : '',
-                                onClick: async function(){
+                                onClick: async function () {
                                     window.sort_items(el_desktop, 'modified', $(el_desktop).attr('data-sort_order'));
                                     window.set_sort_by(options.desktop_fsentry.uid, 'modified', $(el_desktop).attr('data-sort_order'))
                                 }
@@ -881,7 +917,7 @@ async function UIDesktop(options){
                                 html: i18n('type'),
                                 disabled: !window.is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_by') === 'type' ? '✓' : '',
-                                onClick: async function(){
+                                onClick: async function () {
                                     window.sort_items(el_desktop, 'type', $(el_desktop).attr('data-sort_order'));
                                     window.set_sort_by(options.desktop_fsentry.uid, 'type', $(el_desktop).attr('data-sort_order'))
                                 }
@@ -890,7 +926,7 @@ async function UIDesktop(options){
                                 html: i18n('size'),
                                 disabled: !window.is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_by') === 'size' ? '✓' : '',
-                                onClick: async function(){
+                                onClick: async function () {
                                     window.sort_items(el_desktop, 'size', $(el_desktop).attr('data-sort_order'));
                                     window.set_sort_by(options.desktop_fsentry.uid, 'size', $(el_desktop).attr('data-sort_order'))
                                 }
@@ -903,7 +939,7 @@ async function UIDesktop(options){
                                 html: i18n('ascending'),
                                 disabled: !window.is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_order') === 'asc' ? '✓' : '',
-                                onClick: async function(){
+                                onClick: async function () {
                                     const sort_by = $(el_desktop).attr('data-sort_by')
                                     window.sort_items(el_desktop, sort_by, 'asc');
                                     window.set_sort_by(options.desktop_fsentry.uid, sort_by, 'asc')
@@ -913,7 +949,7 @@ async function UIDesktop(options){
                                 html: i18n('descending'),
                                 disabled: !window.is_auto_arrange_enabled,
                                 icon: $(el_desktop).attr('data-sort_order') === 'desc' ? '✓' : '',
-                                onClick: async function(){
+                                onClick: async function () {
                                     const sort_by = $(el_desktop).attr('data-sort_by')
                                     window.sort_items(el_desktop, sort_by, 'desc');
                                     window.set_sort_by(options.desktop_fsentry.uid, sort_by, 'desc')
@@ -926,7 +962,7 @@ async function UIDesktop(options){
                     // -------------------------------------------
                     {
                         html: i18n('refresh'),
-                        onClick: function(){
+                        onClick: function () {
                             refresh_item_container(el_desktop);
                         }
                     },
@@ -936,11 +972,20 @@ async function UIDesktop(options){
                     {
                         html: i18n('show_hidden'),
                         icon: window.user_preferences.show_hidden_files ? '✓' : '',
-                        onClick: function(){
+                        onClick: function () {
                             window.mutate_user_preferences({
-                                show_hidden_files : !window.user_preferences.show_hidden_files,
+                                show_hidden_files: !window.user_preferences.show_hidden_files,
                             });
                             window.show_or_hide_files(document.querySelectorAll('.item-container'));
+                        }
+                    },
+                    // -------------------------------------------
+                    // Hide Desktop Icons
+                    // -------------------------------------------
+                    {
+                        html: window.desktop_icons_hidden ? i18n('Show desktop icons') : i18n('Hide desktop icons'),
+                        onClick: function () {
+                            toggleDesktopIcons();
                         }
                     },
                     // -------------------------------------------
@@ -961,10 +1006,10 @@ async function UIDesktop(options){
                     {
                         html: i18n('paste'),
                         disabled: window.clipboard.length > 0 ? false : true,
-                        onClick: function(){
-                            if(window.clipboard_op === 'copy')
+                        onClick: function () {
+                            if (window.clipboard_op === 'copy')
                                 window.copy_clipboard_items(window.desktop_path, el_desktop);
-                            else if(window.clipboard_op === 'move')
+                            else if (window.clipboard_op === 'move')
                                 window.move_clipboard_items(el_desktop)
                         }
                     },
@@ -974,7 +1019,7 @@ async function UIDesktop(options){
                     {
                         html: i18n('undo'),
                         disabled: window.actions_history.length > 0 ? false : true,
-                        onClick: function(){
+                        onClick: function () {
                             window.undo_last_action();
                         }
                     },
@@ -983,7 +1028,7 @@ async function UIDesktop(options){
                     // -------------------------------------------
                     {
                         html: i18n('upload_here'),
-                        onClick: function(){
+                        onClick: function () {
                             window.init_upload_using_dialog(el_desktop);
                         }
                     },
@@ -996,7 +1041,7 @@ async function UIDesktop(options){
                     // -------------------------------------------
                     {
                         html: i18n('change_desktop_background'),
-                        onClick: function(){
+                        onClick: function () {
                             UIWindowDesktopBGSettings();
                         }
                     },
@@ -1011,18 +1056,18 @@ async function UIDesktop(options){
     // we don't need to get the desktop items if we're in embedded or fullpage mode
     // because the items aren't visible anyway and we don't need to waste bandwidth/server resources
     //-------------------------------------------
-    if(!window.is_embedded && !window.is_fullpage_mode){
-        refresh_item_container(el_desktop, {fadeInItems: true})
+    if (!window.is_embedded && !window.is_fullpage_mode) {
+        refresh_item_container(el_desktop, { fadeInItems: true })
 
         // Show welcome window if user hasn't already seen it and hasn't directly navigated to an app 
-        if(!window.url_paths[0]?.toLocaleLowerCase() === 'app' || !window.url_paths[1]){
-            if(!isMobile.phone && !isMobile.tablet){
+        if (!window.url_paths[0]?.toLocaleLowerCase() === 'app' || !window.url_paths[1]) {
+            if (!isMobile.phone && !isMobile.tablet) {
                 setTimeout(() => {
                     puter.kv.get('has_seen_welcome_window').then(async (val) => {
-                        if(val === null){
+                        if (val === null) {
                             await UIWindowWelcome();
                         }
-                    })                
+                    })
                 }, 1000);
             }
         }
@@ -1032,7 +1077,7 @@ async function UIDesktop(options){
     // Selectable
     // Only for desktop
     // -------------------------------------------
-    if(!isMobile.phone && !isMobile.tablet){
+    if (!isMobile.phone && !isMobile.tablet) {
         let selected_ctrl_items = [];
         const selection = new SelectionArea({
             selectionContainerClass: '.selection-area-container',
@@ -1047,7 +1092,7 @@ async function UIDesktop(options){
                 scrolling: {
                     speedDivider: 10,
                     manualSpeed: 750,
-                    startScrollMargins: {x: 0, y: 0}
+                    startScrollMargins: { x: 0, y: 0 }
                 }
             },
             features: {
@@ -1059,94 +1104,105 @@ async function UIDesktop(options){
                 }
             }
         });
-    
-        selection.on('beforestart', ({event}) => {
+
+        selection.on('beforestart', ({ event }) => {
             selected_ctrl_items = [];
             // Returning false prevents a selection
             return $(event.target).hasClass('item-container');
         })
-        .on('beforedrag', evt => {
-        })
-        .on('start', ({store, event}) => {
-            if (!event.ctrlKey && !event.metaKey) {
-                for (const el of store.stored) {
+            .on('beforedrag', evt => {
+            })
+            .on('start', ({ store, event }) => {
+                if (!event.ctrlKey && !event.metaKey) {
+                    for (const el of store.stored) {
+                        el.classList.remove('item-selected');
+                    }
+
+                    selection.clearSelection();
+                }
+            })
+            .on('move', ({ store: { changed: { added, removed } }, event }) => {
+                for (const el of added) {
+                    // if ctrl or meta key is pressed and the item is already selected, then unselect it
+                    if ((event.ctrlKey || event.metaKey) && $(el).hasClass('item-selected')) {
+                        el.classList.remove('item-selected');
+                        selected_ctrl_items.push(el);
+                    }
+                    // otherwise select it
+                    else {
+                        el.classList.add('item-selected');
+                    }
+                }
+
+                for (const el of removed) {
                     el.classList.remove('item-selected');
+                    // in case this item was selected by ctrl+click before, then reselect it again
+                    if (selected_ctrl_items.includes(el))
+                        $(el).not('.item-disabled').addClass('item-selected');
                 }
-        
-                selection.clearSelection();
-            }
-        })
-        .on('move', ({store: {changed: {added, removed}}, event}) => {
-            for (const el of added) {
-                // if ctrl or meta key is pressed and the item is already selected, then unselect it
-                if((event.ctrlKey || event.metaKey) && $(el).hasClass('item-selected')){
-                    el.classList.remove('item-selected');
-                    selected_ctrl_items.push(el);
-                }
-                // otherwise select it
-                else{
-                    el.classList.add('item-selected');
-                }
-            }
-        
-            for (const el of removed) {
-                el.classList.remove('item-selected');
-                // in case this item was selected by ctrl+click before, then reselect it again
-                if(selected_ctrl_items.includes(el))
-                    $(el).not('.item-disabled').addClass('item-selected');
-            }
-        })
-        .on('stop', evt => {
-        });
+            })
+            .on('stop', evt => {
+            });
     }
     // ----------------------------------------------------
     // User options
     // ----------------------------------------------------
     let ht = '';
     ht += `<div class="toolbar" style="height:${window.toolbar_height}px; min-height:${window.toolbar_height}px; max-height:${window.toolbar_height}px;">`;
-        // logo
-        ht += `<div class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px; margin-right: auto;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
+    // logo
+    ht += `<div class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
 
-        // create account button
-        ht += `<div class="toolbar-btn user-options-create-account-btn ${window.user.is_temp ? '' : 'hidden' }" style="padding:0; opacity:1;" title="Save Account">`;
-            ht += `<svg style="width: 17px; height: 17px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px" height="48px" viewBox="0 0 48 48"><g transform="translate(0, 0)"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"></path></g></svg>`;
-        ht += `</div>`;
 
-        // 'Show Desktop'
-        ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased hidden" target="_blank" title="Show Desktop">Show Desktop <img src="${window.icons['launch-white.svg']}" style="width: 10px; height: 10px; margin-left: 5px;"></a>`;
+    // clock spacer
+    ht += `<div class="toolbar-spacer"></div>`;
 
-        // refer
-        if(window.user.referral_code){
-            ht += `<div class="toolbar-btn refer-btn" title="Refer" style="background-image:url(${window.icons['gift.svg']});"></div>`;
-        }
+    // create account button
+    ht += `<div class="toolbar-btn user-options-create-account-btn ${window.user.is_temp ? '' : 'hidden'}" style="padding:0; opacity:1;" title="${i18n('toolbar.save_account')}">`;
+    ht += `<svg style="width: 17px; height: 17px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px" height="48px" viewBox="0 0 48 48"><g transform="translate(0, 0)"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"></path></g></svg>`;
+    ht += `</div>`;
 
-        // github
-        ht += `<a href="https://github.com/HeyPuter/puter" target="_blank" class="toolbar-btn" title="GitHub" style="background-image:url(${window.icons['logo-github-white.svg']});"></a>`;
+    // 'Show Desktop'
+    ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased hidden" target="_blank" title="Show Desktop">Show Desktop <img src="${window.icons['launch-white.svg']}" style="width: 10px; height: 10px; margin-left: 5px;"></a>`;
 
-        // do not show the fullscreen button on mobile devices since it's broken
-        if(!isMobile.phone){
-            // fullscreen button
-            ht += `<div class="toolbar-btn fullscreen-btn" title="Enter Full Screen" style="background-image:url(${window.icons['fullscreen.svg']})"></div>`;
-        }
+    // refer
+    if (window.user.referral_code) {
+        ht += `<div class="toolbar-btn refer-btn" title="${i18n('toolbar.refer')}" style="background-image:url(${window.icons['gift.svg']});"></div>`;
+    }
 
-        // qr code button -- only show if not embedded
-        if(!window.is_embedded)
-            ht += `<div class="toolbar-btn qr-btn" title="QR code" style="background-image:url(${window.icons['qr.svg']})"></div>`;
-        
-        // search button
-        ht += `<div class="toolbar-btn search-btn" title="Search" style="background-image:url('${window.icons['search.svg']}')"></div>`;
+    // github
+    ht += `<a href="https://github.com/HeyPuter/puter" target="_blank" class="toolbar-btn" title="${i18n('toolbar.github')}" style="background-image:url(${window.icons['logo-github-white.svg']});"></a>`;
 
-        // user options menu
-        ht += `<div class="toolbar-btn user-options-menu-btn profile-pic" style="display:block;">`;
-            ht += `<div class="profile-image ${window.user?.profile?.picture && 'profile-image-has-picture'}" style="border-radius: 50%; background-image:url(${window.user?.profile?.picture || window.icons['profile.svg']}); box-sizing: border-box; width: 17px !important; height: 17px !important; background-size: contain; background-repeat: no-repeat; background-position: center; background-position: center; background-size: cover;"></div>`;
-        ht += `</div>`;
+    // do not show the fullscreen button on mobile devices since it's broken
+    if (!isMobile.phone) {
+        // fullscreen button
+        ht += `<div class="toolbar-btn fullscreen-btn" title="${i18n('toolbar.enter_fullscreen')}" style="background-image:url(${window.icons['fullscreen.svg']})"></div>`;
+    }
+
+    // qr code button -- only show if not embedded
+    if (!window.is_embedded)
+        ht += `<div class="toolbar-btn qr-btn" title="${i18n('toolbar.qrcode')}" style="background-image:url(${window.icons['qr.svg']})"></div>`;
+
+    // search button
+    ht += `<div class="toolbar-btn search-btn" title="${i18n('toolbar.search')}" style="background-image:url('${window.icons['search.svg']}')"></div>`;
+
+
+    //clock 
+    ht += `<div id="clock" class="toolbar-clock" style="">12:00 AM Sun, Jan 01</div>`;
+
+    // user options menu
+    ht += `<div class="toolbar-btn user-options-menu-btn profile-pic" style="display:block;">`;
+    ht += `<div class="profile-image ${window.user?.profile?.picture && 'profile-image-has-picture'}" style="border-radius: 50%; background-image:url(${window.user?.profile?.picture || window.icons['profile.svg']}); box-sizing: border-box; width: 17px !important; height: 17px !important; background-size: contain; background-repeat: no-repeat; background-position: center; background-position: center; background-size: cover;"></div>`;
+    ht += `</div>`;
     ht += `</div>`;
 
     // prepend toolbar to desktop
     $(ht).insertBefore(el_desktop);
 
+
     // send event
     window.dispatchEvent(new CustomEvent('toolbar:ready'));
+    // init clock visibility
+    window.change_clock_visible();
 
     // notification container
     $('body').append(`<div class="notification-container"><div class="notifications-close-all">${i18n('close_all')}</div></div>`);
@@ -1165,53 +1221,54 @@ async function UIDesktop(options){
     // Determine if an app was launched from URL
     // i.e. https://puter.com/app/<app_name>
     //--------------------------------------------------------------------------------------
-    if(window.url_paths[0]?.toLocaleLowerCase() === 'app' && window.url_paths[1]){
+    if (window.url_paths[0]?.toLocaleLowerCase() === 'app' && window.url_paths[1]) {
         window.app_launched_from_url = window.url_paths[1];
         // get app metadata
-        try{
-            window.app_launched_from_url = await puter.apps.get(window.url_paths[1], {icon_size: 64})
+        try {
+            window.app_launched_from_url = await puter.apps.get(window.url_paths[1], { icon_size: 64 })
             window.is_fullpage_mode = window.app_launched_from_url.metadata?.fullpage_on_landing ?? window.is_fullpage_mode ?? false;
 
             // show 'Show Desktop' button
-            if(window.is_fullpage_mode){
+            if (window.is_fullpage_mode) {
                 $('.show-desktop-btn').removeClass('hidden');
             }
-        }catch(e){
+        } catch (e) {
             console.error(e);
         }
 
         // get query params, any param that doesn't start with 'puter.' will be passed to the app
         window.app_query_params = {};
         for (let [key, value] of window.url_query_params) {
-            if(!key.startsWith('puter.'))
+            if (!key.startsWith('puter.'))
                 window.app_query_params[key] = value;
         }
     }
     //--------------------------------------------------------------------------------------
     // /settings will open settings in fullpage mode
     //--------------------------------------------------------------------------------------
-    else if(window.url_paths[0]?.toLocaleLowerCase() === 'settings'){
+    else if (window.url_paths[0]?.toLocaleLowerCase() === 'settings') {
         // open settings
         UIWindowSettings({
-            window_options:{
-                // is_fullpage: true,
+            tab: window.url_paths[1] || 'about',
+            window_options: {
+                is_fullpage: true,
             }
         });
     }
     // ---------------------------------------------
     // Run apps from insta-login URL
     // ---------------------------------------------
-    if(window.url_query_params.has('app')){
+    if (window.url_query_params.has('app')) {
         let url_app_name = window.url_query_params.get('app');
-        if(url_app_name === 'explorer'){
+        if (url_app_name === 'explorer') {
             let predefined_path = window.home_path;
-            if(window.url_query_params.has('path'))
-                predefined_path =window.url_query_params.get('path')
+            if (window.url_query_params.has('path'))
+                predefined_path = window.url_query_params.get('path')
             // launch explorer
             UIWindow({
                 path: predefined_path,
                 title: path.basename(predefined_path),
-                icon: await item_icon({is_dir: true, path: predefined_path}),
+                icon: await item_icon({ is_dir: true, path: predefined_path }),
                 // todo
                 // uid: $(el_item).attr('data-uid'),
                 is_dir: true,
@@ -1224,11 +1281,11 @@ async function UIDesktop(options){
     // ---------------------------------------------
     // load from direct app URLs: /app/app-name
     // ---------------------------------------------
-    else if(window.app_launched_from_url){
-        let qparams = new URLSearchParams(window.location.search);      
-        if(!qparams.has('c')){
+    else if (window.app_launched_from_url) {
+        let qparams = new URLSearchParams(window.location.search);
+        if (!qparams.has('c')) {
             let posargs = undefined;
-            if ( window.app_query_params && window.app_query_params.posargs ) {
+            if (window.app_query_params && window.app_query_params.posargs) {
                 posargs = JSON.parse(window.app_query_params.posargs);
             }
             launch_app({
@@ -1237,9 +1294,11 @@ async function UIDesktop(options){
                 readURL: qparams.get('readURL'),
                 maximized: qparams.get('maximized'),
                 params: window.app_query_params ?? [],
-                ...(posargs ? { args: {
-                    command_line: { args: posargs }
-                } } : {}),
+                ...(posargs ? {
+                    args: {
+                        command_line: { args: posargs }
+                    }
+                } : {}),
                 is_fullpage: window.is_fullpage_mode,
                 window_options: {
                     stay_on_top: false,
@@ -1248,9 +1307,9 @@ async function UIDesktop(options){
         }
     }
 
-    $(el_desktop).on('mousedown touchstart', { passive: true }, function(e){
+    $(el_desktop).on('mousedown touchstart', { passive: true }, function (e) {
         // dimiss touchstart on regular devices
-        if(e.type==='taphold' && !isMobile.phone && !isMobile.tablet)
+        if (e.type === 'taphold' && !isMobile.phone && !isMobile.tablet)
             return;
 
         // disable pointer-events for all app iframes, this is to make sure selectable works
@@ -1259,44 +1318,46 @@ async function UIDesktop(options){
         $('.desktop').find('.item-blurred').removeClass('item-blurred');
     })
 
-    $(el_desktop).on('click', function(e){
+    $(el_desktop).on('click', function (e) {
         // blur all windows
         $('.window-active').removeClass('window-active');
         // hide all global menubars
         $('.window-menubar-global').hide();
-    })  
+    })
 
     function display_ct() {
-        var x = new Date()
-        var ampm = x.getHours( ) >= 12 ? ' PM' : ' AM';
-        let hours = x.getHours( ) % 12;
-        hours = hours ? hours : 12;
-        hours=hours.toString().length==1? 0+hours.toString() : hours;
-        
-        var minutes=x.getMinutes().toString()
-        minutes=minutes.length==1 ? 0+minutes : minutes;
-        
-        var seconds=x.getSeconds().toString()
-        seconds=seconds.length==1 ? 0+seconds : seconds;
-        
-        var month=(x.getMonth() +1).toString();
-        month=month.length==1 ? 0+month : month;
-        
-        var dt=x.getDate().toString();
-        dt=dt.length==1 ? 0+dt : dt;
-        
-        var x1=month + "/" + dt + "/" + x.getFullYear(); 
-        x1 = x1 + " - " +  hours + ":" +  minutes + ":" +  seconds + " " + ampm;
-        $('#clock').html(x1);
-        $('#clock').css('line-height', window.taskbar_height + 'px');
-    }
 
+        var x = new Date()
+        var ampm = x.getHours() >= 12 ? ' PM' : ' AM';
+        let hours = x.getHours() % 12;
+        hours = hours ? hours : 12;
+        hours = hours.toString().length == 1 ? 0 + hours.toString() : hours;
+
+        var minutes = x.getMinutes().toString()
+        minutes = minutes.length == 1 ? 0 + minutes : minutes;
+
+        var seconds = x.getSeconds().toString()
+        seconds = seconds.length == 1 ? 0 + seconds : seconds;
+
+        var month = x.toLocaleString('default', { month: 'short' });
+
+        var dt = x.getDate().toString();
+        dt = dt.length == 1 ? 0 + dt : dt;
+
+        var day = x.toLocaleString('default', { weekday: 'short' });
+
+
+        var x1 = day + ", " + month + " " + dt;
+        x1 = hours + ":" + minutes + ampm + " " + x1;
+        $('#clock').html(x1);
+    }
+    display_ct()
     setInterval(display_ct, 1000);
 
     // show referral notice window
-    if(window.show_referral_notice && !window.user.email_confirmed){
+    if (window.show_referral_notice && !window.user.email_confirmed) {
         puter.kv.get('shown_referral_notice').then(async (val) => {
-            if(!val || val === 'false' || val === false){
+            if (!val || val === 'false' || val === false) {
                 setTimeout(() => {
                     UIWindowClaimReferral();
                 }, 1000);
@@ -1313,30 +1374,104 @@ async function UIDesktop(options){
     // i.e. https://puter.com/@<username>
     //--------------------------------------------------------------------------------------
     const url_paths = window.location.pathname.split('/').filter(element => element);
-    if(url_paths[0]?.startsWith('@')){
-        let username = url_paths[0].substring(1);
+    if (url_paths[0]?.startsWith('@')) {
+        const username = url_paths[0].substring(1);
         let item_path = '/' + username + '/Public';
-
-        // check if username has valid characters
-        if(!username.match(/^[a-z0-9_]+$/i)){
-            UIAlert({
-                message: 'Invalid username.'
-            });
-        }else{
-            UIWindow({
-                path: item_path,
-                title: path.basename(item_path),
-                icon: await item_icon({is_dir: true, path: item_path}),
-                is_dir: true,
-                app: 'explorer',
-            });
+        if ( url_paths.length > 1 ) {
+            item_path += '/' + url_paths.slice(1).join('/');
         }
+
+        // GUARD: avoid invalid user directories
+        {
+            if (!username.match(/^[a-z0-9_]+$/i)) {
+                UIAlert({
+                    message: 'Invalid username.'
+                });
+                return;
+            }
+        }
+
+        const stat = await puter.fs.stat(item_path);
+        console.log('stat result', stat);
+        
+        // TODO: DRY everything here with open_item. Unfortunately we can't
+        //       use open_item here because it's coupled with UI logic;
+        //       it requires a UIItem element and cannot operate on a
+        //       file path on its own.
+        if ( ! stat.is_dir ) {
+            if ( stat.associated_app ) {
+                launch_app({ name: stat.associated_app.name });
+                return;
+            }
+            
+            const ext_pref =
+                window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`];
+            
+            if ( ext_pref ) {
+                launch_app({
+                    name: ext_pref,
+                    file_path: item_path,
+                });
+                return;
+            }
+            
+
+            const open_item_meta = await $.ajax({
+                url: window.api_origin + "/open_item",
+                type: 'POST',
+                contentType: "application/json",
+                data: JSON.stringify({
+                    path: item_path,
+                }),
+                headers: {
+                    "Authorization": "Bearer "+window.auth_token
+                },
+                statusCode: {
+                    401: function () {
+                        window.logout();
+                    },
+                },
+            });
+            const suggested_apps = open_item_meta?.suggested_apps ?? await window.suggest_apps_for_fsentry({
+                path: item_path
+            });
+
+            // Note: I'm not adding unzipping logic here. We'll wait until
+            //       we've refactored open_item so that Puter can have a
+            //       properly-reusable open function.
+            if ( suggested_apps.length !== 0 ) {
+                launch_app({
+                    name: suggested_apps[0].name, 
+                    token: open_item_meta.token,
+                    file_path: item_path,
+                    app_obj: suggested_apps[0],
+                    window_title: path.basename(item_path),
+                    maximized: options.maximized,
+                    file_signature: open_item_meta.signature,
+                });
+                return;
+            }
+
+            await UIAlert({
+                message: 'Cannot find an app to open this file; ' +
+                    'opening directory instead.'
+            });
+            item_path = item_path.split('/').slice(0, -1).join('/')
+        }
+
+        UIWindow({
+            path: item_path,
+            title: path.basename(item_path),
+            icon: await item_icon({ is_dir: true, path: item_path }),
+            is_dir: true,
+            app: 'explorer',
+        });
     }
 }
 
-$(document).on('contextmenu taphold', '.taskbar', function(event){
+$(document).on('contextmenu taphold', '.taskbar', function (event) {
     // dismiss taphold on regular devices
-    if(event.type==='taphold' && !isMobile.phone && !isMobile.tablet)
+    if (event.type === 'taphold' && !isMobile.phone && !isMobile.tablet)
         return;
 
     event.preventDefault();
@@ -1349,7 +1484,7 @@ $(document).on('contextmenu taphold', '.taskbar', function(event){
             //--------------------------------------------------
             {
                 html: "Show open windows",
-                onClick: function(){
+                onClick: function () {
                     $(`.window`).showWindow();
                 }
             },
@@ -1358,7 +1493,7 @@ $(document).on('contextmenu taphold', '.taskbar', function(event){
             //--------------------------------------------------
             {
                 html: "Show the desktop",
-                onClick: function(){
+                onClick: function () {
                     $(`.window`).hideWindow();
                 }
             }
@@ -1374,9 +1509,9 @@ $(document).on('click', '.qr-btn', async function (e) {
     });
 })
 
-$(document).on('click', '.user-options-menu-btn', async function(e){
+$(document).on('click', '.user-options-menu-btn', async function (e) {
     const pos = this.getBoundingClientRect();
-    if($('.context-menu[data-id="user-options-menu"]').length > 0)
+    if ($('.context-menu[data-id="user-options-menu"]').length > 0)
         return;
 
     let items = [];
@@ -1384,13 +1519,13 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
     //--------------------------------------------------
     // Save Session
     //--------------------------------------------------
-    if(window.user.is_temp){
-        items.push(            
+    if (window.user.is_temp) {
+        items.push(
             {
                 html: i18n('save_session'),
                 icon: `<svg style="margin-bottom: -4px; width: 16px; height: 16px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px" height="48px" viewBox="0 0 48 48"><g transform="translate(0, 0)"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"></path></g></svg>`,
                 icon_active: `<svg style="margin-bottom: -4px; width: 16px; height: 16px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48px" height="48px" viewBox="0 0 48 48"><g transform="translate(0, 0)"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"></path></g></svg>`,
-                onClick: async function(){
+                onClick: async function () {
                     UIWindowSaveAccount({
                         send_confirmation_code: false,
                         default_username: window.user.username
@@ -1407,28 +1542,28 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
     // -------------------------------------------
     // Logged in users
     // -------------------------------------------
-    if(window.logged_in_users.length > 0){
+    if (window.logged_in_users.length > 0) {
         let users_arr = window.logged_in_users;
 
         // bring logged in user's item to top
-        users_arr.sort(function(x,y){ return x.uuid === window.user.uuid ? -1 : y.uuid == window.user.uuid ? 1 : 0; });
+        users_arr.sort(function (x, y) { return x.uuid === window.user.uuid ? -1 : y.uuid == window.user.uuid ? 1 : 0; });
 
         // create menu items
         users_arr.forEach(l_user => {
-            items.push(            
+            items.push(
                 {
                     html: l_user.username,
                     icon: l_user.username === window.user.username ? '✓' : '',
-                    onClick: async function(val){
+                    onClick: async function (val) {
                         // don't reload everything if clicked on already-logged-in user
-                        if(l_user.username === window.user.username)
+                        if (l_user.username === window.user.username)
                             return;
                         // update auth data
                         window.update_auth_data(l_user.auth_token, l_user);
                         // refresh
                         location.reload();
                     }
-    
+
                 },
             )
         });
@@ -1437,21 +1572,21 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
         // -------------------------------------------
         items.push('-')
 
-        items.push(            
+        items.push(
             {
                 html: i18n('add_existing_account'),
                 // icon: l_user.username === user.username ? '✓' : '',
-                onClick: async function(val){
+                onClick: async function (val) {
                     await UIWindowLogin({
                         reload_on_success: true,
                         send_confirmation_code: false,
-                        window_options:{
+                        window_options: {
                             has_head: true
                         }
                     });
                 }
             },
-        )                
+        )
 
         // -------------------------------------------
         // -
@@ -1467,7 +1602,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
         return {
             html: lang.name,
             icon: window.locale === lang.code ? '✓' : '',
-            onClick: async function(){
+            onClick: async function () {
                 changeLanguage(lang.code);
             }
         }
@@ -1476,7 +1611,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
     UIContextMenu({
         id: 'user-options-menu',
         parent_element: parent_element,
-        position: {top: pos.top + 28, left: pos.left + pos.width - 15},
+        position: { top: pos.top + 28, left: pos.left + pos.width - 15 },
         items: [
             ...items,
             //--------------------------------------------------
@@ -1485,7 +1620,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             {
                 html: i18n('settings'),
                 id: 'settings',
-                onClick: async function(){
+                onClick: async function () {
                     UIWindowSettings();
                 }
             },
@@ -1495,7 +1630,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             {
                 html: i18n('my_websites'),
                 id: 'my_websites',
-                onClick: async function(){
+                onClick: async function () {
                     UIWindowMyWebsites();
                 }
             },
@@ -1505,7 +1640,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             {
                 html: i18n('task_manager'),
                 id: 'task_manager',
-                onClick: async function(){
+                onClick: async function () {
                     UIWindowTaskManager();
                 }
             },
@@ -1515,7 +1650,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             {
                 html: i18n('contact_us'),
                 id: 'contact_us',
-                onClick: async function(){
+                onClick: async function () {
                     UIWindowFeedback();
                 }
             },
@@ -1529,12 +1664,12 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
             //--------------------------------------------------
             {
                 html: i18n('log_out'),
-                onClick: async function(){
+                onClick: async function () {
                     // see if there are any open windows, if yes notify user
-                    if($('.window-app').length > 0){
+                    if ($('.window-app').length > 0) {
                         const alert_resp = await UIAlert({
                             message: `<p>${i18n('confirm_open_apps_log_out')}</p>`,
-                            buttons:[
+                            buttons: [
                                 {
                                     label: i18n('close_all_windows_and_log_out'),
                                     value: 'close_and_log_out',
@@ -1545,7 +1680,7 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
                                 },
                             ]
                         })
-                        if(alert_resp === 'close_and_log_out')
+                        if (alert_resp === 'close_and_log_out')
                             window.logout();
                     }
                     // no open windows
@@ -1554,11 +1689,11 @@ $(document).on('click', '.user-options-menu-btn', async function(e){
                 }
             },
         ]
-    }); 
+    });
 })
 
 $(document).on('click', '.fullscreen-btn', async function (e) {
-    if(!window.is_fullscreen()) {
+    if (!window.is_fullscreen()) {
         var elem = document.documentElement;
         if (elem.requestFullscreen) {
             elem.requestFullscreen();
@@ -1570,7 +1705,7 @@ $(document).on('click', '.fullscreen-btn', async function (e) {
             elem.msRequestFullscreen();
         }
     }
-    else{
+    else {
         if (document.exitFullscreen) {
             document.exitFullscreen();
         } else if (document.webkitExitFullscreen) {
@@ -1579,49 +1714,49 @@ $(document).on('click', '.fullscreen-btn', async function (e) {
             document.mozCancelFullScreen();
         } else if (document.msExitFullscreen) {
             document.msExitFullscreen();
-        }  
-    }    
+        }
+    }
 })
 
-$(document).on('click', '.close-launch-popover', function(){
-    $(".launch-popover").closest('.popover').fadeOut(200, function(){
+$(document).on('click', '.close-launch-popover', function () {
+    $(".launch-popover").closest('.popover').fadeOut(200, function () {
         $(".launch-popover").closest('.popover').remove();
     });
 });
 
-$(document).on('click', '.search-btn', function(){
+$(document).on('click', '.search-btn', function () {
     UIWindowSearch();
 })
 
-$(document).on('click', '.toolbar-puter-logo', function(){
+$(document).on('click', '.toolbar-puter-logo', function () {
     UIWindowSettings();
 })
 
-$(document).on('click', '.user-options-create-account-btn', async function(e){
+$(document).on('click', '.user-options-create-account-btn', async function (e) {
     UIWindowSaveAccount({
         send_confirmation_code: false,
         default_username: window.user.username,
     });
 })
 
-$(document).on('click', '.refer-btn', async function(e){
+$(document).on('click', '.refer-btn', async function (e) {
     UIWindowRefer();
 })
 
-$(document).on('click', '.start-app', async function(e){
+$(document).on('click', '.start-app', async function (e) {
     launch_app({
         name: $(this).attr('data-app-name')
     })
     // close popovers
-    $(".popover").fadeOut(200, function(){
+    $(".popover").fadeOut(200, function () {
         $(".popover").remove();
     });
 })
 
-$(document).on('click', '.user-options-login-btn', async function(e){
+$(document).on('click', '.user-options-login-btn', async function (e) {
     const alert_resp = await UIAlert({
         message: `<strong>Save session before exiting!</strong><p>You are in a temporary session and logging into another account will erase all data in your current session.</p>`,
-        buttons:[
+        buttons: [
             {
                 label: i18n('save_session'),
                 value: 'save-session',
@@ -1636,16 +1771,16 @@ $(document).on('click', '.user-options-login-btn', async function(e){
             },
         ]
     })
-    
-    if(alert_resp === 'save-session'){
+
+    if (alert_resp === 'save-session') {
         let saved = await UIWindowSaveAccount({
             send_confirmation_code: false,
         });
-        if(saved)
-            UIWindowLogin({show_signup_button: false, reload_on_success: true});
-    }else if (alert_resp === 'login'){
+        if (saved)
+            UIWindowLogin({ show_signup_button: false, reload_on_success: true });
+    } else if (alert_resp === 'login') {
         UIWindowLogin({
-            show_signup_button: false, 
+            show_signup_button: false,
             reload_on_success: true,
             window_options: {
                 backdrop: true,
@@ -1655,7 +1790,7 @@ $(document).on('click', '.user-options-login-btn', async function(e){
     }
 })
 
-$(document).on('click mousedown', '.launch-search, .launch-popover', function(e){
+$(document).on('click mousedown', '.launch-search, .launch-popover', function (e) {
     $(this).focus();
     e.stopPropagation();
     e.preventDefault();
@@ -1663,36 +1798,36 @@ $(document).on('click mousedown', '.launch-search, .launch-popover', function(e)
     e.stopImmediatePropagation();
 })
 
-$(document).on('focus', '.launch-search', function(e){
+$(document).on('focus', '.launch-search', function (e) {
     // remove all selected items in start menu
     $('.launch-app-selected').removeClass('launch-app-selected');
     // scroll popover to top
     $('.launch-popover').scrollTop(0);
 })
 
-$(document).on('change keyup keypress keydown paste', '.launch-search', function(e){
+$(document).on('change keyup keypress keydown paste', '.launch-search', function (e) {
     // search window.launch_apps.recommended for query
     const query = $(this).val().toLowerCase();
-    if(query === ''){
+    if (query === '') {
         $('.launch-search-clear').hide();
         $(`.start-app-card`).show();
         $('.launch-apps-recent').show();
         $('.start-section-heading').show();
-    }else{
+    } else {
         $('.launch-apps-recent').hide();
         $('.start-section-heading').hide();
         $('.launch-search-clear').show();
-        window.launch_apps.recommended.forEach((app)=>{
-            if(app.title.toLowerCase().includes(query.toLowerCase())){
+        window.launch_apps.recommended.forEach((app) => {
+            if (app.title.toLowerCase().includes(query.toLowerCase())) {
                 $(`.start-app-card[data-name="${app.name}"]`).show();
-            }else{
+            } else {
                 $(`.start-app-card[data-name="${app.name}"]`).hide();
             }
         })
     }
 })
 
-$(document).on('click', '.launch-search-clear', function(e){
+$(document).on('click', '.launch-search-clear', function (e) {
     $('.launch-search').val('');
     $('.launch-search').trigger('change');
     $('.launch-search').focus();
@@ -1714,33 +1849,33 @@ document.addEventListener('fullscreenchange', (event) => {
     }
 })
 
-window.set_desktop_background = function(options){
-    if(options.fit){
+window.set_desktop_background = function (options) {
+    if (options.fit) {
         let fit = options.fit;
-        if(fit === 'cover' || fit === 'contain'){
+        if (fit === 'cover' || fit === 'contain') {
             $('body').css('background-size', fit);
             $('body').css('background-repeat', `no-repeat`);
             $('body').css('background-position', `center center`);
         }
-        else if(fit === 'center'){
+        else if (fit === 'center') {
             $('body').css('background-size', 'auto');
             $('body').css('background-repeat', `no-repeat`);
             $('body').css('background-position', `center center`);
         }
 
-        else if( fit === 'repeat'){
+        else if (fit === 'repeat') {
             $('body').css('background-size', `auto`);
             $('body').css('background-repeat', `repeat`);
         }
         window.desktop_bg_fit = fit;
     }
 
-    if(options.url){
+    if (options.url) {
         $('body').css('background-image', `url(${options.url})`);
         window.desktop_bg_url = options.url;
         window.desktop_bg_color = undefined;
     }
-    else if(options.color){
+    else if (options.color) {
         $('body').css({
             'background-image': `none`,
             'background-color': options.color,
@@ -1750,11 +1885,11 @@ window.set_desktop_background = function(options){
     }
 }
 
-window.update_taskbar = function(){
+window.update_taskbar = function () {
     let items = []
-    $('.taskbar-item-sortable[data-keep-in-taskbar="true"]').each(function(index){
+    $('.taskbar-item-sortable[data-keep-in-taskbar="true"]').each(function (index) {
         items.push({
-            name: $( this ).attr('data-app'),
+            name: $(this).attr('data-app'),
             type: 'app',
         })
     })
@@ -1769,20 +1904,20 @@ window.update_taskbar = function(){
         async: true,
         contentType: "application/json",
         headers: {
-            "Authorization": "Bearer "+window.auth_token
+            "Authorization": "Bearer " + window.auth_token
         },
     })
 }
 
-window.remove_taskbar_item = function(item){
-    $(item).find('*').fadeOut(100, function(){});
+window.remove_taskbar_item = function (item) {
+    $(item).find('*').fadeOut(100, function () { });
 
-    $(item).animate({width: 0}, 200, function(){
+    $(item).animate({ width: 0 }, 200, function () {
         $(item).remove();
     })
 }
 
-window.enter_fullpage_mode = (el_window)=>{
+window.enter_fullpage_mode = (el_window) => {
     $('.taskbar').hide();
     $(el_window).find('.window-head').hide();
     $('body').addClass('fullpage-mode');
@@ -1795,14 +1930,14 @@ window.enter_fullpage_mode = (el_window)=>{
     });
 }
 
-window.exit_fullpage_mode = (el_window)=>{
+window.exit_fullpage_mode = (el_window) => {
     $('body').removeClass('fullpage-mode');
     window.taskbar_height = window.default_taskbar_height;
     $('.taskbar').css('height', window.taskbar_height);
     $('.taskbar').show();
-    refresh_item_container($('.desktop.item-container'), {fadeInItems: true});
+    refresh_item_container($('.desktop.item-container'), { fadeInItems: true });
     $(el_window).removeAttr('data-is_fullpage');
-    if(el_window){
+    if (el_window) {
         window.reset_window_size_and_position(el_window)
         $(el_window).find('.window-head').show();
     }
@@ -1817,7 +1952,7 @@ window.exit_fullpage_mode = (el_window)=>{
     window.refresh_desktop_background();
 }
 
-window.reset_window_size_and_position = (el_window)=>{
+window.reset_window_size_and_position = (el_window) => {
     $(el_window).css({
         width: 680,
         height: 380,
@@ -1826,5 +1961,5 @@ window.reset_window_size_and_position = (el_window)=>{
         left: 'calc(50% - 340px)',
     });
 }
-  
+
 export default UIDesktop;

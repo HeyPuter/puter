@@ -23,9 +23,8 @@ const { NodeUIDSelector } = require("../node/selectors");
 const { UploadProgressTracker } = require("../storage/UploadProgressTracker");
 const FSNodeContext = require("../FSNodeContext");
 const APIError = require("../../api/APIError");
-const { progress_stream, stuck_detector_stream, hashing_stream } = require("../../util/streamutil");
+const { stuck_detector_stream, hashing_stream } = require("../../util/streamutil");
 const { OperationFrame } = require("../../services/OperationTraceService");
-const { Actor } = require("../../services/auth/Actor");
 const { DB_WRITE } = require("../../services/database/consts");
 
 const crypto = require('crypto');
@@ -190,8 +189,10 @@ class LLOWrite extends LLWriteBase {
             }
         });
 
-        fsentry_tmp.thumbnail = await fsentry_tmp.thumbnail_promise;
-        delete fsentry_tmp.thumbnail_promise;
+        if ( fsentry_tmp?.thumbnail_promise ) {
+            fsentry_tmp.thumbnail = await fsentry_tmp.thumbnail_promise;
+            delete fsentry_tmp.thumbnail_promise;
+        }
 
         const ts = Math.round(Date.now() / 1000);
         const raw_fsentry_delta = {

@@ -170,10 +170,6 @@ $(document).on('click', '.search-result', async function(e){
             uid: fsuid,
             is_dir: is_dir,
             app: 'explorer',
-            // top: options.maximized ? 0 : undefined,
-            // left: options.maximized ? 0 : undefined,
-            // height: options.maximized ? `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)` : undefined,
-            // width: options.maximized ? `100%` : undefined,
         });
 
         // close search window

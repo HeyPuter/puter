@@ -422,6 +422,7 @@ const es = {
       'Aún tendrás acceso a tu suscripción hasta el final de este periodo de facturación.', // In English: "You will still have access to your subscription until the end of this billing period."
     'billing.offering.free': 'Gratis', // In English: "Free"
     'billing.offering.pro': 'Profesional', // In English: "Professional"
+    'billing.offering.professional': 'Profesional', // In English: "Professional"
     'billing.offering.business': 'Negocios', // In English: "Business"
     'billing.cloud_storage': 'Almacenamiento en la nube', // In English: "Cloud Storage"
     'billing.ai_access': 'Acceso a IA', // In English: "AI Access"

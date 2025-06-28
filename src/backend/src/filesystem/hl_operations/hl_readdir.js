@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require("../../api/APIError");
-const { chkperm } = require("../../helpers");
 const { stream_to_buffer } = require("../../util/streamutil");
 const { TYPE_DIRECTORY, TYPE_SYMLINK } = require("../FSNodeContext");
 const { LLListUsers } = require("../ll_operations/ll_listusers");
@@ -26,6 +25,7 @@ const { LLReadShares } = require("../ll_operations/ll_readshares");
 const { HLFilesystemOperation } = require("./definitions");
 
 class HLReadDir extends HLFilesystemOperation {
+    static CONCERN = 'filesystem';
     async _run () {
         const { subject: subject_let, user, no_thumbs, no_assocs, actor } = this.values;
         let subject = subject_let;

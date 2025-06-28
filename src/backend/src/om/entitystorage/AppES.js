@@ -22,7 +22,6 @@ const { app_name_exists, refresh_apps_cache } = require("../../helpers");
 const { AppUnderUserActorType } = require("../../services/auth/Actor");
 const { DB_WRITE } = require("../../services/database/consts");
 const { Context } = require("../../util/context");
-const { stream_to_buffer } = require("../../util/streamutil");
 const { origin_from_url } = require("../../util/urlutil");
 const { Eq, Like, Or, And } = require("../query/query");
 const { BaseES } = require("./BaseES");

@@ -20,23 +20,10 @@
 // METADATA // {"ai-commented":{"service":"claude"}}
 const { default: Anthropic } = require("@anthropic-ai/sdk");
 const BaseService = require("../../services/BaseService");
-const { whatis } = require("../../util/langutil");
-const { PassThrough } = require("stream");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const FunctionCalling = require("./lib/FunctionCalling");
 const Messages = require("./lib/Messages");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
-
-const PUTER_PROMPT = `
-    You are running on an open-source platform called Puter,
-    as the Claude implementation for a driver interface
-    called puter-chat-completion.
-    
-    The following JSON contains system messages from the
-    user of the driver interface (typically an app on Puter):
-`.replace('\n', ' ').trim();
-
-
 
 /**
 * ClaudeService class extends BaseService to provide integration with Anthropic's Claude AI models.
@@ -121,24 +108,35 @@ class ClaudeService extends BaseService {
                 
                 let system_prompts;
                 [system_prompts, messages] = Messages.extract_and_remove_system_messages(messages);
+                
+                const sdk_params = {
+                    model: model ?? this.get_default_model(),
+                    max_tokens: Math.floor(max_tokens) ||
+                        ((
+                            model === 'claude-3-5-sonnet-20241022'
+                            || model === 'claude-3-5-sonnet-20240620'
+                        ) ? 8192 : 4096), //required
+                    temperature: temperature || 0, // required
+                    ...(system_prompts ? {
+                        system: system_prompts.length > 1
+                            ? JSON.stringify(system_prompts)
+                            : JSON.stringify(system_prompts[0])
+                    } : {}),
+                    messages,
+                    ...(tools ? { tools } : {}),
+                };
+                
+                console.log('\x1B[26;1m ===== SDK PARAMETERS', require('util').inspect(sdk_params, undefined, Infinity));
 
                 if ( stream ) {
                     let usage_promise = new TeePromise();
 
                     const init_chat_stream = async ({ chatStream }) => {
-                        const completion = await this.anthropic.messages.stream({
-                            model: model ?? this.get_default_model(),
-                            max_tokens: max_tokens || (model === 'claude-3-5-sonnet-20241022' || model === 'claude-3-5-sonnet-20240620') ? 8192 : 4096, //required
-                            temperature: temperature || 0, // required
-                            system: PUTER_PROMPT + JSON.stringify(system_prompts),
-                            messages,
-                            ...(tools ? { tools } : {}),
-                        });
+                        const completion = await this.anthropic.messages.stream(sdk_params);
                         const counts = { input_tokens: 0, output_tokens: 0 };
 
                         let message, contentBlock;
                         for await ( const event of completion ) {
-                            // console.log('EVENT', event);
                             const input_tokens =
                                 (event?.usage ?? event?.message?.usage)?.input_tokens;
                             const output_tokens =
@@ -200,14 +198,7 @@ class ClaudeService extends BaseService {
                     });
                 }
 
-                const msg = await this.anthropic.messages.create({
-                    model: model ?? this.get_default_model(),
-                    max_tokens: max_tokens || (model === 'claude-3-5-sonnet-20241022' || model === 'claude-3-5-sonnet-20240620') ? 8192 : 4096,
-                    temperature: temperature || 0,
-                    system: PUTER_PROMPT + JSON.stringify(system_prompts),
-                    messages,
-                    ...(tools ? { tools } : {}),
-                });
+                const msg = await this.anthropic.messages.create(sdk_params);
                 return {
                     message: msg,
                     usage: msg.usage,
@@ -233,8 +224,22 @@ class ClaudeService extends BaseService {
     async models_ () {
         return [
             {
-                id: 'claude-3-7-sonnet-20250219',
-                aliases: ['claude-3-7-sonnet-latest'],
+                id: 'claude-opus-4-20250514',
+                aliases: ['claude-opus-4', 'claude-opus-4-latest'],
+                name: 'Claude Opus 4',
+                context: 200000,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 1500,
+                    output: 7500,
+                },
+                max_tokens: 32000,
+            },
+            {
+                id: 'claude-sonnet-4-20250514',
+                aliases: ['claude-sonnet-4', 'claude-sonnet-4-latest'],
+                name: 'Claude Sonnet 4',
                 context: 200000,
                 cost: {
                     currency: 'usd-cents',
@@ -242,7 +247,20 @@ class ClaudeService extends BaseService {
                     input: 300,
                     output: 1500,
                 },
-                max_output: 8192,
+                max_tokens: 64000,
+            },
+            {
+                id: 'claude-3-7-sonnet-20250219',
+                aliases: ['claude-3-7-sonnet-latest'],
+                succeeded_by: 'claude-sonnet-4-20250514',
+                context: 200000,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 300,
+                    output: 1500,
+                },
+                max_tokens: 8192,
             },
             {
                 id: 'claude-3-5-sonnet-20241022',
@@ -256,8 +274,8 @@ class ClaudeService extends BaseService {
                     output: 1500,
                 },
                 qualitative_speed: 'fast',
-                max_output: 8192,
                 training_cutoff: '2024-04',
+                max_tokens: 8192,
             },
             {
                 id: 'claude-3-5-sonnet-20240620',
@@ -269,6 +287,7 @@ class ClaudeService extends BaseService {
                     input: 300,
                     output: 1500,
                 },
+                max_tokens: 8192,
             },
             {
                 id: 'claude-3-haiku-20240307',
@@ -281,6 +300,7 @@ class ClaudeService extends BaseService {
                     output: 125,
                 },
                 qualitative_speed: 'fastest',
+                max_tokens: 4096,
             },
         ];
     }

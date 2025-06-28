@@ -21,7 +21,7 @@ import UIWindow from './UIWindow.js'
 async function UIWindowShare(items, recipient){
     return new Promise(async (resolve) => {
         let h = '';
-        h += `<div style="padding: 30px 40px 20px; border-bottom: 1px solid #ced7e1;">`;
+        h += `<div class="sharing-form">`;
             h += `<div class="generic-close-window-button" style="margin: 5px;"> &times; </div>`;
 
             //------------------------------------------------
@@ -62,7 +62,7 @@ async function UIWindowShare(items, recipient){
             // ------------------------------------------------
             // Item Name
             // ------------------------------------------------
-            h += `<h2 style="font-size: 17px; margin-top:0; text-align:center; margin-bottom: 40px; font-weight: 400; color: #303d49;">`;
+            h += `<h2 class="sharing-item-name">`;
                 h += `Share <strong>${html_encode(items[0].name)}</strong>`;
                 if(items.length > 1)
                     h += ` and ${items.length - 1} other item${items.length > 2 ? 's' : ''}`;
@@ -95,7 +95,7 @@ async function UIWindowShare(items, recipient){
             // ------------------------------------------------
             // Already Shared With
             // ------------------------------------------------
-            h += `<p style="font-size: 14px; margin-bottom: 0px; color: #303d49; text-shadow: 1px 1px white;">${i18n('People with access')}</p>`;
+            h += `<p>${i18n('People with access')}</p>`;
             h += `<div class="share-recipients hide-scrollbar">`;
             h += `</div>`;
         h += `</div>`;

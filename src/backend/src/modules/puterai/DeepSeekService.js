@@ -19,19 +19,8 @@
 
 // METADATA // {"ai-commented":{"service":"claude"}}
 const BaseService = require("../../services/BaseService");
-const { whatis, nou } = require("../../util/langutil");
-const { PassThrough } = require("stream");
-const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const OpenAIUtil = require("./lib/OpenAIUtil");
-const { TeePromise } = require('@heyputer/putility').libs.promise;
 const dedent = require('dedent');
-
-const PUTER_PROMPT = `
-    You are running on an open-source platform called Puter,
-    as the DeepSeek implementation for a driver interface
-    called puter-chat-completion.
-`.replace('\n', ' ').trim();
-
 
 /**
 * DeepSeekService class - Provides integration with X.AI's API for chat completions
@@ -50,10 +39,6 @@ class DeepSeekService extends BaseService {
     * Gets the system prompt used for AI interactions
     * @returns {string} The base system prompt that identifies the AI as running on Puter
     */
-    get_system_prompt () {
-        return PUTER_PROMPT;
-    }
-
     adapt_model (model) {
         return model;
     }
@@ -160,11 +145,6 @@ class DeepSeekService extends BaseService {
                     }
                 }
 
-                messages.unshift({
-                    role: 'system',
-                    content: PUTER_PROMPT,
-                })
-
                 const completion = await this.openai.chat.completions.create({
                     messages,
                     model: model ?? this.get_default_model(),
@@ -206,6 +186,7 @@ class DeepSeekService extends BaseService {
                     input: 14,
                     output: 28,
                 },
+                max_tokens: 8000,
             },
             {
                 id: 'deepseek-reasoner',
@@ -217,6 +198,7 @@ class DeepSeekService extends BaseService {
                     input: 55,
                     output: 219,
                 },
+                max_tokens: 64000,
             }
         ];
     }

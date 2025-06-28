@@ -4,7 +4,6 @@
  * so it made sense to defy them here as well.
  */
 
-const crypto = require('crypto');
 module.exports = class GeminiSquareHole {
     static process_input_messages = async (messages) => {
         messages = messages.slice();
@@ -19,7 +18,6 @@ module.exports = class GeminiSquareHole {
 
             for ( let i=0 ; i < msg.parts.length ; i++ ) {
                 const part = msg.parts[i];
-                console.log('what the part is', part);
                 if ( part.type === 'tool_use' ) {
                     msg.parts[i] = {
                         functionCall: {

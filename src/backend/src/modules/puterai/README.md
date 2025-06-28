@@ -127,13 +127,6 @@ Analyzes a document using AWS Textract to extract text and layout information
 
 - **file_facade:** Interface to access the document file
 
-### ClaudeEnoughService
-
-ClaudeEnoughService - A service class that implements a Claude-like AI interface
-Extends XAIService to provide Claude-compatible responses while using alternative AI models.
-Includes custom system prompts and model adaptation to simulate Claude's behavior
-in the Puter platform's chat completion interface.
-
 #### Methods
 
 ##### `get_system_prompt`

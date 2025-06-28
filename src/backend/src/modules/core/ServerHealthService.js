@@ -100,16 +100,18 @@ class ServerHealthService extends BaseService {
                 '/proc/meminfo', 'utf8'
             );
             const meminfo = this.linuxutil.parse_meminfo(meminfo_text);
-            const alarm_fields = {
+            const log_fields = {
                 mem_free: meminfo.MemFree,
                 mem_available: meminfo.MemAvailable,
                 mem_total: meminfo.MemTotal,
             };
+            
+            this.log.info('memory', log_fields);
 
-            Object.assign(this.stats_, alarm_fields);
+            Object.assign(this.stats_, log_fields);
 
             if ( meminfo.MemAvailable < min_available_KiB ) {
-                svc_alarm.create('low-available-memory', 'Low available memory', alarm_fields);
+                svc_alarm.create('low-available-memory', 'Low available memory', log_fields);
             }
         });
     }
@@ -170,6 +172,8 @@ class ServerHealthService extends BaseService {
                         { error: err }
                     );
                     check_failures.push({ name });
+                    
+                    this.log.error(`Error for healthcheck fail on ${name}: ` + err.stack);
 
                     // Run the on_fail handlers
                     for ( const fn of chainable.on_fail_ ) {

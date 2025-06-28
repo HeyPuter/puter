@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require("@heyputer/putility");
-const { instance_ } = require("../../monitor/PerformanceMonitor");
 const { WeakConstructorFeature } = require("../../traits/WeakConstructorFeature");
 const { Property } = require("./Property");
 const { Entity } = require("../entitystorage/Entity");

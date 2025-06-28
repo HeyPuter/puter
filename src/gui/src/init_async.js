@@ -22,7 +22,6 @@ logger.info('start -> async initialization');
 import './util/TeePromise.js';
 import './util/Component.js';
 import './util/Collector.js';
-import './UI/Components/Spinner.js';
 import './UI/UIElement.js';
 import './UI/UIWindowSaveAccount.js';
 import './UI/UIWindowEmailConfirmationRequired.js';

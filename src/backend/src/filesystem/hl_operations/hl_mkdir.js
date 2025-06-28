@@ -26,7 +26,6 @@ const StringParam = require('../../api/filesystem/StringParam');
 const FlagParam = require("../../api/filesystem/FlagParam");
 const UserParam = require('../../api/filesystem/UserParam');
 const FSNodeContext = require('../FSNodeContext');
-const { ContextAwareFeature } = require('../../traits/ContextAwareFeature');
 const { OtelFeature } = require('../../traits/OtelFeature');
 const { HLFilesystemOperation } = require('./definitions');
 const { is_valid_path } = require('../validation');

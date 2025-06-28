@@ -25,6 +25,7 @@ const BaseService = require("../BaseService");
 const { PermissionUtil } = require("../auth/PermissionService");
 const { Invoker } = require("../../../../putility/src/libs/invoker");
 const { get_user } = require("../../helpers");
+const { whatis } = require('../../util/langutil');
 
 const strutil = require('@heyputer/putility').libs.string;
 
@@ -34,10 +35,50 @@ const strutil = require('@heyputer/putility').libs.string;
  * It provides methods for registering drivers, calling driver methods, and handling driver errors.
  */
 class DriverService extends BaseService {
+    static CONCERN = 'drivers';
+
     static MODULES = {
         types: require('./types'),
     }
 
+    // 'IMPLEMENTS' here makes DriverService itself a driver
+    static IMPLEMENTS = {
+        driver: {
+            async usage () {
+                const actor = Context.get('actor');
+
+                const usages = {
+                    user: {}, // map[str(iface:method)]{date,count,max}
+                    apps: {}, // []{app,map[str(iface:method)]{date,count,max}}
+                    app_objects: {},
+                    usages: [],
+                };
+                
+                const event = {
+                    actor,
+                    usages: [],
+                };
+                const svc_event = this.services.get('event');
+                await svc_event.emit('usages.query', event);
+                usages.usages = event.usages;
+
+
+                for ( const k in usages.apps ) {
+                    usages.apps[k] = Object.values(usages.apps[k]);
+                }
+
+                return {
+                    // Usage endpoint reports these, but the driver doesn't need to
+                    // user: Object.values(usages.user),
+                    // apps: usages.apps,
+                    // app_objects: usages.app_objects,
+                    
+                    // This is the main "usages" object
+                    usages: usages.usages,
+                };
+            }
+        }
+    }
 
     _construct () {
         this.drivers = {};
@@ -112,12 +153,6 @@ class DriverService extends BaseService {
         const col_drivers = svc_registry.get('drivers');
         const col_types = svc_registry.get('types');
         {
-            const default_interfaces = require('./interfaces');
-            for ( const k in default_interfaces ) {
-                col_interfaces.set(k, default_interfaces[k]);
-            }
-        }
-        {
             const types = this.modules.types;
             for ( const k in types ) {
                 col_types.set(k, types[k]);
@@ -127,6 +162,26 @@ class DriverService extends BaseService {
             { col_interfaces });
         await services.emit('driver.register.drivers',
             { col_drivers });
+    }
+    
+    // This is a bit meta: we register the "driver" driver interface.
+    // This allows DriverService to be a driver called "driver".
+    // The driver drivers allows checking metered usage for drivers,
+    // and in the future may provide other driver-related functions.
+    async ['__on_driver.register.interfaces'] () {
+        const svc_registry = this.services.get('registry');
+        const col_interfaces = svc_registry.get('interfaces');
+        
+        col_interfaces.set('driver', {
+            description: 'provides functions for managing Puter drivers',
+            methods: {
+                usage: {
+                    description: 'get usage information for drivers',
+                    parameters: {},
+                    result: { type: 'json' },
+                }
+            }
+        });
     }
     
     register_driver (interface_name, implementation) {
@@ -274,9 +329,21 @@ class DriverService extends BaseService {
             skip_usage = true;
         }
         
-        return await Context.sub({
+        const svc_event = this.services.get('event');
+        const event = {};
+        event.call_details = {
+            service: driver,
+            iface, method, args,
+            skip_usage,
+        };
+        event.context = Context.sub({
             client_driver_call,
-        }).arun(async () => {
+            call_details: event.call_details,
+        });
+        
+        svc_event.emit('driver.create-call-context', event);
+        
+        return event.context.arun(async () => {
             const result = await this.call_new_({
                 actor,
                 service,
@@ -425,42 +492,6 @@ class DriverService extends BaseService {
                     },
                 },
                 {
-                    name: 'enforce monthly usage limit',
-                    on_call: async args => {
-                        if ( skip_usage ) return args;
-
-                        // Typo-Tolerance
-                        if ( effective_policy?.['monthy-limit'] ) {
-                            effective_policy['monthly-limit'] = effective_policy['monthy-limit'];
-                        }
-
-                        if ( ! effective_policy?.['monthly-limit'] ) return args;
-                        const svc_monthlyUsage = services.get('monthly-usage');
-                        const count = await svc_monthlyUsage.check_2(
-                            actor, method_key, 0
-                        );
-                        if ( count >= effective_policy['monthly-limit'] ) {
-                            throw APIError.create('monthly_limit_exceeded', null, {
-                                method_key,
-                                limit: effective_policy['monthly-limit'],
-                            });
-                        }
-                        return args;
-                    },
-                    on_return: async result => {
-                        if ( skip_usage ) return result;
-
-                        const svc_monthlyUsage = services.get('monthly-usage');
-                        const extra = {
-                            'driver.interface': iface,
-                            'driver.implementation': service_name,
-                            'driver.method': method,
-                        };
-                        await svc_monthlyUsage.increment(actor, method_key, extra);
-                        return result;
-                    },
-                },
-                {
                     name: 'add metadata',
                     on_return: async result => {
                         const service_meta = {};
@@ -545,9 +576,14 @@ class DriverService extends BaseService {
         if ( ! method ) {
             throw svc_apiError.create('method_not_found', { interface_name, method_name });
         }
+
+        if ( method.hasOwnProperty('default_parameter') && whatis(args) !== 'object' ) {
+            args = { [method.default_parameter]: args };
+        }
+
         
         for ( const [arg_name, arg_descriptor] of Object.entries(method.parameters) ) {
-            const arg_value = args[arg_name];
+            const arg_value = arg_name === '*' ? args : args[arg_name];
             const arg_behaviour = c_types.get(arg_descriptor.type);
 
             // TODO: eventually put this in arg behaviour base class.
@@ -574,6 +610,13 @@ class DriverService extends BaseService {
                     message: e.message,
                 });
             }
+        }
+        
+        if ( typeof processed_args['*'] ==='object' ) {
+            for ( const k in processed_args['*'] ) {
+                processed_args[k] = processed_args['*'][k];
+            }
+            delete processed_args['*'];
         }
 
         return processed_args;

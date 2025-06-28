@@ -19,6 +19,16 @@ class ThreadService extends BaseService {
         this.db = this.services.get('database').get(DB_WRITE, 'service:thread');
 
         this.thread_body_max_size = 4 * 1024; // 4KiB
+        
+        const svc_apiError = this.services.get('api-error');
+        svc_apiError.register({
+            'thread_not_found': {
+                status: 400,
+                message: ({ uid }) => {
+                    return `Thread with UID ${uid} was not found`;
+                }
+            },
+        });
 
         const svc_permission = this.services.get('permission');
         svc_permission.register_implicator(PermissionImplicator.create({
@@ -119,14 +129,32 @@ class ThreadService extends BaseService {
             }
         }));
 
+        await this.init_event_listeners_();
         await this.init_socket_subs_();
+    }
+
+    async init_event_listeners_() {
+        const svc_event = this.services.get('event');
+        svc_event.on('outer.thread.notify-subscribers', async (_, {
+            uid, action, data,
+        }) => {
+
+            if ( ! this.socket_subs_[uid] ) return;
+
+            const svc_socketio = this.services.get('socketio');
+            await svc_socketio.send(
+                Array.from(this.socket_subs_[uid]).map(socket => ({ socket })),
+                'thread.' + action,
+                { ...data, subscription: uid },
+            );
+        })
     }
 
     async init_socket_subs_ () {
         this.socket_subs_ = {};
 
         const svc_event = this.services.get('event');
-        svc_event.on('web.socket.user-connected', async (_, { socket }) => {
+        svc_event.on('web.socket.connected', async (_, { socket }) => {
             socket.on('disconnect', () => {
                 for ( const uid in this.socket_subs_ ) {
                     this.socket_subs_[uid].delete(socket.id);
@@ -150,14 +178,8 @@ class ThreadService extends BaseService {
     }
 
     async notify_subscribers (uid, action, data) {
-        if ( ! this.socket_subs_[uid] ) return;
-
-        const svc_socketio = this.services.get('socketio');
-        await svc_socketio.send(
-            Array.from(this.socket_subs_[uid]).map(socket => ({ socket })),
-            'thread.' + action,
-            data,
-        );
+        const svc_event = this.services.get('event');
+        svc_event.emit('outer.thread.notify-subscribers', { uid, action, data });
     }
 
     async ['__on_install.routes'] (_, { app }) {
@@ -171,6 +193,8 @@ class ThreadService extends BaseService {
     }
 
     install_threads_endpoints_ ({ router }) {
+        const svc_apiError = this.services.get('api-error');
+
         Endpoint({
             route: '/create',
             methods: ['POST'],
@@ -211,7 +235,7 @@ class ThreadService extends BaseService {
                     {
                         const parent_thread = await this.get_thread({ uid: parent_uid });
                         if ( !parent_thread ) {
-                            throw APIError.create('thread_not_found', null, {
+                            throw svc_apiError.create('thread_not_found', {
                                 uid: parent_uid,
                             });
                         }
@@ -299,7 +323,7 @@ class ThreadService extends BaseService {
                 // Get existing thread
                 const thread = await this.get_thread({ uid });
                 if ( !thread ) {
-                    throw APIError.create('thread_not_found', null, {
+                    throw svc_apiError.create('thread_not_found', {
                         uid,
                     });
                 }
@@ -360,10 +384,11 @@ class ThreadService extends BaseService {
                 // Get existing thread
                 const thread = await this.get_thread({ uid });
                 if ( !thread ) {
-                    throw APIError.create('thread_not_found', null, {
+                    throw svc_apiError.create('thread_not_found', {
                         uid,
                     });
                 }
+                const parent_uid = thread.parent_uid;
 
                 const actor = Context.get('actor');
 
@@ -389,8 +414,13 @@ class ThreadService extends BaseService {
                 res.json({});
 
                 // Notify subscribers
-                await this.notify_subscribers(parent_uid, 'delete', {
+                await this.notify_subscribers(uid, 'delete', {
                     uid,
+                });
+
+                // Notify parent subscribers
+                await this.notify_subscribers(parent_uid, 'child-delete', {
+                    parent_uid,
                 });
             }
         }).attach(router);
@@ -521,7 +551,8 @@ class ThreadService extends BaseService {
         );
 
         if ( !thread ) {
-            throw APIError.create('thread_not_found', null, {
+            const svc_apiError = this.services.get('api-error');
+            throw svc_apiError.create('thread_not_found', {
                 uid,
             });
         }

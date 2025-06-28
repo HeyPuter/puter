@@ -49,13 +49,25 @@ router.post('/confirm-email', auth, express.json(), async (req, res, next)=>{
     kv.expire(`confirm-email|${req.ip}|${req.body.email ?? req.body.username}`, 60 * 10, 'NX')
 
     // Scenario: email was confirmed on another account already
-    const rows = await db.read(
-        'SELECT `id` FROM `user` WHERE `email` = ? AND `email_confirmed` = 1',
-        [req.body.email],
-    );
-    if ( rows.length > 0 ) {
-        APIError.create('email_already_in_use').write(res);
-        return;
+    {
+        const svc_cleanEmail = req.services.get('clean-email');
+        const clean_email = svc_cleanEmail.clean(req.body.email);
+        
+        if ( ! await svc_cleanEmail.validate(clean_email) ) {
+            APIError.create('field_invalid', null, {
+                key: 'email',
+                expected: 'valid email',
+                got: req.body.email,
+            })
+        }
+        const rows = await db.read(
+            `SELECT EXISTS(
+                SELECT 1 FROM user WHERE (email=? OR clean_email=?) AND email_confirmed=1 AND password IS NOT NULL
+            ) AS email_exists`, [req.body.email, clean_email]);
+        if ( rows[0].email_exists ) {
+            APIError.create('email_already_in_use').write(res);
+            return;
+        }
     }
 
     // If other users have the same unconfirmed email, revoke it

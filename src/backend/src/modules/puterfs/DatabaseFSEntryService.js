@@ -192,6 +192,8 @@ class DatabaseFSEntryDelete extends AbstractDatabaseFSEntryOperation {
 
 
 class DatabaseFSEntryService extends BaseService {
+    static CONCERN = 'filesystem';
+
     static STATUS_READY = {};
     static STATUS_RUNNING_JOB = {};
 

@@ -329,7 +329,7 @@ class ShareService extends BaseService {
                     return res.status(429).send('Too many requests.');
                 }
 
-                const actor = Actor.adapt(req.user);
+                const actor = req.actor;
                 if ( ! (actor.type instanceof UserActorType) ) {
                     throw APIError.create('forbidden');
                 }

@@ -21,7 +21,8 @@ const {sign_file, get_app}  = require('../helpers');
 const eggspress = require('../api/eggspress.js');
 const APIError = require('../api/APIError.js');
 const { Context } = require('../util/context.js');
-const { UserActorType } = require('../services/auth/Actor.js');
+const { UserActorType, AppUnderUserActorType } = require('../services/auth/Actor.js');
+const { NodePathSelector } = require('../filesystem/node/selectors.js');
 
 // -----------------------------------------------------------------------//
 // POST /sign
@@ -34,9 +35,7 @@ module.exports = eggspress('/sign', {
     allowedMethods: ['POST'],
 }, async (req, res, next)=>{
     const actor = Context.get('actor');
-    if ( ! (actor.type instanceof UserActorType) ) {
-        throw APIError.create('forbidden');
-    }
+    const svc_fs = Context.get('services').get('filesystem');
 
     if(!req.body.items) {
         throw APIError.create('field_missing', null, { key: 'items' });
@@ -45,7 +44,56 @@ module.exports = eggspress('/sign', {
     let items = Array.isArray(req.body.items) ? req.body.items : [res];
     let signatures = [];
 
-    const svc_fs = Context.get('services').get('filesystem');
+    // Static request validation happens first
+    for ( const item of items ) {
+        if ( ! item ) {
+            throw APIError.create('field_invalid', null, {
+                key: `items`,
+                expected: 'each item to have: (uid OR path) AND action'
+            }).serialize()
+        }
+
+        if ( typeof item !== 'object' || Array.isArray(item) ) {
+            throw APIError.create('field_invalid', null, {
+                key: `items`,
+                expected: 'each item to be an object'
+            }).serialize()
+        }
+
+        // validation
+        if((!item.uid && !item.path)|| !item.action){
+            throw APIError.create('field_invalid', null, {
+                key: `items`,
+                expected: 'each item to have: (uid OR path) AND action'
+            }).serialize()
+        }
+
+        if ( typeof item.uid !== 'string' && typeof item.path !== 'string' ) {
+            throw APIError.create('field_invalid', null, {
+                key: `items`,
+                expected: 'each item to have only string values for uid and path'
+            }).serialize()
+        }
+    }
+    
+    // Usually, only users can sign
+    if ( ! (actor.type instanceof UserActorType) ) {
+        
+        if ( ! (actor.type instanceof AppUnderUserActorType) ) {
+            throw APIError.create('forbidden');
+        }
+        
+        // But, apps can sign files in their own AppData directory
+        for ( const item of req.body.items ) {
+            const node = await svc_fs.node(item);
+            const appdata_path = `/${actor.type.user.username}/AppData/${actor.type.app.uid}`
+            const appdata_node = await svc_fs.node(new NodePathSelector(appdata_path));
+            if ( ! appdata_node.is_above(node) ) {
+                throw APIError.create('forbidden');
+            }
+        }
+    }
+
 
     const result = {
         signatures
@@ -71,37 +119,7 @@ module.exports = eggspress('/sign', {
         result.token = token;
     }
 
-    for (let index = 0; index < items.length; index++) {
-        let item = items[index];
-        if ( ! item ) {
-            throw APIError.create('field_invalid', null, {
-                key: 'items',
-                expected: 'each item to have: (uid OR path) AND action'
-            }).serialize()
-        }
-
-        if ( typeof item !== 'object' || Array.isArray(item) ) {
-            throw APIError.create('field_invalid', null, {
-                key: 'items',
-                expected: 'each item to be an object'
-            }).serialize()
-        }
-
-        // validation
-        if((!item.uid && !item.path)|| !item.action){
-            throw APIError.create('field_invalid', null, {
-                key: 'items',
-                expected: 'each item to have: (uid OR path) AND action'
-            }).serialize()
-        }
-
-        if ( typeof item.uid !== 'string' && typeof item.path !== 'string' ) {
-            throw APIError.create('field_invalid', null, {
-                key: 'items',
-                expected: 'each item to have only string values for uid and path'
-            }).serialize()
-        }
-
+    for ( const item of items ) {
         const node = await svc_fs.node(item);
 
         if ( ! await node.exists() ) {

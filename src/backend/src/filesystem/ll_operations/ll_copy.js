@@ -16,13 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const config = require('../../config');
-const { Context } = require('../../util/context');
-const { ParallelTasks } = require('../../util/otelutil');
-const FSNodeContext = require('../FSNodeContext');
-const { NodeUIDSelector } = require('../node/selectors');
-const { RESOURCE_STATUS_PENDING_CREATE } = require('../../modules/puterfs/ResourceService');
-const { UploadProgressTracker } = require('../storage/UploadProgressTracker');
 const { LLFilesystemOperation } = require('./definitions');
 const fsCapabilities = require('../definitions/capabilities');
 

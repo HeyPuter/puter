@@ -19,12 +19,12 @@
 const APIError = require("../../api/APIError");
 const { MODE_WRITE } = require("../../services/fs/FSLockService");
 const { Context } = require("../../util/context");
-const { TYPE_DIRECTORY } = require("../FSNodeContext");
 const { NodeUIDSelector, NodeChildSelector } = require("../node/selectors");
 const { RESOURCE_STATUS_PENDING_CREATE } = require("../../modules/puterfs/ResourceService");
 const { LLFilesystemOperation } = require("./definitions");
 
 class LLMkdir extends LLFilesystemOperation {
+    static CONCERN = 'filesystem';
     static MODULES = {
         _path: require('path'),
         uuidv4: require('uuid').v4,

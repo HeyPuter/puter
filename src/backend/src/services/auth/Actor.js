@@ -91,6 +91,15 @@ class Actor extends AdvancedBase {
     get uid () {
         return this.type.uid;
     }
+    
+    toLogFields () {
+        return {
+            uid: this.type.uid,
+            ...(this.type.user ? {
+                username: this.type.user.username,
+            } : {})
+        }
+    }
 
     /**
     * Generates a cryptographically-secure deterministic UUID

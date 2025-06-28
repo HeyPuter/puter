@@ -235,3 +235,9 @@ to verify permisison is granted.
 ```json
 "Hello World, tell me about updog!"
 ```
+
+## Part 8: Next Steps
+
+- [Access Configuration](./services/config.md)
+- [Output Logs](./services/log.md)
+- [Add HTTP Routes](./services/http.md)

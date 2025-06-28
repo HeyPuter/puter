@@ -17,12 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require("../../api/APIError");
-const { chkperm } = require("../../helpers");
-const { TYPE_SYMLINK } = require("../FSNodeContext");
 const { LLRead } = require("../ll_operations/ll_read");
 const { HLFilesystemOperation } = require("./definitions");
 
 class HLRead extends HLFilesystemOperation {
+    static CONCERN = 'filesystem';
     static MODULES = {
         'stream': require('stream'),
     }

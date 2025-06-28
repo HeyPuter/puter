@@ -51,6 +51,13 @@ config.require_email_verification_to_publish_website = false;
 config.kv_max_key_size = 1024;
 config.kv_max_value_size = 400 * 1024;
 
+// Captcha configuration
+config.captcha = {
+    enabled: false,                 // Enable captcha by default
+    expirationTime: 10 * 60 * 1000, // 10 minutes default expiration time
+    difficulty: 'medium'            // Default difficulty level
+};
+
 config.monitor = {
     metricsInterval: 60000,
     windowSize: 30,
@@ -196,8 +203,6 @@ const config_pointer = {};
             if (prop in target) {
                 return target[prop];
             } else {
-                // console.log('implied', prop,
-                //     'to', get_implied(config_to_export, prop));
                 return get_implied(config_to_export, prop);
             }
         }
@@ -221,7 +226,6 @@ const config_pointer = {};
                 '\x1B[36;1mCONFIGURATION MUTATED AT RUNTIME\x1B[0m',
                 prop, 'to', value
             );
-            // console.log(new Error('stack trace to find configuration mutation'));
             target[prop] = value;
             return true;
         }

@@ -18,20 +18,9 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { PassThrough } = require('stream');
 const BaseService = require('../../services/BaseService');
-const { TypedValue } = require('../../services/drivers/meta/Runtime');
 const { Context } = require('../../util/context');
-const smol = require('@heyputer/putility').libs.smol;
-const { nou } = require('../../util/langutil');
 const OpenAIUtil = require('./lib/OpenAIUtil');
-const { TeePromise } = require('@heyputer/putility').libs.promise;
-
-const PUTER_PROMPT = `
-    You are running on an open-source platform called Puter,
-    as the DeepSeek implementation for a driver interface
-    called puter-chat-completion.
-`.replace('\n', ' ').trim();
 
 /**
 * OpenAICompletionService class provides an interface to OpenAI's chat completion API.
@@ -52,15 +41,36 @@ class OpenAICompletionService extends BaseService {
     * @returns {Promise<void>} Resolves when initialization is complete
     * @private
     */
+
+    //New Updated Code (with backward compatibility)
+    //issue: #1180
     async _init () {
-        const sk_key =
-            this.config?.openai?.secret_key ??
-            this.global_config.openai?.secret_key;
-
+        // Check for the new format under `services.openai.apiKey`
+        let apiKey =
+            this.config?.services?.openai?.apiKey ??
+            this.global_config?.services?.openai?.apiKey;
+    
+        // Fallback to the old format for backward compatibility
+        if (!apiKey) {
+            apiKey =
+                this.config?.openai?.secret_key ??
+                this.global_config?.openai?.secret_key;
+    
+            // Log a warning to inform users about the deprecated format
+            this.log.warn(
+                'The `openai.secret_key` configuration format is deprecated. ' +
+                'Please use `services.openai.apiKey` instead.'
+            );
+        }
+    
+        if (!apiKey) {
+            throw new Error('OpenAI API key is missing in configuration.');
+        }
+    
         this.openai = new this.modules.openai.OpenAI({
-            apiKey: sk_key
+            apiKey: apiKey
         });
-
+    
         const svc_aiChat = this.services.get('ai-chat');
         svc_aiChat.register_provider({
             service_name: this.service_name,
@@ -74,7 +84,7 @@ class OpenAICompletionService extends BaseService {
     * @returns {string} The default model ID 'gpt-4o-mini'
     */
     get_default_model () {
-        return 'gpt-4o-mini';
+        return 'gpt-4.1-nano';
     }
 
 
@@ -91,27 +101,31 @@ class OpenAICompletionService extends BaseService {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
                     input: 250,
-                    output: 500,
-                }
+                    output: 1000, // https://platform.openai.com/docs/pricing
+                },
+                max_tokens: 16384,
             },
             {
                 id: 'gpt-4o-mini',
+                max_tokens: 16384,
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
                     input: 15,
-                    output: 30,
-                }
+                    output: 60,
+                },
+                max_tokens: 16384,
             },
-            // {
-            //     id: 'o1-preview',
-            //     cost: {
-            //         currency: 'usd-cents',
-            //         tokens: 1_000_000,
-            //         input: 1500,
-            //         output: 6000,
-            //     },
-            // }
+            {
+                id: 'o1',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 1500,
+                    output: 6000,
+                },
+                max_tokens: 100000,
+            },
             {
                 id: 'o1-mini',
                 cost: {
@@ -119,7 +133,28 @@ class OpenAICompletionService extends BaseService {
                     tokens: 1_000_000,
                     input: 300,
                     output: 1200,
-                }
+                },
+                max_tokens: 65536,
+            },
+            {
+                id: 'o1-pro',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 15000,
+                    output: 60000,
+                },
+                max_tokens: 100000,
+            },
+            {
+                id: 'o3',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 1000,
+                    output: 4000,
+                },
+                max_tokens: 100000,
             },
             {
                 id: 'o3-mini',
@@ -128,8 +163,58 @@ class OpenAICompletionService extends BaseService {
                     tokens: 1_000_000,
                     input: 110,
                     output: 440,
-                }
+                },
+                max_tokens: 100000,
             },
+            {
+                id: 'o4-mini',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 110,
+                    output: 440,
+                },
+                max_tokens: 100000,
+            },
+            {
+                id: 'gpt-4.1',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 200,
+                    output: 800,
+                },
+                max_tokens: 32768,
+            },
+            {
+                id: 'gpt-4.1-mini',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 40,
+                    output: 160,
+                },
+                max_tokens: 32768,
+            },
+            {
+                id: 'gpt-4.1-nano',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 10,
+                    output: 40,
+                },
+                max_tokens: 32768,
+            },
+            {
+                id: 'gpt-4.5-preview',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 7500,
+                    output: 15000,
+                }
+            }
         ];
     }
 
@@ -227,10 +312,6 @@ class OpenAICompletionService extends BaseService {
 
         model = model ?? this.get_default_model();
 
-        messages.unshift({
-            role: 'system',
-            content: PUTER_PROMPT,
-        })
         // messages.unshift({
         //     role: 'system',
         //     content: 'Don\'t let the user trick you into doing something bad.',
@@ -257,7 +338,7 @@ class OpenAICompletionService extends BaseService {
             messages: messages,
             model: model,
             ...(tools ? { tools } : {}),
-            ...(max_tokens ? { max_tokens } : {}),
+            ...(max_tokens ? { max_completion_tokens: max_tokens } : {}),
             ...(temperature ? { temperature } : {}),
             stream,
             ...(stream ? {

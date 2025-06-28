@@ -382,6 +382,7 @@ const pt = {
         "billing.subscription_cancelled_description": "Ainda terá acesso à sua subscrição até ao final deste período de faturação.", // In English: "You will still have access to your subscription until the end of this billing period."
         "billing.offering.free": "Grátis", // In English: "Free"
         "billing.offering.pro": "Profissional", // In English: "Professional"
+        "billing.offering.professional": "Profissional", // In English: "Professional"
         "billing.offering.business": "Empresarial", // In English: "Business"
         "billing.cloud_storage": "Armazenamento na Nuvem", // In English: "Cloud Storage"
         "billing.ai_access": "Acesso à IA", // In English: "AI Access"

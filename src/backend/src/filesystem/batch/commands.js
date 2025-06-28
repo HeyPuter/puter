@@ -23,9 +23,6 @@ const { Context } = require("../../util/context");
 const { HLWrite } = require("../hl_operations/hl_write");
 const { get_app } = require("../../helpers");
 const { OperationFrame } = require("../../services/OperationTraceService");
-const { AppUnderUserActorType } = require("../../services/auth/Actor");
-const FSNodeParam = require("../../api/filesystem/FSNodeParam");
-const { TYPE_DIRECTORY } = require("../FSNodeContext");
 const { HLMkShortcut } = require("../hl_operations/hl_mkshortcut");
 const { HLMkLink } = require("../hl_operations/hl_mklink");
 const { HLRemove } = require("../hl_operations/hl_remove");
@@ -213,6 +210,7 @@ class ShortcutCommand extends BatchCommand {
             name: parameters.name,
             actor: executor.actor,
             target: shortcut_to,
+            dedupe_name: parameters.dedupe_name,
 
             // TODO: handle these with event service instead
             socket_id: parameters.socket_id,

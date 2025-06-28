@@ -19,8 +19,6 @@
 const { get_user } = require("../../helpers");
 const { PermissionUtil } = require("../../services/auth/PermissionService");
 const { DB_WRITE } = require("../../services/database/consts");
-const { Context } = require("../../util/context");
-const { TYPE_DIRECTORY } = require("../FSNodeContext");
 const { NodeUIDSelector } = require("../node/selectors");
 const { LLFilesystemOperation } = require("./definitions");
 const { LLReadDir } = require("./ll_readdir");

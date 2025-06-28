@@ -38,6 +38,8 @@ const strutil = require('@heyputer/putility').libs.string;
 * It also validates the host header and IP addresses to prevent security vulnerabilities.
 */
 class WebServerService extends BaseService {
+    static CONCERN = 'web';
+
     static MODULES = {
         https: require('https'),
         http: require('http'),
@@ -49,6 +51,14 @@ class WebServerService extends BaseService {
         ['on-finished']: require('on-finished'),
         morgan: require('morgan'),
     };
+    
+    _construct () {
+        this.undefined_origin_allowed = [];
+    }
+    
+    allow_undefined_origin (route) {
+        this.undefined_origin_allowed.push(route);
+    }
 
 
     /**
@@ -62,7 +72,9 @@ class WebServerService extends BaseService {
     async ['__on_boot.consolidation'] () {
         const app = this.app;
         const services = this.services;
+        await services.emit('install.middlewares.early', { app });
         await services.emit('install.middlewares.context-aware', { app });
+        this.install_post_middlewares_({ app });
         await services.emit('install.routes', {
             app,
             router_webhooks: this.router_webhooks,
@@ -70,6 +82,22 @@ class WebServerService extends BaseService {
         await services.emit('install.routes-gui', { app });
         
         this.log.noticeme('web server setup done');
+    }
+    
+    install_post_middlewares_ ({ app }) {
+        app.use(async (req, res, next) => {
+            const svc_event = this.services.get('event');
+
+            const event = {
+                req, res,
+                end_: false,
+                end () {
+                    this.end_ = true;
+                }
+            };
+            await svc_event.emit('request.will-be-handled', event);
+            if ( ! event.end_ ) next();
+        });
     }
 
 
@@ -259,8 +287,12 @@ class WebServerService extends BaseService {
             socket.on('trash.is_empty', (msg) => {
                 socket.broadcast.to(socket.user.id).emit('trash.is_empty', msg);
             });
+            const svc_event = this.services.get('event');
+            svc_event.emit('web.socket.connected', {
+                socket,
+                user: socket.user
+            });
             socket.on('puter_is_actually_open', async (msg) => {
-                const svc_event = this.services.get('event');
                 await context.sub({
                     actor: socket.actor,
                 }).arun(async () => {
@@ -354,8 +386,15 @@ class WebServerService extends BaseService {
                     fields.status, fields.responseTime,
                 ].join(' ');
 
-                const log = this.services.get('log-service').create('morgan');
-                log.info(message, fields);
+                const log = this.services.get('log-service').create('morgan', {
+                    concern: 'web'
+                });
+                try {
+                    log.info(message, fields);
+                } catch (e) {
+                    console.log('failed to log this message properly:', message, fields);
+                    console.error(e);
+                }
             }
             };
 
@@ -473,10 +512,17 @@ class WebServerService extends BaseService {
                 ip: req.headers?.['x-forwarded-for'] ||
                     req.connection?.remoteAddress,
             };
-            await svc_event.emit('ip.validate', event);
+
+            if ( ! this.config.disable_ip_validate_event ) {
+                await svc_event.emit('ip.validate', event);
+            }
 
             // rules that don't apply to notification endpoints
-            if ( req.path !== '/sns' && req.path !== '/sns/' ) {
+            const undefined_origin_allowed = this.undefined_origin_allowed.some(rule => {
+                if ( typeof rule === 'string' ) return rule === req.path;
+                return rule.test(req.path);
+            });
+            if ( ! undefined_origin_allowed ) {
                 // check if no origin
                 if ( req.method === 'POST' && req.headers.origin === undefined ) {
                     event.allow = false;
@@ -531,7 +577,6 @@ class WebServerService extends BaseService {
                     req.query[k] = undefined;
                 }
             }
-            console.log('\x1B[36;1m======= ok???', req.query);
             next();
         });
         

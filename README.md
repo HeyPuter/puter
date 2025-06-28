@@ -10,7 +10,7 @@
     ·
     <a href="https://puter.com/app/app-center">App Store</a>
     ·
-    <a href="https://docs.puter.com" target="_blank">SDK</a>
+    <a href="https://developer.puter.com" target="_blank">Developers</a>
     ·
     <a href="https://github.com/heyputer/puter-cli" target="_blank">CLI</a>
     ·
@@ -47,8 +47,10 @@ cd puter
 npm install
 npm start
 ```
+✨ This should launch Puter at 
+<font color="red"> http://puter.localhost:4100 (or the next available port). </font>
 
-This will launch Puter at http://puter.localhost:4100 (or the next available port).
+
 
 If this does not work, see [First Run Issues](./doc/self-hosters/first-run-issues.md) for
 troubleshooting steps.
@@ -60,6 +62,8 @@ troubleshooting steps.
 ```bash
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
 ```
+✨ This should launch Puter at 
+<font color="red"> http://puter.localhost:4100 (or the next available port). </font>
 
 <br/>
 
@@ -73,6 +77,8 @@ sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+✨ This should be available at 
+<font color="red"> http://puter.localhost:4100 (or the next available port). </font>
 
 <br/>
 
@@ -86,6 +92,8 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+✨ This should launch Puter at 
+<font color="red"> http://puter.localhost:4100 (or the next available port). </font>
 
 <br/>
 
@@ -106,7 +114,7 @@ Puter is available as a hosted service at [**puter.com**](https://puter.com).
 - **Operating Systems:** Linux, macOS, Windows
 - **RAM:** 2GB minimum (4GB recommended)
 - **Disk Space:** 1GB free space
-- **Node.js:** Version 16+ (Version 22+ recommended)
+- **Node.js:** Version 16+ (Version 23+ recommended)
 - **npm:** Latest stable version
 
 <br/>

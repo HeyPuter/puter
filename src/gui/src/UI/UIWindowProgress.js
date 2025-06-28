@@ -45,7 +45,7 @@ async function UIWindowProgress({
                 // spinner
                 h += `<svg style="overflow: visible;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#212121" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#212121" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`;
                 // Progress report
-                h += `<div style="font-size:15px; overflow: hidden; flex-grow: 1; text-overflow: ellipsis; white-space: nowrap;">
+                h += `<div class="progress-report">
                     <span class="progress-msg">${i18n('preparing')}</span>`;
                 if (show_progress) {
                     h += ` (<span class="progress-percent">0%</span>)`;
@@ -68,7 +68,7 @@ async function UIWindowProgress({
                 // Alert icon
                 h += `<img style="width:24px; height:24px;" src="${html_encode(window.icons['warning-sign.svg'])}" />`;
                 // Progress report
-                h += `<div style="font-size:15px; overflow: hidden; flex-grow: 1; text-overflow: ellipsis; white-space: nowrap;">
+                h += `<div class="progress-report">
                     <span class="progress-error-title"></span>`;
                 h += `</div>`;
             h += `</div>`;

@@ -20,7 +20,6 @@ const APIError = require("../../api/APIError");
 const { Sequence } = require("../../codex/Sequence");
 
 const { DB_WRITE } = require("../../services/database/consts");
-const { Context } = require("../../util/context");
 const { buffer_to_stream } = require("../../util/streamutil");
 const { TYPE_SYMLINK, TYPE_DIRECTORY } = require("../FSNodeContext");
 const { LLFilesystemOperation } = require("./definitions");
@@ -44,6 +43,7 @@ const dry_checks = [
 ];
 
 class LLRead extends LLFilesystemOperation {
+    static CONCERN = 'filesystem';
     static METHODS = {
         _run: new Sequence({
             async before_each (a, step) {
@@ -99,7 +99,7 @@ class LLRead extends LLFilesystemOperation {
 
                 const maybe_buffer = await svc_fileCache.try_get(fsNode, a.log);
                 if ( maybe_buffer ) {
-                    a.log.info('cache hit');
+                    a.log.cache(true, 'll_read');
                     const { has_range } = a.values();
                     if ( has_range ) {
                         return a.stop(
@@ -111,7 +111,7 @@ class LLRead extends LLFilesystemOperation {
                     );
                 }
 
-                a.log.info('cache miss');
+                a.log.cache(false, 'll_read');
             },
             async function create_S3_read_stream (a) {
                 const context = a.iget('context');

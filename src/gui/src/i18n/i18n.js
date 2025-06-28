@@ -27,15 +27,22 @@ const variables = {
     privacy: "https://puter.com/privacy"
 };
 
-function ReplacePlaceholders(str) {
-    str = str.replace(/{{link=(.*?)}}(.*?){{\/link}}/g, (_, key, text) => `<a href="${variables[key]}" target="_blank">${text}</a>`);
-    str = str.replace(/{{(.*?)}}/g, (_, key) => variables[key]);
+function ReplacePlaceholders(str, arg_variables = {}) {
+    const all_variables = { ...variables, ...arg_variables };
+    str = str.replace(/{{link=(.*?)}}(.*?){{\/link}}/g, (_, key, text) => `<a href="${all_variables[key]}" target="_blank">${text}</a>`);
+    str = str.replace(/{{(.*?)}}/g, (_, key) => all_variables[key]);
     return str;
 }
 
 window.i18n = function (key, replacements = [], encode_html = true) {
+    let arg_variables = {};
     if(Array.isArray(replacements) === false){
-        replacements = [replacements];
+        if ( typeof replacements === 'object' ) {
+            arg_variables = replacements;
+            replacements = [];
+        } else {
+            replacements = [replacements];
+        }
     }
 
     let language = translations[window.locale] ?? translations['en'];
@@ -44,7 +51,7 @@ window.i18n = function (key, replacements = [], encode_html = true) {
     if (!str) {
         str = key;
     }
-    str = ReplacePlaceholders(str);
+    str = ReplacePlaceholders(str, arg_variables);
     if ( encode_html ) {
         str = html_encode(str);
         // html_encode doesn't render line breaks

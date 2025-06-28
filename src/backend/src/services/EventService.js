@@ -32,8 +32,8 @@ class ScopedEventBus {
         this.scope = scope;
     }
 
-    emit (key, data) {
-        this.event_bus.emit(this.scope + '.' + key, data);
+    async emit (key, data) {
+        await this.event_bus.emit(this.scope + '.' + key, data);
     }
 
     on (key, callback) {
@@ -61,8 +61,12 @@ class EventService extends BaseService {
         this.listeners_ = {};
         this.global_listeners_ = [];
     }
+    
+    async ['__on_boot.ready'] () {
+        this.emit('ready', {}, {});
+    }
 
-    emit (key, data, meta) {
+    async emit (key, data, meta) {
         meta = meta ?? {};
         const parts = key.split('.');
         for ( let i = 0; i < parts.length; i++ ) {
@@ -76,7 +80,7 @@ class EventService extends BaseService {
             for ( const callback of listeners ) {
                 // IIAFE wrapper to catch errors without blocking
                 // event dispatch.
-                Context.arun(async () => {
+                await Context.arun(async () => {
                     try {
                         await callback(key, data, meta);
                     } catch (e) {
@@ -103,7 +107,7 @@ class EventService extends BaseService {
             * @param {Object} [meta={}] - Optional metadata related to the event.
             * @returns {void}
             */
-            Context.arun(async () => {
+            await Context.arun(async () => {
                 try {
                     await callback(key, data, meta);
                 } catch (e) {

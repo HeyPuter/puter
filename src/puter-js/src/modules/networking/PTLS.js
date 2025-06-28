@@ -2,14 +2,14 @@
  * This file uses https://github.com/MercuryWorkshop/rustls-wasm authored by GitHub:@r58Playz under the MIT License
  */
 
-import { PSocket } from "./PSocket";
+import { PSocket } from "./PSocket.js";
 
 let rustls = undefined;
 
 export class PTLSSocket extends PSocket {
     constructor(...args) {
         super(...args);
-        (async() => {
+        super.on("open", (async() => {
             if (!rustls) {
                 rustls = (await import( /* webpackIgnore: true */ "https://puter-net.b-cdn.net/rustls.js"))
                 await rustls.default("https://puter-net.b-cdn.net/rustls.wasm")
@@ -42,7 +42,7 @@ export class PTLSSocket extends PSocket {
     
             const writable = new WritableStream({
                 write: (chunk) => { super.write(chunk); },
-                abort: () => { console.log("hello"); super.close(); },
+                abort: () => { super.close(); },
                 close: () => { super.close(); },
             })
 
@@ -70,14 +70,16 @@ export class PTLSSocket extends PSocket {
                         this.emit("tlsdata", value);
                     }
                 }
+                this.emit("tlsclose", false);
             } catch (e) {
                 this.emit("error", e)
+                this.emit("tlsclose", true);
             }
-            // this.emit("close", undefined);
-        })();
+            
+        }));
     }
     on(event, callback) {
-        if (event === "data" || event === "open") {
+        if (event === "data" || event === "open" || event === "close") {
             return super.on("tls" + event, callback)
         } else {
             return super.on(event, callback);

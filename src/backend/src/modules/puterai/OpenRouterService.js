@@ -18,15 +18,9 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
+const APIError = require("../../api/APIError");
 const BaseService = require("../../services/BaseService");
 const OpenAIUtil = require("./lib/OpenAIUtil");
-
-const PUTER_PROMPT = `
-    You are running on an open-source platform called Puter,
-    under the OpenRouter implementation for a driver interface
-    called puter-chat-completion.
-`.replace('\n', ' ').trim();
-
 
 /**
 * XAIService class - Provides integration with X.AI's API for chat completions
@@ -48,10 +42,6 @@ class OpenRouterService extends BaseService {
     * Gets the system prompt used for AI interactions
     * @returns {string} The base system prompt that identifies the AI as running on Puter
     */
-    get_system_prompt () {
-        return PUTER_PROMPT;
-    }
-
     adapt_model (model) {
         return model;
     }
@@ -122,19 +112,22 @@ class OpenRouterService extends BaseService {
                 if ( model.startsWith('openrouter:') ) {
                     model = model.slice('openrouter:'.length);
                 }
+                
+                if ( model === 'openrouter/auto' ) {
+                    throw APIError.create('field_invalid', null, {
+                        key: 'model',
+                        expected: 'allowed model',
+                        got: 'disallowed model',
+                    })
+                }
 
                 messages = await OpenAIUtil.process_input_messages(messages);
                 
-                messages.unshift({
-                    role: 'system',
-                    content: this.get_system_prompt()
-                })
-
                 const completion = await this.openai.chat.completions.create({
                     messages,
                     model: model ?? this.get_default_model(),
                     ...(tools ? { tools } : {}),
-                    max_tokens: max_tokens || 1000,
+                    max_tokens,
                     temperature: temperature, // default to 1.0
                     stream,
                     ...(stream ? {
@@ -179,11 +172,12 @@ class OpenRouterService extends BaseService {
             coerced_models.push({
                 id: 'openrouter:' + model.id,
                 name: model.name + ' (OpenRouter)',
+                max_tokens: model.top_provider.max_completion_tokens,
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
-                    input: model.pricing.prompt * 1000000,
-                    output: model.pricing.completion * 1000000,
+                    input: model.pricing.prompt * 1000000 * 100,
+                    output: model.pricing.completion * 1000000 * 100,
                 }
             });
         }

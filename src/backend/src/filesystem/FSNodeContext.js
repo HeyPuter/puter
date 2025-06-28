@@ -19,8 +19,6 @@
 const { get_user, get_dir_size, id2path, id2uuid, is_empty, is_shared_with_anyone, suggest_app_for_fsentry, get_app } = require("../helpers");
 
 const putility = require('@heyputer/putility');
-const { MultiDetachable } = putility.libs.listener;
-const { TDetachable } = putility.traits;
 const config = require("../config");
 const _path = require('path');
 const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSelector, NodePathSelector } = require("./node/selectors");
@@ -48,6 +46,8 @@ const { PermissionUtil } = require("../services/auth/PermissionService");
  * @property {string} uid the UUID of the filesystem entry
  */
 module.exports = class FSNodeContext {
+    static CONCERN = 'filesystem';
+
     static TYPE_FILE = { label: 'File' };
     static TYPE_DIRECTORY = { label: 'Directory' };
     static TYPE_SYMLINK = {};
@@ -77,7 +77,9 @@ module.exports = class FSNodeContext {
         provider,
         fs
     }) {
-        this.log = services.get('log-service').create('fsnode-context');
+        this.log = services.get('log-service').create('fsnode-context', {
+            concern: this.constructor.CONCERN,
+        });
         this.selector_ = null;
         this.selectors_ = [];
         this.selector = selector;
@@ -811,6 +813,12 @@ module.exports = class FSNodeContext {
         if ( fsentry.associated_app_id ) {
             const app = await get_app({ id: fsentry.associated_app_id });
             fsentry.associated_app = app;
+        }
+        
+        // If this file is in an appdata directory, add `appdata_app`
+        const components = await this.getPathComponents();
+        if ( components[1] === 'AppData' ) {
+            fsentry.appdata_app = components[2];
         }
 
         fsentry.is_dir = !! fsentry.is_dir;
