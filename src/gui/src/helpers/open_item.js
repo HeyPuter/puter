@@ -49,6 +49,85 @@ const open_item = async function(options){
         UIAlert(`This shortcut can't be opened because its source has been deleted.`)
     }
     //----------------------------------------------------------------
+    // Is this a .weblink file?
+    //----------------------------------------------------------------
+    else if($(el_item).attr('data-name').toLowerCase().endsWith('.weblink')){
+        try {
+            // First check localStorage using the file's UID
+            let url = null;
+            if (file_uid) {
+                url = localStorage.getItem('weblink_' + file_uid);
+            }
+            
+            // Try to read the file content directly using the file's path
+            if (!url) {
+                try {
+                    const content = await puter.fs.read({
+                        path: item_path
+                    });
+                    
+                    // Handle different content types
+                    if (content instanceof Blob) {
+                        // If content is a Blob, convert it to text
+                        const text = await content.text();
+                        
+                        // Try to parse the text as JSON
+                        try {
+                            const jsonData = JSON.parse(text);
+                            if (jsonData.url) {
+                                url = jsonData.url;
+                            }
+                        } catch (e) {
+                            console.error("Error parsing Blob content as JSON:", e);
+                            // Not valid JSON, try using the content directly
+                            if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
+                                url = text;
+                                console.log("Using Blob content as URL (direct):", url);
+                            }
+                        }
+                    } else if (typeof content === 'string') {
+                        // If content is a string, try to parse it as JSON
+                        try {
+                            const jsonData = JSON.parse(content);
+                            if (jsonData.url) {
+                                url = jsonData.url;
+                            }
+                        } catch (e) {
+                            console.error("Error parsing string content as JSON:", e);
+                            // Not valid JSON, try using the content directly
+                            if (content && (content.startsWith('http://') || content.startsWith('https://'))) {
+                                url = content;
+                                console.log("Using string content as URL (direct):", url);
+                            }
+                        }
+                    } else {
+                        console.error("Unexpected content type:", typeof content);
+                    }
+                } catch (e) {
+                    console.error("Error reading file using path:", e);
+                }
+            }
+            
+            // If we have a valid URL, open it
+            if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+                window.open(url, '_blank', 'noopener,noreferrer');
+            } else {
+                // Show a more detailed error message
+                UIAlert(`Could not determine the URL for this web shortcut.
+                
+Technical details:
+- File name: ${$(el_item).attr('data-name')}
+- File path: ${item_path}
+- File UID: ${file_uid}
+
+Please try recreating the link.`);
+            }
+        } catch (error) {
+            console.error('Error opening web shortcut:', error);
+            UIAlert('Error opening web shortcut: ' + error.message);
+        }
+    }
+    //----------------------------------------------------------------
     // Is this a trashed file?
     //----------------------------------------------------------------
     else if(item_path.startsWith(window.trash_path + '/')){

@@ -194,6 +194,10 @@ const item_icon = async (fsentry)=>{
     else if(fsentry.name.toLowerCase().endsWith('.xlsx')){
         return {image: window.icons['file-xlsx.svg'], type: 'icon'};
     }
+    // *.weblink
+    else if(fsentry.name.toLowerCase().endsWith('.weblink')){
+        return {image: window.icons['link.svg'], type: 'icon'};
+    }
     // --------------------------------------------------
     // Determine icon by set or derived mime type
     // --------------------------------------------------
