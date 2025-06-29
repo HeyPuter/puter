@@ -311,7 +311,7 @@ class AI{
         }
 
         // o1-mini to openrouter:openai/o1-mini
-        if ( requestParams.model === 'o1-mini' || requestParams.model === 'o1-pro' ) {
+        if ( requestParams.model === 'o1-mini') {
             requestParams.model = 'openrouter:openai/o1-mini';
         }
 
