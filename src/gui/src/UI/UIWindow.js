@@ -302,11 +302,7 @@ async function UIWindow(options) {
         }
 
         // Menubar
-        if(window.menubar_style === 'window'){
-            h += `<div class="window-menubar" data-window-id="${win_id}"></div>`;
-        }else if(window.menubar_style === 'desktop'){
-            $('.toolbar-puter-logo').after(`<div class="window-menubar window-menubar-global" data-window-id="${win_id}"></div>`);
-        }
+        h += `<div class="window-menubar" data-window-id="${win_id}"></div>`;
 
         // Navbar
         if(options.is_dir){

@@ -706,35 +706,6 @@ async function UIDesktop(options) {
     puter.kv.get("sidebar_items").then(async (val) => {
         window.sidebar_items = val;
     })
-    // also update every 2 seconds
-    // setInterval(async () => {
-    //     puter.kv.get("sidebar_items").then(async (val) => {
-    //         window.sidebar_items = val;
-    //     })
-    // }, 2000);
-
-    // Get menubar style
-    puter.kv.get('menubar_style').then(async (val) => {
-        let value = val;
-        if (value === 'system' || value === 'desktop' || value === 'window') {
-            window.menubar_style = value;
-        } else {
-            window.menubar_style = 'system';
-        }
-
-        if (window.menubar_style === 'system') {
-            if (window.detectHostOS() === 'macos')
-                window.menubar_style = 'desktop';
-            else
-                window.menubar_style = 'window';
-        }
-
-        // set menubar style class to body
-        if (window.menubar_style === 'desktop') {
-            $('body').addClass('menubar-style-desktop');
-        }
-    })
-
 
     // Remove `?ref=...` from navbar URL
     if (window.url_query_params.has('ref')) {
