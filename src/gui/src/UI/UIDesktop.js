@@ -1468,7 +1468,7 @@ async function UIDesktop(options) {
         });
     }
 
-    window.hide_toolbar = () => {
+    window.hide_toolbar = (animate = true) => {
         if ($('.toolbar').hasClass('toolbar-hidden')) return;
 
         // attach hidden class to toolbar
@@ -1476,15 +1476,27 @@ async function UIDesktop(options) {
 
         // animate the toolbar to top = -20px;
         // animate width to 40px;
-        $('.toolbar').animate({
-            top: '-20px',
-            width: '40px',
-        }, 200);
-
+        if (animate) {
+            $('.toolbar').animate({
+                top: '-20px',
+                width: '40px',
+            }, 200);
+        } else {
+            $('.toolbar').css({
+                top: '-20px',
+                width: '40px',
+            });
+        }
         // animate hide toolbar-btn, toolbar-clock
-        $('.toolbar-btn, #clock').animate({
-            opacity: 0,
-        }, 50);
+        if (animate) {
+            $('.toolbar-btn, #clock').animate({
+                opacity: 0,
+            }, 50);
+        } else {
+            $('.toolbar-btn, #clock').css({
+                opacity: 0,
+            });
+        }
     }
 
     window.show_toolbar = () => {
@@ -1585,6 +1597,9 @@ async function UIDesktop(options) {
 
     // hovering over a hidden toolbar will show it
     $(document).on('mouseenter', '.toolbar-hidden', function () {
+        if(window.is_fullpage_mode)
+            $('.window-app-iframe').css('pointer-events', 'none');
+
         window.show_toolbar();
         // Clear any pending hide timeout
         if (toolbarHideTimeout) {
@@ -1603,19 +1618,36 @@ async function UIDesktop(options) {
         isMouseNearToolbar = true;
     });
 
+    // any click will hide the toolbar, unless:
+    // - it's on the toolbar
+    // - it's the user options menu button
+    // - the user options menu is open
+    $(document).on('click', function(e){
+        if(
+            !$(e.target).hasClass('toolbar') && 
+            !$(e.target).hasClass('user-options-menu-btn') && 
+            $('.context-menu[data-id="user-options-menu"]').length === 0 &&
+            true
+        ){
+            window.hide_toolbar(false);
+        }
+    })
+    
     // Handle mouse leaving the toolbar
     $(document).on('mouseleave', '.toolbar', function () {
-        // if there is not window visible, don't hide the toolbar
-        if ($('.window-active').length === 0) return;
-
+        // if the user options menu is open, don't hide the toolbar
+        if ($('.context-menu[data-id="user-options-menu"]').length > 0)
+            return;
+    
         // Start the hiding logic with current mouse position
         window.handleToolbarHiding(window.mouseX, window.mouseY);
     });
 
     // Track mouse movement globally to update toolbar hiding logic
     $(document).on('mousemove', function(e) {
-        // if there is not window visible, don't hide the toolbar
-        if ($('.window-active').length === 0) return;
+        // if the user options menu is open, don't hide the toolbar
+        if ($('.context-menu[data-id="user-options-menu"]').length > 0)
+            return;
 
         // Update global mouse position (assuming this is done elsewhere in the code)
         window.mouseX = e.clientX;
