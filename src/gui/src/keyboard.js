@@ -228,20 +228,25 @@ $(document).bind('keydown', async function(e){
             }
 
             function findNeighbor(current, direction) {
-                const cx = current.centerX;
-                const cy = current.centerY;
+                const ox = current.el.getBoundingClientRect().left;
+                const oy = current.el.getBoundingClientRect().top;
+
+                // NOTE: using center points is more natural than origin points but requires items to take empty space like margin in order to accurately find center points.
+                // const cx = current.centerX;
+                // const cy = current.centerY;
 
                 const isVertical = direction === 'up' || direction === 'down';
                 const axisThreshold = 30; // allowable offset on perpendicular axis
 
                 let candidates = grid.filter(i => i !== current);
                 candidates = candidates.filter(i => {
+                    const irect = i.el.getBoundingClientRect();
                     if (isVertical) {
-                        return Math.abs(i.centerX - cx) < axisThreshold &&
-                            (direction === 'up' ? i.centerY < cy : i.centerY > cy);
+                        return Math.abs(i.left - ox) < axisThreshold &&
+                            (direction === 'up' ? irect.top < oy : irect.top > oy);
                     } else {
-                        return Math.abs(i.centerY - cy) < axisThreshold &&
-                            (direction === 'left' ? i.centerX < cx : i.centerX > cx);
+                        return Math.abs(i.top - oy) < axisThreshold &&
+                            (direction === 'left' ? irect.left < ox : irect.left > ox);
                     }
                 });
 
@@ -249,28 +254,35 @@ $(document).bind('keydown', async function(e){
                 if (candidates.length === 0) {
                     candidates = grid.filter(i => i !== current);
                     if (isVertical) {
-                        candidates = candidates.filter(i => Math.abs(i.centerX - cx) < axisThreshold);
+                        candidates = candidates.filter(i => Math.abs(i.left - ox) < axisThreshold);
                         candidates.sort((a, b) => direction === 'up'
-                            ? b.centerY - a.centerY
-                            : a.centerY - b.centerY);
+                            ? b.top - a.top
+                            : a.top - b.top);
                     } else {
-                        candidates = candidates.filter(i => Math.abs(i.centerY - cy) < axisThreshold);
+                        candidates = candidates.filter(i => Math.abs(i.top - oy) < axisThreshold);
                         candidates.sort((a, b) => direction === 'left'
-                            ? b.centerX - a.centerX
-                            : a.centerX - b.centerX);
+                            ? b.left - a.left
+                            : a.left - b.left);
                     }
                     return candidates[0];
                 }
                 // Sort remaining by Euclidean distance
                 candidates.sort((a, b) => {
-                    const da = Math.hypot(a.centerX - cx, a.centerY - cy);
-                    const db = Math.hypot(b.centerX - cx, b.centerY - cy);
-                    return da - db;
+                    const da = Math.hypot(a.left - ox, a.top - oy);
+                    const db = Math.hypot(b.left - ox, b.top - oy);
+                    
+                    if (da !== db) return da - db;
+
+                    // vertically prefer item with greater origin Y
+                    if (isVertical) return a.top - b.top;
+
+                    // horizontally prefer item with greater origin X
+                    return a.left - b.left;
                 });
                 return candidates[0];
             }
 
-            // disable default crtl/meta behaveiour from browsers
+            // disable default crtl/meta behaviour from browsers
             if (e.ctrlKey || e.metaKey){
                 e.preventDefault();
                 e.stopPropagation();
