@@ -1148,7 +1148,7 @@ async function UIDesktop(options) {
     // User options
     // ----------------------------------------------------
     let ht = '';
-    ht += `<div class="toolbar" style="height:${window.toolbar_height}px; min-height:${window.toolbar_height}px; max-height:${window.toolbar_height}px;">`;
+    ht += `<div class="toolbar" style="height:30px; min-height:30px; max-height:30px;">`;
     // logo
     ht += `<div class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
 
@@ -1467,6 +1467,171 @@ async function UIDesktop(options) {
             app: 'explorer',
         });
     }
+
+    window.hide_toolbar = () => {
+        if ($('.toolbar').hasClass('toolbar-hidden')) return;
+
+        // attach hidden class to toolbar
+        $('.toolbar').addClass('toolbar-hidden');
+
+        // animate the toolbar to top = -20px;
+        // animate width to 40px;
+        $('.toolbar').animate({
+            top: '-20px',
+            width: '40px',
+        }, 200);
+
+        // animate hide toolbar-btn, toolbar-clock
+        $('.toolbar-btn, #clock').animate({
+            opacity: 0,
+        }, 50);
+    }
+
+    window.show_toolbar = () => {
+        if (!$('.toolbar').hasClass('toolbar-hidden')) return;
+
+        // remove hidden class from toolbar
+        $('.toolbar').removeClass('toolbar-hidden');
+
+        $('.toolbar').animate({
+            top: 0,
+        }, 100).css('width', 'fit-content');
+
+        // animate show toolbar-btn, toolbar-clock
+        $('.toolbar-btn, #clock').animate({
+            opacity: 0.8,
+        }, 50);
+    }
+
+    // Toolbar hide/show logic with improved UX
+    let toolbarHideTimeout = null;
+    let isMouseNearToolbar = false;
+
+    // Define safe zone around toolbar (in pixels)
+    const TOOLBAR_SAFE_ZONE = 50;
+    const TOOLBAR_HIDE_DELAY = 100; // Base delay before hiding
+    const TOOLBAR_QUICK_HIDE_DELAY = 300; // Quicker hide when mouse moves far away
+
+    // Function to check if mouse is in the safe zone around toolbar
+    window.isMouseInToolbarSafeZone = (mouseX, mouseY) => {
+        const toolbar = $('.toolbar')[0];
+        if (!toolbar) return false;
+        
+        const rect = toolbar.getBoundingClientRect();
+        
+        // Expand the toolbar bounds by the safe zone
+        const safeZone = {
+            top: rect.top - TOOLBAR_SAFE_ZONE,
+            bottom: rect.bottom + TOOLBAR_SAFE_ZONE,
+            left: rect.left - TOOLBAR_SAFE_ZONE,
+            right: rect.right + TOOLBAR_SAFE_ZONE
+        };
+        
+        return mouseX >= safeZone.left && 
+               mouseX <= safeZone.right && 
+               mouseY >= safeZone.top && 
+               mouseY <= safeZone.bottom;
+    };
+
+    // Function to handle toolbar hiding with improved logic
+    window.handleToolbarHiding = (mouseX, mouseY) => {
+        // Clear any existing timeout
+        if (toolbarHideTimeout) {
+            clearTimeout(toolbarHideTimeout);
+            toolbarHideTimeout = null;
+        }
+        
+        // Don't hide if toolbar is already hidden
+        if ($('.toolbar').hasClass('toolbar-hidden')) return;
+        
+        const wasNearToolbar = isMouseNearToolbar;
+        isMouseNearToolbar = window.isMouseInToolbarSafeZone(mouseX, mouseY);
+        
+        // If mouse is in safe zone, don't hide
+        if (isMouseNearToolbar) {
+            return;
+        }
+        
+        // Determine hide delay based on mouse movement pattern
+        let hideDelay = TOOLBAR_HIDE_DELAY;
+        
+        // If mouse was previously near toolbar and now moved far away, hide quicker
+        if (wasNearToolbar && !isMouseNearToolbar) {
+            // Check if mouse moved significantly away
+            const toolbar = $('.toolbar')[0];
+            if (toolbar) {
+                const rect = toolbar.getBoundingClientRect();
+                const distanceFromToolbar = Math.min(
+                    Math.abs(mouseY - rect.bottom),
+                    Math.abs(mouseY - rect.top)
+                );
+                
+                // If mouse is far from toolbar, hide quicker
+                if (distanceFromToolbar > TOOLBAR_SAFE_ZONE * 2) {
+                    hideDelay = TOOLBAR_QUICK_HIDE_DELAY;
+                }
+            }
+        }
+        
+        // Set timeout to hide toolbar
+        toolbarHideTimeout = setTimeout(() => {
+            // Double-check mouse position before hiding
+            if (!window.isMouseInToolbarSafeZone(window.mouseX, window.mouseY)) {
+                window.hide_toolbar();
+            }
+            toolbarHideTimeout = null;
+        }, hideDelay);
+    };
+
+    // hovering over a hidden toolbar will show it
+    $(document).on('mouseenter', '.toolbar-hidden', function () {
+        window.show_toolbar();
+        // Clear any pending hide timeout
+        if (toolbarHideTimeout) {
+            clearTimeout(toolbarHideTimeout);
+            toolbarHideTimeout = null;
+        }
+    });
+
+    // hovering over a visible toolbar will show it and cancel hiding
+    $(document).on('mouseenter', '.toolbar:not(.toolbar-hidden)', function () {
+        // Clear any pending hide timeout when entering toolbar
+        if (toolbarHideTimeout) {
+            clearTimeout(toolbarHideTimeout);
+            toolbarHideTimeout = null;
+        }
+        isMouseNearToolbar = true;
+    });
+
+    // Handle mouse leaving the toolbar
+    $(document).on('mouseleave', '.toolbar', function () {
+        // if there is not window visible, don't hide the toolbar
+        if ($('.window-active').length === 0) return;
+
+        // Start the hiding logic with current mouse position
+        window.handleToolbarHiding(window.mouseX, window.mouseY);
+    });
+
+    // Track mouse movement globally to update toolbar hiding logic
+    $(document).on('mousemove', function(e) {
+        // if there is not window visible, don't hide the toolbar
+        if ($('.window-active').length === 0) return;
+
+        // Update global mouse position (assuming this is done elsewhere in the code)
+        window.mouseX = e.clientX;
+        window.mouseY = e.clientY;
+        
+        // Only handle toolbar hiding if toolbar is visible and mouse moved significantly
+        if (!$('.toolbar').hasClass('toolbar-hidden')) {
+            // Use throttling to avoid excessive calls
+            if (!window.mouseMoveThrottle) {
+                window.mouseMoveThrottle = setTimeout(() => {
+                    window.handleToolbarHiding(window.mouseX, window.mouseY);
+                    window.mouseMoveThrottle = null;
+                }, 100); // Throttle to every 100ms
+            }
+        }
+    });
 }
 
 $(document).on('contextmenu taphold', '.taskbar', function (event) {

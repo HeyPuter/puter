@@ -1409,6 +1409,11 @@ $(document).on('click', function(e){
     if(!$(e.target).hasClass('window-search') && $(e.target).closest('.window-search').length === 0 && !$(e.target).is('.toolbar-btn.search-btn')){
         $('.window-search').close();
     }
+
+    // any click that is not on .toolbar will hide the toolbar
+    if(!$(e.target).hasClass('toolbar')){
+        window.hide_toolbar();
+    }
 })
 
 // Re-calculate desktop height and width on window resize and re-position the login and signup windows

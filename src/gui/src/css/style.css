@@ -1348,6 +1348,10 @@ span.header-sort-icon img {
     height: calc(100%);
 }
 
+.fullpage-mode.device-desktop .window-body-app {
+    height: calc(100% );
+}
+
 .window-filedialog-prompt {
     height: 60px;
     border-top: 1px solid #dbdee3;
@@ -1742,9 +1746,11 @@ label {
     font-size: 14px;
 }
 
+/***********************************
+ * Toolbar
+ ***********************************/
+
 .toolbar {
-    float: right;
-    width: 100%;
     background-color: #00000040;
     height: 30px;
     position: relative;
@@ -1755,7 +1761,18 @@ label {
     justify-content: flex-end;
     align-content: center;
     flex-wrap: wrap;
-    padding-right: 10px
+    padding-right: 10px;
+    left: 50%;
+    right: 50%;
+    left: 50%;
+    transform: translate(-50%);
+    top: 0px;
+    border-top-right-radius: 0px;
+    border-top-left-radius: 0px;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    width: fit-content;
+    overflow: clip;
 }
 
 .show-desktop-btn {
@@ -1807,7 +1824,7 @@ label {
 }
 
 .toolbar-btn:hover {
-    opacity: 1;
+    opacity: 1 !important;
 }
 
 .user-options-menu-btn.has-open-contextmenu {
@@ -1837,21 +1854,7 @@ label {
     background-color: rgb(255 255 255 / 15%);
     border-radius: 3px;
 }
-
-.logout-btn {
-    position: absolute;
-    right: 7px;
-    top: 7px;
-    padding: 4px;
-    border-radius: 4px;
-    cursor: pointer;
-    border: 2px solid #CCC;
-}
-
-.logout-btn img {
-    width: 20px;
-    margin-bottom: -5px;
-}
+/***************************************************/
 
 .login-error-msg, .signup-error-msg, .publish-website-error-msg, .form-error-msg {
     display: none;

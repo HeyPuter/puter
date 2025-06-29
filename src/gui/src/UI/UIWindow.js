@@ -3305,6 +3305,9 @@ window.scale_window = (el_window)=>{
             'height': height,
             'transform': 'none',
         });
+
+        // hide toolbar
+        window.hide_toolbar();
     }
     //shrink
     else {
