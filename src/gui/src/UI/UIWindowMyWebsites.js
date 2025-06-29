@@ -270,12 +270,24 @@ async function initializeMyWebsites(el_window) {
                 if (newDirectory?.path) {
                     // Use puter.hosting.update to change the website's folder location
                     await puter.hosting.update(subdomain, newDirectory.path);
-                    await UIAlert({ message: `Website location updated!\n\n"${subdomain}.puter.site" now points to "${newDirectory.path}"`, buttons: [{label: 'OK'}] });
+                    await UIAlert({ message: `Website location updated!\n\n"${subdomain}.puter.site" now points to "${newDirectory.path}"`, buttons: [{label: 'OK'}],
+                        window_options: {
+                            parent_uuid: $(el_window).attr('data-element_uuid'),
+                            disable_parent_window: true,
+                            parent_center: true,
+                        }
+                    });
                     await reloadWebsites();
                 }
             } catch (error) {
                 console.error('Failed to update location:', error);
-                await UIAlert({ message: `Failed to update website location. ${error.message || 'Please try again.'}`, buttons: [{label: 'OK'}] });
+                await UIAlert({ message: `Failed to update website location. ${error.message || 'Please try again.'}`, buttons: [{label: 'OK'}],
+                    window_options: {
+                        parent_uuid: $(el_window).attr('data-element_uuid'),
+                        disable_parent_window: true,
+                        parent_center: true,
+                    }
+                });
             } finally {
                 setButtonState($button, false, '📍', 'Change location');
             }
@@ -295,7 +307,12 @@ async function initializeMyWebsites(el_window) {
                     {label: 'Delete Website', value: 'release', type: 'primary'},
                     {label: 'Delete Website & Files', value: 'delete', type: 'default'},
                     {label: 'Cancel', value: 'cancel'}
-                ]
+                ],
+                window_options: {
+                    parent_uuid: $(el_window).attr('data-element_uuid'),
+                    disable_parent_window: true,
+                    parent_center: true,
+                }
             });
             
             if (confirmation === 'release') {
@@ -303,11 +320,23 @@ async function initializeMyWebsites(el_window) {
                 try {
                     // Use puter.hosting.delete to release the subdomain
                     await puter.hosting.delete(subdomain);
-                    await UIAlert({ message: `Subdomain "${subdomain}.puter.site" released successfully!`, buttons: [{label: 'OK'}] });
+                    await UIAlert({ message: `Subdomain "${subdomain}.puter.site" released successfully!`, buttons: [{label: 'OK'}],
+                        window_options: {
+                            parent_uuid: $(el_window).attr('data-element_uuid'),
+                            disable_parent_window: true,
+                            parent_center: true,
+                        }
+                    });
                     await reloadWebsites();
                 } catch (error) {
                     console.error('Failed to release subdomain:', error);
-                    await UIAlert({ message: `Failed to release subdomain. ${error.message || 'Please try again.'}`, buttons: [{label: 'OK'}] });
+                    await UIAlert({ message: `Failed to release subdomain. ${error.message || 'Please try again.'}`, buttons: [{label: 'OK'}],
+                        window_options: {
+                            parent_uuid: $(el_window).attr('data-element_uuid'),
+                            disable_parent_window: true,
+                            parent_center: true,
+                        }
+                    });
                     setButtonState($button, false, '🗑️', 'Manage website');
                 }
             } else if (confirmation === 'delete') {
@@ -328,11 +357,31 @@ async function initializeMyWebsites(el_window) {
                         }
                     }
                     
-                    await UIAlert({ message: `Website "${subdomain}.puter.site" deleted successfully!`, buttons: [{label: 'OK'}] });
+                    await UIAlert({ 
+                        message: `Website "${subdomain}.puter.site" deleted successfully!`, 
+                        buttons: [{
+                            label: 'OK'
+                        }],
+                        window_options: {
+                            parent_uuid: $(el_window).attr('data-element_uuid'),
+                            disable_parent_window: true,
+                            parent_center: true,
+                        }
+                    });
                     await reloadWebsites();
                 } catch (error) {
                     console.error('Failed to delete website:', error);
-                    await UIAlert({ message: `Failed to delete website. ${error.message || 'Please try again.'}`, buttons: [{label: 'OK'}] });
+                    await UIAlert({ 
+                        message: `Failed to delete website. ${error.message || 'Please try again.'}`, 
+                        buttons: [{
+                            label: 'OK'
+                        }],
+                        window_options: {
+                            parent_uuid: $(el_window).attr('data-element_uuid'),
+                            disable_parent_window: true,
+                            parent_center: true,
+                        }
+                    });
                     setButtonState($button, false, '🗑️', 'Manage website');
                 }
             }
@@ -382,9 +431,14 @@ async function initializeMyWebsites(el_window) {
             message: `What would you like to do with ${selectedSites.size} selected websites?\n\nThis action cannot be undone.`,
             buttons: [
                 {label: 'Delete Websites', value: 'release', type: 'primary'},
-                {label: 'Delete Websites & Files', value: 'delete', type: 'primary'},
+                {label: 'Delete Websites & Files', value: 'delete', type: 'default'},
                 {label: 'Cancel', value: 'cancel'}
-            ]
+            ],
+            window_options: {
+                parent_uuid: $(el_window).attr('data-element_uuid'),
+                disable_parent_window: true,
+                parent_center: true,
+            }
         });
         
         if (confirmation === 'cancel') return;
@@ -432,7 +486,12 @@ async function initializeMyWebsites(el_window) {
         
         await UIAlert({
             message: `Bulk operation completed!\n\nSuccessfully ${isDelete ? 'deleted' : 'released'}: ${successCount} websites${errorCount > 0 ? `\nFailed: ${errorCount} websites` : ''}`,
-            buttons: [{label: 'OK'}]
+            buttons: [{label: 'OK'}],
+            window_options: {
+                parent_uuid: $(el_window).attr('data-element_uuid'),
+                disable_parent_window: true,
+                parent_center: true,
+            }
         });
         
         await reloadWebsites();
