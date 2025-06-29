@@ -53,8 +53,7 @@ async function UIWindowMyWebsites(options){
             is_resizable: true,
             is_maximizable: true,
             init_center: true,
-            width: 1100,
-            height: 650,
+            is_maximized: true,
             onAppend: function(el_window){
                 setTimeout(() => {
                     try {
@@ -182,7 +181,7 @@ async function initializeMyWebsites(el_window) {
             <thead><tr>
                 <th width="40"></th>
                 <th width="80" class="sortable-header" data-column="status" title="Click to sort by status">Status <span class="sort-arrow">${getSortArrow('status')}</span></th>
-                <th class="sortable-header" data-column="subdomain" title="Click to sort by subdomain">Subdomain <span class="sort-arrow">${getSortArrow('subdomain')}</span></th>
+                <th class="sortable-header" data-column="subdomain" title="Click to sort by subdomain">Address <span class="sort-arrow">${getSortArrow('subdomain')}</span></th>
                 <th>Location</th>
                 <th class="sortable-header" data-column="created" title="Click to sort by creation date">Created <span class="sort-arrow">${getSortArrow('created')}</span></th>
                 <th width="160">Actions</th>
@@ -537,7 +536,7 @@ function addCustomStyles() {
         .status-inactive { background: #fff3cd; color: #856404; }
         .subdomain-link { color: #007bff; text-decoration: none; font-weight: 500; }
         .subdomain-link:hover { text-decoration: underline; }
-        .folder-path { cursor: pointer; color: #007bff; font-family: Monaco, monospace; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 250px; }
+        .folder-path { cursor: pointer; color: #007bff; font-family: Monaco, monospace; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 100%; }
         .folder-path:hover { text-decoration: underline; }
         .no-location { color: #6c757d; font-style: italic; }
         .date-text { color: #495057; font-size: 13px; }
