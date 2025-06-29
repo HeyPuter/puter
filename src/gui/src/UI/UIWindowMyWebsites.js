@@ -7,6 +7,8 @@ import UIWindow from './UIWindow.js'
 import UIContextMenu from './UIContextMenu.js'
 import UIAlert from './UIAlert.js'
 
+const trash_icon = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-trash3" viewBox="0 0 16 16"> <path d="M6.5 1h3a.5.5 0 0 1 .5.5v1H6v-1a.5.5 0 0 1 .5-.5M11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3A1.5 1.5 0 0 0 5 1.5v1H1.5a.5.5 0 0 0 0 1h.538l.853 10.66A2 2 0 0 0 4.885 16h6.23a2 2 0 0 0 1.994-1.84l.853-10.66h.538a.5.5 0 0 0 0-1zm1.958 1-.846 10.58a1 1 0 0 1-.997.92h-6.23a1 1 0 0 1-.997-.92L3.042 3.5zm-7.487 1a.5.5 0 0 1 .528.47l.5 8.5a.5.5 0 0 1-.998.06L5 5.03a.5.5 0 0 1 .47-.53Zm5.058 0a.5.5 0 0 1 .47.53l-.5 8.5a.5.5 0 1 1-.998-.06l.5-8.5a.5.5 0 0 1 .528-.47M8 4.5a.5.5 0 0 1 .5.5v8.5a.5.5 0 0 1-1 0V5a.5.5 0 0 1 .5-.5"/> </svg>`;
+
 async function UIWindowMyWebsites(options){
     let h = `<div class="mywebsites-container">
         <div class="mywebsites-header">
@@ -22,7 +24,7 @@ async function UIWindowMyWebsites(options){
                 <div class="bulk-section" style="display: none;">
                     <button id="select-all" class="control-btn" title="Select All">☑️</button>
                     <button id="clear-selection" class="control-btn" title="Clear Selection">☐</button>
-                    <button id="bulk-manage" class="control-btn danger" title="Manage Selected">🗑️</button>
+                    <button id="bulk-manage" class="control-btn danger" title="Manage Selected">${trash_icon}</button>
                 </div>
             </div>
         </div>
@@ -198,9 +200,8 @@ async function initializeMyWebsites(el_window) {
                 <td>${site.root_dir ? `<span class="folder-path" data-path="${site.root_dir.path}" data-uuid="${site.root_dir.id}" data-name="${site.root_dir.name}" title="${site.root_dir.path}">${site.root_dir.path}</span>` : '<span class="no-location">No folder assigned</span>'}</td>
                 <td><span class="date-text">${dateCreated}</span></td>
                 <td><div class="action-buttons">
-                    <button class="action-btn primary open-folder ${!site.root_dir ? 'disabled' : ''}" ${site.root_dir ? `data-path="${site.root_dir.path}" data-uuid="${site.root_dir.id}" data-name="${site.root_dir.name}"` : ''} title="${site.root_dir ? 'Open folder' : 'No folder available'}" ${!site.root_dir ? 'disabled' : ''}>📁</button>
                     <button class="action-btn secondary update-location" data-uuid="${site.uid}" data-subdomain="${site.subdomain}" title="Change location">📍</button>
-                    <button class="action-btn danger manage-website" data-uuid="${site.uid}" data-subdomain="${site.subdomain}" data-dir-uuid="${site.root_dir ? site.root_dir.id : ''}" title="Manage website">🗑️</button>
+                    <button class="action-btn danger manage-website" data-uuid="${site.uid}" data-subdomain="${site.subdomain}" data-dir-uuid="${site.root_dir ? site.root_dir.id : ''}" title="Manage website">${trash_icon}</button>
                 </div></td>
             </tr>`;
         });
