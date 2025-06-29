@@ -1116,10 +1116,21 @@ async function UIDesktop(options) {
             });
     }
     // ----------------------------------------------------
-    // User options
+    // Toolbar
     // ----------------------------------------------------
+    // Has user seen the toolbar animation?
+    window.has_seen_toolbar_animation = await puter.kv.get('has_seen_toolbar_animation') ?? false;
+    
     let ht = '';
-    ht += `<div class="toolbar" style="height:30px; min-height:30px; max-height:30px;">`;
+    let style = '';
+    let class_name = '';
+    if(window.has_seen_toolbar_animation){
+        style = 'top: -20px; width: 40px;';
+        class_name = 'toolbar-hidden';
+    }else
+        style= 'height:30px; min-height:30px; max-height:30px;';
+
+    ht += `<div class="toolbar ${class_name}" style="${style}">`;
     // logo
     ht += `<div class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
 
@@ -1468,6 +1479,15 @@ async function UIDesktop(options) {
                 opacity: 0,
             });
         }
+
+        if(!window.has_seen_toolbar_animation){
+            puter.kv.set({
+                key: "has_seen_toolbar_animation",
+                value: true,
+            })
+
+            window.has_seen_toolbar_animation = true;
+        }
     }
 
     window.show_toolbar = () => {
@@ -1594,6 +1614,10 @@ async function UIDesktop(options) {
     // - it's the user options menu button
     // - the user options menu is open
     $(document).on('click', function(e){
+        // if the user has not seen the toolbar animation, don't hide the toolbar
+        if(!window.has_seen_toolbar_animation)
+            return;
+
         if(
             !$(e.target).hasClass('toolbar') && 
             !$(e.target).hasClass('user-options-menu-btn') && 
@@ -1606,6 +1630,7 @@ async function UIDesktop(options) {
     
     // Handle mouse leaving the toolbar
     $(document).on('mouseleave', '.toolbar', function () {
+        window.has_left_toolbar_at_least_once = true;
         // if the user options menu is open, don't hide the toolbar
         if ($('.context-menu[data-id="user-options-menu"]').length > 0)
             return;
@@ -1616,6 +1641,10 @@ async function UIDesktop(options) {
 
     // Track mouse movement globally to update toolbar hiding logic
     $(document).on('mousemove', function(e) {
+        // if the user has not seen the toolbar animation, don't hide the toolbar
+        if(!window.has_seen_toolbar_animation && !window.has_left_toolbar_at_least_once)
+            return;
+
         // if the user options menu is open, don't hide the toolbar
         if ($('.context-menu[data-id="user-options-menu"]').length > 0)
             return;

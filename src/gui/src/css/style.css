@@ -1827,6 +1827,10 @@ label {
     opacity: 1 !important;
 }
 
+.toolbar-hidden .toolbar-btn {
+    opacity: 0;
+}
+
 .user-options-menu-btn.has-open-contextmenu {
     background-color: rgb(255 255 255 / 35%);
     border-radius: 3px;
