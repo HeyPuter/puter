@@ -22,8 +22,7 @@ async function UIWindowMyWebsites(options){
                 <div class="bulk-section" style="display: none;">
                     <button id="select-all" class="control-btn" title="Select All">☑️</button>
                     <button id="clear-selection" class="control-btn" title="Clear Selection">☐</button>
-                    <button id="bulk-release" class="control-btn danger" title="Release Selected">🔓</button>
-                    <button id="bulk-delete" class="control-btn danger" title="Delete Selected">🗑️</button>
+                    <button id="bulk-manage" class="control-btn danger" title="Manage Selected">🗑️</button>
                 </div>
             </div>
         </div>
@@ -201,8 +200,7 @@ async function initializeMyWebsites(el_window) {
                 <td><div class="action-buttons">
                     <button class="action-btn primary open-folder ${!site.root_dir ? 'disabled' : ''}" ${site.root_dir ? `data-path="${site.root_dir.path}" data-uuid="${site.root_dir.id}" data-name="${site.root_dir.name}"` : ''} title="${site.root_dir ? 'Open folder' : 'No folder available'}" ${!site.root_dir ? 'disabled' : ''}>📁</button>
                     <button class="action-btn secondary update-location" data-uuid="${site.uid}" data-subdomain="${site.subdomain}" title="Change location">📍</button>
-                    <button class="action-btn warning release-subdomain" data-uuid="${site.uid}" data-subdomain="${site.subdomain}" title="Release subdomain">🔓</button>
-                    <button class="action-btn danger delete-website" data-uuid="${site.uid}" data-subdomain="${site.subdomain}" data-dir-uuid="${site.root_dir ? site.root_dir.id : ''}" title="Delete website">🗑️</button>
+                    <button class="action-btn danger manage-website" data-uuid="${site.uid}" data-subdomain="${site.subdomain}" data-dir-uuid="${site.root_dir ? site.root_dir.id : ''}" title="Manage website">🗑️</button>
                 </div></td>
             </tr>`;
         });
@@ -282,23 +280,25 @@ async function initializeMyWebsites(el_window) {
             }
         });
         
-        // Release subdomain
-        $(el_window).off('click', '.release-subdomain').on('click', '.release-subdomain', async function(e) {
+        // Manage website
+        $(el_window).off('click', '.manage-website').on('click', '.manage-website', async function(e) {
             e.preventDefault();
             const $button = $(this);
             const subdomain = $button.data('subdomain');
             const siteUuid = $button.data('uuid');
+            const dirUuid = $button.data('dir-uuid');
             
             const confirmation = await UIAlert({
-                message: `Are you sure you want to release "${subdomain}.puter.site"?\n\nThis action cannot be undone.`,
+                message: `What would you like to do with "${subdomain}.puter.site"?\n\nThis action cannot be undone.`,
                 buttons: [
-                    {label: 'Release Subdomain', value: 'yes', type: 'primary'},
+                    {label: 'Delete Website', value: 'release', type: 'primary'},
+                    {label: 'Delete Website & Files', value: 'delete', type: 'default'},
                     {label: 'Cancel', value: 'cancel'}
                 ]
             });
             
-            if (confirmation === 'yes') {
-                setButtonState($button, true, '🔓', 'Release subdomain');
+            if (confirmation === 'release') {
+                setButtonState($button, true, '🔓', 'Delete website');
                 try {
                     // Use puter.hosting.delete to release the subdomain
                     await puter.hosting.delete(subdomain);
@@ -307,28 +307,9 @@ async function initializeMyWebsites(el_window) {
                 } catch (error) {
                     console.error('Failed to release subdomain:', error);
                     await UIAlert({ message: `Failed to release subdomain. ${error.message || 'Please try again.'}`, buttons: [{label: 'OK'}] });
-                    setButtonState($button, false, '🔓', 'Release subdomain');
+                    setButtonState($button, false, '🗑️', 'Manage website');
                 }
-            }
-        });
-        
-        // Delete website
-        $(el_window).off('click', '.delete-website').on('click', '.delete-website', async function(e) {
-            e.preventDefault();
-            const $button = $(this);
-            const subdomain = $button.data('subdomain');
-            const siteUuid = $button.data('uuid');
-            const dirUuid = $button.data('dir-uuid');
-            
-            const confirmation = await UIAlert({
-                message: `Are you sure you want to DELETE "${subdomain}.puter.site" and ALL its files?\n\nThis action cannot be undone.`,
-                buttons: [
-                    {label: 'Delete Everything', value: 'yes', type: 'primary'},
-                    {label: 'Cancel', value: 'cancel'}
-                ]
-            });
-            
-            if (confirmation === 'yes') {
+            } else if (confirmation === 'delete') {
                 setButtonState($button, true, '🗑️', 'Delete website');
                 try {
                     // First release the subdomain using puter.hosting.delete
@@ -351,7 +332,7 @@ async function initializeMyWebsites(el_window) {
                 } catch (error) {
                     console.error('Failed to delete website:', error);
                     await UIAlert({ message: `Failed to delete website. ${error.message || 'Please try again.'}`, buttons: [{label: 'OK'}] });
-                    setButtonState($button, false, '🗑️', 'Delete website');
+                    setButtonState($button, false, '🗑️', 'Manage website');
                 }
             }
         });
@@ -393,70 +374,70 @@ async function initializeMyWebsites(el_window) {
         $(el_window).find('.bulk-section').hide();
     });
     
-    async function bulkOperation(operation) {
+    async function bulkOperation() {
         if (selectedSites.size === 0) return;
         
-        const isDelete = operation === 'delete';
         const confirmation = await UIAlert({
-            message: `Are you sure you want to ${isDelete ? 'DELETE' : 'release'} ${selectedSites.size} selected websites${isDelete ? ' and ALL their files' : ''}?\n\nThis action cannot be undone.`,
+            message: `What would you like to do with ${selectedSites.size} selected websites?\n\nThis action cannot be undone.`,
             buttons: [
-                {label: isDelete ? 'Delete All Selected' : 'Release All Selected', value: 'yes', type: 'primary'},
+                {label: 'Delete Websites', value: 'release', type: 'primary'},
+                {label: 'Delete Websites & Files', value: 'delete', type: 'primary'},
                 {label: 'Cancel', value: 'cancel'}
             ]
         });
         
-        if (confirmation === 'yes') {
-            let successCount = 0, errorCount = 0;
-            $(el_window).find('#bulk-release, #bulk-delete').prop('disabled', true).css('opacity', '0.6');
-            
-            for (const siteUuid of selectedSites) {
-                try {
-                    const row = $(el_window).find(`.website-row[data-uuid="${siteUuid}"]`);
-                    const subdomain = row.find('.subdomain-link').text().replace('.puter.site', '');
+        if (confirmation === 'cancel') return;
+        
+        const isDelete = confirmation === 'delete';
+        let successCount = 0, errorCount = 0;
+        $(el_window).find('#bulk-manage').prop('disabled', true).css('opacity', '0.6');
+        
+        for (const siteUuid of selectedSites) {
+            try {
+                const row = $(el_window).find(`.website-row[data-uuid="${siteUuid}"]`);
+                const subdomain = row.find('.subdomain-link').text().replace('.puter.site', '');
+                
+                if (subdomain) {
+                    // Use puter.hosting.delete to release subdomain
+                    await puter.hosting.delete(subdomain);
                     
-                    if (subdomain) {
-                        // Use puter.hosting.delete to release subdomain
-                        await puter.hosting.delete(subdomain);
-                        
-                        if (isDelete) {
-                            const dirUuid = row.find('.delete-website').data('dir-uuid');
-                            if (dirUuid) {
-                                const folderPath = row.find('.folder-path').data('path');
-                                if (folderPath) {
-                                    try {
-                                        // Use puter.fs.delete to delete folder
-                                        await puter.fs.delete(folderPath, { recursive: true });
-                                    } catch (fsError) {
-                                        console.warn(`Failed to delete folder for ${subdomain}:`, fsError);
-                                    }
+                    if (isDelete) {
+                        const dirUuid = row.find('.manage-website').data('dir-uuid');
+                        if (dirUuid) {
+                            const folderPath = row.find('.folder-path').data('path');
+                            if (folderPath) {
+                                try {
+                                    // Use puter.fs.delete to delete folder
+                                    await puter.fs.delete(folderPath, { recursive: true });
+                                } catch (fsError) {
+                                    console.warn(`Failed to delete folder for ${subdomain}:`, fsError);
                                 }
                             }
                         }
-                        successCount++;
-                    } else {
-                        errorCount++;
                     }
-                } catch (error) {
-                    console.error(`Failed to ${operation} website ${siteUuid}:`, error);
+                    successCount++;
+                } else {
                     errorCount++;
                 }
+            } catch (error) {
+                console.error(`Failed to ${isDelete ? 'delete' : 'release'} website ${siteUuid}:`, error);
+                errorCount++;
             }
-            
-            selectedSites.clear();
-            $(el_window).find('.bulk-section').hide();
-            $(el_window).find('#bulk-release, #bulk-delete').prop('disabled', false).css('opacity', '1');
-            
-            await UIAlert({
-                message: `Bulk operation completed!\n\nSuccessfully ${isDelete ? 'deleted' : 'released'}: ${successCount} websites${errorCount > 0 ? `\nFailed: ${errorCount} websites` : ''}`,
-                buttons: [{label: 'OK'}]
-            });
-            
-            await reloadWebsites();
         }
+        
+        selectedSites.clear();
+        $(el_window).find('.bulk-section').hide();
+        $(el_window).find('#bulk-manage').prop('disabled', false).css('opacity', '1');
+        
+        await UIAlert({
+            message: `Bulk operation completed!\n\nSuccessfully ${isDelete ? 'deleted' : 'released'}: ${successCount} websites${errorCount > 0 ? `\nFailed: ${errorCount} websites` : ''}`,
+            buttons: [{label: 'OK'}]
+        });
+        
+        await reloadWebsites();
     }
     
-    $(el_window).find('#bulk-release').on('click', () => bulkOperation('release'));
-    $(el_window).find('#bulk-delete').on('click', () => bulkOperation('delete'));
+    $(el_window).find('#bulk-manage').on('click', () => bulkOperation());
     
     window.reloadWebsites = reloadWebsites;
     el_window.reloadWebsites = reloadWebsites;
