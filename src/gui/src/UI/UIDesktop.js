@@ -1587,6 +1587,10 @@ async function UIDesktop(options) {
 
     // hovering over a hidden toolbar will show it
     $(document).on('mouseenter', '.toolbar-hidden', function () {
+        // if a window is being dragged, don't show the toolbar
+        if(window.a_window_is_being_dragged)
+            return;
+
         if(window.is_fullpage_mode)
             $('.window-app-iframe').css('pointer-events', 'none');
 
@@ -1600,6 +1604,10 @@ async function UIDesktop(options) {
 
     // hovering over a visible toolbar will show it and cancel hiding
     $(document).on('mouseenter', '.toolbar:not(.toolbar-hidden)', function () {
+        // if a window is being dragged, don't show the toolbar
+        if(window.a_window_is_being_dragged)
+            return;
+
         // Clear any pending hide timeout when entering toolbar
         if (toolbarHideTimeout) {
             clearTimeout(toolbarHideTimeout);

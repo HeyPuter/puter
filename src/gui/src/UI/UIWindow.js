@@ -1636,6 +1636,7 @@ async function UIWindow(options) {
 
         $(el_window).draggable({
             start: function(e, ui){
+                window.a_window_is_being_dragged = true;
                 // if window is snapped, unsnap it and reset its position to where it was before snapping
                 if(options.is_resizable && window_is_snapped){
                     window_is_snapped = false;
@@ -1798,6 +1799,7 @@ async function UIWindow(options) {
                 }
             },
             stop: function () {
+                window.a_window_is_being_dragged = false;
                 let window_will_snap = false;
                 $( el_window ).draggable( "option", "cursorAt", false );
 
