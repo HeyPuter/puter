@@ -1461,7 +1461,7 @@ async function UIDesktop(options) {
             $('.toolbar').animate({
                 top: '-20px',
                 width: '40px',
-            }, 200);
+            }, 100);
         } else {
             $('.toolbar').css({
                 top: '-20px',
@@ -1470,11 +1470,11 @@ async function UIDesktop(options) {
         }
         // animate hide toolbar-btn, toolbar-clock
         if (animate) {
-            $('.toolbar-btn, #clock').animate({
+            $('.toolbar-btn, #clock, .user-options-menu-btn').animate({
                 opacity: 0,
-            }, 50);
+            }, 10);
         } else {
-            $('.toolbar-btn, #clock').css({
+            $('.toolbar-btn, #clock, .user-options-menu-btn').css({
                 opacity: 0,
             });
         }
@@ -1500,7 +1500,7 @@ async function UIDesktop(options) {
         }, 100).css('width', 'fit-content');
 
         // animate show toolbar-btn, toolbar-clock
-        $('.toolbar-btn, #clock').animate({
+        $('.toolbar-btn, #clock, .user-options-menu-btn').animate({
             opacity: 0.8,
         }, 50);
     }
@@ -1512,7 +1512,7 @@ async function UIDesktop(options) {
     // Define safe zone around toolbar (in pixels)
     const TOOLBAR_SAFE_ZONE = 30;
     const TOOLBAR_HIDE_DELAY = 100; // Base delay before hiding
-    const TOOLBAR_QUICK_HIDE_DELAY = 300; // Quicker hide when mouse moves far away
+    const TOOLBAR_QUICK_HIDE_DELAY = 200; // Quicker hide when mouse moves far away
 
     // Function to check if mouse is in the safe zone around toolbar
     window.isMouseInToolbarSafeZone = (mouseX, mouseY) => {

@@ -1773,6 +1773,7 @@ label {
     border-bottom-right-radius: 10px;
     width: fit-content;
     overflow: clip;
+    box-shadow: 0 0 10px rgb(0 0 0 / 26%);
 }
 
 .show-desktop-btn {
