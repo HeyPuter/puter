@@ -1374,7 +1374,6 @@ async function UIDesktop(options) {
         }
 
         const stat = await puter.fs.stat(item_path);
-        console.log('stat result', stat);
         
         // TODO: DRY everything here with open_item. Unfortunately we can't
         //       use open_item here because it's coupled with UI logic;
@@ -1511,7 +1510,7 @@ async function UIDesktop(options) {
     let isMouseNearToolbar = false;
 
     // Define safe zone around toolbar (in pixels)
-    const TOOLBAR_SAFE_ZONE = 50;
+    const TOOLBAR_SAFE_ZONE = 30;
     const TOOLBAR_HIDE_DELAY = 100; // Base delay before hiding
     const TOOLBAR_QUICK_HIDE_DELAY = 300; // Quicker hide when mouse moves far away
 
@@ -1609,6 +1608,11 @@ async function UIDesktop(options) {
         isMouseNearToolbar = true;
     });
 
+    $(document).on('mouseenter', '.toolbar', function () {
+        if(window.is_fullpage_mode)
+            $('.toolbar').focus();
+    });
+
     // any click will hide the toolbar, unless:
     // - it's on the toolbar
     // - it's the user options menu button
@@ -1627,7 +1631,7 @@ async function UIDesktop(options) {
             window.hide_toolbar(false);
         }
     })
-    
+
     // Handle mouse leaving the toolbar
     $(document).on('mouseleave', '.toolbar', function () {
         window.has_left_toolbar_at_least_once = true;
@@ -1649,10 +1653,6 @@ async function UIDesktop(options) {
         if ($('.context-menu[data-id="user-options-menu"]').length > 0)
             return;
 
-        // Update global mouse position (assuming this is done elsewhere in the code)
-        window.mouseX = e.clientX;
-        window.mouseY = e.clientY;
-        
         // Only handle toolbar hiding if toolbar is visible and mouse moved significantly
         if (!$('.toolbar').hasClass('toolbar-hidden')) {
             // Use throttling to avoid excessive calls

@@ -1232,9 +1232,13 @@ window.initgui = async function(options){
     //--------------------------------------------------------
     $(document).on('mousedown', function(e){
         // if taskbar or any parts of it is clicked, drop the event
-        if($(e.target).hasClass('taskbar') || $(e.target).closest('.taskbar').length > 0)
+        if($(e.target).hasClass('taskbar') || $(e.target).closest('.taskbar').length > 0){
             return;
-
+        }
+        // if toolbar or any parts of it is clicked, drop the event
+        if($(e.target).hasClass('toolbar') || $(e.target).closest('.toolbar').length > 0){
+            return;
+        }
         // if mouse is clicked on a window, activate it
         if(window.mouseover_window !== undefined){
             // if popover clicked on, don't activate window. This is because if an app 
