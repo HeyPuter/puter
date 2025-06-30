@@ -1792,7 +1792,7 @@ async function UIWindow(options) {
                         // save window size before snap
                         width_before_snap = $(el_window).width();
                         height_before_snap = $(el_window).height();
-                    }, 500);
+                    }, 10);
 
                     // if mouse is not in a snap zone, hide snap placeholder
                     if(snap_placeholder_active && !window.current_active_snap_zone){
