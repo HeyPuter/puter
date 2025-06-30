@@ -600,15 +600,9 @@ const ipc_listener = async (event, handled) => {
 
         // Show menubar
         let $menubar;
-        if(window.menubar_style === 'window'){
-            $menubar = $(el_window).find('.window-menubar')
-            // add window-with-menubar class to the window
-            $(el_window).addClass('window-with-menubar');
-        }else{
-            $menubar = $('.window-menubar-global[data-window-id="'+$(el_window).attr('data-id')+'"]');
-            // hide all other menubars
-            $('.window-menubar-global').hide();
-        }
+        $menubar = $(el_window).find('.window-menubar')
+        // add window-with-menubar class to the window
+        $(el_window).addClass('window-with-menubar');
         
         $menubar.css('display', 'flex');
 

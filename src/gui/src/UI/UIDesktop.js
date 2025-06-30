@@ -706,35 +706,6 @@ async function UIDesktop(options) {
     puter.kv.get("sidebar_items").then(async (val) => {
         window.sidebar_items = val;
     })
-    // also update every 2 seconds
-    // setInterval(async () => {
-    //     puter.kv.get("sidebar_items").then(async (val) => {
-    //         window.sidebar_items = val;
-    //     })
-    // }, 2000);
-
-    // Get menubar style
-    puter.kv.get('menubar_style').then(async (val) => {
-        let value = val;
-        if (value === 'system' || value === 'desktop' || value === 'window') {
-            window.menubar_style = value;
-        } else {
-            window.menubar_style = 'system';
-        }
-
-        if (window.menubar_style === 'system') {
-            if (window.detectHostOS() === 'macos')
-                window.menubar_style = 'desktop';
-            else
-                window.menubar_style = 'window';
-        }
-
-        // set menubar style class to body
-        if (window.menubar_style === 'desktop') {
-            $('body').addClass('menubar-style-desktop');
-        }
-    })
-
 
     // Remove `?ref=...` from navbar URL
     if (window.url_query_params.has('ref')) {
@@ -1145,10 +1116,21 @@ async function UIDesktop(options) {
             });
     }
     // ----------------------------------------------------
-    // User options
+    // Toolbar
     // ----------------------------------------------------
+    // Has user seen the toolbar animation?
+    window.has_seen_toolbar_animation = await puter.kv.get('has_seen_toolbar_animation') ?? false;
+    
     let ht = '';
-    ht += `<div class="toolbar" style="height:${window.toolbar_height}px; min-height:${window.toolbar_height}px; max-height:${window.toolbar_height}px;">`;
+    let style = '';
+    let class_name = '';
+    if(window.has_seen_toolbar_animation){
+        style = 'top: -20px; width: 40px;';
+        class_name = 'toolbar-hidden';
+    }else
+        style= 'height:30px; min-height:30px; max-height:30px;';
+
+    ht += `<div class="toolbar ${class_name}" style="${style}">`;
     // logo
     ht += `<div class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
 
@@ -1392,7 +1374,6 @@ async function UIDesktop(options) {
         }
 
         const stat = await puter.fs.stat(item_path);
-        console.log('stat result', stat);
         
         // TODO: DRY everything here with open_item. Unfortunately we can't
         //       use open_item here because it's coupled with UI logic;
@@ -1467,6 +1448,230 @@ async function UIDesktop(options) {
             app: 'explorer',
         });
     }
+
+    window.hide_toolbar = (animate = true) => {
+        if ($('.toolbar').hasClass('toolbar-hidden')) return;
+
+        // attach hidden class to toolbar
+        $('.toolbar').addClass('toolbar-hidden');
+
+        // animate the toolbar to top = -20px;
+        // animate width to 40px;
+        if (animate) {
+            $('.toolbar').animate({
+                top: '-20px',
+                width: '40px',
+            }, 100);
+        } else {
+            $('.toolbar').css({
+                top: '-20px',
+                width: '40px',
+            });
+        }
+        // animate hide toolbar-btn, toolbar-clock
+        if (animate) {
+            $('.toolbar-btn, #clock, .user-options-menu-btn').animate({
+                opacity: 0,
+            }, 10);
+        } else {
+            $('.toolbar-btn, #clock, .user-options-menu-btn').css({
+                opacity: 0,
+            });
+        }
+
+        if(!window.has_seen_toolbar_animation){
+            puter.kv.set({
+                key: "has_seen_toolbar_animation",
+                value: true,
+            })
+
+            window.has_seen_toolbar_animation = true;
+        }
+    }
+
+    window.show_toolbar = () => {
+        if (!$('.toolbar').hasClass('toolbar-hidden')) return;
+
+        // remove hidden class from toolbar
+        $('.toolbar').removeClass('toolbar-hidden');
+
+        $('.toolbar').animate({
+            top: 0,
+        }, 100).css('width', 'fit-content');
+
+        // animate show toolbar-btn, toolbar-clock
+        $('.toolbar-btn, #clock, .user-options-menu-btn').animate({
+            opacity: 0.8,
+        }, 50);
+    }
+
+    // Toolbar hide/show logic with improved UX
+    let toolbarHideTimeout = null;
+    let isMouseNearToolbar = false;
+
+    // Define safe zone around toolbar (in pixels)
+    const TOOLBAR_SAFE_ZONE = 30;
+    const TOOLBAR_HIDE_DELAY = 100; // Base delay before hiding
+    const TOOLBAR_QUICK_HIDE_DELAY = 200; // Quicker hide when mouse moves far away
+
+    // Function to check if mouse is in the safe zone around toolbar
+    window.isMouseInToolbarSafeZone = (mouseX, mouseY) => {
+        const toolbar = $('.toolbar')[0];
+        if (!toolbar) return false;
+        
+        const rect = toolbar.getBoundingClientRect();
+        
+        // Expand the toolbar bounds by the safe zone
+        const safeZone = {
+            top: rect.top - TOOLBAR_SAFE_ZONE,
+            bottom: rect.bottom + TOOLBAR_SAFE_ZONE,
+            left: rect.left - TOOLBAR_SAFE_ZONE,
+            right: rect.right + TOOLBAR_SAFE_ZONE
+        };
+        
+        return mouseX >= safeZone.left && 
+               mouseX <= safeZone.right && 
+               mouseY >= safeZone.top && 
+               mouseY <= safeZone.bottom;
+    };
+
+    // Function to handle toolbar hiding with improved logic
+    window.handleToolbarHiding = (mouseX, mouseY) => {
+        // Clear any existing timeout
+        if (toolbarHideTimeout) {
+            clearTimeout(toolbarHideTimeout);
+            toolbarHideTimeout = null;
+        }
+        
+        // Don't hide if toolbar is already hidden
+        if ($('.toolbar').hasClass('toolbar-hidden')) return;
+        
+        const wasNearToolbar = isMouseNearToolbar;
+        isMouseNearToolbar = window.isMouseInToolbarSafeZone(mouseX, mouseY);
+        
+        // If mouse is in safe zone, don't hide
+        if (isMouseNearToolbar) {
+            return;
+        }
+        
+        // Determine hide delay based on mouse movement pattern
+        let hideDelay = TOOLBAR_HIDE_DELAY;
+        
+        // If mouse was previously near toolbar and now moved far away, hide quicker
+        if (wasNearToolbar && !isMouseNearToolbar) {
+            // Check if mouse moved significantly away
+            const toolbar = $('.toolbar')[0];
+            if (toolbar) {
+                const rect = toolbar.getBoundingClientRect();
+                const distanceFromToolbar = Math.min(
+                    Math.abs(mouseY - rect.bottom),
+                    Math.abs(mouseY - rect.top)
+                );
+                
+                // If mouse is far from toolbar, hide quicker
+                if (distanceFromToolbar > TOOLBAR_SAFE_ZONE * 2) {
+                    hideDelay = TOOLBAR_QUICK_HIDE_DELAY;
+                }
+            }
+        }
+        
+        // Set timeout to hide toolbar
+        toolbarHideTimeout = setTimeout(() => {
+            // Double-check mouse position before hiding
+            if (!window.isMouseInToolbarSafeZone(window.mouseX, window.mouseY)) {
+                window.hide_toolbar();
+            }
+            toolbarHideTimeout = null;
+        }, hideDelay);
+    };
+
+    // hovering over a hidden toolbar will show it
+    $(document).on('mouseenter', '.toolbar-hidden', function () {
+        // if a window is being dragged, don't show the toolbar
+        if(window.a_window_is_being_dragged)
+            return;
+
+        if(window.is_fullpage_mode)
+            $('.window-app-iframe').css('pointer-events', 'none');
+
+        window.show_toolbar();
+        // Clear any pending hide timeout
+        if (toolbarHideTimeout) {
+            clearTimeout(toolbarHideTimeout);
+            toolbarHideTimeout = null;
+        }
+    });
+
+    // hovering over a visible toolbar will show it and cancel hiding
+    $(document).on('mouseenter', '.toolbar:not(.toolbar-hidden)', function () {
+        // if a window is being dragged, don't show the toolbar
+        if(window.a_window_is_being_dragged)
+            return;
+
+        // Clear any pending hide timeout when entering toolbar
+        if (toolbarHideTimeout) {
+            clearTimeout(toolbarHideTimeout);
+            toolbarHideTimeout = null;
+        }
+        isMouseNearToolbar = true;
+    });
+
+    $(document).on('mouseenter', '.toolbar', function () {
+        if(window.is_fullpage_mode)
+            $('.toolbar').focus();
+    });
+
+    // any click will hide the toolbar, unless:
+    // - it's on the toolbar
+    // - it's the user options menu button
+    // - the user options menu is open
+    $(document).on('click', function(e){
+        // if the user has not seen the toolbar animation, don't hide the toolbar
+        if(!window.has_seen_toolbar_animation)
+            return;
+
+        if(
+            !$(e.target).hasClass('toolbar') && 
+            !$(e.target).hasClass('user-options-menu-btn') && 
+            $('.context-menu[data-id="user-options-menu"]').length === 0 &&
+            true
+        ){
+            window.hide_toolbar(false);
+        }
+    })
+
+    // Handle mouse leaving the toolbar
+    $(document).on('mouseleave', '.toolbar', function () {
+        window.has_left_toolbar_at_least_once = true;
+        // if the user options menu is open, don't hide the toolbar
+        if ($('.context-menu[data-id="user-options-menu"]').length > 0)
+            return;
+    
+        // Start the hiding logic with current mouse position
+        window.handleToolbarHiding(window.mouseX, window.mouseY);
+    });
+
+    // Track mouse movement globally to update toolbar hiding logic
+    $(document).on('mousemove', function(e) {
+        // if the user has not seen the toolbar animation, don't hide the toolbar
+        if(!window.has_seen_toolbar_animation && !window.has_left_toolbar_at_least_once)
+            return;
+
+        // if the user options menu is open, don't hide the toolbar
+        if ($('.context-menu[data-id="user-options-menu"]').length > 0)
+            return;
+
+        // Only handle toolbar hiding if toolbar is visible and mouse moved significantly
+        if (!$('.toolbar').hasClass('toolbar-hidden')) {
+            // Use throttling to avoid excessive calls
+            if (!window.mouseMoveThrottle) {
+                window.mouseMoveThrottle = setTimeout(() => {
+                    window.handleToolbarHiding(window.mouseX, window.mouseY);
+                    window.mouseMoveThrottle = null;
+                }, 100); // Throttle to every 100ms
+            }
+        }
+    });
 }
 
 $(document).on('contextmenu taphold', '.taskbar', function (event) {
