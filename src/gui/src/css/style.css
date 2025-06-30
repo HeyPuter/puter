@@ -1773,7 +1773,12 @@ label {
     border-bottom-right-radius: 10px;
     width: fit-content;
     overflow: clip;
-    box-shadow: 0 0 10px rgb(0 0 0 / 26%);
+    box-shadow: rgb(255 255 255 / 14%) 0px 0px 0px 0.5px inset, rgba(0, 0, 0, 0.2) 0px 0px 0px 0.5px, rgba(0, 0, 0, 0.2) 0px 2px 14px;
+
+}
+
+.toolbar-hidden {
+    box-shadow: rgb(255 255 255 / 44%) 0px 0px 0px 0.5px inset, rgba(0, 0, 0, 0.2) 0px 0px 0px 0.5px, rgba(0, 0, 0, 0.2) 0px 2px 14px;
 }
 
 .show-desktop-btn {
