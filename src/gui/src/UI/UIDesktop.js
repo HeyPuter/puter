@@ -1124,11 +1124,12 @@ async function UIDesktop(options) {
     let ht = '';
     let style = '';
     let class_name = '';
-    if(window.has_seen_toolbar_animation){
+    if(window.has_seen_toolbar_animation && !isMobile.phone && !isMobile.tablet){
         style = 'top: -20px; width: 40px;';
         class_name = 'toolbar-hidden';
-    }else
+    }else{
         style= 'height:30px; min-height:30px; max-height:30px;';
+    }
 
     ht += `<div class="toolbar ${class_name}" style="${style}">`;
     // logo
@@ -1450,6 +1451,11 @@ async function UIDesktop(options) {
     }
 
     window.hide_toolbar = (animate = true) => {
+        // Always show toolbar on mobile and tablet devices
+        if (isMobile.phone || isMobile.tablet) {
+            return;
+        }
+        
         if ($('.toolbar').hasClass('toolbar-hidden')) return;
 
         // attach hidden class to toolbar
@@ -1537,6 +1543,11 @@ async function UIDesktop(options) {
 
     // Function to handle toolbar hiding with improved logic
     window.handleToolbarHiding = (mouseX, mouseY) => {
+        // Always show toolbar on mobile and tablet devices
+        if (isMobile.phone || isMobile.tablet) {
+            return;
+        }
+        
         // Clear any existing timeout
         if (toolbarHideTimeout) {
             clearTimeout(toolbarHideTimeout);
@@ -1626,6 +1637,11 @@ async function UIDesktop(options) {
     // - it's the user options menu button
     // - the user options menu is open
     $(document).on('click', function(e){
+        // Always show toolbar on mobile and tablet devices
+        if (isMobile.phone || isMobile.tablet) {
+            return;
+        }
+        
         // if the user has not seen the toolbar animation, don't hide the toolbar
         if(!window.has_seen_toolbar_animation)
             return;
@@ -1642,6 +1658,11 @@ async function UIDesktop(options) {
 
     // Handle mouse leaving the toolbar
     $(document).on('mouseleave', '.toolbar', function () {
+        // Always show toolbar on mobile and tablet devices
+        if (isMobile.phone || isMobile.tablet) {
+            return;
+        }
+        
         window.has_left_toolbar_at_least_once = true;
         // if the user options menu is open, don't hide the toolbar
         if ($('.context-menu[data-id="user-options-menu"]').length > 0)
@@ -1653,6 +1674,11 @@ async function UIDesktop(options) {
 
     // Track mouse movement globally to update toolbar hiding logic
     $(document).on('mousemove', function(e) {
+        // Always show toolbar on mobile and tablet devices
+        if (isMobile.phone || isMobile.tablet) {
+            return;
+        }
+        
         // if the user has not seen the toolbar animation, don't hide the toolbar
         if(!window.has_seen_toolbar_animation && !window.has_left_toolbar_at_least_once)
             return;

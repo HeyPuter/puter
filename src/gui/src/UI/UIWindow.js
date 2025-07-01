@@ -3305,7 +3305,9 @@ window.scale_window = (el_window)=>{
         });
 
         // hide toolbar
-        window.hide_toolbar();
+        if(!isMobile.phone && !isMobile.tablet){
+            window.hide_toolbar();
+        }
     }
     //shrink
     else {
