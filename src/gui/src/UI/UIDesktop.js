@@ -70,19 +70,8 @@ async function UIDesktop(options) {
 
     // Load the toolbar auto-hide preference
     let toolbar_auto_hide_enabled_val = await puter.kv.get('toolbar_auto_hide_enabled');
-    console.log('toolbar_auto_hide_enabled_val', toolbar_auto_hide_enabled_val);
     if(toolbar_auto_hide_enabled_val === 'false' || toolbar_auto_hide_enabled_val === false){
         window.toolbar_auto_hide_enabled = false;
-    }
-
-    // If auto-hide is disabled, ensure toolbar is visible on load
-    if (!window.toolbar_auto_hide_enabled) {
-        // Make sure toolbar is visible when auto-hide is disabled
-        setTimeout(() => {
-            if ($('.toolbar').hasClass('toolbar-hidden')) {
-                window.show_toolbar();
-            }
-        }, 100); // Small delay to ensure DOM is ready
     }
 
     // Modify the hide/show functions to use CSS rules that will apply to all icons, including future ones
@@ -1155,7 +1144,6 @@ async function UIDesktop(options) {
     // logo
     ht += `<div class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
 
-
     // clock spacer
     ht += `<div class="toolbar-spacer"></div>`;
 
@@ -1188,7 +1176,6 @@ async function UIDesktop(options) {
     // search button
     ht += `<div class="toolbar-btn search-btn" title="${i18n('toolbar.search')}" style="background-image:url('${window.icons['search.svg']}')"></div>`;
 
-
     //clock 
     ht += `<div id="clock" class="toolbar-clock" style="">12:00 AM Sun, Jan 01</div>`;
 
@@ -1201,6 +1188,15 @@ async function UIDesktop(options) {
     // prepend toolbar to desktop
     $(ht).insertBefore(el_desktop);
 
+    // If auto-hide is disabled, ensure toolbar is visible on load
+    if (!window.toolbar_auto_hide_enabled) {
+        // Make sure toolbar is visible when auto-hide is disabled
+        setTimeout(() => {
+            if ($('.toolbar').hasClass('toolbar-hidden')) {
+                window.show_toolbar();
+            }
+        }, 100); // Small delay to ensure DOM is ready
+    }
 
     // send event
     window.dispatchEvent(new CustomEvent('toolbar:ready'));
