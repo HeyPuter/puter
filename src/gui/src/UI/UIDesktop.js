@@ -1102,6 +1102,8 @@ async function UIDesktop(options) {
                 }
             })
             .on('move', ({ store: { changed: { added, removed } }, event }) => {
+                window.desktop_selectable_is_active = true;
+
                 for (const el of added) {
                     // if ctrl or meta key is pressed and the item is already selected, then unselect it
                     if ((event.ctrlKey || event.metaKey) && $(el).hasClass('item-selected')) {
@@ -1122,6 +1124,7 @@ async function UIDesktop(options) {
                 }
             })
             .on('stop', evt => {
+                window.desktop_selectable_is_active = false;
             });
     }
     // ----------------------------------------------------
@@ -1524,7 +1527,7 @@ async function UIDesktop(options) {
 
         $('.toolbar').animate({
             top: 0,
-        }, 100).css('width', 'fit-content');
+        }, 100).css('width', 'max-content');
 
         // animate show toolbar-btn, toolbar-clock
         $('.toolbar-btn, #clock, .user-options-menu-btn').animate({
@@ -1626,6 +1629,10 @@ async function UIDesktop(options) {
     $(document).on('mouseenter', '.toolbar-hidden', function () {
         // if a window is being dragged, don't show the toolbar
         if(window.a_window_is_being_dragged)
+            return;
+
+        // if selectable is active , don't show the toolbar
+        if(window.desktop_selectable_is_active)
             return;
 
         if(window.is_fullpage_mode)

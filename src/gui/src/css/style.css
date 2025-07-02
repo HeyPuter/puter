@@ -346,6 +346,7 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
     grid-template-rows: repeat(auto-fill, 109px);
     grid-auto-flow: column;
     grid-template-columns: repeat(auto-fill, 120px);
+    padding-top: 15px;
 }
 
 .fullpage-mode .window-minimize-btn {
@@ -1771,9 +1772,10 @@ label {
     border-top-left-radius: 0px;
     border-bottom-left-radius: 10px;
     border-bottom-right-radius: 10px;
-    width: fit-content;
+    width: max-content;
     overflow: clip;
     box-shadow: rgb(255 255 255 / 14%) 0px 0px 0px 0.5px inset, rgba(0, 0, 0, 0.2) 0px 0px 0px 0.5px, rgba(0, 0, 0, 0.2) 0px 2px 14px;
+    position: absolute;
 
 }
 
