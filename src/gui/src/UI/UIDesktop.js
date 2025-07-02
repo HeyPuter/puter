@@ -65,6 +65,26 @@ async function UIDesktop(options) {
         }
     });
 
+    // Initialize toolbar auto-hide preference
+    window.toolbar_auto_hide_enabled = true; // Set default value
+
+    // Load the toolbar auto-hide preference
+    let toolbar_auto_hide_enabled_val = await puter.kv.get('toolbar_auto_hide_enabled');
+    console.log('toolbar_auto_hide_enabled_val', toolbar_auto_hide_enabled_val);
+    if(toolbar_auto_hide_enabled_val === 'false' || toolbar_auto_hide_enabled_val === false){
+        window.toolbar_auto_hide_enabled = false;
+    }
+
+    // If auto-hide is disabled, ensure toolbar is visible on load
+    if (!window.toolbar_auto_hide_enabled) {
+        // Make sure toolbar is visible when auto-hide is disabled
+        setTimeout(() => {
+            if ($('.toolbar').hasClass('toolbar-hidden')) {
+                window.show_toolbar();
+            }
+        }, 100); // Small delay to ensure DOM is ready
+    }
+
     // Modify the hide/show functions to use CSS rules that will apply to all icons, including future ones
     window.hideDesktopIcons = function () {
         // Add a CSS class to the desktop container that will hide all child icons
@@ -1456,6 +1476,11 @@ async function UIDesktop(options) {
             return;
         }
         
+        // Don't hide toolbar if auto-hide is disabled
+        if (!window.toolbar_auto_hide_enabled) {
+            return;
+        }
+        
         if ($('.toolbar').hasClass('toolbar-hidden')) return;
 
         // attach hidden class to toolbar
@@ -1512,7 +1537,7 @@ async function UIDesktop(options) {
     }
 
     // Toolbar hide/show logic with improved UX
-    let toolbarHideTimeout = null;
+    window.toolbarHideTimeout = null;
     let isMouseNearToolbar = false;
 
     // Define safe zone around toolbar (in pixels)
@@ -1548,10 +1573,15 @@ async function UIDesktop(options) {
             return;
         }
         
+        // Don't hide toolbar if auto-hide is disabled
+        if (!window.toolbar_auto_hide_enabled) {
+            return;
+        }
+        
         // Clear any existing timeout
-        if (toolbarHideTimeout) {
-            clearTimeout(toolbarHideTimeout);
-            toolbarHideTimeout = null;
+        if (window.toolbarHideTimeout) {
+            clearTimeout(window.toolbarHideTimeout);
+            window.toolbarHideTimeout = null;
         }
         
         // Don't hide if toolbar is already hidden
@@ -1587,12 +1617,12 @@ async function UIDesktop(options) {
         }
         
         // Set timeout to hide toolbar
-        toolbarHideTimeout = setTimeout(() => {
+        window.toolbarHideTimeout = setTimeout(() => {
             // Double-check mouse position before hiding
             if (!window.isMouseInToolbarSafeZone(window.mouseX, window.mouseY)) {
                 window.hide_toolbar();
             }
-            toolbarHideTimeout = null;
+            window.toolbarHideTimeout = null;
         }, hideDelay);
     };
 
@@ -1607,9 +1637,9 @@ async function UIDesktop(options) {
 
         window.show_toolbar();
         // Clear any pending hide timeout
-        if (toolbarHideTimeout) {
-            clearTimeout(toolbarHideTimeout);
-            toolbarHideTimeout = null;
+        if (window.toolbarHideTimeout) {
+            clearTimeout(window.toolbarHideTimeout);
+            window.toolbarHideTimeout = null;
         }
     });
 
@@ -1620,9 +1650,9 @@ async function UIDesktop(options) {
             return;
 
         // Clear any pending hide timeout when entering toolbar
-        if (toolbarHideTimeout) {
-            clearTimeout(toolbarHideTimeout);
-            toolbarHideTimeout = null;
+        if (window.toolbarHideTimeout) {
+            clearTimeout(window.toolbarHideTimeout);
+            window.toolbarHideTimeout = null;
         }
         isMouseNearToolbar = true;
     });
@@ -1639,6 +1669,11 @@ async function UIDesktop(options) {
     $(document).on('click', function(e){
         // Always show toolbar on mobile and tablet devices
         if (isMobile.phone || isMobile.tablet) {
+            return;
+        }
+        
+        // Don't hide toolbar if auto-hide is disabled
+        if (!window.toolbar_auto_hide_enabled) {
             return;
         }
         
@@ -1663,6 +1698,11 @@ async function UIDesktop(options) {
             return;
         }
         
+        // Don't hide toolbar if auto-hide is disabled
+        if (!window.toolbar_auto_hide_enabled) {
+            return;
+        }
+        
         window.has_left_toolbar_at_least_once = true;
         // if the user options menu is open, don't hide the toolbar
         if ($('.context-menu[data-id="user-options-menu"]').length > 0)
@@ -1676,6 +1716,11 @@ async function UIDesktop(options) {
     $(document).on('mousemove', function(e) {
         // Always show toolbar on mobile and tablet devices
         if (isMobile.phone || isMobile.tablet) {
+            return;
+        }
+        
+        // Don't hide toolbar if auto-hide is disabled
+        if (!window.toolbar_auto_hide_enabled) {
             return;
         }
         
@@ -1732,6 +1777,54 @@ $(document).on('contextmenu taphold', '.taskbar', function (event) {
     });
     return false;
 })
+
+// Toolbar context menu
+$(document).on('contextmenu taphold', '.toolbar', function (event) {
+    // dismiss taphold on regular devices
+    if (event.type === 'taphold' && !isMobile.phone && !isMobile.tablet)
+        return;
+
+    // Don't show context menu on mobile devices since toolbar auto-hide is disabled there
+    if (isMobile.phone || isMobile.tablet)
+        return;
+
+    event.preventDefault();
+    event.stopPropagation();
+        
+    UIContextMenu({
+        parent_element: $('.toolbar'),
+        items: [
+            //--------------------------------------------------
+            // Enable/Disable Auto-hide
+            //--------------------------------------------------
+            {
+                html: window.toolbar_auto_hide_enabled ? i18n('Disable Auto-hide') : i18n('Enable Auto-hide'),
+                onClick: function () {
+                    // Toggle the preference
+                    window.toolbar_auto_hide_enabled = !window.toolbar_auto_hide_enabled;
+                    
+                    // Save the preference
+                    puter.kv.set('toolbar_auto_hide_enabled', window.toolbar_auto_hide_enabled.toString());
+                    
+                    // If auto-hide was just disabled and toolbar is currently hidden, show it
+                    if (!window.toolbar_auto_hide_enabled && $('.toolbar').hasClass('toolbar-hidden')) {
+                        window.show_toolbar();
+                    }
+                    
+                    // Clear any pending hide timeout
+                    if (window.toolbarHideTimeout) {
+                        clearTimeout(window.toolbarHideTimeout);
+                        window.toolbarHideTimeout = null;
+                    }
+
+                    // hide toolbar
+                    window.hide_toolbar();
+                }
+            }
+        ]
+    });
+    return false;
+});
 
 $(document).on('click', '.qr-btn', async function (e) {
     UIWindowQR({
