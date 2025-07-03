@@ -437,6 +437,17 @@ class AIChatService extends BaseService {
                 const model_details = this.get_model_details(model_used, {
                     service_used,
                 });
+
+                if ( ! model_details ) {
+                    // TODO (xiaochen): replace with a standard link
+                    const available_models_url = this.global_config.origin + "/puterai/chat/models";
+
+                    throw APIError.create('field_invalid', null, {
+                        key: 'model',
+                        expected: `a valid model name from ${available_models_url}`,
+                        got: model_used,
+                    });
+                }
                 
                 const model_input_cost = model_details.cost.input;
                 const model_output_cost = model_details.cost.output;
