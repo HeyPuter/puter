@@ -279,7 +279,7 @@ class DriverService extends BaseService {
             'puter-notifications': 'es:notification',
         }
         
-        driver = driver ?? iface_to_driver[iface] ?? iface;
+        driver = iface_to_driver[iface] ?? driver ?? iface;
         
         // For these ones, the interface specified actually specifies the
         // specificc driver to use.
