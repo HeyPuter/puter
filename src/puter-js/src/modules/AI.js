@@ -137,29 +137,29 @@ class AI{
         }
 
         // * ai.txt2speech('Hello, world!', 'en-US')
-        // * ai.txt2speech('Hello, world!', 'Brian')
         // * ai.txt2speech('Hello, world!', 'en-US', 'Brian')
-        // * ai.txt2speech('Hello, world!', 'Brian', 'en-US')
         if (args[1] && typeof args[1] === 'string') {
-            // Check if it's a language code (ISO 639-1 or with region)
-            // Pattern matches: en, es, fr, de, en-US, es-ES, fr-FR, etc.
-            const languageCodePattern = /^[a-z]{2}(-[A-Z]{2})?$/;
             
-            // * ai.txt2speech('Hello, world!', 'en-US')
-            if (languageCodePattern.test(args[1])) {
+            // Determine language
+            if (args[1] && typeof args[1] === 'string') {
+                // Check if it's a language code (ISO 639-1 or with region)
+                // Pattern matches: en, es, fr, de, en-US, es-ES, fr-FR, etc.
+                const languageCodePattern = /^[a-z]{2}(-[A-Z]{2})?$/;
+
+                // if language code is invalid, throw an error
+                if(!languageCodePattern.test(args[1])){
+                    throw { message: 'Invalid language code', code: 'invalid_language_code' };
+                }
+
+                // set language
                 options.language = args[1];
             }
-            // * ai.txt2speech('Hello, world!', 'Brian')
-            else {
-                options.voice = args[1];
-            }
-            // * ai.txt2speech('Hello, world!', 'en-US', 'Brian')
-            if (args[2] && typeof args[2] === 'string' && options.language) {
+            // Determine voice
+            // Note that voice is optional, and if not provided, the default voice for the language will be used
+            // Also, it is important that a language is set before a voice is set since voices are language-specific
+            if (options.language && args[2] && typeof args[2] === 'string') {
+                // set voice
                 options.voice = args[2];
-            }
-            // * ai.txt2speech('Hello, world!', 'Brian', 'en-US')
-            else if (args[2] && typeof args[2] === 'string' && options.voice) {
-                options.language = args[2];
             }
         }
 
