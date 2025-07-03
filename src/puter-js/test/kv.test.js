@@ -260,7 +260,7 @@ window.kvTests = [
     // incr
     testIncr = async function() {
         try {
-            const result = await puter.kv.incr('incrKey');
+            const result = await puter.kv.incr(puter.randName());
             assert(result === 1, "Failed to increment key");
             pass("testIncr passed");
         } catch (error) {
@@ -271,7 +271,7 @@ window.kvTests = [
     // decr
     testDecr = async function() {
         try {
-            const result = await puter.kv.decr('decrKey');
+            const result = await puter.kv.decr(puter.randName());
             assert(result === -1, "Failed to decrement key");
             pass("testDecr passed");
         } catch (error) {
