@@ -42,8 +42,22 @@
             // $('#tests').append(`<p style="color:green;">${msg}</p>`);
         }
 
-        window.fail = function(msg) {
-            throw new Error(msg);
+        window.fail = function(msg, error) {
+            // Include the full error information in the thrown error
+            let fullMessage = msg;
+            if (error) {
+                if (typeof error === 'string') {
+                    fullMessage += ' ' + error;
+                } else if (error.message) {
+                    fullMessage += ' ' + error.message;
+                } else {
+                    fullMessage += ' ' + JSON.stringify(error);
+                }
+            }
+            const err = new Error(fullMessage);
+            // Attach the original error for detailed display
+            err.originalError = error;
+            throw err;
         }
         
         // print the test name with checkbox for each test
@@ -79,11 +93,15 @@
                         $(`#fsTests-container-${i}`).css('background-color', '#85e085');
 
                     } catch (e) {
-                        console.log(e);
+                        console.error('FS Test failed:', fsTests[i].name, e);
                         // make this test's container red
                         $(`#fsTests-container-${i}`).css('background-color', '#ffbfbf');
-                        // message
-                        $(`#fsTests-container-${i}`).append(`<p style="color:#c00000;">${e}</p>`);
+                        // message - show full error information including JSON details
+                        let errorMessage = e.message || e.toString();
+                        if (e.originalError) {
+                            errorMessage += '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
+                        }
+                        $(`#fsTests-container-${i}`).append(`<pre style="color:#c00000; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`);
                     }
                 }
             }
@@ -96,10 +114,15 @@
                         $(`#kvTests-container-${i}`).css('background-color', '#85e085');
 
                     } catch (e) {
+                        console.error('KV Test failed:', kvTests[i].name, e);
                         // make this test's container red
                         $(`#kvTests-container-${i}`).css('background-color', '#ff8484');
-                        // message
-                        $(`#kvTests-container-${i}`).append(`<p style="color:red;">${e}</p>`);
+                        // message - show full error information including JSON details
+                        let errorMessage = e.message || e.toString();
+                        if (e.originalError) {
+                            errorMessage += '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
+                        }
+                        $(`#kvTests-container-${i}`).append(`<pre style="color:red; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`);
                     }
                 }
             }
