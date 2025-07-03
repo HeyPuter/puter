@@ -87,7 +87,7 @@ class KVStoreInterfaceService extends BaseService {
                     result: { type: 'number' },
                 },
                 decr: {
-                    description: 'Increment a value by key.',
+                    description: 'Decrement a value by key.',
                     parameters: {
                         key: { type: 'string', required: true, },
                         amount: { type: 'number' },
