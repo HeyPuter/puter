@@ -136,9 +136,31 @@ class AI{
             options = { text: args[0] };
         }
 
-        // if second argument is string, it's the language
+        // * ai.txt2speech('Hello, world!', 'en-US')
+        // * ai.txt2speech('Hello, world!', 'Brian')
+        // * ai.txt2speech('Hello, world!', 'en-US', 'Brian')
+        // * ai.txt2speech('Hello, world!', 'Brian', 'en-US')
         if (args[1] && typeof args[1] === 'string') {
-            options.language = args[1];
+            // Check if it's a language code (ISO 639-1 or with region)
+            // Pattern matches: en, es, fr, de, en-US, es-ES, fr-FR, etc.
+            const languageCodePattern = /^[a-z]{2}(-[A-Z]{2})?$/;
+            
+            // * ai.txt2speech('Hello, world!', 'en-US')
+            if (languageCodePattern.test(args[1])) {
+                options.language = args[1];
+            }
+            // * ai.txt2speech('Hello, world!', 'Brian')
+            else {
+                options.voice = args[1];
+            }
+            // * ai.txt2speech('Hello, world!', 'en-US', 'Brian')
+            if (args[2] && typeof args[2] === 'string' && options.language) {
+                options.voice = args[2];
+            }
+            // * ai.txt2speech('Hello, world!', 'Brian', 'en-US')
+            else if (args[2] && typeof args[2] === 'string' && options.voice) {
+                options.language = args[2];
+            }
         }
 
         // check input size
