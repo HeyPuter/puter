@@ -98,6 +98,10 @@ config.puter_hosted_data = {
 // config.reserved_words = reserved_words;
 config.reserved_words = [];
 
+{
+    config.reserved_words.push(...require('./config/reserved_words'));
+}
+
 // set default S3 settings for this server, if any
 if (config.server_id) {
 	// see if this server has a specific bucket
