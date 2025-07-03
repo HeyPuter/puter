@@ -440,7 +440,7 @@ class AIChatService extends BaseService {
 
                 if ( ! model_details ) {
                     // TODO (xiaochen): replace with a standard link
-                    const available_models_url = "https://puter.com/puterai/chat/models";
+                    const available_models_url = this.global_config.origin + "/puterai/chat/models";
 
                     throw APIError.create('field_invalid', null, {
                         key: 'model',
