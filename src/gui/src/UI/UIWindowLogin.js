@@ -28,8 +28,6 @@ import JustHTML from './Components/JustHTML.js';
 import StepView from './Components/StepView.js';
 import Button from './Components/Button.js';
 import RecoveryCodeEntryView from './Components/RecoveryCodeEntryView.js';
-import CaptchaView from './Components/CaptchaView.js'
-import { isCaptchaRequired } from '../helpers/captchaHelper.js';
 
 async function UIWindowLogin(options){
     options = options ?? {};
@@ -39,10 +37,6 @@ async function UIWindowLogin(options){
     
     return new Promise(async (resolve) => {
         const internal_id = window.uuidv4();
-        
-        // Check if captcha is required for login
-        const captchaRequired = await isCaptchaRequired('login');
-        console.log('Login captcha required:', captchaRequired);
         
         let h = ``;
         h += `<div style="max-width:100%; width:100%; height:100%; min-height:0; box-sizing:border-box; display:flex; flex-direction:column; justify-content:flex-start; align-items:stretch; padding:0; overflow:auto; color:var(--color-text);">`;
@@ -77,10 +71,6 @@ async function UIWindowLogin(options){
                                 <img class="toggle-show-password-icon" src="${options.show_password ? window.icons["eye-closed.svg"] : window.icons["eye-open.svg"]}" width="20" height="20">
                             </span>`;
                     h += `</div>`;
-                    // captcha placeholder - will be replaced with actual captcha component
-                    h += `<div class="captcha-container"></div>`;
-                    // captcha-specific error message
-                    h += `<div class="captcha-error-msg" style="color: #e74c3c; font-size: 12px; margin-top: 5px; display: none;" aria-live="polite"></div>`;
                     // login
                     h += `<button type="submit" class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
                     // password recovery
@@ -141,46 +131,6 @@ async function UIWindowLogin(options){
             }    
         })
 
-        // Initialize the captcha component with the required state
-        const captchaContainer = $(el_window).find('.captcha-container')[0];
-        const captcha = CaptchaView({ 
-            container: captchaContainer,
-            required: captchaRequired,
-        });
-
-        // Function to show captcha-specific error
-        const showCaptchaError = (message) => {
-            // Hide the general error message if shown
-            $(el_window).find('.login-error-msg').hide();
-            
-            // Show captcha-specific error
-            const captchaError = $(el_window).find('.captcha-error-msg');
-            captchaError.html(message);
-            captchaError.fadeIn();
-            
-            // Add visual indication of error to captcha container
-            $(captchaContainer).addClass('error');
-            $(captchaContainer).css('border', '1px solid #e74c3c');
-            $(captchaContainer).css('border-radius', '4px');
-            $(captchaContainer).css('padding', '10px');
-            
-            // Focus on the captcha input for better UX
-            setTimeout(() => {
-                const captchaInput = $(captchaContainer).find('.captcha-input');
-                if (captchaInput.length) {
-                    captchaInput.focus();
-                }
-            }, 100);
-        };
-
-        // Function to clear captcha errors
-        const clearCaptchaError = () => {
-            $(el_window).find('.captcha-error-msg').hide();
-            $(captchaContainer).removeClass('error');
-            $(captchaContainer).css('border', '');
-            $(captchaContainer).css('padding', '');
-        };
-
         $(el_window).find('.forgot-password-link').on('click', function(e){
             UIWindowRecoverPassword({
                 window_options: {
@@ -197,7 +147,6 @@ async function UIWindowLogin(options){
             
             // Clear previous error states
             $(el_window).find('.login-error-msg').hide();
-            clearCaptchaError();
 
             const email_username = $(el_window).find('.email_or_username').val();
             const password = $(el_window).find('.password').val();
@@ -215,61 +164,17 @@ async function UIWindowLogin(options){
                 return;
             }
             
-            // Get captcha token and answer if required
-            let captchaToken = null;
-            let captchaAnswer = null;
-            
-            if (captcha.isRequired()) {
-                captchaToken = captcha.getToken();
-                captchaAnswer = captcha.getAnswer();
-                
-                // Validate captcha if it's required
-                if (!captcha || !captchaContainer) {
-                    $(el_window).find('.login-error-msg').html(i18n('captcha_system_error') || 'Verification system error. Please refresh the page.');
-                    $(el_window).find('.login-error-msg').fadeIn();
-                    return;
-                }
-                
-                if (!captchaToken) {
-                    showCaptchaError(i18n('captcha_load_error') || 'Could not load verification code. Please refresh the page or try again later.');
-                    return;
-                }
-                
-                if (!captchaAnswer) {
-                    showCaptchaError(i18n('captcha_required') || 'Please enter the verification code');
-                    return;
-                }
-                
-                if (captchaAnswer.trim().length < 3) {
-                    showCaptchaError(i18n('captcha_too_short') || 'Verification code answer is too short.');
-                    return;
-                }
-                
-                if (captchaAnswer.trim().length > 12) {
-                    showCaptchaError(i18n('captcha_too_long') || 'Verification code answer is too long.');
-                    return;
-                }
-            }
-            
             // Prepare data for the request
             let data;
             if(window.is_email(email_username)){
                 data = JSON.stringify({ 
                     email: email_username, 
                     password: password,
-                    ...(captchaToken && captchaAnswer ? { 
-                        captchaToken: captchaToken,
-                        captchaAnswer: captchaAnswer 
-                    } : {})
                 });
             } else {
                 data = JSON.stringify({ 
                     username: email_username, 
                     password: password,
-                    ...(captchaToken && captchaAnswer ? { 
-                        captchaToken: captchaToken,
-                        captchaAnswer: captchaAnswer 
-                    } : {})
                 });
             }
         
@@ -485,30 +390,10 @@ async function UIWindowLogin(options){
                     
                     // Handle captcha-specific errors
                     const errorText = err.responseText || '';
-                    const errorStatus = err.status || 0;
                     
                     // Try to parse error as JSON
                     try {
                         const errorJson = JSON.parse(errorText);
-                        
-                        // Check for specific error codes
-                        if (errorJson.code === 'captcha_required') {
-                            // If captcha is now required but wasn't before, update the component
-                            if (!captcha.isRequired()) {
-                                captcha.setRequired(true);
-                                showCaptchaError(i18n('captcha_now_required') || 'Verification is now required. Please complete the verification below.');
-                            } else {
-                                showCaptchaError(i18n('captcha_required') || 'Please enter the verification code');
-                            }
-                            return;
-                        } 
-                        
-                        if (errorJson.code === 'captcha_invalid' || errorJson.code === 'captcha_error') {
-                            showCaptchaError(i18n('captcha_invalid') || 'Invalid verification code');
-                            // Refresh the captcha if it's invalid
-                            captcha.reset();
-                            return;
-                        }
                         
                         // If it's a message in the JSON, use that
                         if (errorJson.message) {
@@ -518,33 +403,6 @@ async function UIWindowLogin(options){
                         }
                     } catch (e) {
                         // Not JSON, continue with text analysis
-                    }
-                    
-                    // Check for specific captcha errors using more robust detection for text responses
-                    if (
-                        errorText.includes('captcha_required') || 
-                        errorText.includes('Captcha verification required') ||
-                        (errorText.includes('captcha') && errorText.includes('required'))
-                    ) {
-                        // If captcha is now required but wasn't before, update the component
-                        if (!captcha.isRequired()) {
-                            captcha.setRequired(true);
-                            showCaptchaError(i18n('captcha_now_required') || 'Verification is now required. Please complete the verification below.');
-                        } else {
-                            showCaptchaError(i18n('captcha_required') || 'Please enter the verification code');
-                        }
-                        return;
-                    } 
-                    
-                    if (
-                        errorText.includes('captcha_invalid') || 
-                        errorText.includes('Invalid captcha') ||
-                        (errorText.includes('captcha') && (errorText.includes('invalid') || errorText.includes('incorrect')))
-                    ) {
-                        showCaptchaError(i18n('captcha_invalid') || 'Invalid verification code');
-                        // Refresh the captcha if it's invalid
-                        captcha.reset();
-                        return;
                     }
                     
                     // Fall back to original error handling

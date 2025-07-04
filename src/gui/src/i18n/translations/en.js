@@ -417,20 +417,6 @@ const en = {
         'billing.expanded': 'Expanded',
         'billing.accelerated': 'Accelerated',
         'billing.enjoy_msg': 'Enjoy %% of Cloud Storage plus other benefits.',
-        
-        // Captcha related strings
-        'captcha_verification': 'Verification Code',
-        'enter_captcha_text': 'Enter the text you see above',
-        'refresh_captcha': 'Get a new code',
-        'captcha_case_sensitive': 'Please enter the characters exactly as they appear. Case sensitive.',
-        'captcha_required': 'Please complete the verification code.',
-        'captcha_now_required': 'Verification is now required. Please complete the verification below.',
-        'captcha_invalid': 'Incorrect verification code. Please try again.',
-        'captcha_expired': 'Verification code has expired. Please try a new one.',
-        'captcha_system_error': 'Verification system error. Please refresh the page.',
-        'captcha_load_error': 'Could not load verification code. Please refresh the page or try again later.',
-        'captcha_too_short': 'Verification code answer is too short.',
-        'captcha_too_long': 'Verification code answer is too long.',
         'too_many_attempts': 'Too many attempts. Please try again later.',
         'server_timeout': 'The server took too long to respond. Please try again.',
         'signup_error': 'An error occurred during signup. Please try again.'
