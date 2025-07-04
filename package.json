@@ -54,11 +54,13 @@
     "javascript-time-ago": "^2.5.11",
     "json-colorizer": "^3.0.1",
     "open": "^10.1.0",
-    "sharp": "^0.33.5",
-    "sharp-bmp": "^0.1.5",
-    "sharp-ico": "^0.1.5",
     "simple-git": "^3.25.0",
     "string-template": "^1.0.0",
     "uuid": "^9.0.1"
+  },
+  "optionalDependencies": {
+    "sharp": "^0.33.5",
+    "sharp-bmp": "^0.1.5",
+    "sharp-ico": "^0.1.5"
   }
 }
