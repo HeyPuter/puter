@@ -50,8 +50,8 @@ module.exports = {
         // that editor tools are aware of the modules that
         // are being used.
         instance.require = (name) => {
-            if ( modules[name] ) {
-                return modules[name];
+            if ( instance.modules[name] ) {
+                return instance.modules[name];
             }
             return require(name);
         }

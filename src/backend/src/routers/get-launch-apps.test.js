@@ -17,11 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const sinon = require('sinon');
-const { expect } = require('chai');
-const proxyquire = require('proxyquire');
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 const kvjs = require('@heyputer/kv.js');
 const uuid = require('uuid');
+const proxyquire = require('proxyquire');
 
 const TEST_UUID_NAMESPACE = '5568ab95-229d-4d87-b98c-0b12680a9524';
 
@@ -124,14 +123,14 @@ const get_mock_context = () => {
             id: 1 + Math.floor(Math.random() * 1000**3),
         },
         services: services_mock,
-        send: sinon.spy(),
+        send: vi.fn(),
     };
 
     const res_mock = {
-        send: sinon.spy(),
+        send: vi.fn(),
     };
 
-    const get_app = sinon.spy(async ({ uid, name }) => {
+    const get_app = vi.fn(async ({ uid, name }) => {
         if ( uid ) {
             return data_mockapps.find(app => app.uid === uid);
         }
@@ -164,20 +163,23 @@ describe('GET /launch-apps', () => {
             req_mock.query = {};
             await get_launch_apps(req_mock, res_mock);
 
+            // TODO: bring this back, figure out what it's testing,
+            //       document why it needs to be here (if it does)
+            //       or remove it.
             if ( false ) {
 
-                expect(res_mock.send.calledOnce).to.equal(true, 'res.send should be called once');
+                expect(res_mock.send).toHaveBeenCalledOnce();
 
-                const call = res_mock.send.firstCall;
-                response = call.args[0];
+                const call = res_mock.send.mock.calls[0];
+                const response = call[0];
                 console.log('response', response);
             
-                expect(response).to.be.an('object');
+                expect(response).toBeTypeOf('object');
 
-                expect(response).to.have.property('recommended');
-                expect(response.recommended).to.be.an('array');
-                expect(response.recommended).to.have.lengthOf(apps_names_expected_to_exist.length);
-                expect(response.recommended).to.deep.equal(
+                expect(response).toHaveProperty('recommended');
+                expect(response.recommended).toBeInstanceOf(Array);
+                expect(response.recommended).toHaveLength(apps_names_expected_to_exist.length);
+                expect(response.recommended).toEqual(
                     data_mockapps
                         .filter(app => apps_names_expected_to_exist.includes(app.name))
                         .map(app => ({
@@ -191,10 +193,10 @@ describe('GET /launch-apps', () => {
                         }))
                 );
 
-                expect(response).to.have.property('recent');
-                expect(response.recent).to.be.an('array');
-                expect(response.recent).to.have.lengthOf(data_appopens.length);
-                expect(response.recent).to.deep.equal(
+                expect(response).toHaveProperty('recent');
+                expect(response.recent).toBeInstanceOf(Array);
+                expect(response.recent).toHaveLength(data_appopens.length);
+                expect(response.recent).toEqual(
                     data_mockapps
                         .filter(app => data_appopens.map(app_open => app_open.app_uid).includes(app.uid))
                         .map(app => ({
@@ -212,7 +214,7 @@ describe('GET /launch-apps', () => {
             // << HOW TO FIX >>
             // If you updated the list of recommended apps,
             // you can simply update this number to match the new length
-            // expect(spies.get_app.callCount).to.equal(3);
+            // expect(spies.get_app).toHaveBeenCalledTimes(3);
         }
         
         // Second call
@@ -221,17 +223,17 @@ describe('GET /launch-apps', () => {
             req_mock.query = {};
             await get_launch_apps(req_mock, res_mock);
 
-            expect(res_mock.send.calledOnce).to.equal(true, 'res.send should be called once');
+            expect(res_mock.send).toHaveBeenCalledOnce();
 
-            const call = res_mock.send.firstCall;
-            response = call.args[0];
+            const call = res_mock.send.mock.calls[0];
+            const response = call[0];
         
-            expect(response).to.be.an('object');
+            expect(response).toBeTypeOf('object');
 
-            expect(response).to.have.property('recommended');
-            expect(response.recommended).to.be.an('array');
-            expect(response.recommended).to.have.lengthOf(apps_names_expected_to_exist.length);
-            expect(response.recommended).to.deep.equal(
+            expect(response).toHaveProperty('recommended');
+            expect(response.recommended).toBeInstanceOf(Array);
+            expect(response.recommended).toHaveLength(apps_names_expected_to_exist.length);
+            expect(response.recommended).toEqual(
                 data_mockapps
                     .filter(app => apps_names_expected_to_exist.includes(app.name))
                     .map(app => ({
@@ -245,10 +247,10 @@ describe('GET /launch-apps', () => {
                     }))
             );
 
-            expect(response).to.have.property('recent');
-            expect(response.recent).to.be.an('array');
-            expect(response.recent).to.have.lengthOf(data_appopens.length);
-            expect(response.recent).to.deep.equal(
+            expect(response).toHaveProperty('recent');
+            expect(response.recent).toBeInstanceOf(Array);
+            expect(response.recent).toHaveLength(data_appopens.length);
+            expect(response.recent).toEqual(
                 data_mockapps
                     .filter(app => data_appopens.map(app_open => app_open.app_uid).includes(app.uid))
                     .map(app => ({
@@ -262,8 +264,8 @@ describe('GET /launch-apps', () => {
                     }))
             );
             
-            expect(spies.get_app.callCount).to.equal(
-                data_appopens.length, 'get_app only called for recents on second call');
+            expect(spies.get_app).toHaveBeenCalledTimes(
+                data_appopens.length);
         }
     })
 });

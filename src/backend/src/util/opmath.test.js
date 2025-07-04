@@ -1,4 +1,4 @@
-const { expect } = require('chai');
+import { describe, it, expect } from 'vitest';
 
 describe('opmath', () => {
     describe('TimeWindow', () => {
@@ -18,7 +18,7 @@ describe('opmath', () => {
             window.add(5);
             window.add(6);
 
-            expect(window.get()).to.deep.equal([1, 2, 3, 4, 5, 6]);
+            expect(window.get()).toEqual([1, 2, 3, 4, 5, 6]);
 
             now_value = 1100;
 
@@ -26,15 +26,15 @@ describe('opmath', () => {
             window.add(8);
             window.add(9);
 
-            expect(window.get()).to.deep.equal([4, 5, 6, 7, 8, 9]);
+            expect(window.get()).toEqual([4, 5, 6, 7, 8, 9]);
 
             now_value = 2000;
 
-            expect(window.get()).to.deep.equal([7, 8, 9]);
+            expect(window.get()).toEqual([7, 8, 9]);
 
             now_value = 2200;
 
-            expect(window.get()).to.deep.equal([]);
+            expect(window.get()).toEqual([]);
         })
     })
 });

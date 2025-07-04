@@ -1,4 +1,4 @@
-const { expect } = require('chai');
+import { describe, it, expect } from 'vitest';
 const Messages = require('./Messages.js');
 const OpenAIUtil = require('./OpenAIUtil.js');
 
@@ -22,7 +22,7 @@ describe('Messages', () => {
         for ( const tc of cases ) {
             it(`should normalize ${tc.name}`, () => {
                 const output = Messages.normalize_single_message(tc.input);
-                expect(output).to.deep.equal(tc.output);
+                expect(output).toEqual(tc.output);
             });
         }
     });
@@ -67,7 +67,7 @@ describe('Messages', () => {
         for ( const tc of cases ) {
             it(`should extract text from ${tc.name}`, () => {
                 const output = Messages.extract_text(tc.input);
-                expect(output).to.equal(tc.output);
+                expect(output).toBe(tc.output);
             });
         }
     });
@@ -104,7 +104,7 @@ describe('Messages', () => {
         for ( const tc of cases ) {
             it(`should normalize ${tc.name}`, () => {
                 const output = Messages.normalize_single_message(tc.input);
-                expect(output).to.deep.equal(tc.output);
+                expect(output).toEqual(tc.output);
             });
         }
     });
@@ -139,7 +139,7 @@ describe('Messages', () => {
         for ( const tc of cases ) {
             it(`should normalize ${tc.name}`, () => {
                 const output = Messages.normalize_single_message(tc.input);
-                expect(output).to.deep.equal(tc.output);
+                expect(output).toEqual(tc.output);
             });
         }
     });
@@ -177,7 +177,7 @@ describe('Messages', () => {
         for ( const tc of cases ) {
             it(`should normalize ${tc.name}`, async () => {
                 const output = await OpenAIUtil.process_input_messages(tc.input);
-                expect(output).to.deep.equal(tc.output);
+                expect(output).toEqual(tc.output);
             });
         }
     });

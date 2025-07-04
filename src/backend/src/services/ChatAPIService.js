@@ -31,6 +31,7 @@ const APIError = require("../api/APIError");
 class ChatAPIService extends BaseService {
     static MODULES = {
         express: require('express'),
+        Endpoint: Endpoint,
     };
 
     /**
@@ -62,6 +63,7 @@ class ChatAPIService extends BaseService {
     * @private
     */
     install_chat_endpoints_ ({ router }) {
+        const Endpoint = this.require('Endpoint');
         // Endpoint to list available AI chat models
         Endpoint({
             route: '/models',

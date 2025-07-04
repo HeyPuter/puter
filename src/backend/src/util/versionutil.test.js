@@ -1,4 +1,4 @@
-const { expect } = require('chai');
+import { describe, it, expect } from 'vitest';
 
 describe('versionutil', () => {
     it('works', () => {
@@ -13,6 +13,6 @@ describe('versionutil', () => {
 
         const { find_highest_version } = require('./versionutil');
         const highest_object = find_highest_version(objects);
-        expect(highest_object).to.deep.equal({ version: '3.1.0', h: true });
+        expect(highest_object).toEqual({ version: '3.1.0', h: true });
     });
 });
