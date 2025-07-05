@@ -734,4 +734,65 @@ window.fsTests = [
             }    
         }
     },
+    {
+        name: "testFSAppDirectoryIsolation",
+        description: "Test that filesystem operations are properly sandboxed to the app directory and cannot access files outside of it",
+        test: async function() {
+            try {
+                // Test 1: Try to access parent directory with ../
+                try {
+                    await puter.fs.readdir('~/Desktop');
+                    fail("testFSAppDirectoryIsolation failed: Should not be able to read Desktop directory");
+                } catch (error) {
+                    if (error.code !== "subject_does_not_exist") {
+                        fail("testFSAppDirectoryIsolation failed: Wrong error code for Desktop directory access: " + error.code);
+                    }
+                }
+                
+                // Test 2: Try to access absolute path outside app directory
+                try {
+                    await puter.fs.read('/some/absolute/path.txt');
+                    fail("testFSAppDirectoryIsolation failed: Should not be able to read absolute paths");
+                } catch (error) {
+                    if (error.code !== "access_denied" && error.code !== "invalid_path" && error.code !== "subject_does_not_exist") {
+                        fail("testFSAppDirectoryIsolation failed: Wrong error code for absolute path access: " + error.code);
+                    }
+                }
+                
+                // Test 3: Try to write outside app directory
+                try {
+                    await puter.fs.write('../escape_file.txt', 'should not work');
+                    fail("testFSAppDirectoryIsolation failed: Should not be able to write outside app directory");
+                } catch (error) {
+                    if (error.code !== "subject_does_not_exist") {
+                        fail("testFSAppDirectoryIsolation failed: Wrong error code for writing outside directory: " + error.code);
+                    }
+                }
+                
+                // Test 4: Try to create directory outside app directory
+                try {
+                    await puter.fs.mkdir('../escape_dir');
+                    fail("testFSAppDirectoryIsolation failed: Should not be able to create directory outside app directory");
+                } catch (error) {
+                        if (error.code !== "subject_does_not_exist") {
+                            fail("testFSAppDirectoryIsolation failed: Wrong error code for creating directory outside: " + error.code);
+                    }
+                }
+                
+                // Test 5: Try to access home directory directly
+                try {
+                    await puter.fs.read('~/some_file.txt');
+                    fail("testFSAppDirectoryIsolation failed: Should not be able to read from home directory");
+                } catch (error) {
+                    if (error.code !== "access_denied" && error.code !== "invalid_path" && error.code !== "subject_does_not_exist") {
+                        fail("testFSAppDirectoryIsolation failed: Wrong error code for home directory access: " + error.code);
+                    }
+                }
+                
+                pass("testFSAppDirectoryIsolation passed");
+            } catch (error) {
+                fail("testFSAppDirectoryIsolation failed:", error);
+            }
+        }
+    },
 ];
