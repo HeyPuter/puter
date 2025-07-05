@@ -200,7 +200,7 @@ let total_failed = 0;
 * @type {number} total_failed - Count of all failed assertions
 */
 const main = async () => {
-    console.log('awaiting services readty');
+    console.log('awaiting services ready');
     await k.services.ready;
     console.log('services have become ready');
 

@@ -419,16 +419,12 @@ class AIChatService extends BaseService {
                     FunctionCalling.normalize_tools_object(parameters.tools);
                 }
 
-                if ( intended_service === this.service_name ) {
-                    throw new Error('Calling ai-chat directly is not yet supported');
-                }
-
                 const svc_driver = this.services.get('driver');
                 let ret, error;
                 let service_used = intended_service;
-                let model_used = this.get_model_from_request(parameters, {
-                    intended_service
-                });
+                let model_used;
+                ({ model: model_used } = parseModelString(parameters.model));
+                parameters.model = model_used;
 
                 // Updated: Check usage and get a boolean result instead of throwing error
                 const svc_cost = this.services.get('cost');
@@ -968,6 +964,38 @@ class AIChatService extends BaseService {
 
         return model;
     }
+}
+
+function parseModelString(input) {
+    if (typeof input !== 'string') {
+        throw new Error('Input must be a string');
+    }
+
+    let supplier = null;
+    let vendor = null;
+    let model = null;
+
+    // Match patterns
+    const fullPattern = /^([^:]+):([^/]+)\/(.+)$/;         // supplier:vendor/model
+    const vendorPattern = /^([^/]+)\/(.+)$/;               // vendor/model
+    const simplePattern = /^[^:/]+$/;                      // model
+
+    if (fullPattern.test(input)) {
+        const match = input.match(fullPattern);
+        supplier = match[1];
+        vendor = match[2];
+        model = match[3];
+    } else if (vendorPattern.test(input)) {
+        const match = input.match(vendorPattern);
+        vendor = match[1];
+        model = match[2];
+    } else if (simplePattern.test(input)) {
+        model = input;
+    } else {
+        throw new Error(`Invalid model format: "${input}"`);
+    }
+
+    return { supplier, vendor, model };
 }
 
 module.exports = { AIChatService };
