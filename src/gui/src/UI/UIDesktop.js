@@ -1143,7 +1143,7 @@ async function UIDesktop(options) {
         style= 'height:30px; min-height:30px; max-height:30px;';
     }
 
-    ht += `<div class="toolbar ${class_name}" style="${style}">`;
+    ht += `<div class="toolbar hide-scrollbar ${class_name}" style="${style}">`;
     // logo
     ht += `<div class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
 

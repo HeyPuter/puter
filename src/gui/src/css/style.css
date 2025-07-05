@@ -1776,7 +1776,7 @@ label {
     overflow: clip;
     box-shadow: rgb(255 255 255 / 14%) 0px 0px 0px 0.5px inset, rgba(0, 0, 0, 0.2) 0px 0px 0px 0.5px, rgba(0, 0, 0, 0.2) 0px 2px 14px;
     position: absolute;
-
+    overflow-y: hidden;
 }
 
 .toolbar-hidden {
