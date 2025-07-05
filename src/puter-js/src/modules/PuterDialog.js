@@ -456,7 +456,6 @@ class PuterDialog extends HTMLElement {
     }
 
     open() {
-        console.log(this.hasUserActivation());
         if(this.hasUserActivation()){
             let w = 600;
             let h = 400;

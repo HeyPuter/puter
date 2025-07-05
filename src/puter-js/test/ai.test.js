@@ -85,6 +85,57 @@ const testChatWithMessageArrayCore = async function(model) {
     assert(result.message.content.length > 0, "message content should not be empty");
 };
 
+const testChatStreamingCore = async function(model) {
+    // Test chat with streaming enabled
+    const result = await puter.ai.chat("Count from 1 to 5", { 
+        model: model,
+        stream: true,
+        max_tokens: 100
+    });
+    
+    // Check that result is an object and not null
+    assert(typeof result === 'object', "streaming chat should return an object");
+    assert(result !== null, "streaming chat should not return null");
+    
+    // For streaming, we need to check if it's an async iterator or has a different structure
+    // The exact structure depends on the implementation, but we should verify it's consumable
+    if (result[Symbol.asyncIterator]) {
+        // If it's an async iterator, test that we can consume it
+        let chunks = [];
+        let chunkCount = 0;
+        const maxChunks = 10; // Limit to prevent infinite loops in tests
+        
+        for await (const chunk of result) {
+            chunks.push(chunk);
+            chunkCount++;
+            
+            // Verify each chunk has expected structure
+            assert(typeof chunk === 'object', "each streaming chunk should be an object");
+            
+            // Break after reasonable number of chunks for testing
+            if (chunkCount >= maxChunks) break;
+        }
+        
+        assert(chunks.length > 0, "streaming should produce at least one chunk");
+        
+    } else {
+        // If not an async iterator, it might be a different streaming implementation
+        // Check for common streaming response patterns
+        
+        // Check basic result structure (similar to non-streaming but may have different properties)
+        assert(typeof result.message === 'object' || typeof result.content === 'string', 
+            "streaming result should have message object or content string");
+        
+        // Check that it has streaming-specific properties
+        assert(typeof result.stream === 'boolean' || result.stream === true, 
+            "streaming result should indicate it's a stream");
+        
+        // Check that toString() and valueOf() methods exist and work
+        assert(typeof result.toString === 'function', "streaming result should have toString method");
+        assert(typeof result.valueOf === 'function', "streaming result should have valueOf method");
+    }
+};
+
 // Function to generate test functions for a specific model
 const generateTestsForModel = function(model) {
     const modelName = model.replace(/[^a-zA-Z0-9]/g, '_'); // Sanitize model name for function names
@@ -125,6 +176,19 @@ const generateTestsForModel = function(model) {
                     pass(`testChatWithMessageArray_${modelName} passed`);
                 } catch (error) {
                     fail(`testChatWithMessageArray_${modelName} failed:`, error);
+                }
+            }
+        },
+        
+        [`testChatStreaming_${modelName}`]: {
+            name: `testChatStreaming_${modelName}`,
+            description: `Test AI chat with streaming enabled using ${model} model`,
+            test: async function() {
+                try {
+                    await testChatStreamingCore(model);
+                    pass(`testChatStreaming_${modelName} passed`);
+                } catch (error) {
+                    fail(`testChatStreaming_${modelName} failed:`, error);
                 }
             }
         },
