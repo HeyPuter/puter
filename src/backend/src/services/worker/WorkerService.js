@@ -37,53 +37,7 @@ const PREAMBLE_LENGTH = preamble.split("\n").length - 1
 
 class WorkerService extends BaseService {
     ['__on_install.routes'](_, { app }) {
-        const r_workers = (() => {
-            const require = this.require;
-            const express = require('express');
-            return express.Router();
-        })();
         setCloudflareKeys(this.config);
-
-        app.use('/workers', r_workers);
-
-        Endpoint({
-            route: '/:operation/:workerId',
-            methods: ['PUT'],
-            mw: [configurable_auth({ optional: true })],
-            handler: async (req, response) => {
-                const { operation, workerId } = req.params;
-                const authorization = req.headers.authorization;
-                if (!authorization)
-                    throw response.status(403) && response.send("No authorization");
-
-                // Validate token and get data about user
-                const userData = req.actor.type.user;
-
-                if (!userData)
-                    return;
-                req.body = await new Promise((res, rej) => {
-                    const chunks = [];
-                    req.on("data", (data) => {
-                        chunks.push(data);
-                    });
-                    req.on("end", () => {
-                        res(Buffer.concat(chunks).toString("utf8"));
-                    });
-                    req.on("error", (e) => {
-                        rej(e);
-                    })
-                });
-                // console.log(req.body)
-                let responseFromAPI;
-                if (operation === "create" && req.method === "PUT") {
-                    responseFromAPI = await createWorker(userData, authorization, workerId, preamble + req.body, PREAMBLE_LENGTH);
-                } else if (operation === "destroy" && req.method === "DELETE") {
-                    responseFromAPI = await deleteWorker(userData, authorization, workerId);
-                }
-
-                response.send(responseFromAPI);
-            }
-        }).attach(r_workers);
 
     }
     static IMPLEMENTS = {
