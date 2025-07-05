@@ -1,0 +1,24 @@
+{
+  "name": "@heyputer/worker-service",
+  "version": "1.0.0",
+  "description": "Worker service components for Puter",
+  "main": "src/index.js",
+  "scripts": {
+    "build": "webpack --mode production && npm run preprocess",
+    "preprocess": "c-preprocessor template/puter-portable.js dist/workerPreamble.js"
+  },
+  "dependencies": {
+    "c-preprocessor": "^0.2.13",
+    "path-to-regexp": "^8.2.0"
+  },
+  "devDependencies": {
+    "imports-loader": "^5.0.0",
+    "raw-loader": "^4.0.2",
+    "script-loader": "^0.7.2",
+    "terser-webpack-plugin": "^5.3.14",
+    "webpack": "^5.88.2",
+    "webpack-cli": "^5.1.1"
+  },
+  "author": "Puter Technologies Inc.",
+  "license": "AGPL-3.0-only"
+}
