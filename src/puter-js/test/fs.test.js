@@ -34,7 +34,7 @@ naughtyStrings = [
     "file^name^with^carats^.txt",
     "file&name&with&amps&.txt",
     "file*name*with*asterisks*.txt",
-    "file_name_with_long_name_exceeding_255_characters_abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz.txt",
+    "file_name_with_long_name_exceeding_255_characters_abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz.txt",
     "file👍name👍with👍thumbs👍up.txt",
     "file😂name😂with😂emojis😂.txt",
     "file🌍name🌍with🌍globe🌍emojis🌍.txt",
@@ -442,7 +442,7 @@ window.fsTests = [
             await puter.fs.write(randName, 'testValue');
             await puter.fs.mkdir(randName2);
             let result = await puter.fs.copy(randName, randName2);
-            assert(Array.isArray(result) && result[0].uid, "Failed to copy file");
+            assert(Array.isArray(result) && result[0].copied.uid, "Failed to copy file");
             // check that the old file is still there
             try {
                 await puter.fs.read(randName);
@@ -463,9 +463,9 @@ window.fsTests = [
             await puter.fs.write(randName, 'testValue');
             await puter.fs.mkdir(randName2);
             let result = await puter.fs.copy(randName, randName2, { newName: 'newName' });
-            assert(Array.isArray(result) && result[0].uid, "Failed to copy file");
+            assert(Array.isArray(result) && result[0].copied.uid, "Failed to copy file");
             // check file name
-            assert(result[0].name === 'newName', "Failed to copy file with new name");
+            assert(result[0].copied.name === 'newName', "Failed to copy file with new name");
             // check that the old file is still there
             try {
                 await puter.fs.read(randName);
