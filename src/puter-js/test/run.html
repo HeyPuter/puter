@@ -1,9 +1,10 @@
 <html>
 <head>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
-    <script src="../dist/puter.dev.js"></script>
+    <script src="https://js.puter.com/v2/"></script>
     <script src="./kv.test.js"></script>
     <script src="./fs.test.js"></script>
+    <script src="./ai.test.js"></script>
     <style>
         #tests {
             margin-top: 20px;
@@ -77,6 +78,14 @@
             </div>`);
         }
 
+        $('#tests').append('<h2>AI Tests</h2>');
+        for (let i = 0; i < aiTests.length; i++) {
+            $('#tests').append(`<div class="test-container" id="aiTests-container-${i}">
+                <input type="checkbox" class="test-checkbox" id="aiTests${i}" checked>
+                <label for="aiTests${i}">${aiTests[i].name}</label><br>
+            </div>`);
+        }
+
         window.assert = function(condition, message) {
             if (!condition) {
                 throw new Error(message || "Assertion failed");
@@ -123,6 +132,27 @@
                             errorMessage += '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
                         }
                         $(`#kvTests-container-${i}`).append(`<pre style="color:red; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`);
+                    }
+                }
+            }
+
+            for (let i = 0; i < aiTests.length; i++) {
+                if (document.getElementById(`aiTests${i}`).checked) {
+                    try{
+                        await aiTests[i]();
+                        // make this test's container green
+                        $(`#aiTests-container-${i}`).css('background-color', '#85e085');
+
+                    } catch (e) {
+                        console.error('AI Test failed:', aiTests[i].name, e);
+                        // make this test's container red
+                        $(`#aiTests-container-${i}`).css('background-color', '#ff8484');
+                        // message - show full error information including JSON details
+                        let errorMessage = e.message || e.toString();
+                        if (e.originalError) {
+                            errorMessage += '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
+                        }
+                        $(`#aiTests-container-${i}`).append(`<pre style="color:red; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`);
                     }
                 }
             }
