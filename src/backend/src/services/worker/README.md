@@ -4,7 +4,7 @@ This directory contains the worker service components for Puter's server-to-web 
 
 ## Build Process
 
-The `res/workerPreamble.js` file is **generated** by webpack and should not be edited directly. Instead, edit the source files in the `src/` directory and rebuild.
+The `dist/workerPreamble.js` file is **generated** by webpack and c-preprocessor and should not be edited directly. Instead, edit the source files in the `src/` directory and rebuild.
 
 ### Building
 
@@ -34,7 +34,7 @@ This will watch for changes in the source files and automatically rebuild the `w
 
 ## Source Files
 
-- `src/puter-portable.js` - Puter portable API for worker environments
+- `template/puter-portable.js` - Puter portable API wrapper
 - `src/s2w-router.js` - Server-to-web router implementation
 - `src/index.js` - Main entry point that combines both components
 
@@ -44,7 +44,7 @@ This will watch for changes in the source files and automatically rebuild the `w
 
 ## Generated Output
 
-The webpack build process creates `res/workerPreamble.js` which contains:
+The webpack build process creates `dist/workerPreamble.js` which contains:
 1. The bundled `path-to-regexp` library
 2. The puter portable API
 3. The s2w router with proper initialization
