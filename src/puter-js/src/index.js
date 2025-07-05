@@ -141,20 +141,6 @@ export default globalThis.puter = (function() {
                     if (!globalThis.location) {
                         globalThis.location = new URL("https://puter.site/");
                     }
-                    if (globalThis.Cloudflare) {
-                        // Cloudflare Workers has a faulty EventTarget implementation which doesn't bind "this" to the event handler
-                        // This is a workaround to bind "this" to the event handler
-                        // https://github.com/cloudflare/workerd/issues/4453
-                        const __cfEventTarget = EventTarget;
-                        globalThis.EventTarget = class EventTarget extends __cfEventTarget {
-                            constructor(...args) {
-                                super(...args)
-                            }
-                            addEventListener(type, listener, options) {
-                                super.addEventListener(type, listener.bind(this), options);
-                            }
-                        }
-                    }
                     // XHRShimGlobalize here
                 } else {
                     this.env = 'web-worker'
