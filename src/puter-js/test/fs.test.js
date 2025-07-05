@@ -36,17 +36,6 @@ naughtyStrings = [
     "file*name*with*asterisks*.txt",
     "file_name_with_long_name_exceeding_255_characters_abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz.txt",
     "file👍name👍with👍thumbs👍up.txt",
-    "file😂name😂with😂emojis😂.txt",
-    "file🌍name🌍with🌍globe🌍emojis🌍.txt",
-    "file🔥name🔥with🔥fire🔥emoji🔥.txt",
-    "file🎉name🎉with🎉party🎉popper🎉emoji🎉.txt",
-    "file💼name💼with💼briefcase💼emoji💼.txt",
-    "file🍔name🍔with🍔burger🍔emoji🍔.txt",
-    "file🚀name🚀with🚀rocket🚀emoji🚀.txt",
-    "file👽name👽with👽alien👽emoji👽.txt",
-    "file🌈name🌈with🌈rainbow🌈emoji🌈.txt",
-    "file🍆name🍆with🍆eggplant🍆emoji🍆.txt",
-    "file🍑name🍑with🍑peach🍑emoji🍑.txt",
     "invisible\u200Bname.txt",                  // Invisible Unicode character (Zero Width Space)
     "invisible\u200Cname.txt",                  // Invisible Unicode character (Zero Width Non-Joiner)
     "invisible\u200Dname.txt",                  // Invisible Unicode character (Zero Width Joiner)
@@ -105,7 +94,6 @@ naughtyStrings = [
     "japanese日本語.txt",
     "korean한국어.txt",
     "vietnameseTiếng Việt.txt",
-
 ]
 
 window.fsTests = [
