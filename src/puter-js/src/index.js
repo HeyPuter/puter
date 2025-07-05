@@ -133,10 +133,27 @@ export default globalThis.puter = (function() {
             else if(globalThis.puter_gui_enabled === true)
                 this.env = 'gui';
             else if (globalThis.WorkerGlobalScope) {
-                if (globalThis.clients) {
+                if (globalThis.ServiceWorkerGlobalScope) {
                     this.env = 'service-worker'
                     if (!globalThis.XMLHttpRequest) {
                         globalThis.XMLHttpRequest = xhrshim
+                    }
+                    if (!globalThis.location) {
+                        globalThis.location = new URL("https://puter.site/");
+                    }
+                    if (globalThis.Cloudflare) {
+                        // Cloudflare Workers has a faulty EventTarget implementation which doesn't bind "this" to the event handler
+                        // This is a workaround to bind "this" to the event handler
+                        // https://github.com/cloudflare/workerd/issues/4453
+                        const __cfEventTarget = EventTarget;
+                        globalThis.EventTarget = class EventTarget extends __cfEventTarget {
+                            constructor(...args) {
+                                super(...args)
+                            }
+                            addEventListener(type, listener, options) {
+                                super.addEventListener(type, listener.bind(this), options);
+                            }
+                        }
                     }
                     // XHRShimGlobalize here
                 } else {
@@ -154,7 +171,7 @@ export default globalThis.puter = (function() {
                     globalThis.XMLHttpRequest = xhrshim
                 }
                 if (!globalThis.location) {
-                    globalThis.location = new URL("https://nonexistent.com/");
+                    globalThis.location = new URL("https://nodejs.puter.site/");
                 }
                 if (!globalThis.addEventListener) {
                     globalThis.addEventListener = () => {} // API Stub
@@ -402,7 +419,8 @@ export default globalThis.puter = (function() {
                 const resp = await fetch(this.APIOrigin + '/rao', {
                     method: 'POST',
                     headers: {
-                        Authorization: `Bearer ${this.authToken}`
+                        Authorization: `Bearer ${this.authToken}`,
+                        Origin: location.origin // This is ignored in the browser but needed for workers and nodejs
                     }
                 });
                 return await resp.json();
