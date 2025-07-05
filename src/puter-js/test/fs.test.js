@@ -34,7 +34,7 @@ naughtyStrings = [
     "file^name^with^carats^.txt",
     "file&name&with&amps&.txt",
     "file*name*with*asterisks*.txt",
-    "file_name_with_long_name_exceeding_255_characters_abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz.txt",
+    "file_name_with_long_name_exceeding_255_characters_abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz.txt",
     "file👍name👍with👍thumbs👍up.txt",
     "invisible\u200Bname.txt",                  // Invisible Unicode character (Zero Width Space)
     "invisible\u200Cname.txt",                  // Invisible Unicode character (Zero Width Non-Joiner)
@@ -690,6 +690,47 @@ window.fsTests = [
             } catch (error) {
                 console.log(error);
                 fail("testFSWriteWithNaughtyStrings failed:", error);
+            }    
+        }
+    },
+    {
+        name: "testFSWriteReadBinaryFile",
+        description: "Test writing and reading binary file data and verify it remains intact",
+        test: async function() {
+            try {
+                let randName = puter.randName() + '.webp';
+                
+                // Create some binary data - a simple byte array representing a small binary file
+                const binaryData = new Uint8Array([
+                    0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20,
+                    0x18, 0x00, 0x00, 0x00, 0x30, 0x01, 0x00, 0x9D, 0x01, 0x2A, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00,
+                    0x34, 0x25, 0xA4, 0x00, 0x03, 0x70, 0x00, 0xFE, 0xFB, 0xFD, 0x50, 0x00
+                ]);
+                
+                // Write the binary data to a file
+                const writeResult = await puter.fs.write(randName, binaryData);
+                assert(writeResult.uid, "Failed to write binary file");
+                
+                // Read the binary data back
+                const readResult = await puter.fs.read(randName);
+                const readBinaryData = new Uint8Array(await readResult.arrayBuffer());
+                
+                // Verify the binary data is identical
+                assert(readBinaryData.length === binaryData.length, "Binary data length mismatch");
+                for (let i = 0; i < binaryData.length; i++) {
+                    assert(readBinaryData[i] === binaryData[i], `Binary data mismatch at byte ${i}: expected ${binaryData[i]}, got ${readBinaryData[i]}`);
+                }
+                
+                pass("testFSWriteReadBinaryFile passed");
+                
+                // Clean up - delete the test file
+                try {
+                    await puter.fs.delete(randName);
+                } catch (error) {
+                    fail("testFSWriteReadBinaryFile failed to delete file:", error);
+                }
+            } catch (error) {
+                fail("testFSWriteReadBinaryFile failed:", error);
             }    
         }
     },

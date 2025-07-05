@@ -42,6 +42,10 @@ const write = async function (targetPath, data, options = {}) {
     else if(data instanceof Blob){
         data = new File([data ?? ''], filename ?? 'Untitled', { type: data.type });
     }
+    // typed arrays (Uint8Array, Int8Array, etc.) and ArrayBuffer
+    else if(data instanceof ArrayBuffer || ArrayBuffer.isView(data)){
+        data = new File([data], filename ?? 'Untitled', { type: "application/octet-stream" });
+    }
 
     if(!data)
         data = new File([data ?? ''], filename);
