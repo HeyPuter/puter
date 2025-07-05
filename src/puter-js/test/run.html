@@ -50,9 +50,18 @@
         }
         .test-container label{
             display: block;
+            margin-left: 5px;
         }
         .test-container input{
             float: left;
+        }
+        .test-name {
+            color: #727272;
+        }
+        .test-description {
+            font-size: 12px;
+            color: #262626;
+            margin-top: 2px;
         }
         .test-run-button {
             margin-left: 10px;
@@ -109,13 +118,46 @@
             throw err;
         }
         
+        // Function to get test name and description
+        function getTestInfo(test) {
+            if (typeof test === 'function') {
+                return {
+                    name: test.name,
+                    description: test.description || 'No description provided'
+                };
+            } else if (typeof test === 'object' && test.name && test.test) {
+                return {
+                    name: test.name,
+                    description: test.description || 'No description provided'
+                };
+            }
+            return {
+                name: 'Unknown Test',
+                description: 'No description provided'
+            };
+        }
+        
+        // Function to execute a test
+        async function executeTest(test) {
+            if (typeof test === 'function') {
+                return await test();
+            } else if (typeof test === 'object' && test.test) {
+                return await test.test();
+            }
+            throw new Error('Invalid test format');
+        }
+        
         // print the test name with checkbox for each test
         $('#tests').append('<h2>File System Tests</h2>');
         for (let i = 0; i < fsTests.length; i++) {
+            const testInfo = getTestInfo(fsTests[i]);
             $('#tests').append(`<div class="test-container" id="fsTests-container-${i}">
                 <div class="test-checkbox-container">
                     <input type="checkbox" class="test-checkbox" id="fsTests${i}" checked>
-                    <label for="fsTests${i}">${fsTests[i].name}</label><br>
+                    <label for="fsTests${i}">
+                        <div class="test-name">${testInfo.name}</div>
+                        <div class="test-description">${testInfo.description}</div>
+                    </label><br>
                     <button class="test-run-button" onclick="runSingleTest('fs', ${i})">Run Test</button>
                 </div>
             </div>`);
@@ -123,10 +165,14 @@
 
         $('#tests').append('<h2>Key Value Tests</h2>');
         for (let i = 0; i < kvTests.length; i++) {
+            const testInfo = getTestInfo(kvTests[i]);
             $('#tests').append(`<div class="test-container" id="kvTests-container-${i}">
                 <div class="test-checkbox-container">
                     <input type="checkbox" class="test-checkbox" id="kvTests${i}" checked>
-                    <label for="kvTests${i}">${kvTests[i].name}</label><br>
+                    <label for="kvTests${i}">
+                        <div class="test-name">${testInfo.name}</div>
+                        <div class="test-description">${testInfo.description}</div>
+                    </label><br>
                     <button class="test-run-button" onclick="runSingleTest('kv', ${i})">Run Test</button>
                 </div>
             </div>`);
@@ -134,10 +180,14 @@
 
         $('#tests').append('<h2>AI Tests</h2>');
         for (let i = 0; i < aiTests.length; i++) {
+            const testInfo = getTestInfo(aiTests[i]);
             $('#tests').append(`<div class="test-container" id="aiTests-container-${i}">
                 <div class="test-checkbox-container">
                     <input type="checkbox" class="test-checkbox" id="aiTests${i}" checked>
-                    <label for="aiTests${i}">${aiTests[i].name}</label><br>
+                    <label for="aiTests${i}">
+                        <div class="test-name">${testInfo.name}</div>
+                        <div class="test-description">${testInfo.description}</div>
+                    </label><br>
                     <button class="test-run-button" onclick="runSingleTest('ai', ${i})">Run Test</button>
                 </div>
             </div>`);
@@ -168,11 +218,12 @@
             $(`#${containerId} pre`).remove();
             
             try {
-                await tests[index]();
+                await executeTest(tests[index]);
                 // make this test's container green
                 $(`#${containerId}`).css('background-color', '#85e085');
             } catch (e) {
-                console.error(`${testType.toUpperCase()} Test failed:`, tests[index].name, e);
+                const testInfo = getTestInfo(tests[index]);
+                console.error(`${testType.toUpperCase()} Test failed:`, testInfo.name, e);
                 // make this test's container red
                 $(`#${containerId}`).css('background-color', '#ffbfbf');
                 // message - show full error information including JSON details
@@ -194,12 +245,13 @@
             for (let i = 0; i < fsTests.length; i++) {
                 if (document.getElementById(`fsTests${i}`).checked) {
                     try{
-                        await fsTests[i]();
+                        await executeTest(fsTests[i]);
                         // make this test's container green
                         $(`#fsTests-container-${i}`).css('background-color', '#85e085');
 
                     } catch (e) {
-                        console.error('FS Test failed:', fsTests[i].name, e);
+                        const testInfo = getTestInfo(fsTests[i]);
+                        console.error('FS Test failed:', testInfo.name, e);
                         // make this test's container red
                         $(`#fsTests-container-${i}`).css('background-color', '#ffbfbf');
                         // message - show full error information including JSON details
@@ -215,12 +267,13 @@
             for (let i = 0; i < kvTests.length; i++) {
                 if (document.getElementById(`kvTests${i}`).checked) {
                     try{
-                        await kvTests[i]();
+                        await executeTest(kvTests[i]);
                         // make this test's container green
                         $(`#kvTests-container-${i}`).css('background-color', '#85e085');
 
                     } catch (e) {
-                        console.error('KV Test failed:', kvTests[i].name, e);
+                        const testInfo = getTestInfo(kvTests[i]);
+                        console.error('KV Test failed:', testInfo.name, e);
                         // make this test's container red
                         $(`#kvTests-container-${i}`).css('background-color', '#ff8484');
                         // message - show full error information including JSON details
@@ -236,12 +289,13 @@
             for (let i = 0; i < aiTests.length; i++) {
                 if (document.getElementById(`aiTests${i}`).checked) {
                     try{
-                        await aiTests[i]();
+                        await executeTest(aiTests[i]);
                         // make this test's container green
                         $(`#aiTests-container-${i}`).css('background-color', '#85e085');
 
                     } catch (e) {
-                        console.error('AI Test failed:', aiTests[i].name, e);
+                        const testInfo = getTestInfo(aiTests[i]);
+                        console.error('AI Test failed:', testInfo.name, e);
                         // make this test's container red
                         $(`#aiTests-container-${i}`).css('background-color', '#ff8484');
                         // message - show full error information including JSON details

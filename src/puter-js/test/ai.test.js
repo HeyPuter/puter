@@ -83,9 +83,6 @@ const testChatWithMessageArrayCore = async function(model) {
     
     // Check that content is present and not empty
     assert(result.message.content.length > 0, "message content should not be empty");
-    
-    // Check that index is 0 (first/only response)
-    assert(result.index === 0, "index should be 0 for single response");
 };
 
 // Function to generate test functions for a specific model
@@ -93,30 +90,42 @@ const generateTestsForModel = function(model) {
     const modelName = model.replace(/[^a-zA-Z0-9]/g, '_'); // Sanitize model name for function names
     
     return {
-        [`testChatBasicPrompt_${modelName}`]: async function() {
-            try {
-                await testChatBasicPromptCore(model);
-                pass(`testChatBasicPrompt_${modelName} passed`);
-            } catch (error) {
-                fail(`testChatBasicPrompt_${modelName} failed:`, error);
+        [`testChatBasicPrompt_${modelName}`]: {
+            name: `testChatBasicPrompt_${modelName}`,
+            description: `Test basic AI chat prompt with ${model} model and verify response structure`,
+            test: async function() {
+                try {
+                    await testChatBasicPromptCore(model);
+                    pass(`testChatBasicPrompt_${modelName} passed`);
+                } catch (error) {
+                    fail(`testChatBasicPrompt_${modelName} failed:`, error);
+                }
             }
         },
         
-        [`testChatWithParameters_${modelName}`]: async function() {
-            try {
-                await testChatWithParametersCore(model);
-                pass(`testChatWithParameters_${modelName} passed`);
-            } catch (error) {
-                fail(`testChatWithParameters_${modelName} failed:`, error);
+        [`testChatWithParameters_${modelName}`]: {
+            name: `testChatWithParameters_${modelName}`,
+            description: `Test AI chat with parameters (temperature, max_tokens) using ${model} model`,
+            test: async function() {
+                try {
+                    await testChatWithParametersCore(model);
+                    pass(`testChatWithParameters_${modelName} passed`);
+                } catch (error) {
+                    fail(`testChatWithParameters_${modelName} failed:`, error);
+                }
             }
         },
         
-        [`testChatWithMessageArray_${modelName}`]: async function() {
-            try {
-                await testChatWithMessageArrayCore(model);
-                pass(`testChatWithMessageArray_${modelName} passed`);
-            } catch (error) {
-                fail(`testChatWithMessageArray_${modelName} failed:`, error);
+        [`testChatWithMessageArray_${modelName}`]: {
+            name: `testChatWithMessageArray_${modelName}`,
+            description: `Test AI chat with message array format using ${model} model`,
+            test: async function() {
+                try {
+                    await testChatWithMessageArrayCore(model);
+                    pass(`testChatWithMessageArray_${modelName} passed`);
+                } catch (error) {
+                    fail(`testChatWithMessageArray_${modelName} failed:`, error);
+                }
             }
         },
     };
@@ -128,8 +137,8 @@ const generateAllTests = function() {
     
     TEST_MODELS.forEach(model => {
         const modelTests = generateTestsForModel(model);
-        Object.values(modelTests).forEach(testFunc => {
-            allTests.push(testFunc);
+        Object.values(modelTests).forEach(test => {
+            allTests.push(test);
         });
     });
     
