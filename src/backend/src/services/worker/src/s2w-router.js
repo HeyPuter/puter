@@ -31,7 +31,7 @@ function inits2w() {
         async route(event) {
             if (!globalThis.puter) {
                 console.log("Puter not loaded, initializing...");
-                const success = init_puter_portable(globalThis.puter_auth, "https://api.puter.com");
+                const success = init_puter_portable(globalThis.puter_auth, globalThis.puter_endpoint || "https://api.puter.com");
                 console.log("Puter.js initialized successfully");
             }
             

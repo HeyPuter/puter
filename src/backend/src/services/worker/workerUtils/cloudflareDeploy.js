@@ -33,7 +33,7 @@ async function createWorker(userData, authorization, workerId, body, PREAMBLE_LE
             },
             {
                 type: "plain_text",
-                name: "PUTER_ENDPOINT",
+                name: "puter_endpoint",
                 text: config.internetExposedUrl || "https://api.puter.com"
             },
             
