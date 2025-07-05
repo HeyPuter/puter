@@ -23,13 +23,15 @@ import { PTLSSocket } from "./modules/networking/PTLS.js"
 import Threads from './modules/Threads.js';
 import Perms from './modules/Perms.js';
 import { pFetch } from './modules/networking/requests.js';
+import localStorageMemory from './lib/polyfills/localStorage.js'
+import xhrshim from './lib/polyfills/xhrshim.js'
 
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
 //       (using defaultGUIOrigin breaks locally-hosted apps)
 const PROD_ORIGIN = 'https://puter.com';
 
-export default window.puter = (function() {
+export default globalThis.puter = (function() {
     'use strict';
 
     class Puter{
@@ -123,15 +125,48 @@ export default window.puter = (function() {
             context.services = this.services;
 
             // Holds the query parameters found in the current URL
-            let URLParams = new URLSearchParams(window.location.search);
+            let URLParams = new URLSearchParams(globalThis.location?.search);
 
             // Figure out the environment in which the SDK is running
             if (URLParams.has('puter.app_instance_id'))
                 this.env = 'app';
-            else if(window.puter_gui_enabled === true)
+            else if(globalThis.puter_gui_enabled === true)
                 this.env = 'gui';
-            else
+            else if (globalThis.WorkerGlobalScope) {
+                if (globalThis.ServiceWorkerGlobalScope) {
+                    this.env = 'service-worker'
+                    if (!globalThis.XMLHttpRequest) {
+                        globalThis.XMLHttpRequest = xhrshim
+                    }
+                    if (!globalThis.location) {
+                        globalThis.location = new URL("https://puter.site/");
+                    }
+                    // XHRShimGlobalize here
+                } else {
+                    this.env = 'web-worker'
+                }
+                if (!globalThis.localStorage) {
+                    globalThis.localStorage = localStorageMemory;
+                }
+            } else if (globalThis.process) {
+                this.env = 'nodejs';
+                if (!globalThis.localStorage) {
+                    globalThis.localStorage = localStorageMemory;
+                }
+                if (!globalThis.XMLHttpRequest) {
+                    globalThis.XMLHttpRequest = xhrshim
+                }
+                if (!globalThis.location) {
+                    globalThis.location = new URL("https://nodejs.puter.site/");
+                }
+                if (!globalThis.addEventListener) {
+                    globalThis.addEventListener = () => {} // API Stub
+                }
+            } else {
                 this.env = 'web';
+            }
+                
+
 
             // There are some specific situations where puter is definitely loaded in GUI mode
             // we're going to check for those situations here so that we don't break anything unintentionally
@@ -294,6 +329,8 @@ export default window.puter = (function() {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
                 }
+            } else if (this.env === 'web-worker' || this.env === 'service-worker' || this.env === 'nodejs') {
+                this.initSubmodules();
             }
 
             // Add prefix logger (needed to happen after modules are initialized)
@@ -368,7 +405,8 @@ export default window.puter = (function() {
                 const resp = await fetch(this.APIOrigin + '/rao', {
                     method: 'POST',
                     headers: {
-                        Authorization: `Bearer ${this.authToken}`
+                        Authorization: `Bearer ${this.authToken}`,
+                        Origin: location.origin // This is ignored in the browser but needed for workers and nodejs
                     }
                 });
                 return await resp.json();
@@ -454,7 +492,7 @@ export default window.puter = (function() {
                 statusCode = 1;
             }
 
-            window.parent.postMessage({
+            globalThis.parent.postMessage({
                 msg: "exit",
                 appInstanceID: this.appInstanceID,
                 statusCode,
@@ -505,7 +543,6 @@ export default window.puter = (function() {
     
             return new Promise((resolve, reject) => {
                 const xhr = utils.initXhr('/whoami', this.APIOrigin, this.authToken, 'get');
-    
                 // set up event handlers for load and error events
                 utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
     
@@ -548,7 +585,7 @@ export default window.puter = (function() {
     return puterobj;
 }());
 
-window.addEventListener('message', async (event) => {
+globalThis.addEventListener('message', async (event) => {
     // if the message is not from Puter, then ignore it
     if(event.origin !== puter.defaultGUIOrigin) return;
 

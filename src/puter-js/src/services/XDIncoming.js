@@ -12,7 +12,7 @@ export class XDIncomingService extends putility.concepts.Service {
     }
 
     _init () {
-        window.addEventListener('message', async event => {
+        globalThis.addEventListener('message', async event => {
             for ( const fn of this.filter_listeners_ ) {
                 const tp = new TeePromise();
                 fn(event, tp);

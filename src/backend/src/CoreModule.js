@@ -391,6 +391,9 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { ChatAPIService } = require('./services/ChatAPIService');
     services.registerService('__chat-api', ChatAPIService);
+
+    const { WorkerService } = require('./services/worker/WorkerService');
+    services.registerService("worker-service", WorkerService)
 }
 
 const install_legacy = async ({ services }) => {
