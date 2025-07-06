@@ -108,7 +108,7 @@
         
         /* Style for h2 checkboxes */
         #tests h2 input[type="checkbox"] {
-            margin-right: 10px;
+            margin-right: 18px;
             transform: scale(1.2);
         }
         
@@ -375,14 +375,35 @@
             runTests();
         });
 
-        $('#unselect-all').click(() => {
-            $('.test-checkbox').prop('checked', false);
-            $('#fsTests-group, #kvTests-group, #aiTests-group').prop('checked', false).trigger('change');
+        // Master checkbox functionality
+        $('#master-checkbox').change(function() {
+            const isChecked = $(this).prop('checked');
+            $('.test-checkbox').prop('checked', isChecked);
+            $('#fsTests-group, #kvTests-group, #aiTests-group').prop('checked', isChecked);
         });
 
-        $('#select-all').click(() => {
-            $('.test-checkbox').prop('checked', true);
-            $('#fsTests-group, #kvTests-group, #aiTests-group').prop('checked', true).trigger('change');
+        // Function to update master checkbox state
+        function updateMasterCheckboxState() {
+            const totalCheckboxes = $('.test-checkbox').length;
+            const checkedCheckboxes = $('.test-checkbox:checked').length;
+            
+            if (checkedCheckboxes === 0) {
+                $('#master-checkbox').prop('checked', false).prop('indeterminate', false);
+            } else if (checkedCheckboxes === totalCheckboxes) {
+                $('#master-checkbox').prop('checked', true).prop('indeterminate', false);
+            } else {
+                $('#master-checkbox').prop('checked', false).prop('indeterminate', true);
+            }
+        }
+
+        // Update master checkbox state when individual checkboxes change
+        $(document).on('change', '.test-checkbox', function() {
+            updateMasterCheckboxState();
+        });
+
+        // Update master checkbox state when group checkboxes change
+        $('#fsTests-group, #kvTests-group, #aiTests-group').change(function() {
+            updateMasterCheckboxState();
         });
 
     });
@@ -392,9 +413,10 @@
 <body>
 
     <nav style="position: fixed; top: 0; width: 100%; background: #EEE; left: 0; padding-left: 10px;">
+        <label style="margin-left: 8px; margin-right: 10px; cursor: pointer; display: inline-flex; align-items: center;">
+            <input type="checkbox" id="master-checkbox" checked style="margin-right: 5px; transform: scale(1.2);">
+        </label>
         <button id="run-tests">Run Tests</button>
-        <span id="select-all">Select All</span>
-        <span id="unselect-all">Unselect All</span>
     </nav>
     <div id="tests"></div>
 </body>
