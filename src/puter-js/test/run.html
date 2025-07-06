@@ -257,19 +257,40 @@
         $(document).on('change', '.fsTests-checkbox', function() {
             const totalFsTests = $('.fsTests-checkbox').length;
             const checkedFsTests = $('.fsTests-checkbox:checked').length;
-            $('#fsTests-group').prop('checked', checkedFsTests === totalFsTests);
+            
+            if (checkedFsTests === 0) {
+                $('#fsTests-group').prop('checked', false).prop('indeterminate', false);
+            } else if (checkedFsTests === totalFsTests) {
+                $('#fsTests-group').prop('checked', true).prop('indeterminate', false);
+            } else {
+                $('#fsTests-group').prop('checked', false).prop('indeterminate', true);
+            }
         });
 
         $(document).on('change', '.kvTests-checkbox', function() {
             const totalKvTests = $('.kvTests-checkbox').length;
             const checkedKvTests = $('.kvTests-checkbox:checked').length;
-            $('#kvTests-group').prop('checked', checkedKvTests === totalKvTests);
+            
+            if (checkedKvTests === 0) {
+                $('#kvTests-group').prop('checked', false).prop('indeterminate', false);
+            } else if (checkedKvTests === totalKvTests) {
+                $('#kvTests-group').prop('checked', true).prop('indeterminate', false);
+            } else {
+                $('#kvTests-group').prop('checked', false).prop('indeterminate', true);
+            }
         });
 
         $(document).on('change', '.aiTests-checkbox', function() {
             const totalAiTests = $('.aiTests-checkbox').length;
             const checkedAiTests = $('.aiTests-checkbox:checked').length;
-            $('#aiTests-group').prop('checked', checkedAiTests === totalAiTests);
+            
+            if (checkedAiTests === 0) {
+                $('#aiTests-group').prop('checked', false).prop('indeterminate', false);
+            } else if (checkedAiTests === totalAiTests) {
+                $('#aiTests-group').prop('checked', true).prop('indeterminate', false);
+            } else {
+                $('#aiTests-group').prop('checked', false).prop('indeterminate', true);
+            }
         });
 
         window.assert = function(condition, message) {
