@@ -87,8 +87,8 @@ class TelemetryService extends BaseService {
     }
 
     getConfiguredExporter_() {
-        if ( config.jaeger ) {
-            return new OTLPTraceExporter(config.jaeger);
+        if ( config.jaeger ?? this.config.jaeger ) {
+            return new OTLPTraceExporter(config.jaeger ?? this.config.jaeger);
         }
         const exporter = new ConsoleSpanExporter();
     }
