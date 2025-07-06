@@ -77,14 +77,15 @@ class PermissionRewriter {
  * The actor and permission are passed to checker({ actor, permission }) as an object.
  */
 class PermissionImplicator {
-    static create ({ id, matcher, checker }) {
-        return new PermissionImplicator({ id, matcher, checker });
+    static create ({ id, matcher, checker, ...options }) {
+        return new PermissionImplicator({ id, matcher, checker, options });
     }
 
-    constructor ({ id, matcher, checker }) {
+    constructor ({ id, matcher, checker, options }) {
         this.id = id;
         this.matcher = matcher;
         this.checker = checker;
+        this.options = options;
     }
 
     matches (permission) {
