@@ -56,8 +56,11 @@ class BaseDatabaseAccessService extends BaseService {
         return this;
     }
 
-    read (query, params) {
-        return this._read(query, params);
+    async read (query, params) {
+        const svc_trace = this.services.get('traceService');
+        return await svc_trace.spanify(`database:read`, async () => {
+            return await this._read(query, params);
+        }, { attributes: { query } });
     }
 
     /**
@@ -91,12 +94,18 @@ class BaseDatabaseAccessService extends BaseService {
         return results;
     }
 
-    pread (query, params) {
-        return this._read(query, params, { use_primary: true });
+    async pread (query, params) {
+        const svc_trace = this.services.get('traceService');
+        return await svc_trace.spanify(`database:pread`, async () => {
+            return await this._read(query, params, { use_primary: true });
+        }, { attributes: { query } });
     }
 
-    write (query, params) {
-        return this._write(query, params);
+    async write (query, params) {
+        const svc_trace = this.services.get('traceService');
+        return await svc_trace.spanify(`database:write`, async () => {
+            return await this._write(query, params);
+        }, { attributes: { query } });
     }
 
     insert (table_name, data) {
