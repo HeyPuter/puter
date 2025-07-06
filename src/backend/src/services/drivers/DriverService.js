@@ -343,16 +343,20 @@ class DriverService extends BaseService {
         
         svc_event.emit('driver.create-call-context', event);
         
-        return event.context.arun(async () => {
-            const result = await this.call_new_({
-                actor,
-                service,
-                service_name: driver,
-                iface, method, args: processed_args,
-                skip_usage,
+        const svc_trace = this.services.get('traceService');
+        
+        return await svc_trace.spanify(`driver:${driver}:${iface}:${method}`, async () => {
+            return event.context.arun(async () => {
+                const result = await this.call_new_({
+                    actor,
+                    service,
+                    service_name: driver,
+                    iface, method, args: processed_args,
+                    skip_usage,
+                });
+                result.metadata = client_driver_call.response_metadata;
+                return result;
             });
-            result.metadata = client_driver_call.response_metadata;
-            return result;
         });
     }
     

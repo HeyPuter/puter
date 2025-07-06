@@ -61,6 +61,8 @@ const PERMISSION_SCANNERS = [
 
             for ( const permission of permission_options )
             for ( const implicator of _permission_implicators ) {
+                if ( implicator.options?.shortcut ) continue;
+                
                 if ( ! implicator.matches(permission) ) {
                     continue;
                 }
@@ -75,7 +77,14 @@ const PERMISSION_SCANNERS = [
                         source: 'implied',
                         by: implicator.id,
                         data: implied,
+                        ...((!!actor.type.user)
+                            ? { holder_username: actor.type.user.username }
+                            : {}),
                     });
+                    if ( implicator.options?.shortcut ) {
+                        a.stop();
+                        return;
+                    }
                 }
             }
         }

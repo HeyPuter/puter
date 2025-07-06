@@ -77,14 +77,15 @@ class PermissionRewriter {
  * The actor and permission are passed to checker({ actor, permission }) as an object.
  */
 class PermissionImplicator {
-    static create ({ id, matcher, checker }) {
-        return new PermissionImplicator({ id, matcher, checker });
+    static create ({ id, matcher, checker, ...options }) {
+        return new PermissionImplicator({ id, matcher, checker, options });
     }
 
-    constructor ({ id, matcher, checker }) {
+    constructor ({ id, matcher, checker, options }) {
         this.id = id;
         this.matcher = matcher;
         this.checker = checker;
+        this.options = options;
     }
 
     matches (permission) {
@@ -322,9 +323,12 @@ class PermissionService extends BaseService {
     async check (actor, permission_options) {
         // TODO: optimized implementation for check instead of
         //       delegating to the scan() method
-        const reading = await this.scan(actor, permission_options);
-        const options = PermissionUtil.reading_to_options(reading);
-        return options.length > 0;
+        const svc_trace = this.services.get('traceService');
+        return await svc_trace.spanify(`permission:check`, async () => {
+            const reading = await this.scan(actor, permission_options);
+            const options = PermissionUtil.reading_to_options(reading);
+            return options.length > 0;
+        });
     }
 
 
@@ -344,6 +348,12 @@ class PermissionService extends BaseService {
     * @returns {Promise<Array>} A promise that resolves to an array of permission readings.
     */
     async scan (actor, permission_options, _reserved, state) {
+        const svc_trace = this.services.get('traceService');
+        return await svc_trace.spanify(`permission:scan`, async () => {
+            return await this.scan_(actor, permission_options, _reserved, state);
+        }, { attributes: { permission_options }, actor: actor.uid });
+    }
+    async scan_ (actor, permission_options, _reserved, state) {
         if ( ! state ) this.log.info('scan', {
             actor: actor.uid,
             permission_options,

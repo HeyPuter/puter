@@ -53,10 +53,15 @@ class TraceService {
      *
      * @param {string} name - The name of the span.
      * @param {Function} fn - The asynchronous function to execute within the span.
+     * @param {opentelemetry.SpanOptions} [options] - The opentelemetry options object
      * @returns {Promise} - A promise that resolves to the return value of `fn`.
      */
-    async spanify (name, fn) {
-        return await this.tracer.startActiveSpan(name, async span => {
+    async spanify (name, fn, options) {
+        const args = [name];
+        if ( options !== null && typeof options === 'object' ) {
+            args.push(options);
+        }
+        args.push(async span => {
             try {
                 return await fn({ span });
             } catch (error) {
@@ -66,6 +71,8 @@ class TraceService {
                 span.end();
             }
         });
+        this.tracer.startActiveSpan('name', {  }, () => {})
+        return await this.tracer.startActiveSpan(...args);
     }
 }
 
