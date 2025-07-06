@@ -92,6 +92,33 @@
         .test-run-button:disabled:hover {
             background-color: #999;
         }
+        
+        /* Make h2 headers sticky */
+        #tests h2 {
+            position: sticky;
+            top: 78px; /* Position below the fixed nav */
+            background-color: white;
+            padding: 20px 0;
+            margin: 20px 0 10px 0;
+            border-bottom: 2px solid #ddd;
+            z-index: 10;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        /* Style for h2 checkboxes */
+        #tests h2 input[type="checkbox"] {
+            margin-right: 10px;
+            transform: scale(1.2);
+        }
+        
+        #tests h2 label {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            padding-left: 10px;
+            font-size: 25px;
+        }
     </style>
     <script>
     document.addEventListener("DOMContentLoaded", () => {
@@ -148,12 +175,12 @@
         }
         
         // print the test name with checkbox for each test
-        $('#tests').append('<h2>File System Tests</h2>');
+        $('#tests').append('<h2><label><input type="checkbox" id="fsTests-group" checked> FileSystem</label></h2>');
         for (let i = 0; i < fsTests.length; i++) {
             const testInfo = getTestInfo(fsTests[i]);
             $('#tests').append(`<div class="test-container" id="fsTests-container-${i}">
                 <div class="test-checkbox-container">
-                    <input type="checkbox" class="test-checkbox" id="fsTests${i}" checked>
+                    <input type="checkbox" class="test-checkbox fsTests-checkbox" id="fsTests${i}" checked>
                     <label for="fsTests${i}">
                         <div class="test-name">${testInfo.name}</div>
                         <div class="test-description">${testInfo.description}</div>
@@ -163,12 +190,12 @@
             </div>`);
         }
 
-        $('#tests').append('<h2>Key Value Tests</h2>');
+        $('#tests').append('<h2><label><input type="checkbox" id="kvTests-group" checked> Key Value Store</label></h2>');
         for (let i = 0; i < kvTests.length; i++) {
             const testInfo = getTestInfo(kvTests[i]);
             $('#tests').append(`<div class="test-container" id="kvTests-container-${i}">
                 <div class="test-checkbox-container">
-                    <input type="checkbox" class="test-checkbox" id="kvTests${i}" checked>
+                    <input type="checkbox" class="test-checkbox kvTests-checkbox" id="kvTests${i}" checked>
                     <label for="kvTests${i}">
                         <div class="test-name">${testInfo.name}</div>
                         <div class="test-description">${testInfo.description}</div>
@@ -178,12 +205,12 @@
             </div>`);
         }
 
-        $('#tests').append('<h2>AI Tests</h2>');
+        $('#tests').append('<h2><label><input type="checkbox" id="aiTests-group" checked> AI</label></h2>');
         for (let i = 0; i < aiTests.length; i++) {
             const testInfo = getTestInfo(aiTests[i]);
             $('#tests').append(`<div class="test-container" id="aiTests-container-${i}">
                 <div class="test-checkbox-container">
-                    <input type="checkbox" class="test-checkbox" id="aiTests${i}" checked>
+                    <input type="checkbox" class="test-checkbox aiTests-checkbox" id="aiTests${i}" checked>
                     <label for="aiTests${i}">
                         <div class="test-name">${testInfo.name}</div>
                         <div class="test-description">${testInfo.description}</div>
@@ -192,6 +219,41 @@
                 </div>
             </div>`);
         }
+
+        // Add event listeners for group checkboxes
+        $('#fsTests-group').change(function() {
+            const isChecked = $(this).prop('checked');
+            $('.fsTests-checkbox').prop('checked', isChecked);
+        });
+
+        $('#kvTests-group').change(function() {
+            const isChecked = $(this).prop('checked');
+            $('.kvTests-checkbox').prop('checked', isChecked);
+        });
+
+        $('#aiTests-group').change(function() {
+            const isChecked = $(this).prop('checked');
+            $('.aiTests-checkbox').prop('checked', isChecked);
+        });
+
+        // Add event listeners for individual checkboxes to update group checkbox state
+        $(document).on('change', '.fsTests-checkbox', function() {
+            const totalFsTests = $('.fsTests-checkbox').length;
+            const checkedFsTests = $('.fsTests-checkbox:checked').length;
+            $('#fsTests-group').prop('checked', checkedFsTests === totalFsTests);
+        });
+
+        $(document).on('change', '.kvTests-checkbox', function() {
+            const totalKvTests = $('.kvTests-checkbox').length;
+            const checkedKvTests = $('.kvTests-checkbox:checked').length;
+            $('#kvTests-group').prop('checked', checkedKvTests === totalKvTests);
+        });
+
+        $(document).on('change', '.aiTests-checkbox', function() {
+            const totalAiTests = $('.aiTests-checkbox').length;
+            const checkedAiTests = $('.aiTests-checkbox:checked').length;
+            $('#aiTests-group').prop('checked', checkedAiTests === totalAiTests);
+        });
 
         window.assert = function(condition, message) {
             if (!condition) {
@@ -314,15 +376,13 @@
         });
 
         $('#unselect-all').click(() => {
-            for (let i = 0; i < fsTests.length; i++) {
-                $('.test-checkbox').prop('checked', false);
-            }
+            $('.test-checkbox').prop('checked', false);
+            $('#fsTests-group, #kvTests-group, #aiTests-group').prop('checked', false).trigger('change');
         });
 
         $('#select-all').click(() => {
-            for (let i = 0; i < fsTests.length; i++) {
-                $('.test-checkbox').prop('checked', true);
-            }
+            $('.test-checkbox').prop('checked', true);
+            $('#fsTests-group, #kvTests-group, #aiTests-group').prop('checked', true).trigger('change');
         });
 
     });
@@ -336,6 +396,6 @@
         <span id="select-all">Select All</span>
         <span id="unselect-all">Unselect All</span>
     </nav>
-    <div id="tests" style="margin-top:100px;"></div>
+    <div id="tests"></div>
 </body>
 </html>
