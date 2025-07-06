@@ -9,8 +9,19 @@
         body {
             font-family: Arial, sans-serif;
         }
+        nav {
+            z-index: 1000; 
+            display: flex; 
+            align-items: center; 
+            position: fixed; 
+            top: 0; 
+            width: 100%; 
+            background: #EEE; 
+            left: 0; 
+            padding-left: 10px;
+        }
         #tests {
-            margin-top: 20px;
+            padding-top: 50px;
         }
         #run-tests {
             margin-top: 20px;
@@ -380,12 +391,17 @@
             const isChecked = $(this).prop('checked');
             $('.test-checkbox').prop('checked', isChecked);
             $('#fsTests-group, #kvTests-group, #aiTests-group').prop('checked', isChecked);
+            // Update the counter display
+            updateMasterCheckboxState();
         });
 
         // Function to update master checkbox state
         function updateMasterCheckboxState() {
             const totalCheckboxes = $('.test-checkbox').length;
             const checkedCheckboxes = $('.test-checkbox:checked').length;
+            
+            // Update the counter display
+            $('#test-counter').text(`${checkedCheckboxes} / ${totalCheckboxes}`);
             
             if (checkedCheckboxes === 0) {
                 $('#master-checkbox').prop('checked', false).prop('indeterminate', false);
@@ -406,17 +422,23 @@
             updateMasterCheckboxState();
         });
 
+        // Initialize the counter display
+        updateMasterCheckboxState();
+
     });
 
     </script>
 </head>
 <body>
 
-    <nav style="position: fixed; top: 0; width: 100%; background: #EEE; left: 0; padding-left: 10px;">
+    <nav>
         <label style="margin-left: 8px; margin-right: 10px; cursor: pointer; display: inline-flex; align-items: center;">
             <input type="checkbox" id="master-checkbox" checked style="margin-right: 5px; transform: scale(1.2);">
         </label>
-        <button id="run-tests">Run Tests</button>
+        <span id="test-counter" style="font-size: 14px; color: #666; margin-right: 10px;"></span>
+        <div style="flex: 1; text-align: right;">
+            <button id="run-tests" style="margin-right: 30px;">Run Tests</button>
+        </div>
     </nav>
     <div id="tests"></div>
 </body>
