@@ -394,6 +394,9 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { WorkerService } = require('./services/worker/WorkerService');
     services.registerService("worker-service", WorkerService)
+
+    const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');
+    services.registerService('permission-shortcut', PermissionShortcutService);
 }
 
 const install_legacy = async ({ services }) => {
