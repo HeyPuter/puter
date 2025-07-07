@@ -82,7 +82,10 @@ class GetUserService extends BaseService {
     
     async refresh_actor (actor) {
         if ( actor.type.user ) {
-            actor.type.user = await this.get_user({ username: actor.type.user.username });
+            actor.type.user = await this.get_user({
+                username: actor.type.user.username,
+                force: true,
+            });
         }
         return actor;
     }
