@@ -51,6 +51,13 @@ class KV{
                 }),
             });
             const arr_values = await resp.json();
+            if ( ! Array.isArray(arr_values?.result) ) {
+                this.gui_cached.resolve({});
+                setTimeout(() => {
+                    this.gui_cached = null;
+                }, 4000);
+                return;
+            }
             const obj = {};
             for (let i = 0; i < gui_cache_keys.length; i++) {
                 obj[gui_cache_keys[i]] = arr_values.result[i];
