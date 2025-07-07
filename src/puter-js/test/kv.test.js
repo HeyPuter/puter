@@ -503,4 +503,46 @@ window.kvTests = [
             }
         }
     },
+    {
+        name: "testGetPerformance",
+        description: "Test that get method takes less than 100ms",
+        test: async function() {
+            try {
+                // Set up a key-value pair first
+                await puter.kv.set('performanceTestKey', 'testValue');
+                
+                // Measure the time it takes to get the value
+                const startTime = performance.now();
+                const value = await puter.kv.get('performanceTestKey');
+                const endTime = performance.now();
+                
+                const duration = endTime - startTime;
+                
+                // Assert that the value is correct and timing is under 100ms
+                assert(value === 'testValue', "Failed to retrieve correct value");
+                assert(duration < 100, `Get method took ${duration}ms, which exceeds the 100ms limit`);
+                
+                pass(`testGetPerformance passed: get took ${duration.toFixed(2)}ms`);
+            } catch (error) {
+                fail("testGetPerformance failed:", error);
+            }
+        }
+    },
+    {
+        name: "testSetPerformance",
+        description: "Test that set method takes less than 100ms",
+        test: async function() {
+            try {
+                // Set up a key-value pair first
+                const startTime = performance.now();
+                await puter.kv.set('performanceTestKey', 'testValue');
+                const endTime = performance.now();
+                const duration = endTime - startTime;
+                assert(duration < 100, `Set method took ${duration}ms, which exceeds the 100ms limit`);
+                pass(`testSetPerformance passed: set took ${duration.toFixed(2)}ms`);
+            } catch (error) {
+                fail("testSetPerformance failed:", error);
+            }
+        }
+    }
 ]
