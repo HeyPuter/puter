@@ -255,6 +255,11 @@
             opacity: 0.8;
             margin-top: 2px;
         }
+        
+        #reset-results:hover {
+            color: #333;
+            text-decoration: none;
+        }
     </style>
     <script>
     document.addEventListener("DOMContentLoaded", () => {
@@ -653,6 +658,18 @@
             runTests();
         });
 
+        // Reset results functionality
+        $('#reset-results').click(() => {
+            // Clear all test container background colors
+            $('.test-container').css('background-color', '');
+            // Remove all error message pre elements
+            $('.test-container pre').remove();
+            // Hide progress panel if it's showing
+            hideProgressPanel();
+            // Reset progress tracking
+            resetProgress();
+        });
+
         // Master checkbox functionality
         $('#master-checkbox').change(function() {
             const isChecked = $(this).prop('checked');
@@ -704,6 +721,7 @@
         </label>
         <span id="test-counter"></span>
         <div style="flex: 1; text-align: right;">
+            <span id="reset-results" style="margin-right: 20px; cursor: pointer; color: #666; text-decoration: underline; font-size: 14px;">Reset results</span>
             <button id="run-tests" style="margin-right: 30px;">Run Tests</button>
         </div>
     </nav>
