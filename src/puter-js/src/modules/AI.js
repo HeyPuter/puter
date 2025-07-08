@@ -362,7 +362,7 @@ class AI{
             driver = 'claude';
         }else if(requestParams.model === 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo' || requestParams.model === 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo' || requestParams.model === 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo' || requestParams.model === `google/gemma-2-27b-it`){
             driver = 'together-ai';
-        }else if(requestParams.model === 'mistral-large-latest' || requestParams.model === 'codestral-latest'){
+        }else if(requestParams.model.startsWith('mistral-') || requestParams.model.startsWith('codestral-') || requestParams.model.startsWith('pixtral-') || requestParams.model.startsWith('magistral-') || requestParams.model.startsWith('devstral-') || requestParams.model.startsWith('mistral-ocr-') || requestParams.model.startsWith('open-mistral-')){
             driver = 'mistral';
         }else if([
             "distil-whisper-large-v3-en",
