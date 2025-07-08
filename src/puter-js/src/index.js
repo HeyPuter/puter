@@ -25,6 +25,7 @@ import Perms from './modules/Perms.js';
 import { pFetch } from './modules/networking/requests.js';
 import localStorageMemory from './lib/polyfills/localStorage.js'
 import xhrshim from './lib/polyfills/xhrshim.js'
+import { WorkersHandler } from './modules/Workers.js';
 
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
@@ -378,6 +379,8 @@ export default globalThis.puter = (function() {
                 },
                 fetch: pFetch
             }
+
+            this.workers = new WorkersHandler(this.authToken);
         }
 
         /**
