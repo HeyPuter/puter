@@ -18,11 +18,15 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { default: Anthropic } = require("@anthropic-ai/sdk");
+const { default: Anthropic, toFile } = require("@anthropic-ai/sdk");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const FunctionCalling = require("./lib/FunctionCalling");
 const Messages = require("./lib/Messages");
+const { NodePathSelector } = require("../../filesystem/node/selectors");
+const FSNodeParam = require("../../api/filesystem/FSNodeParam");
+const { LLRead } = require("../../filesystem/ll_operations/ll_read");
+const { Context } = require("../../util/context");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 /**
@@ -36,6 +40,11 @@ class ClaudeService extends BaseService {
     static MODULES = {
         Anthropic: require('@anthropic-ai/sdk'),
     }
+    
+    /**
+     * @type {import('@anthropic-ai/sdk').Anthropic}
+     */
+    anthropic;
     
 
     /**
@@ -102,6 +111,7 @@ class ClaudeService extends BaseService {
             * @param {boolean} options.stream - Whether to stream the response
             * @param {string} [options.model] - The Claude model to use, defaults to service default
             * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or a completion object
+            * @this {ClaudeService}
             */
             async complete ({ messages, stream, model, tools, max_tokens, temperature}) {
                 tools = FunctionCalling.make_claude_tools(tools);
@@ -127,12 +137,93 @@ class ClaudeService extends BaseService {
                 };
                 
                 console.log('\x1B[26;1m ===== SDK PARAMETERS', require('util').inspect(sdk_params, undefined, Infinity));
+                
+                let beta_mode = false;
+                
+                // Perform file uploads
+                const file_delete_tasks = [];
+                {
+                    const actor = Context.get('actor');
+                    const { user } = actor.type;
+
+                    const file_input_tasks = [];
+                    for ( const message of messages ) {
+                        // We can assume `message.content` is not undefined because
+                        // Messages.normalize_single_message ensures this.
+                        for ( const contentPart of message.content ) {
+                            if ( ! contentPart.puter_path ) continue;
+                            file_input_tasks.push({
+                                node: await (new FSNodeParam(contentPart.puter_path)).consolidate({
+                                    req: { user },
+                                    getParam: () => contentPart.puter_path,
+                                }),
+                                contentPart,
+                            });
+                        }
+                    }
+                    
+                    const promises = [];
+                    for ( const task of file_input_tasks ) promises.push((async () => {
+                        const ll_read = new LLRead();
+                        const stream = await ll_read.run({
+                            actor: Context.get('actor'),
+                            fsNode: task.node,
+                        });
+                        
+                        const require = this.require;
+                        const mime = require('mime-types');
+                        const mimeType = mime.contentType(await task.node.get('name'));
+
+                        beta_mode = true;
+                        const fileUpload = await this.anthropic.beta.files.upload({
+                            file: await toFile(stream, undefined, { type: mimeType })
+                        }, {
+                            betas: ['files-api-2025-04-14']
+                        });
+                        
+                        file_delete_tasks.push({ file_id: fileUpload.id });
+                        // We have to copy a table from the documentation here:
+                        // https://docs.anthropic.com/en/docs/build-with-claude/files
+                        const contentBlockTypeForFileBasedOnMime = (() => {
+                            if ( mimeType.startsWith('image/') ) {
+                                return 'image';
+                            }
+                            if ( mimeType.startsWith('text/') ) {
+                                return 'document';
+                            }
+                            if ( mimeType === 'application/pdf' || mimeType === 'application/x-pdf' ) {
+                                return 'document';
+                            }
+                            return 'container_upload';
+                        })();
+                        
+                        // {
+                        //     'application/pdf': 'document',
+                        //     'text/plain': 'document',
+                        //     'image/': 'image'
+                        // }[mimeType];
+
+                        
+                        delete task.contentPart.puter_path,
+                        task.contentPart.type = contentBlockTypeForFileBasedOnMime;
+                        task.contentPart.source = {
+                            type: 'file',
+                            file_id: fileUpload.id,
+                        };
+                    })());
+                    await Promise.all(promises);
+                }
+                
+                if ( beta_mode ) {
+                    Object.assign(sdk_params, { betas: ['files-api-2025-04-14'] });
+                }
+                const anthropic = (c => beta_mode ? c.beta : c)(this.anthropic);
 
                 if ( stream ) {
                     let usage_promise = new TeePromise();
 
                     const init_chat_stream = async ({ chatStream }) => {
-                        const completion = await this.anthropic.messages.stream(sdk_params);
+                        const completion = await anthropic.messages.stream(sdk_params);
                         const counts = { input_tokens: 0, output_tokens: 0 };
 
                         let message, contentBlock;
@@ -197,8 +288,29 @@ class ClaudeService extends BaseService {
                         usage_promise: usage_promise,
                     });
                 }
+                
+                const msg = await anthropic.messages.create(sdk_params);
+                
+                {
+                    for ( const task of file_delete_tasks ) {
+                        (async () => {
+                            try {
+                                await this.anthropic.beta.files.delete(
+                                    task.file_id,
+                                    { betas: ['files-api-2025-04-14'] }
+                                );
+                            }  catch (e) {
+                                this.errors.report('claude:file-delete-task', {
+                                    source: e,
+                                    trace: true,
+                                    alarm: true,
+                                    extra: { file_id: task.file_id },
+                                });
+                            }
+                        })();
+                    }
+                }
 
-                const msg = await this.anthropic.messages.create(sdk_params);
                 return {
                     message: msg,
                     usage: msg.usage,
