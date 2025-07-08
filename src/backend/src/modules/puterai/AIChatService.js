@@ -533,7 +533,8 @@ class AIChatService extends BaseService {
                     })();
 
                     if ( is_request_error ) {
-                        throw APIError.create('error_400_from_delegate', null, {
+                        console.log(e.stack);
+                        throw APIError.create('error_400_from_delegate', e, {
                             delegate: intended_service,
                             message: e.message,
                         })
