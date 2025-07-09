@@ -1,7 +1,7 @@
 <html>
 <head>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
-    <script src="https://js.puter.com/v2/"></script>
+    <script id="puter-script"></script>
     <script src="./kv.test.js"></script>
     <script src="./fs.test.js"></script>
     <script src="./ai.test.js"></script>
@@ -36,6 +36,23 @@
             display: inline-block;
             font-size: 16px;
             cursor: pointer;
+        }
+        #settings-btn {
+            margin-left: 10px;
+            margin-top: 20px;
+            margin-bottom: 20px;
+            background-color: #666;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        #settings-btn:hover {
+            background-color: #555;
         }
         #unselect-all {
             margin-left: 20px;
@@ -261,10 +278,173 @@
             color: #333;
             text-decoration: none;
         }
+
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        
+        .modal-content {
+            background-color: #fefefe;
+            margin: 10% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            border-radius: 8px;
+            width: 500px;
+            max-width: 90%;
+            position: relative;
+        }
+        
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+        }
+        
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+        }
+        
+        .modal h2 {
+            margin-top: 0;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        
+        .setting-group {
+            margin-bottom: 15px;
+        }
+        
+        .setting-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        
+        .setting-group input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        
+        .modal-buttons {
+            margin-top: 20px;
+            text-align: right;
+        }
+        
+        .modal-buttons button {
+            margin-left: 10px;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .btn-cancel {
+            background-color: #ccc;
+            color: #333;
+        }
+        
+        .btn-cancel:hover {
+            background-color: #bbb;
+        }
+        
+        .btn-save {
+            background-color: #4c84af;
+            color: white;
+        }
+        
+        .btn-save:hover {
+            background-color: #3a6a8a;
+        }
     </style>
     <script>
-    document.addEventListener("DOMContentLoaded", () => {
-
+    // Settings management
+    const DEFAULT_SETTINGS = {
+        puterJsUrl: 'https://js.puter.com/v2/',
+        apiOrigin: 'https://api.puter.com'
+    };
+    
+    let currentSettings = { ...DEFAULT_SETTINGS };
+    
+    // Load settings from localStorage or use defaults
+    function loadSettings() {
+        const saved = localStorage.getItem('puter-test-settings');
+        if (saved) {
+            try {
+                currentSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+            } catch (e) {
+                console.warn('Failed to parse saved settings, using defaults');
+                currentSettings = { ...DEFAULT_SETTINGS };
+            }
+        }
+    }
+    
+    // Save settings to localStorage
+    function saveSettings() {
+        localStorage.setItem('puter-test-settings', JSON.stringify(currentSettings));
+    }
+    
+    // Load Puter.js script dynamically
+    function loadPuterScript() {
+        return new Promise((resolve, reject) => {
+            const script = document.getElementById('puter-script');
+            
+            // Remove existing script if any
+            if (script.src) {
+                script.remove();
+                const newScript = document.createElement('script');
+                newScript.id = 'puter-script';
+                document.head.insertBefore(newScript, script.nextSibling);
+            }
+            
+            const puterScript = document.getElementById('puter-script');
+            puterScript.onload = resolve;
+            puterScript.onerror = reject;
+            puterScript.src = currentSettings.puterJsUrl;
+        });
+    }
+    
+    // Initialize Puter with settings
+    async function initializePuter() {
+        try {
+            await loadPuterScript();
+            
+            // Wait a bit for the script to initialize
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            // Set API origin if puter object exists
+            if (typeof puter !== 'undefined' && puter.setAPIOrigin) {
+                puter.setAPIOrigin(currentSettings.apiOrigin);
+            }
+        } catch (error) {
+            console.error('Failed to load Puter.js:', error);
+            alert('Failed to load Puter.js. Please check the URL in settings.');
+        }
+    }
+    
+    // Initialize on page load
+    document.addEventListener("DOMContentLoaded", async () => {
+        loadSettings();
+        await initializePuter();
+        
         // Progress tracking variables
         let testProgress = {
             total: 0,
@@ -776,6 +956,48 @@
         // Initialize the counter display
         updateMasterCheckboxState();
 
+        // Settings modal functionality
+        $('#settings-btn').click(() => {
+            // Populate modal with current settings
+            $('#puter-js-url').val(currentSettings.puterJsUrl);
+            $('#api-origin').val(currentSettings.apiOrigin);
+            $('#settings-modal').show();
+        });
+
+        // Close modal
+        $('.close, .btn-cancel').click(() => {
+            $('#settings-modal').hide();
+        });
+
+        // Save settings
+        $('.btn-save').click(async () => {
+            const newSettings = {
+                puterJsUrl: $('#puter-js-url').val().trim(),
+                apiOrigin: $('#api-origin').val().trim()
+            };
+
+            // Validate URLs
+            if (!newSettings.puterJsUrl || !newSettings.apiOrigin) {
+                alert('Please provide both Puter.js URL and API Origin');
+                return;
+            }
+
+            // Update current settings
+            currentSettings = { ...newSettings };
+            saveSettings();
+
+            // Reinitialize Puter with new settings
+            await initializePuter();
+
+            $('#settings-modal').hide();
+        });
+
+        // Close modal when clicking outside
+        $(window).click((event) => {
+            if (event.target === $('#settings-modal')[0]) {
+                $('#settings-modal').hide();
+            }
+        });
     });
 
     </script>
@@ -789,7 +1011,8 @@
         <span id="test-counter"></span>
         <div style="flex: 1; text-align: right;">
             <span id="reset-results" style="margin-right: 20px; cursor: pointer; color: #666; text-decoration: underline; font-size: 14px;">Reset results</span>
-            <button id="run-tests" style="margin-right: 30px;">Run Tests</button>
+            <button id="run-tests" style="margin-right: 10px;">Run Tests</button>
+            <button id="settings-btn">Settings</button>
         </div>
     </nav>
     
@@ -818,6 +1041,29 @@
                     </div>
                 </div>
                 <div class="progress-percentage" id="progress-percentage">0%</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Settings</h2>
+            
+            <div class="setting-group">
+                <label for="puter-js-url">Puter.js URL:</label>
+                <input type="text" id="puter-js-url" placeholder="https://js.puter.com/v2/">
+            </div>
+            
+            <div class="setting-group">
+                <label for="api-origin">API Origin:</label>
+                <input type="text" id="api-origin" placeholder="https://api.puter.com">
+            </div>
+            
+            <div class="modal-buttons">
+                <button class="btn-cancel">Cancel</button>
+                <button class="btn-save">Save</button>
             </div>
         </div>
     </div>
