@@ -5,6 +5,7 @@
     <script src="./kv.test.js"></script>
     <script src="./fs.test.js"></script>
     <script src="./ai.test.js"></script>
+    <script src="./txt2speech.test.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -430,6 +431,21 @@
             </div>`);
         }
 
+        $('#tests').append('<h2><label><input type="checkbox" id="txt2speechTests-group" checked> Text-to-Speech</label></h2>');
+        for (let i = 0; i < txt2speechTests.length; i++) {
+            const testInfo = getTestInfo(txt2speechTests[i]);
+            $('#tests').append(`<div class="test-container" id="txt2speechTests-container-${i}">
+                <div class="test-checkbox-container">
+                    <input type="checkbox" class="test-checkbox txt2speechTests-checkbox" id="txt2speechTests${i}" checked>
+                    <label for="txt2speechTests${i}">
+                        <div class="test-name">${testInfo.name}</div>
+                        <div class="test-description">${testInfo.description}</div>
+                    </label><br>
+                    <button class="test-run-button" onclick="runSingleTest('txt2speech', ${i})">Run Test</button>
+                </div>
+            </div>`);
+        }
+
         // Add event listeners for group checkboxes
         $('#fsTests-group').change(function() {
             const isChecked = $(this).prop('checked');
@@ -444,6 +460,11 @@
         $('#aiTests-group').change(function() {
             const isChecked = $(this).prop('checked');
             $('.aiTests-checkbox').prop('checked', isChecked);
+        });
+
+        $('#txt2speechTests-group').change(function() {
+            const isChecked = $(this).prop('checked');
+            $('.txt2speechTests-checkbox').prop('checked', isChecked);
         });
 
         // Add event listeners for individual checkboxes to update group checkbox state
@@ -486,6 +507,19 @@
             }
         });
 
+        $(document).on('change', '.txt2speechTests-checkbox', function() {
+            const totalTxt2speechTests = $('.txt2speechTests-checkbox').length;
+            const checkedTxt2speechTests = $('.txt2speechTests-checkbox:checked').length;
+            
+            if (checkedTxt2speechTests === 0) {
+                $('#txt2speechTests-group').prop('checked', false).prop('indeterminate', false);
+            } else if (checkedTxt2speechTests === totalTxt2speechTests) {
+                $('#txt2speechTests-group').prop('checked', true).prop('indeterminate', false);
+            } else {
+                $('#txt2speechTests-group').prop('checked', false).prop('indeterminate', true);
+            }
+        });
+
         window.assert = function(condition, message) {
             if (!condition) {
                 throw new Error(message || "Assertion failed");
@@ -496,7 +530,8 @@
             const testSuites = {
                 'fs': fsTests,
                 'kv': kvTests,
-                'ai': aiTests
+                'ai': aiTests,
+                'txt2speech': txt2speechTests
             };
             
             const tests = testSuites[testType];
@@ -642,6 +677,38 @@
                     await delay(100);
                 }
             }
+
+            for (let i = 0; i < txt2speechTests.length; i++) {
+                if (document.getElementById(`txt2speechTests${i}`).checked) {
+                    const testInfo = getTestInfo(txt2speechTests[i]);
+                    testProgress.currentTest = `Text-to-Speech: ${testInfo.name}`;
+                    updateProgressPanel();
+                    
+                    try{
+                        await executeTest(txt2speechTests[i]);
+                        // make this test's container green
+                        $(`#txt2speechTests-container-${i}`).css('background-color', '#85e085');
+                        testProgress.passed++;
+                    } catch (e) {
+                        console.error('Txt2Speech Test failed:', testInfo.name, e);
+                        // make this test's container red
+                        $(`#txt2speechTests-container-${i}`).css('background-color', '#ff8484');
+                        // message - show full error information including JSON details
+                        let errorMessage = e.message || e.toString();
+                        if (e.originalError) {
+                            errorMessage += '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
+                        }
+                        $(`#txt2speechTests-container-${i}`).append(`<pre style="color:red; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`);
+                        testProgress.failed++;
+                    }
+                    
+                    testProgress.completed++;
+                    updateProgressPanel();
+                    
+                    // Small delay to make progress visible
+                    await delay(100);
+                }
+            }
             
             // Show completion message
             testProgress.currentTest = `Complete! ${testProgress.passed} passed, ${testProgress.failed} failed`;
@@ -674,7 +741,7 @@
         $('#master-checkbox').change(function() {
             const isChecked = $(this).prop('checked');
             $('.test-checkbox').prop('checked', isChecked);
-            $('#fsTests-group, #kvTests-group, #aiTests-group').prop('checked', isChecked);
+            $('#fsTests-group, #kvTests-group, #aiTests-group, #txt2speechTests-group').prop('checked', isChecked);
             // Update the counter display
             updateMasterCheckboxState();
         });
@@ -702,7 +769,7 @@
         });
 
         // Update master checkbox state when group checkboxes change
-        $('#fsTests-group, #kvTests-group, #aiTests-group').change(function() {
+        $('#fsTests-group, #kvTests-group, #aiTests-group, #txt2speechTests-group').change(function() {
             updateMasterCheckboxState();
         });
 
