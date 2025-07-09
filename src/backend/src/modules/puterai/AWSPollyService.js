@@ -23,14 +23,23 @@ const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const APIError = require("../../api/APIError");
 
-// Polly price calculation
-const microcents_per_character = 400;
+// Polly price calculation per engine
+const ENGINE_PRICING = {
+    'standard': 400,      // $4.00 per 1M characters
+    'neural': 1600,       // $16.00 per 1M characters  
+    'long-form': 10000,   // $100.00 per 1M characters
+    'generative': 3000,   // $30.00 per 1M characters
+};
+
+// Valid engine types
+const VALID_ENGINES = ['standard', 'neural', 'long-form', 'generative'];
 
 /**
 * AWSPollyService class provides text-to-speech functionality using Amazon Polly.
 * Extends BaseService to integrate with AWS Polly for voice synthesis operations.
 * Implements voice listing, speech synthesis, and voice selection based on language.
 * Includes caching for voice descriptions and supports both text and SSML inputs.
+* Supports multiple TTS engines: Standard, Neural, Long-form, and Generative.
 * @extends BaseService
 */
 class AWSPollyService extends BaseService {
@@ -64,10 +73,20 @@ class AWSPollyService extends BaseService {
             * @property {Object} synthesize - Converts text to speech using specified voice/language
             * @property {Function} supports_test_mode - Indicates test mode support for methods
             */
-            async list_voices () {
+            async list_voices ({ engine } = {}) {
                 const polly_voices = await this.describe_voices();
 
                 let voices = polly_voices.Voices;
+
+                if (engine) {
+                    if (VALID_ENGINES.includes(engine)) {
+                        voices = voices.filter(
+                            (voice) => voice.SupportedEngines?.includes(engine)
+                        );
+                    } else {
+                        throw APIError.create('invalid_engine', null, { engine, valid_engines: VALID_ENGINES });
+                    }
+                }
 
                 voices = voices.map((voice) => ({
                     id: voice.Id,
@@ -76,13 +95,22 @@ class AWSPollyService extends BaseService {
                         name: voice.LanguageName,
                         code: voice.LanguageCode,
                     },
+                    supported_engines: voice.SupportedEngines || ['standard'],
                 }))
 
                 return voices;
             },
+            async list_engines () {
+                return VALID_ENGINES.map(engine => ({
+                    id: engine,
+                    name: engine.charAt(0).toUpperCase() + engine.slice(1),
+                    pricing_per_million_chars: ENGINE_PRICING[engine] / 100, // Convert microcents to dollars
+                }));
+            },
             async synthesize ({
                 text, voice,
                 ssml, language,
+                engine = 'standard',
                 test_mode,
             }) {
                 if ( test_mode ) {
@@ -92,7 +120,13 @@ class AWSPollyService extends BaseService {
                         content_type: 'audio',
                     }, url);
                 }
+
+                // Validate engine
+                if (!VALID_ENGINES.includes(engine)) {
+                    throw APIError.create('invalid_engine', null, { engine, valid_engines: VALID_ENGINES });
+                }
                 
+                const microcents_per_character = ENGINE_PRICING[engine];
                 const exact_cost = microcents_per_character * text.length;
                 
                 const svc_cost = this.services.get('cost');
@@ -111,6 +145,7 @@ class AWSPollyService extends BaseService {
                     voice_id: voice,
                     text_type: ssml ? 'ssml' : 'text',
                     language,
+                    engine,
                 });
     
                 const speech = new TypedValue({
@@ -190,25 +225,28 @@ class AWSPollyService extends BaseService {
     * @param {string} [options.voice_id] - AWS Polly voice ID to use
     * @param {string} [options.language] - Language code (e.g. 'en-US')
     * @param {string} [options.text_type] - Type of input text ('text' or 'ssml')
+    * @param {string} [options.engine] - TTS engine to use ('standard', 'neural', 'long-form', 'generative')
     * @returns {Promise<AWS.Polly.SynthesizeSpeechOutput>} The synthesized speech response
     */
-    async synthesize_speech (text, { format, voice_id, language, text_type }) {
+    async synthesize_speech (text, { format, voice_id, language, text_type, engine = 'standard' }) {
         const client = this._get_client(this.config.aws.region);
 
         let voice = voice_id ?? undefined
 
         if ( ! voice && language ) {
-            this.log.debug('getting language appropriate voice', { language });
-            voice = await this.maybe_get_language_appropriate_voice_(language);
+            this.log.debug('getting language appropriate voice', { language, engine });
+            voice = await this.maybe_get_language_appropriate_voice_(language, engine);
         }
 
         if ( ! voice ) {
-            voice = 'Salli';
+            // Get a default voice that supports the specified engine
+            voice = await this.get_default_voice_for_engine_(engine);
         }
 
-        this.log.debug('using voice', { voice });
+        this.log.debug('using voice', { voice, engine });
 
         const params = {
+            Engine: engine,
             OutputFormat: format,
             Text: text,
             VoiceId: voice,
@@ -225,21 +263,63 @@ class AWSPollyService extends BaseService {
 
 
     /**
-    * Attempts to find an appropriate voice for the given language code
+    * Attempts to find an appropriate voice for the given language code and engine
     * @param {string} language - The language code to find a voice for (e.g. 'en-US')
+    * @param {string} engine - The TTS engine to use
     * @returns {Promise<?string>} The voice ID if found, null if no matching voice exists
     * @private
     */
-    async maybe_get_language_appropriate_voice_ (language) {
+    async maybe_get_language_appropriate_voice_ (language, engine = 'standard') {
         const voices = await this.describe_voices();
 
         const voice = voices.Voices.find((voice) => {
-            return voice.LanguageCode === language;
+            return voice.LanguageCode === language && 
+                   voice.SupportedEngines && 
+                   voice.SupportedEngines.includes(engine);
         });
 
         if ( ! voice ) return null;
 
         return voice.Id;
+    }
+
+    /**
+    * Gets a default voice that supports the specified engine
+    * @param {string} engine - The TTS engine to use
+    * @returns {Promise<string>} The default voice ID for the engine
+    * @private
+    */
+    async get_default_voice_for_engine_ (engine = 'standard') {
+        const voices = await this.describe_voices();
+        
+        // Common default voices for each engine
+        const default_voices = {
+            'standard': ['Salli', 'Joanna', 'Matthew'],
+            'neural': ['Joanna', 'Matthew', 'Salli'],
+            'long-form': ['Joanna', 'Matthew'],
+            'generative': ['Joanna', 'Matthew', 'Salli'],
+        };
+
+        const preferred_voices = default_voices[engine] || ['Salli'];
+        
+        for (const voice_name of preferred_voices) {
+            const voice = voices.Voices.find((v) => 
+                v.Id === voice_name && 
+                v.SupportedEngines && 
+                v.SupportedEngines.includes(engine)
+            );
+            if (voice) {
+                return voice.Id;
+            }
+        }
+
+        // Fallback: find any voice that supports the engine
+        const fallback_voice = voices.Voices.find((voice) => 
+            voice.SupportedEngines && 
+            voice.SupportedEngines.includes(engine)
+        );
+
+        return fallback_voice ? fallback_voice.Id : 'Salli';
     }
 }
 

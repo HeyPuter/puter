@@ -1,4 +1,4 @@
-import * as utils from '../lib/utils.js'
+import * as utils from '../lib/utils.js';
 
 class AI{
     /**
@@ -130,49 +130,89 @@ class AI{
         if(!args){
             throw({message: 'Arguments are required', code: 'arguments_required'});
         }
+        
+        // Accept arguments in the following formats:
+        // 1. Shorthand API
+        //      puter.ai.txt2speech("Hello world")
+        // 2. Verbose API
+        //      puter.ai.txt2speech("Hello world", {
+        //           voice: "Joanna",
+        //           engine: "neural",
+        //           language: "en-US"
+        //      })
+        // 3. Positional arguments (Legacy)
+        //      puter.ai.txt2speech(<text>, <language>, <voice>, <engine>)
+        //      e.g:
+        //      puter.ai.txt2speech("Hello world", "en-US")
+        //      puter.ai.txt2speech("Hello world", "en-US", "Joanna")
+        //      puter.ai.txt2speech("Hello world", "en-US", "Joanna", "neural")
+        // 
+        // Undefined parameters will be set to default values:
+        // - voice: "Joanna"
+        // - engine: "standard"
+        // - language: "en-US"
 
-        // if argument is string transform it to the object that the API expects
+
         if (typeof args[0] === 'string') {
             options = { text: args[0] };
         }
 
-        // * ai.txt2speech('Hello, world!', 'en-US')
-        // * ai.txt2speech('Hello, world!', 'en-US', 'Brian')
-        if (args[1] && typeof args[1] === 'string') {
+        if (args[1] && typeof args[1] === 'object' && !Array.isArray(args[1])) {
+            // for verbose object API
+            Object.assign(options, args[1]);
+        } else if (args[1] && typeof args[1] === 'string') {
+            // for legacy positional-arguments API
+            // 
+            // puter.ai.txt2speech(<text>, <language>, <voice>, <engine>)
+            options.language = args[1];
             
-            // Determine language
-            if (args[1] && typeof args[1] === 'string') {
-                // Check if it's a language code (ISO 639-1 or with region)
-                // Pattern matches: en, es, fr, de, en-US, es-ES, fr-FR, etc.
-                const languageCodePattern = /^[a-z]{2}(-[A-Z]{2})?$/;
-
-                // if language code is invalid, throw an error
-                if(!languageCodePattern.test(args[1])){
-                    throw { message: 'Invalid language code', code: 'invalid_language_code' };
-                }
-
-                // set language
-                options.language = args[1];
-            }
-            // Determine voice
-            // Note that voice is optional, and if not provided, the default voice for the language will be used
-            // Also, it is important that a language is set before a voice is set since voices are language-specific
-            if (options.language && args[2] && typeof args[2] === 'string') {
-                // set voice
+            if (args[2] && typeof args[2] === 'string') {
                 options.voice = args[2];
             }
+            
+            if (args[3] && typeof args[3] === 'string') {
+                options.engine = args[3];
+            }
+        } else if (args[1] && typeof args[1] !== 'boolean') {
+            // If second argument is not an object, string, or boolean, throw an error
+            throw { message: 'Second argument must be an options object or language string. Use: txt2speech("text", { voice: "name", engine: "type", language: "code" }) or txt2speech("text", "language", "voice", "engine")', code: 'invalid_arguments' };
+        }
+
+        // Validate required text parameter
+        if (!options.text) {
+            throw { message: 'Text parameter is required', code: 'text_required' };
+        }
+
+        // Validate engine if provided
+        if (options.engine) {
+            const validEngines = ['standard', 'neural', 'long-form', 'generative'];
+            if (!validEngines.includes(options.engine)) {
+                throw { message: 'Invalid engine. Must be one of: ' + validEngines.join(', '), code: 'invalid_engine' };
+            }
+        }
+
+        // Set default values if not provided
+        if (!options.voice) {
+            options.voice = 'Joanna';
+        }
+        if (!options.engine) {
+            options.engine = 'standard';
+        }
+        if (!options.language) {
+            options.language = 'en-US';
         }
 
         // check input size
-        if (options.text.length > this.MAX_INPUT_SIZE) {
+        if (options.text.length > MAX_INPUT_SIZE) {
             throw { message: 'Input size cannot be larger than ' + MAX_INPUT_SIZE, code: 'input_too_large' };
         }
 
-        // determine if test mode is enabled
-        if (typeof args[1] === 'boolean' && args[1] === true ||
-            typeof args[2] === 'boolean' && args[2] === true ||
-            typeof args[3] === 'boolean' && args[3] === true) {
-            testMode = true;
+        // determine if test mode is enabled (check all arguments for boolean true)
+        for (let i = 0; i < args.length; i++) {
+            if (typeof args[i] === 'boolean' && args[i] === true) {
+                testMode = true;
+                break;
+            }
         }
     
         return await utils.make_driver_method(['source'], 'puter-tts', 'aws-polly', 'synthesize', {
@@ -187,6 +227,35 @@ class AI{
             }
         }).call(this, options);
     }
+
+    // Add new methods for TTS engine management
+    txt2speech = Object.assign(this.txt2speech, {
+        /**
+         * List available TTS engines with pricing information
+         * @returns {Promise<Array>} Array of available engines
+         */
+        listEngines: async () => {
+            return await utils.make_driver_method(['source'], 'puter-tts', 'aws-polly', 'list_engines', {
+                responseType: 'text',
+            }).call(this, {});
+        },
+
+        /**
+         * List all available voices, optionally filtered by engine
+         * @param {string} [engine] - Optional engine filter
+         * @returns {Promise<Array>} Array of available voices
+         */
+        listVoices: async (engine) => {
+            const params = {};
+            if (engine) {
+                params.engine = engine;
+            }
+
+            return utils.make_driver_method(['source'], 'puter-tts', 'aws-polly', 'list_voices', {
+                responseType: 'text',
+            }).call(this, params);
+        }
+    });
 
 
     // accepts either a string or an array of message objects

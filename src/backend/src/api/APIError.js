@@ -500,6 +500,12 @@ module.exports = class APIError {
             status: 400,
             message: ({ message }) => message || 'Invalid captcha response',
         },
+
+        // TTS Errors
+        'invalid_engine': {
+            status: 400,
+            message: ({ engine, valid_engines }) => `Invalid engine: ${quot(engine)}. Valid engines are: ${valid_engines.map(quot).join(', ')}.`,
+        },
     };
 
     /**
