@@ -18,9 +18,16 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
+const FSNodeParam = require('../../api/filesystem/FSNodeParam');
+const { LLRead } = require('../../filesystem/ll_operations/ll_read');
 const BaseService = require('../../services/BaseService');
 const { Context } = require('../../util/context');
+const { stream_to_buffer } = require('../../util/streamutil');
 const OpenAIUtil = require('./lib/OpenAIUtil');
+
+// We're capping at 5MB, which sucks, but Chat Completions doesn't suuport
+// file inputs.
+const MAX_FILE_SIZE = 5 * 1_000_000;
 
 /**
 * OpenAICompletionService class provides an interface to OpenAI's chat completion API.
@@ -34,6 +41,11 @@ class OpenAICompletionService extends BaseService {
         openai: require('openai'),
         tiktoken: require('tiktoken'),
     }
+    
+    /**
+     * @type {import('openai').OpenAI}
+     */
+    openai;
 
     /**
     * Initializes the OpenAI service by setting up the API client with credentials
@@ -325,7 +337,71 @@ class OpenAICompletionService extends BaseService {
         }
 
         this.log.info('PRIVATE UID FOR USER ' + user_private_uid)
-
+        
+        // Perform file uploads
+        {
+            const actor = Context.get('actor');
+            const { user } = actor.type;
+            
+            const file_input_tasks = [];
+            for ( const message of messages ) {
+                // We can assume `message.content` is not undefined because
+                // Messages.normalize_single_message ensures this.
+                for ( const contentPart of message.content ) {
+                    if ( ! contentPart.puter_path ) continue;
+                    file_input_tasks.push({
+                        node: await (new FSNodeParam(contentPart.puter_path)).consolidate({
+                            req: { user },
+                            getParam: () => contentPart.puter_path,
+                        }),
+                        contentPart,
+                    });
+                }
+            }
+            
+            const promises = [];
+            for ( const task of file_input_tasks ) promises.push((async () => {
+                if ( await task.node.get('size') > MAX_FILE_SIZE ) {
+                    delete task.contentPart.puter_path;
+                    task.contentPart.type = 'text';
+                    task.contentPart.text = `{error: input file exceeded maximum of ${MAX_FILE_SIZE} bytes; ` +
+                        `the user did not write this message}`; // "poor man's system prompt"
+                    return; // "continue"
+                }
+                
+                const ll_read = new LLRead();
+                const stream = await ll_read.run({
+                    actor: Context.get('actor'),
+                    fsNode: task.node,
+                });
+                const require = this.require;
+                const mime = require('mime-types');
+                const mimeType = mime.contentType(await task.node.get('name'));
+                
+                const buffer = await stream_to_buffer(stream);
+                const base64 = buffer.toString('base64');
+                
+                delete task.contentPart.puter_path;
+                if ( mimeType.startsWith('image/') ) {
+                    task.contentPart.type = 'image_url',
+                    task.contentPart.image_url = {
+                        url: `data:${mimeType};base64,${base64}`,
+                    };
+                } else if ( mimeType.startsWith('audio/') ) {
+                    task.contentPart.type = 'input_audio',
+                    task.contentPart.input_audio = {
+                        data: `data:${mimeType};base64,${base64}`,
+                        format: mimeType.split('/')[1],
+                    }
+                } else {
+                    task.contentPart.type = 'text';
+                    task.contentPart.text = `{error: input file has unsupported MIME type; ` +
+                        `the user did not write this message}`; // "poor man's system prompt"
+                }
+            })());
+            await Promise.all(promises);
+        }
+        
         // Here's something fun; the documentation shows `type: 'image_url'` in
         // objects that contain an image url, but everything still works if
         // that's missing. We normalise it here so the token count code works.
