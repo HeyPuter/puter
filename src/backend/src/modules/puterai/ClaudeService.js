@@ -213,6 +213,26 @@ class ClaudeService extends BaseService {
                     })());
                     await Promise.all(promises);
                 }
+                const cleanup_files = async () => {
+                    const promises = [];
+                    for ( const task of file_delete_tasks ) promises.push((async () => {
+                        try {
+                            await this.anthropic.beta.files.delete(
+                                task.file_id,
+                                { betas: ['files-api-2025-04-14'] }
+                            );
+                        }  catch (e) {
+                            this.errors.report('claude:file-delete-task', {
+                                source: e,
+                                trace: true,
+                                alarm: true,
+                                extra: { file_id: task.file_id },
+                            });
+                        }
+                    })());
+                    await Promise.all(promises);
+                };
+
                 
                 if ( beta_mode ) {
                     Object.assign(sdk_params, { betas: ['files-api-2025-04-14'] });
@@ -286,31 +306,13 @@ class ClaudeService extends BaseService {
                         init_chat_stream,
                         stream: true,
                         usage_promise: usage_promise,
+                        finally_fn: cleanup_files,
                     });
                 }
                 
                 const msg = await anthropic.messages.create(sdk_params);
+                await cleanup_files();
                 
-                {
-                    for ( const task of file_delete_tasks ) {
-                        (async () => {
-                            try {
-                                await this.anthropic.beta.files.delete(
-                                    task.file_id,
-                                    { betas: ['files-api-2025-04-14'] }
-                                );
-                            }  catch (e) {
-                                this.errors.report('claude:file-delete-task', {
-                                    source: e,
-                                    trace: true,
-                                    alarm: true,
-                                    extra: { file_id: task.file_id },
-                                });
-                            }
-                        })();
-                    }
-                }
-
                 return {
                     message: msg,
                     usage: msg.usage,
