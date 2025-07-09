@@ -50,6 +50,41 @@ class AIChatService extends BaseService {
         cuid2: require('@paralleldrive/cuid2').createId,
     }
 
+    async ['__on_driver.register.interfaces'] () {
+        const svc_registry = this.services.get('registry');
+        const col_interfaces = svc_registry.get('interfaces');
+        
+        col_interfaces.set('puter-chat-completion', {
+            description: 'Chatbot.',
+            methods: {
+                models: {
+                    description: 'List supported models and their details.',
+                    result: { type: 'json' },
+                    parameters: {},
+                },
+                list: {
+                    description: 'List supported models',
+                    result: { type: 'json' },
+                    parameters: {},
+                },
+                complete: {
+                    description: 'Get completions for a chat log.',
+                    parameters: {
+                        messages: { type: 'json' },
+                        tools: { type: 'json' },
+                        vision: { type: 'flag' },
+                        stream: { type: 'flag' },
+                        response: { type: 'json' },
+                        model: { type: 'string' },
+                        temperature: { type: 'number' },
+                        max_tokens: { type: 'number' },
+                    },
+                    result: { type: 'json' },
+                }
+            }
+        });
+    }
+
 
     /**
     * Initializes the service by setting up core properties.

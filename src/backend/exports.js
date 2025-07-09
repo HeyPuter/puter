@@ -40,6 +40,7 @@ const { InternetModule } = require("./src/modules/internet/InternetModule.js");
 const { CaptchaModule } = require("./src/modules/captcha/CaptchaModule.js");
 const { EntityStoreModule } = require("./src/modules/entitystore/EntityStoreModule.js");
 const { KVStoreModule } = require("./src/modules/kvstore/KVStoreModule.js");
+const { AIRouterModule } = require("./src/modules/airouter/AIRouterModule.js");
 
 module.exports = {
     helloworld: () => {
@@ -75,6 +76,7 @@ module.exports = {
     MemoryStorageModule,
     SelfHostedModule,
     TestDriversModule,
+    AIRouterModule,
     PuterAIModule,
     BroadcastModule,
     InternetModule,
