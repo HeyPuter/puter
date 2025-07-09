@@ -34,6 +34,7 @@ class OpenAICompletionService extends BaseService {
         openai: require('openai'),
         tiktoken: require('tiktoken'),
     }
+
     /**
     * Initializes the OpenAI service by setting up the API client with credentials
     * and registering this service as a chat provider.
@@ -41,9 +42,6 @@ class OpenAICompletionService extends BaseService {
     * @returns {Promise<void>} Resolves when initialization is complete
     * @private
     */
-
-    //New Updated Code (with backward compatibility)
-    //issue: #1180
     async _init () {
         // Check for the new format under `services.openai.apiKey`
         let apiKey =
