@@ -20,6 +20,8 @@
             background: #EEE; 
             left: 0; 
             padding-left: 10px;
+            /* disable text selection */
+            user-select: none;
         }
         #tests {
             padding-top: 50px;
@@ -36,6 +38,7 @@
             display: inline-block;
             font-size: 16px;
             cursor: pointer;
+            margin-left: 20px;
         }
         #settings-btn {
             margin-left: 10px;
@@ -50,6 +53,8 @@
             display: inline-block;
             font-size: 16px;
             cursor: pointer;
+            float: right;
+            margin-right: 30px;
         }
         #settings-btn:hover {
             background-color: #555;
@@ -1009,9 +1014,9 @@
             <input type="checkbox" id="master-checkbox" checked style="margin-right: 5px; transform: scale(1.2);">
         </label>
         <span id="test-counter"></span>
-        <div style="flex: 1; text-align: right;">
-            <span id="reset-results" style="margin-right: 20px; cursor: pointer; color: #666; text-decoration: underline; font-size: 14px;">Reset results</span>
+        <div style="flex: 1;">
             <button id="run-tests" style="margin-right: 10px;">Run Tests</button>
+            <span id="reset-results" style="margin-right: 20px; cursor: pointer; color: #666; text-decoration: underline; font-size: 14px;">Reset results</span>
             <button id="settings-btn">Settings</button>
         </div>
     </nav>
