@@ -41,7 +41,7 @@
             margin-left: 20px;
         }
         #settings-btn {
-            margin-left: 10px;
+            margin-left: auto;
             margin-top: 20px;
             margin-bottom: 20px;
             background-color: #666;
@@ -58,6 +58,39 @@
         }
         #settings-btn:hover {
             background-color: #555;
+        }
+        #auth-section {
+            float: right;
+            margin-right: 20px;
+            display: flex;
+            align-items: center;
+            font-size: 14px;
+        }
+        #login-btn {
+            background-color: #4c84af;
+            border: none;
+            color: white;
+            padding: 12px 16px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        #login-btn:hover {
+            background-color: #3a6a8a;
+        }
+        #user-info {
+            color: #333;
+        }
+        #logout-link {
+            color: #666;
+            text-decoration: underline;
+            cursor: pointer;
+            margin-left: 5px;
+        }
+        #logout-link:hover {
+            color: #333;
         }
         #unselect-all {
             margin-left: 20px;
@@ -389,6 +422,40 @@
     
     let currentSettings = { ...DEFAULT_SETTINGS };
     
+    // Authentication functionality
+    async function updateAuthUI() {
+        try {
+            if (typeof puter === 'undefined' || !puter.auth) {
+                // Puter not loaded yet, show login button
+                $('#login-btn').show();
+                $('#user-info').hide();
+                return;
+            }
+            
+            const isSignedIn = await puter.auth.isSignedIn();
+            
+            if (isSignedIn) {
+                let user = await puter.auth.getUser();
+                // User is signed in, show username and logout option
+                $('#login-btn').hide();
+                $('#user-info').show();
+                
+                // Get user info - for now we'll use a placeholder
+                // In a real app, you might want to get the actual username from puter
+                $('#username').text(user.username); // You may need to get actual username from puter API
+            } else {
+                // User is not signed in, show login button
+                $('#login-btn').show();
+                $('#user-info').hide();
+            }
+        } catch (error) {
+            console.error('Error checking auth state:', error);
+            // If there's an error, default to showing login button
+            $('#login-btn').show();
+            $('#user-info').hide();
+        }
+    }
+    
     // Load settings from localStorage or use defaults
     function loadSettings() {
         const saved = localStorage.getItem('puter-test-settings');
@@ -439,6 +506,9 @@
             if (typeof puter !== 'undefined' && puter.setAPIOrigin) {
                 puter.setAPIOrigin(currentSettings.apiOrigin);
             }
+            
+            // Update auth UI after puter is loaded
+            await updateAuthUI();
         } catch (error) {
             console.error('Failed to load Puter.js:', error);
             alert('Failed to load Puter.js. Please check the URL in settings.');
@@ -961,6 +1031,34 @@
         // Initialize the counter display
         updateMasterCheckboxState();
 
+        // Login functionality
+        $('#login-btn').click(async () => {
+            try {
+                $('#login-btn').prop('disabled', true);
+                await puter.auth.signIn();
+                await updateAuthUI();
+            } catch (error) {
+                console.error('Login error:', error);
+                alert('Login failed. Please try again.');
+            } finally {
+                $('#login-btn').prop('disabled', false);
+            }
+        });
+
+        // Logout functionality
+        $('#logout-link').click(async () => {
+            try {
+                await puter.auth.signOut();
+                await updateAuthUI();
+            } catch (error) {
+                console.error('Logout error:', error);
+                alert('Logout failed. Please try again.');
+            }
+        });
+
+        // Initialize auth UI after puter is loaded
+        updateAuthUI();
+
         // Settings modal functionality
         $('#settings-btn').click(() => {
             // Populate modal with current settings
@@ -1014,10 +1112,17 @@
             <input type="checkbox" id="master-checkbox" checked style="margin-right: 5px; transform: scale(1.2);">
         </label>
         <span id="test-counter"></span>
-        <div style="flex: 1;">
+        <div style="flex: 1; display: flex; align-items: center;">
             <button id="run-tests" style="margin-right: 10px;">Run Tests</button>
             <span id="reset-results" style="margin-right: 20px; cursor: pointer; color: #666; text-decoration: underline; font-size: 14px;">Reset results</span>
             <button id="settings-btn">Settings</button>
+            <div id="auth-section">
+                <button id="login-btn" style="display: none;">Login</button>
+                <div id="user-info" style="display: none;">
+                    <span id="username"></span>
+                    <span id="logout-link">(logout)</span>
+                </div>
+            </div>
         </div>
     </nav>
     
