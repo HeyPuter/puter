@@ -30,7 +30,7 @@ const { Context } = require("../../util/context");
 const { AsModeration } = require("./lib/AsModeration");
 const FunctionCalling = require("./lib/FunctionCalling");
 const Messages = require("./lib/Messages");
-const Streaming = require("./lib/Streaming");
+const { CompletionWriter } = require("@heyputer/airouter.js");
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -703,7 +703,7 @@ class AIChatService extends BaseService {
                             chunked: true,
                         }, stream);
 
-                        const chatStream = new Streaming.AIChatStream({
+                        const chatStream = new CompletionWriter({
                             stream,
                         });
 
