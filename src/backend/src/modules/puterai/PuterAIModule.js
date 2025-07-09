@@ -57,62 +57,9 @@ class PuterAIModule extends AdvancedBase {
         }
 
         if ( !! config?.openai ) {
-            const { OpenAICompletionService } = require('./OpenAICompletionService');
-            services.registerService('openai-completion', OpenAICompletionService);
-
             const { OpenAIImageGenerationService } = require('./OpenAIImageGenerationService');
             services.registerService('openai-image-generation', OpenAIImageGenerationService);
         }
-        
-        if ( !! config?.services?.claude ) {
-            const { ClaudeService } = require('./ClaudeService');
-            services.registerService('claude', ClaudeService);
-        }
-
-        if ( !! config?.services?.['together-ai'] ) {
-            const { TogetherAIService } = require('./TogetherAIService');
-            services.registerService('together-ai', TogetherAIService);
-        }
-        
-        if ( !! config?.services?.['mistral'] ) {
-            const { MistralAIService } = require('./MistralAIService');
-            services.registerService('mistral', MistralAIService);
-        }
-        
-        if ( !! config?.services?.['groq'] ) {
-            const { GroqAIService } = require('./GroqAIService');
-            services.registerService('groq', GroqAIService);
-        }
-
-        if ( !! config?.services?.['xai'] ) {
-            const { XAIService } = require('./XAIService');
-            services.registerService('xai', XAIService);
-        }
-
-        if ( !! config?.services?.['deepseek'] ) {
-            const { DeepSeekService } = require('./DeepSeekService');
-            services.registerService('deepseek', DeepSeekService);
-        }
-        if ( !! config?.services?.['gemini'] ) {
-            const { GeminiService } = require('./GeminiService');
-            services.registerService('gemini', GeminiService);
-        }
-        if ( !! config?.services?.['openrouter'] ) {
-            const { OpenRouterService } = require('./OpenRouterService');
-            services.registerService('openrouter', OpenRouterService);
-        }
-
-        const { AIChatService } = require('./AIChatService');
-        services.registerService('ai-chat', AIChatService);
-
-        const { FakeChatService } = require('./FakeChatService');
-        services.registerService('fake-chat', FakeChatService);
-
-        const{ AITestModeService } = require('./AITestModeService');
-        services.registerService('ai-test-mode', AITestModeService);
-
-        const { UsageLimitedChatService } = require('./UsageLimitedChatService');
-        services.registerService('usage-limited-chat', UsageLimitedChatService);
     }
 }
 
