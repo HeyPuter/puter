@@ -58,36 +58,6 @@ class AIInterfaceService extends BaseService {
             }
         });
 
-        col_interfaces.set('puter-chat-completion', {
-            description: 'Chatbot.',
-            methods: {
-                models: {
-                    description: 'List supported models and their details.',
-                    result: { type: 'json' },
-                    parameters: {},
-                },
-                list: {
-                    description: 'List supported models',
-                    result: { type: 'json' },
-                    parameters: {},
-                },
-                complete: {
-                    description: 'Get completions for a chat log.',
-                    parameters: {
-                        messages: { type: 'json' },
-                        tools: { type: 'json' },
-                        vision: { type: 'flag' },
-                        stream: { type: 'flag' },
-                        response: { type: 'json' },
-                        model: { type: 'string' },
-                        temperature: { type: 'number' },
-                        max_tokens: { type: 'number' },
-                    },
-                    result: { type: 'json' },
-                }
-            }
-        });
-
         col_interfaces.set('puter-image-generation', {
             description: 'AI Image Generation.',
             methods: {
