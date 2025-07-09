@@ -161,6 +161,7 @@ module.exports = class OpenAIUtil {
         deviations,
         stream, completion, moderate,
         usage_calculator,
+        finally_fn,
     }) {
         deviations = Object.assign({
             // affected by: Mistral
@@ -181,6 +182,7 @@ module.exports = class OpenAIUtil {
             return new TypedValue({ $: 'ai-chat-intermediate' }, {
                 stream: true,
                 init_chat_stream,
+                finally_fn,
                 usage_promise: usage_promise.then(usage => {
                     return usage_calculator ? usage_calculator({ usage }) : {
                         input_tokens: usage.prompt_tokens,
@@ -189,6 +191,8 @@ module.exports = class OpenAIUtil {
                 }),
             });
         }
+
+        if ( finally_fn ) await finally_fn();
 
         const is_empty = completion.choices?.[0]?.message?.content?.trim() === '';
         if ( is_empty && ! completion.choices?.[0]?.message?.tool_calls ) {

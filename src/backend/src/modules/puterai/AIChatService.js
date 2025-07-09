@@ -684,6 +684,10 @@ class AIChatService extends BaseService {
                                     message: e.message,
                                 }) + '\n');
                                 stream.end();
+                            } finally {
+                                if ( ret.result.value.finally_fn ) {
+                                    await ret.result.value.finally_fn();
+                                }
                             }
                         })();
 
