@@ -22,7 +22,7 @@ const { default: dedent } = require("dedent");
 const BaseService = require("../../services/BaseService");
 const { PassThrough } = require("stream");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
-const Streaming = require("./lib/Streaming");
+const { CompletionWriter } = require("@heyputer/airouter.js");
 
 /**
 * UsageLimitedChatService - A specialized chat service that returns resource exhaustion messages.
@@ -85,7 +85,7 @@ class UsageLimitedChatService extends BaseService {
                         chunked: true,
                     }, streamObj);
                     
-                    const chatStream = new Streaming.AIChatStream({
+                    const chatStream = new CompletionWriter({
                         stream: streamObj,
                     });
                     
