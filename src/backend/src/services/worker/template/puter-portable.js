@@ -16,8 +16,6 @@ if (globalThis.Cloudflare) {
 }
 
 globalThis.init_puter_portable = (auth, apiOrigin, type) => {
-    console.log("Starting puter.js initialization");
-
     // Who put C in my JS??
     /*
      *  This is a hack to include the puter.js file.
