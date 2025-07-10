@@ -22,11 +22,11 @@ const { default: Anthropic, toFile } = require("@anthropic-ai/sdk");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const FunctionCalling = require("./lib/FunctionCalling");
-const Messages = require("./lib/Messages");
 const { NodePathSelector } = require("../../filesystem/node/selectors");
 const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Context } = require("../../util/context");
+const { NormalizedPromptUtil } = require("@heyputer/airouter.js");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 /**
@@ -117,7 +117,7 @@ class ClaudeService extends BaseService {
                 tools = FunctionCalling.make_claude_tools(tools);
                 
                 let system_prompts;
-                [system_prompts, messages] = Messages.extract_and_remove_system_messages(messages);
+                [system_prompts, messages] = NormalizedPromptUtil.extract_and_remove_system_messages(messages);
                 
                 const sdk_params = {
                     model: model ?? this.get_default_model(),
