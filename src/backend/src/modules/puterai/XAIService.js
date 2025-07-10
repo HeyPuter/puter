@@ -159,7 +159,73 @@ class XAIService extends BaseService {
                     output: 1500,
                     image: 1000,
                 },
-            }
+            },
+            {
+                id: 'grok-3',
+                name: 'Grok 3',
+                context: 131072,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 300,
+                    output: 1500,
+                }
+            },
+            {
+                id: 'grok-3-fast',
+                name: 'Grok 3 Fast',
+                context: 131072,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 500,
+                    output: 2500,
+                }
+            },
+            {
+                id: 'grok-3-mini',
+                name: 'Grok 3 Mini',
+                context: 131072,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 30,
+                    output: 50,
+                }
+            },
+            {
+                id: 'grok-3-mini-fast',
+                name: 'Grok 3 Mini',
+                context: 131072,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 60,
+                    output: 400,
+                }
+            },
+            {
+                id: 'grok-2-vision',
+                name: 'Grok 2 Vision',
+                context: 8192,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 200,
+                    output: 1000,
+                }
+            },
+            {
+                id: 'grok-2',
+                name: 'Grok 2',
+                context: 131072,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 200,
+                    output: 1000,
+                }
+            },
         ];
     }
 }
