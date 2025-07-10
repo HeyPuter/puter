@@ -86,7 +86,10 @@
     "validator": "^13.9.0",
     "winston": "^3.9.0",
     "winston-daily-rotate-file": "^4.7.1",
-    "yargs": "^17.7.2"
+    "yargs": "^17.7.2",
+    "sharp": "^0.34.3",
+    "sharp-bmp": "^0.1.5",
+    "sharp-ico": "^0.1.5"
   },
   "devDependencies": {
     "@types/node": "^20.5.3",
