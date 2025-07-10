@@ -29,8 +29,7 @@ const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
 const { AsModeration } = require("./lib/AsModeration");
 const FunctionCalling = require("./lib/FunctionCalling");
-const Messages = require("./lib/Messages");
-const { CompletionWriter } = require("@heyputer/airouter.js");
+const { CompletionWriter, UniversalPromptNormalizer, NormalizedPromptUtil } = require("@heyputer/airouter.js");
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -432,7 +431,7 @@ class AIChatService extends BaseService {
 
                 if ( parameters.messages ) {
                     parameters.messages =
-                        Messages.normalize_messages(parameters.messages);
+                        UniversalPromptNormalizer.normalize_messages(parameters.messages);
                 }
 
                 if ( ! test_mode && ! await this.moderate(parameters) ) {
@@ -487,7 +486,7 @@ class AIChatService extends BaseService {
                 const model_input_cost = model_details.cost.input;
                 const model_output_cost = model_details.cost.output;
                 const model_max_tokens = model_details.max_tokens;
-                const text = Messages.extract_text(parameters.messages);
+                const text = NormalizedPromptUtil.extract_text(parameters.messages);
                 const approximate_input_cost = text.length / 4 * model_input_cost;
                 const usageAllowed = await svc_cost.get_funding_allowed({
                     available,
@@ -754,7 +753,7 @@ class AIChatService extends BaseService {
 
                 if ( parameters.response?.normalize ) {
                     ret.result.message =
-                       Messages.normalize_single_message(ret.result.message);
+                       UniversalPromptNormalizer.normalize_single_message(ret.result.message);
                     ret.result = {
                         message: ret.result.message,
                         via_ai_chat_service: true,
