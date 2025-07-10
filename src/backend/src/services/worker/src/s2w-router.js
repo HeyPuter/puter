@@ -28,11 +28,17 @@ function inits2w() {
         delete(...args) {
             this.custom("DELETE", ...args)
         },
+        /**
+         * 
+         * @param {FetchEvent } event 
+         * @returns 
+         */
         async route(event) {
             if (!globalThis.puter) {
-                console.log("Puter not loaded, initializing...");
                 const success = init_puter_portable(globalThis.puter_auth, globalThis.puter_endpoint || "https://api.puter.com");
-                console.log("Puter.js initialized successfully");
+            }
+            if (event.request.headers.has("puter-authorization")) {
+                event.puter = init_puter_portable(event.request.headers.get("puter-authorization"), globalThis.puter_endpoint || "https://api.puter.com", "userPuter");
             }
             
             const mappings = this.map.get(event.request.method);
