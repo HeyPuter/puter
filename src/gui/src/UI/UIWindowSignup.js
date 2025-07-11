@@ -104,7 +104,7 @@ function UIWindowSignup(options){
             has_head: true,
             selectable_body: false,
             allow_context_menu: false,
-            is_draggable: false,
+            is_draggable: true,
             is_droppable: false,
             is_resizable: false,
             stay_on_top: false,
