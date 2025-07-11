@@ -8,3 +8,9 @@ export { BaseWriter } from './common/stream/BaseWriter.js';
 // Common prompt processing
 export { UniversalPromptNormalizer } from './common/prompt/UniversalPromptNormalizer.js';
 export { NormalizedPromptUtil } from './common/prompt/NormalizedPromptUtil.js';
+export { UniversalToolsNormalizer } from './common/prompt/UniversalToolsNormalizer.js';
+
+// Model-Specific Processing
+export { AnthropicToolsAdapter } from './anthropic/AnthropicToolsAdapter.js';
+export { OpenAIToolsAdapter } from './openai/OpenAIToolsAdapter.js';
+export { GeminiToolsAdapter } from './gemini/GeminiToolsAdapter.js';
