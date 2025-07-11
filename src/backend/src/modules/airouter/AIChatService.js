@@ -28,11 +28,12 @@ const { TypeSpec } = require("../../services/drivers/meta/Construct");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
 const { AsModeration } = require("./lib/AsModeration");
-const { CompletionWriter, UniversalPromptNormalizer, NormalizedPromptUtil, UniversalToolsNormalizer } = require("@heyputer/airouter.js");
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
 
+// Imported in _construct bleow.
+let CompletionWriter, UniversalPromptNormalizer, NormalizedPromptUtil, UniversalToolsNormalizer;
 
 /**
 * AIChatService class extends BaseService to provide AI chat completion functionality.
@@ -91,12 +92,15 @@ class AIChatService extends BaseService {
     * Called during service instantiation.
     * @private
     */
-    _construct () {
+    async _construct () {
         this.providers = [];
 
         this.simple_model_list = [];
         this.detail_model_list = [];
         this.detail_model_map = {};
+        
+
+        ({ CompletionWriter, UniversalPromptNormalizer, NormalizedPromptUtil, UniversalToolsNormalizer } = await import("@heyputer/airouter.js"));
     }
     
     get_model_details (model_name, context) {
