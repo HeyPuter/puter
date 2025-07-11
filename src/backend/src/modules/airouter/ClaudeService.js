@@ -49,6 +49,7 @@ class ClaudeService extends BaseService {
         this.NormalizedPromptUtil = airouter.NormalizedPromptUtil;
         this.AnthropicToolsAdapter = airouter.AnthropicToolsAdapter;
         this.AnthropicStreamAdapter = airouter.AnthropicStreamAdapter;
+        this.anthropicApiType = new airouter.AnthropicAPIType();
 
     }
     
@@ -120,6 +121,36 @@ class ClaudeService extends BaseService {
             * @this {ClaudeService}
             */
             async complete ({ messages, stream, model, tools, max_tokens, temperature}) {
+                if ( stream ) {
+                    let usage_promise = new TeePromise();
+
+                    let streamOperation;
+                    const init_chat_stream = async ({ chatStream: completionWriter }) => {
+                        streamOperation = await this.anthropicApiType.stream(this.anthropic, completionWriter, {
+                            messages, model, tools, max_tokens, temperature,
+                        })
+                        await streamOperation.run();
+                        // const input = await anthropic.messages.stream(sdk_params);
+                        // await this.AnthropicStreamAdapter.write_to_stream(
+                        //     { input, completionWriter, usageWriter: usage_promise })
+                    };
+
+                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
+                        init_chat_stream,
+                        stream: true,
+                        usage_promise: usage_promise,
+                        finally_fn: async () => {
+                            await streamOperation.cleanup();
+                        },
+                    });
+                } else {
+                    const syncOperation = await this.anthropicApiType.create(this.anthropic, {
+                        messages, model, tools, max_tokens, temperature,
+                    });
+                    const retVal = await syncOperation.run();
+                    await syncOperation.cleanup();
+                    return retVal;
+                }
                 tools = this.AnthropicToolsAdapter.adapt_tools(tools);
                 
                 let system_prompts;
