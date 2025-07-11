@@ -6,6 +6,7 @@ const TEST_MODELS = [
     "openrouter:openai/gpt-4.1-mini",
     "openrouter:anthropic/claude-3.5-sonnet-20240620",
     "gpt-4o-mini",
+    "openai/gpt-4.1-nano",
     "claude-sonnet-4-latest",
     // Add more models as needed
 ];
