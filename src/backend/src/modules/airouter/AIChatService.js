@@ -28,8 +28,7 @@ const { TypeSpec } = require("../../services/drivers/meta/Construct");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
 const { AsModeration } = require("./lib/AsModeration");
-const FunctionCalling = require("./lib/FunctionCalling");
-const { CompletionWriter, UniversalPromptNormalizer, NormalizedPromptUtil } = require("@heyputer/airouter.js");
+const { CompletionWriter, UniversalPromptNormalizer, NormalizedPromptUtil, UniversalToolsNormalizer } = require("@heyputer/airouter.js");
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -450,7 +449,7 @@ class AIChatService extends BaseService {
                 }
 
                 if ( parameters.tools ) {
-                    FunctionCalling.normalize_tools_object(parameters.tools);
+                    UniversalToolsNormalizer.normalize_tools_object(parameters.tools);
                 }
 
                 if ( intended_service === this.service_name ) {

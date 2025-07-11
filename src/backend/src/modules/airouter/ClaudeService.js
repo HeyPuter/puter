@@ -21,12 +21,11 @@
 const { default: Anthropic, toFile } = require("@anthropic-ai/sdk");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
-const FunctionCalling = require("./lib/FunctionCalling");
 const { NodePathSelector } = require("../../filesystem/node/selectors");
 const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Context } = require("../../util/context");
-const { NormalizedPromptUtil } = require("@heyputer/airouter.js");
+const { NormalizedPromptUtil, AnthropicToolsAdapter } = require("@heyputer/airouter.js");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 /**
@@ -114,7 +113,7 @@ class ClaudeService extends BaseService {
             * @this {ClaudeService}
             */
             async complete ({ messages, stream, model, tools, max_tokens, temperature}) {
-                tools = FunctionCalling.make_claude_tools(tools);
+                tools = AnthropicToolsAdapter.adapt_tools(tools);
                 
                 let system_prompts;
                 [system_prompts, messages] = NormalizedPromptUtil.extract_and_remove_system_messages(messages);
