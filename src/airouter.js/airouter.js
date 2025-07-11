@@ -17,3 +17,4 @@ export { GeminiToolsAdapter } from './gemini/GeminiToolsAdapter.js';
 
 // Model-Specific Output Adaptation
 export { AnthropicStreamAdapter } from './anthropic/AnthropicStreamAdapter.js';
+export { AnthropicAPIType } from './anthropic/AnthropicAPIType.js';

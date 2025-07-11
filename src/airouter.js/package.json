@@ -9,5 +9,8 @@
   "keywords": [],
   "author": "",
   "license": "UNLICENSED",
-  "description": ""
+  "description": "",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.56.0"
+  }
 }
