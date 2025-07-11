@@ -22,7 +22,9 @@ const { default: dedent } = require("dedent");
 const BaseService = require("../../services/BaseService");
 const { PassThrough } = require("stream");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
-const { CompletionWriter } = require("@heyputer/airouter.js");
+
+// Imported in _construct below
+let CompletionWriter;
 
 /**
 * UsageLimitedChatService - A specialized chat service that returns resource exhaustion messages.
@@ -31,6 +33,9 @@ const { CompletionWriter } = require("@heyputer/airouter.js");
 * Can handle both streaming and non-streaming requests consistently.
 */
 class UsageLimitedChatService extends BaseService {
+    async _construct () {
+        ({ CompletionWriter } = await import('@heyputer/airouter'));
+    }
     get_default_model () {
         return 'usage-limited';
     }
