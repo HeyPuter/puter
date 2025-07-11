@@ -14,3 +14,6 @@ export { UniversalToolsNormalizer } from './common/prompt/UniversalToolsNormaliz
 export { AnthropicToolsAdapter } from './anthropic/AnthropicToolsAdapter.js';
 export { OpenAIToolsAdapter } from './openai/OpenAIToolsAdapter.js';
 export { GeminiToolsAdapter } from './gemini/GeminiToolsAdapter.js';
+
+// Model-Specific Output Adaptation
+export { AnthropicStreamAdapter } from './anthropic/AnthropicStreamAdapter.js';

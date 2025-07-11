@@ -26,6 +26,7 @@ const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Context } = require("../../util/context");
 const { NormalizedPromptUtil, AnthropicToolsAdapter } = require("@heyputer/airouter.js");
+const { AnthropicStreamAdapter } = require("../../../../airouter.js/airouter");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 /**
@@ -241,64 +242,10 @@ class ClaudeService extends BaseService {
                 if ( stream ) {
                     let usage_promise = new TeePromise();
 
-                    const init_chat_stream = async ({ chatStream }) => {
-                        const completion = await anthropic.messages.stream(sdk_params);
-                        const counts = { input_tokens: 0, output_tokens: 0 };
-
-                        let message, contentBlock;
-                        for await ( const event of completion ) {
-                            const input_tokens =
-                                (event?.usage ?? event?.message?.usage)?.input_tokens;
-                            const output_tokens =
-                                (event?.usage ?? event?.message?.usage)?.output_tokens;
-
-                            if ( input_tokens ) counts.input_tokens += input_tokens;
-                            if ( output_tokens ) counts.output_tokens += output_tokens;
-
-                            if ( event.type === 'message_start' ) {
-                                message = chatStream.message();
-                                continue;
-                            }
-                            if ( event.type === 'message_stop' ) {
-                                message.end();
-                                message = null;
-                                continue;
-                            }
-
-                            if ( event.type === 'content_block_start' ) {
-                                if ( event.content_block.type === 'tool_use' ) {
-                                    contentBlock = message.contentBlock({
-                                        type: event.content_block.type,
-                                        id: event.content_block.id,
-                                        name: event.content_block.name,
-                                    });
-                                    continue;
-                                }
-                                contentBlock = message.contentBlock({
-                                    type: event.content_block.type,
-                                });
-                                continue;
-                            }
-
-                            if ( event.type === 'content_block_stop' ) {
-                                contentBlock.end();
-                                contentBlock = null;
-                                continue;
-                            }
-
-                            if ( event.type === 'content_block_delta' ) {
-                                if ( event.delta.type === 'input_json_delta' ) {
-                                    contentBlock.addPartialJSON(event.delta.partial_json);
-                                    continue;
-                                }
-                                if ( event.delta.type === 'text_delta' ) {
-                                    contentBlock.addText(event.delta.text);
-                                    continue;
-                                }
-                            }
-                        }
-                        chatStream.end();
-                        usage_promise.resolve(counts);
+                    const init_chat_stream = async ({ chatStream: completionWriter }) => {
+                        const input = await anthropic.messages.stream(sdk_params);
+                        await AnthropicStreamAdapter.write_to_stream(
+                            { input, completionWriter, usageWriter: usage_promise })
                     };
 
                     return new TypedValue({ $: 'ai-chat-intermediate' }, {
