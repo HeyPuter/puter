@@ -25,8 +25,6 @@ const { NodePathSelector } = require("../../filesystem/node/selectors");
 const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Context } = require("../../util/context");
-const { NormalizedPromptUtil, AnthropicToolsAdapter } = require("@heyputer/airouter.js");
-const { AnthropicStreamAdapter } = require("../../../../airouter.js/airouter");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 /**
@@ -45,6 +43,14 @@ class ClaudeService extends BaseService {
      * @type {import('@anthropic-ai/sdk').Anthropic}
      */
     anthropic;
+    
+    async _construct () {
+        const airouter = await import('@heyputer/airouter.js');
+        this.NormalizedPromptUtil = airouter.NormalizedPromptUtil;
+        this.AnthropicToolsAdapter = airouter.AnthropicToolsAdapter;
+        this.AnthropicStreamAdapter = airouter.AnthropicStreamAdapter;
+
+    }
     
 
     /**
@@ -114,10 +120,10 @@ class ClaudeService extends BaseService {
             * @this {ClaudeService}
             */
             async complete ({ messages, stream, model, tools, max_tokens, temperature}) {
-                tools = AnthropicToolsAdapter.adapt_tools(tools);
+                tools = this.AnthropicToolsAdapter.adapt_tools(tools);
                 
                 let system_prompts;
-                [system_prompts, messages] = NormalizedPromptUtil.extract_and_remove_system_messages(messages);
+                [system_prompts, messages] = this.NormalizedPromptUtil.extract_and_remove_system_messages(messages);
                 
                 const sdk_params = {
                     model: model ?? this.get_default_model(),
@@ -244,7 +250,7 @@ class ClaudeService extends BaseService {
 
                     const init_chat_stream = async ({ chatStream: completionWriter }) => {
                         const input = await anthropic.messages.stream(sdk_params);
-                        await AnthropicStreamAdapter.write_to_stream(
+                        await this.AnthropicStreamAdapter.write_to_stream(
                             { input, completionWriter, usageWriter: usage_promise })
                     };
 
