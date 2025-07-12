@@ -641,12 +641,12 @@
         }
         
         // print the test name with checkbox for each test
-        $('#tests').append('<h2><label><input type="checkbox" id="fsTests-group" checked> FileSystem</label></h2>');
+        $('#tests').append('<h2><label><input type="checkbox" id="fsTests-group"> FileSystem</label></h2>');
         for (let i = 0; i < fsTests.length; i++) {
             const testInfo = getTestInfo(fsTests[i]);
             $('#tests').append(`<div class="test-container" id="fsTests-container-${i}">
                 <div class="test-checkbox-container">
-                    <input type="checkbox" class="test-checkbox fsTests-checkbox" id="fsTests${i}" checked>
+                    <input type="checkbox" class="test-checkbox fsTests-checkbox" id="fsTests${i}">
                     <label for="fsTests${i}">
                         <div class="test-name">${testInfo.name}</div>
                         <div class="test-description">${testInfo.description}</div>
@@ -656,12 +656,12 @@
             </div>`);
         }
 
-        $('#tests').append('<h2><label><input type="checkbox" id="kvTests-group" checked> Key Value Store</label></h2>');
+        $('#tests').append('<h2><label><input type="checkbox" id="kvTests-group"> Key Value Store</label></h2>');
         for (let i = 0; i < kvTests.length; i++) {
             const testInfo = getTestInfo(kvTests[i]);
             $('#tests').append(`<div class="test-container" id="kvTests-container-${i}">
                 <div class="test-checkbox-container">
-                    <input type="checkbox" class="test-checkbox kvTests-checkbox" id="kvTests${i}" checked>
+                    <input type="checkbox" class="test-checkbox kvTests-checkbox" id="kvTests${i}">
                     <label for="kvTests${i}">
                         <div class="test-name">${testInfo.name}</div>
                         <div class="test-description">${testInfo.description}</div>
@@ -671,12 +671,12 @@
             </div>`);
         }
 
-        $('#tests').append('<h2><label><input type="checkbox" id="aiTests-group" checked> AI</label></h2>');
+        $('#tests').append('<h2><label><input type="checkbox" id="aiTests-group"> AI</label></h2>');
         for (let i = 0; i < aiTests.length; i++) {
             const testInfo = getTestInfo(aiTests[i]);
             $('#tests').append(`<div class="test-container" id="aiTests-container-${i}">
                 <div class="test-checkbox-container">
-                    <input type="checkbox" class="test-checkbox aiTests-checkbox" id="aiTests${i}" checked>
+                    <input type="checkbox" class="test-checkbox aiTests-checkbox" id="aiTests${i}">
                     <label for="aiTests${i}">
                         <div class="test-name">${testInfo.name}</div>
                         <div class="test-description">${testInfo.description}</div>
@@ -686,12 +686,12 @@
             </div>`);
         }
 
-        $('#tests').append('<h2><label><input type="checkbox" id="txt2speechTests-group" checked> Text-to-Speech</label></h2>');
+        $('#tests').append('<h2><label><input type="checkbox" id="txt2speechTests-group"> Text-to-Speech</label></h2>');
         for (let i = 0; i < txt2speechTests.length; i++) {
             const testInfo = getTestInfo(txt2speechTests[i]);
             $('#tests').append(`<div class="test-container" id="txt2speechTests-container-${i}">
                 <div class="test-checkbox-container">
-                    <input type="checkbox" class="test-checkbox txt2speechTests-checkbox" id="txt2speechTests${i}" checked>
+                    <input type="checkbox" class="test-checkbox txt2speechTests-checkbox" id="txt2speechTests${i}">
                     <label for="txt2speechTests${i}">
                         <div class="test-name">${testInfo.name}</div>
                         <div class="test-description">${testInfo.description}</div>
@@ -1109,7 +1109,7 @@
 
     <nav>
         <label style="margin-left: 8px; margin-right: 10px; cursor: pointer; display: inline-flex; align-items: center;">
-            <input type="checkbox" id="master-checkbox" checked style="margin-right: 5px; transform: scale(1.2);">
+            <input type="checkbox" id="master-checkbox" style="margin-right: 5px; transform: scale(1.2);">
         </label>
         <span id="test-counter"></span>
         <div style="flex: 1; display: flex; align-items: center;">
