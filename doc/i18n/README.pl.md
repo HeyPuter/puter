@@ -33,6 +33,7 @@ Puter to zaawansowany, open-source'owy internetowy system operacyjny, zaprojekto
 <br/>
 
 ## Rozpoczęcie pracy
+
 ## 💻 Lokalne środowisko developerskie
 
 ```bash
@@ -41,6 +42,7 @@ cd puter
 npm install
 npm start
 ```
+
 To uruchomi Puter na http://puter.localhost:4100 (lub na następnym dostępnym porcie).
 
 <br/>
@@ -51,9 +53,11 @@ To uruchomi Puter na http://puter.localhost:4100 (lub na następnym dostępnym p
 Copy code
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
 ```
+
 <br/>
 
 ## 🐙 Docker Compose
+
 ## Linux/macOS
 
 ```bash
@@ -63,6 +67,7 @@ sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+
 <br/>
 
 ## Windows
@@ -75,10 +80,12 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ## ☁️ Puter.com
-Puter jest dostępny jako usługa hostowana na  [**puter.com**](https://puter.com).
+
+Puter jest dostępny jako usługa hostowana na [**puter.com**](https://puter.com).
 
 <br/>
 
@@ -112,8 +119,3 @@ Zawsze chętnie pomożemy Ci z wszelkimi pytaniami, jakie możesz mieć. Nie wah
 To repozytorium, w tym cała jego zawartość, podprojekty, moduły i komponenty, jest licencjonowane na podstawie [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt), chyba że wyraźnie zaznaczono inaczej. Biblioteki stron trzecich zawarte w tym repozytorium mogą podlegać własnym licencjom.
 
 <br/>
-
-
-
-
-

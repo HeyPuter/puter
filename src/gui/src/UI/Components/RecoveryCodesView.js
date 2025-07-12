@@ -17,19 +17,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 const Component = use('util.Component');
 
-export default def(class RecoveryCodesView extends Component {
+export default def(
+  class RecoveryCodesView extends Component {
     static ID = 'ui.component.RecoveryCodesView';
 
     static PROPERTIES = {
-        values: {
-            description: 'The recovery codes to display',
-        }
-    }
+      values: {
+        description: 'The recovery codes to display',
+      },
+    };
 
-    static CSS = /*css*/`
+    static CSS = /*css*/ `
         .recovery-codes {
             display: flex;
             flex-direction: column;
@@ -72,11 +72,10 @@ export default def(class RecoveryCodesView extends Component {
             display: flex;
             gap: 10px;
         }
-    `
+    `;
 
-
-    create_template ({ template }) {
-        $(template).html(`
+    create_template({ template }) {
+      $(template).html(`
             <iframe name="print_frame" width="0" height="0" frameborder="0" src="about:blank"></iframe>
             <div class="recovery-codes">
                 <div class="recovery-codes-list">
@@ -89,26 +88,31 @@ export default def(class RecoveryCodesView extends Component {
         `);
     }
 
-    on_ready ({ listen }) {
-        listen('values', values => {
-            for ( const value of values ) {
-                $(this.dom_).find('.recovery-codes-list').append(`
+    on_ready({ listen }) {
+      listen('values', (values) => {
+        for (const value of values) {
+          $(this.dom_).find('.recovery-codes-list').append(`
                     <div class="recovery-code">${html_encode(value)}</div>
                 `);
-            }
+        }
+      });
+
+      $(this.dom_)
+        .find('[data-action="copy"]')
+        .on('click', () => {
+          const codes = this.get('values').join('\n');
+          navigator.clipboard.writeText(codes);
         });
 
-        $(this.dom_).find('[data-action="copy"]').on('click', () => {
-            const codes = this.get('values').join('\n');
-            navigator.clipboard.writeText(codes);
-        });
-
-        $(this.dom_).find('[data-action="print"]').on('click', () => {
-            const target = $(this.dom_).find('.recovery-codes-list')[0];
-            const print_frame = $(this.dom_).find('iframe[name="print_frame"]')[0];
-            print_frame.contentWindow.document.body.innerHTML = target.outerHTML;
-            print_frame.contentWindow.window.focus();
-            print_frame.contentWindow.window.print();
+      $(this.dom_)
+        .find('[data-action="print"]')
+        .on('click', () => {
+          const target = $(this.dom_).find('.recovery-codes-list')[0];
+          const print_frame = $(this.dom_).find('iframe[name="print_frame"]')[0];
+          print_frame.contentWindow.document.body.innerHTML = target.outerHTML;
+          print_frame.contentWindow.window.focus();
+          print_frame.contentWindow.window.print();
         });
     }
-});
+  }
+);

@@ -9,6 +9,7 @@
 ## Config Locations
 
 Running the server will generate a configuration file in one of these locations:
+
 - `config/config.json` when [Using Docker](#using-docker)
 - `volatile/config/config.json` in [Local Development](#local-development)
 - `/etc/puter/config.json` on a server (or within a Docker container)
@@ -25,15 +26,13 @@ For example, a `local.json` might look like this:
 
 ```json
 {
-    // Always include this header
-    "$version": "v1.1.0",
-    "$requires": [
-        "config.json"
-    ],
-    "config_name": "local",
-    
-    // Your custom configuration
-    "domain": "my-puter.example.com"
+  // Always include this header
+  "$version": "v1.1.0",
+  "$requires": ["config.json"],
+  "config_name": "local",
+
+  // Your custom configuration
+  "domain": "my-puter.example.com"
 }
 ```
 
@@ -48,42 +47,40 @@ something like the following (updated 2025-02-26):
 
 ```json
 {
-    "config_name": "generated default config",
-    "mod_directories": [
-        "{source}/../extensions"
-    ],
-    "env": "dev",
-    "nginx_mode": true,
-    "server_id": "localhost",
-    "http_port": "auto",
-    "domain": "puter.localhost",
-    "protocol": "http",
-    "contact_email": "hey@example.com",
-    "services": {
-        "database": {
-            "engine": "sqlite",
-            "path": "puter-database.sqlite"
-        },
-        "thumbnails": {
-            "engine": "http"
-        },
-        "file-cache": {
-            "disk_limit": 5368709120,
-            "disk_max_size": 204800,
-            "precache_size": 209715200,
-            "path": "./file-cache"
-        }
+  "config_name": "generated default config",
+  "mod_directories": ["{source}/../extensions"],
+  "env": "dev",
+  "nginx_mode": true,
+  "server_id": "localhost",
+  "http_port": "auto",
+  "domain": "puter.localhost",
+  "protocol": "http",
+  "contact_email": "hey@example.com",
+  "services": {
+    "database": {
+      "engine": "sqlite",
+      "path": "puter-database.sqlite"
     },
-    "cookie_name": "...",
-    "jwt_secret": "...",
-    "url_signature_secret": "...",
-    "private_uid_secret": "...",
-    "private_uid_namespace": "...",
-    "": null
+    "thumbnails": {
+      "engine": "http"
+    },
+    "file-cache": {
+      "disk_limit": 5368709120,
+      "disk_max_size": 204800,
+      "precache_size": 209715200,
+      "path": "./file-cache"
+    }
+  },
+  "cookie_name": "...",
+  "jwt_secret": "...",
+  "url_signature_secret": "...",
+  "private_uid_secret": "...",
+  "private_uid_namespace": "...",
+  "": null
 }
 ```
 
 ## Root-Level Parameters
 
 - **domain** - origin for Puter. Do **not** include URL schema (the 'http(s)://' portion)
-- 
+-

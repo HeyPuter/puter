@@ -17,9 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const APIError = require("../../../api/APIError");
-const { Sequence } = require("../../../codex/Sequence");
-const { whatis } = require("../../../util/langutil");
+const APIError = require('../../../api/APIError');
+const { Sequence } = require('../../../codex/Sequence');
+const { whatis } = require('../../../util/langutil');
 
 /*
     This code is optimized for editors supporting folding.
@@ -33,133 +33,138 @@ const { whatis } = require("../../../util/langutil");
     }
 */
 
-module.exports = new Sequence({
+module.exports = new Sequence(
+  {
     name: 'validate request',
-}, [
-    function validate_metadata (a) {
-        console.log('thinngggggg', a.get('thing'));
-        a.set('asdf', 'zxcv');
-        const req = a.get('req');
-        const metadata = req.body.metadata;
+  },
+  [
+    function validate_metadata(a) {
+      console.log('thinngggggg', a.get('thing'));
+      a.set('asdf', 'zxcv');
+      const req = a.get('req');
+      const metadata = req.body.metadata;
 
-        if ( ! metadata ) return;
-        
-        if ( typeof metadata !== 'object' ) {
-            throw APIError.create('field_invalid', null, {
-                key: 'metadata',
-                expected: 'object',
-                got: whatis(metadata),
-            });
-        }
+      if (!metadata) return;
 
-        const MAX_KEYS = 20;
-        const MAX_STRING = 255;
-        const MAX_MESSAGE_STRING = 10*1024;
-
-        if ( Object.keys(metadata).length > MAX_KEYS ) {
-            throw APIError.create('field_invalid', null, {
-                key: 'metadata',
-                expected: `at most ${MAX_KEYS} keys`,
-                got: `${Object.keys(metadata).length} keys`,
-            });
-        }
-
-        for ( const key in metadata ) {
-            const value = metadata[key];
-            if ( typeof value !== 'string' && typeof value !== 'number' ) {
-                throw APIError.create('field_invalid', null, {
-                    key: `metadata.${key}`,
-                    expected: 'string or number',
-                    got: whatis(value),
-                });
-            }
-            if ( key === 'message' ) {
-                if ( typeof value !== 'string' ) {
-                    throw APIError.create('field_invalid', null, {
-                        key: `metadata.${key}`,
-                        expected: 'string',
-                        got: whatis(value),
-                    });
-                }
-                if ( value.length > MAX_MESSAGE_STRING ) {
-                    throw APIError.create('field_invalid', null, {
-                        key: `metadata.${key}`,
-                        expected: `at most ${MAX_MESSAGE_STRING} characters`,
-                        got: `${value.length} characters`,
-                    });
-                }
-                continue;
-            }
-            if ( typeof value === 'string' && value.length > MAX_STRING ) {
-                throw APIError.create('field_invalid', null, {
-                    key: `metadata.${key}`,
-                    expected: `at most ${MAX_STRING} characters`,
-                    got: `${value.length} characters`,
-                });
-            }
-        }
-    },
-    function validate_mode (a) {
-        const req = a.get('req');
-        const mode = req.body.mode;
-        
-        if ( mode === 'strict' ) {
-            a.set('strict_mode', true);
-            return;
-        }
-        if ( ! mode || mode === 'best-effort' ) {
-            a.set('strict_mode', false);
-            return;
-        }
+      if (typeof metadata !== 'object') {
         throw APIError.create('field_invalid', null, {
-            key: 'mode',
-            expected: '`strict`, `best-effort`, or undefined',
+          key: 'metadata',
+          expected: 'object',
+          got: whatis(metadata),
         });
-    },
-    function validate_recipients (a) {
-        const req = a.get('req');
-        let recipients = req.body.recipients;
+      }
 
-        // A string can be adapted to an array of one string
-        if ( typeof recipients === 'string' ) {
-            recipients = [recipients];
-        }
-        // Must be an array
-        if ( ! Array.isArray(recipients) ) {
-            throw APIError.create('field_invalid', null, {
-                key: 'recipients',
-                expected: 'array or string',
-                got: typeof recipients,
-            })
-        }
-        // At least one recipient
-        if ( recipients.length < 1 ) {
-            throw APIError.create('field_invalid', null, {
-                key: 'recipients',
-                expected: 'at least one',
-                got: 'none',
-            });
-        }
-        a.set('req_recipients', recipients);
-    },
-    function validate_shares (a) {
-        const req = a.get('req');
-        let shares = req.body.shares;
+      const MAX_KEYS = 20;
+      const MAX_STRING = 255;
+      const MAX_MESSAGE_STRING = 10 * 1024;
 
-        if ( ! Array.isArray(shares) ) {
-            shares = [shares];
+      if (Object.keys(metadata).length > MAX_KEYS) {
+        throw APIError.create('field_invalid', null, {
+          key: 'metadata',
+          expected: `at most ${MAX_KEYS} keys`,
+          got: `${Object.keys(metadata).length} keys`,
+        });
+      }
+
+      for (const key in metadata) {
+        const value = metadata[key];
+        if (typeof value !== 'string' && typeof value !== 'number') {
+          throw APIError.create('field_invalid', null, {
+            key: `metadata.${key}`,
+            expected: 'string or number',
+            got: whatis(value),
+          });
         }
-        
-        // At least one share
-        if ( shares.length < 1 ) {
+        if (key === 'message') {
+          if (typeof value !== 'string') {
             throw APIError.create('field_invalid', null, {
-                key: 'shares',
-                expected: 'at least one',
-                got: 'none',
+              key: `metadata.${key}`,
+              expected: 'string',
+              got: whatis(value),
             });
+          }
+          if (value.length > MAX_MESSAGE_STRING) {
+            throw APIError.create('field_invalid', null, {
+              key: `metadata.${key}`,
+              expected: `at most ${MAX_MESSAGE_STRING} characters`,
+              got: `${value.length} characters`,
+            });
+          }
+          continue;
         }
-        
-        a.set('req_shares', shares);
+        if (typeof value === 'string' && value.length > MAX_STRING) {
+          throw APIError.create('field_invalid', null, {
+            key: `metadata.${key}`,
+            expected: `at most ${MAX_STRING} characters`,
+            got: `${value.length} characters`,
+          });
+        }
+      }
     },
-    function return_state (a) { return a; }
-]);
+    function validate_mode(a) {
+      const req = a.get('req');
+      const mode = req.body.mode;
+
+      if (mode === 'strict') {
+        a.set('strict_mode', true);
+        return;
+      }
+      if (!mode || mode === 'best-effort') {
+        a.set('strict_mode', false);
+        return;
+      }
+      throw APIError.create('field_invalid', null, {
+        key: 'mode',
+        expected: '`strict`, `best-effort`, or undefined',
+      });
+    },
+    function validate_recipients(a) {
+      const req = a.get('req');
+      let recipients = req.body.recipients;
+
+      // A string can be adapted to an array of one string
+      if (typeof recipients === 'string') {
+        recipients = [recipients];
+      }
+      // Must be an array
+      if (!Array.isArray(recipients)) {
+        throw APIError.create('field_invalid', null, {
+          key: 'recipients',
+          expected: 'array or string',
+          got: typeof recipients,
+        });
+      }
+      // At least one recipient
+      if (recipients.length < 1) {
+        throw APIError.create('field_invalid', null, {
+          key: 'recipients',
+          expected: 'at least one',
+          got: 'none',
+        });
+      }
+      a.set('req_recipients', recipients);
+    },
+    function validate_shares(a) {
+      const req = a.get('req');
+      let shares = req.body.shares;
+
+      if (!Array.isArray(shares)) {
+        shares = [shares];
+      }
+
+      // At least one share
+      if (shares.length < 1) {
+        throw APIError.create('field_invalid', null, {
+          key: 'shares',
+          expected: 'at least one',
+          got: 'none',
+        });
+      }
+
+      a.set('req_shares', shares);
+    },
+    function return_state(a) {
+      return a;
+    },
+  ]
+);

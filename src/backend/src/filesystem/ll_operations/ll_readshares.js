@@ -16,15 +16,15 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { get_user } = require("../../helpers");
-const { PermissionUtil } = require("../../services/auth/PermissionService");
-const { DB_WRITE } = require("../../services/database/consts");
-const { NodeUIDSelector } = require("../node/selectors");
-const { LLFilesystemOperation } = require("./definitions");
-const { LLReadDir } = require("./ll_readdir");
+const { get_user } = require('../../helpers');
+const { PermissionUtil } = require('../../services/auth/PermissionService');
+const { DB_WRITE } = require('../../services/database/consts');
+const { NodeUIDSelector } = require('../node/selectors');
+const { LLFilesystemOperation } = require('./definitions');
+const { LLReadDir } = require('./ll_readdir');
 
 class LLReadShares extends LLFilesystemOperation {
-    static description = `
+  static description = `
         Obtain the highest-level entries under this directory
         for which the current actor has at least "see" permission.
         
@@ -32,61 +32,61 @@ class LLReadShares extends LLFilesystemOperation {
         found with "see" permission is found, children of that node
         will not be traversed.
     `;
-    
-    async _run () {
-        const { subject, user, actor } = this.values;
 
-        const svc = this.context.get('services');
+  async _run() {
+    const { subject, user, actor } = this.values;
 
-        const svc_fs = svc.get('filesystem');
-        const svc_acl = svc.get('acl');
-        const db = svc.get('database').get(DB_WRITE, 'll_readshares');
+    const svc = this.context.get('services');
 
-        const issuer_username = await subject.getUserPart();
-        const issuer_user = await get_user({ username: issuer_username });
-        const rows = await db.read(
-            'SELECT DISTINCT permission FROM `user_to_user_permissions` ' +
-            'WHERE `holder_user_id` = ? AND `issuer_user_id` = ? ' +
-            'AND `permission` LIKE ?',
-            [user.id, issuer_user.id, 'fs:%']
-        );
+    const svc_fs = svc.get('filesystem');
+    const svc_acl = svc.get('acl');
+    const db = svc.get('database').get(DB_WRITE, 'll_readshares');
 
-        const fsentry_uuids = [];
-        for ( const row of rows ) {
-            const parts = PermissionUtil.split(row.permission);
-            fsentry_uuids.push(parts[1]);
-        }
+    const issuer_username = await subject.getUserPart();
+    const issuer_user = await get_user({ username: issuer_username });
+    const rows = await db.read(
+      'SELECT DISTINCT permission FROM `user_to_user_permissions` ' +
+        'WHERE `holder_user_id` = ? AND `issuer_user_id` = ? ' +
+        'AND `permission` LIKE ?',
+      [user.id, issuer_user.id, 'fs:%']
+    );
 
-        const results = [];
-
-        const ll_readdir = new LLReadDir();
-        let interm_results = await ll_readdir.run({
-            subject,
-            actor,
-            user,
-            no_thumbs: true,
-            no_assocs: true,
-            no_acl: true,
-        });
-
-        // Clone interm_results in case ll_readdir ever implements caching
-        interm_results = interm_results.slice();
-
-        for ( const fsentry_uuid of fsentry_uuids ) {
-            const node = await svc_fs.node(new NodeUIDSelector(fsentry_uuid));
-            if ( ! node ) continue;
-            interm_results.push(node);
-        }
-
-        for ( const node of interm_results ) {
-            if ( ! await svc_acl.check(actor, node, 'see') ) continue;
-            results.push(node);
-        }
-
-        return results;
+    const fsentry_uuids = [];
+    for (const row of rows) {
+      const parts = PermissionUtil.split(row.permission);
+      fsentry_uuids.push(parts[1]);
     }
+
+    const results = [];
+
+    const ll_readdir = new LLReadDir();
+    let interm_results = await ll_readdir.run({
+      subject,
+      actor,
+      user,
+      no_thumbs: true,
+      no_assocs: true,
+      no_acl: true,
+    });
+
+    // Clone interm_results in case ll_readdir ever implements caching
+    interm_results = interm_results.slice();
+
+    for (const fsentry_uuid of fsentry_uuids) {
+      const node = await svc_fs.node(new NodeUIDSelector(fsentry_uuid));
+      if (!node) continue;
+      interm_results.push(node);
+    }
+
+    for (const node of interm_results) {
+      if (!(await svc_acl.check(actor, node, 'see'))) continue;
+      results.push(node);
+    }
+
+    return results;
+  }
 }
 
 module.exports = {
-    LLReadShares,
+  LLReadShares,
 };

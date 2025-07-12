@@ -29,6 +29,7 @@ This terminal emulator alongside `phoenix` give you an AGPL-3.0-licensed pure-ja
 terminal experience which integrates with Puter's filesystem, AI services, and more.
 
 Here are a few examples of what you can do:
+
 - `ai "write me a story"`
 - `txt2img "a blue computer on a cloud" > puter.png`
 - `neofetch`

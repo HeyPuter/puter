@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const eggspress = require('../../api/eggspress.js');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam.js');
 const { HLWrite } = require('../../filesystem/hl_operations/hl_write.js');
@@ -30,7 +30,9 @@ const { valid_file_size } = require('../../util/validutil.js');
 // -----------------------------------------------------------------------//
 // POST /up | /write
 // -----------------------------------------------------------------------//
-module.exports = eggspress(['/up', '/write'], {
+module.exports = eggspress(
+  ['/up', '/write'],
+  {
     subdomain: 'api',
     verified: true,
     auth2: true,
@@ -44,47 +46,46 @@ module.exports = eggspress(['/up', '/write'], {
     //     fsNode: new FSNodeParam('path'),
     //     target: new FSNodeParam('shortcut_to', { optional: true }),
     // }
-}, async (req, res, next) => {
+  },
+  async (req, res, next) => {
     // Note: parameters moved here because the parameter
     // middleware won't work while using busboy
     const parameters = {
-        fsNode: new FSNodeParam('path'),
-        target: new FSNodeParam('shortcut_to', { optional: true }),
+      fsNode: new FSNodeParam('path'),
+      target: new FSNodeParam('shortcut_to', { optional: true }),
     };
 
     // modules
-    const {get_app} = require('../../helpers.js')
+    const { get_app } = require('../../helpers.js');
 
     // Is this an entry for an app?
     let app;
-    if ( req.body.app_uid ) {
-        app = await get_app({uid: req.body.app_uid})
+    if (req.body.app_uid) {
+      app = await get_app({ uid: req.body.app_uid });
     }
 
     const x = Context.get();
     let frame;
     const frame_meta_ready = async () => {
-        const operationTraceSvc = x.get('services').get('operationTrace');
-        frame = (await operationTraceSvc.add_frame('api:/write'))
-            .attr('gui_metadata', {
-                original_client_socket_id: req.body.original_client_socket_id,
-                socket_id: req.body.socket_id,
-                operation_id: req.body.operation_id,
-                user_id: req.user.id,
-                item_upload_id: req.body.item_upload_id,
-            })
-            ;
-        x.set(operationTraceSvc.ckey('frame'), frame);
+      const operationTraceSvc = x.get('services').get('operationTrace');
+      frame = (await operationTraceSvc.add_frame('api:/write')).attr('gui_metadata', {
+        original_client_socket_id: req.body.original_client_socket_id,
+        socket_id: req.body.socket_id,
+        operation_id: req.body.operation_id,
+        user_id: req.user.id,
+        item_upload_id: req.body.item_upload_id,
+      });
+      x.set(operationTraceSvc.ckey('frame'), frame);
 
-        const svc_clientOperation = x.get('services').get('client-operation');
-        const tracker = svc_clientOperation.add_operation({
-            frame,
-            metadata: {
-                user_id: req.user.id,
-            }
-        });
-        x.set(svc_clientOperation.ckey('tracker'), tracker);
-    }
+      const svc_clientOperation = x.get('services').get('client-operation');
+      const tracker = svc_clientOperation.add_operation({
+        frame,
+        metadata: {
+          user_id: req.user.id,
+        },
+      });
+      x.set(svc_clientOperation.ckey('tracker'), tracker);
+    };
 
     //-------------------------------------------------------------
     // Multipart processing (using busboy)
@@ -95,57 +96,52 @@ module.exports = eggspress(['/up', '/write'], {
     const p_ready = new TeePromise();
 
     busboy.on('field', (fieldname, value, details) => {
-        if ( details.fieldnameTruncated ) {
-            throw new Error('fieldnameTruncated');
-        }
-        if ( details.valueTruncated ) {
-            throw new Error('valueTruncated');
-        }
+      if (details.fieldnameTruncated) {
+        throw new Error('fieldnameTruncated');
+      }
+      if (details.valueTruncated) {
+        throw new Error('valueTruncated');
+      }
 
-        req.body[fieldname] = value;
+      req.body[fieldname] = value;
     });
 
     busboy.on('file', (fieldname, stream, details) => {
-        const {
-            filename, mimetype,
-        } = details;
-        
-        const { v: size, ok: size_ok } =
-            valid_file_size(req.body.size);
-            
-        if ( ! size_ok ) {
-            p_ready.reject(
-                APIError.create('invalid_file_metadata')
-            );
-            return;
-        }
+      const { filename, mimetype } = details;
 
-        uploaded_file = {
-            size: size,
-            name: filename,
-            mimetype,
-            stream,
+      const { v: size, ok: size_ok } = valid_file_size(req.body.size);
 
-            // TODO: Standardize the fileinfo object
+      if (!size_ok) {
+        p_ready.reject(APIError.create('invalid_file_metadata'));
+        return;
+      }
 
-            // thumbnailer expects `mimetype` to be `type`
-            type: mimetype,
+      uploaded_file = {
+        size: size,
+        name: filename,
+        mimetype,
+        stream,
 
-            // alias for name, used only in here it seems
-            originalname: filename,
-        };
+        // TODO: Standardize the fileinfo object
 
-        p_ready.resolve();
+        // thumbnailer expects `mimetype` to be `type`
+        type: mimetype,
+
+        // alias for name, used only in here it seems
+        originalname: filename,
+      };
+
+      p_ready.resolve();
     });
 
-    busboy.on('error', err => {
-        console.log('GOT ERROR READING', err )
-        p_ready.reject(err);
+    busboy.on('error', (err) => {
+      console.log('GOT ERROR READING', err);
+      p_ready.reject(err);
     });
 
     busboy.on('close', () => {
-        console.log('GOT DNE RADINGR')
-        p_ready.resolve();
+      console.log('GOT DNE RADINGR');
+      p_ready.resolve();
     });
 
     req.pipe(busboy);
@@ -155,45 +151,45 @@ module.exports = eggspress(['/up', '/write'], {
     console.log('Done awaiting ready');
 
     // Copied from eggspress; needed here because we're using busboy
-    for ( const key in parameters ) {
-        const param = parameters[key];
-        if ( ! req.values ) req.values = {};
+    for (const key in parameters) {
+      const param = parameters[key];
+      if (!req.values) req.values = {};
 
-        const values = req.method === 'GET' ? req.query : req.body;
-        const getParam = (key) => values[key];
-        const result = await param.consolidate({ req, getParam });
-        req.values[key] = result;
+      const values = req.method === 'GET' ? req.query : req.body;
+      const getParam = (key) => values[key];
+      const result = await param.consolidate({ req, getParam });
+      req.values[key] = result;
     }
 
-    if ( req.body.size === undefined ) {
-        throw APIError.create('missing_expected_metadata', null, {
-            keys: ['size'],
-        })
+    if (req.body.size === undefined) {
+      throw APIError.create('missing_expected_metadata', null, {
+        keys: ['size'],
+      });
     }
 
     console.log('TRGET', req.values.target);
 
     const hl_write = new HLWrite();
     const response = await hl_write.run({
-        destination_or_parent: req.values.fsNode,
-        specified_name: req.body.name,
-        fallback_name: uploaded_file.originalname,
-        overwrite: await boolify(req.body.overwrite),
-        dedupe_name: await boolify(req.body.dedupe_name),
-        shortcut_to: req.values.target,
+      destination_or_parent: req.values.fsNode,
+      specified_name: req.body.name,
+      fallback_name: uploaded_file.originalname,
+      overwrite: await boolify(req.body.overwrite),
+      dedupe_name: await boolify(req.body.dedupe_name),
+      shortcut_to: req.values.target,
 
-        create_missing_parents: boolify(
-            req.body.create_missing_ancestors ??
-            req.body.create_missing_parents
-        ),
+      create_missing_parents: boolify(
+        req.body.create_missing_ancestors ?? req.body.create_missing_parents
+      ),
 
-        actor: req.actor,
-        user: req.user,
-        file: uploaded_file,
+      actor: req.actor,
+      user: req.user,
+      file: uploaded_file,
 
-        app_id: app ? app.id : null,
+      app_id: app ? app.id : null,
     });
 
-    if ( frame ) frame.done();
+    if (frame) frame.done();
     return res.send(response);
-});
+  }
+);

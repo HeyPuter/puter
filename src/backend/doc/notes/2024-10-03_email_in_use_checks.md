@@ -14,13 +14,13 @@
 
 - signup.js:149 -> this is where email dupe is currently checked
 - signup.js:290 -> This is where we send the confirmation email.
-    There is also a branch that sends a "confirm token".
-    I don't recall what this is for.
+  There is also a branch that sends a "confirm token".
+  I don't recall what this is for.
 
 ### Investigating the "confirm token"
 
 - email template is `email_verification_code`
-    instead of `email_verification_link`
+  instead of `email_verification_link`
 - This happens when either:
   - user.requires_email_confirmation is TRUE
   - send_confirmation_code is TRUE in REQUEST
@@ -35,21 +35,24 @@ It's strange that `signup.js` would do anything on EXISTING users.
 2. `uuid_user` may be populated if a user exists with the specified
    UUID, but it has no usefulness unless `uuid_user` has the same
    id as `pseudo_user`.
-    
+
 `uuid_user` is only used to set `email_confirmation_required` to 0
-  IFF `pseudo_user` has same id as `uuid_user`
-  AND `psuedo_user` has an email
+IFF `pseudo_user` has same id as `uuid_user`
+AND `psuedo_user` has an email
 
 When does `pseudo_user` have an email?
 
 ### Figuring out when a pseudo user can have an email
+
 - asking NJ, I'm at a loss on this one for the moment
 
 ### Figuring out if account takeover is possible on signup.js with a uuid
+
 - Nope, looks like `uuid_user` is only used to set
   `email_confirmation_required = 0`
 
 ### Figuring out when `send_confirmation_code` is TRUE in REQUEST
+
 - IFF `require_email_verification_to_publish_website` is TRUE
   - it's not currently, but we need this to be possible to enable
 - ^ That seems to be the ONLY place when this matters
@@ -68,6 +71,7 @@ When does `pseudo_user` have an email?
 ### Find places where (on backend) email change process is triggered
 
 Right now there are two handlers:
+
 - `/user-protected/change-email` (UserProtectedEndpointsService)
   - Invokes the process (sends confirmation email)
 - `/change_email/confirm` (PuterAPIService)

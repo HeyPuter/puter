@@ -17,34 +17,34 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import assert from 'assert';
-import { MakeTestContext } from './harness.js'
+import { MakeTestContext } from './harness.js';
 import builtins from '../../src/puter-shell/coreutils/__exports__.js';
-import { Exit } from "../../src/puter-shell/coreutils/coreutil_lib/exit.js";
+import { Exit } from '../../src/puter-shell/coreutils/coreutil_lib/exit.js';
 
 async function testFalse(options) {
-    let ctx = MakeTestContext(builtins.false, options);
-    let hadError = false;
-    try {
-        await builtins.false.execute(ctx);
-    } catch (e) {
-        assert(e instanceof Exit);
-        assert.notEqual(e.code, 0, 'returned exit code 0, meaning success');
-        hadError = true;
-    }
-    if (!hadError) {
-        assert.fail('didn\'t return an exit code');
-    }
-    assert.equal(ctx.externs.out.output, '', 'false should not write to stdout');
-    assert.equal(ctx.externs.err.output, '', 'false should not write to stderr');
+  let ctx = MakeTestContext(builtins.false, options);
+  let hadError = false;
+  try {
+    await builtins.false.execute(ctx);
+  } catch (e) {
+    assert(e instanceof Exit);
+    assert.notEqual(e.code, 0, 'returned exit code 0, meaning success');
+    hadError = true;
+  }
+  if (!hadError) {
+    assert.fail("didn't return an exit code");
+  }
+  assert.equal(ctx.externs.out.output, '', 'false should not write to stdout');
+  assert.equal(ctx.externs.err.output, '', 'false should not write to stderr');
 }
 
 export const runFalseTests = () => {
-    describe('false', function () {
-        it('should return a non-zero exit code, with no output', async function () {
-            await testFalse({});
-        });
-        it('should allow, but ignore, positional arguments', async function () {
-            await testFalse({positionals: ['foo', 'bar', 'baz']});
-        });
+  describe('false', function () {
+    it('should return a non-zero exit code, with no output', async function () {
+      await testFalse({});
     });
-}
+    it('should allow, but ignore, positional arguments', async function () {
+      await testFalse({ positionals: ['foo', 'bar', 'baz'] });
+    });
+  });
+};

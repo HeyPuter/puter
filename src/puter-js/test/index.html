@@ -1,5 +1,5 @@
 <html>
-<head>
+  <head>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script id="puter-script"></script>
     <script src="./kv.test.js"></script>
@@ -7,644 +7,646 @@
     <script src="./ai.test.js"></script>
     <script src="./txt2speech.test.js"></script>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-        }
-        nav {
-            z-index: 1000; 
-            display: flex; 
-            align-items: center; 
-            position: fixed; 
-            top: 0; 
-            width: 100%; 
-            background: #EEE; 
-            left: 0; 
-            padding-left: 10px;
-            /* disable text selection */
-            user-select: none;
-        }
-        #tests {
-            padding-top: 50px;
-        }
-        #run-tests {
-            margin-top: 20px;
-            margin-bottom: 20px;
-            background-color: #4c84af;
-            border: none;
-            color: white;
-            padding: 10px 20px;
-            text-align: center;
-            text-decoration: none;
-            display: inline-block;
-            font-size: 16px;
-            cursor: pointer;
-            margin-left: 20px;
-        }
-        #settings-btn {
-            margin-left: auto;
-            margin-top: 20px;
-            margin-bottom: 20px;
-            background-color: #666;
-            border: none;
-            color: white;
-            padding: 10px 20px;
-            text-align: center;
-            text-decoration: none;
-            display: inline-block;
-            font-size: 16px;
-            cursor: pointer;
-            float: right;
-            margin-right: 30px;
-        }
-        #settings-btn:hover {
-            background-color: #555;
-        }
-        #auth-section {
-            float: right;
-            margin-right: 20px;
-            display: flex;
-            align-items: center;
-            font-size: 14px;
-        }
-        #login-btn {
-            background-color: #4c84af;
-            border: none;
-            color: white;
-            padding: 12px 16px;
-            text-align: center;
-            text-decoration: none;
-            display: inline-block;
-            font-size: 14px;
-            cursor: pointer;
-        }
-        #login-btn:hover {
-            background-color: #3a6a8a;
-        }
-        #user-info {
-            color: #333;
-        }
-        #logout-link {
-            color: #666;
-            text-decoration: underline;
-            cursor: pointer;
-            margin-left: 5px;
-        }
-        #logout-link:hover {
-            color: #333;
-        }
-        #unselect-all {
-            margin-left: 20px;
-            cursor: pointer;
-        }
-        #select-all {
-            margin-left: 20px;
-            cursor: pointer;
-        }
-        .test-container{
-            margin-bottom: 10px;
-            padding: 10px;
-            border-radius: 5px;
-        }
-        .test-container{
-            font-family: monospace;
-        }
-        .test-checkbox-container{
-            display: flex;
-            align-items: center;
-        }
-        .test-container:hover{
-            background-color: #f0f0f0;
-        }
-        .test-container label{
-            display: block;
-            margin-left: 5px;
-        }
-        .test-container input{
-            float: left;
-        }
-        .test-name {
-            color: #727272;
-        }
-        .test-description {
-            font-size: 12px;
-            color: #262626;
-            margin-top: 2px;
-        }
-        .test-run-button {
-            margin-left: 10px;
-            background-color: #4c84af;
-            border: none;
-            color: white;
-            padding: 5px 10px;
-            text-align: center;
-            text-decoration: none;
-            display: inline-block;
-            font-size: 12px;
-            cursor: pointer;
-            border-radius: 3px;
-            opacity: 0;
-            transition: opacity 0.2s ease;
-        }
-        .test-container:hover .test-run-button {
-            opacity: 1;
-        }
-        .test-run-button:hover {
-            background-color: #3a6a8a;
-        }
-        .test-run-button:disabled {
-            background-color: #999;
-            cursor: not-allowed;
-            opacity: 1;
-        }
-        .test-run-button:disabled:hover {
-            background-color: #999;
-        }
-        
-        /* Make h2 headers sticky */
-        #tests h2 {
-            position: sticky;
-            top: 78px; /* Position below the fixed nav */
-            background-color: white;
-            padding: 20px 0;
-            margin: 20px 0 10px 0;
-            border-bottom: 2px solid #ddd;
-            z-index: 10;
-            font-size: 18px;
-            font-weight: bold;
-        }
-        
-        /* Adjust sticky headings when progress panel is visible */
-        #progress-panel.show ~ #tests h2 {
-            top: 158px; /* 78px + 80px to account for progress panel */
-        }
-        
-        /* Style for h2 checkboxes */
-        #tests h2 input[type="checkbox"] {
-            margin-right: 18px;
-            transform: scale(1.2);
-        }
-        
-        #tests h2 label {
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            padding-left: 10px;
-            font-size: 25px;
-        }
-        #test-counter {
-            font-size: 14px; 
-            color: #666; 
-            margin-right: 10px; 
-            font-size: 20px;
-        }
-        
-        /* Progress panel styles */
-        #progress-panel {
-            position: fixed;
-            top: 78px;
-            left: 0;
-            right: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 15px 20px;
-            z-index: 999;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            transform: translateY(-100%);
-            transition: transform 0.3s ease-in-out;
-            border-bottom: 3px solid #4c84af;
-        }
-        
-        #progress-panel.show {
-            transform: translateY(0);
-        }
-        
-        #progress-panel.show ~ #tests {
-            padding-top: 120px !important;
-        }
-        
-        .progress-content {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        
-        .progress-left {
-            flex: 1;
-        }
-        
-        .progress-right {
-            display: flex;
-            gap: 30px;
-            align-items: center;
-        }
-        
-        .progress-stats {
-            display: flex;
-            gap: 20px;
-            margin-top: 8px;
-        }
-        
-        .progress-stat {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            min-width: 80px;
-        }
-        
-        .progress-stat-number {
-            font-size: 24px;
-            font-weight: bold;
-            line-height: 1;
-        }
-        
-        .progress-stat-label {
-            font-size: 11px;
-            opacity: 0.9;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .current-test {
-            font-size: 16px;
-            font-weight: 500;
-            margin-bottom: 5px;
-        }
-        
-        .progress-bar-container {
-            background: rgba(255,255,255,0.2);
-            border-radius: 10px;
-            height: 8px;
-            overflow: hidden;
-            margin-top: 10px;
-        }
-        
-        .progress-bar {
-            background: linear-gradient(90deg, #00c851 0%, #00ff88 100%);
-            height: 100%;
-            border-radius: 10px;
-            transition: width 0.3s ease;
-            width: 0%;
-        }
-        
-        .progress-percentage {
-            font-size: 28px;
-            font-weight: bold;
-            color: #fff;
-        }
-        
-        .stat-passed {
-            color: #00ff88;
-        }
-        
-        .stat-failed {
-            color: #ff6b6b;
-        }
-        
-        .stat-total {
-            color: #fff;
-        }
-        
-        .elapsed-time {
-            font-size: 12px;
-            opacity: 0.8;
-            margin-top: 2px;
-        }
-        
-        #reset-results:hover {
-            color: #333;
-            text-decoration: none;
-        }
+      body {
+        font-family: Arial, sans-serif;
+      }
+      nav {
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        position: fixed;
+        top: 0;
+        width: 100%;
+        background: #eee;
+        left: 0;
+        padding-left: 10px;
+        /* disable text selection */
+        user-select: none;
+      }
+      #tests {
+        padding-top: 50px;
+      }
+      #run-tests {
+        margin-top: 20px;
+        margin-bottom: 20px;
+        background-color: #4c84af;
+        border: none;
+        color: white;
+        padding: 10px 20px;
+        text-align: center;
+        text-decoration: none;
+        display: inline-block;
+        font-size: 16px;
+        cursor: pointer;
+        margin-left: 20px;
+      }
+      #settings-btn {
+        margin-left: auto;
+        margin-top: 20px;
+        margin-bottom: 20px;
+        background-color: #666;
+        border: none;
+        color: white;
+        padding: 10px 20px;
+        text-align: center;
+        text-decoration: none;
+        display: inline-block;
+        font-size: 16px;
+        cursor: pointer;
+        float: right;
+        margin-right: 30px;
+      }
+      #settings-btn:hover {
+        background-color: #555;
+      }
+      #auth-section {
+        float: right;
+        margin-right: 20px;
+        display: flex;
+        align-items: center;
+        font-size: 14px;
+      }
+      #login-btn {
+        background-color: #4c84af;
+        border: none;
+        color: white;
+        padding: 12px 16px;
+        text-align: center;
+        text-decoration: none;
+        display: inline-block;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      #login-btn:hover {
+        background-color: #3a6a8a;
+      }
+      #user-info {
+        color: #333;
+      }
+      #logout-link {
+        color: #666;
+        text-decoration: underline;
+        cursor: pointer;
+        margin-left: 5px;
+      }
+      #logout-link:hover {
+        color: #333;
+      }
+      #unselect-all {
+        margin-left: 20px;
+        cursor: pointer;
+      }
+      #select-all {
+        margin-left: 20px;
+        cursor: pointer;
+      }
+      .test-container {
+        margin-bottom: 10px;
+        padding: 10px;
+        border-radius: 5px;
+      }
+      .test-container {
+        font-family: monospace;
+      }
+      .test-checkbox-container {
+        display: flex;
+        align-items: center;
+      }
+      .test-container:hover {
+        background-color: #f0f0f0;
+      }
+      .test-container label {
+        display: block;
+        margin-left: 5px;
+      }
+      .test-container input {
+        float: left;
+      }
+      .test-name {
+        color: #727272;
+      }
+      .test-description {
+        font-size: 12px;
+        color: #262626;
+        margin-top: 2px;
+      }
+      .test-run-button {
+        margin-left: 10px;
+        background-color: #4c84af;
+        border: none;
+        color: white;
+        padding: 5px 10px;
+        text-align: center;
+        text-decoration: none;
+        display: inline-block;
+        font-size: 12px;
+        cursor: pointer;
+        border-radius: 3px;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+      }
+      .test-container:hover .test-run-button {
+        opacity: 1;
+      }
+      .test-run-button:hover {
+        background-color: #3a6a8a;
+      }
+      .test-run-button:disabled {
+        background-color: #999;
+        cursor: not-allowed;
+        opacity: 1;
+      }
+      .test-run-button:disabled:hover {
+        background-color: #999;
+      }
 
-        /* Modal styles */
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 2000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
-        }
-        
-        .modal-content {
-            background-color: #fefefe;
-            margin: 10% auto;
-            padding: 20px;
-            border: 1px solid #888;
-            border-radius: 8px;
-            width: 500px;
-            max-width: 90%;
-            position: relative;
-        }
-        
-        .close {
-            color: #aaa;
-            float: right;
-            font-size: 28px;
-            font-weight: bold;
-            cursor: pointer;
-            line-height: 1;
-        }
-        
-        .close:hover,
-        .close:focus {
-            color: black;
-            text-decoration: none;
-        }
-        
-        .modal h2 {
-            margin-top: 0;
-            margin-bottom: 20px;
-            color: #333;
-        }
-        
-        .setting-group {
-            margin-bottom: 15px;
-        }
-        
-        .setting-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-            color: #555;
-        }
-        
-        .setting-group input {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-            box-sizing: border-box;
-        }
-        
-        .modal-buttons {
-            margin-top: 20px;
-            text-align: right;
-        }
-        
-        .modal-buttons button {
-            margin-left: 10px;
-            padding: 8px 16px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-        
-        .btn-cancel {
-            background-color: #ccc;
-            color: #333;
-        }
-        
-        .btn-cancel:hover {
-            background-color: #bbb;
-        }
-        
-        .btn-save {
-            background-color: #4c84af;
-            color: white;
-        }
-        
-        .btn-save:hover {
-            background-color: #3a6a8a;
-        }
+      /* Make h2 headers sticky */
+      #tests h2 {
+        position: sticky;
+        top: 78px; /* Position below the fixed nav */
+        background-color: white;
+        padding: 20px 0;
+        margin: 20px 0 10px 0;
+        border-bottom: 2px solid #ddd;
+        z-index: 10;
+        font-size: 18px;
+        font-weight: bold;
+      }
+
+      /* Adjust sticky headings when progress panel is visible */
+      #progress-panel.show ~ #tests h2 {
+        top: 158px; /* 78px + 80px to account for progress panel */
+      }
+
+      /* Style for h2 checkboxes */
+      #tests h2 input[type='checkbox'] {
+        margin-right: 18px;
+        transform: scale(1.2);
+      }
+
+      #tests h2 label {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        padding-left: 10px;
+        font-size: 25px;
+      }
+      #test-counter {
+        font-size: 14px;
+        color: #666;
+        margin-right: 10px;
+        font-size: 20px;
+      }
+
+      /* Progress panel styles */
+      #progress-panel {
+        position: fixed;
+        top: 78px;
+        left: 0;
+        right: 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 15px 20px;
+        z-index: 999;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        transform: translateY(-100%);
+        transition: transform 0.3s ease-in-out;
+        border-bottom: 3px solid #4c84af;
+      }
+
+      #progress-panel.show {
+        transform: translateY(0);
+      }
+
+      #progress-panel.show ~ #tests {
+        padding-top: 120px !important;
+      }
+
+      .progress-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      .progress-left {
+        flex: 1;
+      }
+
+      .progress-right {
+        display: flex;
+        gap: 30px;
+        align-items: center;
+      }
+
+      .progress-stats {
+        display: flex;
+        gap: 20px;
+        margin-top: 8px;
+      }
+
+      .progress-stat {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 80px;
+      }
+
+      .progress-stat-number {
+        font-size: 24px;
+        font-weight: bold;
+        line-height: 1;
+      }
+
+      .progress-stat-label {
+        font-size: 11px;
+        opacity: 0.9;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .current-test {
+        font-size: 16px;
+        font-weight: 500;
+        margin-bottom: 5px;
+      }
+
+      .progress-bar-container {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 10px;
+        height: 8px;
+        overflow: hidden;
+        margin-top: 10px;
+      }
+
+      .progress-bar {
+        background: linear-gradient(90deg, #00c851 0%, #00ff88 100%);
+        height: 100%;
+        border-radius: 10px;
+        transition: width 0.3s ease;
+        width: 0%;
+      }
+
+      .progress-percentage {
+        font-size: 28px;
+        font-weight: bold;
+        color: #fff;
+      }
+
+      .stat-passed {
+        color: #00ff88;
+      }
+
+      .stat-failed {
+        color: #ff6b6b;
+      }
+
+      .stat-total {
+        color: #fff;
+      }
+
+      .elapsed-time {
+        font-size: 12px;
+        opacity: 0.8;
+        margin-top: 2px;
+      }
+
+      #reset-results:hover {
+        color: #333;
+        text-decoration: none;
+      }
+
+      /* Modal styles */
+      .modal {
+        display: none;
+        position: fixed;
+        z-index: 2000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+      }
+
+      .modal-content {
+        background-color: #fefefe;
+        margin: 10% auto;
+        padding: 20px;
+        border: 1px solid #888;
+        border-radius: 8px;
+        width: 500px;
+        max-width: 90%;
+        position: relative;
+      }
+
+      .close {
+        color: #aaa;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+        cursor: pointer;
+        line-height: 1;
+      }
+
+      .close:hover,
+      .close:focus {
+        color: black;
+        text-decoration: none;
+      }
+
+      .modal h2 {
+        margin-top: 0;
+        margin-bottom: 20px;
+        color: #333;
+      }
+
+      .setting-group {
+        margin-bottom: 15px;
+      }
+
+      .setting-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+        color: #555;
+      }
+
+      .setting-group input {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+        box-sizing: border-box;
+      }
+
+      .modal-buttons {
+        margin-top: 20px;
+        text-align: right;
+      }
+
+      .modal-buttons button {
+        margin-left: 10px;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+
+      .btn-cancel {
+        background-color: #ccc;
+        color: #333;
+      }
+
+      .btn-cancel:hover {
+        background-color: #bbb;
+      }
+
+      .btn-save {
+        background-color: #4c84af;
+        color: white;
+      }
+
+      .btn-save:hover {
+        background-color: #3a6a8a;
+      }
     </style>
     <script>
-    // Settings management
-    const DEFAULT_SETTINGS = {
+      // Settings management
+      const DEFAULT_SETTINGS = {
         puterJsUrl: 'https://js.puter.com/v2/',
-        apiOrigin: 'https://api.puter.com'
-    };
-    
-    let currentSettings = { ...DEFAULT_SETTINGS };
-    
-    // Authentication functionality
-    async function updateAuthUI() {
+        apiOrigin: 'https://api.puter.com',
+      };
+
+      let currentSettings = { ...DEFAULT_SETTINGS };
+
+      // Authentication functionality
+      async function updateAuthUI() {
         try {
-            if (typeof puter === 'undefined' || !puter.auth) {
-                // Puter not loaded yet, show login button
-                $('#login-btn').show();
-                $('#user-info').hide();
-                return;
-            }
-            
-            const isSignedIn = await puter.auth.isSignedIn();
-            
-            if (isSignedIn) {
-                let user = await puter.auth.getUser();
-                // User is signed in, show username and logout option
-                $('#login-btn').hide();
-                $('#user-info').show();
-                
-                // Get user info - for now we'll use a placeholder
-                // In a real app, you might want to get the actual username from puter
-                $('#username').text(user.username); // You may need to get actual username from puter API
-            } else {
-                // User is not signed in, show login button
-                $('#login-btn').show();
-                $('#user-info').hide();
-            }
-        } catch (error) {
-            console.error('Error checking auth state:', error);
-            // If there's an error, default to showing login button
+          if (typeof puter === 'undefined' || !puter.auth) {
+            // Puter not loaded yet, show login button
             $('#login-btn').show();
             $('#user-info').hide();
+            return;
+          }
+
+          const isSignedIn = await puter.auth.isSignedIn();
+
+          if (isSignedIn) {
+            let user = await puter.auth.getUser();
+            // User is signed in, show username and logout option
+            $('#login-btn').hide();
+            $('#user-info').show();
+
+            // Get user info - for now we'll use a placeholder
+            // In a real app, you might want to get the actual username from puter
+            $('#username').text(user.username); // You may need to get actual username from puter API
+          } else {
+            // User is not signed in, show login button
+            $('#login-btn').show();
+            $('#user-info').hide();
+          }
+        } catch (error) {
+          console.error('Error checking auth state:', error);
+          // If there's an error, default to showing login button
+          $('#login-btn').show();
+          $('#user-info').hide();
         }
-    }
-    
-    // Load settings from localStorage or use defaults
-    function loadSettings() {
+      }
+
+      // Load settings from localStorage or use defaults
+      function loadSettings() {
         const saved = localStorage.getItem('puter-test-settings');
         if (saved) {
-            try {
-                currentSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
-            } catch (e) {
-                console.warn('Failed to parse saved settings, using defaults');
-                currentSettings = { ...DEFAULT_SETTINGS };
-            }
+          try {
+            currentSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+          } catch (e) {
+            console.warn('Failed to parse saved settings, using defaults');
+            currentSettings = { ...DEFAULT_SETTINGS };
+          }
         }
-    }
-    
-    // Save settings to localStorage
-    function saveSettings() {
+      }
+
+      // Save settings to localStorage
+      function saveSettings() {
         localStorage.setItem('puter-test-settings', JSON.stringify(currentSettings));
-    }
-    
-    // Load Puter.js script dynamically
-    function loadPuterScript() {
+      }
+
+      // Load Puter.js script dynamically
+      function loadPuterScript() {
         return new Promise((resolve, reject) => {
-            const script = document.getElementById('puter-script');
-            
-            // Remove existing script if any
-            if (script.src) {
-                script.remove();
-                const newScript = document.createElement('script');
-                newScript.id = 'puter-script';
-                document.head.insertBefore(newScript, script.nextSibling);
-            }
-            
-            const puterScript = document.getElementById('puter-script');
-            puterScript.onload = resolve;
-            puterScript.onerror = reject;
-            puterScript.src = currentSettings.puterJsUrl;
+          const script = document.getElementById('puter-script');
+
+          // Remove existing script if any
+          if (script.src) {
+            script.remove();
+            const newScript = document.createElement('script');
+            newScript.id = 'puter-script';
+            document.head.insertBefore(newScript, script.nextSibling);
+          }
+
+          const puterScript = document.getElementById('puter-script');
+          puterScript.onload = resolve;
+          puterScript.onerror = reject;
+          puterScript.src = currentSettings.puterJsUrl;
         });
-    }
-    
-    // Initialize Puter with settings
-    async function initializePuter() {
+      }
+
+      // Initialize Puter with settings
+      async function initializePuter() {
         try {
-            await loadPuterScript();
-            
-            // Wait a bit for the script to initialize
-            await new Promise(resolve => setTimeout(resolve, 100));
-            
-            // Set API origin if puter object exists
-            if (typeof puter !== 'undefined' && puter.setAPIOrigin) {
-                puter.setAPIOrigin(currentSettings.apiOrigin);
-            }
-            
-            // Update auth UI after puter is loaded
-            await updateAuthUI();
+          await loadPuterScript();
+
+          // Wait a bit for the script to initialize
+          await new Promise((resolve) => setTimeout(resolve, 100));
+
+          // Set API origin if puter object exists
+          if (typeof puter !== 'undefined' && puter.setAPIOrigin) {
+            puter.setAPIOrigin(currentSettings.apiOrigin);
+          }
+
+          // Update auth UI after puter is loaded
+          await updateAuthUI();
         } catch (error) {
-            console.error('Failed to load Puter.js:', error);
-            alert('Failed to load Puter.js. Please check the URL in settings.');
+          console.error('Failed to load Puter.js:', error);
+          alert('Failed to load Puter.js. Please check the URL in settings.');
         }
-    }
-    
-    // Initialize on page load
-    document.addEventListener("DOMContentLoaded", async () => {
+      }
+
+      // Initialize on page load
+      document.addEventListener('DOMContentLoaded', async () => {
         loadSettings();
         await initializePuter();
-        
+
         // Progress tracking variables
         let testProgress = {
-            total: 0,
-            completed: 0,
-            passed: 0,
-            failed: 0,
-            startTime: null,
-            currentTest: '',
-            timerInterval: null
+          total: 0,
+          completed: 0,
+          passed: 0,
+          failed: 0,
+          startTime: null,
+          currentTest: '',
+          timerInterval: null,
         };
 
         // Progress panel functions
         function showProgressPanel() {
-            $('#progress-panel').addClass('show');
-            $('#run-tests').prop('disabled', true).text('Running Tests...');
-            startProgressTimer();
+          $('#progress-panel').addClass('show');
+          $('#run-tests').prop('disabled', true).text('Running Tests...');
+          startProgressTimer();
         }
 
         function hideProgressPanel() {
-            $('#progress-panel').removeClass('show');
-            $('#run-tests').prop('disabled', false).text('Run Tests');
-            stopProgressTimer();
+          $('#progress-panel').removeClass('show');
+          $('#run-tests').prop('disabled', false).text('Run Tests');
+          stopProgressTimer();
         }
 
         function updateProgressPanel() {
-            const { total, completed, passed, failed, currentTest } = testProgress;
-            const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-            
-            $('#current-test').text(currentTest || 'Preparing tests...');
-            $('#progress-bar').css('width', percentage + '%');
-            $('#progress-percentage').text(percentage + '%');
-            $('#passed-count').text(passed);
-            $('#failed-count').text(failed);
-            $('#total-count').text(total);
+          const { total, completed, passed, failed, currentTest } = testProgress;
+          const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+          $('#current-test').text(currentTest || 'Preparing tests...');
+          $('#progress-bar').css('width', percentage + '%');
+          $('#progress-percentage').text(percentage + '%');
+          $('#passed-count').text(passed);
+          $('#failed-count').text(failed);
+          $('#total-count').text(total);
         }
 
         function startProgressTimer() {
-            testProgress.startTime = Date.now();
-            testProgress.timerInterval = setInterval(() => {
-                const elapsed = Math.floor((Date.now() - testProgress.startTime) / 1000);
-                $('#elapsed-time').text(`Elapsed: ${elapsed}s`);
-            }, 1000);
+          testProgress.startTime = Date.now();
+          testProgress.timerInterval = setInterval(() => {
+            const elapsed = Math.floor((Date.now() - testProgress.startTime) / 1000);
+            $('#elapsed-time').text(`Elapsed: ${elapsed}s`);
+          }, 1000);
         }
 
         function stopProgressTimer() {
-            if (testProgress.timerInterval) {
-                clearInterval(testProgress.timerInterval);
-                testProgress.timerInterval = null;
-            }
+          if (testProgress.timerInterval) {
+            clearInterval(testProgress.timerInterval);
+            testProgress.timerInterval = null;
+          }
         }
 
         function resetProgress() {
-            testProgress.total = 0;
-            testProgress.completed = 0;
-            testProgress.passed = 0;
-            testProgress.failed = 0;
-            testProgress.currentTest = '';
-            testProgress.startTime = null;
+          testProgress.total = 0;
+          testProgress.completed = 0;
+          testProgress.passed = 0;
+          testProgress.failed = 0;
+          testProgress.currentTest = '';
+          testProgress.startTime = null;
         }
 
         function getSelectedTestsCount() {
-            return $('.test-checkbox:checked').length;
+          return $('.test-checkbox:checked').length;
         }
 
         // Small delay to make progress visible
         function delay(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
+          return new Promise((resolve) => setTimeout(resolve, ms));
         }
 
-        window.pass = function(msg) {
-            // $('#tests').append(`<p style="color:green;">${msg}</p>`);
-        }
+        window.pass = function (msg) {
+          // $('#tests').append(`<p style="color:green;">${msg}</p>`);
+        };
 
-        window.fail = function(msg, error) {
-            // Include the full error information in the thrown error
-            let fullMessage = msg;
-            if (error) {
-                if (typeof error === 'string') {
-                    fullMessage += ' ' + error;
-                } else if (error.message) {
-                    fullMessage += ' ' + error.message;
-                } else {
-                    fullMessage += ' ' + JSON.stringify(error);
-                }
+        window.fail = function (msg, error) {
+          // Include the full error information in the thrown error
+          let fullMessage = msg;
+          if (error) {
+            if (typeof error === 'string') {
+              fullMessage += ' ' + error;
+            } else if (error.message) {
+              fullMessage += ' ' + error.message;
+            } else {
+              fullMessage += ' ' + JSON.stringify(error);
             }
-            const err = new Error(fullMessage);
-            // Attach the original error for detailed display
-            err.originalError = error;
-            throw err;
-        }
-        
+          }
+          const err = new Error(fullMessage);
+          // Attach the original error for detailed display
+          err.originalError = error;
+          throw err;
+        };
+
         // Function to get test name and description
         function getTestInfo(test) {
-            if (typeof test === 'function') {
-                return {
-                    name: test.name,
-                    description: test.description || 'No description provided'
-                };
-            } else if (typeof test === 'object' && test.name && test.test) {
-                return {
-                    name: test.name,
-                    description: test.description || 'No description provided'
-                };
-            }
+          if (typeof test === 'function') {
             return {
-                name: 'Unknown Test',
-                description: 'No description provided'
+              name: test.name,
+              description: test.description || 'No description provided',
             };
+          } else if (typeof test === 'object' && test.name && test.test) {
+            return {
+              name: test.name,
+              description: test.description || 'No description provided',
+            };
+          }
+          return {
+            name: 'Unknown Test',
+            description: 'No description provided',
+          };
         }
-        
+
         // Function to execute a test
         async function executeTest(test) {
-            if (typeof test === 'function') {
-                return await test();
-            } else if (typeof test === 'object' && test.test) {
-                return await test.test();
-            }
-            throw new Error('Invalid test format');
+          if (typeof test === 'function') {
+            return await test();
+          } else if (typeof test === 'object' && test.test) {
+            return await test.test();
+          }
+          throw new Error('Invalid test format');
         }
-        
+
         // print the test name with checkbox for each test
-        $('#tests').append('<h2><label><input type="checkbox" id="fsTests-group"> FileSystem</label></h2>');
+        $('#tests').append(
+          '<h2><label><input type="checkbox" id="fsTests-group"> FileSystem</label></h2>'
+        );
         for (let i = 0; i < fsTests.length; i++) {
-            const testInfo = getTestInfo(fsTests[i]);
-            $('#tests').append(`<div class="test-container" id="fsTests-container-${i}">
+          const testInfo = getTestInfo(fsTests[i]);
+          $('#tests').append(`<div class="test-container" id="fsTests-container-${i}">
                 <div class="test-checkbox-container">
                     <input type="checkbox" class="test-checkbox fsTests-checkbox" id="fsTests${i}">
                     <label for="fsTests${i}">
@@ -656,10 +658,12 @@
             </div>`);
         }
 
-        $('#tests').append('<h2><label><input type="checkbox" id="kvTests-group"> Key Value Store</label></h2>');
+        $('#tests').append(
+          '<h2><label><input type="checkbox" id="kvTests-group"> Key Value Store</label></h2>'
+        );
         for (let i = 0; i < kvTests.length; i++) {
-            const testInfo = getTestInfo(kvTests[i]);
-            $('#tests').append(`<div class="test-container" id="kvTests-container-${i}">
+          const testInfo = getTestInfo(kvTests[i]);
+          $('#tests').append(`<div class="test-container" id="kvTests-container-${i}">
                 <div class="test-checkbox-container">
                     <input type="checkbox" class="test-checkbox kvTests-checkbox" id="kvTests${i}">
                     <label for="kvTests${i}">
@@ -673,8 +677,8 @@
 
         $('#tests').append('<h2><label><input type="checkbox" id="aiTests-group"> AI</label></h2>');
         for (let i = 0; i < aiTests.length; i++) {
-            const testInfo = getTestInfo(aiTests[i]);
-            $('#tests').append(`<div class="test-container" id="aiTests-container-${i}">
+          const testInfo = getTestInfo(aiTests[i]);
+          $('#tests').append(`<div class="test-container" id="aiTests-container-${i}">
                 <div class="test-checkbox-container">
                     <input type="checkbox" class="test-checkbox aiTests-checkbox" id="aiTests${i}">
                     <label for="aiTests${i}">
@@ -686,10 +690,12 @@
             </div>`);
         }
 
-        $('#tests').append('<h2><label><input type="checkbox" id="txt2speechTests-group"> Text-to-Speech</label></h2>');
+        $('#tests').append(
+          '<h2><label><input type="checkbox" id="txt2speechTests-group"> Text-to-Speech</label></h2>'
+        );
         for (let i = 0; i < txt2speechTests.length; i++) {
-            const testInfo = getTestInfo(txt2speechTests[i]);
-            $('#tests').append(`<div class="test-container" id="txt2speechTests-container-${i}">
+          const testInfo = getTestInfo(txt2speechTests[i]);
+          $('#tests').append(`<div class="test-container" id="txt2speechTests-container-${i}">
                 <div class="test-checkbox-container">
                     <input type="checkbox" class="test-checkbox txt2speechTests-checkbox" id="txt2speechTests${i}">
                     <label for="txt2speechTests${i}">
@@ -702,358 +708,377 @@
         }
 
         // Add event listeners for group checkboxes
-        $('#fsTests-group').change(function() {
-            const isChecked = $(this).prop('checked');
-            $('.fsTests-checkbox').prop('checked', isChecked);
+        $('#fsTests-group').change(function () {
+          const isChecked = $(this).prop('checked');
+          $('.fsTests-checkbox').prop('checked', isChecked);
         });
 
-        $('#kvTests-group').change(function() {
-            const isChecked = $(this).prop('checked');
-            $('.kvTests-checkbox').prop('checked', isChecked);
+        $('#kvTests-group').change(function () {
+          const isChecked = $(this).prop('checked');
+          $('.kvTests-checkbox').prop('checked', isChecked);
         });
 
-        $('#aiTests-group').change(function() {
-            const isChecked = $(this).prop('checked');
-            $('.aiTests-checkbox').prop('checked', isChecked);
+        $('#aiTests-group').change(function () {
+          const isChecked = $(this).prop('checked');
+          $('.aiTests-checkbox').prop('checked', isChecked);
         });
 
-        $('#txt2speechTests-group').change(function() {
-            const isChecked = $(this).prop('checked');
-            $('.txt2speechTests-checkbox').prop('checked', isChecked);
+        $('#txt2speechTests-group').change(function () {
+          const isChecked = $(this).prop('checked');
+          $('.txt2speechTests-checkbox').prop('checked', isChecked);
         });
 
         // Add event listeners for individual checkboxes to update group checkbox state
-        $(document).on('change', '.fsTests-checkbox', function() {
-            const totalFsTests = $('.fsTests-checkbox').length;
-            const checkedFsTests = $('.fsTests-checkbox:checked').length;
-            
-            if (checkedFsTests === 0) {
-                $('#fsTests-group').prop('checked', false).prop('indeterminate', false);
-            } else if (checkedFsTests === totalFsTests) {
-                $('#fsTests-group').prop('checked', true).prop('indeterminate', false);
-            } else {
-                $('#fsTests-group').prop('checked', false).prop('indeterminate', true);
-            }
+        $(document).on('change', '.fsTests-checkbox', function () {
+          const totalFsTests = $('.fsTests-checkbox').length;
+          const checkedFsTests = $('.fsTests-checkbox:checked').length;
+
+          if (checkedFsTests === 0) {
+            $('#fsTests-group').prop('checked', false).prop('indeterminate', false);
+          } else if (checkedFsTests === totalFsTests) {
+            $('#fsTests-group').prop('checked', true).prop('indeterminate', false);
+          } else {
+            $('#fsTests-group').prop('checked', false).prop('indeterminate', true);
+          }
         });
 
-        $(document).on('change', '.kvTests-checkbox', function() {
-            const totalKvTests = $('.kvTests-checkbox').length;
-            const checkedKvTests = $('.kvTests-checkbox:checked').length;
-            
-            if (checkedKvTests === 0) {
-                $('#kvTests-group').prop('checked', false).prop('indeterminate', false);
-            } else if (checkedKvTests === totalKvTests) {
-                $('#kvTests-group').prop('checked', true).prop('indeterminate', false);
-            } else {
-                $('#kvTests-group').prop('checked', false).prop('indeterminate', true);
-            }
+        $(document).on('change', '.kvTests-checkbox', function () {
+          const totalKvTests = $('.kvTests-checkbox').length;
+          const checkedKvTests = $('.kvTests-checkbox:checked').length;
+
+          if (checkedKvTests === 0) {
+            $('#kvTests-group').prop('checked', false).prop('indeterminate', false);
+          } else if (checkedKvTests === totalKvTests) {
+            $('#kvTests-group').prop('checked', true).prop('indeterminate', false);
+          } else {
+            $('#kvTests-group').prop('checked', false).prop('indeterminate', true);
+          }
         });
 
-        $(document).on('change', '.aiTests-checkbox', function() {
-            const totalAiTests = $('.aiTests-checkbox').length;
-            const checkedAiTests = $('.aiTests-checkbox:checked').length;
-            
-            if (checkedAiTests === 0) {
-                $('#aiTests-group').prop('checked', false).prop('indeterminate', false);
-            } else if (checkedAiTests === totalAiTests) {
-                $('#aiTests-group').prop('checked', true).prop('indeterminate', false);
-            } else {
-                $('#aiTests-group').prop('checked', false).prop('indeterminate', true);
-            }
+        $(document).on('change', '.aiTests-checkbox', function () {
+          const totalAiTests = $('.aiTests-checkbox').length;
+          const checkedAiTests = $('.aiTests-checkbox:checked').length;
+
+          if (checkedAiTests === 0) {
+            $('#aiTests-group').prop('checked', false).prop('indeterminate', false);
+          } else if (checkedAiTests === totalAiTests) {
+            $('#aiTests-group').prop('checked', true).prop('indeterminate', false);
+          } else {
+            $('#aiTests-group').prop('checked', false).prop('indeterminate', true);
+          }
         });
 
-        $(document).on('change', '.txt2speechTests-checkbox', function() {
-            const totalTxt2speechTests = $('.txt2speechTests-checkbox').length;
-            const checkedTxt2speechTests = $('.txt2speechTests-checkbox:checked').length;
-            
-            if (checkedTxt2speechTests === 0) {
-                $('#txt2speechTests-group').prop('checked', false).prop('indeterminate', false);
-            } else if (checkedTxt2speechTests === totalTxt2speechTests) {
-                $('#txt2speechTests-group').prop('checked', true).prop('indeterminate', false);
-            } else {
-                $('#txt2speechTests-group').prop('checked', false).prop('indeterminate', true);
-            }
+        $(document).on('change', '.txt2speechTests-checkbox', function () {
+          const totalTxt2speechTests = $('.txt2speechTests-checkbox').length;
+          const checkedTxt2speechTests = $('.txt2speechTests-checkbox:checked').length;
+
+          if (checkedTxt2speechTests === 0) {
+            $('#txt2speechTests-group').prop('checked', false).prop('indeterminate', false);
+          } else if (checkedTxt2speechTests === totalTxt2speechTests) {
+            $('#txt2speechTests-group').prop('checked', true).prop('indeterminate', false);
+          } else {
+            $('#txt2speechTests-group').prop('checked', false).prop('indeterminate', true);
+          }
         });
 
-        window.assert = function(condition, message) {
-            if (!condition) {
-                throw new Error(message || "Assertion failed");
-            }
-        }
+        window.assert = function (condition, message) {
+          if (!condition) {
+            throw new Error(message || 'Assertion failed');
+          }
+        };
 
         async function runSingleTest(testType, index) {
-            const testSuites = {
-                'fs': fsTests,
-                'kv': kvTests,
-                'ai': aiTests,
-                'txt2speech': txt2speechTests
-            };
-            
-            const tests = testSuites[testType];
-            const containerId = `${testType}Tests-container-${index}`;
-            const buttonSelector = `#${containerId} .test-run-button`;
-            
-            // Disable the button and show it while running
-            $(buttonSelector).prop('disabled', true).text('Running...');
-            
-            // Clear previous results
-            $(`#${containerId}`).css('background-color', '');
-            $(`#${containerId} pre`).remove();
-            
-            try {
-                await executeTest(tests[index]);
-                // make this test's container green
-                $(`#${containerId}`).css('background-color', '#85e085');
-            } catch (e) {
-                const testInfo = getTestInfo(tests[index]);
-                console.error(`${testType.toUpperCase()} Test failed:`, testInfo.name, e);
-                // make this test's container red
-                $(`#${containerId}`).css('background-color', '#ffbfbf');
-                // message - show full error information including JSON details
-                let errorMessage = e.message || e.toString();
-                if (e.originalError) {
-                    errorMessage += '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
-                }
-                $(`#${containerId}`).append(`<pre style="color:#c00000; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`);
-            } finally {
-                // Re-enable the button
-                $(buttonSelector).prop('disabled', false).text('Run Test');
+          const testSuites = {
+            fs: fsTests,
+            kv: kvTests,
+            ai: aiTests,
+            txt2speech: txt2speechTests,
+          };
+
+          const tests = testSuites[testType];
+          const containerId = `${testType}Tests-container-${index}`;
+          const buttonSelector = `#${containerId} .test-run-button`;
+
+          // Disable the button and show it while running
+          $(buttonSelector).prop('disabled', true).text('Running...');
+
+          // Clear previous results
+          $(`#${containerId}`).css('background-color', '');
+          $(`#${containerId} pre`).remove();
+
+          try {
+            await executeTest(tests[index]);
+            // make this test's container green
+            $(`#${containerId}`).css('background-color', '#85e085');
+          } catch (e) {
+            const testInfo = getTestInfo(tests[index]);
+            console.error(`${testType.toUpperCase()} Test failed:`, testInfo.name, e);
+            // make this test's container red
+            $(`#${containerId}`).css('background-color', '#ffbfbf');
+            // message - show full error information including JSON details
+            let errorMessage = e.message || e.toString();
+            if (e.originalError) {
+              errorMessage += '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
             }
+            $(`#${containerId}`).append(
+              `<pre style="color:#c00000; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`
+            );
+          } finally {
+            // Re-enable the button
+            $(buttonSelector).prop('disabled', false).text('Run Test');
+          }
         }
 
         window.runSingleTest = runSingleTest;
 
         async function runTests() {
-            // Reset and initialize progress tracking
-            resetProgress();
-            testProgress.total = getSelectedTestsCount();
-            
-            // Show progress panel
-            showProgressPanel();
-            updateProgressPanel();
-            
-            // Clear previous test results
-            $('.test-container').css('background-color', '');
-            $('.test-container pre').remove();
-            
-            // go through fsTests and run each test
-            for (let i = 0; i < fsTests.length; i++) {
-                if (document.getElementById(`fsTests${i}`).checked) {
-                    const testInfo = getTestInfo(fsTests[i]);
-                    testProgress.currentTest = `FileSystem: ${testInfo.name}`;
-                    updateProgressPanel();
-                    
-                    try{
-                        await executeTest(fsTests[i]);
-                        // make this test's container green
-                        $(`#fsTests-container-${i}`).css('background-color', '#85e085');
-                        testProgress.passed++;
-                    } catch (e) {
-                        console.error('FS Test failed:', testInfo.name, e);
-                        // make this test's container red
-                        $(`#fsTests-container-${i}`).css('background-color', '#ffbfbf');
-                        // message - show full error information including JSON details
-                        let errorMessage = e.message || e.toString();
-                        if (e.originalError) {
-                            errorMessage += '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
-                        }
-                        $(`#fsTests-container-${i}`).append(`<pre style="color:#c00000; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`);
-                        testProgress.failed++;
-                    }
-                    
-                    testProgress.completed++;
-                    updateProgressPanel();
-                    
-                    // Small delay to make progress visible
-                    await delay(100);
-                }
-            }
+          // Reset and initialize progress tracking
+          resetProgress();
+          testProgress.total = getSelectedTestsCount();
 
-            for (let i = 0; i < kvTests.length; i++) {
-                if (document.getElementById(`kvTests${i}`).checked) {
-                    const testInfo = getTestInfo(kvTests[i]);
-                    testProgress.currentTest = `Key-Value Store: ${testInfo.name}`;
-                    updateProgressPanel();
-                    
-                    try{
-                        await executeTest(kvTests[i]);
-                        // make this test's container green
-                        $(`#kvTests-container-${i}`).css('background-color', '#85e085');
-                        testProgress.passed++;
-                    } catch (e) {
-                        console.error('KV Test failed:', testInfo.name, e);
-                        // make this test's container red
-                        $(`#kvTests-container-${i}`).css('background-color', '#ff8484');
-                        // message - show full error information including JSON details
-                        let errorMessage = e.message || e.toString();
-                        if (e.originalError) {
-                            errorMessage += '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
-                        }
-                        $(`#kvTests-container-${i}`).append(`<pre style="color:red; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`);
-                        testProgress.failed++;
-                    }
-                    
-                    testProgress.completed++;
-                    updateProgressPanel();
-                    
-                    // Small delay to make progress visible
-                    await delay(100);
-                }
-            }
+          // Show progress panel
+          showProgressPanel();
+          updateProgressPanel();
 
-            for (let i = 0; i < aiTests.length; i++) {
-                if (document.getElementById(`aiTests${i}`).checked) {
-                    const testInfo = getTestInfo(aiTests[i]);
-                    testProgress.currentTest = `AI: ${testInfo.name}`;
-                    updateProgressPanel();
-                    
-                    try{
-                        await executeTest(aiTests[i]);
-                        // make this test's container green
-                        $(`#aiTests-container-${i}`).css('background-color', '#85e085');
-                        testProgress.passed++;
-                    } catch (e) {
-                        console.error('AI Test failed:', testInfo.name, e);
-                        // make this test's container red
-                        $(`#aiTests-container-${i}`).css('background-color', '#ff8484');
-                        // message - show full error information including JSON details
-                        let errorMessage = e.message || e.toString();
-                        if (e.originalError) {
-                            errorMessage += '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
-                        }
-                        $(`#aiTests-container-${i}`).append(`<pre style="color:red; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`);
-                        testProgress.failed++;
-                    }
-                    
-                    testProgress.completed++;
-                    updateProgressPanel();
-                    
-                    // Small delay to make progress visible
-                    await delay(100);
-                }
-            }
+          // Clear previous test results
+          $('.test-container').css('background-color', '');
+          $('.test-container pre').remove();
 
-            for (let i = 0; i < txt2speechTests.length; i++) {
-                if (document.getElementById(`txt2speechTests${i}`).checked) {
-                    const testInfo = getTestInfo(txt2speechTests[i]);
-                    testProgress.currentTest = `Text-to-Speech: ${testInfo.name}`;
-                    updateProgressPanel();
-                    
-                    try{
-                        await executeTest(txt2speechTests[i]);
-                        // make this test's container green
-                        $(`#txt2speechTests-container-${i}`).css('background-color', '#85e085');
-                        testProgress.passed++;
-                    } catch (e) {
-                        console.error('Txt2Speech Test failed:', testInfo.name, e);
-                        // make this test's container red
-                        $(`#txt2speechTests-container-${i}`).css('background-color', '#ff8484');
-                        // message - show full error information including JSON details
-                        let errorMessage = e.message || e.toString();
-                        if (e.originalError) {
-                            errorMessage += '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
-                        }
-                        $(`#txt2speechTests-container-${i}`).append(`<pre style="color:red; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`);
-                        testProgress.failed++;
-                    }
-                    
-                    testProgress.completed++;
-                    updateProgressPanel();
-                    
-                    // Small delay to make progress visible
-                    await delay(100);
+          // go through fsTests and run each test
+          for (let i = 0; i < fsTests.length; i++) {
+            if (document.getElementById(`fsTests${i}`).checked) {
+              const testInfo = getTestInfo(fsTests[i]);
+              testProgress.currentTest = `FileSystem: ${testInfo.name}`;
+              updateProgressPanel();
+
+              try {
+                await executeTest(fsTests[i]);
+                // make this test's container green
+                $(`#fsTests-container-${i}`).css('background-color', '#85e085');
+                testProgress.passed++;
+              } catch (e) {
+                console.error('FS Test failed:', testInfo.name, e);
+                // make this test's container red
+                $(`#fsTests-container-${i}`).css('background-color', '#ffbfbf');
+                // message - show full error information including JSON details
+                let errorMessage = e.message || e.toString();
+                if (e.originalError) {
+                  errorMessage +=
+                    '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
                 }
+                $(`#fsTests-container-${i}`).append(
+                  `<pre style="color:#c00000; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`
+                );
+                testProgress.failed++;
+              }
+
+              testProgress.completed++;
+              updateProgressPanel();
+
+              // Small delay to make progress visible
+              await delay(100);
             }
-            
-            // Show completion message
-            testProgress.currentTest = `Complete! ${testProgress.passed} passed, ${testProgress.failed} failed`;
-            updateProgressPanel();
-            
-            // Stop the elapsed timer but keep panel visible
-            stopProgressTimer();
-            
-            // Re-enable the run tests button
-            $('#run-tests').prop('disabled', false).text('Run Tests');
+          }
+
+          for (let i = 0; i < kvTests.length; i++) {
+            if (document.getElementById(`kvTests${i}`).checked) {
+              const testInfo = getTestInfo(kvTests[i]);
+              testProgress.currentTest = `Key-Value Store: ${testInfo.name}`;
+              updateProgressPanel();
+
+              try {
+                await executeTest(kvTests[i]);
+                // make this test's container green
+                $(`#kvTests-container-${i}`).css('background-color', '#85e085');
+                testProgress.passed++;
+              } catch (e) {
+                console.error('KV Test failed:', testInfo.name, e);
+                // make this test's container red
+                $(`#kvTests-container-${i}`).css('background-color', '#ff8484');
+                // message - show full error information including JSON details
+                let errorMessage = e.message || e.toString();
+                if (e.originalError) {
+                  errorMessage +=
+                    '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
+                }
+                $(`#kvTests-container-${i}`).append(
+                  `<pre style="color:red; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`
+                );
+                testProgress.failed++;
+              }
+
+              testProgress.completed++;
+              updateProgressPanel();
+
+              // Small delay to make progress visible
+              await delay(100);
+            }
+          }
+
+          for (let i = 0; i < aiTests.length; i++) {
+            if (document.getElementById(`aiTests${i}`).checked) {
+              const testInfo = getTestInfo(aiTests[i]);
+              testProgress.currentTest = `AI: ${testInfo.name}`;
+              updateProgressPanel();
+
+              try {
+                await executeTest(aiTests[i]);
+                // make this test's container green
+                $(`#aiTests-container-${i}`).css('background-color', '#85e085');
+                testProgress.passed++;
+              } catch (e) {
+                console.error('AI Test failed:', testInfo.name, e);
+                // make this test's container red
+                $(`#aiTests-container-${i}`).css('background-color', '#ff8484');
+                // message - show full error information including JSON details
+                let errorMessage = e.message || e.toString();
+                if (e.originalError) {
+                  errorMessage +=
+                    '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
+                }
+                $(`#aiTests-container-${i}`).append(
+                  `<pre style="color:red; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`
+                );
+                testProgress.failed++;
+              }
+
+              testProgress.completed++;
+              updateProgressPanel();
+
+              // Small delay to make progress visible
+              await delay(100);
+            }
+          }
+
+          for (let i = 0; i < txt2speechTests.length; i++) {
+            if (document.getElementById(`txt2speechTests${i}`).checked) {
+              const testInfo = getTestInfo(txt2speechTests[i]);
+              testProgress.currentTest = `Text-to-Speech: ${testInfo.name}`;
+              updateProgressPanel();
+
+              try {
+                await executeTest(txt2speechTests[i]);
+                // make this test's container green
+                $(`#txt2speechTests-container-${i}`).css('background-color', '#85e085');
+                testProgress.passed++;
+              } catch (e) {
+                console.error('Txt2Speech Test failed:', testInfo.name, e);
+                // make this test's container red
+                $(`#txt2speechTests-container-${i}`).css('background-color', '#ff8484');
+                // message - show full error information including JSON details
+                let errorMessage = e.message || e.toString();
+                if (e.originalError) {
+                  errorMessage +=
+                    '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
+                }
+                $(`#txt2speechTests-container-${i}`).append(
+                  `<pre style="color:red; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`
+                );
+                testProgress.failed++;
+              }
+
+              testProgress.completed++;
+              updateProgressPanel();
+
+              // Small delay to make progress visible
+              await delay(100);
+            }
+          }
+
+          // Show completion message
+          testProgress.currentTest = `Complete! ${testProgress.passed} passed, ${testProgress.failed} failed`;
+          updateProgressPanel();
+
+          // Stop the elapsed timer but keep panel visible
+          stopProgressTimer();
+
+          // Re-enable the run tests button
+          $('#run-tests').prop('disabled', false).text('Run Tests');
         }
 
         $('#run-tests').click(() => {
-            runTests();
+          runTests();
         });
 
         // Reset results functionality
         $('#reset-results').click(() => {
-            // Clear all test container background colors
-            $('.test-container').css('background-color', '');
-            // Remove all error message pre elements
-            $('.test-container pre').remove();
-            // Hide progress panel if it's showing
-            hideProgressPanel();
-            // Reset progress tracking
-            resetProgress();
+          // Clear all test container background colors
+          $('.test-container').css('background-color', '');
+          // Remove all error message pre elements
+          $('.test-container pre').remove();
+          // Hide progress panel if it's showing
+          hideProgressPanel();
+          // Reset progress tracking
+          resetProgress();
         });
 
         // Master checkbox functionality
-        $('#master-checkbox').change(function() {
-            const isChecked = $(this).prop('checked');
-            $('.test-checkbox').prop('checked', isChecked);
-            $('#fsTests-group, #kvTests-group, #aiTests-group, #txt2speechTests-group').prop('checked', isChecked);
-            // Update the counter display
-            updateMasterCheckboxState();
+        $('#master-checkbox').change(function () {
+          const isChecked = $(this).prop('checked');
+          $('.test-checkbox').prop('checked', isChecked);
+          $('#fsTests-group, #kvTests-group, #aiTests-group, #txt2speechTests-group').prop(
+            'checked',
+            isChecked
+          );
+          // Update the counter display
+          updateMasterCheckboxState();
         });
 
         // Function to update master checkbox state
         function updateMasterCheckboxState() {
-            const totalCheckboxes = $('.test-checkbox').length;
-            const checkedCheckboxes = $('.test-checkbox:checked').length;
-            
-            // Update the counter display
-            $('#test-counter').text(`${checkedCheckboxes} / ${totalCheckboxes}`);
-            
-            if (checkedCheckboxes === 0) {
-                $('#master-checkbox').prop('checked', false).prop('indeterminate', false);
-            } else if (checkedCheckboxes === totalCheckboxes) {
-                $('#master-checkbox').prop('checked', true).prop('indeterminate', false);
-            } else {
-                $('#master-checkbox').prop('checked', false).prop('indeterminate', true);
-            }
+          const totalCheckboxes = $('.test-checkbox').length;
+          const checkedCheckboxes = $('.test-checkbox:checked').length;
+
+          // Update the counter display
+          $('#test-counter').text(`${checkedCheckboxes} / ${totalCheckboxes}`);
+
+          if (checkedCheckboxes === 0) {
+            $('#master-checkbox').prop('checked', false).prop('indeterminate', false);
+          } else if (checkedCheckboxes === totalCheckboxes) {
+            $('#master-checkbox').prop('checked', true).prop('indeterminate', false);
+          } else {
+            $('#master-checkbox').prop('checked', false).prop('indeterminate', true);
+          }
         }
 
         // Update master checkbox state when individual checkboxes change
-        $(document).on('change', '.test-checkbox', function() {
-            updateMasterCheckboxState();
+        $(document).on('change', '.test-checkbox', function () {
+          updateMasterCheckboxState();
         });
 
         // Update master checkbox state when group checkboxes change
-        $('#fsTests-group, #kvTests-group, #aiTests-group, #txt2speechTests-group').change(function() {
+        $('#fsTests-group, #kvTests-group, #aiTests-group, #txt2speechTests-group').change(
+          function () {
             updateMasterCheckboxState();
-        });
+          }
+        );
 
         // Initialize the counter display
         updateMasterCheckboxState();
 
         // Login functionality
         $('#login-btn').click(async () => {
-            try {
-                $('#login-btn').prop('disabled', true);
-                await puter.auth.signIn();
-                await updateAuthUI();
-            } catch (error) {
-                console.error('Login error:', error);
-                alert('Login failed. Please try again.');
-            } finally {
-                $('#login-btn').prop('disabled', false);
-            }
+          try {
+            $('#login-btn').prop('disabled', true);
+            await puter.auth.signIn();
+            await updateAuthUI();
+          } catch (error) {
+            console.error('Login error:', error);
+            alert('Login failed. Please try again.');
+          } finally {
+            $('#login-btn').prop('disabled', false);
+          }
         });
 
         // Logout functionality
         $('#logout-link').click(async () => {
-            try {
-                await puter.auth.signOut();
-                await updateAuthUI();
-            } catch (error) {
-                console.error('Logout error:', error);
-                alert('Logout failed. Please try again.');
-            }
+          try {
+            await puter.auth.signOut();
+            await updateAuthUI();
+          } catch (error) {
+            console.error('Logout error:', error);
+            alert('Logout failed. Please try again.');
+          }
         });
 
         // Initialize auth UI after puter is loaded
@@ -1061,123 +1086,143 @@
 
         // Settings modal functionality
         $('#settings-btn').click(() => {
-            // Populate modal with current settings
-            $('#puter-js-url').val(currentSettings.puterJsUrl);
-            $('#api-origin').val(currentSettings.apiOrigin);
-            $('#settings-modal').show();
+          // Populate modal with current settings
+          $('#puter-js-url').val(currentSettings.puterJsUrl);
+          $('#api-origin').val(currentSettings.apiOrigin);
+          $('#settings-modal').show();
         });
 
         // Close modal
         $('.close, .btn-cancel').click(() => {
-            $('#settings-modal').hide();
+          $('#settings-modal').hide();
         });
 
         // Save settings
         $('.btn-save').click(async () => {
-            const newSettings = {
-                puterJsUrl: $('#puter-js-url').val().trim(),
-                apiOrigin: $('#api-origin').val().trim()
-            };
+          const newSettings = {
+            puterJsUrl: $('#puter-js-url').val().trim(),
+            apiOrigin: $('#api-origin').val().trim(),
+          };
 
-            // Validate URLs
-            if (!newSettings.puterJsUrl || !newSettings.apiOrigin) {
-                alert('Please provide both Puter.js URL and API Origin');
-                return;
-            }
+          // Validate URLs
+          if (!newSettings.puterJsUrl || !newSettings.apiOrigin) {
+            alert('Please provide both Puter.js URL and API Origin');
+            return;
+          }
 
-            // Update current settings
-            currentSettings = { ...newSettings };
-            saveSettings();
+          // Update current settings
+          currentSettings = { ...newSettings };
+          saveSettings();
 
-            // Reinitialize Puter with new settings
-            await initializePuter();
+          // Reinitialize Puter with new settings
+          await initializePuter();
 
-            $('#settings-modal').hide();
+          $('#settings-modal').hide();
         });
 
         // Close modal when clicking outside
         $(window).click((event) => {
-            if (event.target === $('#settings-modal')[0]) {
-                $('#settings-modal').hide();
-            }
+          if (event.target === $('#settings-modal')[0]) {
+            $('#settings-modal').hide();
+          }
         });
-    });
-
+      });
     </script>
-</head>
-<body>
-
+  </head>
+  <body>
     <nav>
-        <label style="margin-left: 8px; margin-right: 10px; cursor: pointer; display: inline-flex; align-items: center;">
-            <input type="checkbox" id="master-checkbox" style="margin-right: 5px; transform: scale(1.2);">
-        </label>
-        <span id="test-counter"></span>
-        <div style="flex: 1; display: flex; align-items: center;">
-            <button id="run-tests" style="margin-right: 10px;">Run Tests</button>
-            <span id="reset-results" style="margin-right: 20px; cursor: pointer; color: #666; text-decoration: underline; font-size: 14px;">Reset results</span>
-            <button id="settings-btn">Settings</button>
-            <div id="auth-section">
-                <button id="login-btn" style="display: none;">Login</button>
-                <div id="user-info" style="display: none;">
-                    <span id="username"></span>
-                    <span id="logout-link">(logout)</span>
-                </div>
-            </div>
+      <label
+        style="
+          margin-left: 8px;
+          margin-right: 10px;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+        "
+      >
+        <input
+          type="checkbox"
+          id="master-checkbox"
+          style="margin-right: 5px; transform: scale(1.2)"
+        />
+      </label>
+      <span id="test-counter"></span>
+      <div style="flex: 1; display: flex; align-items: center">
+        <button id="run-tests" style="margin-right: 10px">Run Tests</button>
+        <span
+          id="reset-results"
+          style="
+            margin-right: 20px;
+            cursor: pointer;
+            color: #666;
+            text-decoration: underline;
+            font-size: 14px;
+          "
+          >Reset results</span
+        >
+        <button id="settings-btn">Settings</button>
+        <div id="auth-section">
+          <button id="login-btn" style="display: none">Login</button>
+          <div id="user-info" style="display: none">
+            <span id="username"></span>
+            <span id="logout-link">(logout)</span>
+          </div>
         </div>
+      </div>
     </nav>
-    
+
     <div id="progress-panel">
-        <div class="progress-content">
-            <div class="progress-left">
-                <div class="current-test" id="current-test">Preparing tests...</div>
-                <div class="progress-bar-container">
-                    <div class="progress-bar" id="progress-bar"></div>
-                </div>
-                <div class="elapsed-time" id="elapsed-time">Elapsed: 0s</div>
-            </div>
-            <div class="progress-right">
-                <div class="progress-stats">
-                    <div class="progress-stat">
-                        <div class="progress-stat-number stat-passed" id="passed-count">0</div>
-                        <div class="progress-stat-label">Passed</div>
-                    </div>
-                    <div class="progress-stat">
-                        <div class="progress-stat-number stat-failed" id="failed-count">0</div>
-                        <div class="progress-stat-label">Failed</div>
-                    </div>
-                    <div class="progress-stat">
-                        <div class="progress-stat-number stat-total" id="total-count">0</div>
-                        <div class="progress-stat-label">Total</div>
-                    </div>
-                </div>
-                <div class="progress-percentage" id="progress-percentage">0%</div>
-            </div>
+      <div class="progress-content">
+        <div class="progress-left">
+          <div class="current-test" id="current-test">Preparing tests...</div>
+          <div class="progress-bar-container">
+            <div class="progress-bar" id="progress-bar"></div>
+          </div>
+          <div class="elapsed-time" id="elapsed-time">Elapsed: 0s</div>
         </div>
+        <div class="progress-right">
+          <div class="progress-stats">
+            <div class="progress-stat">
+              <div class="progress-stat-number stat-passed" id="passed-count">0</div>
+              <div class="progress-stat-label">Passed</div>
+            </div>
+            <div class="progress-stat">
+              <div class="progress-stat-number stat-failed" id="failed-count">0</div>
+              <div class="progress-stat-label">Failed</div>
+            </div>
+            <div class="progress-stat">
+              <div class="progress-stat-number stat-total" id="total-count">0</div>
+              <div class="progress-stat-label">Total</div>
+            </div>
+          </div>
+          <div class="progress-percentage" id="progress-percentage">0%</div>
+        </div>
+      </div>
     </div>
-    
+
     <!-- Settings Modal -->
     <div id="settings-modal" class="modal">
-        <div class="modal-content">
-            <span class="close">&times;</span>
-            <h2>Settings</h2>
-            
-            <div class="setting-group">
-                <label for="puter-js-url">Puter.js URL:</label>
-                <input type="text" id="puter-js-url" placeholder="https://js.puter.com/v2/">
-            </div>
-            
-            <div class="setting-group">
-                <label for="api-origin">API Origin:</label>
-                <input type="text" id="api-origin" placeholder="https://api.puter.com">
-            </div>
-            
-            <div class="modal-buttons">
-                <button class="btn-cancel">Cancel</button>
-                <button class="btn-save">Save</button>
-            </div>
+      <div class="modal-content">
+        <span class="close">&times;</span>
+        <h2>Settings</h2>
+
+        <div class="setting-group">
+          <label for="puter-js-url">Puter.js URL:</label>
+          <input type="text" id="puter-js-url" placeholder="https://js.puter.com/v2/" />
         </div>
+
+        <div class="setting-group">
+          <label for="api-origin">API Origin:</label>
+          <input type="text" id="api-origin" placeholder="https://api.puter.com" />
+        </div>
+
+        <div class="modal-buttons">
+          <button class="btn-cancel">Cancel</button>
+          <button class="btn-save">Save</button>
+        </div>
+      </div>
     </div>
-    
+
     <div id="tests"></div>
-</body>
+  </body>
 </html>

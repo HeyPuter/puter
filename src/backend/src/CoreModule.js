@@ -17,49 +17,49 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const Library = require("./definitions/Library");
-const { NotificationES } = require("./om/entitystorage/NotificationES");
-const { ProtectedAppES } = require("./om/entitystorage/ProtectedAppES");
+const { AdvancedBase } = require('@heyputer/putility');
+const Library = require('./definitions/Library');
+const { NotificationES } = require('./om/entitystorage/NotificationES');
+const { ProtectedAppES } = require('./om/entitystorage/ProtectedAppES');
 const { Context } = require('./util/context');
-const { LLOWrite } = require("./filesystem/ll_operations/ll_write");
-const { LLRead } = require("./filesystem/ll_operations/ll_read");
-
-
+const { LLOWrite } = require('./filesystem/ll_operations/ll_write');
+const { LLRead } = require('./filesystem/ll_operations/ll_read');
 
 /**
  * Core module for the Puter platform that includes essential services including
  * authentication, filesystems, rate limiting, permissions, and various API endpoints.
- * 
+ *
  * This is a monolithic module. Incrementally, services should be migrated to
  * Core2Module and other modules instead. Core2Module has a smaller scope, and each
  * new module will be a cohesive concern. Once CoreModule is empty, it will be removed
  * and Core2Module will take on its name.
  */
 class CoreModule extends AdvancedBase {
-    dirname () { return __dirname; }
-    async install (context) {
-        const services = context.get('services');
-        const app = context.get('app');
-        const useapi = context.get('useapi');
-        const modapi = context.get('modapi');
-        await install({ services, app, useapi, modapi });
-    }
+  dirname() {
+    return __dirname;
+  }
+  async install(context) {
+    const services = context.get('services');
+    const app = context.get('app');
+    const useapi = context.get('useapi');
+    const modapi = context.get('modapi');
+    await install({ services, app, useapi, modapi });
+  }
 
-    /**
-    * Installs legacy services that don't extend BaseService and require special handling.
-    * These services were created before the BaseService class existed and don't listen
-    * to the init event. They need to be installed after the init event is dispatched
-    * due to initialization order dependencies.
-    * 
-    * @param {Object} context - The context object containing service references
-    * @param {Object} context.services - Service registry for registering legacy services
-    * @returns {Promise<void>} Resolves when legacy services are installed
-    */
-    async install_legacy (context) {
-        const services = context.get('services');
-        await install_legacy({ services });
-    }
+  /**
+   * Installs legacy services that don't extend BaseService and require special handling.
+   * These services were created before the BaseService class existed and don't listen
+   * to the init event. They need to be installed after the init event is dispatched
+   * due to initialization order dependencies.
+   *
+   * @param {Object} context - The context object containing service references
+   * @param {Object} context.services - Service registry for registering legacy services
+   * @returns {Promise<void>} Resolves when legacy services are installed
+   */
+  async install_legacy(context) {
+    const services = context.get('services');
+    await install_legacy({ services });
+  }
 }
 
 module.exports = CoreModule;
@@ -68,348 +68,355 @@ module.exports = CoreModule;
  * @footgun - real install method is defined above
  */
 const install = async ({ services, app, useapi, modapi }) => {
-    const config = require('./config');
+  const config = require('./config');
 
+  // === LIBRARIES ===
 
-    // === LIBRARIES ===
+  useapi.withuse(() => {
+    def('Service', require('./services/BaseService'));
+    def('Module', AdvancedBase);
+    def('Library', Library);
 
-    useapi.withuse(() => {
-        def('Service', require('./services/BaseService'));
-        def('Module', AdvancedBase);
-        def('Library', Library);
+    def('core.util.helpers', require('./helpers'));
+    def('core.util.permission', require('./services/auth/PermissionService').PermissionUtil);
+    def('puter.middlewares.auth', require('./middleware/auth2'));
+    def('puter.middlewares.configurable_auth', require('./middleware/configurable_auth'));
+    def('puter.middlewares.anticsrf', require('./middleware/anticsrf'));
 
-        def('core.util.helpers', require('./helpers'));
-        def('core.util.permission', require('./services/auth/PermissionService').PermissionUtil);
-        def('puter.middlewares.auth', require('./middleware/auth2'));
-        def('puter.middlewares.configurable_auth', require('./middleware/configurable_auth'));
-        def('puter.middlewares.anticsrf', require('./middleware/anticsrf'));
-        
-        def('core.APIError', require('./api/APIError'));
-        def('core.Context', Context);
-        
-        def('core', require('./services/auth/Actor'), { assign: true });
-        def('core.config', config);
-        
-        // Note: this is an incomplete export; it was added for a proprietary
-        // extension. Contributors may wish to add definitions in the 'fs.'
-        // scope. Needing to add these individually is possibly a symptom of an
-        // anti-pattern; "export filesystem operations to extensions" is one
-        // statement in English, so maybe it should be one statement of code.
-        def('core.fs', {
-            LLOWrite,
-            LLRead,
-        });
-        def('core.fs.selectors', require('./filesystem/node/selectors'));
-        def('core.util.stream', require('./util/streamutil'));
-        def('web', require('./util/expressutil'));
-        def('core.validation', require('@heyputer/backend-core-0').validation);
+    def('core.APIError', require('./api/APIError'));
+    def('core.Context', Context);
+
+    def('core', require('./services/auth/Actor'), { assign: true });
+    def('core.config', config);
+
+    // Note: this is an incomplete export; it was added for a proprietary
+    // extension. Contributors may wish to add definitions in the 'fs.'
+    // scope. Needing to add these individually is possibly a symptom of an
+    // anti-pattern; "export filesystem operations to extensions" is one
+    // statement in English, so maybe it should be one statement of code.
+    def('core.fs', {
+      LLOWrite,
+      LLRead,
     });
-    
-    useapi.withuse(() => {
-        const ArrayUtil = require('./libraries/ArrayUtil');
-        services.registerService('util-array', ArrayUtil);
-    
-        const LibTypeTagged = require('./libraries/LibTypeTagged');
-        services.registerService('lib-type-tagged', LibTypeTagged);
-    });
+    def('core.fs.selectors', require('./filesystem/node/selectors'));
+    def('core.util.stream', require('./util/streamutil'));
+    def('web', require('./util/expressutil'));
+    def('core.validation', require('@heyputer/backend-core-0').validation);
+  });
 
-    modapi.libdir('core.util', './util');
-    
-    // === SERVICES ===
+  useapi.withuse(() => {
+    const ArrayUtil = require('./libraries/ArrayUtil');
+    services.registerService('util-array', ArrayUtil);
 
-    // /!\ IMPORTANT /!\
-    // For new services, put the import immediately above the
-    // call to services.registerService. We'll clean this up
-    // in a future PR.
+    const LibTypeTagged = require('./libraries/LibTypeTagged');
+    services.registerService('lib-type-tagged', LibTypeTagged);
+  });
 
-    const { CommandService } = require('./services/CommandService');
-    const { HTTPThumbnailService } = require('./services/thumbnails/HTTPThumbnailService');
-    const { PureJSThumbnailService } = require('./services/thumbnails/PureJSThumbnailService');
-    const { NAPIThumbnailService } = require('./services/thumbnails/NAPIThumbnailService');
-    const { DevConsoleService } = require('./services/DevConsoleService');
-    const { RateLimitService } = require('./services/sla/RateLimitService');
-    const { AuthService } = require('./services/auth/AuthService');
-    const { PreAuthService } = require("./services/auth/PreAuthService");
-    const { SLAService } = require('./services/sla/SLAService');
-    const { PermissionService } = require('./services/auth/PermissionService');
-    const { ACLService } = require('./services/auth/ACLService');
-    const { CoercionService } = require('./services/drivers/CoercionService');
-    const { PuterSiteService } = require('./services/PuterSiteService');
-    const { ContextInitService } = require('./services/ContextInitService');
-    const { IdentificationService } = require('./services/abuse-prevention/IdentificationService');
-    const { AuthAuditService } = require('./services/abuse-prevention/AuthAuditService');
-    const { RegistryService } = require('./services/RegistryService');
-    const { RegistrantService } = require('./services/RegistrantService');
-    const { SystemValidationService } = require('./services/SystemValidationService');
-    const { EntityStoreService } = require('./services/EntityStoreService');
-    const SQLES = require('./om/entitystorage/SQLES');
-    const ValidationES = require('./om/entitystorage/ValidationES');
-    const { SetOwnerES } = require('./om/entitystorage/SetOwnerES');
-    const AppES = require('./om/entitystorage/AppES');
-    const WriteByOwnerOnlyES = require('./om/entitystorage/WriteByOwnerOnlyES');
-    const SubdomainES = require('./om/entitystorage/SubdomainES');
-    const { MaxLimitES } = require('./om/entitystorage/MaxLimitES');
-    const { AppLimitedES } = require('./om/entitystorage/AppLimitedES');
-    const { ReadOnlyES } = require('./om/entitystorage/ReadOnlyES');
-    const { OwnerLimitedES } = require('./om/entitystorage/OwnerLimitedES');
-    const { ESBuilder } = require('./om/entitystorage/ESBuilder');
-    const { Eq, Or } = require('./om/query/query');
-    const { TrackSpendingService } = require('./services/TrackSpendingService');
-    const { MakeProdDebuggingLessAwfulService } = require('./services/MakeProdDebuggingLessAwfulService');
-    const { ConfigurableCountingService } = require('./services/ConfigurableCountingService');
-    const { FSLockService } = require('./services/fs/FSLockService');
-    const { StrategizedService } = require('./services/StrategizedService');
-    const FilesystemAPIService = require('./services/FilesystemAPIService');
-    const ServeGUIService = require('./services/ServeGUIService');
-    const PuterAPIService = require('./services/PuterAPIService');
-    const { RefreshAssociationsService } = require("./services/RefreshAssociationsService");
-    // Service names beginning with '__' aren't called by other services;
-    // these provide data/functionality to other services or produce
-    // side-effects from the events of other services.
+  modapi.libdir('core.util', './util');
 
-    // === Services which extend BaseService ===
-    services.registerService('system-validation', SystemValidationService);
-    services.registerService('commands', CommandService);
-    services.registerService('__api-filesystem', FilesystemAPIService);
-    services.registerService('__api', PuterAPIService);
-    services.registerService('__gui', ServeGUIService);
-    services.registerService('registry', RegistryService);
-    services.registerService('__registrant', RegistrantService);
-    services.registerService('fslock', FSLockService);
-    services.registerService('es:app', EntityStoreService, {
-        entity: 'app',
-        upstream: ESBuilder.create([
-            SQLES, { table: 'app', debug: true, },
-            AppES,
-            AppLimitedES, {
-                // When apps query es:apps, they're allowed to see apps which
-                // are approved for listing and they're allowed to see their
-                // own entry.
-                exception: async () => {
-                    const actor = Context.get('actor');
-                    return new Or({
-                        children: [
-                            new Eq({
-                                key: 'approved_for_listing',
-                                value: 1,
-                            }),
-                            new Eq({
-                                key: 'uid',
-                                value: actor.type.app.uid,
-                            }),
-                        ]
-                    });
-                },
-            },
-            WriteByOwnerOnlyES,
-            ValidationES,
-            SetOwnerES,
-            ProtectedAppES,
-            MaxLimitES, { max: 5000 },
-        ]),
-    });
+  // === SERVICES ===
 
-    const { InformationService } = require('./services/information/InformationService');
-    services.registerService('information', InformationService)
-    
-    const { FilesystemService } = require('./filesystem/FilesystemService');
-    services.registerService('filesystem', FilesystemService);
+  // /!\ IMPORTANT /!\
+  // For new services, put the import immediately above the
+  // call to services.registerService. We'll clean this up
+  // in a future PR.
 
-    services.registerService('es:subdomain', EntityStoreService, {
-        entity: 'subdomain',
-        upstream: ESBuilder.create([
-            SQLES, { table: 'subdomains', debug: true, },
-            SubdomainES,
-            AppLimitedES,
-            WriteByOwnerOnlyES,
-            ValidationES,
-            SetOwnerES,
-            MaxLimitES, { max: 5000 },
-        ]),
-    });
-    services.registerService('es:notification', EntityStoreService, {
-        entity: 'notification',
-        upstream: ESBuilder.create([
-            SQLES, { table: 'notification', debug: true },
-            NotificationES,
-            OwnerLimitedES,
-            ReadOnlyES,
-            SetOwnerES,
-            MaxLimitES, { max: 200 },
-        ]),
-    })
-    services.registerService('rate-limit', RateLimitService);
-    services.registerService('auth', AuthService);
-    // services.registerService('preauth', PreAuthService);
-    services.registerService('permission', PermissionService);
-    services.registerService('sla', SLAService);
-    services.registerService('acl', ACLService);
-    services.registerService('coercion', CoercionService);
-    services.registerService('puter-site', PuterSiteService);
-    services.registerService('context-init', ContextInitService);
-    services.registerService('identification', IdentificationService);
-    services.registerService('auth-audit', AuthAuditService);
-    services.registerService('spending', TrackSpendingService);
-    services.registerService('counting', ConfigurableCountingService);
-    services.registerService('thumbnails', StrategizedService, {
-        strategy_key: 'engine',
-        default_strategy: 'purejs',
-        strategies: {
-            napi: [NAPIThumbnailService],
-            purejs: [PureJSThumbnailService],
-            http: [HTTPThumbnailService],
-        }
-    });
-    services.registerService('__refresh-assocs', RefreshAssociationsService);
-    services.registerService('__prod-debugging', MakeProdDebuggingLessAwfulService);
-    if ( config.env == 'dev' ) {
-        services.registerService('dev-console', DevConsoleService);
-    }
+  const { CommandService } = require('./services/CommandService');
+  const { HTTPThumbnailService } = require('./services/thumbnails/HTTPThumbnailService');
+  const { PureJSThumbnailService } = require('./services/thumbnails/PureJSThumbnailService');
+  const { NAPIThumbnailService } = require('./services/thumbnails/NAPIThumbnailService');
+  const { DevConsoleService } = require('./services/DevConsoleService');
+  const { RateLimitService } = require('./services/sla/RateLimitService');
+  const { AuthService } = require('./services/auth/AuthService');
+  const { PreAuthService } = require('./services/auth/PreAuthService');
+  const { SLAService } = require('./services/sla/SLAService');
+  const { PermissionService } = require('./services/auth/PermissionService');
+  const { ACLService } = require('./services/auth/ACLService');
+  const { CoercionService } = require('./services/drivers/CoercionService');
+  const { PuterSiteService } = require('./services/PuterSiteService');
+  const { ContextInitService } = require('./services/ContextInitService');
+  const { IdentificationService } = require('./services/abuse-prevention/IdentificationService');
+  const { AuthAuditService } = require('./services/abuse-prevention/AuthAuditService');
+  const { RegistryService } = require('./services/RegistryService');
+  const { RegistrantService } = require('./services/RegistrantService');
+  const { SystemValidationService } = require('./services/SystemValidationService');
+  const { EntityStoreService } = require('./services/EntityStoreService');
+  const SQLES = require('./om/entitystorage/SQLES');
+  const ValidationES = require('./om/entitystorage/ValidationES');
+  const { SetOwnerES } = require('./om/entitystorage/SetOwnerES');
+  const AppES = require('./om/entitystorage/AppES');
+  const WriteByOwnerOnlyES = require('./om/entitystorage/WriteByOwnerOnlyES');
+  const SubdomainES = require('./om/entitystorage/SubdomainES');
+  const { MaxLimitES } = require('./om/entitystorage/MaxLimitES');
+  const { AppLimitedES } = require('./om/entitystorage/AppLimitedES');
+  const { ReadOnlyES } = require('./om/entitystorage/ReadOnlyES');
+  const { OwnerLimitedES } = require('./om/entitystorage/OwnerLimitedES');
+  const { ESBuilder } = require('./om/entitystorage/ESBuilder');
+  const { Eq, Or } = require('./om/query/query');
+  const { TrackSpendingService } = require('./services/TrackSpendingService');
+  const {
+    MakeProdDebuggingLessAwfulService,
+  } = require('./services/MakeProdDebuggingLessAwfulService');
+  const { ConfigurableCountingService } = require('./services/ConfigurableCountingService');
+  const { FSLockService } = require('./services/fs/FSLockService');
+  const { StrategizedService } = require('./services/StrategizedService');
+  const FilesystemAPIService = require('./services/FilesystemAPIService');
+  const ServeGUIService = require('./services/ServeGUIService');
+  const PuterAPIService = require('./services/PuterAPIService');
+  const { RefreshAssociationsService } = require('./services/RefreshAssociationsService');
+  // Service names beginning with '__' aren't called by other services;
+  // these provide data/functionality to other services or produce
+  // side-effects from the events of other services.
 
-    const { EventService } = require('./services/EventService');
-    services.registerService('event', EventService);
+  // === Services which extend BaseService ===
+  services.registerService('system-validation', SystemValidationService);
+  services.registerService('commands', CommandService);
+  services.registerService('__api-filesystem', FilesystemAPIService);
+  services.registerService('__api', PuterAPIService);
+  services.registerService('__gui', ServeGUIService);
+  services.registerService('registry', RegistryService);
+  services.registerService('__registrant', RegistrantService);
+  services.registerService('fslock', FSLockService);
+  services.registerService('es:app', EntityStoreService, {
+    entity: 'app',
+    upstream: ESBuilder.create([
+      SQLES,
+      { table: 'app', debug: true },
+      AppES,
+      AppLimitedES,
+      {
+        // When apps query es:apps, they're allowed to see apps which
+        // are approved for listing and they're allowed to see their
+        // own entry.
+        exception: async () => {
+          const actor = Context.get('actor');
+          return new Or({
+            children: [
+              new Eq({
+                key: 'approved_for_listing',
+                value: 1,
+              }),
+              new Eq({
+                key: 'uid',
+                value: actor.type.app.uid,
+              }),
+            ],
+          });
+        },
+      },
+      WriteByOwnerOnlyES,
+      ValidationES,
+      SetOwnerES,
+      ProtectedAppES,
+      MaxLimitES,
+      { max: 5000 },
+    ]),
+  });
 
-    const { PuterVersionService } = require('./services/PuterVersionService');
-    services.registerService('puter-version', PuterVersionService);
+  const { InformationService } = require('./services/information/InformationService');
+  services.registerService('information', InformationService);
 
-    const { SessionService } = require('./services/SessionService');
-    services.registerService('session', SessionService);
+  const { FilesystemService } = require('./filesystem/FilesystemService');
+  services.registerService('filesystem', FilesystemService);
 
-    const { EdgeRateLimitService } = require('./services/abuse-prevention/EdgeRateLimitService');
-    services.registerService('edge-rate-limit', EdgeRateLimitService);
+  services.registerService('es:subdomain', EntityStoreService, {
+    entity: 'subdomain',
+    upstream: ESBuilder.create([
+      SQLES,
+      { table: 'subdomains', debug: true },
+      SubdomainES,
+      AppLimitedES,
+      WriteByOwnerOnlyES,
+      ValidationES,
+      SetOwnerES,
+      MaxLimitES,
+      { max: 5000 },
+    ]),
+  });
+  services.registerService('es:notification', EntityStoreService, {
+    entity: 'notification',
+    upstream: ESBuilder.create([
+      SQLES,
+      { table: 'notification', debug: true },
+      NotificationES,
+      OwnerLimitedES,
+      ReadOnlyES,
+      SetOwnerES,
+      MaxLimitES,
+      { max: 200 },
+    ]),
+  });
+  services.registerService('rate-limit', RateLimitService);
+  services.registerService('auth', AuthService);
+  // services.registerService('preauth', PreAuthService);
+  services.registerService('permission', PermissionService);
+  services.registerService('sla', SLAService);
+  services.registerService('acl', ACLService);
+  services.registerService('coercion', CoercionService);
+  services.registerService('puter-site', PuterSiteService);
+  services.registerService('context-init', ContextInitService);
+  services.registerService('identification', IdentificationService);
+  services.registerService('auth-audit', AuthAuditService);
+  services.registerService('spending', TrackSpendingService);
+  services.registerService('counting', ConfigurableCountingService);
+  services.registerService('thumbnails', StrategizedService, {
+    strategy_key: 'engine',
+    default_strategy: 'purejs',
+    strategies: {
+      napi: [NAPIThumbnailService],
+      purejs: [PureJSThumbnailService],
+      http: [HTTPThumbnailService],
+    },
+  });
+  services.registerService('__refresh-assocs', RefreshAssociationsService);
+  services.registerService('__prod-debugging', MakeProdDebuggingLessAwfulService);
+  if (config.env == 'dev') {
+    services.registerService('dev-console', DevConsoleService);
+  }
 
-    const { CleanEmailService } = require('./services/CleanEmailService');
-    services.registerService('clean-email', CleanEmailService);
+  const { EventService } = require('./services/EventService');
+  services.registerService('event', EventService);
 
-    const { Emailservice } = require('./services/EmailService');
-    services.registerService('email', Emailservice);
+  const { PuterVersionService } = require('./services/PuterVersionService');
+  services.registerService('puter-version', PuterVersionService);
 
-    const { TokenService } = require('./services/auth/TokenService');
-    services.registerService('token', TokenService);
+  const { SessionService } = require('./services/SessionService');
+  services.registerService('session', SessionService);
 
-    const { OTPService } = require('./services/auth/OTPService');
-    services.registerService('otp', OTPService);
+  const { EdgeRateLimitService } = require('./services/abuse-prevention/EdgeRateLimitService');
+  services.registerService('edge-rate-limit', EdgeRateLimitService);
 
-    const { UserProtectedEndpointsService } = require("./services/web/UserProtectedEndpointsService");
-    services.registerService('__user-protected-endpoints', UserProtectedEndpointsService);
+  const { CleanEmailService } = require('./services/CleanEmailService');
+  services.registerService('clean-email', CleanEmailService);
 
-    const { AntiCSRFService } = require('./services/auth/AntiCSRFService');
-    services.registerService('anti-csrf', AntiCSRFService);
+  const { Emailservice } = require('./services/EmailService');
+  services.registerService('email', Emailservice);
 
-    const { LockService } = require('./services/LockService');
-    services.registerService('lock', LockService);
+  const { TokenService } = require('./services/auth/TokenService');
+  services.registerService('token', TokenService);
 
-    const { PuterHomepageService } = require('./services/PuterHomepageService');
-    services.registerService('puter-homepage', PuterHomepageService);
+  const { OTPService } = require('./services/auth/OTPService');
+  services.registerService('otp', OTPService);
 
-    const { GetUserService } = require('./services/GetUserService');
-    services.registerService('get-user', GetUserService);
+  const { UserProtectedEndpointsService } = require('./services/web/UserProtectedEndpointsService');
+  services.registerService('__user-protected-endpoints', UserProtectedEndpointsService);
 
-    const { DetailProviderService } = require('./services/DetailProviderService');
-    services.registerService('whoami', DetailProviderService);
+  const { AntiCSRFService } = require('./services/auth/AntiCSRFService');
+  services.registerService('anti-csrf', AntiCSRFService);
 
-    const { DevTODService } = require('./services/DevTODService');
-    services.registerService('__dev-tod', DevTODService);
+  const { LockService } = require('./services/LockService');
+  services.registerService('lock', LockService);
 
-    const { CostService } = require("./services/drivers/CostService");
-    services.registerService('cost', CostService);
+  const { PuterHomepageService } = require('./services/PuterHomepageService');
+  services.registerService('puter-homepage', PuterHomepageService);
 
-    const { DriverService } = require("./services/drivers/DriverService");
-    services.registerService('driver', DriverService);
+  const { GetUserService } = require('./services/GetUserService');
+  services.registerService('get-user', GetUserService);
 
-    const { ScriptService } = require('./services/ScriptService');
-    services.registerService('script', ScriptService);
-    
-    const { NotificationService } = require('./services/NotificationService');
-    services.registerService('notification', NotificationService);
+  const { DetailProviderService } = require('./services/DetailProviderService');
+  services.registerService('whoami', DetailProviderService);
 
-    const { ShareService } = require('./services/ShareService');
-    services.registerService('share', ShareService);
-    
-    const { GroupService } = require('./services/auth/GroupService');
-    services.registerService('group', GroupService);
+  const { DevTODService } = require('./services/DevTODService');
+  services.registerService('__dev-tod', DevTODService);
 
-    const { VirtualGroupService } = require('./services/auth/VirtualGroupService');
-    services.registerService('virtual-group', VirtualGroupService);
-    
-    const { PermissionAPIService } = require('./services/PermissionAPIService');
-    services.registerService('__permission-api', PermissionAPIService);
+  const { CostService } = require('./services/drivers/CostService');
+  services.registerService('cost', CostService);
 
-    const { AnomalyService } = require('./services/AnomalyService');
-    services.registerService('anomaly', AnomalyService);
-    
-    const { HelloWorldService } = require('./services/HelloWorldService');
-    services.registerService('hello-world', HelloWorldService);
-    
-    const { SystemDataService } = require('./services/SystemDataService');
-    services.registerService('system-data', SystemDataService);
-    
-    const { SUService } = require('./services/SUService');
-    services.registerService('su', SUService);
+  const { DriverService } = require('./services/drivers/DriverService');
+  services.registerService('driver', DriverService);
 
-    const { ShutdownService } = require('./services/ShutdownService');
-    services.registerService('shutdown', ShutdownService);
+  const { ScriptService } = require('./services/ScriptService');
+  services.registerService('script', ScriptService);
 
-    const { BootScriptService } = require('./services/BootScriptService');
-    services.registerService('boot-script', BootScriptService);
+  const { NotificationService } = require('./services/NotificationService');
+  services.registerService('notification', NotificationService);
 
-    const { FeatureFlagService } = require('./services/FeatureFlagService');
-    services.registerService('feature-flag', FeatureFlagService);
+  const { ShareService } = require('./services/ShareService');
+  services.registerService('share', ShareService);
 
-    const { KernelInfoService } = require('./services/KernelInfoService');
-    services.registerService('kernel-info', KernelInfoService);
+  const { GroupService } = require('./services/auth/GroupService');
+  services.registerService('group', GroupService);
 
-    const { DriverUsagePolicyService } = require('./services/drivers/DriverUsagePolicyService');
-    services.registerService('driver-usage-policy', DriverUsagePolicyService);
+  const { VirtualGroupService } = require('./services/auth/VirtualGroupService');
+  services.registerService('virtual-group', VirtualGroupService);
 
-    const { CommentService } = require('./services/CommentService');
-    services.registerService('comment', CommentService);
+  const { PermissionAPIService } = require('./services/PermissionAPIService');
+  services.registerService('__permission-api', PermissionAPIService);
 
-    const { ReferralCodeService } = require('./services/ReferralCodeService');
-    services.registerService('referral-code', ReferralCodeService);
-    
-    const { UserService } = require('./services/UserService');
-    services.registerService('user', UserService);
+  const { AnomalyService } = require('./services/AnomalyService');
+  services.registerService('anomaly', AnomalyService);
 
-    const { WSPushService } = require('./services/WSPushService');
-    services.registerService('__event-push-ws', WSPushService);
+  const { HelloWorldService } = require('./services/HelloWorldService');
+  services.registerService('hello-world', HelloWorldService);
 
-    const { SNSService } = require('./services/SNSService');
-    services.registerService('sns', SNSService);
+  const { SystemDataService } = require('./services/SystemDataService');
+  services.registerService('system-data', SystemDataService);
 
-    const { PerformanceMonitor } = require('./monitor/PerformanceMonitor');
-    services.registerService('performance-monitor', PerformanceMonitor);
-    
-    const { WispService } = require('./services/WispService');
-    services.registerService('wisp', WispService);
+  const { SUService } = require('./services/SUService');
+  services.registerService('su', SUService);
 
-    const { RequestMeasureService } = require('./services/RequestMeasureService');
-    services.registerService('request-measure', RequestMeasureService);
+  const { ShutdownService } = require('./services/ShutdownService');
+  services.registerService('shutdown', ShutdownService);
 
-    const { ThreadService } = require('./services/ThreadService');
-    services.registerService('thread', ThreadService);
+  const { BootScriptService } = require('./services/BootScriptService');
+  services.registerService('boot-script', BootScriptService);
 
-    const { ChatAPIService } = require('./services/ChatAPIService');
-    services.registerService('__chat-api', ChatAPIService);
+  const { FeatureFlagService } = require('./services/FeatureFlagService');
+  services.registerService('feature-flag', FeatureFlagService);
 
-    const { WorkerService } = require('./services/worker/WorkerService');
-    services.registerService("worker-service", WorkerService)
+  const { KernelInfoService } = require('./services/KernelInfoService');
+  services.registerService('kernel-info', KernelInfoService);
 
-    const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');
-    services.registerService('permission-shortcut', PermissionShortcutService);
-}
+  const { DriverUsagePolicyService } = require('./services/drivers/DriverUsagePolicyService');
+  services.registerService('driver-usage-policy', DriverUsagePolicyService);
+
+  const { CommentService } = require('./services/CommentService');
+  services.registerService('comment', CommentService);
+
+  const { ReferralCodeService } = require('./services/ReferralCodeService');
+  services.registerService('referral-code', ReferralCodeService);
+
+  const { UserService } = require('./services/UserService');
+  services.registerService('user', UserService);
+
+  const { WSPushService } = require('./services/WSPushService');
+  services.registerService('__event-push-ws', WSPushService);
+
+  const { SNSService } = require('./services/SNSService');
+  services.registerService('sns', SNSService);
+
+  const { PerformanceMonitor } = require('./monitor/PerformanceMonitor');
+  services.registerService('performance-monitor', PerformanceMonitor);
+
+  const { WispService } = require('./services/WispService');
+  services.registerService('wisp', WispService);
+
+  const { RequestMeasureService } = require('./services/RequestMeasureService');
+  services.registerService('request-measure', RequestMeasureService);
+
+  const { ThreadService } = require('./services/ThreadService');
+  services.registerService('thread', ThreadService);
+
+  const { ChatAPIService } = require('./services/ChatAPIService');
+  services.registerService('__chat-api', ChatAPIService);
+
+  const { WorkerService } = require('./services/worker/WorkerService');
+  services.registerService('worker-service', WorkerService);
+
+  const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');
+  services.registerService('permission-shortcut', PermissionShortcutService);
+};
 
 const install_legacy = async ({ services }) => {
-    const { OperationTraceService } = require('./services/OperationTraceService');
-    const { ClientOperationService } = require('./services/ClientOperationService');
-    const { EngPortalService } = require('./services/EngPortalService');
-    const { FileCacheService } = require('./services/file-cache/FileCacheService');
+  const { OperationTraceService } = require('./services/OperationTraceService');
+  const { ClientOperationService } = require('./services/ClientOperationService');
+  const { EngPortalService } = require('./services/EngPortalService');
+  const { FileCacheService } = require('./services/file-cache/FileCacheService');
 
-    // === Services which do not yet extend BaseService ===
-    // services.registerService('filesystem', FilesystemService);
-    services.registerService('operationTrace', OperationTraceService);
-    services.registerService('file-cache', FileCacheService);
-    services.registerService('client-operation', ClientOperationService);
-    services.registerService('engineering-portal', EngPortalService);
-
+  // === Services which do not yet extend BaseService ===
+  // services.registerService('filesystem', FilesystemService);
+  services.registerService('operationTrace', OperationTraceService);
+  services.registerService('file-cache', FileCacheService);
+  services.registerService('client-operation', ClientOperationService);
+  services.registerService('engineering-portal', EngPortalService);
 };

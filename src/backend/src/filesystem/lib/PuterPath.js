@@ -20,64 +20,67 @@ const _path = require('path');
 
 /**
  * Puter paths look like any of the following:
- * 
+ *
  * Absolute path: /user/dir1/dir2/file
  * From UID: AAAA-BBBB-CCCC-DDDD/../a/b/c
- * 
+ *
  * The difference between an absolute path and a UID-relative path
  * is the leading forward-slash character.
  */
 class PuterPath {
-    static NULL_UUID = '00000000-0000-0000-0000-000000000000';
+  static NULL_UUID = '00000000-0000-0000-0000-000000000000';
 
-    static adapt (value) {
-        if ( value instanceof PuterPath ) return value;
-        return new PuterPath(value);
+  static adapt(value) {
+    if (value instanceof PuterPath) return value;
+    return new PuterPath(value);
+  }
+
+  constructor(text) {
+    this.text = text;
+  }
+
+  set text(text) {
+    this.text_ = text.trim();
+    this.normUnix = _path.normalize(text);
+    this.normFlat =
+      this.normUnix.endsWith('/') && this.normUnix.length > 1
+        ? this.normUnix.slice(0, -1)
+        : this.normUnix;
+  }
+  get text() {
+    return this.text_;
+  }
+
+  isRoot() {
+    if (this.normFlat === '/') return true;
+    if (this.normFlat === this.constructor.NULL_UUID) {
+      return true;
+    }
+    return false;
+  }
+
+  isAbsolute() {
+    return this.text.startsWith('/');
+  }
+
+  isFromUID() {
+    return !this.isAbsolute();
+  }
+
+  get reference() {
+    if (this.isAbsolute) return this.constructor.NULL_UUID;
+
+    return this.text.slice(0, this.text.indexOf('/'));
+  }
+
+  get relativePortion() {
+    if (this.isAbsolute()) {
+      return this.text.slice(1);
     }
 
-    constructor (text) {
-        this.text = text;
-    }
-
-    set text (text) {
-        this.text_ = text.trim();
-        this.normUnix = _path.normalize(text);
-        this.normFlat =
-            (this.normUnix.endsWith('/') && this.normUnix.length > 1)
-            ? this.normUnix.slice(0, -1) : this.normUnix;
-    }
-    get text () { return this.text_; }
-
-    isRoot () {
-        if ( this.normFlat === '/' ) return true;
-        if ( this.normFlat === this.constructor.NULL_UUID ) {
-            return true;
-        }
-        return false;
-    }
-
-    isAbsolute () {
-        return this.text.startsWith('/');
-    }
-
-    isFromUID () {
-        return ! this.isAbsolute();
-    }
-
-    get reference () {
-        if ( this.isAbsolute ) return this.constructor.NULL_UUID;
-
-        return this.text.slice(0, this.text.indexOf('/'));
-    }
-
-    get relativePortion () {
-        if ( this.isAbsolute() ) {
-            return this.text.slice(1);
-        }
-
-        if ( ! this.text.includes('/') ) return '';
-        return this.text.slice(this.text.indexOf('/') + 1);
-    }
+    if (!this.text.includes('/')) return '';
+    return this.text.slice(this.text.indexOf('/') + 1);
+  }
 }
 
 module.exports = { PuterPath };

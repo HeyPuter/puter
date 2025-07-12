@@ -57,11 +57,9 @@ For local development, you can disable captcha by creating or modifying your loc
 ```json
 {
   "$version": "v1.1.0",
-  "$requires": [
-    "config.json"
-  ],
+  "$requires": ["config.json"],
   "config_name": "local",
-  
+
   "services": {
     "captcha": {
       "enabled": false
@@ -70,4 +68,4 @@ For local development, you can disable captcha by creating or modifying your loc
 }
 ```
 
-These options are set when registering the service in CaptchaModule.js. 
+These options are set when registering the service in CaptchaModule.js.

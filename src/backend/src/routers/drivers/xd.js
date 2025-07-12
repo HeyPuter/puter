@@ -16,93 +16,90 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const eggspress = require("../../api/eggspress");
+const eggspress = require('../../api/eggspress');
 
-const init_client_js = code => {
-    return `
+const init_client_js = (code) => {
+  return `
         document.addEventListener('DOMContentLoaded', function() {
             (${code})();
         });
     `;
-}
+};
 
-const script = async function script () {
-    const call = async ({
-        interface_name,
-        method_name,
+const script = async function script() {
+  const call = async ({ interface_name, method_name, params }) => {
+    const response = await fetch('/drivers/call', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        interface: interface_name,
+        method: method_name,
         params,
-    }) => {
-        const response = await fetch('/drivers/call', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                interface: interface_name,
-                method: method_name,
-                params,
-            }),
-        });
-        return await response.json();
-    };
-
-    const fcall = async ({
-        interface_name,
-        method_name,
-        params,
-    }) => {
-        // multipart request
-        const form = new FormData();
-        form.append('interface', interface_name);
-        form.append('method', method_name);
-        for ( const k in params ) {
-            form.append(k, params[k]);
-        }
-        const response = await fetch('/drivers/call', {
-            method: 'POST',
-            body: form,
-        });
-        return await response.json();
-    };
-
-    /* global window */
-    window.addEventListener('message', async event => {
-        const { id, interface: interface_, method, params } = event.data;
-        let has_file = false;
-        for ( const k in params ) {
-            if ( params[k] instanceof File ) {
-                has_file = true;
-                break;
-            }
-        }
-        const result = has_file ? await fcall({
-            interface_name: interface_,
-            method_name: method,
-            params,
-        }) : await call({
-            interface_name: interface_,
-            method_name: method,
-            params,
-        });
-        const response = {
-            id,
-            result,
-        };
-        event.source.postMessage(response, event.origin);
+      }),
     });
+    return await response.json();
+  };
+
+  const fcall = async ({ interface_name, method_name, params }) => {
+    // multipart request
+    const form = new FormData();
+    form.append('interface', interface_name);
+    form.append('method', method_name);
+    for (const k in params) {
+      form.append(k, params[k]);
+    }
+    const response = await fetch('/drivers/call', {
+      method: 'POST',
+      body: form,
+    });
+    return await response.json();
+  };
+
+  /* global window */
+  window.addEventListener('message', async (event) => {
+    const { id, interface: interface_, method, params } = event.data;
+    let has_file = false;
+    for (const k in params) {
+      if (params[k] instanceof File) {
+        has_file = true;
+        break;
+      }
+    }
+    const result = has_file
+      ? await fcall({
+          interface_name: interface_,
+          method_name: method,
+          params,
+        })
+      : await call({
+          interface_name: interface_,
+          method_name: method,
+          params,
+        });
+    const response = {
+      id,
+      result,
+    };
+    event.source.postMessage(response, event.origin);
+  });
 };
 
 /**
  * POST /drivers/xd
- * 
+ *
  * This endpoint services the document which receives
  * cross-document messages from the SDK and forwards
  * them to the Puter Driver API.
  */
-module.exports = eggspress('/drivers/xd', {
+module.exports = eggspress(
+  '/drivers/xd',
+  {
     auth: true,
     allowedMethods: ['GET'],
-}, async (req, res, next) => {
+  },
+  async (req, res, next) => {
     res.type('text/html');
     res.send(`
         <!DOCTYPE html>
@@ -116,5 +113,5 @@ module.exports = eggspress('/drivers/xd', {
             <body></body>
         </html>
     `);
-});
-
+  }
+);

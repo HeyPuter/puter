@@ -23,6 +23,7 @@
     "license-check-and-add": "^4.0.5",
     "mocha": "^10.6.0",
     "nodemon": "^3.1.0",
+    "prettier": "^3.6.2",
     "uglify-js": "^3.17.4",
     "webpack": "^5.88.2",
     "webpack-cli": "^5.1.1"

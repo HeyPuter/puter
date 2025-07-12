@@ -38,7 +38,6 @@ Puter ist ein fortschrittliches, Open-Source-Internet-Betriebssystem, das funkti
 
 ## Erste Schritte
 
-
 ### 💻 Lokale Entwicklung
 
 ```bash
@@ -54,28 +53,26 @@ Dies startet Puter unter http://puter.localhost:4100 (oder dem nächsten verfüg
 
 ### 🐳 Docker
 
-
 ```bash
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
 ```
 
 <br/>
 
-
 ### 🐙 Docker Compose
 
-
 #### Linux/macOS
+
 ```bash
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+
 <br/>
 
 #### Windows
-
 
 ```powershell
 mkdir -p puter
@@ -85,6 +82,7 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ### ☁️ Puter.com
@@ -118,7 +116,6 @@ Verbinden Sie sich mit den Maintainern und der Community über diese Kanäle:
 Wir helfen Ihnen gerne bei allen Fragen, die Sie haben könnten. Zögern Sie nicht zu fragen!
 
 <br/>
-
 
 ## Lizenz
 

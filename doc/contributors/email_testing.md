@@ -50,27 +50,28 @@ You can verify that your MailHog instance is working correctly by creating a sim
 Here's a sample script you can use to test your MailHog setup:
 
 ```javascript
-import nodemailer from "nodemailer";
+import nodemailer from 'nodemailer';
 
 // Configure transporter to use MailHog
 const transporter = nodemailer.createTransport({
-    host: "localhost", // MailHog SMTP server address
-    port: 1025,        // Default MailHog SMTP port
-    secure: false      // No SSL/TLS required for MailHog
+  host: 'localhost', // MailHog SMTP server address
+  port: 1025, // Default MailHog SMTP port
+  secure: false, // No SSL/TLS required for MailHog
 });
 
 // Define a test email
 const mailOptions = {
-    from: "no-reply@example.com",
-    to: "test@example.com",
-    subject: "Hello from Nodemailer!",
-    text: "This is a test email sent using Nodemailer."
+  from: 'no-reply@example.com',
+  to: 'test@example.com',
+  subject: 'Hello from Nodemailer!',
+  text: 'This is a test email sent using Nodemailer.',
 };
 
 // Send the test email
-transporter.sendMail(mailOptions)
-    .then(info => console.log("Email sent:", info.response))
-    .catch(error => console.error("Error:", error));
+transporter
+  .sendMail(mailOptions)
+  .then((info) => console.log('Email sent:', info.response))
+  .catch((error) => console.error('Error:', error));
 ```
 
 After sending an email with this script, you can view it in the MailHog web interface:
@@ -95,6 +96,7 @@ The service creates a Nodemailer transport using the configuration from your `co
 If you encounter issues with MailHog:
 
 1. Check if MailHog is running:
+
    ```bash
    ps aux | grep MailHog
    ```
@@ -102,4 +104,3 @@ If you encounter issues with MailHog:
 2. Ensure the correct port configurations in both MailHog and your application.
 
 3. Check for any error messages in the MailHog console output.
-

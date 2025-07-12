@@ -17,20 +17,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export default {
-    name: 'usages',
-    usage: 'usages',
-    description: 'Print usage statistics, formatted as JSON.',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: true,
-    },
-    execute: async ctx => {
-        const { positionals } = ctx.locals;
+  name: 'usages',
+  usage: 'usages',
+  description: 'Print usage statistics, formatted as JSON.',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: true,
+  },
+  execute: async (ctx) => {
+    const { positionals } = ctx.locals;
 
-        const { drivers } = ctx.platform;
+    const { drivers } = ctx.platform;
 
-        const result = await drivers.usage();
+    const result = await drivers.usage();
 
-        await ctx.externs.out.write(JSON.stringify(result, undefined, 2));
-    }
-}
+    await ctx.externs.out.write(JSON.stringify(result, undefined, 2));
+  },
+};

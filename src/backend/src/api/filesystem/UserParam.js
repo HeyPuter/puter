@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 module.exports = class UserParam {
-    consolidate ({ req }) {
-        return req.user;
-    }
-}
+  consolidate({ req }) {
+    return req.user;
+  }
+};

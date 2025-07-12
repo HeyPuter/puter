@@ -53,28 +53,26 @@ npm start
 
 ### 🐳 Docker
 
-
 ```bash
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
 ```
 
 <br/>
 
-
 ### 🐙 Docker Compose
 
-
 #### Linux/macOS
+
 ```bash
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+
 <br/>
 
 #### Windows
-
 
 ```powershell
 mkdir -p puter
@@ -84,6 +82,7 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ### ☁️ Puter.com
@@ -117,8 +116,7 @@ Puter доступний як hosted service на [**puter.com**](https://puter.
 Ми завжди готові допомогти Вам з будь-якими питаннями, що можуть виникнути. Не соромтеся ставити нам питання!
 <br/>
 
-
-##  License
+## License
 
 Цей репорзиторій, включаючи увесь його контент, дочірні проєкти, модулі, і компоненти, ліцензовано за [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt), якщо явно не вказано інше. Сторонні бібліотеки, включені в цей репозиторій, можуть підпадати під дію інших ліцензій.
 

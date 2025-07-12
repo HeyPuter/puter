@@ -17,6 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export const signals = Object.freeze({
-    SIGINT: 2,
-    SIGQUIT: 3,
+  SIGINT: 2,
+  SIGQUIT: 3,
 });

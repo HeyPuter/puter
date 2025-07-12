@@ -10,6 +10,7 @@ from the repository docs. These docs are always under a directory
 named `doc/`.
 
 From [./contributors/structure.md](./contributors/structure.md):
+
 > The top-level `doc` directory contains the file you're reading right now.
 > Its scope is documentation for using and contributing to Puter in general,
 > and linking to more specific documentation in other places.

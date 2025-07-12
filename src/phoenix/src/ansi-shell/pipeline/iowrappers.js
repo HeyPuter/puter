@@ -17,29 +17,29 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export class CommandStdinDecorator {
-    constructor (rs) {
-        this.rs = rs;
-    }
-    async read (...a) {
-        return await this.rs.read(...a);
-    }
+  constructor(rs) {
+    this.rs = rs;
+  }
+  async read(...a) {
+    return await this.rs.read(...a);
+  }
 
-    // utility methods
-    async collect () {
-        const items = [];
-        for (;;) {
-            const { value, done } = await this.rs.read();
-            if ( done ) return items;
-            items.push(value);
-        }
+  // utility methods
+  async collect() {
+    const items = [];
+    for (;;) {
+      const { value, done } = await this.rs.read();
+      if (done) return items;
+      items.push(value);
     }
+  }
 }
 
 export class CommandStdoutDecorator {
-    constructor (delegate) {
-        this.delegate = delegate;
-    }
-    async write (...a) {
-        return await this.delegate.write(...a);
-    }
+  constructor(delegate) {
+    this.delegate = delegate;
+  }
+  async write(...a) {
+    return await this.delegate.write(...a);
+  }
 }

@@ -42,116 +42,118 @@ promises.push(tracer.startActiveSpan(`job:${job.id}`, (span) => {
 }));
 */
 
-const spanify = (label, fn) => async (...args) => {
+const spanify =
+  (label, fn) =>
+  async (...args) => {
     const context = Context.get();
-    if ( ! context ) {
-        // We don't use the proper logger here because we would normally
-        // be getting it from context
-        console.error('spanify failed', new Error('missing context'));
+    if (!context) {
+      // We don't use the proper logger here because we would normally
+      // be getting it from context
+      console.error('spanify failed', new Error('missing context'));
     }
 
     const tracer = context.get('services').get('traceService').tracer;
     let result;
-    await tracer.startActiveSpan(label, async span => {
-        result = await fn(...args);
-        span.end();
+    await tracer.startActiveSpan(label, async (span) => {
+      result = await fn(...args);
+      span.end();
     });
     return result;
-};
+  };
 
 const abtest = async (label, impls) => {
-    const context = Context.get();
-    if ( ! context ) {
-        // We don't use the proper logger here because we would normally
-        // be getting it from context
-        console.error('abtest failed', new Error('missing context'));
-    }
+  const context = Context.get();
+  if (!context) {
+    // We don't use the proper logger here because we would normally
+    // be getting it from context
+    console.error('abtest failed', new Error('missing context'));
+  }
 
-    const tracer = context.get('services').get('traceService').tracer;
-    let result;
-    const impl_keys = Object.keys(impls);
-    const impl_i = Math.floor(Math.random() * impl_keys.length);
-    const impl_name = impl_keys[impl_i];
-    const impl = impls[impl_name]
+  const tracer = context.get('services').get('traceService').tracer;
+  let result;
+  const impl_keys = Object.keys(impls);
+  const impl_i = Math.floor(Math.random() * impl_keys.length);
+  const impl_name = impl_keys[impl_i];
+  const impl = impls[impl_name];
 
-    await tracer.startActiveSpan(label + ':' + impl_name, async span => {
-        span.setAttribute('abtest.impl', impl_name);
-        result = await impl();
-        span.end();
-    });
-    return result;
+  await tracer.startActiveSpan(label + ':' + impl_name, async (span) => {
+    span.setAttribute('abtest.impl', impl_name);
+    result = await impl();
+    span.end();
+  });
+  return result;
 };
 
 class ParallelTasks {
-    constructor ({ tracer, max } = {}) {
-        this.tracer = tracer;
-        this.max = max ?? Infinity;
-        this.promises = [];
+  constructor({ tracer, max } = {}) {
+    this.tracer = tracer;
+    this.max = max ?? Infinity;
+    this.promises = [];
 
-        this.queue_ = [];
-        this.ongoing_ = 0;
+    this.queue_ = [];
+    this.ongoing_ = 0;
+  }
+
+  add(name, fn, flags) {
+    if (this.ongoing_ >= this.max && !flags?.force) {
+      const p = new TeePromise();
+      this.promises.push(p);
+      this.queue_.push([name, fn, p]);
+      return;
     }
 
-    add (name, fn, flags) {
-        if ( this.ongoing_ >= this.max && ! flags?.force ) {
-            const p = new TeePromise();
-            this.promises.push(p);
-            this.queue_.push([name, fn, p]);
-            return;
-        }
+    this.promises.push(this.run_(name, fn));
+  }
 
-        this.promises.push(this.run_(name, fn));
-    }
+  run_(name, fn) {
+    this.ongoing_++;
+    const span = this.tracer.startSpan(name);
+    return context.with(trace.setSpan(context.active(), span), async () => {
+      try {
+        console.log('AA :: BEFORE');
+        const res = await fn();
+        console.log('AA :: AFTER');
+        this.ongoing_--;
+        this.check_queue_();
+        return res;
+      } catch (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw error;
+      } finally {
+        span.end();
+      }
+    });
+  }
 
-    run_ (name, fn) {
-        this.ongoing_++;
-        const span = this.tracer.startSpan(name);
-        return context.with(trace.setSpan(context.active(), span), async () => {
-            try {
-                console.log('AA :: BEFORE');
-                const res = await fn();
-                console.log('AA :: AFTER');
-                this.ongoing_--;
-                this.check_queue_();
-                return res;
-            } catch (error) {
-                span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
-                throw error;
-            } finally {
-                span.end();
-            }
-        })
+  check_queue_() {
+    console.log('CHECKING QUQUE', this.ongoing_, this.queue_.length);
+    while (this.ongoing_ < this.max && this.queue_.length > 0) {
+      const [name, fn, p] = this.queue_.shift();
+      const run_p = this.run_(name, fn);
+      run_p.then(p.resolve.bind(p), p.reject.bind(p));
     }
+  }
 
-    check_queue_ () {
-        console.log('CHECKING QUQUE', this.ongoing_, this.queue_.length);
-        while ( this.ongoing_ < this.max && this.queue_.length > 0 ) {
-            const [name, fn, p] = this.queue_.shift();
-            const run_p = this.run_(name, fn);
-            run_p.then(p.resolve.bind(p), p.reject.bind(p));
-        }
-    }
+  async awaitAll() {
+    await Promise.all(this.promises);
+  }
 
-    async awaitAll () {
-        await Promise.all(this.promises);
+  async awaitAllAndDeferThrow() {
+    const results = await Promise.allSettled(this.promises);
+    const errors = [];
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        errors.push(result.reason);
+      }
     }
-
-    async awaitAllAndDeferThrow () {
-        const results = await Promise.allSettled(this.promises);
-        const errors = [];
-        for ( const result of results ) {
-            if ( result.status === 'rejected' ) {
-                errors.push(result.reason);
-            }
-        }
-        if ( errors.length !== 0 ) {
-            throw new AggregateError(errors);
-        }
+    if (errors.length !== 0) {
+      throw new AggregateError(errors);
     }
+  }
 }
 
 module.exports = {
-    ParallelTasks,
-    spanify,
-    abtest,
+  ParallelTasks,
+  spanify,
+  abtest,
 };

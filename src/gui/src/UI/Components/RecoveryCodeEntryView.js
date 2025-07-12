@@ -17,18 +17,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 const Component = use('util.Component');
 
-export default def(class RecoveryCodeEntryView extends Component {
+export default def(
+  class RecoveryCodeEntryView extends Component {
     static ID = 'ui.component.RecoveryCodeEntryView';
     static PROPERTIES = {
-        value: {},
-        length: { value: 8 },
-        error: {},
-    }
+      value: {},
+      length: { value: 8 },
+      error: {},
+    };
 
-    static CSS = /*css*/`
+    static CSS = /*css*/ `
         fieldset {
             display: flex;
         }
@@ -66,8 +66,8 @@ export default def(class RecoveryCodeEntryView extends Component {
         }
     `;
 
-    create_template ({ template }) {
-        $(template).html(/*html*/`
+    create_template({ template }) {
+      $(template).html(/*html*/ `
             <div class="recovery-code-entry">
                 <form>
                     <div class="error"></div>
@@ -79,28 +79,29 @@ export default def(class RecoveryCodeEntryView extends Component {
         `);
     }
 
-    on_focus () {
-        $(this.dom_).find('input').focus();
+    on_focus() {
+      $(this.dom_).find('input').focus();
     }
 
-    on_ready ({ listen }) {
-        listen('error', (error) => {
-            if ( ! error ) return $(this.dom_).find('.error').hide();
-            $(this.dom_).find('.error').text(error).show();
-        });
+    on_ready({ listen }) {
+      listen('error', (error) => {
+        if (!error) return $(this.dom_).find('.error').hide();
+        $(this.dom_).find('.error').text(error).show();
+      });
 
-        listen('value', (value) => {
-            // clear input
-            if ( value === undefined ) {
-                $(this.dom_).find('input').val('');
-            }
-        });
+      listen('value', (value) => {
+        // clear input
+        if (value === undefined) {
+          $(this.dom_).find('input').val('');
+        }
+      });
 
-        const input = $(this.dom_).find('input');
-        input.on('input', () => {
-            if ( input.val().length === this.get('length') ) {
-                this.set('value', input.val());
-            }
-        });
+      const input = $(this.dom_).find('input');
+      input.on('input', () => {
+        if (input.val().length === this.get('length')) {
+          this.set('value', input.val());
+        }
+      });
     }
-});
+  }
+);

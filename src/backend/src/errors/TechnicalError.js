@@ -26,20 +26,20 @@
  * @todo This could be a trait errors can have rather than a class.
  */
 class TechnicalError extends Error {
-    constructor (message, ...details) {
-        super(message);
+  constructor(message, ...details) {
+    super(message);
 
-        for ( const detail of details ) {
-            detail(this);
-        }
+    for (const detail of details) {
+      detail(this);
     }
+  }
 }
 
-const ERR_HINT_NOSTACK = e => {
-    e.toString = () => e.message;
-}
+const ERR_HINT_NOSTACK = (e) => {
+  e.toString = () => e.message;
+};
 
 module.exports = {
-    TechnicalError,
-    ERR_HINT_NOSTACK,
+  TechnicalError,
+  ERR_HINT_NOSTACK,
 };

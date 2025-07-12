@@ -6,6 +6,7 @@ Separating the terminal emulator from the shell will make it possible to re-use
 Puter's terminal emulator for containers, emulators, and tunnels.
 
 Puter's shell will follow modern approaches for handling data; this means:
+
 - Commands will typically operate on streams of objects
   rather than streams of bytes.
 - Rich UI capabilities, such as images, will be possible.
@@ -16,6 +17,7 @@ interface for an end-user using an ANSI terminal emulator.
 
 This means the scope of this terminal emulator is to be compatible with
 two types of shells:
+
 - Legacy ANSI-compatible shells
 - Modern Puter-compatible shells
 
@@ -34,6 +36,7 @@ In creating the state processor I made a variable called
 `ctx`, representing contextual information for state functions.
 
 The context has a few properties on it:
+
 - constants
 - locals
 - vars
@@ -85,6 +88,7 @@ it outputs characters to the terminal, as well as a context
 specific to handlers under the readline utility.
 
 #### Additional reflection
+
 This idea of contexts and compositing contexts is actually
 something I've been thinking about for a long time. Contexts
 are an essential component in FOAM for example. However, this
@@ -120,6 +124,7 @@ they would return a value.
 
 When a subcontext is created prior to a function call, this
 is equivalent to a pure function under certain conditions:
+
 - the values which may be changed must be explicity stated
 - the immediate consequences of updating any value are known
 
@@ -138,6 +143,7 @@ emulator, but because it's the Puter application - configure
 the shell with authorization information.
 
 There are a few different approaches to this:
+
 - pass query string parameters onto the shell via url
 - send a non-binary postMessage with configuration
 - send an ANSI escape code followed by a binary-encoded
@@ -212,6 +218,7 @@ helptext, but it's a starting point.
 If each command specifies a parser for CLI arguments, and also
 provides configuration in a format specific to that parser,
 there are a few advantages:
+
 - easy to migrate away from this polyfill later by creating an
   adapter or updating the commands which use it.
 - easy to add custom argument processors for commands which
@@ -224,9 +231,11 @@ there are a few advantages:
 ### Kind of tangential, but synonyms are annoying
 
 The left side of a UNIX pipe is the
+
 - source, faucet, producer, upstream
 
 The right side of a UNIX pipe is the
+
 - target, sink, consumer, downstream
 
 I'm going to go with `source` and `target` for any cases like this
@@ -241,6 +250,7 @@ lines of code are the same length because it's easier to spot errors.
 
 A prepared command contains information about a command which will
 be invoked within a pipeline, including:
+
 - the command to be invoked
 - the arguments for the command (as tokens)
 - the context that the command will be run under
@@ -287,7 +297,9 @@ without affecting subsequent functionality of the terminal.
 ### Behaviour of echo escapes
 
 #### behaviour of `\\` should be verified
+
 Based on experimentation in Bash:
+
 - `\\` is always seen by echo as `\`
   - this means `\\a` and `\a` are the same
 
@@ -398,6 +410,7 @@ take advantage of that where we can.
 ### First steps to handling tab-completion
 
 #### Getting desired tab-completion behaviour from input state
+
 Tab-completion needs information about the type of command arguments.
 Since commands are modelled, it's possible the model of a command can
 provide this information. For example a registered command could
@@ -460,6 +473,7 @@ Here are a few thoughts on how to do this with ideal UX:
 ### Implementation of background readdir
 
 The background `readdir` could be invoked in two ways:
+
 - when the current working directory changes
 - at a poll interval
 
@@ -509,10 +523,10 @@ features, so it's a good time to take a look at the architecture
 and see if the boundary between the ANSI view and Puter Shell
 corresponds to the original intention.
 
-| Shell        | I/O   | instructions |
-| ------------ | ----- | ------------ |
-| ANSI Adapter | TTY   | text         |
-| Puter Shell  | JSON  | logical tree |
+| Shell        | I/O  | instructions |
+| ------------ | ---- | ------------ |
+| ANSI Adapter | TTY  | text         |
+| Puter Shell  | JSON | logical tree |
 
 Note from the above table that the Puter Shell itself should
 be "syntax agnostic" - i.e. it needs the ANSI adapter or a
@@ -527,6 +541,7 @@ both. This is because there is no intermediate format for
 parsed pipeline instructions.
 
 ##### to improve
+
 - create intermediate representation of pipelines and redirects
 
 #### Command IO
@@ -540,6 +555,7 @@ Since pipeline I/O should be handled at the Puter shell, this kind
 of adapting will happen at that level also.
 
 #### to improve
+
 - ANSI view should send full pipeline to Puter Shell
 - Puter Shell protocol should be improved so that the
   client/view can specify a desired output format
@@ -666,6 +682,7 @@ echo "hello" > some_file.txtXfile.txt
 ```
 
 What would be more helpful:
+
 - terminal bell, because `some_file.txt` is already complete
 - `some_other_Xfile.txt` if `some_other_file.txt` exists
 
@@ -773,6 +790,7 @@ PStratum is a facade which aggregates a PStratumImplementor using
 the pattern described above.
 
 The following layers will exist for the shell:
+
 - StringPStratum will take a string and provide bytes.
 - LowLexPStratum will take bytes and identify all syntax
   tokens and whitespace.
@@ -783,7 +801,6 @@ The following layers will exist for the shell:
   of the `|` (pipe) operator will be converted into
   a pipeline construct.
 
-
 ### First results from the parser
 
 It appears that the methods I described above are very effective
@@ -792,6 +809,7 @@ for implementing a parser with support for concrete syntax trees.
 By wrapping implementations of `Parser` and `PStratum` in facades
 it was possible to provide additional functionality for all
 implementations in one place:
+
 - `fork` and `join` is implemented by PStratum; each implementation
   does not need to be aware of this feature.
 - the `look` function (AKA "peek" behaviour) is implemented by
@@ -805,6 +823,7 @@ implementations in one place:
 
 It was also possible to add a Parser factory which adds additional
 functionality to the sub-parsers that it creates:
+
 - track the tokens each parser gets from the delegate PStratum
   and keep a record of what lower-level tokens were composed to
   produce higher-level tokens
@@ -822,24 +841,26 @@ tested:
 
 ```javascript
 sp.add(
-    new StringPStratumImpl(`
+  new StringPStratumImpl(`
         ls | tail -n 2 > "test \\"file\\".txt"
     `)
 );
 sp.add(
-    new FirstRecognizedPStratumImpl({
-        parsers: [
-            cstParserFac.create(WhitespaceParserImpl),
-            cstParserFac.create(LiteralParserImpl, { value: '|' }, {
-                assign: { $: 'pipe' }
-            }),
-            cstParserFac.create(UnquotedTokenParserImpl),
-        ]
-    })
+  new FirstRecognizedPStratumImpl({
+    parsers: [
+      cstParserFac.create(WhitespaceParserImpl),
+      cstParserFac.create(
+        LiteralParserImpl,
+        { value: '|' },
+        {
+          assign: { $: 'pipe' },
+        }
+      ),
+      cstParserFac.create(UnquotedTokenParserImpl),
+    ],
+  })
 );
-sp.add(
-    new MergeWhitespacePStratumImpl()
-)
+sp.add(new MergeWhitespacePStratumImpl());
 ```
 
 Note that the multiline string literal begins with whitespace.
@@ -851,36 +872,36 @@ The following is the output of the parser:
 ```javascript
 [
   {
-    '$': 'symbol',
+    $: 'symbol',
     text: 'ls',
-    '$cst': { start: 9, end: 11, line: 1, col: 8 },
-    '$source': Uint8Array(2) [ 108, 115 ]
+    $cst: { start: 9, end: 11, line: 1, col: 8 },
+    $source: Uint8Array(2)[(108, 115)],
   },
   {
-    '$': 'pipe',
+    $: 'pipe',
     text: '|',
-    '$cst': { start: 12, end: 13, line: 1, col: 11 },
-    '$source': Uint8Array(1) [ 124 ]
+    $cst: { start: 12, end: 13, line: 1, col: 11 },
+    $source: Uint8Array(1)[124],
   },
   {
-    '$': 'symbol',
+    $: 'symbol',
     text: 'tail',
-    '$cst': { start: 14, end: 18, line: 1, col: 13 },
-    '$source': Uint8Array(4) [ 116, 97, 105, 108 ]
+    $cst: { start: 14, end: 18, line: 1, col: 13 },
+    $source: Uint8Array(4)[(116, 97, 105, 108)],
   },
   {
-    '$': 'symbol',
+    $: 'symbol',
     text: '-n',
-    '$cst': { start: 19, end: 21, line: 1, col: 18 },
-    '$source': Uint8Array(2) [ 45, 110 ]
+    $cst: { start: 19, end: 21, line: 1, col: 18 },
+    $source: Uint8Array(2)[(45, 110)],
   },
   {
-    '$': 'symbol',
+    $: 'symbol',
     text: '2',
-    '$cst': { start: 22, end: 23, line: 1, col: 21 },
-    '$source': Uint8Array(1) [ 50 ]
-  }
-]
+    $cst: { start: 22, end: 23, line: 1, col: 21 },
+    $source: Uint8Array(1)[50],
+  },
+];
 ```
 
 No errors were observed in this output, so I can now continue
@@ -947,6 +968,7 @@ note: "XD" means cross-document messaging
 ```
 
 It should be interpreted as follows:
+
 - OO shell can communicate with a web power tool via
   cross-document messaging
 - the OO shell and ANSI shell should communicate via
@@ -963,6 +985,7 @@ It should be interpreted as follows:
 Right now all the coreutils commands currently implemented output
 byte streams. However, allowing commands to output objects instead
 solves some problems with traditional shells:
+
 - text processing everywhere
   - it's needed to get a desired value from structured data
   - commands are often concerned with the formatting of data
@@ -1024,7 +1047,6 @@ one or more of it's output objects. Each object that it
 outputs now just needs to refer to an existing formatter
 which solves the problem of redundant information passing
 through the pipeline
-
 
 ##### keeping it simple
 
@@ -1097,6 +1119,7 @@ like syntax highlighting in the future.
 
 Between the modules `shell-parse` and `bash-parser`, the first
 was able to parse this syntax while the second threw an error:
+
 ```
 echo $TEST"something to $($(echo echo) do)"with-this another-token
 ```
@@ -1140,6 +1163,7 @@ a place called "platform support" inside this repo rather than in
 another repo (that was an oversight on my part earlier on).
 
 This change can be made incrementally as follows:
+
 - Expose an object which implements support for the current platform
   to all the commands in coreutils.
 - Incrementally update commands as follows:
@@ -1158,6 +1182,7 @@ This change can be made incrementally as follows:
 Prior to recent changes it was not possible to run phoenix shell inside
 another instance of phoenix shell. The following had to be resolved for
 this to work:
+
 - Phoenix was waiting for a configuration object from the parent app,
   under the assumption that this parent app is a terminal. Phoenix now
   does not require this configuration object.
@@ -1169,6 +1194,7 @@ this to work:
 The new IO functionality follows the
 [Selective Layer Implementation Pattern](https://puter.com/@ed/documentation/glossary.md##Selective-Layer-Implementation-Pattern)
 with the following implemented:
+
 - IOCTL: `TIOCGWINSZ`, sent via postMessage
 - signal: `ioctl.set` event to simulate "SIGWINCH",
   but this should be merged with existing code that

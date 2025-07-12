@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("../../../putility");
+const { AdvancedBase } = require('../../../putility');
 
 /**
  * MutliValue represents a subject with multiple values or a value with multiple
@@ -29,54 +29,54 @@ const { AdvancedBase } = require("../../../putility");
  * it will be less costly to obtain.
  */
 class MultiValue extends AdvancedBase {
-    constructor () {
-        super();
-        this.factories = {};
-        this.values = {};
-    }
+  constructor() {
+    super();
+    this.factories = {};
+    this.values = {};
+  }
 
-    async add_factory (key_desired, key_available, fn, cost) {
-        if ( ! this.factories[key_desired] ) {
-            this.factories[key_desired] = [];
-        }
-        this.factories[key_desired].push({
-            key_available,
-            fn,
-            cost,
-        });
+  async add_factory(key_desired, key_available, fn, cost) {
+    if (!this.factories[key_desired]) {
+      this.factories[key_desired] = [];
     }
+    this.factories[key_desired].push({
+      key_available,
+      fn,
+      cost,
+    });
+  }
 
-    async get (key) {
-        return this._get(key);
-    }
+  async get(key) {
+    return this._get(key);
+  }
 
-    set (key, value) {
-        this.values[key] = value;
-    }
+  set(key, value) {
+    this.values[key] = value;
+  }
 
-    async _get (key) {
-        if ( this.values[key] ) {
-            return this.values[key];
-        }
-        const factories = this.factories[key];
-        if ( ! factories || ! factories.length ) {
-            console.log('no factory for key', key)
-            return undefined;
-        }
-        for ( const factory of factories ) {
-            const available = await this._get(factory.key_available);
-            if ( ! available ) {
-                console.log('no available for key', key, factory.key_available);
-                continue;
-            }
-            const value = await factory.fn(available);
-            this.values[key] = value;
-            return value;
-        }
-        return undefined;
+  async _get(key) {
+    if (this.values[key]) {
+      return this.values[key];
     }
+    const factories = this.factories[key];
+    if (!factories || !factories.length) {
+      console.log('no factory for key', key);
+      return undefined;
+    }
+    for (const factory of factories) {
+      const available = await this._get(factory.key_available);
+      if (!available) {
+        console.log('no available for key', key, factory.key_available);
+        continue;
+      }
+      const value = await factory.fn(available);
+      this.values[key] = value;
+      return value;
+    }
+    return undefined;
+  }
 }
 
 module.exports = {
-    MultiValue,
+  MultiValue,
 };

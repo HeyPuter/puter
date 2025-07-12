@@ -25,46 +25,46 @@
  * array containing the last error, a boolean indicating whether the function
  * eventually succeeded, and the return value of the function
  */
-const simple_retry = async function simple_retry (func, max_tries, interval) {
-    let tries = 0;
-    let last_error = null;
+const simple_retry = async function simple_retry(func, max_tries, interval) {
+  let tries = 0;
+  let last_error = null;
 
-    if ( max_tries === undefined ) {
-        throw new Error('simple_retry: max_tries is undefined');
-    }
-    if ( interval === undefined ) {
-        throw new Error('simple_retry: interval is undefined');
-    }
+  if (max_tries === undefined) {
+    throw new Error('simple_retry: max_tries is undefined');
+  }
+  if (interval === undefined) {
+    throw new Error('simple_retry: interval is undefined');
+  }
 
-    while ( tries < max_tries ) {
-        try {
-            return [last_error, true, await func()];
-        } catch ( error ) {
-            last_error = error;
-            tries++;
-            await new Promise((resolve) => setTimeout(resolve, interval));
-        }
+  while (tries < max_tries) {
+    try {
+      return [last_error, true, await func()];
+    } catch (error) {
+      last_error = error;
+      tries++;
+      await new Promise((resolve) => setTimeout(resolve, interval));
     }
-    if ( last_error === null ) {
-        last_error = new Error('simple_retry: failed, but error is null');
-    }
-    return [last_error, false];
+  }
+  if (last_error === null) {
+    last_error = new Error('simple_retry: failed, but error is null');
+  }
+  return [last_error, false];
 };
 
 const poll = async function poll({ poll_fn, schedule_fn }) {
-    let delay;
+  let delay;
 
-    while ( true ) {
-        const is_done = await poll_fn();
-        if ( is_done ) {
-            return;
-        }
-        delay = schedule_fn(delay);
-        await new Promise((resolve) => setTimeout(resolve, delay));
+  while (true) {
+    const is_done = await poll_fn();
+    if (is_done) {
+      return;
     }
-}
+    delay = schedule_fn(delay);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+};
 
 module.exports = {
-    simple_retry,
-    poll,
+  simple_retry,
+  poll,
 };

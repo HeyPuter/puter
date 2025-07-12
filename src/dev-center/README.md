@@ -20,11 +20,9 @@
     <a href="https://twitter.com/HeyPuter">X (Twitter)</a>
 </p>
 
-
 <h3 align="center"><img width="700" alt="Screenshot 2024-07-07 at 5 29 24 PM" src="https://github.com/HeyPuter/dev-center/assets/1715019/0c798e49-7727-46f3-ad7e-3d7f183641be"></h3>
 
 <br>
-
 
 ## Dev Center
 
@@ -35,7 +33,6 @@ Dev Center is a Puter app that allows you to publish and manage web apps. It is 
 ## License
 
 Dev Center is licensed under the [AGPL-3.0 license](./LICENSE.txt).
-
 
 <br>
 

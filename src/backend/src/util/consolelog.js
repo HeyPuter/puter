@@ -17,100 +17,101 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 class ConsoleLogManager {
-    static instance_;
+  static instance_;
 
-    static getInstance () {
-        if ( this.instance_ ) return this.instance_;
-        return this.instance_ = new ConsoleLogManager();
+  static getInstance() {
+    if (this.instance_) return this.instance_;
+    return (this.instance_ = new ConsoleLogManager());
+  }
+
+  static CONSOLE_METHODS = ['log', 'error', 'warn'];
+
+  static PROXY_METHOD = function (method, ...args) {
+    const decorators = this.get_log_decorators_(method);
+
+    // TODO: Add this feature later
+    // const pre_listeners = self.get_log_pre_listeners_(method);
+    // const post_listeners = self.get_log_post_listeners_(method);
+
+    const replace = (...newargs) => {
+      args = newargs;
+    };
+    for (const dec of decorators) {
+      dec(
+        {
+          manager: this,
+          replace,
+        },
+        ...args
+      );
     }
 
-    static CONSOLE_METHODS = [
-        'log', 'error', 'warn',
-    ];
+    this.__original_methods[method](...args);
 
-    static PROXY_METHOD = function (method, ...args) {
-        const decorators = this.get_log_decorators_(method);
-        
-        // TODO: Add this feature later
-        // const pre_listeners = self.get_log_pre_listeners_(method);
-        // const post_listeners = self.get_log_post_listeners_(method);
-
-        const replace = (...newargs) => {
-            args = newargs;
-        }
-        for ( const dec of decorators ) {
-            dec({
-                manager: this,
-                replace
-            }, ...args);
-        }
-
-        this.__original_methods[method](...args);
-
-        const post_hooks = this.get_post_hooks_(method);
-        for ( const fn of post_hooks ) {
-            fn();
-        }
+    const post_hooks = this.get_post_hooks_(method);
+    for (const fn of post_hooks) {
+      fn();
     }
+  };
 
-    get_log_decorators_ (method) {
-        return this.__log_decorators[method];
-    }
+  get_log_decorators_(method) {
+    return this.__log_decorators[method];
+  }
 
-    get_post_hooks_ (method) {
-        return this.__log_hooks_post[method];
-    }
+  get_post_hooks_(method) {
+    return this.__log_hooks_post[method];
+  }
 
-    constructor () {
-        const THIS = this.constructor;
-        this.__original_console = console;
-        this.__original_methods = {};
-        for ( const k of THIS.CONSOLE_METHODS ) {
-            this.__original_methods[k] = console[k];
-        }
-        this.__proxy_methods = {};
-        this.__log_decorators = {};
-        this.__log_hooks_post = {};
-        
-        // TODO: Add this feature later
-        // this.__log_pre_listeners = {};
-        // this.__log_post_listeners = {};
+  constructor() {
+    const THIS = this.constructor;
+    this.__original_console = console;
+    this.__original_methods = {};
+    for (const k of THIS.CONSOLE_METHODS) {
+      this.__original_methods[k] = console[k];
     }
+    this.__proxy_methods = {};
+    this.__log_decorators = {};
+    this.__log_hooks_post = {};
 
-    initialize_proxy_methods (methods) {
-        const THIS = this.constructor;
-        methods = methods || THIS.CONSOLE_METHODS;
-        for ( const k of methods ) {
-            this.__proxy_methods[k] = THIS.PROXY_METHOD.bind(this, k);
-            console[k] = this.__proxy_methods[k];
-            this.__log_decorators[k] = [];
-            this.__log_hooks_post[k] = [];
-        }
-    }
+    // TODO: Add this feature later
+    // this.__log_pre_listeners = {};
+    // this.__log_post_listeners = {};
+  }
 
-    decorate (method, dec_fn) {
-        this.__log_decorators[method] = dec_fn;
+  initialize_proxy_methods(methods) {
+    const THIS = this.constructor;
+    methods = methods || THIS.CONSOLE_METHODS;
+    for (const k of methods) {
+      this.__proxy_methods[k] = THIS.PROXY_METHOD.bind(this, k);
+      console[k] = this.__proxy_methods[k];
+      this.__log_decorators[k] = [];
+      this.__log_hooks_post[k] = [];
     }
+  }
 
-    decorate_all (dec_fn) {
-        const THIS = this.constructor;
-        for ( const k of THIS.CONSOLE_METHODS ) {
-            this.__log_decorators[k].push(dec_fn);
-        }
-    }
+  decorate(method, dec_fn) {
+    this.__log_decorators[method] = dec_fn;
+  }
 
-    post_all (post_fn) {
-        const THIS = this.constructor;
-        for ( const k of THIS.CONSOLE_METHODS ) {
-            this.__log_hooks_post[k].push(post_fn);
-        }
+  decorate_all(dec_fn) {
+    const THIS = this.constructor;
+    for (const k of THIS.CONSOLE_METHODS) {
+      this.__log_decorators[k].push(dec_fn);
     }
+  }
 
-    log_raw (method, ...args) {
-        this.__original_methods[method](...args);
+  post_all(post_fn) {
+    const THIS = this.constructor;
+    for (const k of THIS.CONSOLE_METHODS) {
+      this.__log_hooks_post[k].push(post_fn);
     }
+  }
+
+  log_raw(method, ...args) {
+    this.__original_methods[method](...args);
+  }
 }
 
 module.exports = {
-    consoleLogManager: ConsoleLogManager.getInstance()
+  consoleLogManager: ConsoleLogManager.getInstance(),
 };

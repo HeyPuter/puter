@@ -4,7 +4,6 @@ about: Request a driver on Puter
 title: ''
 labels: ''
 assignees: ''
-
 ---
 
 ## Name of Driver
@@ -16,10 +15,12 @@ Description of driver
 Let's call the operating system on your computer/phone/etc a "Low-Level Device Operating System" or LLDOS. Puter is a "High-Level Distributed Operating System" or HLDOS. Where an LLDOS coordinates access to hardware, an HLDOS coordinates access to services and network resources. In Puter, **drivers** are integrations with third-party services, network devices, or even the underlying LLDOS where a Puter node is hosted.
 
 Puter drivers have two parts:
+
 - a driver interface
 - a driver implementation
 
 Driver interfaces are the "types" of drivers. For example, an LLDOS may have multiple different drivers that are recognized as "printers". "printer" is the interface or type. Some examples of driver interfaces on Puter include:
+
 - Chat completion interface for AI / LLMs (`puter-chat-completion`)
 - Providers of OCR (optical character recognition) (`puter-ocr`)
 - Providers of voice synthesis / text-to-speech (`puter-tts`)

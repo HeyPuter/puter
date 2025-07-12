@@ -16,50 +16,51 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { validate_string } from "./coreutil_lib/validate.js";
-import { EMPTY } from "../../util/singleton.js";
+import { validate_string } from './coreutil_lib/validate.js';
+import { EMPTY } from '../../util/singleton.js';
 import { Exit } from './coreutil_lib/exit.js';
 import { resolveRelativePath } from '../../util/path.js';
 
 // DRY: very similar to `cd`
 export default {
-    name: 'mkdir',
-    usage: 'mkdir [OPTIONS] PATH',
-    description: 'Create a directory at PATH.',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: true,
-        options: {
-            parents: {
-                description: 'Create parent directories if they do not exist. Do not treat existing directories as an error',
-                type: 'boolean',
-                short: 'p'
-            }
-        }
+  name: 'mkdir',
+  usage: 'mkdir [OPTIONS] PATH',
+  description: 'Create a directory at PATH.',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: true,
+    options: {
+      parents: {
+        description:
+          'Create parent directories if they do not exist. Do not treat existing directories as an error',
+        type: 'boolean',
+        short: 'p',
+      },
     },
-    decorators: { errors: EMPTY },
-    execute: async ctx => {
-        // ctx.params to access processed args
-        // ctx.args to access raw args
-        const { positionals, values } = ctx.locals;
-        const { filesystem } = ctx.platform;
+  },
+  decorators: { errors: EMPTY },
+  execute: async (ctx) => {
+    // ctx.params to access processed args
+    // ctx.args to access raw args
+    const { positionals, values } = ctx.locals;
+    const { filesystem } = ctx.platform;
 
-        let [ target ] = positionals;
+    let [target] = positionals;
 
-        try {
-            validate_string(target, { name: 'path' });
-        } catch (e) {
-            await ctx.externs.err.write(`mkdir: ${e.message}\n`);
-            throw new Exit(1);
-        }
-
-        target = resolveRelativePath(ctx.vars, target);
-
-        const result = await filesystem.mkdir(target, { createMissingParents: values.parents });
-
-        if ( result && result.$ === 'error' ) {
-            await ctx.externs.err.write(`mkdir: ${result.message}\n`);
-            throw new Exit(1);
-        }
+    try {
+      validate_string(target, { name: 'path' });
+    } catch (e) {
+      await ctx.externs.err.write(`mkdir: ${e.message}\n`);
+      throw new Exit(1);
     }
+
+    target = resolveRelativePath(ctx.vars, target);
+
+    const result = await filesystem.mkdir(target, { createMissingParents: values.parents });
+
+    if (result && result.$ === 'error') {
+      await ctx.externs.err.write(`mkdir: ${result.message}\n`);
+      throw new Exit(1);
+    }
+  },
 };

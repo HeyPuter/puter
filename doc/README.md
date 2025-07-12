@@ -20,6 +20,7 @@ to ask questions.
 - [Support Levels](./self-hosters/support.md)
 
 ## App Developer Links
+
 - [developer.puter.com](https://developer.puter.com)
 - [docs.puter.com](https://docs.puter.com)
 - share your apps on [Reddit](https://www.reddit.com/r/puter/) or

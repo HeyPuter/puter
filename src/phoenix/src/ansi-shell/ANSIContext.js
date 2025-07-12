@@ -16,46 +16,46 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { Context } from "../context/context.js";
+import { Context } from '../context/context.js';
 
 const modifiers = ['shift', 'alt', 'ctrl', 'meta'];
 
 const keyboardModifierBits = {};
-for ( let i=0 ; i < modifiers.length ; i++ ) {
-    const key = `KEYBOARD_BIT_${modifiers[i].toUpperCase()}`;
-    keyboardModifierBits[key] = 1 << i;
+for (let i = 0; i < modifiers.length; i++) {
+  const key = `KEYBOARD_BIT_${modifiers[i].toUpperCase()}`;
+  keyboardModifierBits[key] = 1 << i;
 }
 
 export const ANSIContext = new Context({
-    constants: {
-        CHAR_LF: '\n'.charCodeAt(0),
-        CHAR_CR: '\r'.charCodeAt(0),
-        CHAR_TAB: '\t'.charCodeAt(0),
-        CHAR_CSI: '['.charCodeAt(0),
-        CHAR_OSC: ']'.charCodeAt(0),
-        CHAR_ETX: 0x03,
-        CHAR_EOT: 0x04,
-        CHAR_ESC: 0x1B,
-        CHAR_DEL: 0x7F,
-        CHAR_BEL: 0x07,
-        CHAR_FF: 0x0C,
-        CSI_F_0: 0x40,
-        CSI_F_E: 0x7F,
-        ...keyboardModifierBits
-    }
+  constants: {
+    CHAR_LF: '\n'.charCodeAt(0),
+    CHAR_CR: '\r'.charCodeAt(0),
+    CHAR_TAB: '\t'.charCodeAt(0),
+    CHAR_CSI: '['.charCodeAt(0),
+    CHAR_OSC: ']'.charCodeAt(0),
+    CHAR_ETX: 0x03,
+    CHAR_EOT: 0x04,
+    CHAR_ESC: 0x1b,
+    CHAR_DEL: 0x7f,
+    CHAR_BEL: 0x07,
+    CHAR_FF: 0x0c,
+    CSI_F_0: 0x40,
+    CSI_F_E: 0x7f,
+    ...keyboardModifierBits,
+  },
 });
 
 export const getActiveModifiersFromXTerm = (n) => {
-    // decrement explained in doc/graveyard/keyboard_modifiers.md
-    n--;
+  // decrement explained in doc/graveyard/keyboard_modifiers.md
+  n--;
 
-    const active = {};
+  const active = {};
 
-    for ( let i=0 ; i < modifiers.length ; i++ ) {
-        if ( n & 1 << i ) {
-            active[modifiers[i]] = true;
-        }
+  for (let i = 0; i < modifiers.length; i++) {
+    if (n & (1 << i)) {
+      active[modifiers[i]] = true;
     }
+  }
 
-    return active;
+  return active;
 };

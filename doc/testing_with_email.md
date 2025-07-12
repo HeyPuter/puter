@@ -9,9 +9,9 @@ add this entry to the `"services`" map:
 
 ```javascript
     "services": {
-        
+
         // ... there are probably other service configs
-        
+
         "email": {
             "host": "localhost",
             "port": 1025

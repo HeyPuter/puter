@@ -10,7 +10,7 @@
 This endpoint allows you to call a Puter driver. Whether or not the
 driver call fails, this endpoint will respond with HTTP 200 OK.
 When a driver call fails, you will get a JSON response from the driver
-with 
+with
 
 #### Parameters
 
@@ -28,12 +28,13 @@ request should be `application/json`.
   - **description:** Parametized arguments for the driver call. For example, `puter-chat-completion`'s `complete` method supports the arguments `messages` and `temperature` (and others), so you might set this to `{ "messages": [...], "temperature": 1.2 }`
 
 #### Example
+
 ```json
 {
-    "interface": "<name of interface>",
-    "service": "<name of service>",
-    "method": "<name of method>",
-    "args": { "parametized": "arguments" }
+  "interface": "<name of interface>",
+  "service": "<name of service>",
+  "method": "<name of method>",
+  "args": { "parametized": "arguments" }
 }
 ```
 
@@ -44,8 +45,8 @@ request should be `application/json`.
   {
     "success": false,
     "error": {
-        "code": "string identifier for the error",
-        "message": "some message about the error",
+      "code": "string identifier for the error",
+      "message": "some message about the error"
     }
   }
   ```

@@ -25,6 +25,7 @@
 <br/>
 
 ## Puter
+
 A Puter egy fejlett, nyílt forráskódú internetes operációs rendszer, amelyet úgy terveztek, hogy funkciókban gazdag, kivételesen gyors és nagymértékben bővíthető legyen. A Puter a következőképpen használható:
 
 - Egy adatvédelmet előtérbe helyező személyes felhő, amely minden fájlt, alkalmazást és játékot egy biztonságos helyen tart. Bárhonnan és bármikor elérhető.
@@ -36,7 +37,6 @@ A Puter egy fejlett, nyílt forráskódú internetes operációs rendszer, amely
 <br/>
 
 ## Első lépések
-
 
 ### 💻 Helyi (lokális) fejlesztés
 
@@ -53,28 +53,26 @@ Ezzel a http://puter.localhost:4100 -on futtatjuk Putert. (vagy a legközelebbi 
 
 ### 🐳 Docker
 
-
 ```bash
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
 ```
 
 <br/>
 
-
 ### 🐙 Docker Compose
 
-
 #### Linux/macOS
+
 ```bash
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+
 <br/>
 
 #### Windows
-
 
 ```powershell
 mkdir -p puter
@@ -84,6 +82,7 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ### ☁️ Puter.com
@@ -114,14 +113,11 @@ Lépj kapcsolatba a fejlesztőkkel és a közösséggel az alábbi platformokon:
 - Biztonsági hibák? [security@puter.com](mailto:security@puter.com)
 - A fejlesztőket a [hi@puter.com](mailto:hi@puter.com) email címen érheted el.
 
-
 Mindig örömmel segítünk bármilyen felmerülő kérdésben. Bátran kérdezz tőlünk!
 
 <br/>
 
-
-##  License
-
+## License
 
 Ez a repo, beleértve annak minden tartalmát, alprojektjeit, moduljait és komponenseit, az [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) licenc alatt áll, hacsak másképp nem rendelkeznek róla. A repoban szereplő harmadik fél által fejlesztett könyvtárak saját licencfeltételek alá eshetnek.
 

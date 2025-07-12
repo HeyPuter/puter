@@ -16,20 +16,20 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("../../services/BaseService");
+const BaseService = require('../../services/BaseService');
 
 class ServeStaticFilesService extends BaseService {
-    async _init (args) {
-        this.directories = args.directories;
-    }
+  async _init(args) {
+    this.directories = args.directories;
+  }
 
-    async ['__on_install.routes'] () {
-        const { app } = this.services.get('web-server');
+  async ['__on_install.routes']() {
+    const { app } = this.services.get('web-server');
 
-        for ( const { prefix, path } of this.directories ) {
-            app.use(prefix, require('express').static(path));
-        }
+    for (const { prefix, path } of this.directories) {
+      app.use(prefix, require('express').static(path));
     }
+  }
 }
 
 module.exports = { ServeStaticFilesService };

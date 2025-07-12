@@ -16,11 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
-const express = require('express')
-const router = new express.Router()
-const config = require('../config')
-const { get_user } = require('../helpers')
+'use strict';
+const express = require('express');
+const router = new express.Router();
+const config = require('../config');
+const { get_user } = require('../helpers');
 
 const jwt = require('jsonwebtoken');
 
@@ -30,31 +30,31 @@ const SAFE_NEGATIVE_RESPONSE = 'This password recovery token is no longer valid.
 // -----------------------------------------------------------------------//
 // POST /verify-pass-recovery-token
 // -----------------------------------------------------------------------//
-router.post('/verify-pass-recovery-token', express.json(), async (req, res, next)=>{
-    // check subdomain
-    if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
-        next();
+router.post('/verify-pass-recovery-token', express.json(), async (req, res, next) => {
+  // check subdomain
+  if (require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
+    next();
 
-    if ( ! req.body.token ) {
-        return res.status(401).send('token is required')
-    }
+  if (!req.body.token) {
+    return res.status(401).send('token is required');
+  }
 
-    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
-    if ( ! svc_edgeRateLimit.check('verify-pass-recovery-token') ) {
-        return res.status(429).send('Too many requests.');
-    }
+  const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+  if (!svc_edgeRateLimit.check('verify-pass-recovery-token')) {
+    return res.status(429).send('Too many requests.');
+  }
 
-    const { exp, user_uid, email } = jwt.verify(req.body.token, config.jwt_secret);
+  const { exp, user_uid, email } = jwt.verify(req.body.token, config.jwt_secret);
 
-    const user = await get_user({ uuid: user_uid, force: true });
-    if ( user.email !== email ) {
-        return res.status(400).send(SAFE_NEGATIVE_RESPONSE);
-    }
+  const user = await get_user({ uuid: user_uid, force: true });
+  if (user.email !== email) {
+    return res.status(400).send(SAFE_NEGATIVE_RESPONSE);
+  }
 
-    const current_time = Math.floor(Date.now() / 1000);
-    const time_remaining = exp - current_time;
+  const current_time = Math.floor(Date.now() / 1000);
+  const time_remaining = exp - current_time;
 
-    return res.status(200).send({ time_remaining });
-})
+  return res.status(200).send({ time_remaining });
+});
 
-module.exports = router
+module.exports = router;

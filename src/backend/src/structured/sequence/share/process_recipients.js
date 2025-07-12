@@ -17,12 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const APIError = require("../../../api/APIError");
-const { Sequence } = require("../../../codex/Sequence");
-const config = require("../../../config");
+const APIError = require('../../../api/APIError');
+const { Sequence } = require('../../../codex/Sequence');
+const config = require('../../../config');
 
 const validator = require('validator');
-const { get_user } = require("../../../helpers");
+const { get_user } = require('../../../helpers');
 
 /*
     This code is optimized for editors supporting folding.
@@ -36,71 +36,73 @@ const { get_user } = require("../../../helpers");
     }
 */
 
-module.exports = new Sequence({
+module.exports = new Sequence(
+  {
     name: 'process recipients',
-    after_each (a) {
-        const { recipients_work } = a.values();
-        recipients_work.clear_invalid();
-    }
-}, [
-    function valid_username_or_email (a) {
-        const { result, recipients_work } = a.values();
-        for ( const item of recipients_work.list() ) {
-            const { value, i } = item;
-            
-            if ( typeof value !== 'string' ) {
-                item.invalid = true;
-                result.recipients[i] =
-                    APIError.create('invalid_username_or_email', null, {
-                        value,
-                    });
-                continue;
-            }
+    after_each(a) {
+      const { recipients_work } = a.values();
+      recipients_work.clear_invalid();
+    },
+  },
+  [
+    function valid_username_or_email(a) {
+      const { result, recipients_work } = a.values();
+      for (const item of recipients_work.list()) {
+        const { value, i } = item;
 
-            if ( value.match(config.username_regex) ) {
-                item.type = 'username';
-                continue;
-            }
-            if ( validator.isEmail(value) ) {
-                item.type = 'email';
-                continue;
-            }
-            
-            item.invalid = true;
-            result.recipients[i] =
-                APIError.create('invalid_username_or_email', null, {
-                    value,
-                });
+        if (typeof value !== 'string') {
+          item.invalid = true;
+          result.recipients[i] = APIError.create('invalid_username_or_email', null, {
+            value,
+          });
+          continue;
         }
-    },
-    async function check_existing_users_for_email_shares (a) {
-        const { recipients_work } = a.values();
-        for ( const recipient_item of recipients_work.list() ) {
-            if ( recipient_item.type !== 'email' ) continue;
-            const user = await get_user({
-                email: recipient_item.value,
-            });
-            if ( ! user ) continue;
-            recipient_item.type = 'username';
-            recipient_item.value = user.username;
-        }
-    },
-    async function check_username_specified_users_exist (a) {
-        const { result, recipients_work } = a.values();
-        for ( const item of recipients_work.list() ) {
-            if ( item.type !== 'username' ) continue;
 
-            const user = await get_user({ username: item.value });
-            if ( ! user ) {
-                item.invalid = true;
-                result.recipients[item.i] =
-                    APIError.create('user_does_not_exist', null, {
-                        username: item.value,
-                    });
-                continue;
-            }
-            item.user = user;
+        if (value.match(config.username_regex)) {
+          item.type = 'username';
+          continue;
         }
+        if (validator.isEmail(value)) {
+          item.type = 'email';
+          continue;
+        }
+
+        item.invalid = true;
+        result.recipients[i] = APIError.create('invalid_username_or_email', null, {
+          value,
+        });
+      }
     },
-    function return_state (a) { return a; }
-]);
+    async function check_existing_users_for_email_shares(a) {
+      const { recipients_work } = a.values();
+      for (const recipient_item of recipients_work.list()) {
+        if (recipient_item.type !== 'email') continue;
+        const user = await get_user({
+          email: recipient_item.value,
+        });
+        if (!user) continue;
+        recipient_item.type = 'username';
+        recipient_item.value = user.username;
+      }
+    },
+    async function check_username_specified_users_exist(a) {
+      const { result, recipients_work } = a.values();
+      for (const item of recipients_work.list()) {
+        if (item.type !== 'username') continue;
+
+        const user = await get_user({ username: item.value });
+        if (!user) {
+          item.invalid = true;
+          result.recipients[item.i] = APIError.create('user_does_not_exist', null, {
+            username: item.value,
+          });
+          continue;
+        }
+        item.user = user;
+      }
+    },
+    function return_state(a) {
+      return a;
+    },
+  ]
+);

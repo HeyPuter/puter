@@ -14,8 +14,9 @@
   - `share-intent:app`
 - **properties:**
   - `permissions` - a list of permissions to grant
-  
+
 ### `{ $: 'internal:share' }`
+
 - Stored in the `share` database table
 - **properties:**
   - `permissions` - a list of permissions to grant

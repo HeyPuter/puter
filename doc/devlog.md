@@ -11,7 +11,7 @@
   - Is that normalized? Does everything go through this interface?
 - Storage interface has methods like `post_insert`
   - as far as I can tell this doesn't pose any issue
--  
+-
 
 ### Brainstorming Migration Strategies
 
@@ -72,16 +72,18 @@ there is just one service. PuterFSv1, on the other hand, is like an
 imaginary service composed of other services.
 
 The following possibilities then should be discussed:
+
 - CompositeService base class for a service that is composed of
   more than one service.
 - Refactor filesystem to not use service architecture.
 - Each filesystem service can manage state and configuration
   for multiple mountpoints
   (I don't like this idea; it feels messy. I wonder what software
-   principles this violates)
+  principles this violates)
 
 We can take advantage of traits/interfaces here.
 PuterFSv1 depends on two interfaces:
+
 - An S3-like data storage implementation
 - An fsentry storage implementation
 

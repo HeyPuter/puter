@@ -17,10 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export class ProxyWriter {
-    constructor ({ delegate }) {
-        this.delegate = delegate;
-    }
+  constructor({ delegate }) {
+    this.delegate = delegate;
+  }
 
-    write (...a) { return this.delegate.write(...a); }
-    close (...a) { return this.delegate.close(...a); }
+  write(...a) {
+    return this.delegate.write(...a);
+  }
+  close(...a) {
+    return this.delegate.close(...a);
+  }
 }

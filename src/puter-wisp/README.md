@@ -47,8 +47,7 @@ stream (typically a value of type `Uint8Array`).
 
 ```javascript
 const byteStream = NewCallbackByteStream();
-emulator.add_listener('virtio-console0-output-bytes',
-    byteStream.listener);
+emulator.add_listener('virtio-console0-output-bytes', byteStream.listener);
 ```
 
 ### NewVirtioFrameStream (function)
@@ -89,7 +88,7 @@ const wispStream = NewWispPacketStream(virtioStream);
 (async () => {
     for ( const packet of wispStream ) {
         console.log('Wisp packet!', packet.describe());
-        
+
         // Let's send back a reflected packet for INFO!
         if ( packet.type === WispPacket.INFO ) {
             emulator.bus.send(

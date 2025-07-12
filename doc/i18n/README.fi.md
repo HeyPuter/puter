@@ -37,7 +37,6 @@ Puter on kehittynyt, avoimen lähdekoodin internetin käyttöjärjestelmä, joka
 
 ## Aloittaminen
 
-
 ### 💻 Paikallinen kehitys
 
 ```bash
@@ -53,28 +52,26 @@ Tämä käynnistää Puterin osoitteessa http://puter.localhost:4100 (tai seuraa
 
 ### 🐳 Docker
 
-
 ```bash
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
 ```
 
 <br/>
 
-
 ### 🐙 Docker Compose
 
-
 #### Linux/macOS
+
 ```bash
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+
 <br/>
 
 #### Windows
-
 
 ```powershell
 mkdir -p puter
@@ -84,6 +81,7 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ### ☁️ Puter.com
@@ -118,8 +116,7 @@ Olemme aina valmiita auttamaan sinua kaikissa kysymyksissäsi. Älä epäröi ky
 
 <br/>
 
-
-##  Lisenssi
+## Lisenssi
 
 Tämä repository, mukaan lukien kaikki sen sisältö, aliprojektit, moduulit ja komponentit, on lisensoitu [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt)-lisenssillä, ellei toisin mainita. Tämän repositoryn mukana tulevat kolmannen osapuolen kirjastot voivat olla omien lisenssiensä alaisia.
 

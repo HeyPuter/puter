@@ -28,14 +28,14 @@ are reserved for future use.
 
 ```javascript
 await fetch(`${window.api_origin}/group/create`, {
-  "headers": {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${puter.authToken}`,
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${puter.authToken}`,
   },
-  "body": JSON.stringify({
-    metadata: { title: 'Some Title' }
+  body: JSON.stringify({
+    metadata: { title: 'Some Title' },
   }),
-  "method": "POST",
+  method: 'POST',
 });
 
 // { uid: '9c644a1c-3e43-4df4-ab67-de5b68b235b6' }
@@ -45,7 +45,7 @@ await fetch(`${window.api_origin}/group/create`, {
 
 ```json
 {
-    "uid": "9c644a1c-3e43-4df4-ab67-de5b68b235b6"
+  "uid": "9c644a1c-3e43-4df4-ab67-de5b68b235b6"
 }
 ```
 
@@ -67,15 +67,15 @@ Adds one or more users to a group
 
 ```javascript
 await fetch(`${window.api_origin}/group/add-users`, {
-  "headers": {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${puter.authToken}`,
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${puter.authToken}`,
   },
-  "body": JSON.stringify({
-      uid: '9c644a1c-3e43-4df4-ab67-de5b68b235b6',
-      users: ['first_user', 'second_user'],
+  body: JSON.stringify({
+    uid: '9c644a1c-3e43-4df4-ab67-de5b68b235b6',
+    users: ['first_user', 'second_user'],
   }),
-  "method": "POST",
+  method: 'POST',
 });
 ```
 
@@ -97,15 +97,15 @@ Remove one or more users from a group
 
 ```javascript
 await fetch(`${window.api_origin}/group/add-users`, {
-  "headers": {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${puter.authToken}`,
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${puter.authToken}`,
   },
-  "body": JSON.stringify({
-      uid: '9c644a1c-3e43-4df4-ab67-de5b68b235b6',
-      users: ['first_user', 'second_user'],
+  body: JSON.stringify({
+    uid: '9c644a1c-3e43-4df4-ab67-de5b68b235b6',
+    users: ['first_user', 'second_user'],
   }),
-  "method": "POST",
+  method: 'POST',
 });
 ```
 
@@ -123,24 +123,20 @@ _none_
 
 ```json
 {
-    "owned_groups": [
-        {
-            "uid": "c3bd4047-fc65-4da8-9363-e52195890de4",
-            "metadata": {},
-            "members": [
-                "default_user"
-            ]
-        }
-    ],
-    "in_groups": [
-        {
-            "uid": "c3bd4047-fc65-4da8-9363-e52195890de4",
-            "metadata": {},
-            "members": [
-                "default_user"
-            ]
-        }
-    ]
+  "owned_groups": [
+    {
+      "uid": "c3bd4047-fc65-4da8-9363-e52195890de4",
+      "metadata": {},
+      "members": ["default_user"]
+    }
+  ],
+  "in_groups": [
+    {
+      "uid": "c3bd4047-fc65-4da8-9363-e52195890de4",
+      "metadata": {},
+      "members": ["default_user"]
+    }
+  ]
 }
 ```
 
@@ -166,16 +162,16 @@ permission has the permission.
 ### Request Example
 
 ```javascript
-await fetch("http://puter.localhost:4100/auth/grant-user-group", {
-  "headers": {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${puter.authToken}`,
+await fetch('http://puter.localhost:4100/auth/grant-user-group', {
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${puter.authToken}`,
   },
-  "body": JSON.stringify({
-      group_uid: '9c644a1c-3e43-4df4-ab67-de5b68b235b6',
-      permission: 'fs:/someuser/somedir/somefile:read'
+  body: JSON.stringify({
+    group_uid: '9c644a1c-3e43-4df4-ab67-de5b68b235b6',
+    permission: 'fs:/someuser/somedir/somefile:read',
   }),
-  "method": "POST",
+  method: 'POST',
 });
 ```
 
@@ -196,24 +192,24 @@ to a group.
 ### Request Example
 
 ```javascript
-await fetch("http://puter.localhost:4100/auth/grant-user-group", {
-  "headers": {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${puter.authToken}`,
+await fetch('http://puter.localhost:4100/auth/grant-user-group', {
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${puter.authToken}`,
   },
-  "body": JSON.stringify({
-      group_uid: '9c644a1c-3e43-4df4-ab67-de5b68b235b6',
-      permission: 'fs:/someuser/somedir/somefile:read'
+  body: JSON.stringify({
+    group_uid: '9c644a1c-3e43-4df4-ab67-de5b68b235b6',
+    permission: 'fs:/someuser/somedir/somefile:read',
   }),
-  "method": "POST",
+  method: 'POST',
 });
 ```
 
 - > **TODO** figure out how to manage documentation that could
-    reasonably show up in two files. For example: this is a group
-    endpoint as well as a permission system endpoint.
-    (architecturally it's a permission system endpoint, and
-    the permissions feature depends on the groups feature;
-    at least until a time when PermissionService is refactored
-    so a service like GroupService can mutate the permission
-    check sequences)
+  > reasonably show up in two files. For example: this is a group
+  > endpoint as well as a permission system endpoint.
+  > (architecturally it's a permission system endpoint, and
+  > the permissions feature depends on the groups feature;
+  > at least until a time when PermissionService is refactored
+  > so a service like GroupService can mutate the permission
+  > check sequences)

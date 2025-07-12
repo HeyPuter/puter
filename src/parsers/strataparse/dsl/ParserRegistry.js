@@ -17,13 +17,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export class ParserRegistry {
-    constructor () {
-        this.parsers_ = {};
-    }
-    register (id, parser) {
-        this.parsers_[id] = parser;
-    }
-    get parsers () {
-        return this.parsers_;
-    }
+  constructor() {
+    this.parsers_ = {};
+  }
+  register(id, parser) {
+    this.parsers_[id] = parser;
+  }
+  get parsers() {
+    return this.parsers_;
+  }
 }

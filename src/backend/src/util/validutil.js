@@ -16,17 +16,17 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const valid_file_size = v => {
-    v =  Number(v);
-    if ( ! Number.isInteger(v) ) {
-        return { ok: false, v };
-    }
-    if ( v < 0 ) {
-        return { ok: false, v };
-    }
-    return { ok: true, v };
+const valid_file_size = (v) => {
+  v = Number(v);
+  if (!Number.isInteger(v)) {
+    return { ok: false, v };
+  }
+  if (v < 0) {
+    return { ok: false, v };
+  }
+  return { ok: true, v };
 };
 
 module.exports = {
-    valid_file_size,
+  valid_file_size,
 };

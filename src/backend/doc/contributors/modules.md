@@ -10,13 +10,9 @@ Here is the relevant excerpt in `run-selfhosted.js` at the time of
 writing this documentation:
 
 ```javascript
-const {
-    Kernel,
-    CoreModule,
-    DatabaseModule,
-    LocalDiskStorageModule,
-    SelfHostedModule
-} = (await import('@heyputer/backend')).default;
+const { Kernel, CoreModule, DatabaseModule, LocalDiskStorageModule, SelfHostedModule } = (
+  await import('@heyputer/backend')
+).default;
 
 const k = new Kernel();
 k.add_module(new CoreModule());
@@ -48,14 +44,14 @@ like this:
 
 ```javascript
 class MyPuterModule extends AdvancedBase {
-    async install (context) {
-        const services = context.get('services');
+  async install(context) {
+    const services = context.get('services');
 
-        const MyService = require('./path/to/MyService.js');
-        services.registerService('my-service', MyService, {
-            some_options: 'for-my-service',
-        });
-    }
+    const MyService = require('./path/to/MyService.js');
+    services.registerService('my-service', MyService, {
+      some_options: 'for-my-service',
+    });
+  }
 }
 ```
 
@@ -73,31 +69,31 @@ A typical service may look like this:
 
 ```javascript
 class MyService extends BaseService {
-    static MODULES = {
-        // Use node's `require` function to populate this object;
-        // this makes these available to `this.require` and offers
-        // dependency-injection for unit testing.
-        ['some-module']: require('some-module')
-    }
+  static MODULES = {
+    // Use node's `require` function to populate this object;
+    // this makes these available to `this.require` and offers
+    // dependency-injection for unit testing.
+    ['some-module']: require('some-module'),
+  };
 
-    // Do not override the constructor of BaseService - use this instead!
-    async _construct () {
-        this.my_list = [];
-    }
+  // Do not override the constructor of BaseService - use this instead!
+  async _construct() {
+    this.my_list = [];
+  }
 
-    // This method is called after _construct has been called on all
-    // other services.
-    async _init () {
-        const services = this.services;
+  // This method is called after _construct has been called on all
+  // other services.
+  async _init() {
+    const services = this.services;
 
-        // We can get the instances of other services here
-        const svc_otherService = services.get('other-service');
-    }
+    // We can get the instances of other services here
+    const svc_otherService = services.get('other-service');
+  }
 
-    // The service container can listen on the "service event bus"
-    async ['__on_boot.consolidation'] () {}
-    async ['__on_boot.activation'] () {}
-    async ['__on_start.webserver'] () {}
-    async ['__on_install.routes'] () {}
+  // The service container can listen on the "service event bus"
+  async ['__on_boot.consolidation']() {}
+  async ['__on_boot.activation']() {}
+  async ['__on_start.webserver']() {}
+  async ['__on_install.routes']() {}
 }
 ```

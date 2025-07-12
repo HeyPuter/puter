@@ -17,16 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export default {
-    name: 'test',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: true,
-    },
-    execute: async ctx => {
-        const { historyManager } = ctx.externs;
-        const { chatHistory } = ctx.plugins;
+  name: 'test',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: true,
+  },
+  execute: async (ctx) => {
+    const { historyManager } = ctx.externs;
+    const { chatHistory } = ctx.plugins;
 
-
-        console.log('test????', chatHistory.get_messages());
-    }
-}
+    console.log('test????', chatHistory.get_messages());
+  },
+};

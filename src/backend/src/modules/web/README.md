@@ -20,7 +20,7 @@ Initializes socket.io
 
 ###### Parameters
 
-- **server:**  The server to attach socket.io to.
+- **server:** The server to attach socket.io to.
 
 ### WebServerService
 
@@ -56,6 +56,7 @@ removed it may become possible to move this module to an
 extension.
 
 **Imports:**
+
 - `../../services/BaseService` (use.BaseService)
 - `../../util/context.js`
 - `../../services/BaseService.js`

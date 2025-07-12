@@ -16,32 +16,32 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import UIAlert from "../UI/UIAlert.js";
+import UIAlert from '../UI/UIAlert.js';
 
-import { Service } from "../definitions.js";
+import { Service } from '../definitions.js';
 
 export class LaunchOnInitService extends Service {
-    _construct () {
-        this.commands = {
-            'window-call': ({ fn_name, args }) => {
-                window[fn_name](...args);
-            }
-        };
-    }
-    async _init () {
-        const launch_options = this.$puter.gui_params.launch_options;
-        if ( ! launch_options ) return;
+  _construct() {
+    this.commands = {
+      'window-call': ({ fn_name, args }) => {
+        window[fn_name](...args);
+      },
+    };
+  }
+  async _init() {
+    const launch_options = this.$puter.gui_params.launch_options;
+    if (!launch_options) return;
 
-        if ( launch_options.on_initialized ) {
-            for ( const command of launch_options.on_initialized ) {
-                this.run_(command);
-            }
-        }
+    if (launch_options.on_initialized) {
+      for (const command of launch_options.on_initialized) {
+        this.run_(command);
+      }
     }
+  }
 
-    run_ (command) {
-        const args = { ...command };
-        delete args.$;
-        this.commands[command.$](args);
-    }
+  run_(command) {
+    const args = { ...command };
+    delete args.$;
+    this.commands[command.$](args);
+  }
 }

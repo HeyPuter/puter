@@ -18,13 +18,11 @@ or `/var/puter/config.json`) to specify mod directories.
 
 ```json
 {
-    "config_name": "example config",
+  "config_name": "example config",
 
-    "mod_directories": [
-        "{source}/mods/mods_enabled"
-    ]
+  "mod_directories": ["{source}/mods/mods_enabled"]
 
-    // ... other config options
+  // ... other config options
 }
 ```
 
@@ -47,6 +45,7 @@ as managing sites/mods in Apache or Nginx servers.
 For example to enable KDMOD (which you can read as "Kernel Dev" mod,
 or "the mod that GitHub user KernelDeimos created to help with testing")
 you would run this command:
+
 ```sh
 ln -rs ./mods/mods_available/kdmod ./mods/mods_enabled/
 ```
@@ -55,6 +54,7 @@ This will create a symlink at `./mods/mods_enabled/kdmod` pointing
 to the directory `./mods/mods_available/kdmod`.
 
 > **note:** here are some helpful tips for the `ln` command:
+>
 > - You can remember `ln`'s first argument is the unaffected
 >   source file by remembering `cp` and `mv` are the same in
 >   this way.
@@ -63,4 +63,3 @@ to the directory `./mods/mods_available/kdmod`.
 > - The `-r` flag allows you to write both paths relative to
 >   the directory from which you are calling the command, which
 >   is sometimes more intuitive.
-

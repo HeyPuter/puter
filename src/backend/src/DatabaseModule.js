@@ -16,21 +16,23 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
+const { AdvancedBase } = require('@heyputer/putility');
 
 class DatabaseModule extends AdvancedBase {
-    async install (context) {
-        const services = context.get('services');
+  async install(context) {
+    const services = context.get('services');
 
-        const { StrategizedService } = require('./services/StrategizedService');
-        const { SqliteDatabaseAccessService } = require('./services/database/SqliteDatabaseAccessService');
-        services.registerService('database', StrategizedService, {
-            strategy_key: 'engine',
-            strategies: {
-                sqlite: [SqliteDatabaseAccessService],
-            }
-        })
-    }
+    const { StrategizedService } = require('./services/StrategizedService');
+    const {
+      SqliteDatabaseAccessService,
+    } = require('./services/database/SqliteDatabaseAccessService');
+    services.registerService('database', StrategizedService, {
+      strategy_key: 'engine',
+      strategies: {
+        sqlite: [SqliteDatabaseAccessService],
+      },
+    });
+  }
 }
 
 module.exports = DatabaseModule;

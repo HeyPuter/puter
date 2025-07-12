@@ -17,8 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export class Exit extends Error {
-    constructor (code) {
-        super(`exit ${code}`);
-        this.code = code;
-    }
+  constructor(code) {
+    super(`exit ${code}`);
+    this.code = code;
+  }
 }

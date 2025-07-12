@@ -17,8 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 module.exports = {
-    sql: {
-        table_name: 'access_token_permissions'
-    },
-    primary_identifier: 'token',
+  sql: {
+    table_name: 'access_token_permissions',
+  },
+  primary_identifier: 'token',
 };

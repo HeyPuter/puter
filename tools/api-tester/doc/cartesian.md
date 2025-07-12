@@ -16,14 +16,14 @@ the `/write` API method for Puter's filesystem:
 
 ```javascript
 module.exports = new CoverageModel({
-    path: {
-        format: ['path', 'uid'],
-    },
-    name: ['default', 'specified'],
-    conditions: {
-        destinationIsFile: []
-    },
-    overwrite: [],
+  path: {
+    format: ['path', 'uid'],
+  },
+  name: ['default', 'specified'],
+  conditions: {
+    destinationIsFile: [],
+  },
+  overwrite: [],
 });
 ```
 
@@ -37,10 +37,10 @@ For example, this is one arbitrary state:
 
 ```json
 {
-    "path.format": "path",
-    "name": "specified",
-    "conditions.destinationIsFile": true,
-    "overwrite": false
+  "path.format": "path",
+  "name": "specified",
+  "conditions.destinationIsFile": true,
+  "overwrite": false
 }
 ```
 

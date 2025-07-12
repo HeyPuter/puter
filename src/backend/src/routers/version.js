@@ -16,46 +16,44 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const eggspress = require("../api/eggspress");
+const eggspress = require('../api/eggspress');
 
-module.exports = eggspress(['/version'], {
+module.exports = eggspress(
+  ['/version'],
+  {
     allowedMethods: ['GET'],
     subdomain: 'api',
     json: true,
-}, async (req, res, next) => {
+  },
+  async (req, res, next) => {
     const svc_puterVersion = req.services.get('puter-version');
 
     const response = svc_puterVersion.get_version();
 
     // Add user-friendly version information
     {
-        response.version_text = response.version;
-        const components = response.version.split('-');
-        if ( components.length > 1 ) {
-            response.release_type = components[1];
-            if ( components[1] === 'rc' ) {
-                response.version_text =
-                    `${components[0]} (Release Candidate ${components[2]})`;
-            }
-            else if ( components[1] === 'dev' ) {
-                response.version_text =
-                    `${components[0]} (Development Build)`;
-            }
-            else if ( components[1] === 'beta' ) {
-                response.version_text =
-                    `${components[0]} (Beta Release)`;
-            }
-            else if ( ! isNaN(components[1]) ) {
-                response.version_text = `${components[0]} (Build ${components[1]})`;
-                response.sub_version = components[1];
-                response.hash = components[2];
-                response.release_type = 'build';
-            }
-            if ( isNaN(components[1]) && components.length > 2 ) {
-                response.sub_version = components[2];
-            }
+      response.version_text = response.version;
+      const components = response.version.split('-');
+      if (components.length > 1) {
+        response.release_type = components[1];
+        if (components[1] === 'rc') {
+          response.version_text = `${components[0]} (Release Candidate ${components[2]})`;
+        } else if (components[1] === 'dev') {
+          response.version_text = `${components[0]} (Development Build)`;
+        } else if (components[1] === 'beta') {
+          response.version_text = `${components[0]} (Beta Release)`;
+        } else if (!isNaN(components[1])) {
+          response.version_text = `${components[0]} (Build ${components[1]})`;
+          response.sub_version = components[1];
+          response.hash = components[2];
+          response.release_type = 'build';
         }
+        if (isNaN(components[1]) && components.length > 2) {
+          response.sub_version = components[2];
+        }
+      }
     }
 
     res.send(response);
-});
+  }
+);

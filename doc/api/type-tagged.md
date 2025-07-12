@@ -4,7 +4,7 @@
 {
     "$": "some-type",
     "$version": "0.0.0",
-    
+
     "some_property": "some value",
 }
 ```
@@ -47,23 +47,22 @@ accept these alternative representations:
 
 Depending on the architecture of your client, this format
 may be more convenient to work with:
+
 ```json
 {
-    "$": "$meta-body",
-    "type": "some-type",
-    "meta": { "version": "0.0.0" },
-    "body": { "some_property": "some value" }
+  "$": "$meta-body",
+  "type": "some-type",
+  "meta": { "version": "0.0.0" },
+  "body": { "some_property": "some value" }
 }
 ```
 
 ### Array Representation
 
 In the array representation, meta values go at the end.
+
 ```json
-["some-type",
-    { "some_property": "some value" },
-    { "version": "0.0.0" }
-]
+["some-type", { "some_property": "some value" }, { "version": "0.0.0" }]
 ```
 
 If the second element of the list is not an object, it

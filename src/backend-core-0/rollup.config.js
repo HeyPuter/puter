@@ -9,9 +9,9 @@ export default defineConfig([
     output: {
       dir: 'dist/esm',
       format: 'es',
-      preserveModules: true
+      preserveModules: true,
     },
-    plugins: [nodeResolve()]
+    plugins: [nodeResolve()],
   },
   // CJS build
   {
@@ -22,6 +22,6 @@ export default defineConfig([
       preserveModules: true,
       entryFileNames: '[name].cjs',
     },
-    plugins: [nodeResolve(), commonjs()]
-  }
+    plugins: [nodeResolve(), commonjs()],
+  },
 ]);

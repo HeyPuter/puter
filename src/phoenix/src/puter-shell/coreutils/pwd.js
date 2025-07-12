@@ -18,14 +18,14 @@
  */
 
 export default {
-    name: 'pwd',
-    usage: 'pwd',
-    description: 'Print the current working directory.',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: false,
-    },
-    execute: async ctx => {
-        await ctx.externs.out.write(ctx.vars.pwd + '\n');
-    }
-}
+  name: 'pwd',
+  usage: 'pwd',
+  description: 'Print the current working directory.',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: false,
+  },
+  execute: async (ctx) => {
+    await ctx.externs.out.write(ctx.vars.pwd + '\n');
+  },
+};

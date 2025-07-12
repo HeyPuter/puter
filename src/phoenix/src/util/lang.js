@@ -17,15 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export const disallowAccessToUndefined = (obj) => {
-    return new Proxy(obj, {
-        get (target, prop, receiver) {
-            if ( ! target.hasOwnProperty(prop) ) {
-                throw new Error(
-                    `disallowed access to undefined property` +
-                    `: ${JSON.stringify(prop)}.`
-                );
-            }
-            return Reflect.get(target, prop, receiver);
-        }
-    })
-}
+  return new Proxy(obj, {
+    get(target, prop, receiver) {
+      if (!target.hasOwnProperty(prop)) {
+        throw new Error(`disallowed access to undefined property` + `: ${JSON.stringify(prop)}.`);
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+};

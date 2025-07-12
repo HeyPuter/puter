@@ -20,30 +20,28 @@ import { parseArgs } from '@pkgjs/parseargs';
 import { DEFAULT_OPTIONS } from '../../puter-shell/coreutils/coreutil_lib/help.js';
 
 export default {
-    name: 'simple-parser',
-    async process (ctx, spec) {
-        // Insert standard options
-        spec.options = Object.assign(spec.options || {}, DEFAULT_OPTIONS);
+  name: 'simple-parser',
+  async process(ctx, spec) {
+    // Insert standard options
+    spec.options = Object.assign(spec.options || {}, DEFAULT_OPTIONS);
 
-        let result;
-        try {
-            result = parseArgs({ ...spec, args: ctx.locals.args });
-        } catch (e) {
-            await ctx.externs.out.write(
-                '\x1B[31;1m' +
-                'error parsing arguments: ' +
-                e.message + '\x1B[0m\n');
-            ctx.cmdExecState.valid = false;
-            return;
-        }
-
-        if (result.values.help) {
-            ctx.cmdExecState.printHelpAndExit = true;
-        }
-
-        ctx.locals.values = result.values;
-        ctx.locals.positionals = result.positionals;
-        if (result.tokens)
-            ctx.locals.tokens = result.tokens;
+    let result;
+    try {
+      result = parseArgs({ ...spec, args: ctx.locals.args });
+    } catch (e) {
+      await ctx.externs.out.write(
+        '\x1B[31;1m' + 'error parsing arguments: ' + e.message + '\x1B[0m\n'
+      );
+      ctx.cmdExecState.valid = false;
+      return;
     }
-}
+
+    if (result.values.help) {
+      ctx.cmdExecState.printHelpAndExit = true;
+    }
+
+    ctx.locals.values = result.values;
+    ctx.locals.positionals = result.positionals;
+    if (result.tokens) ctx.locals.tokens = result.tokens;
+  },
+};

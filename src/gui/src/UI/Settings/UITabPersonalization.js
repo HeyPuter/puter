@@ -22,11 +22,11 @@ import UIWindowDesktopBGSettings from '../UIWindowDesktopBGSettings.js';
 
 // About
 export default {
-    id: 'personalization',
-    title_i18n_key: 'personalization',
-    icon: 'palette-outline.svg',
-    html: () => {
-        return `
+  id: 'personalization',
+  title_i18n_key: 'personalization',
+  icon: 'palette-outline.svg',
+  html: () => {
+    return `
             <h1>${i18n('personalization')}</h1>
             <div class="settings-card">
                 <strong>${i18n('background')}</strong>
@@ -49,31 +49,31 @@ export default {
                 </select>
             </div>
             `;
-    },
-    init: ($el_window) => {
-        $el_window.find('.change-ui-colors').on('click', function (e) {
-            UIWindowThemeDialog({
-                window_options:{
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    disable_parent_window: true,
-                    parent_center: true,
-                }
-            });
-        });
-        $el_window.find('.change-background').on('click', function (e) {
-            UIWindowDesktopBGSettings({
-                window_options:{
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    disable_parent_window: true,
-                    parent_center: true,
-                }
-            });
-        });
+  },
+  init: ($el_window) => {
+    $el_window.find('.change-ui-colors').on('click', function (e) {
+      UIWindowThemeDialog({
+        window_options: {
+          parent_uuid: $el_window.attr('data-element_uuid'),
+          disable_parent_window: true,
+          parent_center: true,
+        },
+      });
+    });
+    $el_window.find('.change-background').on('click', function (e) {
+      UIWindowDesktopBGSettings({
+        window_options: {
+          parent_uuid: $el_window.attr('data-element_uuid'),
+          disable_parent_window: true,
+          parent_center: true,
+        },
+      });
+    });
 
-        $el_window.on('change', 'select.change-clock-visible', function(e){
-            window.change_clock_visible(this.value);
-        });
+    $el_window.on('change', 'select.change-clock-visible', function (e) {
+      window.change_clock_visible(this.value);
+    });
 
-        window.change_clock_visible();
-    },
+    window.change_clock_visible();
+  },
 };

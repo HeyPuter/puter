@@ -4,7 +4,9 @@
 > The self-hosted version of Puter is currently in alpha stage and should not be used in production yet. It is under active development and may contain bugs, other issues. Please exercise caution and use it for testing and evaluation purposes only.
 
 ### Self-Hosting Differences
+
 Currently, the self-hosted version of Puter is different in a few ways from [Puter.com](https://puter.com):
+
 - There is no built-in way to access apps from puter.com (see below)
 - Several "core" apps are missing, such as **Code** or **Draw**
 - Some assets are different
@@ -17,6 +19,7 @@ Until then, it is still possible to add apps using the **Dev Center** app.
 ## Configuration
 
 Running the server will generate a [configuration file](./config.md) in one of these locations:
+
 - `config/config.json` when [Using Docker](#using-docker)
 - `volatile/config/config.json` in [Local Development](#local-development)
 - `/etc/puter/config.json` on a server (or within a Docker container)
@@ -27,6 +30,7 @@ To access Puter on your device, you can simply go to the address printed in
 the server console (usually `puter.localhost:4100`).
 
 To access Puter from another device on LAN, enable the following configuration:
+
 ```json
 "allow_nipio_domains": true
 ```

@@ -27,7 +27,6 @@ The Test Kernel is ideal for running unit and integration tests against individu
 
 1. **Initialization**:  
    Instantiate the Test Kernel, and add any modules you want to test.
-   
 2. **Module Installation**:  
    The Test Kernel installs these modules (via `_install_modules()`), making their services available in the `Container`.
 

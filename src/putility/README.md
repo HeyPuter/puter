@@ -60,10 +60,10 @@ You can create sub-contexts using Context**.sub()**:
 
 ```javascript
 const a = new Context({
-  some_key: 'some value'
+  some_key: 'some value',
 });
 const b = a.sub({
-  another_key: 'another value'
+  another_key: 'another value',
 });
 
 b.another_key; // "another value"

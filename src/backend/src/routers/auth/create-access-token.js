@@ -16,48 +16,50 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const eggspress = require("../../api/eggspress");
-const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
+const { Context } = require('../../util/context');
 
-module.exports = eggspress('/auth/create-access-token', {
+module.exports = eggspress(
+  '/auth/create-access-token',
+  {
     subdomain: 'api',
     auth2: true,
     allowedMethods: ['POST'],
-}, async (req, res, next) => {
+  },
+  async (req, res, next) => {
     const x = Context.get();
     const svc_auth = x.get('services').get('auth');
 
     const permissions = req.body.permissions || [];
 
-    if ( permissions.length === 0 ) {
-        throw APIError.create('field_missing', null, { key: 'permissions' });
+    if (permissions.length === 0) {
+      throw APIError.create('field_missing', null, { key: 'permissions' });
     }
 
-    for ( let i=0 ; i < permissions.length ; i++ ) {
-        let perm = permissions[i];
-        if ( typeof perm === 'string' ) {
-            perm = permissions[i] = [perm];
-        }
-        if ( ! Array.isArray(perm) ) {
-            throw APIError.create('field_invalid', null, { key: 'permissions' });
-        }
-        if ( perm.length === 0 || perm.length > 2 ) {
-            throw APIError.create('field_invalid', null, { key: 'permissions' });
-        }
-        if ( typeof perm[0] !== 'string' ) {
-            throw APIError.create('field_invalid', null, { key: 'permissions' });
-        }
-        if ( perm.length === 2 && typeof perm[1] !== 'object' ) {
-            throw APIError.create('field_invalid', null, { key: 'permissions' });
-        }
+    for (let i = 0; i < permissions.length; i++) {
+      let perm = permissions[i];
+      if (typeof perm === 'string') {
+        perm = permissions[i] = [perm];
+      }
+      if (!Array.isArray(perm)) {
+        throw APIError.create('field_invalid', null, { key: 'permissions' });
+      }
+      if (perm.length === 0 || perm.length > 2) {
+        throw APIError.create('field_invalid', null, { key: 'permissions' });
+      }
+      if (typeof perm[0] !== 'string') {
+        throw APIError.create('field_invalid', null, { key: 'permissions' });
+      }
+      if (perm.length === 2 && typeof perm[1] !== 'object') {
+        throw APIError.create('field_invalid', null, { key: 'permissions' });
+      }
     }
 
     const actor = Context.get('actor');
 
-    const token = await svc_auth.create_access_token(
-        actor, permissions
-    );
+    const token = await svc_auth.create_access_token(actor, permissions);
 
     res.json({ token });
-});
+  }
+);

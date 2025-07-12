@@ -31,6 +31,7 @@ Checks for missing translations in `src/gui/src/i18n/translations`
 Generates comments in source files using generative AI via Puter's AI drivers.
 
 To use this:
+
 - `cd` into the `tools/comment-writer` directory
 - Edit `config.json` and replace `auth_token` with your own
 - Run with a specified direcotry; for example:

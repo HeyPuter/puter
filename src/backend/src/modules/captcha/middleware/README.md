@@ -25,14 +25,20 @@ const router = express.Router();
 const { checkCaptcha, requireCaptcha } = context.get('captcha-middleware');
 
 // Determine if captcha is required for this route
-router.post('/login', checkCaptcha({ eventType: 'login' }), (req, res, next) => {
-  // Set a flag in the response so frontend knows if captcha is needed
-  res.locals.captchaRequired = req.captchaRequired;
-  next();
-}, requireCaptcha(), (req, res) => {
-  // Handle login logic
-  // If captcha was required, it has been verified at this point
-});
+router.post(
+  '/login',
+  checkCaptcha({ eventType: 'login' }),
+  (req, res, next) => {
+    // Set a flag in the response so frontend knows if captcha is needed
+    res.locals.captchaRequired = req.captchaRequired;
+    next();
+  },
+  requireCaptcha(),
+  (req, res) => {
+    // Handle login logic
+    // If captcha was required, it has been verified at this point
+  }
+);
 ```
 
 ### Using Individual Middlewares
@@ -87,8 +93,8 @@ router.get('/whoarewe', checkCaptcha({ eventType: 'login' }), (req, res) => {
   res.json({
     // Other environment information
     captchaRequired: {
-      login: req.captchaRequired
-    }
+      login: req.captchaRequired,
+    },
   });
 });
 ```
@@ -102,7 +108,7 @@ For PuterHomepageService, you can add captcha requirements to GUI parameters:
 gui_params: {
   // Other parameters
   captchaRequired: {
-    login: req.captchaRequired
+    login: req.captchaRequired;
   }
 }
 ```
@@ -120,27 +126,27 @@ To integrate with the captcha middleware, the client needs to:
 // Example client-side code
 async function submitWithCaptcha(formData) {
   // Check if captcha is required
-  const envInfo = await fetch('/api/whoarewe').then(r => r.json());
-  
+  const envInfo = await fetch('/api/whoarewe').then((r) => r.json());
+
   if (envInfo.captchaRequired?.login) {
     // Get and display captcha to user
     const captcha = await getCaptchaFromServer();
     showCaptchaToUser(captcha);
-    
+
     // Add captcha token and answer to the form data
     formData.captchaToken = captcha.token;
     formData.captchaAnswer = await getUserCaptchaAnswer();
   }
-  
+
   // Submit the form
   const response = await fetch('/api/login', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     },
-    body: JSON.stringify(formData)
+    body: JSON.stringify(formData),
   });
-  
+
   // Handle response
   const data = await response.json();
   if (response.status === 400 && data.error === 'captcha_required') {
@@ -157,4 +163,4 @@ The middleware will throw the following errors:
 - `captcha_required`: When captcha verification is required but no token or answer was provided.
 - `captcha_invalid`: When the provided captcha answer is incorrect.
 
-These errors can be caught by the API error handler and returned to the client. 
+These errors can be caught by the API error handler and returned to the client.

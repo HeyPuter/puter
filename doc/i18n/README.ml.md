@@ -38,7 +38,6 @@
 
 ## തുടങ്ങാനായി
 
-
 ### 💻 ലോക്കൽ ഡെവലപ്മെന്റ്
 
 ```bash
@@ -48,13 +47,11 @@ npm install
 npm start
 ```
 
-
 ഇത് http://puter.localhost:4100 (അല്ലെങ്കിൽ അടുത്ത ലഭ്യമായ പോർട്ടിൽ) എന്നതിൽ Puter സമാരംഭിക്കും
 
 <br/>
 
 ### 🐳 Docker
-
 
 ```bash
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
@@ -62,21 +59,20 @@ mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 100
 
 <br/>
 
-
 ### 🐙 Docker Compose
 
-
 #### Linux/macOS
+
 ```bash
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+
 <br/>
 
 #### Windows
-
 
 ```powershell
 mkdir -p puter
@@ -86,6 +82,7 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ### ☁️ Puter.com
@@ -120,8 +117,7 @@ docker compose up
 
 <br/>
 
-
-##  ലൈസൻസ്
+## ലൈസൻസ്
 
 ഈ ശേഖരം, അതിന്റെ എല്ലാ ഉള്ളടക്കങ്ങളും, ഉപപദ്ധതികളും, മൊഡ്യൂളുകളും, ഘടകങ്ങളും ഉൾപ്പെടെ, [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) എന്നതിന് കീഴിൽ ലൈസൻസുള്ളതാണ്. ഈ ശേഖരത്തിൽ ഉൾപ്പെടുത്തിയിരിക്കുന്ന മൂന്നാം കക്ഷി ലൈബ്രറികൾ അവരുടെ സ്വന്തം ലൈസൻസുകൾക്ക് വിധേയമായിരിക്കാം.
 

@@ -15,11 +15,11 @@ For example:
 
 ```javascript
 class ExampleClass extends SomeBase {
-    intuitive_method_definition () {}
-    
-    constructor () {
-        this.less_intuitive = some_expr();
-    }
+  intuitive_method_definition() {}
+
+  constructor() {
+    this.less_intuitive = some_expr();
+  }
 }
 ```
 

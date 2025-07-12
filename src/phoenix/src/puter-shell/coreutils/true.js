@@ -17,14 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export default {
-    name: 'true',
-    usage: 'true',
-    description: 'Do nothing, and return a success code.',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: true
-    },
-    execute: async ctx => {
-        return;
-    }
+  name: 'true',
+  usage: 'true',
+  description: 'Do nothing, and return a success code.',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: true,
+  },
+  execute: async (ctx) => {
+    return;
+  },
 };

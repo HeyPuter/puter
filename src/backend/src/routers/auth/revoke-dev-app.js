@@ -16,47 +16,48 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const eggspress = require("../../api/eggspress");
-const { UserActorType } = require("../../services/auth/Actor");
-const { Context } = require("../../util/context");
+const eggspress = require('../../api/eggspress');
+const { UserActorType } = require('../../services/auth/Actor');
+const { Context } = require('../../util/context');
 const APIError = require('../../api/APIError');
 
-module.exports = eggspress('/auth/revoke-dev-app', {
+module.exports = eggspress(
+  '/auth/revoke-dev-app',
+  {
     subdomain: 'api',
     auth2: true,
     allowedMethods: ['POST'],
-}, async (req, res, next) => {
+  },
+  async (req, res, next) => {
     const x = Context.get();
     const svc_permission = x.get('services').get('permission');
 
     // Only users can grant user-app permissions
     const actor = Context.get('actor');
-    if ( ! (actor.type instanceof UserActorType) ) {
-        throw APIError.create('forbidden');
+    if (!(actor.type instanceof UserActorType)) {
+      throw APIError.create('forbidden');
     }
 
-    if ( req.body.origin ) {
-        const svc_auth = x.get('services').get('auth');
-        req.body.app_uid = await svc_auth.app_uid_from_origin(req.body.origin);
+    if (req.body.origin) {
+      const svc_auth = x.get('services').get('auth');
+      req.body.app_uid = await svc_auth.app_uid_from_origin(req.body.origin);
     }
 
-    if ( ! req.body.app_uid ) {
-        throw APIError.create('field_missing', null, { key: 'app_uid' });
+    if (!req.body.app_uid) {
+      throw APIError.create('field_missing', null, { key: 'app_uid' });
     }
 
-    if ( req.body.permission === '*' ) {
-        await svc_permission.revoke_dev_app_all(
-            actor, req.body.app_uid, req.body.meta || {},
-        );
+    if (req.body.permission === '*') {
+      await svc_permission.revoke_dev_app_all(actor, req.body.app_uid, req.body.meta || {});
     }
 
     await svc_permission.revoke_dev_app_permission(
-        actor, req.body.app_uid, req.body.permission,
-        req.body.meta || {},
+      actor,
+      req.body.app_uid,
+      req.body.permission,
+      req.body.meta || {}
     );
 
     res.json({});
-});
-
-
-
+  }
+);

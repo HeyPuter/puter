@@ -16,11 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const { WeakConstructorFeature } = require("../../traits/WeakConstructorFeature");
-const { Property } = require("./Property");
-const { Entity } = require("../entitystorage/Entity");
-const FSNodeContext = require("../../filesystem/FSNodeContext");
+const { AdvancedBase } = require('@heyputer/putility');
+const { WeakConstructorFeature } = require('../../traits/WeakConstructorFeature');
+const { Property } = require('./Property');
+const { Entity } = require('../entitystorage/Entity');
+const FSNodeContext = require('../../filesystem/FSNodeContext');
 
 /**
  * An instance of Mapping wraps every definition in ../mappings before
@@ -28,86 +28,87 @@ const FSNodeContext = require("../../filesystem/FSNodeContext");
  * Both wrapping and registering are done by RegistrantService.
  */
 class Mapping extends AdvancedBase {
-    static FEATURES = [
-        // Whenever you can override something, it's reasonable to want
-        // to pull the desired implementation from somewhere else to
-        // avoid repeating yourself. Class constructors are one of a few
-        // examples where this is typically not possible.
-        // However, javascript is magic, and we do what we want.
-        new WeakConstructorFeature(),
-    ]
+  static FEATURES = [
+    // Whenever you can override something, it's reasonable to want
+    // to pull the desired implementation from somewhere else to
+    // avoid repeating yourself. Class constructors are one of a few
+    // examples where this is typically not possible.
+    // However, javascript is magic, and we do what we want.
+    new WeakConstructorFeature(),
+  ];
 
-    static create (context, data) {
-        const properties = {};
+  static create(context, data) {
+    const properties = {};
 
-        // NEXT
-        for ( const k in data.properties ) {
-            properties[k] = Property.create(context, k, data.properties[k]);
-        }
-
-        return new Mapping({
-            ...data,
-            properties,
-            sql: data.sql,
-        });
+    // NEXT
+    for (const k in data.properties) {
+      properties[k] = Property.create(context, k, data.properties[k]);
     }
 
-    async get_client_safe (data) {
-        const client_safe = {};
+    return new Mapping({
+      ...data,
+      properties,
+      sql: data.sql,
+    });
+  }
 
-        for ( const k in this.properties ) {
-            const prop = this.properties[k];
-            let value = data[k];
+  async get_client_safe(data) {
+    const client_safe = {};
 
-            if ( prop.descriptor.protected ) {
-                continue;
-            }
+    for (const k in this.properties) {
+      const prop = this.properties[k];
+      let value = data[k];
 
-            if ( value === undefined ) {
-                continue;
-            }
+      if (prop.descriptor.protected) {
+        continue;
+      }
 
-            let sanitized = false;
+      if (value === undefined) {
+        continue;
+      }
 
-            if ( value instanceof Entity ) {
-                value = await value.get_client_safe();
-                sanitized = true;
-            }
+      let sanitized = false;
 
-            if ( value instanceof FSNodeContext ) {
-                if ( ! await value.exists() ) {
-                    value = undefined;
-                    continue;
-                }
-                value = await value.getSafeEntry();
-                sanitized = true;
-            }
+      if (value instanceof Entity) {
+        value = await value.get_client_safe();
+        sanitized = true;
+      }
 
-            // This is for reference properties to remove sensitive
-            // information in case a decorator added the real object.
-            if (
-                ( ! sanitized ) &&
-                typeof value === 'object' && value !== null &&
-                prop.descriptor.permissible_subproperties
-            ) {
-                const old_value = value;
-                value = {};
-                for ( const subprop_name of prop.descriptor.permissible_subproperties ) {
-                    if ( ! old_value.hasOwnProperty(subprop_name) ) {
-                        continue;
-                    }
-                    value[subprop_name] = old_value[subprop_name];
-                }
-            }
-
-            // client_safe[k] = await prop.typ.get_client_safe(value);
-            client_safe[k] = value;
+      if (value instanceof FSNodeContext) {
+        if (!(await value.exists())) {
+          value = undefined;
+          continue;
         }
+        value = await value.getSafeEntry();
+        sanitized = true;
+      }
 
-        return client_safe;
+      // This is for reference properties to remove sensitive
+      // information in case a decorator added the real object.
+      if (
+        !sanitized &&
+        typeof value === 'object' &&
+        value !== null &&
+        prop.descriptor.permissible_subproperties
+      ) {
+        const old_value = value;
+        value = {};
+        for (const subprop_name of prop.descriptor.permissible_subproperties) {
+          if (!old_value.hasOwnProperty(subprop_name)) {
+            continue;
+          }
+          value[subprop_name] = old_value[subprop_name];
+        }
+      }
+
+      // client_safe[k] = await prop.typ.get_client_safe(value);
+      client_safe[k] = value;
     }
+
+    return client_safe;
+  }
 }
 
 module.exports = {
-    Mapping
+  Mapping,
 };

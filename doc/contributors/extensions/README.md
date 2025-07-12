@@ -10,30 +10,27 @@ const { UserActorType, AppUnderUserActorType } = use.core;
 
 // Endpoints can be registered directly on an extension
 extension.get('/hello-puter', (req, res) => {
-    const actor = req.actor;
-    
+  const actor = req.actor;
 
-    // Make a string "who" which says:
-    //   "<username>", or:
-    //   "<app> acting on behalf of <username>"
-    let who = 'unknown';
-    if ( actor.type instanceof UserActorType ) {
-        who = actor.type.user.username;
-    }
-    if ( actor.type instanceof AppUnderUserActorType ) {
-        who = actor.type.app.name
-            + ' on behalf of '
-            + actor.type.user.username;
-    }
+  // Make a string "who" which says:
+  //   "<username>", or:
+  //   "<app> acting on behalf of <username>"
+  let who = 'unknown';
+  if (actor.type instanceof UserActorType) {
+    who = actor.type.user.username;
+  }
+  if (actor.type instanceof AppUnderUserActorType) {
+    who = actor.type.app.name + ' on behalf of ' + actor.type.user.username;
+  }
 
-    res.send(`Hello, ${who}!`);
+  res.send(`Hello, ${who}!`);
 });
 
 // Extensions can listen to events and manipulate Puter's behavior
-extension.on('core.email.validate', event => {
-    if ( event.email.includes('evil') ) {
-        event.allow = false;
-    }
+extension.on('core.email.validate', (event) => {
+  if (event.email.includes('evil')) {
+    event.allow = false;
+  }
 });
 ```
 
@@ -47,12 +44,12 @@ your extension's scope.
 ```javascript
 const ext = extension;
 extension.on('some-event', () => {
-    // This would throw an error
-    // extension.something();
+  // This would throw an error
+  // extension.something();
 
-    // This works
-    ext.example();
-})
+  // This works
+  ext.example();
+});
 ```
 
 The same is true for `use`. Calls to `use` should happen at the top of
@@ -75,6 +72,7 @@ extension.get('/user-count', { noauth: true }, (req, res) => {
 ```
 
 The database access object has the following methods:
+
 - `read(query, params)` - read from the database using a prepared statement. If read-replicas are enabled, this will use a replica.
 - `write(query, params)` - write to the database using a prepared statement. If read-replicas are enabled, this will write to the primary.
 - `pread(query, params)` - read from the database using a prepared statement. If read-replicas are enabled, this will read from the primary.

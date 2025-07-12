@@ -17,9 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const seq = [
-    { $: 'symbol', text: 'command' },
-    { $: 'string.dquote' },
-    { $: 'string.segment', text: '-' },
-    { $: 'op.cmd-subst' },
-    { $: 'op.close' },
+  { $: 'symbol', text: 'command' },
+  { $: 'string.dquote' },
+  { $: 'string.segment', text: '-' },
+  { $: 'op.cmd-subst' },
+  { $: 'op.close' },
 ];

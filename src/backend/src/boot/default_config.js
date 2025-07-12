@@ -17,29 +17,28 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 module.exports = {
-    config_name: 'generated default config',
-    env: 'dev',
-    nginx_mode: true, // really means "serve http instead of https"
-    server_id: 'localhost',
-    http_port: 'auto',
-    domain: 'puter.localhost',
-    protocol: 'http',
-    contact_email: 'hey@example.com',
+  config_name: 'generated default config',
+  env: 'dev',
+  nginx_mode: true, // really means "serve http instead of https"
+  server_id: 'localhost',
+  http_port: 'auto',
+  domain: 'puter.localhost',
+  protocol: 'http',
+  contact_email: 'hey@example.com',
 
-    services: {
-        database: {
-            engine: 'sqlite',
-            path: 'puter-database.sqlite',
-        },
-        thumbnails: {
-            engine: 'purejs'
-        },
-        'file-cache': {
-            disk_limit: 16384,
-            disk_max_size: 16384,
-            precache_size: 16384,
-            path: './file-cache',
-
-        }
+  services: {
+    database: {
+      engine: 'sqlite',
+      path: 'puter-database.sqlite',
     },
+    thumbnails: {
+      engine: 'purejs',
+    },
+    'file-cache': {
+      disk_limit: 16384,
+      disk_max_size: 16384,
+      precache_size: 16384,
+      path: './file-cache',
+    },
+  },
 };

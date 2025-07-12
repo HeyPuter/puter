@@ -19,47 +19,43 @@
 const APIError = require('../../api/APIError');
 
 module.exports = class FlagParam {
-    constructor (srckey, options) {
-        this.srckey = srckey;
-        this.options = options ?? {};
-        this.optional = this.options.optional ?? false;
-        this.default = this.options.default ?? false;
+  constructor(srckey, options) {
+    this.srckey = srckey;
+    this.options = options ?? {};
+    this.optional = this.options.optional ?? false;
+    this.default = this.options.default ?? false;
+  }
+
+  async consolidate({ req, getParam }) {
+    const log = globalThis.services.get('log-service').create('flag-param');
+
+    const value = getParam(this.srckey);
+    if (value === undefined || value === '') {
+      if (this.optional) return this.default;
+      throw APIError.create('field_missing', null, {
+        key: this.srckey,
+      });
     }
 
-    async consolidate ({ req, getParam }) {
-        const log = globalThis.services.get('log-service').create('flag-param');
+    if (typeof value === 'string') {
+      if (value === 'true' || value === '1' || value === 'yes') return true;
 
-        const value = getParam(this.srckey);
-        if ( value === undefined || value === '' ) {
-            if ( this.optional ) return this.default;
-            throw APIError.create('field_missing', null, {
-                key: this.srckey,
-            });
-        }
+      if (value === 'false' || value === '0' || value === 'no') return false;
 
-        if ( typeof value === 'string' ) {
-            if (
-                value === 'true' || value === '1' || value === 'yes'
-            ) return true;
-
-            if (
-                value === 'false' || value === '0' || value === 'no'
-            ) return false;
-
-            throw APIError.create('field_invalid', null, {
-                key: this.srckey,
-                expected: 'boolean',
-            });
-        }
-
-        if ( typeof value === 'boolean' ) {
-            return value;
-        }
-
-        log.debug('tried boolean', { value })
-        throw APIError.create('field_invalid', null, {
-            key: this.srckey,
-            expected: 'boolean',
-        });
+      throw APIError.create('field_invalid', null, {
+        key: this.srckey,
+        expected: 'boolean',
+      });
     }
-}
+
+    if (typeof value === 'boolean') {
+      return value;
+    }
+
+    log.debug('tried boolean', { value });
+    throw APIError.create('field_invalid', null, {
+      key: this.srckey,
+      expected: 'boolean',
+    });
+  }
+};

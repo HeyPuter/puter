@@ -16,54 +16,49 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Context } = require("../../util/context");
-const { HLFilesystemOperation } = require("./definitions");
+const { Context } = require('../../util/context');
+const { HLFilesystemOperation } = require('./definitions');
 const APIError = require('../../api/APIError');
 
 class HLStat extends HLFilesystemOperation {
-    static MODULES = {
-        ['mime-types']: require('mime-types'),
+  static MODULES = {
+    ['mime-types']: require('mime-types'),
+  };
+
+  async _run() {
+    const { subject, user, return_subdomains, return_permissions, return_versions, return_size } =
+      this.values;
+
+    await subject.fetchEntry();
+
+    // file not found
+    if (!subject.found) throw APIError.create('subject_does_not_exist');
+
+    await subject.fetchOwner();
+
+    const context = Context.get();
+    const svc_acl = context.get('services').get('acl');
+    const actor = context.get('actor');
+    if (!(await svc_acl.check(actor, subject, 'read'))) {
+      throw await svc_acl.get_safe_acl_error(actor, subject, 'read');
     }
 
-    async _run () {
-        const {
-            subject, user,
-            return_subdomains,
-            return_permissions,
-            return_versions,
-            return_size,
-        } = this.values;
+    // TODO: why is this specific to stat?
+    const mime = this.require('mime-types');
+    const contentType = mime.contentType(subject.entry.name);
+    subject.entry.type = contentType ? contentType : null;
 
-        await subject.fetchEntry();
+    if (return_size) await subject.fetchSize(user);
+    if (return_subdomains) await subject.fetchSubdomains(user);
+    if (return_permissions) await subject.fetchShares();
+    if (return_versions) await subject.fetchVersions();
 
-        // file not found
-        if( ! subject.found ) throw APIError.create('subject_does_not_exist');
+    await subject.fetchIsEmpty();
 
-        await subject.fetchOwner();
-
-        const context = Context.get();
-        const svc_acl = context.get('services').get('acl');
-        const actor = context.get('actor');
-        if ( ! await svc_acl.check(actor, subject, 'read') ) {
-            throw await svc_acl.get_safe_acl_error(actor, subject, 'read');
-        }
-
-        // TODO: why is this specific to stat?
-        const mime = this.require('mime-types');
-        const contentType = mime.contentType(subject.entry.name)
-        subject.entry.type = contentType ? contentType : null;
-
-        if (return_size) await subject.fetchSize(user);
-        if (return_subdomains) await subject.fetchSubdomains(user)
-        if (return_permissions) await subject.fetchShares();
-        if (return_versions) await subject.fetchVersions();
-
-        await subject.fetchIsEmpty();
-
-        return await subject.getSafeEntry();
-    }
+    return await subject.getSafeEntry();
+  }
 }
 
 module.exports = {
-    HLStat
+  HLStat,
 };

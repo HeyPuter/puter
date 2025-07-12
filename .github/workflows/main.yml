@@ -36,5 +36,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: Update release branch
           title: Merge Release Auto-PR
-          body: Merging this PR will invoke release actions          
+          body: Merging this PR will invoke release actions
           branch: auto-update/release

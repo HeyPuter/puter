@@ -57,28 +57,26 @@ npm start
 
 ### 🐳 داکر
 
-
 ```bash
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
 ```
 
 <br/>
 
-
 ### 🐙 داکر کامپوز
 
-
 #### لینوکس/مک
+
 ```bash
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+
 <br/>
 
 #### ویندوز
-
 
 ```powershell
 mkdir -p puter
@@ -88,12 +86,12 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ### ☁️ وبگاه Puter.com
 
 پیوتر به‌عنوان یک سرویس میزبانی‌شده در وبگاه [**puter.com**](https://puter.com) موجود است.
-
 
 ## پیش‌نیازهای سیستم
 
@@ -110,19 +108,12 @@ docker compose up
 با مدیران و انجمن از طریق این کانال‌ها در تماس باشید:
 
 - گزارش اشکال یا درخواست ویژگی؟ لطفاً [Isuue باز کنید](https://github.com/HeyPuter/puter/issues/new/choose)
-    
 - دیسکورد: [discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
-    
 - ایکس (توییتر): [x.com/HeyPuter](https://x.com/HeyPuter)
-    
 - ردیت: [/reddit.com/r/puter](https://www.reddit.com/r/puter/)
-    
 - ماستودون: [mastodon.social/@puter](https://mastodon.social/@puter)
-    
 - مشکلات امنیتی؟ [security@puter.com](mailto:security@puter.com)
-    
 - ایمیل مدیران: [hi@puter.com](mailto:hi@puter.com)
-    
 
 ما همیشه از پاسخگویی به سوالات شما خرسند هستیم. در سوال پرسیدن درنگ نکنید!
 
@@ -130,4 +121,4 @@ docker compose up
 
 این مخزن، شامل تمام محتویات، پروژه‌های فرعی، ماژول‌ها و اجزای آن، تحت مجوز [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) است مگر آنکه خلاف آن به‌طور صریح ذکر شده باشد. کتابخانه‌های خارجی ممکن است گواهی‌های جداگانه داشته باشند.
 
-<br/> 
+<br/>

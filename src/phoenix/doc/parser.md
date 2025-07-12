@@ -43,6 +43,7 @@ with 4 strata, listed here from bottom up:
 [source code](../src/ansi-shell/parsing/buildParserSecondHalf.js)
 
 ### buildParserSecondHalf (the "parser half")
+
 - "ReducePrimitives" creates higher-level AST nodes from some of the
   AST nodes provided by the "previous"(lower/"lexer half") step.
   At the time of writing it's specifically just to deal with strings,

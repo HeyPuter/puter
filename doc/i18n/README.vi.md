@@ -45,12 +45,12 @@ cd puter
 npm install
 npm start
 ```
+
 Điều này sẽ khởi chạy Puter tại http://puter.localhost:4100 (hoặc cổng kế tiếp có sẵn).
 
 <br/>
 
 ### 🐳 Docker
-
 
 ```bash
 Copy code
@@ -63,7 +63,7 @@ mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 100
 
 ## Linux/macOS
 
-``` bash
+```bash
 Copy code
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
@@ -84,6 +84,7 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ## ☁️ Puter.com

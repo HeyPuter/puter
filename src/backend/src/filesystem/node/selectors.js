@@ -20,153 +20,151 @@ const _path = require('path');
 const { PuterPath } = require('../lib/PuterPath');
 
 class NodePathSelector {
-    constructor (path) {
-        this.value = path;
-    }
+  constructor(path) {
+    this.value = path;
+  }
 
-    setPropertiesKnownBySelector (node) {
-        node.path = this.value;
-        node.name = _path.basename(this.value);
-    }
+  setPropertiesKnownBySelector(node) {
+    node.path = this.value;
+    node.name = _path.basename(this.value);
+  }
 
-    describe () {
-        return this.value;
-    }
+  describe() {
+    return this.value;
+  }
 }
 
 class NodeUIDSelector {
-    constructor (uid) {
-        this.value = uid;
-    }
+  constructor(uid) {
+    this.value = uid;
+  }
 
-    setPropertiesKnownBySelector (node) {
-        node.uid = this.value;
-    }
+  setPropertiesKnownBySelector(node) {
+    node.uid = this.value;
+  }
 
-    // Note: the selector could've been added by FSNodeContext
-    // during fetch, but this was more efficient because the
-    // object is created lazily, and it's somtimes not needed.
-    static implyFromFetchedData (node) {
-        if ( node.uid ) {
-            return new NodeUIDSelector(node.uid);
-        }
-        return null;
+  // Note: the selector could've been added by FSNodeContext
+  // during fetch, but this was more efficient because the
+  // object is created lazily, and it's somtimes not needed.
+  static implyFromFetchedData(node) {
+    if (node.uid) {
+      return new NodeUIDSelector(node.uid);
     }
+    return null;
+  }
 
-    describe () {
-        return `[uid:${this.value}]`;
-    }
+  describe() {
+    return `[uid:${this.value}]`;
+  }
 }
 
 class NodeInternalIDSelector {
-    constructor (service, id, debugInfo) {
-        this.service = service;
-        this.id = id;
-        this.debugInfo = debugInfo;
-    }
+  constructor(service, id, debugInfo) {
+    this.service = service;
+    this.id = id;
+    this.debugInfo = debugInfo;
+  }
 
-    setPropertiesKnownBySelector (node) {
-        if ( this.service === 'mysql' ) {
-            node.mysql_id = this.id;
-        }
+  setPropertiesKnownBySelector(node) {
+    if (this.service === 'mysql') {
+      node.mysql_id = this.id;
     }
+  }
 
-    describe (showDebug) {
-        if ( showDebug ) {
-            return `[db:${this.id}] (${
-                JSON.stringify(this.debugInfo, null, 2)
-            })`
-        }
-        return `[db:${this.id}]`
+  describe(showDebug) {
+    if (showDebug) {
+      return `[db:${this.id}] (${JSON.stringify(this.debugInfo, null, 2)})`;
     }
+    return `[db:${this.id}]`;
+  }
 }
 
 class NodeChildSelector {
-    constructor (parent, name) {
-        this.parent = parent;
-        this.name = name;
-    }
+  constructor(parent, name) {
+    this.parent = parent;
+    this.name = name;
+  }
 
-    setPropertiesKnownBySelector (node) {
-        node.name = this.name;
-        // no properties known
-    }
+  setPropertiesKnownBySelector(node) {
+    node.name = this.name;
+    // no properties known
+  }
 
-    describe () {
-        return this.parent.describe() + '/' + this.name;
-    }
+  describe() {
+    return this.parent.describe() + '/' + this.name;
+  }
 }
 
 class RootNodeSelector {
-    static entry = {
-        is_dir: true,
-        is_root: true,
-        uuid: PuterPath.NULL_UUID,
-        name: '/',
-    };
-    setPropertiesKnownBySelector (node) {
-        node.path = '/';
-        node.root = true;
-        node.uid = PuterPath.NULL_UUID;
-    }
-    constructor () {
-        this.entry = this.constructor.entry;
-    }
+  static entry = {
+    is_dir: true,
+    is_root: true,
+    uuid: PuterPath.NULL_UUID,
+    name: '/',
+  };
+  setPropertiesKnownBySelector(node) {
+    node.path = '/';
+    node.root = true;
+    node.uid = PuterPath.NULL_UUID;
+  }
+  constructor() {
+    this.entry = this.constructor.entry;
+  }
 
-    describe () {
-        return '[root]';
-    }
+  describe() {
+    return '[root]';
+  }
 }
 
 class NodeRawEntrySelector {
-    constructor (entry) {
-        // Fix entries from get_descendants
-        if ( ! entry.uuid && entry.uid ) {
-            entry.uuid = entry.uid;
-            if ( entry._id ) {
-                entry.id = entry._id;
-                delete entry._id;
-            }
-        }
-
-        this.entry = entry;
+  constructor(entry) {
+    // Fix entries from get_descendants
+    if (!entry.uuid && entry.uid) {
+      entry.uuid = entry.uid;
+      if (entry._id) {
+        entry.id = entry._id;
+        delete entry._id;
+      }
     }
 
-    setPropertiesKnownBySelector (node) {
-        node.found = true;
-        node.entry = this.entry;
-        node.uid = this.entry.uid ?? this.entry.uuid;
-        node.name = this.entry.name;
-        if ( this.entry.path ) node.path = this.entry.path;
-    }
+    this.entry = entry;
+  }
 
-    describe () {
-        return '[raw entry]';
-    }
+  setPropertiesKnownBySelector(node) {
+    node.found = true;
+    node.entry = this.entry;
+    node.uid = this.entry.uid ?? this.entry.uuid;
+    node.name = this.entry.name;
+    if (this.entry.path) node.path = this.entry.path;
+  }
+
+  describe() {
+    return '[raw entry]';
+  }
 }
 
 const relativeSelector = (parent, path) => {
-    if ( path === '.' ) return parent;
-    if ( path.startsWith('..') ) {
-        throw new Error('currently unsupported');
-    }
+  if (path === '.') return parent;
+  if (path.startsWith('..')) {
+    throw new Error('currently unsupported');
+  }
 
-    let selector = parent;
+  let selector = parent;
 
-    const parts = path.split('/').filter(Boolean);
-    for ( const part of parts ) {
-        selector = new NodeChildSelector(selector, part);
-    }
+  const parts = path.split('/').filter(Boolean);
+  for (const part of parts) {
+    selector = new NodeChildSelector(selector, part);
+  }
 
-    return selector;
-}
+  return selector;
+};
 
 module.exports = {
-    NodePathSelector,
-    NodeUIDSelector,
-    NodeInternalIDSelector,
-    NodeChildSelector,
-    RootNodeSelector,
-    NodeRawEntrySelector,
-    relativeSelector,
+  NodePathSelector,
+  NodeUIDSelector,
+  NodeInternalIDSelector,
+  NodeChildSelector,
+  RootNodeSelector,
+  NodeRawEntrySelector,
+  relativeSelector,
 };

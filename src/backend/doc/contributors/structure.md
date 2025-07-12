@@ -13,10 +13,10 @@ Everything in here has a `<name of>Module.js` file and one or more
 `<name of>Service.js` files.
 
 > **Note:** A "backend kernel module" is simply a class understood by
-  [`src/backend/src/Kernel.js`](../../src/Kernel.js)
-  that registers a number of "Service" classes.
-  You can look at [Puter's init file](../../../../tools/run-selfhosted.js)
-  to see how modules are added to Puter.
+> [`src/backend/src/Kernel.js`](../../src/Kernel.js)
+> that registers a number of "Service" classes.
+> You can look at [Puter's init file](../../../../tools/run-selfhosted.js)
+> to see how modules are added to Puter.
 
 The `README.md` file inside any module directory is generated with
 the `module-docgen` script in the Puter repo's `/tools` directory.
@@ -24,6 +24,7 @@ The actual documentation for the module exists in jsdoc comments
 in the source files.
 
 Each module might contain these directories:
+
 - `doc/` - additional module documentation, like sample requests
 - `lib/` - utility code that isn't a Module or Service class.
   This utility code may be exposed by a service in the module
@@ -44,7 +45,8 @@ of a route might be placed under `src/backend/src/routers` to keep the
 service's code tidy or for legacy reasons.
 
 These are some services that reference files under `src/backend/src/routers`:
-- [PermissionAPIService](../../src/services/PermissionAPIService.js) - 
+
+- [PermissionAPIService](../../src/services/PermissionAPIService.js) -
   This service registers routes that allow a user to configure permissions they
   grant to apps and groups. This is a relatively recent case of using files under the
   `routers` directory to clean up the service.
@@ -55,7 +57,7 @@ These are some services that reference files under `src/backend/src/routers`:
 - [PuterAPIService](../../src/services/PuterAPIService.js) -
   This service is a catch-all for routes that existed before separation of concerns
   into backend kernel modules.
-  
+
 ### `filesystem` directory
 
 The filesystem is likely the most complex portion of Puter's source code. This code
@@ -71,6 +73,7 @@ If you're contributing to filesystem,
 if you have questions.
 
 These are the key locations in the `filesystem` directory:
+
 - `FSNodeContext.js` - When you have a reference to a file or directory in backend code,
   it is an instance of the FSNodeContext class.
 - `ll_operations` - Runnables that implement the behavior of a filesystem operation.

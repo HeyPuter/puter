@@ -7,23 +7,23 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 // About
 export default {
-    id: 'about',
-    title_i18n_key: 'about',
-    icon: 'logo-outline.svg',
-    html: () => {
-        return `
+  id: 'about',
+  title_i18n_key: 'about',
+  icon: 'logo-outline.svg',
+  html: () => {
+    return `
             <div class="about-container">
                 <div class="about">
                     <a href="https://puter.com" target="_blank" class="logo"><img src="/images/logo.png"></a>
@@ -91,28 +91,32 @@ export default {
                     </div>
                 </dialog>
             </div>`;
-    },
-    init: ($el_window) => {
-        // server and version infomration
-        puter.os.version()
-        .then(res => {
-            const deployed_date = new Date(res.deploy_timestamp).toLocaleString();
-            $el_window.find('.version').html(`Version: ${html_encode(res.version)} &bull; Server: ${html_encode(res.location)} &bull; Deployed: ${html_encode(deployed_date)}`);
-        })
-        .catch(error => {
-            console.error("Failed to fetch server info:", error);
-            $el_window.find('.version').html("Failed to load version information.");
-        });
+  },
+  init: ($el_window) => {
+    // server and version infomration
+    puter.os
+      .version()
+      .then((res) => {
+        const deployed_date = new Date(res.deploy_timestamp).toLocaleString();
+        $el_window
+          .find('.version')
+          .html(
+            `Version: ${html_encode(res.version)} &bull; Server: ${html_encode(res.location)} &bull; Deployed: ${html_encode(deployed_date)}`
+          );
+      })
+      .catch((error) => {
+        console.error('Failed to fetch server info:', error);
+        $el_window.find('.version').html('Failed to load version information.');
+      });
 
-        $el_window.find('.credits').on('click', function (e) {
-            if($(e.target).hasClass('credits')){
-                $('.credits').get(0).close();
-            }
-        });
+    $el_window.find('.credits').on('click', function (e) {
+      if ($(e.target).hasClass('credits')) {
+        $('.credits').get(0).close();
+      }
+    });
 
-        $el_window.find('.show-credits').on('click', function (e) {
-            $('.credits').get(0).showModal();
-        })
-
-    },
+    $el_window.find('.show-credits').on('click', function (e) {
+      $('.credits').get(0).showModal();
+    });
+  },
 };

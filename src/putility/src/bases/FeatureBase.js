@@ -16,27 +16,24 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { BasicBase } = require("./BasicBase");
+const { BasicBase } = require('./BasicBase');
 
 class FeatureBase extends BasicBase {
-    constructor (parameters, ...a) {
-        super(parameters, ...a);
-        
-        this._ = {
-            features: this._get_merged_static_array('FEATURES'),
-        };
+  constructor(parameters, ...a) {
+    super(parameters, ...a);
 
-        for ( const feature of this._.features ) {
-            feature.install_in_instance(
-                this,
-                {
-                    parameters: parameters || {},
-                }
-            )
-        }
+    this._ = {
+      features: this._get_merged_static_array('FEATURES'),
+    };
+
+    for (const feature of this._.features) {
+      feature.install_in_instance(this, {
+        parameters: parameters || {},
+      });
     }
+  }
 }
 
 module.exports = {
-    FeatureBase,
+  FeatureBase,
 };

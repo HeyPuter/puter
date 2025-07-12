@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const { Context } = require('../../util/context.js');
 const eggspress = require('../../api/eggspress.js');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam.js');
@@ -26,7 +26,9 @@ const { HLReadDir } = require('../../filesystem/hl_operations/hl_readdir.js');
 // -----------------------------------------------------------------------//
 // POST /readdir
 // -----------------------------------------------------------------------//
-module.exports = eggspress('/readdir', {
+module.exports = eggspress(
+  '/readdir',
+  {
     subdomain: 'api',
     auth2: true,
     verified: true,
@@ -35,18 +37,20 @@ module.exports = eggspress('/readdir', {
     allowedMethods: ['POST'],
     alias: { uid: 'path' },
     parameters: {
-        subject: new FSNodeParam('path'),
-        recursive: new FlagParam('recursive', { optional: true }),
-        no_thumbs: new FlagParam('no_thumbs', { optional: true }),
-        no_assocs: new FlagParam('no_assocs', { optional: true }),
-    }
-}, async (req, res, next) => {
-    let log; {
-        const x = Context.get();
-        log = x.get('services').get('log-service').create('readdir', {
-            concern: 'filesystem',
-        });
-        log.info(`readdir: ${req.body.path}`);
+      subject: new FSNodeParam('path'),
+      recursive: new FlagParam('recursive', { optional: true }),
+      no_thumbs: new FlagParam('no_thumbs', { optional: true }),
+      no_assocs: new FlagParam('no_assocs', { optional: true }),
+    },
+  },
+  async (req, res, next) => {
+    let log;
+    {
+      const x = Context.get();
+      log = x.get('services').get('log-service').create('readdir', {
+        concern: 'filesystem',
+      });
+      log.info(`readdir: ${req.body.path}`);
     }
 
     const subject = req.values.subject;
@@ -56,26 +60,27 @@ module.exports = eggspress('/readdir', {
 
     const hl_readdir = new HLReadDir();
     const result = await hl_readdir.run({
-        subject,
-        recursive,
-        no_thumbs,
-        no_assocs,
-        user: req.user,
-        actor: req.actor,
+      subject,
+      recursive,
+      no_thumbs,
+      no_assocs,
+      user: req.user,
+      actor: req.actor,
     });
 
     // check for duplicate names
-    if ( ! recursive ) {
-        const names = new Set();
-        for ( const entry of result ) {
-            if ( names.has(entry.name) ) {
-                log.error(`Duplicate name: ${entry.name}`);
-                // throw new Error(`Duplicate name: ${entry.name}`);
-            }
-            names.add(entry.name);
+    if (!recursive) {
+      const names = new Set();
+      for (const entry of result) {
+        if (names.has(entry.name)) {
+          log.error(`Duplicate name: ${entry.name}`);
+          // throw new Error(`Duplicate name: ${entry.name}`);
         }
+        names.add(entry.name);
+      }
     }
 
     res.send(result);
     return;
-});
+  }
+);

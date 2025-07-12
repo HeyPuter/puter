@@ -21,38 +21,39 @@ import { resolveRelativePath } from '../../util/path.js';
 import { ErrorCodes } from '@heyputer/putility/src/PosixError.js';
 
 export default {
-    name: 'touch',
-    usage: 'touch FILE...',
-    description: 'Mark the FILE(s) as accessed and modified at the current time, creating them if they do not exist.',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: true
-    },
-    execute: async ctx => {
-        const { positionals } = ctx.locals;
-        const { filesystem } = ctx.platform;
+  name: 'touch',
+  usage: 'touch FILE...',
+  description:
+    'Mark the FILE(s) as accessed and modified at the current time, creating them if they do not exist.',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: true,
+  },
+  execute: async (ctx) => {
+    const { positionals } = ctx.locals;
+    const { filesystem } = ctx.platform;
 
-        if ( positionals.length === 0 ) {
-            await ctx.externs.err.write('touch: missing file operand\n');
-            throw new Exit(1);
-        }
-
-        for ( let i=0 ; i < positionals.length ; i++ ) {
-            const path = resolveRelativePath(ctx.vars, positionals[i]);
-            
-            let stat = null;
-            try {
-                stat = await filesystem.stat(path);
-            } catch (e) {
-                if (e.posixCode !== ErrorCodes.ENOENT) {
-                    await ctx.externs.err.write(`touch: ${e.message}\n`);
-                    throw new Exit(1);
-                }
-            }
-
-            if ( stat ) continue;
-
-            await filesystem.write(path, '');
-        }
+    if (positionals.length === 0) {
+      await ctx.externs.err.write('touch: missing file operand\n');
+      throw new Exit(1);
     }
-}
+
+    for (let i = 0; i < positionals.length; i++) {
+      const path = resolveRelativePath(ctx.vars, positionals[i]);
+
+      let stat = null;
+      try {
+        stat = await filesystem.stat(path);
+      } catch (e) {
+        if (e.posixCode !== ErrorCodes.ENOENT) {
+          await ctx.externs.err.write(`touch: ${e.message}\n`);
+          throw new Exit(1);
+        }
+      }
+
+      if (stat) continue;
+
+      await filesystem.write(path, '');
+    }
+  },
+};

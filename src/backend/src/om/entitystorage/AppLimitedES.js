@@ -16,74 +16,70 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AppUnderUserActorType } = require("../../services/auth/Actor");
-const { Context } = require("../../util/context");
-const { Eq, Or } = require("../query/query");
-const { BaseES } = require("./BaseES");
-const { Entity } = require("./Entity");
+const { AppUnderUserActorType } = require('../../services/auth/Actor');
+const { Context } = require('../../util/context');
+const { Eq, Or } = require('../query/query');
+const { BaseES } = require('./BaseES');
+const { Entity } = require('./Entity');
 
 class AppLimitedES extends BaseES {
+  // Limit selection to entities owned by the app of the current actor.
+  async select(options) {
+    const actor = Context.get('actor');
 
-    // Limit selection to entities owned by the app of the current actor.
-    async select (options) {
-        const actor = Context.get('actor');
+    if (actor.type instanceof AppUnderUserActorType) {
+      if (this.exception && typeof this.exception === 'function') {
+        this.exception = await this.exception();
+      }
 
-        if ( actor.type instanceof AppUnderUserActorType ) {
-            if ( this.exception && typeof this.exception === 'function' ) {
-                this.exception = await this.exception();
-            }
-
-            let condition = new Eq({
-                key: 'app_owner',
-                value: actor.type.app,
-            });
-            if ( this.exception ) {
-                condition = new Or({
-                    children: [
-                        condition,
-                        this.exception,
-                    ],
-                });
-            }
-            options.predicate = options.predicate.and(condition);
-        }
-
-        return await this.upstream.select(options);
+      let condition = new Eq({
+        key: 'app_owner',
+        value: actor.type.app,
+      });
+      if (this.exception) {
+        condition = new Or({
+          children: [condition, this.exception],
+        });
+      }
+      options.predicate = options.predicate.and(condition);
     }
 
-    // Limit read to entities owned by the app of the current actor.
-    async read (uid) {
-        const entity = await this.upstream.read(uid);
-        if ( ! entity ) return null;
+    return await this.upstream.select(options);
+  }
 
-        const actor = Context.get('actor');
+  // Limit read to entities owned by the app of the current actor.
+  async read(uid) {
+    const entity = await this.upstream.read(uid);
+    if (!entity) return null;
 
-        if ( actor.type instanceof AppUnderUserActorType ) {
-            if ( this.exception && typeof this.exception === 'function' ) {
-                this.exception = await this.exception();
-            }
+    const actor = Context.get('actor');
 
-            // On the exception, we don't have to check app_owner
-            // (for `es:apps` this is `approved_for_listing == 1`)
-            if ( this.exception && await entity.check(this.exception) ) {
-                return entity;
-            }
+    if (actor.type instanceof AppUnderUserActorType) {
+      if (this.exception && typeof this.exception === 'function') {
+        this.exception = await this.exception();
+      }
 
-            const app = actor.type.app;
-            const app_owner = await entity.get('app_owner');
-            let app_owner_id = app_owner?.id;
-            if ( app_owner instanceof Entity ) {
-                app_owner_id = app_owner.private_meta.mysql_id;
-            }
-            if ( ( ! app_owner ) || app_owner_id !== app.id ) {
-                return null;
-            }
-        }
-
+      // On the exception, we don't have to check app_owner
+      // (for `es:apps` this is `approved_for_listing == 1`)
+      if (this.exception && (await entity.check(this.exception))) {
         return entity;
+      }
+
+      const app = actor.type.app;
+      const app_owner = await entity.get('app_owner');
+      let app_owner_id = app_owner?.id;
+      if (app_owner instanceof Entity) {
+        app_owner_id = app_owner.private_meta.mysql_id;
+      }
+      if (!app_owner || app_owner_id !== app.id) {
+        return null;
+      }
     }
+
+    return entity;
+  }
 }
 
 module.exports = {
-    AppLimitedES,
+  AppLimitedES,
 };

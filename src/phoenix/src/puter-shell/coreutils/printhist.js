@@ -17,18 +17,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export default {
-    name: 'printhist',
-    usage: 'printhist',
-    description: 'Print shell history.',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: true,
-    },
-    execute: async ctx => {
-        const { historyManager } = ctx.externs;
-        console.log('test????', ctx);
-        for ( const item of historyManager.items ) {
-            await ctx.externs.out.write(item + '\n');
-        }
+  name: 'printhist',
+  usage: 'printhist',
+  description: 'Print shell history.',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: true,
+  },
+  execute: async (ctx) => {
+    const { historyManager } = ctx.externs;
+    console.log('test????', ctx);
+    for (const item of historyManager.items) {
+      await ctx.externs.out.write(item + '\n');
     }
-}
+  },
+};

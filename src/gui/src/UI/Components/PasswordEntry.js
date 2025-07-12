@@ -17,21 +17,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 const Component = use('util.Component');
 
-export default def(class PasswordEntry extends Component {
+export default def(
+  class PasswordEntry extends Component {
     static ID = 'ui.component.PasswordEntry';
 
     static PROPERTIES = {
-        spec: {},
-        value: {},
-        error: {},
-        on_submit: {},
-        show_password: {},
-    }
+      spec: {},
+      value: {},
+      error: {},
+      on_submit: {},
+      show_password: {},
+    };
 
-    static CSS = /*css*/`
+    static CSS = /*css*/ `
         fieldset {
             display: flex;
             flex-direction: column;
@@ -96,17 +96,19 @@ export default def(class PasswordEntry extends Component {
         }
     `;
 
-    create_template ({ template }) {
-        $(template).html(/*html*/`
+    create_template({ template }) {
+      $(template).html(/*html*/ `
             <form>
                 <div class="error"></div>
                 <div class="password-and-toggle">
                     <input type="password" class="value-input" id="password" placeholder="${i18n('password')}" required>
                     <img
                         id="toggle-show-password"
-                        src="${this.get('show_password')
-                            ? window.icons["eye-closed.svg"]
-                            : window.icons["eye-open.svg"]}"
+                        src="${
+                          this.get('show_password')
+                            ? window.icons['eye-closed.svg']
+                            : window.icons['eye-open.svg']
+                        }"
                         width="20"
                         height="20">
                 </div>
@@ -114,43 +116,55 @@ export default def(class PasswordEntry extends Component {
         `);
     }
 
-    on_focus () {
-        $(this.dom_).find('input').focus();
+    on_focus() {
+      $(this.dom_).find('input').focus();
     }
 
-    on_ready ({ listen }) {
-        listen('error', (error) => {
-            if ( ! error ) return $(this.dom_).find('.error').hide();
-            $(this.dom_).find('.error').text(error).show();
-        });
+    on_ready({ listen }) {
+      listen('error', (error) => {
+        if (!error) return $(this.dom_).find('.error').hide();
+        $(this.dom_).find('.error').text(error).show();
+      });
 
-        listen('value', (value) => {
-            // clear input
-            if ( value === undefined ) {
-                $(this.dom_).find('input').val('');
-            }
-        });
-
-        const input = $(this.dom_).find('input');
-        input.on('input', () => {
-            this.set('value', input.val());
-        });
-
-        const on_submit = this.get('on_submit');
-        if ( on_submit ) {
-            $(this.dom_).find('input').on('keyup', (e) => {
-                if ( e.key === 'Enter' ) {
-                    on_submit();
-                }
-            });
+      listen('value', (value) => {
+        // clear input
+        if (value === undefined) {
+          $(this.dom_).find('input').val('');
         }
-        
-        $(this.dom_).find("#toggle-show-password").on("click", () => {
-            this.set('show_password', !this.get('show_password'));
-            const show_password = this.get('show_password');
-            // hide/show password and update icon
-            $(this.dom_).find("input").attr("type", show_password ? "text" : "password");
-            $(this.dom_).find("#toggle-show-password").attr("src", show_password ? window.icons["eye-closed.svg"] : window.icons["eye-open.svg"])
+      });
+
+      const input = $(this.dom_).find('input');
+      input.on('input', () => {
+        this.set('value', input.val());
+      });
+
+      const on_submit = this.get('on_submit');
+      if (on_submit) {
+        $(this.dom_)
+          .find('input')
+          .on('keyup', (e) => {
+            if (e.key === 'Enter') {
+              on_submit();
+            }
+          });
+      }
+
+      $(this.dom_)
+        .find('#toggle-show-password')
+        .on('click', () => {
+          this.set('show_password', !this.get('show_password'));
+          const show_password = this.get('show_password');
+          // hide/show password and update icon
+          $(this.dom_)
+            .find('input')
+            .attr('type', show_password ? 'text' : 'password');
+          $(this.dom_)
+            .find('#toggle-show-password')
+            .attr(
+              'src',
+              show_password ? window.icons['eye-closed.svg'] : window.icons['eye-open.svg']
+            );
         });
     }
-});
+  }
+);

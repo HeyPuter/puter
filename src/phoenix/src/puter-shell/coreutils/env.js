@@ -17,20 +17,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export default {
-    name: 'env',
-    usage: 'env',
-    description: 'Print environment variables, one per line, as NAME=VALUE.',
-    args: {
-        // TODO: add 'none-parser'
-        $: 'simple-parser',
-        allowPositionals: false
-    },
-    execute: async ctx => {
-        const env = ctx.env;
-        const out = ctx.externs.out;
+  name: 'env',
+  usage: 'env',
+  description: 'Print environment variables, one per line, as NAME=VALUE.',
+  args: {
+    // TODO: add 'none-parser'
+    $: 'simple-parser',
+    allowPositionals: false,
+  },
+  execute: async (ctx) => {
+    const env = ctx.env;
+    const out = ctx.externs.out;
 
-        for ( const k in env ) {
-            await out.write(`${k}=${env[k]}\n`);
-        }
+    for (const k in env) {
+      await out.write(`${k}=${env[k]}\n`);
     }
+  },
 };

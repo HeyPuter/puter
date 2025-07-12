@@ -20,54 +20,56 @@
 const log_epoch = Date.now();
 
 /**
-* Stringifies a log entry into a formatted string for console output.
-* @param {Object} logEntry - The log entry object containing:
-*   @param {string} [prefix] - Optional prefix for the log message.
-*   @param {Object} log_lvl - Log level object with properties for label, escape code, etc.
-*   @param {string[]} crumbs - Array of context crumbs.
-*   @param {string} message - The log message.
-*   @param {Object} fields - Additional fields to be included in the log.
-*   @param {Object} objects - Objects to be logged.
-* @returns {string} A formatted string representation of the log entry.
-*/
+ * Stringifies a log entry into a formatted string for console output.
+ * @param {Object} logEntry - The log entry object containing:
+ *   @param {string} [prefix] - Optional prefix for the log message.
+ *   @param {Object} log_lvl - Log level object with properties for label, escape code, etc.
+ *   @param {string[]} crumbs - Array of context crumbs.
+ *   @param {string} message - The log message.
+ *   @param {Object} fields - Additional fields to be included in the log.
+ *   @param {Object} objects - Objects to be logged.
+ * @returns {string} A formatted string representation of the log entry.
+ */
 const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects }) => {
-    const { colorize } = require('json-colorizer');
+  const { colorize } = require('json-colorizer');
 
-    let lines = [], m;
+  let lines = [],
+    m;
 
-    const lf = () => {
-        if ( ! m ) return;
-        lines.push(m);
-        m = '';
-    }
+  const lf = () => {
+    if (!m) return;
+    lines.push(m);
+    m = '';
+  };
 
-    m = prefix ? `${prefix} ` : '';
-    m += `\x1B[${log_lvl.esc}m[${log_lvl.label}\x1B[0m`;
-    for ( const crumb of crumbs ) {
-        m += `::${crumb}`;
+  m = prefix ? `${prefix} ` : '';
+  m += `\x1B[${log_lvl.esc}m[${log_lvl.label}\x1B[0m`;
+  for (const crumb of crumbs) {
+    m += `::${crumb}`;
+  }
+  m += `\x1B[${log_lvl.esc}m]\x1B[0m`;
+  if (fields.timestamp) {
+    // display seconds since logger epoch
+    const n = (fields.timestamp - log_epoch) / 1000;
+    m += ` (${n.toFixed(3)}s)`;
+  }
+  m += ` ${message} `;
+  lf();
+  for (const k in fields) {
+    if (k === 'timestamp') continue;
+    let v;
+    try {
+      v = colorize(JSON.stringify(fields[k]));
+    } catch (e) {
+      v = '' + fields[k];
     }
-    m += `\x1B[${log_lvl.esc}m]\x1B[0m`;
-    if ( fields.timestamp ) {
-        // display seconds since logger epoch
-        const n = (fields.timestamp - log_epoch) / 1000;
-        m += ` (${n.toFixed(3)}s)`;
-    }
-    m += ` ${message} `;
+    m += ` \x1B[1m${k}:\x1B[0m ${v}`;
     lf();
-    for ( const k in fields ) {
-        if ( k === 'timestamp' ) continue;
-        let v; try {
-            v = colorize(JSON.stringify(fields[k]));
-        } catch (e) {
-            v = '' + fields[k];
-        }
-        m += ` \x1B[1m${k}:\x1B[0m ${v}`;
-        lf();
-    }
-    return lines.join('\n');
+  }
+  return lines.join('\n');
 };
 
 module.exports = {
-    stringify_log_entry,
-    log_epoch,
+  stringify_log_entry,
+  log_epoch,
 };

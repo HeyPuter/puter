@@ -16,82 +16,80 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { LLRead } = require("../ll_operations/ll_read");
-const { HLFilesystemOperation } = require("./definitions");
+const APIError = require('../../api/APIError');
+const { LLRead } = require('../ll_operations/ll_read');
+const { HLFilesystemOperation } = require('./definitions');
 
 class HLRead extends HLFilesystemOperation {
-    static CONCERN = 'filesystem';
-    static MODULES = {
-        'stream': require('stream'),
+  static CONCERN = 'filesystem';
+  static MODULES = {
+    stream: require('stream'),
+  };
+
+  async _run() {
+    const { fsNode, actor, line_count, byte_count, offset, version_id } = this.values;
+
+    if (!(await fsNode.exists())) {
+      throw APIError.create('subject_does_not_exist');
     }
 
-    async _run () {
-        const {
-            fsNode, actor,
-            line_count, byte_count,
-            offset,
-            version_id,
-        } = this.values;
+    const ll_read = new LLRead();
+    let stream = await ll_read.run({
+      fsNode,
+      actor,
+      version_id,
+      ...(byte_count !== undefined
+        ? {
+            offset: offset ?? 0,
+            length: byte_count,
+          }
+        : {}),
+    });
 
-        if ( ! await fsNode.exists() ) {
-            throw APIError.create('subject_does_not_exist');
+    if (line_count !== undefined) {
+      stream = this._wrap_stream_line_count(stream, line_count);
+    }
+
+    return stream;
+  }
+
+  /**
+   * returns a new stream that will only produce the first `line_count` lines
+   * @param {*} stream - input stream
+   * @param {*} line_count - number of lines to produce
+   */
+  _wrap_stream_line_count(stream, line_count) {
+    const readline = require('readline');
+    const rl = readline.createInterface({
+      input: stream,
+      terminal: false,
+    });
+
+    const { PassThrough } = this.modules.stream;
+
+    const output_stream = new PassThrough();
+
+    let lines_read = 0;
+    new Promise((resolve, reject) => {
+      rl.on('line', (line) => {
+        if (lines_read++ >= line_count) {
+          return rl.close();
         }
 
-        const ll_read = new LLRead();
-        let stream = await ll_read.run({
-            fsNode, actor,
-            version_id,
-            ...(byte_count !== undefined ? {
-                offset: offset ?? 0,
-                length: byte_count
-            } : {}),
-        });
+        output_stream.write(lines_read > 1 ? '\r\n' + line : line);
+      });
+      rl.on('error', () => {
+        console.log('error');
+      });
+      rl.on('close', function () {
+        resolve();
+      });
+    });
 
-        if ( line_count !== undefined ) {
-            stream = this._wrap_stream_line_count(stream, line_count);
-        }
-
-        return stream;
-    }
-
-    /**
-     * returns a new stream that will only produce the first `line_count` lines
-     * @param {*} stream - input stream
-     * @param {*} line_count - number of lines to produce
-     */
-    _wrap_stream_line_count (stream, line_count) {
-        const readline = require('readline');
-        const rl = readline.createInterface({
-          input: stream,
-          terminal: false
-        });
-
-        const { PassThrough } = this.modules.stream;
-
-        const output_stream = new PassThrough();
-
-        let lines_read = 0;
-        new Promise((resolve, reject) => {
-            rl.on('line', (line) => {
-                if(lines_read++ >= line_count){
-                    return rl.close();
-                }
-
-                output_stream.write(lines_read > 1 ? '\r\n' + line : line);
-            });
-            rl.on('error', () => {
-                console.log('error');
-            });
-            rl.on('close', function () {
-                resolve();
-            });
-        });
-
-        return output_stream;
-    }
+    return output_stream;
+  }
 }
 
 module.exports = {
-    HLRead
+  HLRead,
 };

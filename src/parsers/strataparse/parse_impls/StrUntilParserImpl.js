@@ -17,29 +17,28 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export default class StrUntilParserImpl {
-    constructor ({ stopChars }) {
-        this.stopChars = stopChars;
+  constructor({ stopChars }) {
+    this.stopChars = stopChars;
+  }
+  parse(lexer) {
+    let text = '';
+    for (;;) {
+      let { done, value } = lexer.look();
+
+      if (done) break;
+
+      // TODO: doing this strictly one byte at a time
+      //       doesn't allow multi-byte stop characters
+      if (typeof value === 'number') value = String.fromCharCode(value);
+
+      if (this.stopChars.includes(value)) break;
+
+      text += value;
+      lexer.next();
     }
-    parse (lexer) {
-        let text = '';
-        for ( ;; ) {
-            let { done, value } = lexer.look();
 
-            if ( done ) break;
+    if (text.length === 0) return;
 
-            // TODO: doing this strictly one byte at a time
-            //       doesn't allow multi-byte stop characters
-            if ( typeof value === 'number' ) value =
-                String.fromCharCode(value);
-
-            if ( this.stopChars.includes(value) ) break;
-
-            text += value;
-            lexer.next();
-        }
-
-        if ( text.length === 0 ) return;
-
-        return { $: 'until', text };
-    }
+    return { $: 'until', text };
+  }
 }

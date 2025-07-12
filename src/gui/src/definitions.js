@@ -17,29 +17,27 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { concepts, AdvancedBase } from "@heyputer/putility";
-import TeePromise from "./util/TeePromise.js";
+import { concepts, AdvancedBase } from '@heyputer/putility';
+import TeePromise from './util/TeePromise.js';
 
 export class Service extends concepts.Service {
-    // TODO: Service todo items
-    static TODO = [
-        'consolidate with BaseService from backend'
-    ];
-    construct (o) {
-        this.$puter = {};
-        for ( const k in o ) this.$puter[k] = o[k];
-        if ( ! this._construct ) return;
-        return this._construct();
-    }
-    init (...a) {
-        if ( ! this._init ) return;
-        this.services = a[0].services;
-        return this._init(...a)
-    }
-    get context () {
-        return { services: this.services };
-    }
-};
+  // TODO: Service todo items
+  static TODO = ['consolidate with BaseService from backend'];
+  construct(o) {
+    this.$puter = {};
+    for (const k in o) this.$puter[k] = o[k];
+    if (!this._construct) return;
+    return this._construct();
+  }
+  init(...a) {
+    if (!this._init) return;
+    this.services = a[0].services;
+    return this._init(...a);
+  }
+  get context() {
+    return { services: this.services };
+  }
+}
 
 export const PROCESS_INITIALIZING = { i18n_key: 'initializing' };
 export const PROCESS_RUNNING = { i18n_key: 'running' };
@@ -53,146 +51,156 @@ export const PROCESS_IPC_ATTACHED = { i18n_key: 'attached' };
 export const END_SOFT = { i: 0, end: true, i18n_key: 'end_soft' };
 export const END_HARD = { i: 1, end: true, i18n_key: 'end_hard' };
 
-export class Process extends AdvancedBase{
-    static PROPERTIES = {
-        status: () => PROCESS_INITIALIZING,
-        ipc_status: () => PROCESS_IPC_PENDING,
-    }
-    constructor ({ uuid, parent, name, meta }) {
-        super();
+export class Process extends AdvancedBase {
+  static PROPERTIES = {
+    status: () => PROCESS_INITIALIZING,
+    ipc_status: () => PROCESS_IPC_PENDING,
+  };
+  constructor({ uuid, parent, name, meta }) {
+    super();
 
-        this.uuid = uuid;
-        this.parent = parent;
-        this.name = name;
-        this.meta = meta;
-        this.references = {};
-        
-        Object.defineProperty(this.references, 'iframe', {
-            get: () => {
-                // note: Might eventually make sense to make the
-                // fn on window call here instead.
-                return window.iframe_for_app_instance(this.uuid);
-            }
-        })
+    this.uuid = uuid;
+    this.parent = parent;
+    this.name = name;
+    this.meta = meta;
+    this.references = {};
 
-        this._construct();
-    }
-    _construct () {}
+    Object.defineProperty(this.references, 'iframe', {
+      get: () => {
+        // note: Might eventually make sense to make the
+        // fn on window call here instead.
+        return window.iframe_for_app_instance(this.uuid);
+      },
+    });
 
-    chstatus (status) {
-        this.status = status;
-    }
+    this._construct();
+  }
+  _construct() {}
 
-    is_init () {}
+  chstatus(status) {
+    this.status = status;
+  }
 
-    signal (sig) {
-        this._signal(sig);
-    }
+  is_init() {}
 
-    handle_connection (other_process) {
-        throw new Error('Not implemented');
-    }
+  signal(sig) {
+    this._signal(sig);
+  }
 
-    get type () {
-        const _to_type_name = (name) => {
-            return name.replace(/Process$/, '').toLowerCase();
-        };
-        return this.type_ || _to_type_name(this.constructor.name) ||
-            'invalid'
-    }
-};
+  handle_connection(other_process) {
+    throw new Error('Not implemented');
+  }
+
+  get type() {
+    const _to_type_name = (name) => {
+      return name.replace(/Process$/, '').toLowerCase();
+    };
+    return this.type_ || _to_type_name(this.constructor.name) || 'invalid';
+  }
+}
 
 export class InitProcess extends Process {
-    static created_ = false;
+  static created_ = false;
 
-    is_init () { return true; }
+  is_init() {
+    return true;
+  }
 
-    _construct () {
-        this.name = 'Puter';
+  _construct() {
+    this.name = 'Puter';
 
-        this.type_ = 'init'; // thanks minify
+    this.type_ = 'init'; // thanks minify
 
-        if (InitProcess.created_) {
-            throw new Error('InitProccess already created');
-        }
-
-        InitProcess.created_ = true;
+    if (InitProcess.created_) {
+      throw new Error('InitProccess already created');
     }
 
-    _signal (sig) {
-        const svc_process = globalThis.services.get('process');
-        for ( const process of svc_process.processes ) {
-            if ( process === this ) continue;
-            process.signal(sig);
-        }
+    InitProcess.created_ = true;
+  }
 
-        if ( sig.i !== END_HARD.i ) return;
-
-        // Currently this is the only way to terminate `init`.
-        window.location.reload();
+  _signal(sig) {
+    const svc_process = globalThis.services.get('process');
+    for (const process of svc_process.processes) {
+      if (process === this) continue;
+      process.signal(sig);
     }
+
+    if (sig.i !== END_HARD.i) return;
+
+    // Currently this is the only way to terminate `init`.
+    window.location.reload();
+  }
 }
 
 export class PortalProcess extends Process {
-    _construct () { this.type_ = 'app' }
-    _signal (sig) {
-        if ( sig.end ) {
-            $(this.references.el_win).close({
-                bypass_iframe_messaging: sig.i === END_HARD.i
-            });
-        }
+  _construct() {
+    this.type_ = 'app';
+  }
+  _signal(sig) {
+    if (sig.end) {
+      $(this.references.el_win).close({
+        bypass_iframe_messaging: sig.i === END_HARD.i,
+      });
     }
-    
-    send (channel, data, context) {
-        const target = this.references.iframe.contentWindow;
-        target.postMessage({
-            msg: 'messageToApp',
-            appInstanceID: channel.returnAddress,
-            targetAppInstanceID: this.uuid,
-            contents: data,
-        // }, new URL(this.references.iframe.src).origin);
-        }, '*');
-    }
+  }
 
-    async handle_connection (connection, args) {
-        const target = this.references.iframe.contentWindow;
-        const connection_response = new TeePromise();
-        window.addEventListener('message', (evt) => {
-            if ( evt.source !== target ) return;
-            // Using '$' instead of 'msg' to avoid handling by IPC.js
-            // (following type-tagged message convention)
-            if ( evt.data.$ !== 'connection-resp' ) return;
-            if ( evt.data.connection !== connection.uuid ) return;
-            if ( evt.data.accept ) {
-                connection_response.resolve(evt.data.value);
-            } else {
-                connection_response.reject(evt.data.value
-                    ?? new Error('Connection rejected'));
-            }
-        });
-        target.postMessage({
-            msg: 'connection',
-            appInstanceID: connection.uuid,
-            args,
-        }, '*');
-        const outcome = await Promise.race([
-            connection_response,
-            new Promise((resolve, reject) => {
-                setTimeout(() => {
-                    reject(new Error('Connection timeout'));
-                }, 5000);
-            })
-        ]);
-        return outcome;
-    }
-};
+  send(channel, data, context) {
+    const target = this.references.iframe.contentWindow;
+    target.postMessage(
+      {
+        msg: 'messageToApp',
+        appInstanceID: channel.returnAddress,
+        targetAppInstanceID: this.uuid,
+        contents: data,
+        // }, new URL(this.references.iframe.src).origin);
+      },
+      '*'
+    );
+  }
+
+  async handle_connection(connection, args) {
+    const target = this.references.iframe.contentWindow;
+    const connection_response = new TeePromise();
+    window.addEventListener('message', (evt) => {
+      if (evt.source !== target) return;
+      // Using '$' instead of 'msg' to avoid handling by IPC.js
+      // (following type-tagged message convention)
+      if (evt.data.$ !== 'connection-resp') return;
+      if (evt.data.connection !== connection.uuid) return;
+      if (evt.data.accept) {
+        connection_response.resolve(evt.data.value);
+      } else {
+        connection_response.reject(evt.data.value ?? new Error('Connection rejected'));
+      }
+    });
+    target.postMessage(
+      {
+        msg: 'connection',
+        appInstanceID: connection.uuid,
+        args,
+      },
+      '*'
+    );
+    const outcome = await Promise.race([
+      connection_response,
+      new Promise((resolve, reject) => {
+        setTimeout(() => {
+          reject(new Error('Connection timeout'));
+        }, 5000);
+      }),
+    ]);
+    return outcome;
+  }
+}
 export class PseudoProcess extends Process {
-    _construct () { this.type_ = 'ui' }
-    _signal (sig) {
-        if ( sig.end ) {
-            $(this.references.el_win).close({
-                bypass_iframe_messaging: sig.i === END_HARD.i
-            });
-        }
+  _construct() {
+    this.type_ = 'ui';
+  }
+  _signal(sig) {
+    if (sig.end) {
+      $(this.references.el_win).close({
+        bypass_iframe_messaging: sig.i === END_HARD.i,
+      });
     }
-};
+  }
+}

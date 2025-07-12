@@ -4,6 +4,7 @@
 
 A driver can be one of two things depending on what you're
 talking about:
+
 - a **driver interface** describes a general type of service
   and what its parameters and result look like.
   For example, `puter-chat-completion` is a driver interface
@@ -73,12 +74,11 @@ the module of your choice (`src/backend/src/modules/<module name>`)
 that looks like this:
 
 ```javascript
-const BaseService = require('./BaseService')
+const BaseService = require('./BaseService');
 // NOTE: the path specified ^ HERE might be different depending
 //       on the location of your file.
 
-class PrankGreetService extends BaseService {
-}
+class PrankGreetService extends BaseService {}
 ```
 
 Notice I called the service "PrankGreet". This is a good service
@@ -113,13 +113,13 @@ any log noise from boot won't bury our message.
 
 ```javascript
 class PrankGreetService extends BaseService {
-    async _init () {
-        // Wait for 5 seconds
-        await new Promise(rslv => setTimeout(rslv), 5000);
+  async _init() {
+    // Wait for 5 seconds
+    await new Promise((rslv) => setTimeout(rslv), 5000);
 
-        // Display a log message
-        this.log.noticeme('Hello from PrankGreetService!');
-    }
+    // Display a log message
+    this.log.noticeme('Hello from PrankGreetService!');
+  }
 }
 ```
 
@@ -134,21 +134,21 @@ start implementing the driver interface we chose eralier.
 
 ```javascript
 class PrankGreetService extends BaseService {
-    async _init () {
-        // ... same as before
-    }
+  async _init() {
+    // ... same as before
+  }
 
-    // Now we add this:
-    static IMPLEMENTS = {
-        ['hello-world']: {
-            async greet ({ subject }) {
-                if ( subject ) {
-                    return `Hello ${subject}, tell me about updog!`;
-                }
-                return `Hello, tell me about updog!`;
-            }
+  // Now we add this:
+  static IMPLEMENTS = {
+    ['hello-world']: {
+      async greet({ subject }) {
+        if (subject) {
+          return `Hello ${subject}, tell me about updog!`;
         }
-    }
+        return `Hello, tell me about updog!`;
+      },
+    },
+  };
 }
 ```
 
@@ -165,21 +165,23 @@ open (your local Puter, to be precise), this should contain the current
 value for your auth token.
 
 ```javascript
-await (await fetch("http://api.puter.localhost:4100/drivers/call", {
-    "headers": {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${puter.authToken}`,
+await (
+  await fetch('http://api.puter.localhost:4100/drivers/call', {
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${puter.authToken}`,
     },
-    "body": JSON.stringify({
-        interface: 'hello-world',
-        service: 'prank-greet',
-        method: 'greet',
-        args: {
-            subject: 'World',
-        },
+    body: JSON.stringify({
+      interface: 'hello-world',
+      service: 'prank-greet',
+      method: 'greet',
+      args: {
+        subject: 'World',
+      },
     }),
-    "method": "POST",
-})).json();
+    method: 'POST',
+  })
+).json();
 ```
 
 **You might see a permissions error!** Don't worry, this is expected;
@@ -198,6 +200,7 @@ To grant permission for all users, update
 First, look for the constant `hardcoded_user_group_permissions`.
 Whereever you see an entry for `service:hello-world:ii:hello-world`, add
 the corresponding entry for your service, which will be called
+
 ```
 service:prank-greet:ii:hello-world
 ```

@@ -16,61 +16,60 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const { WeakConstructorFeature } = require("../traits/WeakConstructorFeature");
-const { Eq, And } = require("./query/query");
-const { Entity } = require("./entitystorage/Entity");
+const { AdvancedBase } = require('@heyputer/putility');
+const { WeakConstructorFeature } = require('../traits/WeakConstructorFeature');
+const { Eq, And } = require('./query/query');
+const { Entity } = require('./entitystorage/Entity');
 
 class IdentifierUtil extends AdvancedBase {
-    static FEATURES = [
-        new WeakConstructorFeature(),
-    ]
+  static FEATURES = [new WeakConstructorFeature()];
 
-    async detect_identifier (object) {
-        const redundant_identifiers = this.om.redundant_identifiers ?? [];
+  async detect_identifier(object) {
+    const redundant_identifiers = this.om.redundant_identifiers ?? [];
 
-        let match_found = null;
-        for ( let key_set of redundant_identifiers ) {
-            key_set = Array.isArray(key_set) ? key_set : [key_set];
-            key_set.sort();
+    let match_found = null;
+    for (let key_set of redundant_identifiers) {
+      key_set = Array.isArray(key_set) ? key_set : [key_set];
+      key_set.sort();
 
-            for ( let i=0 ; i < key_set.length ; i++ ) {
-                const key = key_set[i];
-                const has_key = object instanceof Entity ?
-                    await object.has(key) : object[key] !== undefined;
-                if ( ! has_key ) {
-                    break;
-                }
-                if ( i === key_set.length - 1 ) {
-                    match_found = key_set;
-                    break;
-                }
-            }
+      for (let i = 0; i < key_set.length; i++) {
+        const key = key_set[i];
+        const has_key =
+          object instanceof Entity ? await object.has(key) : object[key] !== undefined;
+        if (!has_key) {
+          break;
         }
-
-        if ( ! match_found ) return;
-
-        // Construct a query predicate based on the keys
-        const key_eqs = [];
-        console.log('OBJECT', object, match_found)
-        for ( const key of match_found ) {
-            key_eqs.push(new Eq({
-                key,
-                value: object instanceof Entity ?
-                    await object.get(key) : object[key],
-            }));
-            if ( object instanceof Entity ) {
-                await object.del(key);
-            } else {
-                delete object[key];
-            }
+        if (i === key_set.length - 1) {
+          match_found = key_set;
+          break;
         }
-        let predicate = new And({ children: key_eqs });
-
-        return predicate;
+      }
     }
+
+    if (!match_found) return;
+
+    // Construct a query predicate based on the keys
+    const key_eqs = [];
+    console.log('OBJECT', object, match_found);
+    for (const key of match_found) {
+      key_eqs.push(
+        new Eq({
+          key,
+          value: object instanceof Entity ? await object.get(key) : object[key],
+        })
+      );
+      if (object instanceof Entity) {
+        await object.del(key);
+      } else {
+        delete object[key];
+      }
+    }
+    let predicate = new And({ children: key_eqs });
+
+    return predicate;
+  }
 }
 
 module.exports = {
-    IdentifierUtil
+  IdentifierUtil,
 };
