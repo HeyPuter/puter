@@ -21,8 +21,6 @@
 const { default: Anthropic, toFile } = require("@anthropic-ai/sdk");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
-const FunctionCalling = require("./lib/FunctionCalling");
-const Messages = require("./lib/Messages");
 const { NodePathSelector } = require("../../filesystem/node/selectors");
 const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
@@ -45,6 +43,15 @@ class ClaudeService extends BaseService {
      * @type {import('@anthropic-ai/sdk').Anthropic}
      */
     anthropic;
+    
+    async _construct () {
+        const airouter = await import('@heyputer/airouter.js');
+        this.NormalizedPromptUtil = airouter.NormalizedPromptUtil;
+        this.AnthropicToolsAdapter = airouter.AnthropicToolsAdapter;
+        this.AnthropicStreamAdapter = airouter.AnthropicStreamAdapter;
+        this.anthropicApiType = new airouter.AnthropicAPIType();
+
+    }
     
 
     /**
@@ -114,10 +121,40 @@ class ClaudeService extends BaseService {
             * @this {ClaudeService}
             */
             async complete ({ messages, stream, model, tools, max_tokens, temperature}) {
-                tools = FunctionCalling.make_claude_tools(tools);
+                if ( stream ) {
+                    let usage_promise = new TeePromise();
+
+                    let streamOperation;
+                    const init_chat_stream = async ({ chatStream: completionWriter }) => {
+                        streamOperation = await this.anthropicApiType.stream(this.anthropic, completionWriter, {
+                            messages, model, tools, max_tokens, temperature,
+                        })
+                        await streamOperation.run();
+                        // const input = await anthropic.messages.stream(sdk_params);
+                        // await this.AnthropicStreamAdapter.write_to_stream(
+                        //     { input, completionWriter, usageWriter: usage_promise })
+                    };
+
+                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
+                        init_chat_stream,
+                        stream: true,
+                        usage_promise: usage_promise,
+                        finally_fn: async () => {
+                            await streamOperation.cleanup();
+                        },
+                    });
+                } else {
+                    const syncOperation = await this.anthropicApiType.create(this.anthropic, {
+                        messages, model, tools, max_tokens, temperature,
+                    });
+                    const retVal = await syncOperation.run();
+                    await syncOperation.cleanup();
+                    return retVal;
+                }
+                tools = this.AnthropicToolsAdapter.adapt_tools(tools);
                 
                 let system_prompts;
-                [system_prompts, messages] = Messages.extract_and_remove_system_messages(messages);
+                [system_prompts, messages] = this.NormalizedPromptUtil.extract_and_remove_system_messages(messages);
                 
                 const sdk_params = {
                     model: model ?? this.get_default_model(),
@@ -242,64 +279,10 @@ class ClaudeService extends BaseService {
                 if ( stream ) {
                     let usage_promise = new TeePromise();
 
-                    const init_chat_stream = async ({ chatStream }) => {
-                        const completion = await anthropic.messages.stream(sdk_params);
-                        const counts = { input_tokens: 0, output_tokens: 0 };
-
-                        let message, contentBlock;
-                        for await ( const event of completion ) {
-                            const input_tokens =
-                                (event?.usage ?? event?.message?.usage)?.input_tokens;
-                            const output_tokens =
-                                (event?.usage ?? event?.message?.usage)?.output_tokens;
-
-                            if ( input_tokens ) counts.input_tokens += input_tokens;
-                            if ( output_tokens ) counts.output_tokens += output_tokens;
-
-                            if ( event.type === 'message_start' ) {
-                                message = chatStream.message();
-                                continue;
-                            }
-                            if ( event.type === 'message_stop' ) {
-                                message.end();
-                                message = null;
-                                continue;
-                            }
-
-                            if ( event.type === 'content_block_start' ) {
-                                if ( event.content_block.type === 'tool_use' ) {
-                                    contentBlock = message.contentBlock({
-                                        type: event.content_block.type,
-                                        id: event.content_block.id,
-                                        name: event.content_block.name,
-                                    });
-                                    continue;
-                                }
-                                contentBlock = message.contentBlock({
-                                    type: event.content_block.type,
-                                });
-                                continue;
-                            }
-
-                            if ( event.type === 'content_block_stop' ) {
-                                contentBlock.end();
-                                contentBlock = null;
-                                continue;
-                            }
-
-                            if ( event.type === 'content_block_delta' ) {
-                                if ( event.delta.type === 'input_json_delta' ) {
-                                    contentBlock.addPartialJSON(event.delta.partial_json);
-                                    continue;
-                                }
-                                if ( event.delta.type === 'text_delta' ) {
-                                    contentBlock.addText(event.delta.text);
-                                    continue;
-                                }
-                            }
-                        }
-                        chatStream.end();
-                        usage_promise.resolve(counts);
+                    const init_chat_stream = async ({ chatStream: completionWriter }) => {
+                        const input = await anthropic.messages.stream(sdk_params);
+                        await this.AnthropicStreamAdapter.write_to_stream(
+                            { input, completionWriter, usageWriter: usage_promise })
                     };
 
                     return new TypedValue({ $: 'ai-chat-intermediate' }, {
