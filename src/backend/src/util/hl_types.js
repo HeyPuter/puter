@@ -19,59 +19,55 @@
 const { quot } = require('@heyputer/putility').libs.string;
 
 const hl_type_definitions = {
-    flag: {
-        fallback: false,
-        required_check: v => {
-            if ( v === undefined || v === '' ) {
-                return false;
-            }
-            return true;
-        },
-        adapt: (v) => {
-            if ( typeof v === 'string' ) {
-                if (
-                    v === 'true' || v === '1' || v === 'yes'
-                ) return true;
+  flag: {
+    fallback: false,
+    required_check: (v) => {
+      if (v === undefined || v === '') {
+        return false;
+      }
+      return true;
+    },
+    adapt: (v) => {
+      if (typeof v === 'string') {
+        if (v === 'true' || v === '1' || v === 'yes') return true;
 
-                if (
-                    v === 'false' || v === '0' || v === 'no'
-                ) return false;
+        if (v === 'false' || v === '0' || v === 'no') return false;
 
-                throw new Error(`could not adapt string to boolean: ${quot(v)}`);
-            }
+        throw new Error(`could not adapt string to boolean: ${quot(v)}`);
+      }
 
-            if ( typeof v === 'boolean' ) {
-                return v;
-            }
+      if (typeof v === 'boolean') {
+        return v;
+      }
 
-            if ( v === 1 ) return true;
-            if ( v === 0 ) return false
-            if ( typeof v === 'object' ) {
-                return v !== null;
-            }
+      if (v === 1) return true;
+      if (v === 0) return false;
+      if (typeof v === 'object') {
+        return v !== null;
+      }
 
-            throw new Error(`could not adapt value to boolean: ${quot(v)}`);
-        }
-    }
+      throw new Error(`could not adapt value to boolean: ${quot(v)}`);
+    },
+  },
 };
 
 class HLTypeFacade {
-    static REQUIRED = {};
-    static convert (type, value, opt_default) {
-        const type_definition = hl_type_definitions[type];
-        const has_value = type_definition.required_check(value);
-        if ( ! has_value ) {
-            if ( opt_default === HLTypeFacade.REQUIRED ) {
-                throw new Error(`required value is missing`);
-            }
-            return opt_default ?? type_definition.fallback;
-        }
-        return type_definition.adapt(value);
+  static REQUIRED = {};
+  static convert(type, value, opt_default) {
+    const type_definition = hl_type_definitions[type];
+    const has_value = type_definition.required_check(value);
+    if (!has_value) {
+      if (opt_default === HLTypeFacade.REQUIRED) {
+        throw new Error(`required value is missing`);
+      }
+      return opt_default ?? type_definition.fallback;
     }
+    return type_definition.adapt(value);
+  }
 }
 
 module.exports = {
-    hl_type_definitions,
-    HLTypeFacade,
-    boolify: HLTypeFacade.convert.bind(HLTypeFacade, 'flag'),
+  hl_type_definitions,
+  HLTypeFacade,
+  boolify: HLTypeFacade.convert.bind(HLTypeFacade, 'flag'),
 };

@@ -7,12 +7,12 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -43,66 +43,65 @@ window.mouseX = 0;
 window.mouseY = 0;
 
 // get all logged-in users
-try{
-    window.logged_in_users = JSON.parse(localStorage.getItem("logged_in_users"));
-}catch(e){
-    window.logged_in_users = [];
+try {
+  window.logged_in_users = JSON.parse(localStorage.getItem('logged_in_users'));
+} catch (e) {
+  window.logged_in_users = [];
 }
-if(window.logged_in_users === null)
-    window.logged_in_users = [];
+if (window.logged_in_users === null) window.logged_in_users = [];
 
 // this sessions's user
-window.auth_token = localStorage.getItem("auth_token");
-try{
-    window.user = JSON.parse(localStorage.getItem("user"));
-}catch(e){
-    window.user = null;
+window.auth_token = localStorage.getItem('auth_token');
+try {
+  window.user = JSON.parse(localStorage.getItem('user'));
+} catch (e) {
+  window.user = null;
 }
 
 // in case this is the first time user is visiting multi-user feature
-if(window.logged_in_users.length === 0 && window.user !== null){
-    let tuser = window.user;
-    tuser.auth_token = window.auth_token
-    window.logged_in_users.push(tuser);
-    localStorage.setItem("logged_in_users", window.logged_in_users);
+if (window.logged_in_users.length === 0 && window.user !== null) {
+  let tuser = window.user;
+  tuser.auth_token = window.auth_token;
+  window.logged_in_users.push(tuser);
+  localStorage.setItem('logged_in_users', window.logged_in_users);
 }
 
 window.last_window_zindex = 1;
 
 // first visit tracker
-window.first_visit_ever = localStorage.getItem("has_visited_before") === null ? true : false;
-localStorage.setItem("has_visited_before", true);
+window.first_visit_ever = localStorage.getItem('has_visited_before') === null ? true : false;
+localStorage.setItem('has_visited_before', true);
 
 // system paths
-if(window.user !== undefined && window.user !== null){
-    window.desktop_path = '/' + window.user.username + '/Desktop';
-    window.trash_path = '/' + window.user.username + '/Trash';
-    window.appdata_path = '/' + window.user.username + '/AppData';
-    window.documents_path = '/' + window.user.username + '/Documents';
-    window.pictures_path = '/' + window.user.username + '/Photos';
-    window.videos_path = '/' + window.user.username + '/Videos';
-    window.audio_path = '/' + window.user.username + '/Audio';
-    window.public_path = '/' + window.user.username + '/Public';
-    window.home_path = '/' + window.user.username;
+if (window.user !== undefined && window.user !== null) {
+  window.desktop_path = '/' + window.user.username + '/Desktop';
+  window.trash_path = '/' + window.user.username + '/Trash';
+  window.appdata_path = '/' + window.user.username + '/AppData';
+  window.documents_path = '/' + window.user.username + '/Documents';
+  window.pictures_path = '/' + window.user.username + '/Photos';
+  window.videos_path = '/' + window.user.username + '/Videos';
+  window.audio_path = '/' + window.user.username + '/Audio';
+  window.public_path = '/' + window.user.username + '/Public';
+  window.home_path = '/' + window.user.username;
 }
 window.root_dirname = 'Puter';
 
 // user preferences, persisted across sessions, cached in localStorage
 try {
-    window.user_preferences = JSON.parse(localStorage.getItem('user_preferences'))
-}catch(e){
-    window.user_preferences = null;
+  window.user_preferences = JSON.parse(localStorage.getItem('user_preferences'));
+} catch (e) {
+  window.user_preferences = null;
 }
 // default values
 if (window.user_preferences === null) {
-    window.user_preferences = {
-        show_hidden_files: false,
-        language: navigator.language.split("-")[0] || navigator.userLanguage || 'en',
-        clock_visible: 'auto',
-    }
+  window.user_preferences = {
+    show_hidden_files: false,
+    language: navigator.language.split('-')[0] || navigator.userLanguage || 'en',
+    clock_visible: 'auto',
+  };
 }
 
-window.window_stack = []
+window.window_stack = [];
 window.toolbar_height = 0;
 window.default_taskbar_height = 50;
 window.taskbar_height = window.default_taskbar_height;
@@ -123,37 +122,37 @@ window.first_visit_animation = false;
 window.show_twitter_link = true;
 window.animate_window_opening = true;
 window.animate_window_closing = true;
-window.desktop_loading_fade_delay = (window.first_visit_ever && window.first_visit_animation ? 6000 : 1000);
+window.desktop_loading_fade_delay =
+  window.first_visit_ever && window.first_visit_animation ? 6000 : 1000;
 window.watchItems = [];
 window.appdata_signatures = {};
 window.appCallbackFunctions = [];
 
 // Defines how much weight each operation has in the zipping progress
 window.zippingProgressConfig = {
-    TOTAL: 100
-}
+  TOTAL: 100,
+};
 //Assuming uInt8Array conversion a file takes betwneen 45% to 60% of the total progress
-window.zippingProgressConfig.SEQUENCING = Math.floor(Math.random() * (60 - 45 + 1)) + 45,
-//Assuming zipping up uInt8Arrays takes betwneen 20% to 23% of the total progress
-window.zippingProgressConfig.ZIPPING = Math.floor(Math.random() * (23 - 20 + 1)) + 20,
-//Assuming writing a zip file takes betwneen 10% to 14% of the total progress
-window.zippingProgressConfig.WRITING = Math.floor(Math.random() * (14 - 10 + 1)) + 14,
-
-// 'Launch' apps
-window.launch_apps = [];
-window.launch_apps.recent = []
-window.launch_apps.recommended = []
+((window.zippingProgressConfig.SEQUENCING = Math.floor(Math.random() * (60 - 45 + 1)) + 45),
+  //Assuming zipping up uInt8Arrays takes betwneen 20% to 23% of the total progress
+  (window.zippingProgressConfig.ZIPPING = Math.floor(Math.random() * (23 - 20 + 1)) + 20),
+  //Assuming writing a zip file takes betwneen 10% to 14% of the total progress
+  (window.zippingProgressConfig.WRITING = Math.floor(Math.random() * (14 - 10 + 1)) + 14),
+  // 'Launch' apps
+  (window.launch_apps = []));
+window.launch_apps.recent = [];
+window.launch_apps.recommended = [];
 
 // Map of { child_instance_id -> { parent_instance_id, launch_msg_id } }
 window.child_launch_callbacks = {};
 
 // Is puter being loaded inside an iframe?
 if (window.location !== window.parent.location) {
-    window.is_embedded = true;
-    // taskbar is not needed in embedded mode
-    window.taskbar_height = 0;
+  window.is_embedded = true;
+  // taskbar is not needed in embedded mode
+  window.taskbar_height = 0;
 } else {
-    window.is_embedded = false;
+  window.is_embedded = false;
 }
 
 // calculate desktop height and width
@@ -166,63 +165,63 @@ window.a_window_is_resizing = false;
 window.a_window_sidebar_is_resizing = false;
 
 // recalculate desktop height and width on window resize
-$( window ).on( "resize", function() {
-    if(window.is_fullpage_mode) return;
-    if(window.a_window_is_resizing) return;
-    if(window.a_window_sidebar_is_resizing) return;
+$(window).on('resize', function () {
+  if (window.is_fullpage_mode) return;
+  if (window.a_window_is_resizing) return;
+  if (window.a_window_sidebar_is_resizing) return;
 
-    const new_desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
-    const new_desktop_width = window.innerWidth;
+  const new_desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
+  const new_desktop_width = window.innerWidth;
 
-    $('.window').each((_, el) => {
-        // if window is maximized, do not resize
-        if($(el).attr('data-is_maximized') === "1") return;
+  $('.window').each((_, el) => {
+    // if window is maximized, do not resize
+    if ($(el).attr('data-is_maximized') === '1') return;
 
-        // if data-is_fullpage="1" then the window is in fullpage mode
-        // and should not be resized
-        if($(el).attr('data-is_fullpage') === "1") return;
+    // if data-is_fullpage="1" then the window is in fullpage mode
+    // and should not be resized
+    if ($(el).attr('data-is_fullpage') === '1') return;
 
-        const pos = $(el).position();
-        const id = $(el).attr('id');
+    const pos = $(el).position();
+    const id = $(el).attr('id');
 
-        if(!window.original_window_position[id]){
-            window.original_window_position[id] = {
-                left: pos.left,
-                top: pos.top
-            }
-        }
+    if (!window.original_window_position[id]) {
+      window.original_window_position[id] = {
+        left: pos.left,
+        top: pos.top,
+      };
+    }
 
-        const leftRatio = pos.left / window.desktop_width;
-        const topRatio = pos.top / window.desktop_height;
+    const leftRatio = pos.left / window.desktop_width;
+    const topRatio = pos.top / window.desktop_height;
 
-        let left = new_desktop_width * leftRatio;
-        let top = new_desktop_height * topRatio;
+    let left = new_desktop_width * leftRatio;
+    let top = new_desktop_height * topRatio;
 
-        const maxLeft = new_desktop_width - $(el).width();
-        const maxTop = new_desktop_height - $(el).height();
+    const maxLeft = new_desktop_width - $(el).width();
+    const maxTop = new_desktop_height - $(el).height();
 
-        // first move the window to the original position
-        const originalLeft = window.original_window_position[id].left;
-        const originalTop = window.original_window_position[id].top;
+    // first move the window to the original position
+    const originalLeft = window.original_window_position[id].left;
+    const originalTop = window.original_window_position[id].top;
 
-        if(left < 0) left = 0;
-        else if(left > maxLeft || originalLeft > maxLeft) left = maxLeft;
+    if (left < 0) left = 0;
+    else if (left > maxLeft || originalLeft > maxLeft) left = maxLeft;
 
-        if(top < window.toolbar_height) top = window.toolbar_height;
-        else if(top > maxTop || originalTop > maxTop) top = maxTop + window.toolbar_height;
+    if (top < window.toolbar_height) top = window.toolbar_height;
+    else if (top > maxTop || originalTop > maxTop) top = maxTop + window.toolbar_height;
 
-        $(el).css({
-            left,
-            top
-        })
-    })
+    $(el).css({
+      left,
+      top,
+    });
+  });
 
-    window.desktop_height = new_desktop_height;
-    window.desktop_width = new_desktop_width;
+  window.desktop_height = new_desktop_height;
+  window.desktop_width = new_desktop_width;
 });
-  
+
 // for now `active_element` is basically the last element that was clicked,
-// later on though (todo) `active_element` will also be set by keyboard movements 
+// later on though (todo) `active_element` will also be set by keyboard movements
 // such as arrow keys, tab key, ... and when creating new windows...
 window.active_element = null;
 
@@ -233,7 +232,7 @@ window.launch_recent_apps_count = 10;
 // if yes, which one?
 window.current_active_snap_zone = undefined;
 
-// 
+//
 window.is_fullpage_mode = false;
 
 window.window_border_radius = 4;
@@ -241,19 +240,19 @@ window.window_border_radius = 4;
 window.sites = [];
 
 window.feature_flags = {
-    // if true, the user will be able to create shortcuts to files and directories
-    create_shortcut: true,
-    // if true, the user will be asked to confirm before navigating away from Puter only if there is at least one window open
-    prompt_user_when_navigation_away_from_puter: false,
-    // if true, the user will be able to zip and download directories
-    download_directory: true,
-}
+  // if true, the user will be able to create shortcuts to files and directories
+  create_shortcut: true,
+  // if true, the user will be asked to confirm before navigating away from Puter only if there is at least one window open
+  prompt_user_when_navigation_away_from_puter: false,
+  // if true, the user will be able to zip and download directories
+  download_directory: true,
+};
 
 window.is_auto_arrange_enabled = true;
 window.desktop_item_positions = {};
 window.reset_item_positions = true; // The variable decides if the item positions should be reset when the user enabled auto arrange
 
-window.file_templates = []
+window.file_templates = [];
 
 // default language
 window.locale = 'en';

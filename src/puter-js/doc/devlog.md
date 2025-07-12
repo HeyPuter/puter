@@ -24,6 +24,7 @@ so that caching is centralized and all apps can benefit from the cache. Okay,
 that's great, but... **Puter Desktop has user privileges, not app privileges.**
 
 With this, I see a couple of options:
+
 - Puter desktop makes the call to check ACL
   - we don't expose this yet
     we need to ensure it doesn't expose the existence of files for which the

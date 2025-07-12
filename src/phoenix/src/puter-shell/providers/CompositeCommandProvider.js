@@ -17,52 +17,52 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export class CompositeCommandProvider {
-    constructor (providers) {
-        this.providers = providers;
+  constructor(providers) {
+    this.providers = providers;
+  }
+
+  async lookup(...a) {
+    for (const provider of this.providers) {
+      const command = await provider.lookup(...a);
+      if (command) {
+        return command;
+      }
+    }
+  }
+
+  async lookupAll(...a) {
+    const results = [];
+    for (const provider of this.providers) {
+      const commands = await provider.lookupAll(...a);
+      if (commands) {
+        results.push(...commands);
+      }
     }
 
-    async lookup (...a) {
-        for (const provider of this.providers) {
-            const command = await provider.lookup(...a);
-            if (command) {
-                return command;
-            }
-        }
+    if (results.length === 0) return undefined;
+    return results;
+  }
+
+  async complete(...a) {
+    const query = a[0];
+    if (query === '') return [];
+
+    const results = [];
+    for (const provider of this.providers) {
+      if (!provider.complete) continue;
+      results.push(...(await provider.complete(...a)));
     }
+    return results;
+  }
 
-    async lookupAll (...a) {
-        const results = [];
-        for (const provider of this.providers) {
-            const commands = await provider.lookupAll(...a);
-            if ( commands ) {
-                results.push(...commands);
-            }
-        }
-
-        if ( results.length === 0 ) return undefined;
-        return results;
+  async list() {
+    const results = [];
+    for (const provider of this.providers) {
+      if (typeof provider.list === 'function') {
+        const commands = await provider.list();
+        results.push(...commands);
+      }
     }
-
-    async complete (...a) {
-        const query = a[0];
-        if (query === '') return [];
-
-        const results = [];
-        for (const provider of this.providers) {
-            if ( ! provider.complete ) continue;
-            results.push(...await provider.complete(...a));
-        }
-        return results;
-    }
-
-    async list() {
-        const results = [];
-        for (const provider of this.providers) {
-            if (typeof provider.list === 'function') {
-                const commands = await provider.list();
-                results.push(...commands); 
-            }
-        }
-        return results;
-    }
+    return results;
+  }
 }

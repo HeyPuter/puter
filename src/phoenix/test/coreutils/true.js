@@ -17,28 +17,28 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import assert from 'assert';
-import { MakeTestContext } from './harness.js'
+import { MakeTestContext } from './harness.js';
 import builtins from '../../src/puter-shell/coreutils/__exports__.js';
 
 async function testTrue(options) {
-    let ctx = MakeTestContext(builtins.true, options);
-    try {
-        const result = await builtins.true.execute(ctx);
-        assert.equal(result, undefined);
-    } catch (e) {
-        assert.fail(e);
-    }
-    assert.equal(ctx.externs.out.output, '', 'true should not write to stdout');
-    assert.equal(ctx.externs.err.output, '', 'true should not write to stderr');
+  let ctx = MakeTestContext(builtins.true, options);
+  try {
+    const result = await builtins.true.execute(ctx);
+    assert.equal(result, undefined);
+  } catch (e) {
+    assert.fail(e);
+  }
+  assert.equal(ctx.externs.out.output, '', 'true should not write to stdout');
+  assert.equal(ctx.externs.err.output, '', 'true should not write to stderr');
 }
 
 export const runTrueTests = () => {
-    describe('true', function () {
-        it('should execute successfully with no output', async function () {
-            await testTrue({});
-        });
-        it('should allow, but ignore, positional arguments', async function () {
-            await testTrue({positionals: ['foo', 'bar', 'baz']});
-        });
+  describe('true', function () {
+    it('should execute successfully with no output', async function () {
+      await testTrue({});
     });
-}
+    it('should allow, but ignore, positional arguments', async function () {
+      await testTrue({ positionals: ['foo', 'bar', 'baz'] });
+    });
+  });
+};

@@ -20,54 +20,54 @@ import { Exit } from './coreutil_lib/exit.js';
 import { fileLines } from '../../util/file.js';
 
 export default {
-    name: 'head',
-    usage: 'head [OPTIONS] [FILE]',
-    description: 'Read a file and print the first lines to standard output.\n\n' +
-        'Defaults to 10 lines unless --lines is given. ' +
-        'If no FILE is provided, or FILE is `-`, read standard input.',
-    input: {
-        syncLines: true
+  name: 'head',
+  usage: 'head [OPTIONS] [FILE]',
+  description:
+    'Read a file and print the first lines to standard output.\n\n' +
+    'Defaults to 10 lines unless --lines is given. ' +
+    'If no FILE is provided, or FILE is `-`, read standard input.',
+  input: {
+    syncLines: true,
+  },
+  args: {
+    $: 'simple-parser',
+    allowPositionals: true,
+    options: {
+      lines: {
+        description: 'Print the last COUNT lines',
+        type: 'string',
+        short: 'n',
+        valueName: 'COUNT',
+      },
     },
-    args: {
-        $: 'simple-parser',
-        allowPositionals: true,
-        options: {
-            lines: {
-                description: 'Print the last COUNT lines',
-                type: 'string',
-                short: 'n',
-                valueName: 'COUNT',
-            }
-        }
-    },
-    execute: async ctx => {
-        const { out, err } = ctx.externs;
-        const { positionals, values } = ctx.locals;
+  },
+  execute: async (ctx) => {
+    const { out, err } = ctx.externs;
+    const { positionals, values } = ctx.locals;
 
-        if (positionals.length > 1) {
-            // TODO: Support multiple files (this is POSIX)
-            await err.write('head: Only one FILE parameter is allowed\n');
-            throw new Exit(1);
-        }
-        const relPath = positionals[0] || '-';
-
-        let lineCount = 10;
-
-        if (values.lines) {
-            const parsedLineCount = Number.parseFloat(values.lines);
-            if (isNaN(parsedLineCount) || ! Number.isInteger(parsedLineCount) || parsedLineCount < 1) {
-                await err.write(`head: Invalid number of lines '${values.lines}'\n`);
-                throw new Exit(1);
-            }
-            lineCount = parsedLineCount;
-        }
-
-        let processedLineCount = 0;
-        for await (const line of fileLines(ctx, relPath)) {
-            await out.write(line);
-            processedLineCount++;
-            if (processedLineCount >= lineCount)
-                break;
-        }
+    if (positionals.length > 1) {
+      // TODO: Support multiple files (this is POSIX)
+      await err.write('head: Only one FILE parameter is allowed\n');
+      throw new Exit(1);
     }
+    const relPath = positionals[0] || '-';
+
+    let lineCount = 10;
+
+    if (values.lines) {
+      const parsedLineCount = Number.parseFloat(values.lines);
+      if (isNaN(parsedLineCount) || !Number.isInteger(parsedLineCount) || parsedLineCount < 1) {
+        await err.write(`head: Invalid number of lines '${values.lines}'\n`);
+        throw new Exit(1);
+      }
+      lineCount = parsedLineCount;
+    }
+
+    let processedLineCount = 0;
+    for await (const line of fileLines(ctx, relPath)) {
+      await out.write(line);
+      processedLineCount++;
+      if (processedLineCount >= lineCount) break;
+    }
+  },
 };

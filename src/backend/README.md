@@ -4,12 +4,13 @@ _Part of a High-Level Distributed Operating System_
 
 Whether or not you call Puter an operating system
 (we call it a "high-level distributed operating system"),
-**operating systems for devices** 
+**operating systems for devices**
 are a useful reference point to describe the architecture of Puter.
 If Puter's "hardware" is services, and Puter's "userspace" is the
 client side of the API, then Puter's "kernel" is the backend.
 
 Puter's backend is composed of:
+
 - The **Kernel** class, which is responsible for initialization
 - A number of **Modules** which are registered in **Kernel** for a customized
   Puter instance.
@@ -34,6 +35,7 @@ own backend that's compatible with any of Puter's services.
 
 Puter's Kernel only initializes modules, nothing more. The modules bring a lot
 of capabilities to the table, however. Within this directory you'll find modules that:
+
 - coerce all the well-known AI services to a common interface
 - manage authentication with Wisp servers (this brings TCP to the browser!)
 - manage apps on Puter

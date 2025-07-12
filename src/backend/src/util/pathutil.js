@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("../../../putility");
+const { AdvancedBase } = require('../../../putility');
 
 /**
  * PathBuilder implements the builder pattern for building paths.
@@ -24,71 +24,66 @@ const { AdvancedBase } = require("../../../putility");
  * to parent directories.
  */
 class PathBuilder extends AdvancedBase {
-    static MODULES = {
-        path: require('path'),
+  static MODULES = {
+    path: require('path'),
+  };
+
+  constructor(parameters = {}) {
+    super();
+    if (parameters.puterfs) {
+      this.modules.path = this.modules.path.posix;
+    }
+    this.path_ = '';
+  }
+
+  static create(parameters) {
+    return new PathBuilder(parameters);
+  }
+
+  static add(fragment, options) {
+    return PathBuilder.create().add(fragment, options);
+  }
+
+  static resolve(fragment, parameters = {}) {
+    const { puterfs } = parameters;
+
+    const p = PathBuilder.create(parameters);
+    const require = p.require;
+    const node_path = require('path');
+    fragment = node_path.resolve(fragment);
+    if (process.platform === 'win32' && !parameters.puterfs) {
+      fragment = '/' + fragment.slice('c:\\'.length); // >:-(
+    }
+    let result = p.add(fragment).build();
+    if (puterfs && process.platform === 'win32' && result.startsWith('\\')) {
+      result = '/' + result.slice(1);
+    }
+    return result;
+  }
+
+  add(fragment, options) {
+    const require = this.require;
+    const node_path = require('path');
+
+    options = options || {};
+    if (!options.allow_traversal) {
+      fragment = node_path.normalize(fragment);
+      fragment = fragment.replace(/(\.+\/|\.+\\)/g, '');
+      if (fragment === '..') {
+        fragment = '';
+      }
     }
 
-    constructor(parameters = {}) {
-        super();
-        if ( parameters.puterfs ) {
-            this.modules.path =
-                this.modules.path.posix;
-        }
-        this.path_ = '';
-    }
+    this.path_ = this.path_ ? node_path.join(this.path_, fragment) : fragment;
 
-    static create (parameters) {
-        return new PathBuilder(parameters);
-    }
+    return this;
+  }
 
-    static add (fragment, options) {
-        return PathBuilder.create().add(fragment, options);
-    }
-
-    static resolve (fragment, parameters = {}) {
-        const { puterfs } = parameters;
-
-        const p = PathBuilder.create(parameters);
-        const require = p.require;
-        const node_path = require('path');
-        fragment = node_path.resolve(fragment);
-        if ( process.platform === 'win32' && !parameters.puterfs ) {
-            fragment = '/' + fragment.slice('c:\\'.length); // >:-(
-        }
-        let result = p.add(fragment).build();
-        if ( puterfs && process.platform === 'win32' &&
-            result.startsWith('\\')
-        ) {
-            result = '/' + result.slice(1);
-        }
-        return result;
-    }
-    
-    add (fragment, options) {
-        const require = this.require;
-        const node_path = require('path');
-
-        options = options || {};
-        if ( ! options.allow_traversal ) {
-            fragment = node_path.normalize(fragment);
-            fragment = fragment.replace(/(\.+\/|\.+\\)/g, '');
-            if ( fragment === '..' ) {
-                fragment = '';
-            }
-        }
-
-        this.path_ = this.path_
-            ? node_path.join(this.path_, fragment)
-            : fragment;
-
-        return this;
-    }
-
-    build () {
-        return this.path_;
-    }
+  build() {
+    return this.path_;
+  }
 }
 
 module.exports = {
-    PathBuilder,
+  PathBuilder,
 };

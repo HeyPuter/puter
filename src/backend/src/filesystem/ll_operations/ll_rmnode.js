@@ -16,31 +16,31 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { LLFilesystemOperation } = require("./definitions");
+const { LLFilesystemOperation } = require('./definitions');
 
 class LLRmNode extends LLFilesystemOperation {
-    async _run () {
-        const { target, actor } = this.values;
+  async _run() {
+    const { target, actor } = this.values;
 
-        const { context } = this;
+    const { context } = this;
 
-        const svc = context.get('services');
+    const svc = context.get('services');
 
-        // Access Control
-        {
-            const svc_acl = context.get('services').get('acl');
-            this.checkpoint('remove :: access control');
+    // Access Control
+    {
+      const svc_acl = context.get('services').get('acl');
+      this.checkpoint('remove :: access control');
 
-            // Check write access to target
-            if ( ! await svc_acl.check(actor, target, 'write') ) {
-                throw await svc_acl.get_safe_acl_error(actor, target, 'write');
-            }
-        }
-
-        await target.provider.unlink({ context, node: target });
+      // Check write access to target
+      if (!(await svc_acl.check(actor, target, 'write'))) {
+        throw await svc_acl.get_safe_acl_error(actor, target, 'write');
+      }
     }
+
+    await target.provider.unlink({ context, node: target });
+  }
 }
 
 module.exports = {
-    LLRmNode,
+  LLRmNode,
 };

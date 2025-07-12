@@ -17,33 +17,36 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 class Getter {
-    static adapt (v) {
-        if ( typeof v === 'function' ) return v;
-        return () => v;
-    }
+  static adapt(v) {
+    if (typeof v === 'function') return v;
+    return () => v;
+  }
 }
 
 const LinearByCountGetter = ({ initial, slope, pre = false }) => {
-    let value = initial;
-    return () => {
-        if ( pre ) value += slope;
-        let v = value;
-        if ( ! pre ) value += slope;
-        return v;
-    }
-}
+  let value = initial;
+  return () => {
+    if (pre) value += slope;
+    let v = value;
+    if (!pre) value += slope;
+    return v;
+  };
+};
 
-const ConstantGetter = ({ initial }) => () => initial;
+const ConstantGetter =
+  ({ initial }) =>
+  () =>
+    initial;
 
 // bind function for parameterized functions
 const Bind = (fn, important_parameters) => {
-    return (given_parameters) => {
-        return fn({
-            ...given_parameters,
-            ...important_parameters,
-        });
-    }
-}
+  return (given_parameters) => {
+    return fn({
+      ...given_parameters,
+      ...important_parameters,
+    });
+  };
+};
 
 /**
  * SwitchByCountGetter
@@ -58,153 +61,151 @@ const Bind = (fn, important_parameters) => {
  * }); // 0, 1, 2, 3, 4, 4, 4, ...
  */
 const SwitchByCountGetter = ({ initial, body }) => {
-    let value = initial ?? 0;
-    let count = 0;
-    let getter;
-    if ( ! body.hasOwnProperty(count) ) {
-        throw new Error('body of SwitchByCountGetter must have an entry for count 0');
+  let value = initial ?? 0;
+  let count = 0;
+  let getter;
+  if (!body.hasOwnProperty(count)) {
+    throw new Error('body of SwitchByCountGetter must have an entry for count 0');
+  }
+  return () => {
+    if (body.hasOwnProperty(count)) {
+      getter = body[count]({ initial: value });
+      console.log('getter is', getter);
     }
-    return () => {
-        if ( body.hasOwnProperty(count) ) {
-            getter = body[count]({ initial: value });
-            console.log('getter is', getter)
-        }
-        value = getter();
-        count++;
-        return value;
-    }
-}
+    value = getter();
+    count++;
+    return value;
+  };
+};
 
 class StreamReducer {
-    constructor (initial) {
-        this.value = initial;
-    }
+  constructor(initial) {
+    this.value = initial;
+  }
 
-    put (v) {
-        this._put(v);
-    }
+  put(v) {
+    this._put(v);
+  }
 
-    get () {
-        return this._get();
-    }
+  get() {
+    return this._get();
+  }
 
-    _put (v) {
-        throw new Error('Not implemented');
-    }
+  _put(v) {
+    throw new Error('Not implemented');
+  }
 
-    _get () {
-        return this.value;
-    }
+  _get() {
+    return this.value;
+  }
 }
 
 class EWMA extends StreamReducer {
-    constructor ({ initial, alpha }) {
-        super(initial ?? 0);
-        console.log('VALL', this.value)
-        this.alpha = Getter.adapt(alpha);
-    }
+  constructor({ initial, alpha }) {
+    super(initial ?? 0);
+    console.log('VALL', this.value);
+    this.alpha = Getter.adapt(alpha);
+  }
 
-    _put (v) {
-        this.value = this.alpha() * v + (1 - this.alpha()) * this.value;
-    }
+  _put(v) {
+    this.value = this.alpha() * v + (1 - this.alpha()) * this.value;
+  }
 }
 
 class MovingMode extends StreamReducer {
-    constructor ({ initial, window_size }) {
-        super(initial ?? 0);
-        this.window_size = window_size ?? 30;
-        this.window = [];
-    }
+  constructor({ initial, window_size }) {
+    super(initial ?? 0);
+    this.window_size = window_size ?? 30;
+    this.window = [];
+  }
 
-    _put (v) {
-        this.window.push(v);
-        if ( this.window.length > this.window_size ) {
-            this.window.shift();
-        }
-        this.value = this._get_mode();
+  _put(v) {
+    this.window.push(v);
+    if (this.window.length > this.window_size) {
+      this.window.shift();
     }
+    this.value = this._get_mode();
+  }
 
-    _get_mode () {
-        let counts = {};
-        for ( let v of this.window ) {
-            if ( ! counts.hasOwnProperty(v) ) counts[v] = 0;
-            counts[v]++;
-        }
-        let max = 0;
-        let mode = null;
-        for ( let v in counts ) {
-            if ( counts[v] > max ) {
-                max = counts[v];
-                mode = v;
-            }
-        }
-        return mode;
+  _get_mode() {
+    let counts = {};
+    for (let v of this.window) {
+      if (!counts.hasOwnProperty(v)) counts[v] = 0;
+      counts[v]++;
     }
+    let max = 0;
+    let mode = null;
+    for (let v in counts) {
+      if (counts[v] > max) {
+        max = counts[v];
+        mode = v;
+      }
+    }
+    return mode;
+  }
 }
 
 class TimeWindow {
-    constructor ({ window_duration, reducer, now }) {
-        this.window_duration = window_duration;
-        this.reducer = reducer;
-        this.entries_ = [];
-        this.now = now ?? Date.now;
+  constructor({ window_duration, reducer, now }) {
+    this.window_duration = window_duration;
+    this.reducer = reducer;
+    this.entries_ = [];
+    this.now = now ?? Date.now;
+  }
+
+  add(value) {
+    this.remove_stale_entries_();
+
+    const timestamp = this.now();
+    this.entries_.push({
+      timestamp,
+      value,
+    });
+  }
+
+  get() {
+    this.remove_stale_entries_();
+
+    const values = this.entries_.map((entry) => entry.value);
+    if (!this.reducer) return values;
+
+    return this.reducer(values);
+  }
+
+  get_entries() {
+    return [...this.entries_];
+  }
+
+  remove_stale_entries_() {
+    let i = 0;
+    const current_ts = this.now();
+    for (; i < this.entries_.length; i++) {
+      const entry = this.entries_[i];
+      // as soon as an entry is in the window we can break,
+      // since entries will always be in ascending order by timestamp
+      if (current_ts - entry.timestamp < this.window_duration) {
+        break;
+      }
     }
 
-    add (value) {
-        this.remove_stale_entries_();
-
-        const timestamp = this.now();
-        this.entries_.push({
-            timestamp,
-            value,
-        });
-    }
-
-    get () {
-        this.remove_stale_entries_();
-
-        const values = this.entries_.map(entry => entry.value);
-        if ( ! this.reducer ) return values;
-
-        return this.reducer(values);
-    }
-
-    get_entries () {
-        return [...this.entries_];
-    }
-
-    remove_stale_entries_ () {
-        let i = 0;
-        const current_ts = this.now();
-        for ( ; i < this.entries_.length ; i++ ) {
-            const entry = this.entries_[i];
-            // as soon as an entry is in the window we can break,
-            // since entries will always be in ascending order by timestamp
-            if ( current_ts - entry.timestamp < this.window_duration ) {
-                break;
-            }
-        }
-
-        this.entries_ = this.entries_.slice(i);
-    }
+    this.entries_ = this.entries_.slice(i);
+  }
 }
 
-const normalize = ({
-    high_value,
-}, value) => {
-    const k = -1 * (1 / high_value);
-    return 1 - Math.pow(Math.E, k * value);
+const normalize = ({ high_value }, value) => {
+  const k = -1 * (1 / high_value);
+  return 1 - Math.pow(Math.E, k * value);
 };
 
 module.exports = {
-    Getter,
-    LinearByCountGetter,
-    SwitchByCountGetter,
-    ConstantGetter,
-    Bind,
-    StreamReducer,
-    EWMA,
-    MovingMode,
-    TimeWindow,
-    normalize,
-}
+  Getter,
+  LinearByCountGetter,
+  SwitchByCountGetter,
+  ConstantGetter,
+  Bind,
+  StreamReducer,
+  EWMA,
+  MovingMode,
+  TimeWindow,
+  normalize,
+};

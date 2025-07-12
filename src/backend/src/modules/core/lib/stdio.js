@@ -26,8 +26,8 @@
  * @returns {number} The length of the string without ANSI escape sequences
  */
 const visible_length = (str) => {
-    // eslint-disable-next-line no-control-regex
-    return str.replace(/\x1b\[[0-9;]*m/g, '').length;
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1b\[[0-9;]*m/g, '').length;
 };
 
 /**
@@ -38,33 +38,31 @@ const visible_length = (str) => {
  * @returns {string[]} Array of lines split according to terminal width
  */
 const split_lines = (str) => {
-    const lines = [];
-    let line = '';
-    let line_length = 0;
-    for (const c of str) {
-        line += c;
-        if (c === '\n') {
-            lines.push(line);
-            line = '';
-            line_length = 0;
-        } else {
-            line_length++;
-            if (line_length >= process.stdout.columns) {
-                lines.push(line);
-                line = '';
-                line_length = 0;
-            }
-        }
-    }
-    if (line.length) {
+  const lines = [];
+  let line = '';
+  let line_length = 0;
+  for (const c of str) {
+    line += c;
+    if (c === '\n') {
+      lines.push(line);
+      line = '';
+      line_length = 0;
+    } else {
+      line_length++;
+      if (line_length >= process.stdout.columns) {
         lines.push(line);
+        line = '';
+        line_length = 0;
+      }
     }
-    return lines;
+  }
+  if (line.length) {
+    lines.push(line);
+  }
+  return lines;
 };
-
 
 module.exports = {
-    visible_length,
-    split_lines,
+  visible_length,
+  split_lines,
 };
-

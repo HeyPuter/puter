@@ -1,13 +1,13 @@
 // https://github.com/gr2m/localstorage-memory under MIT
 
 const root = {};
-var localStorageMemory = {}
-var cache = {}
+var localStorageMemory = {};
+var cache = {};
 
 /**
  * number of stored items.
  */
-localStorageMemory.length = 0
+localStorageMemory.length = 0;
 
 /**
  * returns item for passed key, or null
@@ -18,11 +18,11 @@ localStorageMemory.length = 0
  */
 localStorageMemory.getItem = function (key) {
   if (key in cache) {
-    return cache[key]
+    return cache[key];
   }
 
-  return null
-}
+  return null;
+};
 
 /**
  * sets item for key to passed value, as String
@@ -35,15 +35,15 @@ localStorageMemory.getItem = function (key) {
  */
 localStorageMemory.setItem = function (key, value) {
   if (typeof value === 'undefined') {
-    localStorageMemory.removeItem(key)
+    localStorageMemory.removeItem(key);
   } else {
-    if (!(cache.hasOwnProperty(key))) {
-      localStorageMemory.length++
+    if (!cache.hasOwnProperty(key)) {
+      localStorageMemory.length++;
     }
 
-    cache[key] = '' + value
+    cache[key] = '' + value;
   }
-}
+};
 
 /**
  * removes item for passed key
@@ -54,10 +54,10 @@ localStorageMemory.setItem = function (key, value) {
  */
 localStorageMemory.removeItem = function (key) {
   if (cache.hasOwnProperty(key)) {
-    delete cache[key]
-    localStorageMemory.length--
+    delete cache[key];
+    localStorageMemory.length--;
   }
-}
+};
 
 /**
  * returns name of key at passed index
@@ -67,8 +67,8 @@ localStorageMemory.removeItem = function (key) {
  * @returns {String|null}
  */
 localStorageMemory.key = function (index) {
-  return Object.keys(cache)[index] || null
-}
+  return Object.keys(cache)[index] || null;
+};
 
 /**
  * removes all stored items and sets length to 0
@@ -76,17 +76,14 @@ localStorageMemory.key = function (index) {
  * @returns {undefined}
  */
 localStorageMemory.clear = function () {
-  cache = {}
-  localStorageMemory.length = 0
-}
+  cache = {};
+  localStorageMemory.length = 0;
+};
 
 if (typeof exports === 'object') {
-  module.exports = localStorageMemory
+  module.exports = localStorageMemory;
 } else {
-  root.localStorage = localStorageMemory
+  root.localStorage = localStorageMemory;
 }
 
-
 export default localStorageMemory;
-
-

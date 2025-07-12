@@ -33,15 +33,16 @@ All files should begin with the standard copyright notice:
 const express = require('express');
 const passport = require('passport');
 
-const { get_user } = require("../../helpers");
-const BaseService = require("../../services/BaseService");
-const config = require("../../config");
+const { get_user } = require('../../helpers');
+const BaseService = require('../../services/BaseService');
+const config = require('../../config');
 
 const path = require('path');
 const fs = require('fs');
 ```
 
 Import order is generally:
+
 1. Third party dependencies. Having these occur first makes it easy to quickly
    determine what this source file is likely to be responsible for.
 2. Files within the module.
@@ -53,22 +54,22 @@ Import order is generally:
 
 ```javascript
 const fn = async () => {
-    const a = 5; // Spaces between operators
+  const a = 5; // Spaces between operators
 
-    // Note: "=" in for loop initializer does not require space around
-    // Note: operators in condition part have space around
-    for ( let i=0; i < 10; i++ ) {
-        console.log('hello');
-    }
-    
-    // Control structures have space inside parenthesis
-    for ( const thing of stuff ) {
-        // NOOP
-    }
-    
-    // Function calls do not have space inside parenthesis
-    await something(1, 2);
-}
+  // Note: "=" in for loop initializer does not require space around
+  // Note: operators in condition part have space around
+  for (let i = 0; i < 10; i++) {
+    console.log('hello');
+  }
+
+  // Control structures have space inside parenthesis
+  for (const thing of stuff) {
+    // NOOP
+  }
+
+  // Function calls do not have space inside parenthesis
+  await something(1, 2);
+};
 ```
 
 - Use 4 spaces for indentation.
@@ -76,13 +77,13 @@ const fn = async () => {
   for loop initializer.
 - Use a space after keywords like `if`, `for`, `while`, etc.
   ```javascript
-  return [1,2,3]; // Sure
-  return[1,2,4];  // Definitely not
+  return [1, 2, 3]; // Sure
+  return [1, 2, 4]; // Definitely not
   ```
 - Use spaces between parenthesis in control structures unless
   parenthesis are empty.
   ```javascript
-  if ( a === b ) {
+  if (a === b) {
     return null;
   }
   ```
@@ -95,7 +96,6 @@ const fn = async () => {
 - Try to keep lines under 100 characters for better readability
   - Try to keep them under 80, but this is not always practical
 - For long function calls or objects, break them into multiple lines
-
 
 ### Trailing Commas
 
@@ -129,16 +129,14 @@ lines, especially when using vim motions.
 - Single statement blocks must either be on the same line as
   the corresponding control structure, or surrounding by braces:
   ```javascript
-  if ( a === b ) return null; // Sure
-  if ( a === b )
-      return null; // Please no 🤮
-  if ( a === b ) {
-      return null; // Nice
+  if (a === b) return null; // Sure
+  if (a === b) return null; // Please no 🤮
+  if (a === b) {
+    return null; // Nice
   }
   ```
 - Opening braces go on the same line as the statement
 - Put a space before the opening brace
-
 
 ## Naming Conventions
 
@@ -151,7 +149,7 @@ lines, especially when using vim motions.
 const svc_systemData = this.services.get('system-data');
 const svc_su = this.services.get('su');
 effective_policy = await svc_su.sudo(async () => {
-    return await svc_systemData.interpret(effective_policy.data);
+  return await svc_systemData.interpret(effective_policy.data);
 });
 ```
 
@@ -197,7 +195,7 @@ variable name.
  * @throws {Error} If user not found
  */
 async function getUserById(id) {
-    // ...
+  // ...
 }
 ```
 

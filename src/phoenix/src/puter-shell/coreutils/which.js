@@ -19,57 +19,58 @@
 import { Exit } from './coreutil_lib/exit.js';
 
 export default {
-    name: 'which',
-    usage: 'which COMMAND...',
-    description: 'Look up each COMMAND, and return the path name of its executable.\n\n' +
-        'Returns 1 if any COMMAND is not found, otherwise returns 0.',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: true,
-        options: {
-            'all': {
-                description: 'Return all matching path names of each COMMAND, not just the first',
-                type: 'boolean',
-                short: 'a',
-            },
-        },
+  name: 'which',
+  usage: 'which COMMAND...',
+  description:
+    'Look up each COMMAND, and return the path name of its executable.\n\n' +
+    'Returns 1 if any COMMAND is not found, otherwise returns 0.',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: true,
+    options: {
+      all: {
+        description: 'Return all matching path names of each COMMAND, not just the first',
+        type: 'boolean',
+        short: 'a',
+      },
     },
-    execute: async ctx => {
-        const { out, err, commandProvider } = ctx.externs;
-        const { positionals, values } = ctx.locals;
+  },
+  execute: async (ctx) => {
+    const { out, err, commandProvider } = ctx.externs;
+    const { positionals, values } = ctx.locals;
 
-        let anyCommandsNotFound = false;
+    let anyCommandsNotFound = false;
 
-        const printPath = async ( commandName, command ) => {
-            if (command.path) {
-                await out.write(`${command.path}\n`);
-            } else {
-                await out.write(`${commandName}: shell built-in command\n`);
-            }
-        };
+    const printPath = async (commandName, command) => {
+      if (command.path) {
+        await out.write(`${command.path}\n`);
+      } else {
+        await out.write(`${commandName}: shell built-in command\n`);
+      }
+    };
 
-        for ( const commandName of positionals ) {
-            const result = values.all
-                ? await commandProvider.lookupAll(commandName, { ctx })
-                : await commandProvider.lookup(commandName, { ctx });
+    for (const commandName of positionals) {
+      const result = values.all
+        ? await commandProvider.lookupAll(commandName, { ctx })
+        : await commandProvider.lookup(commandName, { ctx });
 
-            if ( ! result ) {
-                anyCommandsNotFound = true;
-                await err.write(`${commandName} not found\n`);
-                continue;
-            }
+      if (!result) {
+        anyCommandsNotFound = true;
+        await err.write(`${commandName} not found\n`);
+        continue;
+      }
 
-            if ( values.all ) {
-                for ( const command of result ) {
-                    await printPath(commandName, command);
-                }
-            } else {
-                await printPath(commandName, result);
-            }
+      if (values.all) {
+        for (const command of result) {
+          await printPath(commandName, command);
         }
-
-        if ( anyCommandsNotFound ) {
-            throw new Exit(1);
-        }
+      } else {
+        await printPath(commandName, result);
+      }
     }
+
+    if (anyCommandsNotFound) {
+      throw new Exit(1);
+    }
+  },
 };

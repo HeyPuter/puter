@@ -38,7 +38,6 @@ Puter adalah sistem operasi internet canggih, open-source, yang dirancang untuk 
 
 ## Memulai
 
-
 ### 💻 Pengembangan Lokal
 
 ```bash
@@ -54,28 +53,26 @@ Ini akan menjalankan Puter di http://puter.localhost:4100 (atau di port berikutn
 
 ### 🐳 Docker
 
-
 ```bash
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
 ```
 
 <br/>
 
-
 ### 🐙 Docker Compose
 
-
 #### Linux/macOS
+
 ```bash
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+
 <br/>
 
 #### Windows
-
 
 ```powershell
 mkdir -p puter
@@ -85,6 +82,7 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ### ☁️ Puter.com
@@ -119,8 +117,7 @@ Kami selalu senang membantu Anda dengan pertanyaan apa pun yang Anda miliki. Jan
 
 <br/>
 
-
-##  Lisensi
+## Lisensi
 
 Repositori ini, termasuk semua isinya, sub-proyek, modul, dan komponen, dilisensikan di bawah [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) kecuali dinyatakan sebaliknya secara eksplisit. Perpustakaan pihak ketiga yang termasuk dalam repositori ini mungkin tunduk pada lisensinya sendiri.
 

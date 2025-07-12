@@ -19,23 +19,23 @@
 const { Lock } = require('@heyputer/putility').libs.promise;
 
 class SyncFeature {
-    constructor (method_include_list) {
-        this.method_include_list = method_include_list;
-    }
+  constructor(method_include_list) {
+    this.method_include_list = method_include_list;
+  }
 
-    install_in_instance (instance) {
-        for ( const method_name of this.method_include_list ) {
-            const original_method = instance[method_name];
-            const lock = new Lock();
-            instance[method_name] = async (...args) => {
-                return await lock.acquire(async () => {
-                    return await original_method.call(instance, ...args);
-                });
-            }
-        }
+  install_in_instance(instance) {
+    for (const method_name of this.method_include_list) {
+      const original_method = instance[method_name];
+      const lock = new Lock();
+      instance[method_name] = async (...args) => {
+        return await lock.acquire(async () => {
+          return await original_method.call(instance, ...args);
+        });
+      };
     }
+  }
 }
 
 module.exports = {
-    SyncFeature,
+  SyncFeature,
 };

@@ -11,11 +11,11 @@ this:
 
 ```json
 {
-    "services": {
-        "my-service": {
-            "somekey": "some value"
-        }
+  "services": {
+    "my-service": {
+      "somekey": "some value"
     }
+  }
 }
 ```
 
@@ -23,10 +23,10 @@ Services have their configuration object assigned to `this.config`.
 
 ```javascript
 class MyService extends BaseService {
-    async _init () {
-        // You can access configuration for a service like this
-        this.log.info('value of my key is: ' + this.config.somekey);
-    }
+  async _init() {
+    // You can access configuration for a service like this
+    this.log.info('value of my key is: ' + this.config.somekey);
+  }
 }
 ```
 
@@ -38,9 +38,9 @@ configuration is discouraged as it could create conflicts between services.
 
 ```javascript
 class MyService extends BaseService {
-    async _init () {
-        // You can access configuration for a service like this
-        this.log.info('Puter is hosted on: ' + this.global_config.domain);
-    }
+  async _init() {
+    // You can access configuration for a service like this
+    this.log.info('Puter is hosted on: ' + this.global_config.domain);
+  }
 }
 ```

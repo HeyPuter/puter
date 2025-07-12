@@ -5,7 +5,4 @@ about: Suggest an idea for the community and ecosystem around Puter including th
 title: ''
 labels: idea
 assignees: jelveh
-
 ---
-
-

@@ -16,36 +16,33 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const eggspress = require("../../api/eggspress");
+const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
 
-module.exports = eggspress('/clearItems', {
+module.exports = eggspress(
+  '/clearItems',
+  {
     subdomain: 'api',
     auth: true,
     verified: true,
     allowedMethods: ['POST'],
-}, async (req, res, next) => {
-
+  },
+  async (req, res, next) => {
     // TODO: model these parameters; validation is contained in brackets
     // so that it can be easily move.
     let { app } = req.body;
 
     // Validation for `app`
-    if ( ! app ) {
-        throw APIError.create('field_missing', null, { key: 'app' });
+    if (!app) {
+      throw APIError.create('field_missing', null, { key: 'app' });
     }
 
     const svc_mysql = req.services.get('mysql');
     // TODO: Check if used anywhere, maybe remove
     // eslint-disable-next-line no-undef
     const dbrw = svc_mysql.get(DB_MODE_WRITE, 'kvstore-clearItems');
-    await dbrw.execute(
-        `DELETE FROM kv WHERE user_id=? AND app=?`,
-        [
-            req.user.id,
-            app,
-        ]
-    );
+    await dbrw.execute(`DELETE FROM kv WHERE user_id=? AND app=?`, [req.user.id, app]);
 
     return res.send({});
-});
+  }
+);

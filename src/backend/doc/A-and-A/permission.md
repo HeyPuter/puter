@@ -158,6 +158,7 @@ It invokes many "permission scanners" which are defined in
 [permission-scanners.js](src/backend/src/unstructured/permission-scanners.js)
 
 The Permission Scan Sequence is as follows:
+
 - `grant_if_system` - if system user, push an option to the reading and stop
 - `rewrite_permission` - process the permission through any permission string
   rewriters that were registered with PermissionService by other services.

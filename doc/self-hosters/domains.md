@@ -24,6 +24,7 @@ hosts file.
 The hosts file is a straightforward way to map domain names to IP addresses on individual devices. It's simple to set up but requires manual changes on each device that needs access to the domains.
 
 #### Windows
+
 1. Open Notepad as an administrator.
 2. Open the file located at `C:\Windows\System32\drivers\etc\hosts`.
 3. Add lines for your domain and subdomain with the server's IP address, in the
@@ -34,6 +35,7 @@ The hosts file is a straightforward way to map domain names to IP addresses on i
    ```
 
 #### For macOS and Linux:
+
 1. Open a terminal.
 2. Edit the hosts file with a text editor, e.g., `sudo nano /etc/hosts`.
 3. Add lines for your domain and subdomain with the server's IP address, in the
@@ -43,7 +45,6 @@ The hosts file is a straightforward way to map domain names to IP addresses on i
    192.168.1.10 api.puter.local
    ```
 4. Save and exit the editor.
-
 
 ### Using Router Configuration
 

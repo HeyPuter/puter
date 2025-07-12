@@ -16,42 +16,41 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { Context } = require("../../util/context");
-const { BaseES } = require("./BaseES");
+const APIError = require('../../api/APIError');
+const { Context } = require('../../util/context');
+const { BaseES } = require('./BaseES');
 
 class WriteByOwnerOnlyES extends BaseES {
-    static METHODS = {
-        async upsert (entity, extra) {
-            const { old_entity } = extra;
+  static METHODS = {
+    async upsert(entity, extra) {
+      const { old_entity } = extra;
 
-            if ( old_entity ) {
-                await this._check_allowed({ old_entity });
-            }
+      if (old_entity) {
+        await this._check_allowed({ old_entity });
+      }
 
-            return await this.upstream.upsert(entity, extra);
-        },
+      return await this.upstream.upsert(entity, extra);
+    },
 
-        async delete (uid, extra) {
-            const { old_entity } = extra;
+    async delete(uid, extra) {
+      const { old_entity } = extra;
 
-            // Owner check is required first
-            await this._check_allowed({ old_entity: extra.old_entity });
-            return await this.upstream.delete(uid, extra);
-        },
+      // Owner check is required first
+      await this._check_allowed({ old_entity: extra.old_entity });
+      return await this.upstream.delete(uid, extra);
+    },
 
-        async _check_allowed ({ old_entity }) {
-            const owner = await old_entity.get('owner');
-            if ( ! owner ) {
-                throw APIError.create('forbidden');
-            }
-            const user = Context.get('user');
-            if ( user.id !== owner.id ) {
-                throw APIError.create('forbidden');
-            }
-        }
-
-    }
+    async _check_allowed({ old_entity }) {
+      const owner = await old_entity.get('owner');
+      if (!owner) {
+        throw APIError.create('forbidden');
+      }
+      const user = Context.get('user');
+      if (user.id !== owner.id) {
+        throw APIError.create('forbidden');
+      }
+    },
+  };
 }
 
 module.exports = WriteByOwnerOnlyES;

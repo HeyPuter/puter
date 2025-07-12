@@ -16,53 +16,53 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { Exit } from "./coreutil_lib/exit.js";
+import { Exit } from './coreutil_lib/exit.js';
 import { resolveRelativePath } from '../../util/path.js';
 
 export default {
-    name: 'cp',
-    usage: ['cp [OPTIONS] SOURCE DESTINATION', 'cp [OPTIONS] SOURCE... DIRECTORY'],
-    description: 'Copy the SOURCE to DESTINATION, or multiple SOURCE(s) to DIRECTORY.',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: true,
-        options: {
-            recursive: {
-                description: 'Copy directories recursively',
-                type: 'boolean',
-                short: 'R'
-            }
-        }
+  name: 'cp',
+  usage: ['cp [OPTIONS] SOURCE DESTINATION', 'cp [OPTIONS] SOURCE... DIRECTORY'],
+  description: 'Copy the SOURCE to DESTINATION, or multiple SOURCE(s) to DIRECTORY.',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: true,
+    options: {
+      recursive: {
+        description: 'Copy directories recursively',
+        type: 'boolean',
+        short: 'R',
+      },
     },
-    execute: async ctx => {
-        const { positionals, values } = ctx.locals;
-        const { out, err } = ctx.externs;
-        const { filesystem } = ctx.platform;
+  },
+  execute: async (ctx) => {
+    const { positionals, values } = ctx.locals;
+    const { out, err } = ctx.externs;
+    const { filesystem } = ctx.platform;
 
-        if ( positionals.length < 1 ) {
-            await err.write('cp: missing file operand\n');
-            throw new Exit(1);
-        }
-
-        const srcRelPath = positionals.shift();
-
-        if ( positionals.length < 1 ) {
-            const aft = positionals[0];
-            await err.write(`cp: missing destination file operand after '${aft}'\n`);
-            throw new Exit(1);
-        }
-
-        const dstRelPath = positionals.shift();
-
-        const srcAbsPath = resolveRelativePath(ctx.vars, srcRelPath);
-        let   dstAbsPath = resolveRelativePath(ctx.vars, dstRelPath);
-
-        const srcStat = await filesystem.stat(srcAbsPath);
-        if ( srcStat && srcStat.is_dir && ! values.recursive ) {
-            await err.write(`cp: -R not specified; skipping directory '${srcRelPath}'\n`);
-            throw new Exit(1);
-        }
-
-        await filesystem.copy(srcAbsPath, dstAbsPath);
+    if (positionals.length < 1) {
+      await err.write('cp: missing file operand\n');
+      throw new Exit(1);
     }
-}
+
+    const srcRelPath = positionals.shift();
+
+    if (positionals.length < 1) {
+      const aft = positionals[0];
+      await err.write(`cp: missing destination file operand after '${aft}'\n`);
+      throw new Exit(1);
+    }
+
+    const dstRelPath = positionals.shift();
+
+    const srcAbsPath = resolveRelativePath(ctx.vars, srcRelPath);
+    let dstAbsPath = resolveRelativePath(ctx.vars, dstRelPath);
+
+    const srcStat = await filesystem.stat(srcAbsPath);
+    if (srcStat && srcStat.is_dir && !values.recursive) {
+      await err.write(`cp: -R not specified; skipping directory '${srcRelPath}'\n`);
+      throw new Exit(1);
+    }
+
+    await filesystem.copy(srcAbsPath, dstAbsPath);
+  },
+};

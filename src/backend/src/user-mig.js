@@ -16,30 +16,30 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
-const db = require('./db/mysql.js')
+'use strict';
+const db = require('./db/mysql.js');
 const { mkdir } = require('./helpers');
 
-(async function() {
-    // get users
-    const [users] = await db.promise().execute( `SELECT * FROM user`);
+(async function () {
+  // get users
+  const [users] = await db.promise().execute(`SELECT * FROM user`);
 
-    // for each user ...
-    for(let i=0; i<users.length; i++){
-        const user = users[i];
-        // *** user actions go here:
-        try{
-            let dir = await mkdir({
-                path: '/' + user.username + '/Trash',
-                user: user,
-                immutable: true,
-                overwrite: true,
-                return_id: true,
-            });
-        }catch(e){
-            console.log(e)
-        }
+  // for each user ...
+  for (let i = 0; i < users.length; i++) {
+    const user = users[i];
+    // *** user actions go here:
+    try {
+      let dir = await mkdir({
+        path: '/' + user.username + '/Trash',
+        user: user,
+        immutable: true,
+        overwrite: true,
+        return_id: true,
+      });
+    } catch (e) {
+      console.log(e);
     }
-    console.log('Done');
-    return;
+  }
+  console.log('Done');
+  return;
 })();

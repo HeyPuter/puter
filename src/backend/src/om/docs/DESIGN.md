@@ -3,6 +3,7 @@
 ### Chain of events
 
 When `create` is called on an OM/ES driver:
+
 1. The request is handled by `src/routers/drivers/call.js`
 2. DriverService's `call` method is called
 3. An instance of `EntityStoreImplementation` is called

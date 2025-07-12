@@ -1,51 +1,51 @@
 export default class EventListener {
-    // Array of all supported event names.
-    #eventNames;
+  // Array of all supported event names.
+  #eventNames;
 
-    // Map of eventName -> array of listeners
-    #eventListeners;
+  // Map of eventName -> array of listeners
+  #eventListeners;
 
-    constructor(eventNames) {
-        this.#eventNames = eventNames;
+  constructor(eventNames) {
+    this.#eventNames = eventNames;
 
-        this.#eventListeners = (() => {
-            const map = new Map();
-            for (let eventName of this.#eventNames) {
-                map[eventName] = [];
-            }
-            return map;
-        })();
+    this.#eventListeners = (() => {
+      const map = new Map();
+      for (let eventName of this.#eventNames) {
+        map[eventName] = [];
+      }
+      return map;
+    })();
+  }
+
+  emit(eventName, data) {
+    if (!this.#eventNames.includes(eventName)) {
+      console.error(`Event name '${eventName}' not supported`);
+      return;
     }
+    this.#eventListeners[eventName].forEach((listener) => {
+      listener(data);
+    });
+  }
 
-    emit(eventName, data) {
-        if (!this.#eventNames.includes(eventName)) {
-            console.error(`Event name '${eventName}' not supported`);
-            return;
-        }
-        this.#eventListeners[eventName].forEach((listener) => {
-            listener(data);
-        });
+  on(eventName, callback) {
+    if (!this.#eventNames.includes(eventName)) {
+      console.error(`Event name '${eventName}' not supported`);
+      return;
     }
+    this.#eventListeners[eventName].push(callback);
+    return this;
+  }
 
-    on(eventName, callback) {
-        if (!this.#eventNames.includes(eventName)) {
-            console.error(`Event name '${eventName}' not supported`);
-            return;
-        }
-        this.#eventListeners[eventName].push(callback);
-        return this;
+  off(eventName, callback) {
+    if (!this.#eventNames.includes(eventName)) {
+      console.error(`Event name '${eventName}' not supported`);
+      return;
     }
-
-    off(eventName, callback) {
-        if (!this.#eventNames.includes(eventName)) {
-            console.error(`Event name '${eventName}' not supported`);
-            return;
-        }
-        const listeners = this.#eventListeners[eventName];
-        const index = listeners.indexOf(callback)
-        if (index !== -1) {
-            listeners.splice(index, 1);
-        }
-        return this;
+    const listeners = this.#eventListeners[eventName];
+    const index = listeners.indexOf(callback);
+    if (index !== -1) {
+      listeners.splice(index, 1);
     }
+    return this;
+  }
 }

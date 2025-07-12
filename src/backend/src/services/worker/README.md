@@ -45,9 +45,10 @@ This will watch for changes in the source files and automatically rebuild the `w
 ## Generated Output
 
 The webpack build process creates `dist/workerPreamble.js` which contains:
+
 1. The bundled `path-to-regexp` library
 2. The puter portable API
 3. The s2w router with proper initialization
 4. Initialization code that sets up both systems
 
-This file is then read by `WorkerService.js` and injected into worker environments. 
+This file is then read by `WorkerService.js` and injected into worker environments.

@@ -16,44 +16,44 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { LLFilesystemOperation } = require("./definitions");
+const { LLFilesystemOperation } = require('./definitions');
 
 class LLMove extends LLFilesystemOperation {
-    static MODULES = {
-        _path: require('path'),
+  static MODULES = {
+    _path: require('path'),
+  };
+
+  async _run() {
+    const { context } = this;
+    const { source, parent, actor, target_name, metadata } = this.values;
+
+    // Access Control
+    {
+      const svc_acl = context.get('services').get('acl');
+      this.checkpoint('move :: access control');
+
+      // Check write access to source
+      if (!(await svc_acl.check(actor, source, 'write'))) {
+        throw await svc_acl.get_safe_acl_error(actor, source, 'write');
+      }
+
+      // Check write access to destination
+      if (!(await svc_acl.check(actor, parent, 'write'))) {
+        throw await svc_acl.get_safe_acl_error(actor, parent, 'write');
+      }
     }
 
-    async _run () {
-        const { context } = this;
-        const { source, parent, actor, target_name, metadata } = this.values;
-
-        // Access Control
-        {
-            const svc_acl = context.get('services').get('acl');
-            this.checkpoint('move :: access control');
-
-            // Check write access to source
-            if ( ! await svc_acl.check(actor, source, 'write') ) {
-                throw await svc_acl.get_safe_acl_error(actor, source, 'write');
-            }
-
-            // Check write access to destination
-            if ( ! await svc_acl.check(actor, parent, 'write') ) {
-                throw await svc_acl.get_safe_acl_error(actor, parent, 'write');
-            }
-        }
-
-        await source.provider.move({
-            context: this.context,
-            node: source,
-            new_parent: parent,
-            new_name: target_name,
-            metadata,
-        });
-        return source;
-    }
+    await source.provider.move({
+      context: this.context,
+      node: source,
+      new_parent: parent,
+      new_name: target_name,
+      metadata,
+    });
+    return source;
+  }
 }
 
 module.exports = {
-    LLMove,
+  LLMove,
 };

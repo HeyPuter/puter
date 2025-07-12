@@ -19,29 +19,27 @@
 import builtins from '../coreutils/__exports__.js';
 
 export class BuiltinCommandProvider {
-    async lookup (id) {
-        return builtins[id];
-    }
+  async lookup(id) {
+    return builtins[id];
+  }
 
-    // Only a single builtin can match a given name
-    async lookupAll (...a) {
-        const result = await this.lookup(...a);
-        if ( result ) {
-            return [ result ];
-        }
-        return undefined;
+  // Only a single builtin can match a given name
+  async lookupAll(...a) {
+    const result = await this.lookup(...a);
+    if (result) {
+      return [result];
     }
+    return undefined;
+  }
 
-    async complete (query) {
-        return Object.keys(builtins)
-            .filter(commandName => commandName.startsWith(query));
-    }
+  async complete(query) {
+    return Object.keys(builtins).filter((commandName) => commandName.startsWith(query));
+  }
 
-    async list() {
-        return Object.entries(builtins).map(([name, command]) => ({
-            name,
-            ...command
-        }));
-    }
-
+  async list() {
+    return Object.entries(builtins).map(([name, command]) => ({
+      name,
+      ...command,
+    }));
+  }
 }

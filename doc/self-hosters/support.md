@@ -9,26 +9,25 @@ on what to expect.
 
 ### Level Glossary
 
-| Name | Description |
-| ---- | ----------- |
-| Core | Core developers will fix this |
-| Community | We will accept contributions to fix this |
-| Mixed | Core developers will fix this if it's currently a priority |
+| Name      | Description                                                |
+| --------- | ---------------------------------------------------------- |
+| Core      | Core developers will fix this                              |
+| Community | We will accept contributions to fix this                   |
+| Mixed     | Core developers will fix this if it's currently a priority |
 
 ### Issues and their Levels
 
-| Issue | Priority |
-| ----- | -------- |
-| Security vulnerability | Core |
-| Breaking change to SDK or API | Core |
-| Bug in service in CoreModule | Core |
-| Bug in a built-in app | Core |
-| Login/init failure in Docker on `release` branch | Core |
-| Login/init failure in Linux or OSX | Core |
-| Login/init failure in Docker on `main` branch | Mixed |
-| Login/init failure with specific configuration | Mixed |
-| Login/init failure in Windows | Community |
-
+| Issue                                            | Priority  |
+| ------------------------------------------------ | --------- |
+| Security vulnerability                           | Core      |
+| Breaking change to SDK or API                    | Core      |
+| Bug in service in CoreModule                     | Core      |
+| Bug in a built-in app                            | Core      |
+| Login/init failure in Docker on `release` branch | Core      |
+| Login/init failure in Linux or OSX               | Core      |
+| Login/init failure in Docker on `main` branch    | Mixed     |
+| Login/init failure with specific configuration   | Mixed     |
+| Login/init failure in Windows                    | Community |
 
 ## Puter Support for a Particular Deployment
 

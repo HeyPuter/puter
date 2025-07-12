@@ -122,4 +122,3 @@ Vi hjälper dig gärna med eventuella frågor du kan ha. Tveka inte att fråga!
 Detta arkiv, inklusive allt dess innehåll, delprojekt, moduler och komponenter, är licensierat under [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) om inte annat uttryckligen anges. Tredjepartsbibliotek som ingår i detta arkiv kan vara föremål för sina egna licenser.
 
 <br/>
-

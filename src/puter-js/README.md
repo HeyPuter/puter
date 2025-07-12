@@ -16,21 +16,22 @@
 </p>
 
 ### Example
+
 Make sure the development server is running.
 
 ```html
 <html>
-<body>
+  <body>
     <script src="http://puter.localhost:4100/sdk/puter.dev.js"></script>
     <script>
-        // Loading ...
-        puter.print(`Loading...`);
+      // Loading ...
+      puter.print(`Loading...`);
 
-        // Chat with GPT-3.5 Turbo
-        puter.ai.chat(`What color was Napoleon's white horse?`).then((response) => {
-            puter.print(response);
-        });
+      // Chat with GPT-3.5 Turbo
+      puter.ai.chat(`What color was Napoleon's white horse?`).then((response) => {
+        puter.print(response);
+      });
     </script>
-</body>
+  </body>
 </html>
 ```

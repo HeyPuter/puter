@@ -16,42 +16,42 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { chkperm } = require("../../helpers");
-const { TYPE_DIRECTORY } = require("../FSNodeContext");
-const { LLRmDir } = require("../ll_operations/ll_rmdir");
-const { LLRmNode } = require("../ll_operations/ll_rmnode");
-const { HLFilesystemOperation } = require("./definitions");
+const APIError = require('../../api/APIError');
+const { chkperm } = require('../../helpers');
+const { TYPE_DIRECTORY } = require('../FSNodeContext');
+const { LLRmDir } = require('../ll_operations/ll_rmdir');
+const { LLRmNode } = require('../ll_operations/ll_rmnode');
+const { HLFilesystemOperation } = require('./definitions');
 
 class HLRemove extends HLFilesystemOperation {
-    static PARAMETERS = {
-        target: {},
-        user: {},
-        recursive: {},
-        descendants_only: {},
+  static PARAMETERS = {
+    target: {},
+    user: {},
+    recursive: {},
+    descendants_only: {},
+  };
+
+  async _run() {
+    const { target, user } = this.values;
+
+    if (!(await target.exists())) {
+      throw APIError.create('subject_does_not_exist');
     }
 
-    async _run () {
-        const { target, user } = this.values;
-
-        if ( ! await target.exists() ) {
-            throw APIError.create('subject_does_not_exist');
-        }
-
-        if ( ! chkperm(target.entry, user.id, 'rm') ) {
-            throw APIError.create('forbidden');
-        }
-
-        if ( await target.get('type') === TYPE_DIRECTORY ) {
-            const ll_rmdir = new LLRmDir();
-            return await ll_rmdir.run(this.values);
-        }
-
-        const ll_rmnode = new LLRmNode();
-        return await ll_rmnode.run(this.values);
+    if (!chkperm(target.entry, user.id, 'rm')) {
+      throw APIError.create('forbidden');
     }
+
+    if ((await target.get('type')) === TYPE_DIRECTORY) {
+      const ll_rmdir = new LLRmDir();
+      return await ll_rmdir.run(this.values);
+    }
+
+    const ll_rmnode = new LLRmNode();
+    return await ll_rmnode.run(this.values);
+  }
 }
 
 module.exports = {
-    HLRemove,
+  HLRemove,
 };

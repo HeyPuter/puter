@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { HLFilesystemOperation } = require("./definitions");
+const { HLFilesystemOperation } = require('./definitions');
 const { chkperm } = require('../../helpers');
 const { LLRead } = require('../ll_operations/ll_read');
 const APIError = require('../../api/APIError');
@@ -27,76 +27,74 @@ const APIError = require('../../api/APIError');
  * For .json files, the stream will produce a single object.
  */
 class HLDataRead extends HLFilesystemOperation {
-    static MODULES = {
-        'stream': require('stream'),
+  static MODULES = {
+    stream: require('stream'),
+  };
+
+  async _run() {
+    const { context } = this;
+
+    // We get the user from context so that an elevated system context
+    // can read files under the system user.
+    const user = await context.get('user');
+
+    const { fsNode, version_id } = this.values;
+
+    if (!(await fsNode.exists())) {
+      throw APIError.create('subject_does_not_exist');
     }
 
-    async _run () {
-        const { context } = this;
-
-        // We get the user from context so that an elevated system context
-        // can read files under the system user.
-        const user = await context.get('user');
-
-        const {
-            fsNode,
-            version_id,
-        } = this.values;
-
-        if ( ! await fsNode.exists() ) {
-            throw APIError.create('subject_does_not_exist');
-        }
-
-        if ( ! await chkperm(fsNode.entry, user.id, 'read') ) {
-            throw APIError.create('forbidden');
-        }
-
-        const ll_read = new LLRead();
-        let stream = await ll_read.run({
-            fsNode, user,
-            version_id,
-        });
-
-        stream = this._stream_bytes_to_lines(stream);
-        stream = this._stream_jsonl_lines_to_objects(stream);
-
-        return stream;
+    if (!(await chkperm(fsNode.entry, user.id, 'read'))) {
+      throw APIError.create('forbidden');
     }
 
-    _stream_bytes_to_lines (stream) {
-        const readline = require('readline');
-        const rl = readline.createInterface({
-          input: stream,
-          terminal: false
-        });
+    const ll_read = new LLRead();
+    let stream = await ll_read.run({
+      fsNode,
+      user,
+      version_id,
+    });
 
-        const { PassThrough } = this.modules.stream;
+    stream = this._stream_bytes_to_lines(stream);
+    stream = this._stream_jsonl_lines_to_objects(stream);
 
-        const output_stream = new PassThrough();
+    return stream;
+  }
 
-        rl.on('line', (line) => {
-            output_stream.write(line);
-        });
-        rl.on('close', () => {
-            output_stream.end();
-        });
+  _stream_bytes_to_lines(stream) {
+    const readline = require('readline');
+    const rl = readline.createInterface({
+      input: stream,
+      terminal: false,
+    });
 
-        return output_stream;
-    }
+    const { PassThrough } = this.modules.stream;
 
-    _stream_jsonl_lines_to_objects (stream) {
-        const { PassThrough } = this.modules.stream;
-        const output_stream = new PassThrough();
-        (async () => {
-            for await (const line of stream) {
-                output_stream.write(JSON.parse(line));
-            }
-            output_stream.end();
-        })();
-        return output_stream;
-    }
+    const output_stream = new PassThrough();
+
+    rl.on('line', (line) => {
+      output_stream.write(line);
+    });
+    rl.on('close', () => {
+      output_stream.end();
+    });
+
+    return output_stream;
+  }
+
+  _stream_jsonl_lines_to_objects(stream) {
+    const { PassThrough } = this.modules.stream;
+    const output_stream = new PassThrough();
+    (async () => {
+      for await (const line of stream) {
+        output_stream.write(JSON.parse(line));
+      }
+      output_stream.end();
+    })();
+    return output_stream;
+  }
 }
 
 module.exports = {
-    HLDataRead
+  HLDataRead,
 };

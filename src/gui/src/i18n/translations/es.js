@@ -52,31 +52,26 @@ const es = {
     change_username: 'Cambiar Nombre de Usuario',
     close: 'Cerrar',
     close_all_windows: 'Cerrar todas las ventanas',
-    close_all_windows_confirm:
-      '¿Estás seguro de que quieres cerrar todas las ventanas?',
+    close_all_windows_confirm: '¿Estás seguro de que quieres cerrar todas las ventanas?',
     close_all_windows_and_log_out: 'Cerrar ventanas y cerrar sesión',
     change_always_open_with: '¿Quieres abrir siempre este tipo de archivos con',
     color: 'Color',
     confirm: 'Confirmar',
     confirm_2fa_setup: 'He añadido el código a mi aplicación de autenticación',
-    confirm_2fa_recovery:
-      'He guardado mis códigos de recuperación en un lugar seguro',
+    confirm_2fa_recovery: 'He guardado mis códigos de recuperación en un lugar seguro',
     confirm_account_for_free_referral_storage_c2a:
       'Crea una cuenta y confirma tu correo electrónico para recibir 1 GB de almacenamiento gratuito. Tu amigo recibirá 1 GB de almacenamiento gratuito también.',
     confirm_code_generic_incorrect: 'Código incorrecto.',
-    confirm_code_generic_too_many_requests:
-      'Too many requests. Please wait a few minutes.',
+    confirm_code_generic_too_many_requests: 'Too many requests. Please wait a few minutes.',
     confirm_code_generic_submit: 'Enviar código',
     confirm_code_generic_try_again: 'Intenta nuevamente',
     confirm_code_generic_title: 'Enter Confirmation Code',
-    confirm_code_2fa_instruction:
-      'Ingresa los 6 dígitos de tu aplicación de autenticación.',
+    confirm_code_2fa_instruction: 'Ingresa los 6 dígitos de tu aplicación de autenticación.',
     confirm_code_2fa_submit_btn: 'Enviar',
     confirm_code_2fa_title: 'Ingrese el código de 2FA',
     confirm_delete_multiple_items:
       '¿Estás seguro de que quieres eliminar permanentemente estos elementos?',
-    confirm_delete_single_item:
-      '¿Quieres eliminar este elemento permanentemente?',
+    confirm_delete_single_item: '¿Quieres eliminar este elemento permanentemente?',
     confirm_open_apps_log_out:
       'Tienes aplicaciones abiertas.¿Estás seguro de que quieres cerrar sesión?',
     confirm_new_password: 'Confirma la Nueva Contraseña',
@@ -104,8 +99,7 @@ const es = {
     clock: 'Reloj',
     clock_visible_hide: 'Ocultar - Siempre oculto',
     clock_visible_show: 'Mostrar - Siempre visible',
-    clock_visible_auto:
-      'Auto - Por defecto, visible solo en modo pantalla completa.',
+    clock_visible_auto: 'Auto - Por defecto, visible solo en modo pantalla completa.',
     close_all: 'Cerrar todo',
     created: 'Creado',
     date_modified: 'Fecha de modificación',
@@ -140,8 +134,7 @@ const es = {
     emptying_trash: 'Vaciando la papelera…',
     enable_2fa: 'Habilitar 2FA',
     end_hard: 'Finalizar abruptamente',
-    end_process_force_confirm:
-      '¿Estás seguro de que quieres forzar la salida de este proceso?',
+    end_process_force_confirm: '¿Estás seguro de que quieres forzar la salida de este proceso?',
     end_soft: 'Finalizar suavemente',
     enlarged_qr_code: 'Código QR ampliado',
     enter_password_to_confirm_delete_user:
@@ -180,8 +173,7 @@ const es = {
     link_copied: 'Enlace copiado',
     loading: 'Cargando',
     log_in: 'Iniciar sesión',
-    log_into_another_account_anyway:
-      'Iniciar sesión en otra cuenta de todos modos',
+    log_into_another_account_anyway: 'Iniciar sesión en otra cuenta de todos modos',
     log_out: 'Cerrar sesión',
     looks_good: 'Se ve bien!',
     manage_sessions: 'Administrar sesión',
@@ -191,8 +183,7 @@ const es = {
     my_websites: 'Mis páginas web',
     name: 'Nombre',
     name_cannot_be_empty: 'El nombre no puede estar vacío.',
-    name_cannot_contain_double_period:
-      "El nombre no puede ser el carácter '..'.",
+    name_cannot_contain_double_period: "El nombre no puede ser el carácter '..'.",
     name_cannot_contain_period: "El nombre no puede ser el carácter '.'.",
     name_cannot_contain_slash: "El nombre no puede contener el carácter '/'.",
     name_must_be_string: 'El nombre debe ser una cadena de texto.',
@@ -203,8 +194,7 @@ const es = {
     new_password: 'Nueva contraseña',
     new_username: 'Nuevo nombre de usuario',
     no: 'No',
-    no_dir_associated_with_site:
-      'No hay un directorio vinculado con esta dirección.',
+    no_dir_associated_with_site: 'No hay un directorio vinculado con esta dirección.',
     no_websites_published:
       'Aun no has publicado ningún sitio web. Haz click derecho en una carpeta para empezar',
     ok: 'OK',
@@ -219,15 +209,13 @@ const es = {
     password_changed: 'Contraseña cambiada.',
     password_recovery_rate_limit:
       'Haz alcanzado nuestra tasa de refresco; por favor espera unos minutos. Para evitar esto en el futuro, evita refrescar la página muchas veces.',
-    password_recovery_token_invalid:
-      'La contraseña de token de recuperación ya no es válida.',
+    password_recovery_token_invalid: 'La contraseña de token de recuperación ya no es válida.',
     password_recovery_unknown_error:
       'Ocurrió un error desconocido. Por favor, inténtalo de nuevo más tarde.',
     password_required: 'La contraseña es obligatoria.',
     password_strength_error:
       'La contraseña debe tener almenos 8 caracteres de largo y contener almenos una letra mayúscula, una minúscula, un numero, y un caracter especial.',
-    passwords_do_not_match:
-      '`Nueva Contraseña` y `Confirmar Nueva Contraseña` no coinciden.',
+    passwords_do_not_match: '`Nueva Contraseña` y `Confirmar Nueva Contraseña` no coinciden.',
     paste: 'Pegar',
     paste_into_folder: 'Pegar en la Carpeta',
     path: 'Ruta',
@@ -279,8 +267,7 @@ const es = {
     save_session: 'Guardar sesión',
     save_session_c2a:
       'Crea una cuenta para guardar tu sesión actual y evitar así perder tu trabajo.',
-    scan_qr_c2a:
-      'Escanee el código a continuación para inicia sesión desde otros dispositivos',
+    scan_qr_c2a: 'Escanee el código a continuación para inicia sesión desde otros dispositivos',
     scan_qr_2fa: 'Escanee el codigo QR con su aplicación de autenticación',
     scan_qr_generic: 'Scan this QR code using your phone or another device',
     search: 'Buscar',
@@ -291,8 +278,7 @@ const es = {
     select_color: 'Seleccionar color…',
     sessions: 'Sesión',
     send: 'Enviar',
-    send_password_recovery_email:
-      'Enviar la contraseña al correo de recuperación',
+    send_password_recovery_email: 'Enviar la contraseña al correo de recuperación',
     session_saved: 'Gracias por crear una cuenta. La sesión ha sido guardada.',
     set_new_password: 'Establecer una nueva contraseña',
     settings: 'Opciones',
@@ -313,8 +299,7 @@ const es = {
     status: 'Estado',
     storage_usage: 'Uso del almacenamiento',
     storage_puter_used: 'Usado por Puter',
-    taking_longer_than_usual:
-      'Tardando un poco más de lo habitual. Por favor, espere...',
+    taking_longer_than_usual: 'Tardando un poco más de lo habitual. Por favor, espere...',
     task_manager: 'Administrador de tareas',
     taskmgr_header_name: 'Nombre',
     taskmgr_header_status: 'Estado',
@@ -328,8 +313,7 @@ const es = {
     two_factor_disabled: '2FA Deshabilitadp',
     two_factor_enabled: '2FA Habilitado',
     type: 'Tipo',
-    type_confirm_to_delete_account:
-      "Ingrese 'Confirmar' para borrar esta cuenta.",
+    type_confirm_to_delete_account: "Ingrese 'Confirmar' para borrar esta cuenta.",
     ui_colors: 'Colores de interfaz',
     ui_manage_sessions: 'Administrador de sesión',
     ui_revoke: 'Revocar',
@@ -347,8 +331,7 @@ const es = {
     visibility: 'Visibilidad',
     yes: 'Si',
     yes_release_it: 'Sí, libéralo',
-    you_have_been_referred_to_puter_by_a_friend:
-      '¡Has sido invitado a Puter por un amigo!',
+    you_have_been_referred_to_puter_by_a_friend: '¡Has sido invitado a Puter por un amigo!',
     zip: 'Zip',
     zipping_file: 'Compriminendo %strong%',
 
@@ -368,15 +351,13 @@ const es = {
             Asegurate de guardarlos en un lugar seguro.
         `,
     setup2fa_5_step_heading: 'Confirmar la configuración de 2FA',
-    setup2fa_5_confirmation_1:
-      'He guardado mis códigos de recuperación en un lugar seguro',
+    setup2fa_5_confirmation_1: 'He guardado mis códigos de recuperación en un lugar seguro',
     setup2fa_5_confirmation_2: 'Estoy listo para habilitar 2FA',
     setup2fa_5_button: 'Habilitar 2FA',
 
     // === 2FA Login ===
     login2fa_otp_title: 'Ingresar el código 2FA',
-    login2fa_otp_instructions:
-      'Ingresa tu código de 6 dígitos de tu aplicación de autenticación.',
+    login2fa_otp_instructions: 'Ingresa tu código de 6 dígitos de tu aplicación de autenticación.',
     login2fa_recovery_title: 'Ingresa tu código de recuperación',
     login2fa_recovery_instructions:
       'Ingresa uno de tus códigos de recuperación para acceder a tu cuenta.',
@@ -397,8 +378,7 @@ const es = {
     'Share With…': 'Compartir con…', // In English: "Share With…"
     Owner: 'Propietario', // In English: "Owner"
     "You can't share with yourself.": 'No puedes compartir contigo mismo.', // In English: "You can't share with yourself."
-    'This user already has access to this item':
-      'Este usuario ya tiene acceso a este elemento.', // In English: "This user already has access to this item"
+    'This user already has access to this item': 'Este usuario ya tiene acceso a este elemento.', // In English: "This user already has access to this item"
 
     // === Billing ===
 
@@ -428,16 +408,14 @@ const es = {
     'billing.switch_to': 'Cambiar a %strong%', // In English: "Switch to %strong%"
     'billing.payment_setup': 'Configuración de pago', // In English: "Payment Setup"
     'billing.back': 'Atrás', // In English: "Back"
-    'billing.you_are_now_subscribed_to':
-      'Ahora estás suscrito al nivel %strong%.', // In English: "You are now subscribed to %strong% tier."
+    'billing.you_are_now_subscribed_to': 'Ahora estás suscrito al nivel %strong%.', // In English: "You are now subscribed to %strong% tier."
     'billing.you_are_now_subscribed_to_without_tier': 'Ahora estás suscrito', // In English: "You are now subscribed"
     'billing.subscription_cancellation_confirmation':
       '¿Estás seguro de que deseas cancelar tu suscripción?', // In English: "Are you sure you want to cancel your subscription?"
     'billing.subscription_setup': 'Configuración de suscripción', // In English: "Subscription Setup"
     'billing.cancel_it': 'Cancelar', // In English: "Cancel It"
     'billing.keep_it': 'Mantenerlo', // In English: "Keep It"
-    'billing.subscription_resumed':
-      '¡Tu suscripción %strong% ha sido reanudada!', // In English: "Your %strong% subscription has been resumed!"
+    'billing.subscription_resumed': '¡Tu suscripción %strong% ha sido reanudada!', // In English: "Your %strong% subscription has been resumed!"
     'billing.upgrade_now': 'Actualizar ahora', // In English: "Upgrade Now"
     'billing.upgrade': 'Actualizar', // In English: "Upgrade"
     'billing.currently_on_free_plan': 'Actualmente estás en el plan gratuito.', // In English: "You are currently on the free plan."
@@ -456,9 +434,8 @@ const es = {
     'billing.limited': 'Limitado', // In English: "Limited"
     'billing.expanded': 'Expandido', // In English: "Expanded"
     'billing.accelerated': 'Acelerado', // In English: "Accelerated"
-    'billing.enjoy_msg':
-      'Disfruta %% de almacenamiento en la nube junto con otros beneficios.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
+    'billing.enjoy_msg': 'Disfruta %% de almacenamiento en la nube junto con otros beneficios.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
   },
-}
+};
 
-export default es
+export default es;

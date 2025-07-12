@@ -17,9 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export const CreateSystemProvider = ({ puterSDK }) => {
-    return {
-        exit: (code) => {
-            puterSDK.exit(code);
-        },
-    }
-}
+  return {
+    exit: (code) => {
+      puterSDK.exit(code);
+    },
+  };
+};

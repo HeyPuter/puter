@@ -5,6 +5,7 @@ means we need a way to "re-core" the backend, and we may do this more
 than once simultaneously (hence it's `0` right now).
 
 "re-core" is a term I just made up, and it means this:
+
 > To find the utility code that is not dependent on other utility code,
 > move that into a new package, and then continue this process in multiple
 > iterations until the problem being solved is solved.
@@ -36,6 +37,7 @@ a file called `types.js`. This file defines high-level types like String,
 URL, File, etc that can be used in Puter drivers.
 
 Some types depend on utilities in Puter's backend:
+
 - **File**
   - filesystem/validation
   - `is_valid_uuidv4` from helpers.js

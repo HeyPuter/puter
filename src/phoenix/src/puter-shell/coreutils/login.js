@@ -19,32 +19,32 @@
 import { Exit } from './coreutil_lib/exit.js';
 
 export default {
-    name: 'login',
-    usage: 'login',
-    description: 'Log in to a Puter.com account.',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: false,
-    },
-    execute: async ctx => {
-        // ctx.params to access processed args
-        // ctx.args to access raw args
-        const { positionals, values } = ctx.locals;
-        const { puterSDK } = ctx.externs;
+  name: 'login',
+  usage: 'login',
+  description: 'Log in to a Puter.com account.',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: false,
+  },
+  execute: async (ctx) => {
+    // ctx.params to access processed args
+    // ctx.args to access raw args
+    const { positionals, values } = ctx.locals;
+    const { puterSDK } = ctx.externs;
 
-        console.log('this is athe puter sdk', puterSDK);
+    console.log('this is athe puter sdk', puterSDK);
 
-        if ( puterSDK.APIOrigin === undefined ) {
-            await ctx.externs.err.write('login: API origin not set\n');
-            throw new Exit(1);
-        }
-
-        const res = await puterSDK.auth.signIn();
-
-        ctx.vars.user = res?.username;
-        ctx.vars.home = '/' + res?.username;
-        ctx.vars.pwd = '/' + res?.username + `/AppData/` + puterSDK.appID;
-
-        return res?.username;
+    if (puterSDK.APIOrigin === undefined) {
+      await ctx.externs.err.write('login: API origin not set\n');
+      throw new Exit(1);
     }
-}
+
+    const res = await puterSDK.auth.signIn();
+
+    ctx.vars.user = res?.username;
+    ctx.vars.home = '/' + res?.username;
+    ctx.vars.pwd = '/' + res?.username + `/AppData/` + puterSDK.appID;
+
+    return res?.username;
+  },
+};

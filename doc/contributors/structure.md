@@ -28,17 +28,20 @@ directory should be accessible via a path of links starting from `README.md`.
 Every directory under `/tools` is [an npm "workspaces" module](https://docs.npmjs.com/cli/v8/using-npm/workspaces). Every direct child of this directory (generally) has a `package.json` and a `src` directory.
 
 Some of these modules are core pieces of Puter:
+
 - **Puter's backend** is [`/src/backend`](/src/backend)
   - See [key locations in backend documentation](/src/backend/doc/contributors/structure.md)
 - **Puter's GUI** is [`/src/gui`](/src/gui)
 
 Some of these modules are apps:
+
 - **Puter's Terminal**: [`/src/terminal`](/src/terminal)
 - **Puter's Shell**: [`/src/phoenix`](/src/phoenix)
 - **Experimental v86 Integration**: [`/src/emulator`](/src/emulator)
   - **Note:** development is focused on Puter PDE files instead (docs pending)
 
 Some of these modules are libraries:
+
 - **common javascript**: [`/src/putility`](/src/putility)
 - **runtime import mechanism**: [`/src/useapi`](/src/useapi)
 - **Puter's "puter.js" browser SDK**: [`/src/puter-js`](/src/puter-js)

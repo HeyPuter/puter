@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 const Component = use('util.Component');
 
 /**
@@ -25,21 +24,22 @@ const Component = use('util.Component');
  * The leading symbol is styled inside a cricle and is
  * optimized for single-digit numbers.
  */
-export default def(class StepHeading extends Component {
+export default def(
+  class StepHeading extends Component {
     static ID = 'ui.component.StepHeading';
 
     static PROPERTIES = {
-        symbol: {
-            description: 'The symbol to display',
-            value: '1',
-        },
-        text: {
-            description: 'The heading to display',
-            value: 'Heading',
-        },
-    }
+      symbol: {
+        description: 'The symbol to display',
+        value: '1',
+      },
+      text: {
+        description: 'The heading to display',
+        value: 'Heading',
+      },
+    };
 
-    static CSS = /*css*/`
+    static CSS = /*css*/ `
         .heading {
             display: flex;
             align-items: center;
@@ -64,10 +64,10 @@ export default def(class StepHeading extends Component {
             color: hsl(220, 25%, 31%);
             font-weight: 500;
         }
-    `
+    `;
 
-    create_template ({ template }) {
-        $(template).html(/*html*/`
+    create_template({ template }) {
+      $(template).html(/*html*/ `
             <div class="heading">
                 <div class="circle">
                     ${html_encode(this.get('symbol'))}
@@ -78,4 +78,5 @@ export default def(class StepHeading extends Component {
             </div>
         `);
     }
-});
+  }
+);

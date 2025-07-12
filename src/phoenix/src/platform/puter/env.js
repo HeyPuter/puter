@@ -17,17 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export const CreateEnvProvider = ({ config }) => {
-    return {
-        getEnv: () => {
-            return {
-                USER: config['puter.auth.username'],
-                HOME: '/' + config['puter.auth.username'],
-                HOSTNAME: config['puter.domain'] ?? 'puter.com',
-            }
-        },
+  return {
+    getEnv: () => {
+      return {
+        USER: config['puter.auth.username'],
+        HOME: '/' + config['puter.auth.username'],
+        HOSTNAME: config['puter.domain'] ?? 'puter.com',
+      };
+    },
 
-        get (k) {
-            return this.getEnv()[k];
-        }
-    }
-}
+    get(k) {
+      return this.getEnv()[k];
+    },
+  };
+};

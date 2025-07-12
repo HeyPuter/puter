@@ -39,39 +39,39 @@ const { subdomain } = require('../../../helpers.js');
  * @param {*} handler the handler for the router
  * @returns {express.Router} the router
  */
-module.exports = function eggspress (route, settings, handler) {
+module.exports = function eggspress(route, settings, handler) {
   const router = express.Router();
   const mw = [];
   const afterMW = [];
 
   // These flags enable specific middleware.
-  if ( settings.abuse ) mw.push(require('../../../middleware/abuse')(settings.abuse));
-  if ( settings.auth ) mw.push(require('../../../middleware/auth'));
-  if ( settings.auth2 ) mw.push(require('../../../middleware/auth2'));
-  if ( settings.verified ) mw.push(require('../../../middleware/verified'));
-  if ( settings.json ) mw.push(express.json());
+  if (settings.abuse) mw.push(require('../../../middleware/abuse')(settings.abuse));
+  if (settings.auth) mw.push(require('../../../middleware/auth'));
+  if (settings.auth2) mw.push(require('../../../middleware/auth2'));
+  if (settings.verified) mw.push(require('../../../middleware/verified'));
+  if (settings.json) mw.push(express.json());
 
   // The `files` setting is an array of strings. Each string is the name
   // of a multipart field that contains files. `multer` is used to parse
   // the multipart request and store the files in `req.files`.
-  if ( settings.files ) {
-    for ( const key of settings.files ) {
+  if (settings.files) {
+    for (const key of settings.files) {
       mw.push(multer().array(key));
     }
   }
 
-  if ( settings.multest ) {
+  if (settings.multest) {
     mw.push(multest());
   }
 
   // The `multipart_jsons` setting is an array of strings. Each string
   // is the name of a multipart field that contains JSON. This middleware
   // parses the JSON in each field and stores the result in `req.body`.
-  if ( settings.multipart_jsons ) {
-    for ( const key of settings.multipart_jsons ) {
+  if (settings.multipart_jsons) {
+    for (const key of settings.multipart_jsons) {
       mw.push((req, res, next) => {
         try {
-          if ( ! Array.isArray(req.body[key]) ) {
+          if (!Array.isArray(req.body[key])) {
             req.body[key] = [JSON.parse(req.body[key])];
           } else {
             req.body[key] = req.body[key].map(JSON.parse);
@@ -79,8 +79,8 @@ module.exports = function eggspress (route, settings, handler) {
         } catch (e) {
           return res.status(400).send({
             error: {
-              message: `Invalid JSON in multipart field ${key}`
-            }
+              message: `Invalid JSON in multipart field ${key}`,
+            },
           });
         }
         next();
@@ -91,12 +91,12 @@ module.exports = function eggspress (route, settings, handler) {
   // The `alias` setting is an object. Each key is the name of a
   // parameter. Each value is the name of a parameter that should
   // be aliased to the key.
-  if ( settings.alias ) {
-    for ( const alias in settings.alias ) {
+  if (settings.alias) {
+    for (const alias in settings.alias) {
       const target = settings.alias[alias];
       mw.push((req, res, next) => {
         const values = req.method === 'GET' ? req.query : req.body;
-        if ( values[alias] ) {
+        if (values[alias]) {
           values[target] = values[alias];
         }
         next();
@@ -107,11 +107,11 @@ module.exports = function eggspress (route, settings, handler) {
   // The `parameters` setting is an object. Each key is the name of a
   // parameter. Each value is a `Param` object. The `Param` object
   // specifies how to validate the parameter.
-  if ( settings.parameters ) {
-    for ( const key in settings.parameters ) {
+  if (settings.parameters) {
+    for (const key in settings.parameters) {
       const param = settings.parameters[key];
       mw.push(async (req, res, next) => {
-        if ( ! req.values ) req.values = {};
+        if (!req.values) req.values = {};
 
         const values = req.method === 'GET' ? req.query : req.body;
         const getParam = (key) => values[key];
@@ -128,12 +128,12 @@ module.exports = function eggspress (route, settings, handler) {
   }
 
   // what if I wanted to pass arguments to, for example, `json`?
-  if ( settings.customArgs ) mw.push(settings.customArgs);
+  if (settings.customArgs) mw.push(settings.customArgs);
 
-  if ( settings.alarm_timeout ) {
+  if (settings.alarm_timeout) {
     mw.push((req, res, next) => {
       setTimeout(() => {
-        if ( ! res.headersSent ) {
+        if (!res.headersSent) {
           const log = req.services.get('log-service').create('eggspress:timeout');
           const errors = req.services.get('error-service').create(log);
           let id = Array.isArray(route) ? route[0] : route;
@@ -150,10 +150,10 @@ module.exports = function eggspress (route, settings, handler) {
     });
   }
 
-  if ( settings.response_timeout ) {
+  if (settings.response_timeout) {
     mw.push((req, res, next) => {
       setTimeout(() => {
-        if ( ! res.headersSent ) {
+        if (!res.headersSent) {
           api_error_handler(APIError.create('response_timeout'), req, res, next);
         }
       }, settings.response_timeout);
@@ -161,11 +161,11 @@ module.exports = function eggspress (route, settings, handler) {
     });
   }
 
-  if ( settings.mw ) mw.push(...settings.mw);
+  if (settings.mw) mw.push(...settings.mw);
 
   const errorHandledHandler = async function (req, res, next) {
-    if ( settings.subdomain ) {
-      if ( subdomain(req) !== settings.subdomain ) {
+    if (settings.subdomain) {
+      if (subdomain(req) !== settings.subdomain) {
         return next();
       }
     }
@@ -173,31 +173,31 @@ module.exports = function eggspress (route, settings, handler) {
       const expected_ctx = res.locals.ctx;
       const received_ctx = Context.get(undefined, { allow_fallback: true });
 
-      if ( expected_ctx != received_ctx ) {
+      if (expected_ctx != received_ctx) {
         await expected_ctx.arun(async () => {
           await handler(req, res, next);
         });
       } else await handler(req, res, next);
     } catch (e) {
-        api_error_handler(e, req, res, next);
+      api_error_handler(e, req, res, next);
     }
   };
 
-  if ( settings.allowedMethods.includes('GET') ) {
+  if (settings.allowedMethods.includes('GET')) {
     router.get(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if ( settings.allowedMethods.includes('POST') ) {
+  if (settings.allowedMethods.includes('POST')) {
     router.post(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if ( settings.allowedMethods.includes('PUT') ) {
+  if (settings.allowedMethods.includes('PUT')) {
     router.put(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if ( settings.allowedMethods.includes('DELETE') ) {
+  if (settings.allowedMethods.includes('DELETE')) {
     router.delete(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
   return router;
-}
+};

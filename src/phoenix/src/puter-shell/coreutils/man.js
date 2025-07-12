@@ -17,15 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export default {
-    name: 'man',
-    usage: 'man',
-    description: 'Stub command. Please use `help` instead.',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: true
-    },
-    execute: async ctx => {
-        await ctx.externs.out.write('`\x1B[34;1mman\x1B[0m` is not supported. ' +
-            'Please use `\x1B[34;1mhelp COMMAND\x1B[0m` for documentation.\n');
-    }
+  name: 'man',
+  usage: 'man',
+  description: 'Stub command. Please use `help` instead.',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: true,
+  },
+  execute: async (ctx) => {
+    await ctx.externs.out.write(
+      '`\x1B[34;1mman\x1B[0m` is not supported. ' +
+        'Please use `\x1B[34;1mhelp COMMAND\x1B[0m` for documentation.\n'
+    );
+  },
 };

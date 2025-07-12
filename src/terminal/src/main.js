@@ -23,31 +23,28 @@ import { PTY } from './pty/PTY';
 import { XDocumentANSIShell } from './pty/XDocumentANSIShell';
 
 class XTermIO {
-    constructor ({ term, pty }) {
-        this.term = term;
-        this.pty = pty;
-    }
+  constructor({ term, pty }) {
+    this.term = term;
+    this.pty = pty;
+  }
 
-    bind () {
-        this.term.onData(this.handleData.bind(this));
+  bind() {
+    this.term.onData(this.handleData.bind(this));
 
-        (async () => {
-            for ( ;; ) {
-                const chunk = (await this.pty.in.read()).value;
-                this.term.write(chunk);
-            }
-        })();
-    }
+    (async () => {
+      for (;;) {
+        const chunk = (await this.pty.in.read()).value;
+        this.term.write(chunk);
+      }
+    })();
+  }
 
-    handleData ( data ) {
-        this.pty.out.write(data);
-    }
+  handleData(data) {
+    this.pty.out.write(data);
+  }
 }
 
-const TRUSTED_ORIGINS = [
-    'https://puter.com',
-    'https://github.com',
-];
+const TRUSTED_ORIGINS = ['https://puter.com', 'https://github.com'];
 
 /*
  * Replaces xterm.js's default link handler to avoid warning users when we link
@@ -55,76 +52,78 @@ const TRUSTED_ORIGINS = [
  */
 const linkHandler = {};
 linkHandler.activate = (e, url) => {
-    // check for trusted origins
-    const uri = new URL(url);
-    if ( ! TRUSTED_ORIGINS.includes(uri.origin) ) {
-        const answer = confirm(`Do you want to navigate to ${uri}?\n\nWARNING: This link could potentially be dangerous`);
-        if ( ! answer ) return;
-    }
-    const newWindow = window.open();
-    if ( ! newWindow ) {
-        console.warn('Opening link blocked as opener could not be cleared');
-        return;
-    }
-    try {
-        newWindow.opener = null;
-    } catch {
-        // no-op, Electron can throw
-    }
-    newWindow.document.write('Redirecting from Puter Terminal...');
-    newWindow.location.href = uri;
-}
+  // check for trusted origins
+  const uri = new URL(url);
+  if (!TRUSTED_ORIGINS.includes(uri.origin)) {
+    const answer = confirm(
+      `Do you want to navigate to ${uri}?\n\nWARNING: This link could potentially be dangerous`
+    );
+    if (!answer) return;
+  }
+  const newWindow = window.open();
+  if (!newWindow) {
+    console.warn('Opening link blocked as opener could not be cleared');
+    return;
+  }
+  try {
+    newWindow.opener = null;
+  } catch {
+    // no-op, Electron can throw
+  }
+  newWindow.document.write('Redirecting from Puter Terminal...');
+  newWindow.location.href = uri;
+};
 
 window.main_term = async () => {
-    const pty = new PTY();
-    const ptt = pty.getPTT();
+  const pty = new PTY();
+  const ptt = pty.getPTT();
 
-    const shell = new XDocumentANSIShell({
-        ptt
-    });
+  const shell = new XDocumentANSIShell({
+    ptt,
+  });
 
-    const pos_args = puter.args?.command_line?.args;
+  const pos_args = puter.args?.command_line?.args;
 
-    const phoenix = pos_args
-        ? await puter.ui.launchApp(pos_args.shift(), {
-            command_line: { args: pos_args }
-          })
-        : await puter.ui.launchApp('phoenix') ;
-    shell.attachToApp(phoenix);
+  const phoenix = pos_args
+    ? await puter.ui.launchApp(pos_args.shift(), {
+        command_line: { args: pos_args },
+      })
+    : await puter.ui.launchApp('phoenix');
+  shell.attachToApp(phoenix);
 
-    // Close the shell when we exit
-    puter.ui.onWindowClose(() => {
-        phoenix.close();
-        puter.exit();
-    });
+  // Close the shell when we exit
+  puter.ui.onWindowClose(() => {
+    phoenix.close();
+    puter.exit();
+  });
 
-    const termEl = document.createElement('div');
-    termEl.id = 'terminal';
+  const termEl = document.createElement('div');
+  termEl.id = 'terminal';
 
-    document.body.append(termEl);
-    const term = new Terminal({
-        linkHandler,
-    });
-    const imageAddon = new ImageAddon();
-    term.loadAddon(imageAddon);
-    term.open(document.getElementById('terminal'));
+  document.body.append(termEl);
+  const term = new Terminal({
+    linkHandler,
+  });
+  const imageAddon = new ImageAddon();
+  term.loadAddon(imageAddon);
+  term.open(document.getElementById('terminal'));
 
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
+  const fitAddon = new FitAddon();
+  term.loadAddon(fitAddon);
 
-    term.onResize(evt => {
-        shell.resize(evt);
-    });
+  term.onResize((evt) => {
+    shell.resize(evt);
+  });
 
+  fitAddon.fit();
+
+  const termObserver = new ResizeObserver(() => {
     fitAddon.fit();
+  });
+  termObserver.observe(termEl);
 
-    const termObserver = new ResizeObserver(() => {
-        fitAddon.fit();
-    });
-    termObserver.observe(termEl);
+  const ioController = new XTermIO({ term, pty });
+  ioController.bind();
 
-    const ioController = new XTermIO({ term, pty });
-    ioController.bind();
-
-    term.focus();
+  term.focus();
 };

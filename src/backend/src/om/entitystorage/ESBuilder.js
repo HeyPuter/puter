@@ -17,48 +17,48 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 class ESBuilder {
-    static create (list) {
-        let stack = [];
-        let head = null;
-        const apply_next = () => {
-            const args = [];
-            let last_was_cons = false;
-            while ( ! last_was_cons ) {
-                const item = stack.pop();
-                if ( typeof item === 'function' ) {
-                    last_was_cons = true;
-                }
-                args.unshift(item);
-            }
-
-            const cls = args.shift();
-            head = new cls({
-                ...(args[0] ?? {}),
-                ...(head ? { upstream: head } : {}),
-            });
+  static create(list) {
+    let stack = [];
+    let head = null;
+    const apply_next = () => {
+      const args = [];
+      let last_was_cons = false;
+      while (!last_was_cons) {
+        const item = stack.pop();
+        if (typeof item === 'function') {
+          last_was_cons = true;
         }
-        for ( const item of list ) {
-            const is_cons = typeof item === 'function';
+        args.unshift(item);
+      }
 
-            if ( is_cons ) {
-                if ( stack.length > 0 ) apply_next();
-            }
+      const cls = args.shift();
+      head = new cls({
+        ...(args[0] ?? {}),
+        ...(head ? { upstream: head } : {}),
+      });
+    };
+    for (const item of list) {
+      const is_cons = typeof item === 'function';
 
-            stack.push(item);
-        }
+      if (is_cons) {
+        if (stack.length > 0) apply_next();
+      }
 
-        if ( stack.length > 0 ) apply_next();
-
-        // Print the classes in order
-        let current = head;
-        while ( current ) {
-            current = current.upstream;
-        }
-
-        return head;
+      stack.push(item);
     }
+
+    if (stack.length > 0) apply_next();
+
+    // Print the classes in order
+    let current = head;
+    while (current) {
+      current = current.upstream;
+    }
+
+    return head;
+  }
 }
 
 module.exports = {
-    ESBuilder,
+  ESBuilder,
 };

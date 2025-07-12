@@ -6,6 +6,7 @@
 
 An "Actor" is an entity that can be authenticated. The following types of
 actors are currently supported by Puter:
+
 - **UserActorType** - represents a user and is identified by a user's UUID
 - **AppUnderUserActorType** - represents an app running in an iframe from a
   `puter.site` domain or another origin and is identified by a user's UUID
@@ -36,10 +37,10 @@ actors are currently supported by Puter:
   - A session UUID
   - An optional App UUID
   - A UUID representing the access token for permission associations
-  The session or session+app creates a **UserActorType** or
-  **AppUnderUserActorType** actor respectively. This actor is called
-  the "authorizor". This actor is aggregated by an **AccessTokenActorType**
-  actor which becomes the effective actor for a request.
+    The session or session+app creates a **UserActorType** or
+    **AppUnderUserActorType** actor respectively. This actor is called
+    the "authorizor". This actor is aggregated by an **AccessTokenActorType**
+    actor which becomes the effective actor for a request.
 - **ActorSite** - this token is a JWT with a claim for a site UID.
   The site UID is associated with an origin, generally a `puter.site`
   subdomain.
@@ -49,12 +50,14 @@ actors are currently supported by Puter:
 ### Auth Middleware
 
 There have so far been three iterations of the authentication middleware:
+
 - `src/backend/src/middleware/auth.js`
 - `src/backend/src/middleware/auth2.js`
 - `src/backend/src/middleware/configurable_auth.js`
 
 The newest implementation is `configurable_auth` and eventually the other
 two will be removed. There is no legacy behavior involved:
+
 - `auth` was rewritten to use `auth2`
 - `auth2` was rewritten to use `configurable_auth`
 

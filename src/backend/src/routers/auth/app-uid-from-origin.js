@@ -16,25 +16,29 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const eggspress = require("../../api/eggspress");
-const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
+const { Context } = require('../../util/context');
 
-module.exports = eggspress('/auth/app-uid-from-origin', {
+module.exports = eggspress(
+  '/auth/app-uid-from-origin',
+  {
     subdomain: 'api',
     auth2: true,
     allowedMethods: ['POST', 'GET'],
-}, async (req, res, next) => {
+  },
+  async (req, res, next) => {
     const x = Context.get();
     const svc_auth = x.get('services').get('auth');
 
     const origin = req.body.origin || req.query.origin;
 
-    if ( ! origin ) {
-        throw APIError.create('field_missing', null, { key: 'origin' });
+    if (!origin) {
+      throw APIError.create('field_missing', null, { key: 'origin' });
     }
 
     res.json({
-        uid: await svc_auth.app_uid_from_origin(origin),
+      uid: await svc_auth.app_uid_from_origin(origin),
     });
-});
+  }
+);

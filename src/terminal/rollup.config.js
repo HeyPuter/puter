@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { nodeResolve } from '@rollup/plugin-node-resolve'
+import { nodeResolve } from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import copy from 'rollup-plugin-copy';
 import process from 'node:process';
@@ -26,39 +26,40 @@ const configFile = process.env.CONFIG_FILE ?? 'config/dev.js';
 await import(`./${configFile}`);
 
 export default {
-    input: "src/main.js",
-    output: {
-        file: "dist/bundle.js",
-        format: "iife"
-    },
-    plugins: [
-        nodeResolve({
-            rootDir: path.join(process.cwd(), '..'),
-        }),
-        commonjs(),
-        copy({
-            targets: [
-                {
-                    src: 'assets/index.html',
-                    dest: 'dist',
-                    transform: (contents, name) => {
-                        return contents.toString().replace('__SDK_URL__',
-                            process.env.PUTER_JS_URL ?? globalThis.__CONFIG__.sdk_url);
-                    }
-                },
-                { src: 'assets/shell.html', dest: 'dist' },
-                { src: 'assets/normalize.css', dest: 'dist' },
-                { src: 'assets/style.css', dest: 'dist' },
+  input: 'src/main.js',
+  output: {
+    file: 'dist/bundle.js',
+    format: 'iife',
+  },
+  plugins: [
+    nodeResolve({
+      rootDir: path.join(process.cwd(), '..'),
+    }),
+    commonjs(),
+    copy({
+      targets: [
+        {
+          src: 'assets/index.html',
+          dest: 'dist',
+          transform: (contents, name) => {
+            return contents
+              .toString()
+              .replace('__SDK_URL__', process.env.PUTER_JS_URL ?? globalThis.__CONFIG__.sdk_url);
+          },
+        },
+        { src: 'assets/shell.html', dest: 'dist' },
+        { src: 'assets/normalize.css', dest: 'dist' },
+        { src: 'assets/style.css', dest: 'dist' },
 
-                // We add this manually because there's no way to be sure
-                // _which_ node_modules directory is the correct one, since
-                // support for workspaces is under-documented and people may
-                // be using package managers other than npm.
-                { src: 'assets/xterm.css', dest: 'dist' },
-                // { src: 'node_modules/xterm/css/xterm.css', dest: 'dist' },
+        // We add this manually because there's no way to be sure
+        // _which_ node_modules directory is the correct one, since
+        // support for workspaces is under-documented and people may
+        // be using package managers other than npm.
+        { src: 'assets/xterm.css', dest: 'dist' },
+        // { src: 'node_modules/xterm/css/xterm.css', dest: 'dist' },
 
-                { src: configFile, dest: 'dist', rename: 'config.js' }
-            ]
-        }),
-    ]
-}
+        { src: configFile, dest: 'dist', rename: 'config.js' },
+      ],
+    }),
+  ],
+};

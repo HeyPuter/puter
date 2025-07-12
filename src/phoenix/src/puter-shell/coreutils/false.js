@@ -19,14 +19,14 @@
 import { Exit } from './coreutil_lib/exit.js';
 
 export default {
-    name: 'false',
-    usage: 'false',
-    description: 'Do nothing, and return a failure code.',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: true
-    },
-    execute: async ctx => {
-        throw new Exit(1);
-    }
+  name: 'false',
+  usage: 'false',
+  description: 'Do nothing, and return a failure code.',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: true,
+  },
+  execute: async (ctx) => {
+    throw new Exit(1);
+  },
 };

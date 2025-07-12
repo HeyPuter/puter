@@ -47,13 +47,11 @@ const ru = {
     close_all_windows: 'Закрыть все окна',
     close_all_windows_confirm: 'Вы уверены, что хотите закрыть все окна?',
     close_all_windows_and_log_out: 'Закрыть все окна и выйти',
-    change_always_open_with:
-      'Хотите всегда открывать файлы этого типа с помощью',
+    change_always_open_with: 'Хотите всегда открывать файлы этого типа с помощью',
     color: 'Цвет',
     confirm: 'Подтвердить',
     confirm_2fa_setup: 'Я добавил код в приложение для аутентификации',
-    confirm_2fa_recovery:
-      'Я сохранил коды восстановления доступа в безопасном месте',
+    confirm_2fa_recovery: 'Я сохранил коды восстановления доступа в безопасном месте',
     confirm_account_for_free_referral_storage_c2a:
       'Создайте учетную запись и подтвердите свой адрес электронной почты, чтобы получить 1 Гб бесплатного дискового пространства. Ваш друг также получит 1 Гб бесплатного дискового пространства.',
     confirm_code_generic_incorrect: 'Неверный код.',
@@ -62,14 +60,11 @@ const ru = {
     confirm_code_generic_submit: 'Отправить код',
     confirm_code_generic_try_again: 'Попробуйте снова',
     confirm_code_generic_title: 'Введите код подтверждения',
-    confirm_code_2fa_instruction:
-      'Введите 6-значный код из приложения для аутентификации.',
+    confirm_code_2fa_instruction: 'Введите 6-значный код из приложения для аутентификации.',
     confirm_code_2fa_submit_btn: 'Отправить',
     confirm_code_2fa_title: 'Введите код аутентификации',
-    confirm_delete_multiple_items:
-      'Вы уверены, что хотите навсегда удалить эти элементы?',
-    confirm_delete_single_item:
-      'Вы уверены, что хотите навсегда удалить этот элемент?',
+    confirm_delete_multiple_items: 'Вы уверены, что хотите навсегда удалить эти элементы?',
+    confirm_delete_single_item: 'Вы уверены, что хотите навсегда удалить этот элемент?',
     confirm_open_apps_log_out:
       'У вас имеются открытые приложения. Вы уверены, что хотите выйти из системы?',
     confirm_new_password: 'Подтвердите новый пароль',
@@ -78,8 +73,7 @@ const ru = {
     confirm_delete_user_title: 'Удалить учетную запись?',
     confirm_session_revoke: 'Вы уверены, что хотите отменить эту сессию?',
     contact_us: 'Связаться с нами',
-    contact_us_verification_required:
-      'Подтвердите адрес электронной почты чтобы продожить.',
+    contact_us_verification_required: 'Подтвердите адрес электронной почты чтобы продожить.',
     contain: 'Содержание',
     continue: 'Продолжить',
     copy: 'Копировать',
@@ -96,8 +90,7 @@ const ru = {
     clock: 'Часы',
     clock_visible_hide: 'Скрыть - Всегда скрыто',
     clock_visible_show: 'Показать - Всегда на виду',
-    clock_visible_auto:
-      'Авто - По Умолчанию, видно только в полноэкранном режиме.',
+    clock_visible_auto: 'Авто - По Умолчанию, видно только в полноэкранном режиме.',
     close_all: 'Закрыть все',
     created: 'Создано',
     date_modified: 'Дата изменения',
@@ -113,10 +106,8 @@ const ru = {
     developers: 'Разработчики',
     dir_published_as_website: `%strong% опубликован в:`,
     disable_2fa: 'Отключить двойную аутентификацию',
-    disable_2fa_confirm:
-      'Вы уверены, что хотите отключить двойную аутентификацию?',
-    disable_2fa_instructions:
-      'Введите пароль чтобы отключить двойную аутентификацию.',
+    disable_2fa_confirm: 'Вы уверены, что хотите отключить двойную аутентификацию?',
+    disable_2fa_instructions: 'Введите пароль чтобы отключить двойную аутентификацию.',
     disassociate_dir: 'Отключить директорию',
     documents: 'Документы',
     dont_allow: 'Доступ запрещён',
@@ -134,8 +125,7 @@ const ru = {
     emptying_trash: 'Очистка Корзины…',
     enable_2fa: 'Включить двойную аутентификацию',
     end_hard: 'Принудительно закрыть',
-    end_process_force_confirm:
-      'Вы уверены, что хотите принудительно завершить этот процесс?',
+    end_process_force_confirm: 'Вы уверены, что хотите принудительно завершить этот процесс?',
     end_soft: 'Закрыть',
     enlarged_qr_code: 'Увеличить QR код',
     enter_password_to_confirm_delete_user:
@@ -204,21 +194,17 @@ const ru = {
     open_with: 'Открыть с помощью',
     original_name: 'Оригинальное имя',
     original_path: 'Изначальный путь',
-    oss_code_and_content:
-      'Программное обеспечение и контент с открытым исходным кодом',
+    oss_code_and_content: 'Программное обеспечение и контент с открытым исходным кодом',
     password: 'Пароль',
     password_changed: 'Пароль изменен.',
     password_recovery_rate_limit:
       'Вы достигли лимита. Пожалуйста, подождите несколько минут. Чтобы предотвратить это в будущем, не перезагружайте страницу слишком много раз.',
-    password_recovery_token_invalid:
-      'Этот токен восстановления пароля больше не действителен.',
-    password_recovery_unknown_error:
-      'Неизвестная ошибка. Пожалуйста, повторите попытку позже.',
+    password_recovery_token_invalid: 'Этот токен восстановления пароля больше не действителен.',
+    password_recovery_unknown_error: 'Неизвестная ошибка. Пожалуйста, повторите попытку позже.',
     password_required: 'Необходимо ввести пароль.',
     password_strength_error:
       'Пароль должен иметь длину не менее 8 символов и содержать хотя бы одну заглавную букву, одну строчную букву, одну цифру и один специальный знак.',
-    passwords_do_not_match:
-      'Поля `Новый пароль` и `Подтвердите новый пароль` не совпадают.',
+    passwords_do_not_match: 'Поля `Новый пароль` и `Подтвердите новый пароль` не совпадают.',
     paste: 'Вставить',
     paste_into_folder: 'Вставить в папку',
     path: 'Путь',
@@ -265,18 +251,14 @@ const ru = {
     save: 'Сохранить',
     saturation: 'Насыщенность',
     save_account: 'Сохранить Учетную запись',
-    save_account_to_get_copy_link:
-      'Пожалуйста, создайте учетную запись, чтобы продолжить.',
-    save_account_to_publish:
-      'Пожалуйста, создайте учетную запись, чтобы продолжить.',
+    save_account_to_get_copy_link: 'Пожалуйста, создайте учетную запись, чтобы продолжить.',
+    save_account_to_publish: 'Пожалуйста, создайте учетную запись, чтобы продолжить.',
     save_session: 'Сохранить сеанс',
     save_session_c2a:
       'Создайте учетную запись, чтобы сохранить текущий сеанс и не потерять данные.',
-    scan_qr_c2a:
-      'Отсканируйте код ниже, чтобы войти в этот сеанс с других устройств',
+    scan_qr_c2a: 'Отсканируйте код ниже, чтобы войти в этот сеанс с других устройств',
     scan_qr_2fa: 'Отсканируйте QR-код с помощью приложения аутентификации',
-    scan_qr_generic:
-      'Отсканируйте этот QR-код с помощью телефона или другого устройства',
+    scan_qr_generic: 'Отсканируйте этот QR-код с помощью телефона или другого устройства',
     search: 'Поиск',
     seconds: 'секунды',
     security: 'Безопасность',
@@ -285,10 +267,8 @@ const ru = {
     select_color: 'Выбрать цвет…',
     sessions: 'Сеансы',
     send: 'Отправить',
-    send_password_recovery_email:
-      'Отправить электронное письмо для восстановления пароля',
-    session_saved:
-      'Благодарим вас за создание учетной записи. Этот сеанс сохранен.',
+    send_password_recovery_email: 'Отправить электронное письмо для восстановления пароля',
+    session_saved: 'Благодарим вас за создание учетной записи. Этот сеанс сохранен.',
     settings: 'Настройки',
     set_new_password: 'Установить новый пароль',
     share: 'Поделиться',
@@ -323,8 +303,7 @@ const ru = {
     two_factor_disabled: 'Двухфакторная аутентификация отключена',
     two_factor_enabled: 'Двухфакторная аутентификация включена',
     type: 'Тип',
-    type_confirm_to_delete_account:
-      "Введите 'подтвердить', чтобы удалить учетную запись.",
+    type_confirm_to_delete_account: "Введите 'подтвердить', чтобы удалить учетную запись.",
     ui_colors: 'Цвета пользовательского интерфейса',
     ui_manage_sessions: 'Менеджер Сеансов',
     ui_revoke: 'Отозвать',
@@ -342,8 +321,7 @@ const ru = {
     visibility: 'Видимость',
     yes: 'Да',
     yes_release_it: 'Да, освободить.',
-    you_have_been_referred_to_puter_by_a_friend:
-      'Вы были приглашены в Puter другом!',
+    you_have_been_referred_to_puter_by_a_friend: 'Вы были приглашены в Puter другом!',
     zip: 'Добавить в архив',
     zipping_file: 'Добавление в архив %strong%',
 
@@ -362,17 +340,14 @@ const ru = {
             Эти коды восстановления — единственный способ получить доступ к вашей учетной записи, если вы потеряете свой телефон или не сможете использовать приложение для аутентификации.
             Обязательно храните их в безопасном месте.
         `,
-    setup2fa_5_step_heading:
-      'Подтвердите установку двухфакторной аутентификации',
-    setup2fa_5_confirmation_1:
-      'Я сохранил коды восстановления в безопасном месте',
+    setup2fa_5_step_heading: 'Подтвердите установку двухфакторной аутентификации',
+    setup2fa_5_confirmation_1: 'Я сохранил коды восстановления в безопасном месте',
     setup2fa_5_confirmation_2: 'Я готов включить двухфакторную аутентификацию',
     setup2fa_5_button: 'Включить двухфакторную аутентификацию',
 
     // === 2FA Login ===
     login2fa_otp_title: 'Введите код двухфакторной аутентификации',
-    login2fa_otp_instructions:
-      'Введите 6-значный код из приложения для аутентификации',
+    login2fa_otp_instructions: 'Введите 6-значный код из приложения для аутентификации',
     login2fa_recovery_title: 'Введите код восстановления доступа',
     login2fa_recovery_instructions:
       'Введите один из кодов восстановления доступа чтобы получить доступ к учетной записи.',
@@ -393,56 +368,61 @@ const ru = {
     'Share With…': 'Поделиться с...',
     Owner: 'Владелец',
     "You can't share with yourself.": 'Вы не можете поделиться с самим собой.',
-    'This user already has access to this item': 'Этот пользователь уже имеет доступ к этому элементу.',
+    'This user already has access to this item':
+      'Этот пользователь уже имеет доступ к этому элементу.',
 
-    "billing.change_payment_method": 'Изменить', // In English: "Change"
-    "billing.cancel": 'Отмена', // In English: "Cancel"
-    "billing.download_invoice": 'Загрузить', // In English: "Download"
-    "billing.payment_method": 'Метод оплаты', // In English: "Payment Method"
-    "billing.payment_method_updated": 'Метод оплаты обновлён!', // In English: "Payment method updated!"
-    "billing.confirm_payment_method": 'Подтвердить метод оплаты', // In English: "Confirm Payment Method"
-    "billing.payment_history": 'История платежей', // In English: "Payment History"
-    "billing.refunded": 'Средства возвращены', // In English: "Refunded"
-    "billing.paid": 'Оплачено', // In English: "Paid"
-    "billing.ok": 'Ок', // In English: "OK"
-    "billing.resume_subscription": 'Продолжить подписку', // In English: "Resume Subscription"
-    "billing.subscription_cancelled": 'Ваша подписка отменена.', // In English: "Your subscription has been canceled."
-    "billing.subscription_cancelled_description": 'Вы можете пользоваться подпиской до конца оплаченного периода', // In English: "You will still have access to your subscription until the end of this billing period."
-    "billing.offering.free": 'Бесплатно', // In English: "Free"
-    "billing.offering.pro": 'Профессиональная', // In English: "Professional"
-    "billing.offering.professional": 'Профессиональная', // In English: "Professional"
-    "billing.offering.business": 'Бизнес', // In English: "Business"
-    "billing.cloud_storage": 'Облачное хранилище', // In English: "Cloud Storage"
-    "billing.ai_access": 'Доступ к ИИ', // In English: "AI Access"
-    "billing.bandwidth": 'Пропускная способность', // In English: "Bandwidth"
-    "billing.apps_and_games": 'Игры и приложения', // In English: "Apps & Games"
-    "billing.upgrade_to_pro": 'Обновить до %strong%', // In English: "Upgrade to %strong%"
-    "billing.switch_to": 'Переключиться на %strong%', // In English: "Switch to %strong%"
-    "billing.payment_setup": 'Настройки оплаты', // In English: "Payment Setup"
-    "billing.back": 'Назад', // In English: "Back"
-    "billing.you_are_now_subscribed_to": 'Теперь Ваш уровень подписки %strong%.', // In English: "You are now subscribed to %strong% tier."
-    "billing.you_are_now_subscribed_to_without_tier": 'Теперь Вы подписаны', // In English: "You are now subscribed"
-    "billing.subscription_cancellation_confirmation": 'Вы уверены, что хотите отменить Вашу подписку?', // In English: "Are you sure you want to cancel your subscription?"
-    "billing.subscription_setup": 'Настройки подписки', // In English: "Subscription Setup"
-    "billing.cancel_it": 'Отменить', // In English: "Cancel It"
-    "billing.keep_it": 'Удержать', // In English: "Keep It"
-    "billing.subscription_resumed": 'Ваша %strong% подписка была продлена!', // In English: "Your %strong% subscription has been resumed!"
-    "billing.upgrade_now": 'Обновить сейчас', // In English: "Upgrade Now"
-    "billing.upgrade": 'Обновить', // In English: "Upgrade"
-    "billing.currently_on_free_plan": 'Сейчас у Вас бесплатный план.', // In English: "You are currently on the free plan."
-    "billing.download_receipt": 'Загрузить квитанцию', // In English: "Download Receipt"
-    "billing.subscription_check_error": 'Произошла ошибка при проверке статуса Вашей подписки.', // In English: "A problem occurred while checking your subscription status."
-    "billing.email_confirmation_needed": 'Ваш e-mail не подтверждён. Мы отправили Вам код для подтверждения.', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-    "billing.sub_cancelled_but_valid_until": 'Вы отменили Вашу подписку и она автоматически переключится на бесплатный план по истечению оплаченного периода. С Вас не будет взыматься плата, если Вы не подпишетесь повторно', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-    "billing.current_plan_until_end_of_period": 'Ваш действующий план до конца оплаченного периода', // In English: "Your current plan until the end of this billing period."
-    "billing.current_plan": 'Настоящий план', // In English: "Current plan"
-    "billing.cancelled_subscription_tier": 'Отменённая подписка (%%)', // In English: "Cancelled Subscription (%%)"
-    "billing.manage": 'Управление', // In English: "Manage"
-    "billing.limited": 'Ограничено', // In English: "Limited"
-    "billing.expanded": 'Расширенный', // In English: "Expanded"
-    "billing.accelerated": 'Ускоренный', // In English: "Accelerated"
-    "billing.enjoy_msg": 'Пользуйтесь %% Облачным Хранилищем и остальными выгодами', // In English: "Enjoy %% of Cloud Storage plus other benefits."
+    'billing.change_payment_method': 'Изменить', // In English: "Change"
+    'billing.cancel': 'Отмена', // In English: "Cancel"
+    'billing.download_invoice': 'Загрузить', // In English: "Download"
+    'billing.payment_method': 'Метод оплаты', // In English: "Payment Method"
+    'billing.payment_method_updated': 'Метод оплаты обновлён!', // In English: "Payment method updated!"
+    'billing.confirm_payment_method': 'Подтвердить метод оплаты', // In English: "Confirm Payment Method"
+    'billing.payment_history': 'История платежей', // In English: "Payment History"
+    'billing.refunded': 'Средства возвращены', // In English: "Refunded"
+    'billing.paid': 'Оплачено', // In English: "Paid"
+    'billing.ok': 'Ок', // In English: "OK"
+    'billing.resume_subscription': 'Продолжить подписку', // In English: "Resume Subscription"
+    'billing.subscription_cancelled': 'Ваша подписка отменена.', // In English: "Your subscription has been canceled."
+    'billing.subscription_cancelled_description':
+      'Вы можете пользоваться подпиской до конца оплаченного периода', // In English: "You will still have access to your subscription until the end of this billing period."
+    'billing.offering.free': 'Бесплатно', // In English: "Free"
+    'billing.offering.pro': 'Профессиональная', // In English: "Professional"
+    'billing.offering.professional': 'Профессиональная', // In English: "Professional"
+    'billing.offering.business': 'Бизнес', // In English: "Business"
+    'billing.cloud_storage': 'Облачное хранилище', // In English: "Cloud Storage"
+    'billing.ai_access': 'Доступ к ИИ', // In English: "AI Access"
+    'billing.bandwidth': 'Пропускная способность', // In English: "Bandwidth"
+    'billing.apps_and_games': 'Игры и приложения', // In English: "Apps & Games"
+    'billing.upgrade_to_pro': 'Обновить до %strong%', // In English: "Upgrade to %strong%"
+    'billing.switch_to': 'Переключиться на %strong%', // In English: "Switch to %strong%"
+    'billing.payment_setup': 'Настройки оплаты', // In English: "Payment Setup"
+    'billing.back': 'Назад', // In English: "Back"
+    'billing.you_are_now_subscribed_to': 'Теперь Ваш уровень подписки %strong%.', // In English: "You are now subscribed to %strong% tier."
+    'billing.you_are_now_subscribed_to_without_tier': 'Теперь Вы подписаны', // In English: "You are now subscribed"
+    'billing.subscription_cancellation_confirmation':
+      'Вы уверены, что хотите отменить Вашу подписку?', // In English: "Are you sure you want to cancel your subscription?"
+    'billing.subscription_setup': 'Настройки подписки', // In English: "Subscription Setup"
+    'billing.cancel_it': 'Отменить', // In English: "Cancel It"
+    'billing.keep_it': 'Удержать', // In English: "Keep It"
+    'billing.subscription_resumed': 'Ваша %strong% подписка была продлена!', // In English: "Your %strong% subscription has been resumed!"
+    'billing.upgrade_now': 'Обновить сейчас', // In English: "Upgrade Now"
+    'billing.upgrade': 'Обновить', // In English: "Upgrade"
+    'billing.currently_on_free_plan': 'Сейчас у Вас бесплатный план.', // In English: "You are currently on the free plan."
+    'billing.download_receipt': 'Загрузить квитанцию', // In English: "Download Receipt"
+    'billing.subscription_check_error': 'Произошла ошибка при проверке статуса Вашей подписки.', // In English: "A problem occurred while checking your subscription status."
+    'billing.email_confirmation_needed':
+      'Ваш e-mail не подтверждён. Мы отправили Вам код для подтверждения.', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
+    'billing.sub_cancelled_but_valid_until':
+      'Вы отменили Вашу подписку и она автоматически переключится на бесплатный план по истечению оплаченного периода. С Вас не будет взыматься плата, если Вы не подпишетесь повторно', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
+    'billing.current_plan_until_end_of_period': 'Ваш действующий план до конца оплаченного периода', // In English: "Your current plan until the end of this billing period."
+    'billing.current_plan': 'Настоящий план', // In English: "Current plan"
+    'billing.cancelled_subscription_tier': 'Отменённая подписка (%%)', // In English: "Cancelled Subscription (%%)"
+    'billing.manage': 'Управление', // In English: "Manage"
+    'billing.limited': 'Ограничено', // In English: "Limited"
+    'billing.expanded': 'Расширенный', // In English: "Expanded"
+    'billing.accelerated': 'Ускоренный', // In English: "Accelerated"
+    'billing.enjoy_msg': 'Пользуйтесь %% Облачным Хранилищем и остальными выгодами', // In English: "Enjoy %% of Cloud Storage plus other benefits."
   },
-}
+};
 
-export default ru
+export default ru;

@@ -18,24 +18,23 @@
  */
 const smol = require('@heyputer/putility').libs.smol;
 
-const parse_meminfo = text => {
-    const lines = text.split('\n');
+const parse_meminfo = (text) => {
+  const lines = text.split('\n');
 
-    let meminfo = {};
+  let meminfo = {};
 
-    for ( const line of lines ) {
-        if ( line.trim().length == 0 ) continue;
+  for (const line of lines) {
+    if (line.trim().length == 0) continue;
 
-        const [key, value_and_unit] = smol.split(line, ':', { trim: true });
-        const [value, _] = smol.split(value_and_unit, ' ', { trim: true });
-        // note: unit is always 'kB' so we discard it
-        meminfo[key] = Number.parseInt(value);
-    }
+    const [key, value_and_unit] = smol.split(line, ':', { trim: true });
+    const [value, _] = smol.split(value_and_unit, ' ', { trim: true });
+    // note: unit is always 'kB' so we discard it
+    meminfo[key] = Number.parseInt(value);
+  }
 
-    return meminfo;
-}
-
-module.exports = {
-    parse_meminfo,
+  return meminfo;
 };
 
+module.exports = {
+  parse_meminfo,
+};

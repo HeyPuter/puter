@@ -11,6 +11,7 @@ Furthermore, it is perhaps possible that sometimes developers flock to complex f
 ## The Hello World
 
 Let's start with a simple example of creating a div with a class and some text. Using the DOM API directly, it would look like this:
+
 ```javascript
 const my_div = document.createElement('div');
 my_div.classList.add('my-class');
@@ -18,9 +19,10 @@ my_div.innerText = 'some text';
 ```
 
 Using `el()`, we can do the same as above like this:
+
 ```javascript
 const my_div = el('div.my-class', {
-  text: 'hello world'
+  text: 'hello world',
 });
 ```
 
@@ -31,6 +33,7 @@ When calling `el`, you provide a **descriptor** containing your tag name, classe
 ## The "What about HTML?"
 
 "but wait!", I hear you say, "HTML strings are still cleaner!". Tools like JSX have made it possible to use HTML syntax within javascript code and avoid caveats such as XSS vulnerabilities. That's great, but you're then forced to either bring in the tooling of a larger framework or build your own framework around JSX. It may seem worth it though; in HTML, you would write the examples above like this:
+
 ```html
 <div class="my-class">some text</div>
 ```
@@ -60,7 +63,7 @@ Maybe this specific example gives `el()` an advantage, but there's a good reason
 The `el` function accepts an array argument. Array arguments are expected to be arrays of DOM elements (that's what `el()` itself returns). This means you can call `el` multiple times inside an array to construct arbitrary trees.
 
 ```javascript
-el([ el(), el() ])
+el([el(), el()]);
 // <div><div></div><div></div></div>
 ```
 
@@ -74,10 +77,7 @@ Okay, my comment with the hard-to-read div nesting is a little unfair; you'd pro
 ```
 
 ```javascript
-el([
-  el(),
-  el()
-])
+el([el(), el()]);
 ```
 
 ## Passing the Parent

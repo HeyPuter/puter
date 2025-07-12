@@ -17,20 +17,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export class CommandCompleter {
-    async getCompletions (ctx, inputState) {
-        const { builtins } = ctx.registries;
-        const query = inputState.input;
+  async getCompletions(ctx, inputState) {
+    const { builtins } = ctx.registries;
+    const query = inputState.input;
 
-        if ( query === '' ) {
-            return [];
-        }
-
-        return (await ctx.externs.commandProvider.complete(query, { ctx }))
-            // Remove any duplicate results
-            .filter((item, pos, self) => self.indexOf(item) === pos)
-            // TODO: Sort completions?
-            // Remove the `query` part of each result, as that's what is expected
-            // TODO: Supply whole results instead?
-            .map(it => it.slice(query.length));
+    if (query === '') {
+      return [];
     }
+
+    return (
+      (await ctx.externs.commandProvider.complete(query, { ctx }))
+        // Remove any duplicate results
+        .filter((item, pos, self) => self.indexOf(item) === pos)
+        // TODO: Sort completions?
+        // Remove the `query` part of each result, as that's what is expected
+        // TODO: Supply whole results instead?
+        .map((it) => it.slice(query.length))
+    );
+  }
 }

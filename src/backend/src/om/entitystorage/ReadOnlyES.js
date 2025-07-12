@@ -16,16 +16,16 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { BaseES } = require("./BaseES");
+const APIError = require('../../api/APIError');
+const { BaseES } = require('./BaseES');
 
 class ReadOnlyES extends BaseES {
-    async upsert () {
-        throw APIError.create('forbidden');
-    }
-    async delete () {
-        throw APIError.create('forbidden');
-    }
+  async upsert() {
+    throw APIError.create('forbidden');
+  }
+  async delete() {
+    throw APIError.create('forbidden');
+  }
 }
 
 module.exports = ReadOnlyES;

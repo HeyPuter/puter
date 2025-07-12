@@ -17,71 +17,71 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 class UploadProgressTracker {
-    constructor () {
-        this.progress_ = 0;
-        this.total_ = 0;
-        this.done_ = false;
+  constructor() {
+    this.progress_ = 0;
+    this.total_ = 0;
+    this.done_ = false;
 
-        this.listeners_ = [];
+    this.listeners_ = [];
+  }
+
+  set_total(v) {
+    this.total_ = v;
+  }
+
+  set(value) {
+    if (value < this.progress_) {
+      // TODO: provide a logger for a warning
+      return;
+    }
+    const delta = value - this.progress_;
+    this.add(delta);
+  }
+
+  add(amount) {
+    if (this.done_) {
+      return; // TODO: warn
     }
 
-    set_total (v) {
-        this.total_ = v;
+    this.progress_ += amount;
+
+    for (const lis of this.listeners_) {
+      lis(amount);
     }
 
-    set (value) {
-        if ( value < this.progress_ ) {
-            // TODO: provide a logger for a warning
-            return;
-        }
-        const delta = value - this.progress_;
-        this.add(delta);
+    this.check_if_done_();
+  }
+
+  sub(callback) {
+    if (this.done_) {
+      return;
     }
 
-    add (amount) {
-        if ( this.done_ ) {
-            return; // TODO: warn
+    const listeners = this.listeners_;
+
+    listeners.push(callback);
+
+    const det = {
+      detach: () => {
+        const idx = listeners.indexOf(callback);
+        if (idx !== -1) {
+          listeners.splice(idx, 1);
         }
+      },
+    };
 
-        this.progress_ += amount;
+    return det;
+  }
 
-        for ( const lis of this.listeners_ ) {
-            lis(amount);
-        }
-
-        this.check_if_done_();
+  check_if_done_() {
+    if (this.progress_ === this.total_) {
+      this.done_ = true;
+      // clear listeners so they get GC'd
+      this.listeners_ = [];
     }
-
-    sub (callback) {
-        if ( this.done_ ) {
-            return;
-        }
-
-        const listeners = this.listeners_;
-
-        listeners.push(callback);
-
-        const det = {
-            detach: () => {
-                const idx = listeners.indexOf(callback);
-                if ( idx !== -1 ) {
-                    listeners.splice(idx, 1);
-                }
-            }
-        }
-
-        return det;
-    }
-
-    check_if_done_ () {
-        if ( this.progress_ === this.total_ ) {
-            this.done_ = true;
-            // clear listeners so they get GC'd
-            this.listeners_ = [];
-        }
-    }
+  }
 }
 
 module.exports = {
-    UploadProgressTracker,
+  UploadProgressTracker,
 };

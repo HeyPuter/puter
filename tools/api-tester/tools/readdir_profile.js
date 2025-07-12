@@ -11,47 +11,45 @@ const fs = require('fs');
 let config;
 
 try {
-    ({ values: {
-        config,
-    }, positionals: [id] } = parseArgs({
-        options: {
-            config: {
-                type: 'string',
-            },
-        },
-        allowPositionals: true,
-    }));
+  ({
+    values: { config },
+    positionals: [id],
+  } = parseArgs({
+    options: {
+      config: {
+        type: 'string',
+      },
+    },
+    allowPositionals: true,
+  }));
 } catch (e) {
-    if ( args.length < 1 ) {
-        console.error(
-            'Usage: readdir_profile [OPTIONS]\n' +
-            '\n' +
-            'Options:\n' +
-            '  --config=<path>  (required)  Path to configuration file\n' +
-            ''
-        );
-        process.exit(1);
-    }
+  if (args.length < 1) {
+    console.error(
+      'Usage: readdir_profile [OPTIONS]\n' +
+        '\n' +
+        'Options:\n' +
+        '  --config=<path>  (required)  Path to configuration file\n' +
+        ''
+    );
+    process.exit(1);
+  }
 }
 
 const conf = YAML.parse(fs.readFileSync(config).toString());
 
-const dir = `/${conf.username}/readdir_test`
+const dir = `/${conf.username}/readdir_test`;
 
 // process.on('SIGINT', async () => {
 //     process.exit(0);
 // });
 
 const httpsAgent = new https.Agent({
-    rejectUnauthorized: false
-})
+  rejectUnauthorized: false,
+});
 const getURL = (...path) => {
-    const apiURL = new url.URL(conf.url);
-    apiURL.pathname = path_.posix.join(
-        apiURL.pathname,
-        ...path
-    );
-    return apiURL.href;
+  const apiURL = new url.URL(conf.url);
+  apiURL.pathname = path_.posix.join(apiURL.pathname, ...path);
+  return apiURL.href;
 };
 
 const epoch = Date.now();
@@ -59,51 +57,45 @@ const TIME_BEFORE_TEST = 20 * 1000; // 10 seconds
 
 const NOOP = () => {};
 let check = () => {
-    if ( Date.now() - epoch >= TIME_BEFORE_TEST ) {
-        console.log(
-            `\x1B[36;1m !!! START THE TEST !!! \x1B[0m`
-        );
-        check = NOOP;
-    }
+  if (Date.now() - epoch >= TIME_BEFORE_TEST) {
+    console.log(`\x1B[36;1m !!! START THE TEST !!! \x1B[0m`);
+    check = NOOP;
+  }
 };
 
 const measure_readdir = async () => {
-    const ts_start = Date.now();
+  const ts_start = Date.now();
 
-    await axios.request({
-        httpsAgent,
-        method: 'post',
-        url: getURL('readdir'),
-        data: {
-            path: dir,
-        },
-        headers: {
-            'Authorization': `Bearer ${conf.token}`,
-            'Content-Type': 'application/json'
-        }
-    })
+  await axios.request({
+    httpsAgent,
+    method: 'post',
+    url: getURL('readdir'),
+    data: {
+      path: dir,
+    },
+    headers: {
+      Authorization: `Bearer ${conf.token}`,
+      'Content-Type': 'application/json',
+    },
+  });
 
-    const ts_end = Date.now();
+  const ts_end = Date.now();
 
-    const diff = ts_end - ts_start;
+  const diff = ts_end - ts_start;
 
-    await fs.promises.appendFile(
-        `readdir_profile.txt`,
-        `${Date.now()},${diff}\n`
-    )
+  await fs.promises.appendFile(`readdir_profile.txt`, `${Date.now()},${diff}\n`);
 
-    check();
+  check();
 
-    await new Promise(rslv => {
-        setTimeout(rslv, 5);
-    });
-}
-
+  await new Promise((rslv) => {
+    setTimeout(rslv, 5);
+  });
+};
 
 const main = async () => {
-    while (true) {
-        await measure_readdir();
-    }
-}
+  while (true) {
+    await measure_readdir();
+  }
+};
 
 main();

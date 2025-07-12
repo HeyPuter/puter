@@ -3,6 +3,7 @@
 AI services are configured under the `services` block in the configuration file. Each service requires an `apiKey` to authenticate requests.
 
 ## Example Configuration
+
 ```json
 {
   "services": {
@@ -17,3 +18,4 @@ AI services are configured under the `services` block in the configuration file.
     }
   }
 }
+```

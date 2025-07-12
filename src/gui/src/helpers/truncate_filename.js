@@ -38,15 +38,14 @@ export const DEFAULT_TRUNCATE_LENGTH = 20;
  *
  */
 const truncate_filename = (input, max_length = DEFAULT_TRUNCATE_LENGTH) => {
-    const extname = path.extname('/' + input);
+  const extname = path.extname('/' + input);
 
-    if ((input.length - 15)  > max_length){
-        if(extname !== '')
-            return input.substring(0, max_length) + '…' + input.slice(-1 * (extname.length + 2));
-        else
-            return input.substring(0, max_length) + '…';
-    }
-    return input;
+  if (input.length - 15 > max_length) {
+    if (extname !== '')
+      return input.substring(0, max_length) + '…' + input.slice(-1 * (extname.length + 2));
+    else return input.substring(0, max_length) + '…';
+  }
+  return input;
 };
 
 export default truncate_filename;

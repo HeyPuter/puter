@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 module.exports = {
-    app: require('./app'),
-    subdomain: require('./subdomain'),
-    notification: require('./notification'),
+  app: require('./app'),
+  subdomain: require('./subdomain'),
+  notification: require('./notification'),
 };

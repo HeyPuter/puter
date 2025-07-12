@@ -1,4 +1,3 @@
-
 <h3 align="center"><img width="80" alt="Puter.com, あなたのファイル、アプリ、ゲームをどこからでもアクセス可能にするパーソナルクラウドコンピュータ" src="https://assets.puter.site/puter-logo.png"></h3>
 
 <h3 align="center">インターネットOS！無料、オープンソース、セルフホスト可能。</h3>
@@ -39,7 +38,6 @@ Puterは、機能豊富で非常に高速、そして高い拡張性を持つ、
 
 ## はじめに
 
-
 ### 💻 ローカル開発
 
 ```bash
@@ -64,12 +62,14 @@ mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 100
 ### 🐙 Docker Compose
 
 #### Linux/macOS
+
 ```bash
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+
 <br/>
 
 #### Windows
@@ -82,6 +82,7 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ### ☁️ Puter.com

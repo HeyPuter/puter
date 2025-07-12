@@ -21,13 +21,13 @@
  */
 const NOOP = () => {};
 const gc_friendly_rslv = (rslv) => {
-    return (value) => {
-        rslv(value);
-        rslv = NOOP;
-    };
+  return (value) => {
+    rslv(value);
+    rslv = NOOP;
+  };
 };
 
 module.exports = {
-    NOOP,
-    gc_friendly_rslv,
+  NOOP,
+  gc_friendly_rslv,
 };

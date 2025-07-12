@@ -20,29 +20,29 @@ import { Exit } from './coreutil_lib/exit.js';
 import { resolveRelativePath } from '../../util/path.js';
 
 export default {
-    name: 'cd',
-    usage: 'cd PATH',
-    description: 'Change the current directory to PATH.',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: true
-    },
-    execute: async ctx => {
-        // ctx.params to access processed args
-        // ctx.args to access raw args
-        const { positionals, values } = ctx.locals;
-        const { filesystem } = ctx.platform;
+  name: 'cd',
+  usage: 'cd PATH',
+  description: 'Change the current directory to PATH.',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: true,
+  },
+  execute: async (ctx) => {
+    // ctx.params to access processed args
+    // ctx.args to access raw args
+    const { positionals, values } = ctx.locals;
+    const { filesystem } = ctx.platform;
 
-        let [ target ] = positionals;
-        target = resolveRelativePath(ctx.vars, target);
+    let [target] = positionals;
+    target = resolveRelativePath(ctx.vars, target);
 
-        const result = await filesystem.readdir(target);
+    const result = await filesystem.readdir(target);
 
-        if ( result.$ === 'error' ) {
-            await ctx.externs.err.write('cd: error: ' + result.message + '\n');
-            throw new Exit(1);
-        }
-
-        ctx.vars.pwd = target;
+    if (result.$ === 'error') {
+      await ctx.externs.err.write('cd: error: ' + result.message + '\n');
+      throw new Exit(1);
     }
+
+    ctx.vars.pwd = target;
+  },
 };

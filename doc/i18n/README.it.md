@@ -30,14 +30,13 @@ Puter è un sistema operativo di Internet avanzato e open-source, progettato per
 
 - Un cloud personale che tiene conto della privacy per conservare tutti i file, le app e i giochi in un luogo sicuro, accessibile da qualsiasi luogo e in qualsiasi momento.
 - Una piattaforma per creare e pubblicare siti web, app e giochi.
-- Un'alternativa a Dropbox, Google Drive, OneDrive, ecc. con un'interfaccia nuova e funzioni potenti. 
-- Un ambiente desktop remoto per server e workstation. 
+- Un'alternativa a Dropbox, Google Drive, OneDrive, ecc. con un'interfaccia nuova e funzioni potenti.
+- Un ambiente desktop remoto per server e workstation.
 - Un progetto e una comunità open-source amichevole per imparare lo sviluppo web, il cloud computing, i sistemi distribuiti e molto altro ancora!
 
 <br/>
 
 ## Getting Started
-
 
 ### 💻 Local Development
 
@@ -54,28 +53,26 @@ In questo modo Puter verrà avviato all'indirizzo http://puter.localhost:4100 (o
 
 ### 🐳 Docker
 
-
 ```bash
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
 ```
 
 <br/>
 
-
 ### 🐙 Docker Compose
 
-
 #### Linux/macOS
+
 ```bash
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+
 <br/>
 
 #### Windows
-
 
 ```powershell
 mkdir -p puter
@@ -85,6 +82,7 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ### ☁️ Puter.com
@@ -119,10 +117,8 @@ Siamo sempre felici di aiutarvi con qualsiasi domanda. Non esitate a chiedere!
 
 <br/>
 
-
-##  Licenza
+## Licenza
 
 Questo repository, compresi tutti i suoi contenuti, sottoprogetti, moduli e componenti, è concesso in licenza [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt), a meno che non sia esplicitamente indicato diversamente. Le librerie di terze parti incluse in questo repository possono essere soggette alle loro licenze.
 
 <br/>
-

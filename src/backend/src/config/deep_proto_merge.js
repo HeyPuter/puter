@@ -31,65 +31,58 @@
  * @param {*} delegate
  */
 const deep_proto_merge = (replacement, delegate, options) => {
-    const is_object = (obj) => obj &&
-        typeof obj === 'object' && !Array.isArray(obj);
+  const is_object = (obj) => obj && typeof obj === 'object' && !Array.isArray(obj);
 
-    replacement.__proto__ = delegate;
+  replacement.__proto__ = delegate;
 
-    for ( const key in replacement ) {
-        if ( ! is_object(replacement[key]) ) continue;
+  for (const key in replacement) {
+    if (!is_object(replacement[key])) continue;
 
-        if ( options?.preserve_flag && ! replacement[key].$preserve ) {
-            continue;
-        }
-        if ( ! is_object(delegate[key]) ) {
-            continue;
-        }
-        replacement[key] = deep_proto_merge(
-            replacement[key], delegate[key], options,
-        );
+    if (options?.preserve_flag && !replacement[key].$preserve) {
+      continue;
     }
+    if (!is_object(delegate[key])) {
+      continue;
+    }
+    replacement[key] = deep_proto_merge(replacement[key], delegate[key], options);
+  }
 
-    // use a Proxy object to ensure all keys are present
-    // when listing keys of `replacement`
-    replacement = new Proxy(replacement, {
-        // no get needed
-        // no set needed
-        ownKeys: (target) => {
-            const ownProps = Reflect.ownKeys(target); // Get own property names and symbols, including non-enumerable
-            const protoProps = Reflect.ownKeys(Object.getPrototypeOf(target)); // Get prototype's properties
+  // use a Proxy object to ensure all keys are present
+  // when listing keys of `replacement`
+  replacement = new Proxy(replacement, {
+    // no get needed
+    // no set needed
+    ownKeys: (target) => {
+      const ownProps = Reflect.ownKeys(target); // Get own property names and symbols, including non-enumerable
+      const protoProps = Reflect.ownKeys(Object.getPrototypeOf(target)); // Get prototype's properties
 
-            // Combine and deduplicate properties using a Set, then convert back to an array
-            const s = new Set([
-                ...protoProps,
-                ...ownProps
-            ]);
+      // Combine and deduplicate properties using a Set, then convert back to an array
+      const s = new Set([...protoProps, ...ownProps]);
 
-            if (options?.preserve_flag) {
-                // remove $preserve if it exists
-                s.delete('$preserve');
-            }
+      if (options?.preserve_flag) {
+        // remove $preserve if it exists
+        s.delete('$preserve');
+      }
 
-            return Array.from(s);
-        },
-        getOwnPropertyDescriptor: (target, prop) => {
-            // Real descriptor
-            let descriptor = Object.getOwnPropertyDescriptor(target, prop);
+      return Array.from(s);
+    },
+    getOwnPropertyDescriptor: (target, prop) => {
+      // Real descriptor
+      let descriptor = Object.getOwnPropertyDescriptor(target, prop);
 
-            if (descriptor) return descriptor;
+      if (descriptor) return descriptor;
 
-            // Immediate prototype descriptor
-            const proto = Object.getPrototypeOf(target);
-            descriptor = Object.getOwnPropertyDescriptor(proto, prop);
+      // Immediate prototype descriptor
+      const proto = Object.getPrototypeOf(target);
+      descriptor = Object.getOwnPropertyDescriptor(proto, prop);
 
-            if (descriptor) return descriptor;
+      if (descriptor) return descriptor;
 
-            return undefined;
-        }
+      return undefined;
+    },
+  });
 
-    });
-
-    return replacement;
+  return replacement;
 };
 
 module.exports = deep_proto_merge;

@@ -19,39 +19,39 @@
 import { DEFAULT_OPTIONS } from '../coreutils/coreutil_lib/help.js';
 
 export class OptionCompleter {
-    async getCompletions (ctx, inputState) {
-        const { builtins } = ctx.registries;
-        const query = inputState.input;
+  async getCompletions(ctx, inputState) {
+    const { builtins } = ctx.registries;
+    const query = inputState.input;
 
-        if ( query === '' ) {
-            return [];
-        }
-
-        // TODO: Query the command through the providers system.
-        //       Or, we could include the command in the context that's given to completers?
-        const command = builtins[inputState.tokens[0]];
-        if ( ! command ) {
-            return [];
-        }
-
-        const completions = [];
-
-        const processOptions = (options) => {
-            for ( const optionName of Object.keys(options) ) {
-                const prefixedOptionName = `--${optionName}`;
-                if ( prefixedOptionName.startsWith(query) ) {
-                    completions.push(prefixedOptionName.slice(query.length));
-                }
-            }
-        };
-
-        // TODO: Only check these for builtins!
-        processOptions(DEFAULT_OPTIONS);
-
-        if ( command.args?.options ) {
-            processOptions(command.args.options);
-        }
-
-        return completions;
+    if (query === '') {
+      return [];
     }
+
+    // TODO: Query the command through the providers system.
+    //       Or, we could include the command in the context that's given to completers?
+    const command = builtins[inputState.tokens[0]];
+    if (!command) {
+      return [];
+    }
+
+    const completions = [];
+
+    const processOptions = (options) => {
+      for (const optionName of Object.keys(options)) {
+        const prefixedOptionName = `--${optionName}`;
+        if (prefixedOptionName.startsWith(query)) {
+          completions.push(prefixedOptionName.slice(query.length));
+        }
+      }
+    };
+
+    // TODO: Only check these for builtins!
+    processOptions(DEFAULT_OPTIONS);
+
+    if (command.args?.options) {
+      processOptions(command.args.options);
+    }
+
+    return completions;
+  }
 }

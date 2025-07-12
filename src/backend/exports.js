@@ -16,70 +16,70 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const CoreModule = require("./src/CoreModule.js");
-const { Kernel } = require("./src/Kernel.js");
-const DatabaseModule = require("./src/DatabaseModule.js");
-const LocalDiskStorageModule = require("./src/LocalDiskStorageModule.js");
-const SelfHostedModule = require("./src/modules/selfhosted/SelfHostedModule.js");
-const { testlaunch } = require("./src/index.js");
-const BaseService = require("./src/services/BaseService.js");
-const { Context } = require("./src/util/context.js");
-const { TestDriversModule } = require("./src/modules/test-drivers/TestDriversModule.js");
-const { PuterAIModule } = require("./src/modules/puterai/PuterAIModule.js");
-const { BroadcastModule } = require("./src/modules/broadcast/BroadcastModule.js");
-const { WebModule } = require("./src/modules/web/WebModule.js");
-const { Core2Module } = require("./src/modules/core/Core2Module.js");
-const { TemplateModule } = require("./src/modules/template/TemplateModule.js");
-const { PuterFSModule } = require("./src/modules/puterfs/PuterFSModule.js");
-const { PerfMonModule } = require("./src/modules/perfmon/PerfMonModule.js");
-const { AppsModule } = require("./src/modules/apps/AppsModule.js");
-const { DevelopmentModule } = require("./src/modules/development/DevelopmentModule.js");
-const { HostOSModule } = require("./src/modules/hostos/HostOSModule.js");
-const { InternetModule } = require("./src/modules/internet/InternetModule.js");
-const { CaptchaModule } = require("./src/modules/captcha/CaptchaModule.js");
-const { EntityStoreModule } = require("./src/modules/entitystore/EntityStoreModule.js");
-const { KVStoreModule } = require("./src/modules/kvstore/KVStoreModule.js");
+const CoreModule = require('./src/CoreModule.js');
+const { Kernel } = require('./src/Kernel.js');
+const DatabaseModule = require('./src/DatabaseModule.js');
+const LocalDiskStorageModule = require('./src/LocalDiskStorageModule.js');
+const SelfHostedModule = require('./src/modules/selfhosted/SelfHostedModule.js');
+const { testlaunch } = require('./src/index.js');
+const BaseService = require('./src/services/BaseService.js');
+const { Context } = require('./src/util/context.js');
+const { TestDriversModule } = require('./src/modules/test-drivers/TestDriversModule.js');
+const { PuterAIModule } = require('./src/modules/puterai/PuterAIModule.js');
+const { BroadcastModule } = require('./src/modules/broadcast/BroadcastModule.js');
+const { WebModule } = require('./src/modules/web/WebModule.js');
+const { Core2Module } = require('./src/modules/core/Core2Module.js');
+const { TemplateModule } = require('./src/modules/template/TemplateModule.js');
+const { PuterFSModule } = require('./src/modules/puterfs/PuterFSModule.js');
+const { PerfMonModule } = require('./src/modules/perfmon/PerfMonModule.js');
+const { AppsModule } = require('./src/modules/apps/AppsModule.js');
+const { DevelopmentModule } = require('./src/modules/development/DevelopmentModule.js');
+const { HostOSModule } = require('./src/modules/hostos/HostOSModule.js');
+const { InternetModule } = require('./src/modules/internet/InternetModule.js');
+const { CaptchaModule } = require('./src/modules/captcha/CaptchaModule.js');
+const { EntityStoreModule } = require('./src/modules/entitystore/EntityStoreModule.js');
+const { KVStoreModule } = require('./src/modules/kvstore/KVStoreModule.js');
 
 module.exports = {
-    helloworld: () => {
-        console.log('Hello, World!');
-        process.exit(0);
-    },
-    testlaunch,
+  helloworld: () => {
+    console.log('Hello, World!');
+    process.exit(0);
+  },
+  testlaunch,
 
-    // Kernel API
-    BaseService,
-    Context,
+  // Kernel API
+  BaseService,
+  Context,
 
-    Kernel,
-    
-    EssentialModules: [
-        Core2Module,
-        PuterFSModule,
-        HostOSModule,
-        CoreModule,
-        WebModule,
-        TemplateModule,
-        AppsModule,
-        CaptchaModule,
-        EntityStoreModule,
-        KVStoreModule,
-    ],
+  Kernel,
 
-    // Pre-built modules
+  EssentialModules: [
+    Core2Module,
+    PuterFSModule,
+    HostOSModule,
     CoreModule,
     WebModule,
-    DatabaseModule,
-    LocalDiskStorageModule,
-    SelfHostedModule,
-    TestDriversModule,
-    PuterAIModule,
-    BroadcastModule,
-    InternetModule,
+    TemplateModule,
+    AppsModule,
     CaptchaModule,
+    EntityStoreModule,
     KVStoreModule,
-    
-    // Development modules
-    PerfMonModule,
-    DevelopmentModule,
+  ],
+
+  // Pre-built modules
+  CoreModule,
+  WebModule,
+  DatabaseModule,
+  LocalDiskStorageModule,
+  SelfHostedModule,
+  TestDriversModule,
+  PuterAIModule,
+  BroadcastModule,
+  InternetModule,
+  CaptchaModule,
+  KVStoreModule,
+
+  // Development modules
+  PerfMonModule,
+  DevelopmentModule,
 };

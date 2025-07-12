@@ -17,31 +17,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 class BootLogger {
-    constructor () {
-        console.log(
-            `\x1B[36;1mBoot logger started :)\x1B[0m`,
-        );
-    }
-    info (...args) {
-        console.log(
-            '\x1B[36;1m[BOOT/INFO]\x1B[0m',
-            ...args,
-        );
-    }
-    error (...args) {
-        console.log(
-            '\x1B[31;1m[BOOT/ERROR]\x1B[0m',
-            ...args,
-        );
-    }
-    warn (...args) {
-        console.log(
-            '\x1B[33;1m[BOOT/WARN]\x1B[0m',
-            ...args,
-        );
-    }
+  constructor() {
+    console.log(`\x1B[36;1mBoot logger started :)\x1B[0m`);
+  }
+  info(...args) {
+    console.log('\x1B[36;1m[BOOT/INFO]\x1B[0m', ...args);
+  }
+  error(...args) {
+    console.log('\x1B[31;1m[BOOT/ERROR]\x1B[0m', ...args);
+  }
+  warn(...args) {
+    console.log('\x1B[33;1m[BOOT/WARN]\x1B[0m', ...args);
+  }
 }
 
 module.exports = {
-    BootLogger,
+  BootLogger,
 };

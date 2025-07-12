@@ -41,59 +41,53 @@ static files.
 
 ```javascript
 class MyService extends BaseService {
-    async _init () {
-        // First we tell `puter-homepage` that we're going to be serving
-        // a javascript file which we want to be included when the GUI
-        // loads.
-        const svc_puterHomepage = this.services.get('puter-homepage');
-        svc_puterHomepage.register_script('/my-service-script/main.js');
-    }
+  async _init() {
+    // First we tell `puter-homepage` that we're going to be serving
+    // a javascript file which we want to be included when the GUI
+    // loads.
+    const svc_puterHomepage = this.services.get('puter-homepage');
+    svc_puterHomepage.register_script('/my-service-script/main.js');
+  }
 
-    async ['__on_install.routes'] (_, { app }) {
-        // Here we ask express to serve our script. This is made possible
-        // by WebServerService which provides the `app` object when it
-        // emits the 'install.routes` event.
-        app.use('/my-service-script',
-            express.static(
-                PathBuilder.add(__dirname).add('gui').build()
-            )
-        );
-    }
+  async ['__on_install.routes'](_, { app }) {
+    // Here we ask express to serve our script. This is made possible
+    // by WebServerService which provides the `app` object when it
+    // emits the 'install.routes` event.
+    app.use('/my-service-script', express.static(PathBuilder.add(__dirname).add('gui').build()));
+  }
 }
 ```
 
 ## A Simple Service Script
 
-
-
 ```javascript
-import SomeModule from "./SomeModule.js";
+import SomeModule from './SomeModule.js';
 
-service_script(api => {
-    api.on_ready(() => {
-        // This callback is invoked when the GUI is ready
+service_script((api) => {
+  api.on_ready(() => {
+    // This callback is invoked when the GUI is ready
 
-        // We can use api.get() to import anything exposed to
-        // service scripts by Puter's GUI; for example:
-        const Button = api.use('ui.components.Button');
-        // ^ Here we get Puter's Button component, which is made
-        // available to service scripts.
-    });
+    // We can use api.get() to import anything exposed to
+    // service scripts by Puter's GUI; for example:
+    const Button = api.use('ui.components.Button');
+    // ^ Here we get Puter's Button component, which is made
+    // available to service scripts.
+  });
 });
 ```
 
 ## Adding a Settings Tab
 
-Starting with the following example: 
+Starting with the following example:
 
 ```javascript
-import MySettingsTab from "./MySettingsTab.js";
+import MySettingsTab from './MySettingsTab.js';
 
-globalThis.service_script(api => {
-    api.on_ready(() => {
-        const svc_settings = globalThis.services.get('settings');
-        svc_settings.register_tab(MySettingsTab(api));
-    });
+globalThis.service_script((api) => {
+  api.on_ready(() => {
+    const svc_settings = globalThis.services.get('settings');
+    svc_settings.register_tab(MySettingsTab(api));
+  });
 });
 ```
 
@@ -104,47 +98,47 @@ an object with a specific format that Puter's settings window understands.
 Here are the contents of `MySettingsTab.js`:
 
 ```javascript
-import MyWindow from "./MyWindow.js";
+import MyWindow from './MyWindow.js';
 
-export default api => ({
-    id: 'my-settings-tab',
-    title_i18n_key: 'My Settings Tab',
-    icon: 'shield.svg',
-    factory: () => {
-        const NotifCard = api.use('ui.component.NotifCard');
-        const ActionCard = api.use('ui.component.ActionCard');
-        const JustHTML = api.use('ui.component.JustHTML');
-        const Flexer = api.use('ui.component.Flexer');
-        const UIAlert = api.use('ui.window.UIAlert');
+export default (api) => ({
+  id: 'my-settings-tab',
+  title_i18n_key: 'My Settings Tab',
+  icon: 'shield.svg',
+  factory: () => {
+    const NotifCard = api.use('ui.component.NotifCard');
+    const ActionCard = api.use('ui.component.ActionCard');
+    const JustHTML = api.use('ui.component.JustHTML');
+    const Flexer = api.use('ui.component.Flexer');
+    const UIAlert = api.use('ui.window.UIAlert');
 
-        // The root component for our settings tab will be a "flexer",
-        // which by default displays its child components in a vertical
-        // layout.
-        const component = new Flexer({
-            children: [
-                // We can insert raw HTML as a component
-                new JustHTML({
-                    no_shadow: true, // use CSS for settings window
-                    html: '<h1>Some Heading</h1>',
-                }),
-                new NotifCard({
-                    text: 'I am a card with some text',
-                    style: 'settings-card-success',
-                }),
-                new ActionCard({
-                    title: 'Open an Alert',
-                    button_text: 'Click Me',
-                    on_click: async () => {
-                        // Here we open an example window
-                        await UIAlert({
-                            message: 'Hello, Puter!',
-                        });
-                    }
-                })
-            ]
-        });
+    // The root component for our settings tab will be a "flexer",
+    // which by default displays its child components in a vertical
+    // layout.
+    const component = new Flexer({
+      children: [
+        // We can insert raw HTML as a component
+        new JustHTML({
+          no_shadow: true, // use CSS for settings window
+          html: '<h1>Some Heading</h1>',
+        }),
+        new NotifCard({
+          text: 'I am a card with some text',
+          style: 'settings-card-success',
+        }),
+        new ActionCard({
+          title: 'Open an Alert',
+          button_text: 'Click Me',
+          on_click: async () => {
+            // Here we open an example window
+            await UIAlert({
+              message: 'Hello, Puter!',
+            });
+          },
+        }),
+      ],
+    });
 
-        return component;
-    }
+    return component;
+  },
 });
 ```

@@ -6,13 +6,13 @@ driver system can't place a "type" property on an arbitrary
 response coming from a driver because that might also be
 the name of a property in the response.
 
-
 #### Example:
+
 ```json
 {
-    "type": "api:thing",
-    "version": "v1.0.0",
-    "some": "info"
+  "type": "api:thing",
+  "version": "v1.0.0",
+  "some": "info"
 }
 ```
 
@@ -45,6 +45,7 @@ The obvious solution is to return an object with a
 
 I don't mind this solution. I've come up with some alternatives though,
 because this solution has a couple drawbacks:
+
 - it looks a little verbose
 - it's not backwards-compatible with arbitrary JSON-object responses
 
@@ -59,6 +60,7 @@ because this solution has a couple drawbacks:
 - The meta key `$` indicates the schema or class of
   the object.
 - Example:
+
   ```json
   {
     "$": "api:thing",
@@ -67,6 +69,7 @@ because this solution has a couple drawbacks:
     "some": "info"
   }
   ```
+
 - what sucks about it:
   - `$` might be surprising or confusing
   - response is a subset of valid JSON keys
@@ -76,7 +79,9 @@ because this solution has a couple drawbacks:
     which don't already use `$`
 
 ### Underscore Convention
+
 - Same as above, but `_` instead of `$`
+
   ```json
   {
     "_": "api:thing",
@@ -85,6 +90,7 @@ because this solution has a couple drawbacks:
     "some": "info"
   }
   ```
+
 - what sucks about it:
   - `_` might be confusing
   - response is a subset of valid JSON keys
@@ -106,24 +112,27 @@ because this solution has a couple drawbacks:
     "type": "api:thing",
     "version": "v1.0.0",
     "value": {
-        "some": "info"
+      "some": "info"
     }
   }
   ```
-  
+
 ### Modified Dollar/Underscore convention
+
 - Using `_` in this example, but instead of prefixing
   meta properties they all go under one key.
+
   ```json
   {
     "_": {
-        "type": "api:thing",
-        "version": "v1.0.0"
+      "type": "api:thing",
+      "version": "v1.0.0"
     },
 
     "some": "info"
   }
   ```
+
 - what sucks about it:
   - `_` might be confusing
   - response is a subset of valid JSON keys

@@ -22,110 +22,109 @@ const { TeePromise } = require('@heyputer/putility').libs.promise;
  * RWLock is a read-write lock that allows multiple readers or a single writer.
  */
 class RWLock {
-    static TYPE_READ = Symbol('read');
-    static TYPE_WRITE = Symbol('write');
+  static TYPE_READ = Symbol('read');
+  static TYPE_WRITE = Symbol('write');
 
-    constructor () {
-        this.queue = [];
+  constructor() {
+    this.queue = [];
 
-        this.readers_ = 0;
-        this.writer_ = false;
+    this.readers_ = 0;
+    this.writer_ = false;
 
-        this.on_empty_ = () => {};
+    this.on_empty_ = () => {};
 
-        this.mode = this.constructor.TYPE_READ;
+    this.mode = this.constructor.TYPE_READ;
+  }
+  get effective_mode() {
+    if (this.readers_ > 0) return this.constructor.TYPE_READ;
+    if (this.writer_) return this.constructor.TYPE_WRITE;
+    return undefined;
+  }
+  push_(item) {
+    if (this.readers_ === 0 && !this.writer_) {
+      this.mode = item.type;
     }
-    get effective_mode () {
-        if ( this.readers_ > 0 ) return this.constructor.TYPE_READ;
-        if ( this.writer_ ) return this.constructor.TYPE_WRITE;
-        return undefined;
+    this.queue.push(item);
+    this.check_queue_();
+  }
+  check_queue_() {
+    if (this.queue.length === 0) {
+      if (this.readers_ === 0 && !this.writer_) {
+        this.on_empty_();
+      }
+      return;
     }
-    push_ (item) {
-        if ( this.readers_ === 0 && ! this.writer_ ) {
-            this.mode = item.type;
-        }
-        this.queue.push(item);
-        this.check_queue_();
+
+    const peek = () => this.queue[0];
+
+    if (this.readers_ === 0 && !this.writer_) {
+      this.mode = peek().type;
     }
-    check_queue_ () {
-        if ( this.queue.length === 0 ) {
-            if ( this.readers_ === 0 && ! this.writer_ ) {
-                this.on_empty_();
-            }
-            return;
-        }
 
-        const peek = () => this.queue[0];
-
-        if ( this.readers_ === 0 && ! this.writer_ ) {
-            this.mode = peek().type;
-        }
-
-        if ( this.mode === this.constructor.TYPE_READ ) {
-            while ( peek()?.type === this.constructor.TYPE_READ ) {
-                const item = this.queue.shift();
-                this.readers_++;
-                (async () => {
-                    await item.p_unlock;
-                    this.readers_--;
-                    this.check_queue_();
-                })();
-                item.p_operation.resolve();
-            }
-            return;
-        }
-
-        if ( this.writer_ ) return;
-
+    if (this.mode === this.constructor.TYPE_READ) {
+      while (peek()?.type === this.constructor.TYPE_READ) {
         const item = this.queue.shift();
-        this.writer_ = true;
+        this.readers_++;
         (async () => {
-            await item.p_unlock;
-            this.writer_ = false;
-            this.check_queue_();
+          await item.p_unlock;
+          this.readers_--;
+          this.check_queue_();
         })();
         item.p_operation.resolve();
-    }
-    async rlock () {
-        const p_read = new TeePromise();
-        const p_unlock = new TeePromise();
-        const handle = {
-            unlock: () => {
-                p_unlock.resolve();
-            }
-        };
-
-        this.push_({
-            type: this.constructor.TYPE_READ,
-            p_operation: p_read,
-            p_unlock,
-        });
-        await p_read;
-
-        return handle;
+      }
+      return;
     }
 
-    async wlock () {
-        const p_write = new TeePromise();
-        const p_unlock = new TeePromise();
-        const handle = {
-            unlock: () => {
-                p_unlock.resolve();
-            }
-        };
+    if (this.writer_) return;
 
-        this.push_({
-            type: this.constructor.TYPE_WRITE,
-            p_operation: p_write,
-            p_unlock,
-        });
-        await p_write;
+    const item = this.queue.shift();
+    this.writer_ = true;
+    (async () => {
+      await item.p_unlock;
+      this.writer_ = false;
+      this.check_queue_();
+    })();
+    item.p_operation.resolve();
+  }
+  async rlock() {
+    const p_read = new TeePromise();
+    const p_unlock = new TeePromise();
+    const handle = {
+      unlock: () => {
+        p_unlock.resolve();
+      },
+    };
 
-        return handle;
-    }
+    this.push_({
+      type: this.constructor.TYPE_READ,
+      p_operation: p_read,
+      p_unlock,
+    });
+    await p_read;
 
+    return handle;
+  }
+
+  async wlock() {
+    const p_write = new TeePromise();
+    const p_unlock = new TeePromise();
+    const handle = {
+      unlock: () => {
+        p_unlock.resolve();
+      },
+    };
+
+    this.push_({
+      type: this.constructor.TYPE_WRITE,
+      p_operation: p_write,
+      p_unlock,
+    });
+    await p_write;
+
+    return handle;
+  }
 }
 
 module.exports = {
-    RWLock,
+  RWLock,
 };

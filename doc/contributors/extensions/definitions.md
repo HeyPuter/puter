@@ -9,8 +9,8 @@ defaults, and computed values like `origin` and `api_origin`.
 const config = use('core.config');
 
 extension.get('/get-origin', { noauth: true }, (req, res) => {
-    res.send(config.origin);
-})
+  res.send(config.origin);
+});
 ```
 
 ### `core.util.*` - Utility Functions

@@ -83,7 +83,7 @@ To add metering to a new service:
 1. Get the CostService instance:
 
 ```javascript
-const svc_cost = this.services.get("cost");
+const svc_cost = this.services.get('cost');
 ```
 
 2. Define your cost structure:
@@ -99,7 +99,7 @@ const usageAllowed = await svc_cost.get_funding_allowed({
   minimum: calculated_cost,
 });
 if (!usageAllowed) {
-  throw APIError.create("insufficient_funds");
+  throw APIError.create('insufficient_funds');
 }
 ```
 

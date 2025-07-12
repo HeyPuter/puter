@@ -16,17 +16,17 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const express = require('express');
 const router = new express.Router();
 
-// -----------------------------------------------------------------------// 
+// -----------------------------------------------------------------------//
 // GET /healthcheck
 // -----------------------------------------------------------------------//
 router.get('/healthcheck', async (req, res) => {
-    const svc_serverHealth = req.services.get('server-health');
+  const svc_serverHealth = req.services.get('server-health');
 
-    const status = await svc_serverHealth.get_status();
-    res.json(status);
-})
-module.exports = router
+  const status = await svc_serverHealth.get_status();
+  res.json(status);
+});
+module.exports = router;

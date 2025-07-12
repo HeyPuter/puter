@@ -40,13 +40,13 @@
 
 ### 💻 உள்ளூர் வளர்ச்சி
 
-```bash
+````bash
 git clone https://github.com/HeyPuter/puter
 cd puter
 npm install
 npm start
 ``` தொடக்கம்
-```
+````
 
 இது புட்டரை <http://puter.localhost:4100> இல் தொடங்கும் (அல்லது அடுத்து கிடைக்கும் இடம்).
 
@@ -63,16 +63,17 @@ mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 100
 ### 🐙 டோக்கர் கம்போஸ்
 
 #### Linux/macOS
+
 ```bash
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+
 <br/>
 
 #### Windows
-
 
 ```powershell
 mkdir -p puter
@@ -82,6 +83,7 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ### ☁️ Puter.com
@@ -106,7 +108,7 @@ docker compose up
 
 - பிழை அறிக்கை அல்லது மாற்றுதல் கோரிக்கை? தயவுசெய்து [சிக்கலைத் திறக்கவும்](https://github.com/HeyPuter/puter/issues/new/choose).
 - கருத்து வேறுபாடு: [discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
-- X (Twitter):  [x.com/HeyPuter](https://x.com/HeyPuter)
+- X (Twitter): [x.com/HeyPuter](https://x.com/HeyPuter)
 - Reddit: [reddit.com/r/puter/](https://www.reddit.com/r/puter/)
 - Mastodon: [mastodon.social/@puter](https://mastodon.social/@puter)
 - பாதுகாப்பு பிரச்சினைகள்? [security@puter.com](mailto:security@puter.com)

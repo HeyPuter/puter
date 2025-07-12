@@ -62,4 +62,3 @@ This kernel is responsible for orchestrating the startup sequence and ensuring t
 4. **Service Bootstrapping**:  
    After modules and extensions are installed, services are initialized and activated.
    For more information about how this works, see [boot-sequence.md](./contributors/boot-sequence.md).
-

@@ -17,37 +17,37 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 class CodeUtil {
-    /**
-     * Wrap a method*[1] with an implementation of a runnable class.
-     * The wrapper must be a class that implements `async run(values)`,
-     * and `run` should delegate to `this._run()` after setting this.values.
-     * The `BaseOperation` class is an example of such a class.
-     *
-     * [1]: since our runnable interface expects named parameters, this
-     *      wrapping behavior is only useful for methods that accept a single
-     *      object argument.
-     * @param {*} method
-     * @param {*} wrapper
-     */
-    static mrwrap (method, wrapper, options = {}) {
-        const cls_name = options.name || method.name;
+  /**
+   * Wrap a method*[1] with an implementation of a runnable class.
+   * The wrapper must be a class that implements `async run(values)`,
+   * and `run` should delegate to `this._run()` after setting this.values.
+   * The `BaseOperation` class is an example of such a class.
+   *
+   * [1]: since our runnable interface expects named parameters, this
+   *      wrapping behavior is only useful for methods that accept a single
+   *      object argument.
+   * @param {*} method
+   * @param {*} wrapper
+   */
+  static mrwrap(method, wrapper, options = {}) {
+    const cls_name = options.name || method.name;
 
-        const cls = class extends wrapper {
-            async _run () {
-                return await method.call(this.self, this.values);
-            }
-        }
+    const cls = class extends wrapper {
+      async _run() {
+        return await method.call(this.self, this.values);
+      }
+    };
 
-        Object.defineProperty(cls, 'name', { value: cls_name });
+    Object.defineProperty(cls, 'name', { value: cls_name });
 
-        return async function (...a) {
-            const op = new cls();
-            op.self = this;
-            return await op.run(...a);
-        }
-    }
+    return async function (...a) {
+      const op = new cls();
+      op.self = this;
+      return await op.run(...a);
+    };
+  }
 }
 
 module.exports = {
-    CodeUtil,
+  CodeUtil,
 };

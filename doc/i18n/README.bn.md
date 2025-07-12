@@ -48,6 +48,7 @@ cd puter
 npm install
 npm start
 ```
+
 এটি Puter কে http://puter.localhost:4100 (অথবা পরবর্তী উপলব্ধ পোর্টে) চালু করবে।
 
 <br/>
@@ -58,6 +59,7 @@ npm start
 Copy code
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
 ```
+
 <br/>
 
 ## 🐙 ডকার কম্পোজ
@@ -71,6 +73,7 @@ sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+
 <br/>
 
 ## উইন্ডোজ
@@ -84,9 +87,11 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ## ☁️ Puter.com
+
 Puter [**puter.com**](https://puter.com) এ হোস্টেড সার্ভিস হিসেবে উপলব্ধ।
 
 <br/>

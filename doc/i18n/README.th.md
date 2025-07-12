@@ -38,7 +38,6 @@
 
 ## การเริ่มต้นใช้งาน
 
-
 ### 💻 การพัฒนาภายในเครื่อง
 
 ```bash
@@ -54,28 +53,26 @@ npm start
 
 ### 🐳 ด็อกเกอร์
 
-
 ```bash
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
 ```
 
 <br/>
 
-
 ### 🐙 ด็อกเกอร์ คอมโพส
 
-
 #### ลินุกซ์/แมคโอเอส
+
 ```bash
 mkdir -p puter/config puter/data
 sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+
 <br/>
 
 #### วินโดวส์
-
 
 ```powershell
 mkdir -p puter
@@ -85,6 +82,7 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ### ☁️ Puter.com
@@ -119,9 +117,8 @@ docker compose up
 
 <br/>
 
+## ลิขสิทธิ์
 
-##  ลิขสิทธิ์
-
-ที่เก็บข้อมูลนี้ รวมถึงเนื้อหาทั้งหมด, โครงการย่อย, โมดูล, และส่วนประกอบต่างๆ ได้รับใบอนุญาตภายใต้ [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt)  เว้นแต่จะมีการระบุไว้เป็นอย่างอื่นอย่างชัดเจน ไลบรารีจากบุคคลที่สามที่รวมอยู่ในที่เก็บข้อมูลนี้อาจอยู่ภายใต้ใบอนุญาตของตนเอง
+ที่เก็บข้อมูลนี้ รวมถึงเนื้อหาทั้งหมด, โครงการย่อย, โมดูล, และส่วนประกอบต่างๆ ได้รับใบอนุญาตภายใต้ [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) เว้นแต่จะมีการระบุไว้เป็นอย่างอื่นอย่างชัดเจน ไลบรารีจากบุคคลที่สามที่รวมอยู่ในที่เก็บข้อมูลนี้อาจอยู่ภายใต้ใบอนุญาตของตนเอง
 
 <br/>

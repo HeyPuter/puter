@@ -17,237 +17,222 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { PathBuilder } = require("../util/pathutil");
-const BaseService = require("./BaseService");
-const {is_valid_url} = require('../helpers');
-const { Endpoint } = require("../util/expressutil");
-const { Context } = require("../util/context");
+const { PathBuilder } = require('../util/pathutil');
+const BaseService = require('./BaseService');
+const { is_valid_url } = require('../helpers');
+const { Endpoint } = require('../util/expressutil');
+const { Context } = require('../util/context');
 
 /**
  * PuterHomepageService serves the initial HTML page that loads the Puter GUI
  * and all of its assets.
  */
 class PuterHomepageService extends BaseService {
-    static MODULES = {
-        fs: require('node:fs'),
-    }
+  static MODULES = {
+    fs: require('node:fs'),
+  };
 
+  _construct() {
+    this.service_scripts = [];
+    this.gui_params = {};
+  }
 
-    _construct () {
-        this.service_scripts = [];
-        this.gui_params = {};
-    }
+  /**
+   * @description This method initializes the PuterHomepageService by loading the manifest file.
+   * It reads the manifest file located at the specified path and parses its JSON content.
+   * The parsed data is then assigned to the `manifest` property of the instance.
+   * @returns {Promise} A promise that resolves with the initialized PuterHomepageService instance.
+   */
+  async _init() {
+    // Load manifest
+    const config = this.global_config;
+    const manifest_raw = this.modules.fs.readFileSync(
+      PathBuilder.add(config.assets.gui, { allow_traversal: true }).add('puter-gui.json').build(),
+      'utf8'
+    );
+    const manifest_data = JSON.parse(manifest_raw);
+    this.manifest = manifest_data[config.assets.gui_profile];
+  }
 
+  register_script(url) {
+    this.service_scripts.push(url);
+  }
 
-    /**
-    * @description This method initializes the PuterHomepageService by loading the manifest file.
-    * It reads the manifest file located at the specified path and parses its JSON content.
-    * The parsed data is then assigned to the `manifest` property of the instance.
-    * @returns {Promise} A promise that resolves with the initialized PuterHomepageService instance.
-    */
-    async _init () {
-        // Load manifest
-        const config = this.global_config;
-        const manifest_raw = this.modules.fs.readFileSync(
-            PathBuilder
-                .add(config.assets.gui, { allow_traversal: true })
-                .add('puter-gui.json')
-                .build(),
-            'utf8'
-        );
-        const manifest_data = JSON.parse(manifest_raw);
-        this.manifest = manifest_data[config.assets.gui_profile];
-    }
+  set_gui_param(key, val) {
+    this.gui_params[key] = val;
+  }
 
-    register_script (url) {
-        this.service_scripts.push(url);
-    }
-    
-    set_gui_param (key, val) {
-        this.gui_params[key] = val;
-    }
-
-
-    async ['__on_install.routes'] (_, { app }) {
-        Endpoint({
-            route: '/whoarewe',
-            methods: ['GET'],
-            handler: async (req, res) => {
-                // Get basic configuration information
-                const responseData = {
-                    disable_user_signup: this.global_config.disable_user_signup,
-                    disable_temp_users: this.global_config.disable_temp_users,
-                    environmentInfo: {
-                        env: this.global_config.env,
-                        version: process.env.VERSION || 'development'
-                    }
-                };
-
-                // Add captcha requirement information
-                responseData.captchaRequired = {
-                    login: req.captchaRequired,
-                    signup: req.captchaRequired,
-                };
-                
-                res.json(responseData);
-            }
-        }).attach(app);
-    }
-
-
-    /**
-    * This method sends the initial HTML page that loads the Puter GUI and its assets.
-    */
-    async send ({ req, res }, meta, launch_options) {
-        const config = this.global_config;
-        
-        if (
-            req.query['puter.app_instance_id'] ||
-            req.query['error_from_within_iframe']
-        ) {
-            const easteregg = [
-                'puter in puter?',
-                'Infinite recursion!',
-                'what\'chu cookin\'?',
-            ];
-            const message = req.query.message ||
-                easteregg[
-                    Math.floor(Math.random(easteregg.length))
-                ];
-
-            return res.send(this.generate_error_html({
-                message,
-            }));
-        }
-        
-        // checkCaptcha middleware (in CaptchaService) sets req.captchaRequired
-        const captchaRequired = {
-            login: req.captchaRequired,
-            signup: req.captchaRequired,
+  async ['__on_install.routes'](_, { app }) {
+    Endpoint({
+      route: '/whoarewe',
+      methods: ['GET'],
+      handler: async (req, res) => {
+        // Get basic configuration information
+        const responseData = {
+          disable_user_signup: this.global_config.disable_user_signup,
+          disable_temp_users: this.global_config.disable_temp_users,
+          environmentInfo: {
+            env: this.global_config.env,
+            version: process.env.VERSION || 'development',
+          },
         };
-        
-        return res.send(this.generate_puter_page_html({
-            env: config.env,
 
-            app_origin: config.origin,
-            api_origin: config.api_base_url,
-            use_bundled_gui: config.use_bundled_gui,
+        // Add captcha requirement information
+        responseData.captchaRequired = {
+          login: req.captchaRequired,
+          signup: req.captchaRequired,
+        };
 
-            manifest: this.manifest,
-            gui_path: config.assets.gui,
+        res.json(responseData);
+      },
+    }).attach(app);
+  }
 
-            // page meta
-            meta,
+  /**
+   * This method sends the initial HTML page that loads the Puter GUI and its assets.
+   */
+  async send({ req, res }, meta, launch_options) {
+    const config = this.global_config;
 
-            // launch options
-            launch_options,
+    if (req.query['puter.app_instance_id'] || req.query['error_from_within_iframe']) {
+      const easteregg = ['puter in puter?', 'Infinite recursion!', "what'chu cookin'?"];
+      const message = req.query.message || easteregg[Math.floor(Math.random(easteregg.length))];
 
-            // gui parameters
-            gui_params: {
-                app_name_regex: config.app_name_regex,
-                app_name_max_length: config.app_name_max_length,
-                app_title_max_length: config.app_title_max_length,
-                hosting_domain: config.static_hosting_domain +
-                    (config.pub_port !== 80 && config.pub_port !== 443 ? ':' + config.pub_port : ''),
-                subdomain_regex: config.subdomain_regex,
-                subdomain_max_length: config.subdomain_max_length,
-                domain: config.domain,
-                protocol: config.protocol,
-                env: config.env,
-                api_base_url: config.api_base_url,
-                thumb_width: config.thumb_width,
-                thumb_height: config.thumb_height,
-                contact_email: config.contact_email,
-                max_fsentry_name_length: config.max_fsentry_name_length,
-                require_email_verification_to_publish_website: config.require_email_verification_to_publish_website,
-                short_description: config.short_description,
-                long_description: config.long_description,
-                disable_temp_users: config.disable_temp_users,
-                co_isolation_enabled: req.co_isolation_enabled,
-                // Add captcha requirements to GUI parameters
-                captchaRequired: captchaRequired,
-            },
-        }));
+      return res.send(
+        this.generate_error_html({
+          message,
+        })
+      );
     }
 
-    generate_puter_page_html ({
-        env,
+    // checkCaptcha middleware (in CaptchaService) sets req.captchaRequired
+    const captchaRequired = {
+      login: req.captchaRequired,
+      signup: req.captchaRequired,
+    };
 
-        manifest,
-        gui_path,
-        use_bundled_gui,
+    return res.send(
+      this.generate_puter_page_html({
+        env: config.env,
 
-        app_origin,
-        api_origin,
+        app_origin: config.origin,
+        api_origin: config.api_base_url,
+        use_bundled_gui: config.use_bundled_gui,
 
+        manifest: this.manifest,
+        gui_path: config.assets.gui,
+
+        // page meta
         meta,
+
+        // launch options
         launch_options,
 
-        gui_params,
-    }) {
-        const require = this.require;
-        const {encode} = require('html-entities');
+        // gui parameters
+        gui_params: {
+          app_name_regex: config.app_name_regex,
+          app_name_max_length: config.app_name_max_length,
+          app_title_max_length: config.app_title_max_length,
+          hosting_domain:
+            config.static_hosting_domain +
+            (config.pub_port !== 80 && config.pub_port !== 443 ? ':' + config.pub_port : ''),
+          subdomain_regex: config.subdomain_regex,
+          subdomain_max_length: config.subdomain_max_length,
+          domain: config.domain,
+          protocol: config.protocol,
+          env: config.env,
+          api_base_url: config.api_base_url,
+          thumb_width: config.thumb_width,
+          thumb_height: config.thumb_height,
+          contact_email: config.contact_email,
+          max_fsentry_name_length: config.max_fsentry_name_length,
+          require_email_verification_to_publish_website:
+            config.require_email_verification_to_publish_website,
+          short_description: config.short_description,
+          long_description: config.long_description,
+          disable_temp_users: config.disable_temp_users,
+          co_isolation_enabled: req.co_isolation_enabled,
+          // Add captcha requirements to GUI parameters
+          captchaRequired: captchaRequired,
+        },
+      })
+    );
+  }
 
-        const e = encode;
+  generate_puter_page_html({
+    env,
 
-        const {
-            title,
-            description,
-            short_description,
-            company,
-            canonical_url,
-            social_media_image,
-        } = meta;
+    manifest,
+    gui_path,
+    use_bundled_gui,
 
-        gui_params = {
-            ...meta,
-            ...gui_params,
-            ...this.gui_params,
-            launch_options,
-            app_origin,
-            api_origin,
-            gui_origin: app_origin,
-        };
+    app_origin,
+    api_origin,
 
-        const asset_dir = env === 'dev'
-            ? '/src' : '/dist' ;
+    meta,
+    launch_options,
 
-        gui_params.asset_dir = asset_dir;
+    gui_params,
+  }) {
+    const require = this.require;
+    const { encode } = require('html-entities');
 
-        const bundled = env != 'dev' || use_bundled_gui;
+    const e = encode;
 
-        // if social media image is not a valid absolute URL, set it to null
-        if (social_media_image && !is_valid_url(social_media_image)) {
-            social_media_image = null;
-        }
+    const { title, description, short_description, company, canonical_url, social_media_image } =
+      meta;
 
-        // social media image must end with a valid image extension
-        if (social_media_image && !/\.(png|jpg|jpeg|gif|webp)$/.test(social_media_image.toLowerCase())) {
-            social_media_image = null;
-        }
+    gui_params = {
+      ...meta,
+      ...gui_params,
+      ...this.gui_params,
+      launch_options,
+      app_origin,
+      api_origin,
+      gui_origin: app_origin,
+    };
 
-        // set social media image to default if it is not valid
-        const social_media_image_url = social_media_image || `${asset_dir}/images/screenshot.png`;
+    const asset_dir = env === 'dev' ? '/src' : '/dist';
 
-        // Custom script tags to be added to the homepage by extensions
-        // an event is emitted to allow extensions to add their own script tags
-        // the event is emitted with an object containing a custom_script_tags array
-        // which extensions can push their script tags to
-        let custom_script_tags = [];
-        let custom_script_tags_str = '';
-        process.emit('add_script_tags_to_homepage_html', { custom_script_tags });
+    gui_params.asset_dir = asset_dir;
 
-        for (const tag of custom_script_tags) {
-            custom_script_tags_str += tag;
-        }
+    const bundled = env != 'dev' || use_bundled_gui;
 
-        return `<!DOCTYPE html>
+    // if social media image is not a valid absolute URL, set it to null
+    if (social_media_image && !is_valid_url(social_media_image)) {
+      social_media_image = null;
+    }
+
+    // social media image must end with a valid image extension
+    if (
+      social_media_image &&
+      !/\.(png|jpg|jpeg|gif|webp)$/.test(social_media_image.toLowerCase())
+    ) {
+      social_media_image = null;
+    }
+
+    // set social media image to default if it is not valid
+    const social_media_image_url = social_media_image || `${asset_dir}/images/screenshot.png`;
+
+    // Custom script tags to be added to the homepage by extensions
+    // an event is emitted to allow extensions to add their own script tags
+    // the event is emitted with an object containing a custom_script_tags array
+    // which extensions can push their script tags to
+    let custom_script_tags = [];
+    let custom_script_tags_str = '';
+    process.emit('add_script_tags_to_homepage_html', { custom_script_tags });
+
+    for (const tag of custom_script_tags) {
+      custom_script_tags_str += tag;
+    }
+
+    return `<!DOCTYPE html>
     <html lang="en">
 
     <head>
         <title>${e(title)}</title>
         <meta name="author" content="${e(company)}">
-        <meta name="description" content="${e((description).replace(/\n/g, " ").trim())}">
+        <meta name="description" content="${e(description.replace(/\n/g, ' ').trim())}">
         <meta name="facebook-domain-verification" content="e29w3hjbnnnypf4kzk2cewcdaxym1y" />
         <link rel="canonical" href="${e(canonical_url)}">
 
@@ -255,7 +240,7 @@ class PuterHomepageService extends BaseService {
         <meta property="og:url" content="${e(canonical_url)}">
         <meta property="og:type" content="website">
         <meta property="og:title" content="${e(title)}">
-        <meta property="og:description" content="${e((short_description).replace(/\n/g, " ").trim())}">
+        <meta property="og:description" content="${e(short_description.replace(/\n/g, ' ').trim())}">
         <meta property="og:image" content="${e(social_media_image_url)}">
 
         <!-- Twitter meta tags -->
@@ -263,7 +248,7 @@ class PuterHomepageService extends BaseService {
         <meta property="twitter:domain" content="puter.com">
         <meta property="twitter:url" content="${e(canonical_url)}">
         <meta name="twitter:title" content="${e(title)}">
-        <meta name="twitter:description" content="${e((short_description).replace(/\n/g, " ").trim())}">
+        <meta name="twitter:description" content="${e(short_description.replace(/\n/g, ' ').trim())}">
         <meta name="twitter:image" content="${e(social_media_image_url)}">
 
         <!-- favicons -->
@@ -325,24 +310,17 @@ class PuterHomepageService extends BaseService {
         </script>
 
         <!-- Files from JSON (may be empty) -->
-        ${
-            ((!bundled && manifest?.css_paths)
-                ? manifest.css_paths.map(path => `<link rel="stylesheet" href="${path}">\n`)
-                : []).join('')
-        }
+        ${(!bundled && manifest?.css_paths
+          ? manifest.css_paths.map((path) => `<link rel="stylesheet" href="${path}">\n`)
+          : []
+        ).join('')}
         <!-- END Files from JSON -->
     </head>
 
     <body>
         <script>window.puter_gui_enabled = true;</script>
-        ${
-            custom_script_tags_str
-        }
-        ${
-            use_bundled_gui
-                ? `<script>window.gui_env = 'prod';</script>`
-                : ''
-        }
+        ${custom_script_tags_str}
+        ${use_bundled_gui ? `<script>window.gui_env = 'prod';</script>` : ''}
 
         <!-- Load the GUI script -->
         <script src="/dist/bundle.min.js"></script>
@@ -364,27 +342,25 @@ class PuterHomepageService extends BaseService {
         */
         window.addEventListener('load', function() {
             gui(${
-                // TODO: override JSON.stringify to ALWAYS to this...
-                //       this should be an opt-OUT, not an opt-IN!
-                JSON.stringify(gui_params).replace(/</g, '\\u003c')
+              // TODO: override JSON.stringify to ALWAYS to this...
+              //       this should be an opt-OUT, not an opt-IN!
+              JSON.stringify(gui_params).replace(/</g, '\\u003c')
             });
         });
         </script>
         <!-- Initialize Service Scripts -->
-        ${
-            this.service_scripts
-                .map(path => `<script type="module" src="${path}"></script>\n`)
-                .join('')
-        }
+        ${this.service_scripts
+          .map((path) => `<script type="module" src="${path}"></script>\n`)
+          .join('')}
         <div id="templates" style="display: none;"></div>
     </body>
 
     </html>`;
-    };
-    
-    generate_error_html ({ message }) {
-        const { encode } = require('html-entities');
-        return `
+  }
+
+  generate_error_html({ message }) {
+    const { encode } = require('html-entities');
+    return `
             <!DOCTYPE html>
             <html>
                 <head>
@@ -409,15 +385,13 @@ class PuterHomepageService extends BaseService {
                     </style>
                 </head>
                 <body>
-                    <h1>${
-                        encode(message, { mode: 'nonAsciiPrintable' })
-                    }</h1>
+                    <h1>${encode(message, { mode: 'nonAsciiPrintable' })}</h1>
                 </body>
             </html>
         `;
-    }
+  }
 }
 
 module.exports = {
-    PuterHomepageService
+  PuterHomepageService,
 };

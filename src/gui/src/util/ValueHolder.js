@@ -20,57 +20,57 @@
  * Holds an observable value.
  */
 export default class ValueHolder {
-    constructor (initial_value) {
-        this.value_ = null;
-        this.listeners_ = [];
+  constructor(initial_value) {
+    this.value_ = null;
+    this.listeners_ = [];
 
-        Object.defineProperty(this, 'value', {
-            set: this.set_.bind(this),
-            get: this.get_.bind(this),
-        });
+    Object.defineProperty(this, 'value', {
+      set: this.set_.bind(this),
+      get: this.get_.bind(this),
+    });
 
-        if (initial_value !== undefined) {
-            this.set(initial_value);
-        }
+    if (initial_value !== undefined) {
+      this.set(initial_value);
     }
+  }
 
-    static adapt (value) {
-        if (value instanceof ValueHolder) {
-            return value;
-        } else {
-            return new ValueHolder(value);
-        }
+  static adapt(value) {
+    if (value instanceof ValueHolder) {
+      return value;
+    } else {
+      return new ValueHolder(value);
     }
+  }
 
-    set (value) {
-        this.value = value;
-    }
+  set(value) {
+    this.value = value;
+  }
 
-    get () {
-        return this.value;
-    }
+  get() {
+    return this.value;
+  }
 
-    sub (listener) {
-        this.listeners_.push(listener);
-    }
+  sub(listener) {
+    this.listeners_.push(listener);
+  }
 
-    set_ (value) {
-        const old_value = this.value_;
-        this.value_ = value;
-        const more = {
-            holder: this,
-            old_value,
-        };
-        this.listeners_.forEach(listener => listener(value, more));
-    }
+  set_(value) {
+    const old_value = this.value_;
+    this.value_ = value;
+    const more = {
+      holder: this,
+      old_value,
+    };
+    this.listeners_.forEach((listener) => listener(value, more));
+  }
 
-    get_ () {
-        return this.value_;
-    }
+  get_() {
+    return this.value_;
+  }
 
-    map (fn) {
-        const holder = new ValueHolder();
-        this.sub((value, more) => holder.set(fn(value, more)));
-        return holder;
-    }
+  map(fn) {
+    const holder = new ValueHolder();
+    this.sub((value, more) => holder.set(fn(value, more)));
+    return holder;
+  }
 }

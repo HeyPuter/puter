@@ -3,29 +3,35 @@
 This document describes the boot sequence of Puter's backend.
 
 **Runtime Environment**
-  - Configuration directory is determined
-  - Runtime directory is determined
-  - Mod directory is determined
-  - Services are instantiated
+
+- Configuration directory is determined
+- Runtime directory is determined
+- Mod directory is determined
+- Services are instantiated
 
 **Construction**
-  - Data structures are created
+
+- Data structures are created
 
 **Initialization**
-  - Registries are populated
-  - Services prepare for next phase
+
+- Registries are populated
+- Services prepare for next phase
 
 **Consolidation**
-  - Service event bus receives first event (`boot.consolidation`)
-  - Services perform coordinated setup behaviors
-  - Services prepare for next phase
+
+- Service event bus receives first event (`boot.consolidation`)
+- Services perform coordinated setup behaviors
+- Services prepare for next phase
 
 **Activation**
-  - Blocking listeners of `boot.consolidation` have resolved
-  - HTTP servers start listening
+
+- Blocking listeners of `boot.consolidation` have resolved
+- HTTP servers start listening
 
 **Ready**
-  - Services are informed that Puter is providing service
+
+- Services are informed that Puter is providing service
 
 ## Boot Phases
 
@@ -40,6 +46,7 @@ The first phase of the boot sequence, "construction", is simply a loop to
 call `construct` on all registered services.
 
 The `_construct` override should not:
+
 - call other services
 - emit events
 
@@ -47,6 +54,7 @@ The `_construct` override should not:
 
 At initialization, the `init()` method is called on all services.
 The `_init` override can be used to:
+
 - register information with other services, when services don't
   need to register this information in a specific sequence.
   An example of this is registering commands with CommandService.

@@ -17,9 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export class ProxyReader {
-    constructor ({ delegate }) {
-        this.delegate = delegate;
-    }
+  constructor({ delegate }) {
+    this.delegate = delegate;
+  }
 
-    read (...a) { return this.delegate.read(...a); }
+  read(...a) {
+    return this.delegate.read(...a);
+  }
 }

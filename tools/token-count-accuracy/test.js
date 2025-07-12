@@ -1,31 +1,31 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 const claude_examples = [
-    {
-        type: 'output', // probably doesn't matter
-        text: "I am Claude, an AI assistant created by Anthropic. I'm running on Puter, an open-source platform, through a driver interface called puter-chat-completion. I aim to be direct and honest about my identity and capabilities.",
-        tokens: 55,
-    },
-    {
-        type: 'output',
-        text: `Here's a list of fascinating numbers and their significance:
+  {
+    type: 'output', // probably doesn't matter
+    text: "I am Claude, an AI assistant created by Anthropic. I'm running on Puter, an open-source platform, through a driver interface called puter-chat-completion. I aim to be direct and honest about my identity and capabilities.",
+    tokens: 55,
+  },
+  {
+    type: 'output',
+    text: `Here's a list of fascinating numbers and their significance:
 
 1. 1.618033988749895 (φ, Phi, Golden Ratio)
 - Found throughout nature and art
@@ -76,11 +76,11 @@ const claude_examples = [
 - Subject of numerous mathematical curiosities
 
 These numbers demonstrate how mathematics intersects with nature, science, culture, and human understanding of the universe.`,
-        tokens: 481,
-    },
-    {
-        type: 'output',
-        text: `Here are some digits of Pi:
+    tokens: 481,
+  },
+  {
+    type: 'output',
+    text: `Here are some digits of Pi:
 3.14159265358979323846264338327950288419716939937510...
 
 Some digits of the square root of 2:
@@ -103,82 +103,81 @@ The concept of Tuesday learned to yodel in binary code
 Metaphysical hiccups causing temporary glitches in the fabric of reason
 Square circles plotting a revolution against euclidean geometry
 The letter Q eloped with an ampersand and they had punctuation mark babies`,
-        tokens: 284,
-    }
+    tokens: 284,
+  },
 ];
 
 // Measure each with tiktoken
 
 class TikTokenCounter {
-    constructor (model_to_try) {
-        this.model_to_try = model_to_try;
-    }
+  constructor(model_to_try) {
+    this.model_to_try = model_to_try;
+  }
 
-    get title () {
-        return `TikToken ${this.model_to_try}`;
-    }
+  get title() {
+    return `TikToken ${this.model_to_try}`;
+  }
 
-    count (text) {
-        const tiktoken = require('tiktoken');
-        const enc = tiktoken.encoding_for_model(this.model_to_try);
-        const tokens = enc.encode(text);
-        return tokens.length;
-    }
+  count(text) {
+    const tiktoken = require('tiktoken');
+    const enc = tiktoken.encoding_for_model(this.model_to_try);
+    const tokens = enc.encode(text);
+    return tokens.length;
+  }
 }
 
 class DivideCounter {
-    constructor (by) {
-        this.by = by;
-    }
+  constructor(by) {
+    this.by = by;
+  }
 
-    get title () {
-        return `Divide by ${this.by}`;
-    }
+  get title() {
+    return `Divide by ${this.by}`;
+  }
 
-    count (text) {
-        return text.length / this.by;
-    }
+  count(text) {
+    return text.length / this.by;
+  }
 }
 
 const counters_to_try = [
-    new TikTokenCounter('gpt-3.5-turbo'),
-    new TikTokenCounter('gpt-4'),
-    new TikTokenCounter('gpt-4o'),
-    new TikTokenCounter('gpt-4o-mini'),
-    new DivideCounter(4),
-    new DivideCounter(5),
+  new TikTokenCounter('gpt-3.5-turbo'),
+  new TikTokenCounter('gpt-4'),
+  new TikTokenCounter('gpt-4o'),
+  new TikTokenCounter('gpt-4o-mini'),
+  new DivideCounter(4),
+  new DivideCounter(5),
 ];
 
 const scores = {};
 
 const results = [];
 for (const example of claude_examples) {
-    const result = {
-        example,
-        counts: {},
-        diffs: {},
-    };
-    for (const counter of counters_to_try) {
-        result.counts[counter.title] = counter.count(example.text);
-    }
-    results.push(result);
+  const result = {
+    example,
+    counts: {},
+    diffs: {},
+  };
+  for (const counter of counters_to_try) {
+    result.counts[counter.title] = counter.count(example.text);
+  }
+  results.push(result);
 
-    // Which one is the most accurate?
-    const real_amount = example.tokens;
-    for ( const count_name in result.counts ) {
-        const count = result.counts[count_name];
-        const diff = Math.abs(count - real_amount);
-        result.diffs[count_name] = diff;
-    }
-    // Report the most accurate one
-    const most_accurate =
-        Object.keys(result.diffs)
-            .reduce((a, b) => result.diffs[a] < result.diffs[b] ? a : b);
-    result.most_accurate = most_accurate;
+  // Which one is the most accurate?
+  const real_amount = example.tokens;
+  for (const count_name in result.counts) {
+    const count = result.counts[count_name];
+    const diff = Math.abs(count - real_amount);
+    result.diffs[count_name] = diff;
+  }
+  // Report the most accurate one
+  const most_accurate = Object.keys(result.diffs).reduce((a, b) =>
+    result.diffs[a] < result.diffs[b] ? a : b
+  );
+  result.most_accurate = most_accurate;
 
-    scores[most_accurate] = (scores[most_accurate] || 0) + 1;
+  scores[most_accurate] = (scores[most_accurate] || 0) + 1;
 }
-
 
 console.log(results);
 

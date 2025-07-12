@@ -19,40 +19,40 @@
 import { Exit } from './coreutil_lib/exit.js';
 
 export default {
-    name: 'txt2img',
-    usage: 'txt2img PROMPT',
-    description: 'Send PROMPT to an image-drawing AI, and print the result to standard output.',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: true,
-    },
-    execute: async ctx => {
-        const { positionals } = ctx.locals;
-        const [ prompt ] = positionals;
+  name: 'txt2img',
+  usage: 'txt2img PROMPT',
+  description: 'Send PROMPT to an image-drawing AI, and print the result to standard output.',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: true,
+  },
+  execute: async (ctx) => {
+    const { positionals } = ctx.locals;
+    const [prompt] = positionals;
 
-        if ( ! prompt ) {
-            await ctx.externs.err.write('txt2img: missing prompt\n');
-            throw new Exit(1);
-        }
-        if ( positionals.length > 1 ) {
-            await ctx.externs.err.write('txt2img: prompt must be wrapped in quotes\n');
-            throw new Exit(1);
-        }
-
-        const { drivers } = ctx.platform;
-
-        let a_interface, a_method, a_args;
-
-        a_interface = 'puter-image-generation';
-        a_method = 'generate';
-        a_args = { prompt };
-
-        const result = await drivers.call({
-            interface: a_interface,
-            method: a_method,
-            args: a_args,
-        });
-
-        await ctx.externs.out.write(result);
+    if (!prompt) {
+      await ctx.externs.err.write('txt2img: missing prompt\n');
+      throw new Exit(1);
     }
-}
+    if (positionals.length > 1) {
+      await ctx.externs.err.write('txt2img: prompt must be wrapped in quotes\n');
+      throw new Exit(1);
+    }
+
+    const { drivers } = ctx.platform;
+
+    let a_interface, a_method, a_args;
+
+    a_interface = 'puter-image-generation';
+    a_method = 'generate';
+    a_args = { prompt };
+
+    const result = await drivers.call({
+      interface: a_interface,
+      method: a_method,
+      args: a_args,
+    });
+
+    await ctx.externs.out.write(result);
+  },
+};

@@ -24,13 +24,14 @@
  * This is meant to be used via the database access service when
  * performing batch operations.
  */
-const Statement = function Statement ({ statement, values }) {
-    // For now we just return an identical object.
-    return {
-        statement, values,
-    };
-}
+const Statement = function Statement({ statement, values }) {
+  // For now we just return an identical object.
+  return {
+    statement,
+    values,
+  };
+};
 
 module.exports = {
-    Statement,
+  Statement,
 };

@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import Spinner from "../UI/Components/Spinner";
-import { Service } from "../definitions";
+import Spinner from '../UI/Components/Spinner';
+import { Service } from '../definitions';
 
 /**
  * This class exists to keep exports to the service script API separate
@@ -25,7 +25,7 @@ import { Service } from "../definitions";
  * to change how it works in the future.
  */
 export class ExportRegistrantService extends Service {
-    _init () {
-        console.log(Spinner); // import gets optimized out if we don't do this
-    }
+  _init() {
+    console.log(Spinner); // import gets optimized out if we don't do this
+  }
 }

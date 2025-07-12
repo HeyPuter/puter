@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import UIWindow from './UIWindow.js'
-import Placeholder from "../util/Placeholder.js"
+import UIWindow from './UIWindow.js';
+import Placeholder from '../util/Placeholder.js';
 
 /**
  * @typedef {Object} UIComponentWindowOptions
@@ -28,17 +28,17 @@ import Placeholder from "../util/Placeholder.js"
  * Render a UIWindow that contains an instance of Component
  * @param {UIComponentWindowOptions} options
  */
-export default async function UIComponentWindow (options) {
-    const placeholder = Placeholder();
+export default async function UIComponentWindow(options) {
+  const placeholder = Placeholder();
 
-    const win = await UIWindow({
-        ...options,
+  const win = await UIWindow({
+    ...options,
 
-        body_content: placeholder.html,
-    });
+    body_content: placeholder.html,
+  });
 
-    options.component.attach(placeholder);
-    options.component.focus();
+  options.component.attach(placeholder);
+  options.component.focus();
 
-    return win;
+  return win;
 }

@@ -16,28 +16,28 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../api/APIError");
-const { Context } = require("../util/context");
+const APIError = require('../api/APIError');
+const { Context } = require('../util/context');
 
-const abuse = options => (req, res, next) => {
-    const requester = Context.get('requester');
+const abuse = (options) => (req, res, next) => {
+  const requester = Context.get('requester');
 
-    if ( options.no_bots ) {
-        if ( requester.is_bot ) {
-            if ( options.shadow_ban_responder ) {
-                return options.shadow_ban_responder(req, res);
-            }
-            throw APIError.create('forbidden');
-        }
+  if (options.no_bots) {
+    if (requester.is_bot) {
+      if (options.shadow_ban_responder) {
+        return options.shadow_ban_responder(req, res);
+      }
+      throw APIError.create('forbidden');
     }
+  }
 
-    if ( options.puter_origin ) {
-        if ( ! requester.is_puter_origin() ) {
-            throw APIError.create('forbidden');
-        }
+  if (options.puter_origin) {
+    if (!requester.is_puter_origin()) {
+      throw APIError.create('forbidden');
     }
+  }
 
-    next();
+  next();
 };
 
 module.exports = abuse;

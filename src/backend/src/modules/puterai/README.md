@@ -26,6 +26,7 @@ and populating model lists/maps from providers.
 
 Registers each provider as an 'ai-chat' service alias and fetches their
 available models and pricing information. Populates:
+
 - simple_model_list: Basic list of supported models
 - detail_model_list: Detailed model info including costs
 - detail_model_map: Maps model IDs/aliases to their details
@@ -33,8 +34,6 @@ available models and pricing information. Populates:
 #### Methods
 
 ##### `register_provider`
-
-
 
 ##### `moderate`
 
@@ -62,8 +61,6 @@ the first one that is not in the tried list.
 - **param0:** null
 
 ##### `get_model_from_request`
-
-
 
 ### AIInterfaceService
 
@@ -134,8 +131,6 @@ Analyzes a document using AWS Textract to extract text and layout information
 Service that emulates Claude's behavior using alternative AI models
 
 ##### `adapt_model`
-
-
 
 ### ClaudeService
 
@@ -233,8 +228,6 @@ validation, and spending tracking.
 
 ##### `generate`
 
-
-
 ### TogetherAIService
 
 TogetherAIService class provides integration with Together AI's language models.
@@ -263,8 +256,6 @@ Gets the system prompt used for AI interactions
 
 ##### `adapt_model`
 
-
-
 ##### `get_default_model`
 
 Returns the default model identifier for the XAI service
@@ -278,6 +269,7 @@ removed it may become possible to move this module to an
 extension.
 
 **Imports:**
+
 - `../../api/APIError`
 - `../../services/auth/PermissionService`
 - `../../services/BaseService` (use.BaseService)

@@ -16,57 +16,55 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
+const { AdvancedBase } = require('@heyputer/putility');
 const { quot } = require('@heyputer/putility').libs.string;
 
 class ConfigLoader extends AdvancedBase {
-    static MODULES = {
-        path_: require("path"),
-        fs: require("fs"),
+  static MODULES = {
+    path_: require('path'),
+    fs: require('fs'),
+  };
+
+  constructor(logger, path, config) {
+    super();
+    this.logger = logger;
+    this.path = path;
+    this.config = config;
+  }
+
+  enable(name, meta = {}) {
+    const { path_, fs } = this.modules;
+
+    const config_path = path_.join(this.path, name);
+
+    if (!fs.existsSync(config_path)) {
+      throw new Error(`Config file not found: ${config_path}`);
     }
 
-    constructor (logger, path, config) {
-        super();
-        this.logger = logger;
-        this.path = path;
-        this.config = config;
+    const config_values = JSON.parse(fs.readFileSync(config_path, 'utf8'));
+    if (config_values.$requires) {
+      const config_list = config_values.$requires;
+      delete config_values.$requires;
+      this.apply_requires(this.path, config_list, { by: name });
     }
+    this.logger.info(
+      `Applying config: ${path_.relative(this.path, config_path)}` +
+        (meta.by ? ` (required by ${meta.by})` : '')
+    );
+    this.config.load_config(config_values);
+  }
 
-    enable (name, meta = {}) {
-        const { path_, fs } = this.modules;
+  apply_requires(dir, config_list, { by } = {}) {
+    const { path_, fs } = this.modules;
 
-        const config_path = path_.join(this.path, name);
-
-        if ( ! fs.existsSync(config_path) ) {
-            throw new Error(`Config file not found: ${config_path}`);
-        }
-
-        const config_values = JSON.parse(fs.readFileSync(config_path, 'utf8'));
-        if ( config_values.$requires ) {
-            const config_list = config_values.$requires;
-            delete config_values.$requires;
-            this.apply_requires(this.path, config_list, { by: name });
-        }
-        this.logger.info(
-            `Applying config: ${path_.relative(this.path, config_path)}` +
-            (meta.by ? ` (required by ${meta.by})` : '')
-        );
-        this.config.load_config(config_values);
-
+    for (const name of config_list) {
+      const config_path = path_.join(dir, name);
+      if (!fs.existsSync(config_path)) {
+        throw new Error(`could not find ${quot(config_path)} ` + `required by ${quot(by)}`);
+      }
+      this.enable(name, { by });
     }
-
-    apply_requires (dir, config_list, { by } = {}) {
-        const { path_, fs } = this.modules;
-
-        for ( const name of config_list ) {
-            const config_path = path_.join(dir, name);
-            if ( ! fs.existsSync(config_path) ) {
-                throw new Error(`could not find ${quot(config_path)} ` +
-                    `required by ${quot(by)}`);
-            }
-            this.enable(name, { by });
-        }
-    }
+  }
 }
 
 module.exports = { ConfigLoader };

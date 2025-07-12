@@ -28,6 +28,7 @@ then write permission will be granted.
 App shares grant permission to read a protected app.
 
 ##### subdomain permission
+
 If there is a subdomain associated with the app, and the owner
 of the subdomain is the same as the owner of the app, then
 permission to access the subdomain will be granted.
@@ -37,6 +38,7 @@ and will not be considered "associated" if only the index_url
 happens to match the subdomain url.
 
 ##### appdata permission
+
 If the app has `shared_appdata` set to `true` in its metadata
 object, the recipient of the share will also get write permission
 to the app owner's corresponding appdata directory. The appdata
@@ -48,28 +50,25 @@ can't be determined).
 
 ```json
 {
-    "recipients": [
-        "user_that_gets_shared_to",
-        "another@example.com"
-    ],
-    "shares": [
-        {
-            "$": "app-share",
-            "name": "some-app-name"
-        },
-        {
-            "$": "app-share",
-            "uid": "app-SOME-APP-UID"
-        },
-        {
-            "$": "fs-share",
-            "path": "/some/file/or/directory"
-        },
-        {
-            "$": "fs-share",
-            "path": "SOME-FILE-UUID"
-        }
-    ]
+  "recipients": ["user_that_gets_shared_to", "another@example.com"],
+  "shares": [
+    {
+      "$": "app-share",
+      "name": "some-app-name"
+    },
+    {
+      "$": "app-share",
+      "uid": "app-SOME-APP-UID"
+    },
+    {
+      "$": "fs-share",
+      "path": "/some/file/or/directory"
+    },
+    {
+      "$": "fs-share",
+      "path": "SOME-FILE-UUID"
+    }
+  ]
 }
 ```
 
@@ -94,7 +93,7 @@ can't be determined).
   - **accepts:** `bool`
   - **description:**
     when true, only validation will occur
-    
+
 ### Response
 
 - **$:** `api:share`
@@ -109,36 +108,33 @@ can't be determined).
 ### Request Example
 
 ```javascript
-await fetch("http://puter.localhost:4100/share", {
+await fetch('http://puter.localhost:4100/share', {
   headers: {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${puter.authToken}`,
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${puter.authToken}`,
   },
   body: JSON.stringify({
-    recipients: [
-        "user_that_gets_shared_to",
-        "another@example.com"
-    ],
+    recipients: ['user_that_gets_shared_to', 'another@example.com'],
     shares: [
-        {
-            $: "app-share",
-            name: "some-app-name"
-        },
-        {
-            $: "app-share",
-            uid: "app-SOME-APP-UID"
-        },
-        {
-            $: "fs-share",
-            path: "/some/file/or/directory"
-        },
-        {
-            $: "fs-share",
-            path: "SOME-FILE-UUID"
-        }
-    ]
+      {
+        $: 'app-share',
+        name: 'some-app-name',
+      },
+      {
+        $: 'app-share',
+        uid: 'app-SOME-APP-UID',
+      },
+      {
+        $: 'fs-share',
+        path: '/some/file/or/directory',
+      },
+      {
+        $: 'fs-share',
+        path: 'SOME-FILE-UUID',
+      },
+    ],
   }),
-  method: "POST",
+  method: 'POST',
 });
 ```
 
@@ -146,22 +142,22 @@ await fetch("http://puter.localhost:4100/share", {
 
 ```json
 {
-    "$": "api:share",
-    "$version": "v0.0.0",
-    "status": "success",
-    "recipients": [
-        {
-            "$": "api:status-report",
-            "status": "success"
-        }
-    ],
-    "paths": [
-        {
-            "$": "api:status-report",
-            "status": "success"
-        }
-    ],
-    "dry_run": true
+  "$": "api:share",
+  "$version": "v0.0.0",
+  "status": "success",
+  "recipients": [
+    {
+      "$": "api:status-report",
+      "status": "success"
+    }
+  ],
+  "paths": [
+    {
+      "$": "api:status-report",
+      "status": "success"
+    }
+  ],
+  "dry_run": true
 }
 ```
 
@@ -169,24 +165,24 @@ await fetch("http://puter.localhost:4100/share", {
 
 ```json
 {
-    "$": "api:share",
-    "$version": "v0.0.0",
-    "status": "mixed",
-    "recipients": [
-        {
-            "$": "api:status-report",
-            "status": "success"
-        }
-    ],
-    "paths": [
-        {
-            "$": "heyputer:api/APIError",
-            "code": "subject_does_not_exist",
-            "message": "File or directory not found.",
-            "status": 404
-        }
-    ],
-    "dry_run": true
+  "$": "api:share",
+  "$version": "v0.0.0",
+  "status": "mixed",
+  "recipients": [
+    {
+      "$": "api:status-report",
+      "status": "success"
+    }
+  ],
+  "paths": [
+    {
+      "$": "heyputer:api/APIError",
+      "code": "subject_does_not_exist",
+      "message": "File or directory not found.",
+      "status": 404
+    }
+  ],
+  "dry_run": true
 }
 ```
 
@@ -194,25 +190,25 @@ await fetch("http://puter.localhost:4100/share", {
 
 ```json
 {
-    "$": "api:share",
-    "$version": "v0.0.0",
-    "status": "mixed",
-    "recipients": [
-        {
-            "$": "heyputer:api/APIError",
-            "code": "user_does_not_exist",
-            "message": "The user `non_existing_user` does not exist.",
-            "username": "non_existing_user",
-            "status": 422
-        }
-    ],
-    "paths": [
-        {
-            "$": "api:status-report",
-            "status": "success"
-        }
-    ],
-    "dry_run": true
+  "$": "api:share",
+  "$version": "v0.0.0",
+  "status": "mixed",
+  "recipients": [
+    {
+      "$": "heyputer:api/APIError",
+      "code": "user_does_not_exist",
+      "message": "The user `non_existing_user` does not exist.",
+      "username": "non_existing_user",
+      "status": 422
+    }
+  ],
+  "paths": [
+    {
+      "$": "api:status-report",
+      "status": "success"
+    }
+  ],
+  "dry_run": true
 }
 ```
 
@@ -227,14 +223,14 @@ by a share link is valid.
 
 ```javascript
 await fetch(`${config.api_origin}/sharelink/check`, {
-  "headers": {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${puter.authToken}`,
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${puter.authToken}`,
   },
-  "body": JSON.stringify({
-      token: '...',
+  body: JSON.stringify({
+    token: '...',
   }),
-  "method": "POST",
+  method: 'POST',
 });
 ```
 
@@ -252,9 +248,9 @@ A type-tagged object, either of type `api:share` or `api:error`
 
 ```json
 {
-    "$": "api:share",
-    "uid": "836671d4-ac5d-4bd3-bc0a-ec357e0d8f02",
-    "email": "asdf@example.com"
+  "$": "api:share",
+  "uid": "836671d4-ac5d-4bd3-bc0a-ec357e0d8f02",
+  "email": "asdf@example.com"
 }
 ```
 
@@ -262,10 +258,10 @@ A type-tagged object, either of type `api:share` or `api:error`
 
 ```json
 {
-    "$": "api:error",
-    "message":"Field `token` is required.",
-    "key":"token",
-    "code":"field_missing"
+  "$": "api:error",
+  "message": "Field `token` is required.",
+  "key": "token",
+  "code": "field_missing"
 }
 ```
 
@@ -281,14 +277,14 @@ the email associated with the share.
 
 ```javascript
 await fetch(`${config.api_origin}/sharelink/apply`, {
-  "headers": {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${puter.authToken}`,
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${puter.authToken}`,
   },
-  "body": JSON.stringify({
-      uid: '836671d4-ac5d-4bd3-bc0a-ec357e0d8f02',
+  body: JSON.stringify({
+    uid: '836671d4-ac5d-4bd3-bc0a-ec357e0d8f02',
   }),
-  "method": "POST",
+  method: 'POST',
 });
 ```
 
@@ -305,15 +301,15 @@ A type-tagged object, either of type `api:status-report` or `api:error`
 ### Success Response
 
 ```json
-{"$":"api:status-report","status":"success"}
+{ "$": "api:status-report", "status": "success" }
 ```
 
 ### Error Response
 
 ```json
 {
-    "message": "This share can not be applied to this user.",
-    "code": "can_not_apply_to_this_user"
+  "message": "This share can not be applied to this user.",
+  "code": "can_not_apply_to_this_user"
 }
 ```
 
@@ -330,14 +326,14 @@ not match the email associated with the share.
 
 ```javascript
 await fetch(`${config.api_origin}/sharelink/request`, {
-  "headers": {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${puter.authToken}`,
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${puter.authToken}`,
   },
-  "body": JSON.stringify({
-      uid: '836671d4-ac5d-4bd3-bc0a-ec357e0d8f02',
+  body: JSON.stringify({
+    uid: '836671d4-ac5d-4bd3-bc0a-ec357e0d8f02',
   }),
-  "method": "POST",
+  method: 'POST',
 });
 ```
 
@@ -354,14 +350,14 @@ A type-tagged object, either of type `api:status-report` or `api:error`
 ### Success Response
 
 ```json
-{"$":"api:status-report","status":"success"}
+{ "$": "api:status-report", "status": "success" }
 ```
 
 ### Error Response
 
 ```json
 {
-    "message": "This share is already valid for this user; POST to /apply for access",
-    "code": "no_need_to_request"
+  "message": "This share is already valid for this user; POST to /apply for access",
+  "code": "no_need_to_request"
 }
 ```

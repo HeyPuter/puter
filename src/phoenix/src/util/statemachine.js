@@ -16,138 +16,137 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { disallowAccessToUndefined } from "./lang.js";
+import { disallowAccessToUndefined } from './lang.js';
 import putility from '@heyputer/putility';
 const { Context } = putility.libs.context;
 
 export class StatefulProcessor {
-    constructor (params) {
-        for ( const k in params ) this[k] = params[k];
+  constructor(params) {
+    for (const k in params) this[k] = params[k];
 
-        let lastState = null;
+    let lastState = null;
+  }
+  async run(imports) {
+    this.state = 'start';
+    imports = imports ?? {};
+    const externals = {};
+    for (const k in this.externals) {
+      if (this.externals[k].required && !imports[k]) {
+        throw new Error(`missing required external: ${k}`);
+      }
+      if (!imports[k]) continue;
+      externals[k] = imports[k];
     }
-    async run (imports) {
-        this.state = 'start';
-        imports = imports ?? {};
-        const externals = {};
-        for ( const k in this.externals ) {
-            if ( this.externals[k].required && ! imports[k] ) {
-                throw new Error(`missing required external: ${k}`);
-            }
-            if ( ! imports[k] ) continue;
-            externals[k] = imports[k];
-        }
 
-        const ctx = new Context({
-            consts: disallowAccessToUndefined(this.constants),
-            externs: externals,
-            vars: this.createVariables_(),
-            setState: this.setState_.bind(this)
-        });
+    const ctx = new Context({
+      consts: disallowAccessToUndefined(this.constants),
+      externs: externals,
+      vars: this.createVariables_(),
+      setState: this.setState_.bind(this),
+    });
 
-        for ( ;; ) {
-            if ( this.state === 'end' ) break;
+    for (;;) {
+      if (this.state === 'end') break;
 
-            await this.iter_(ctx);
-        }
-
-        return ctx.vars;
+      await this.iter_(ctx);
     }
-    setState_ (newState) {
-        this.state = newState;
-    }
-    async iter_ (runContext) {
-        const ctx = runContext.sub({
-            locals: {}
-        });
 
-        ctx.trigger = name => {
-            return this.actions[name](ctx);
-        }
-        if ( this.state !== this.lastState ) {
-            this.lastState = this.state;
-            if ( this.transitions.hasOwnProperty(this.state) ) {
-                for ( const handler of this.transitions[this.state] ) {
-                    await handler(ctx);
-                }
-            }
-        }
-        
-        for ( const beforeAll of this.beforeAlls ) {
-            await beforeAll.handler(ctx);
-        }
+    return ctx.vars;
+  }
+  setState_(newState) {
+    this.state = newState;
+  }
+  async iter_(runContext) {
+    const ctx = runContext.sub({
+      locals: {},
+    });
 
-        await this.states[this.state](ctx);
-    }
-    createVariables_ () {
-        const o = {};
-        for ( const k in this.variables ) {
-            if ( this.variables[k].getDefaultValue ) {
-                o[k] = this.variables[k].getDefaultValue();
-            }
+    ctx.trigger = (name) => {
+      return this.actions[name](ctx);
+    };
+    if (this.state !== this.lastState) {
+      this.lastState = this.state;
+      if (this.transitions.hasOwnProperty(this.state)) {
+        for (const handler of this.transitions[this.state]) {
+          await handler(ctx);
         }
-        return o;
+      }
     }
+
+    for (const beforeAll of this.beforeAlls) {
+      await beforeAll.handler(ctx);
+    }
+
+    await this.states[this.state](ctx);
+  }
+  createVariables_() {
+    const o = {};
+    for (const k in this.variables) {
+      if (this.variables[k].getDefaultValue) {
+        o[k] = this.variables[k].getDefaultValue();
+      }
+    }
+    return o;
+  }
 }
 
 export class StatefulProcessorBuilder {
-    static COMMON_1 = [
-        'variable', 'external', 'state', 'action'
-    ]
+  static COMMON_1 = ['variable', 'external', 'state', 'action'];
 
-    constructor () {
-        this.constants = {};
-        this.beforeAlls = [];
-        this.transitions = {};
+  constructor() {
+    this.constants = {};
+    this.beforeAlls = [];
+    this.transitions = {};
 
-        for ( const facet of this.constructor.COMMON_1 ) {
-            this[facet + 's'] = {};
-            this[facet] = function (name, value) {
-                this[facet + 's'][name] = value;
-                return this;
-            }
-        }
-    }
-
-    installContext (context) {
-        for ( const k in context.constants ) {
-            this.constant(k, context.constants[k]);
-        }
+    for (const facet of this.constructor.COMMON_1) {
+      this[facet + 's'] = {};
+      this[facet] = function (name, value) {
+        this[facet + 's'][name] = value;
         return this;
+      };
     }
+  }
 
-    constant (name, value) {
-        Object.defineProperty(this.constants, name, {
-            value
-        });
-        return this;
+  installContext(context) {
+    for (const k in context.constants) {
+      this.constant(k, context.constants[k]);
     }
+    return this;
+  }
 
-    beforeAll (name, handler) {
-        this.beforeAlls.push({
-            name, handler
-        });
-        return this;
-    }
+  constant(name, value) {
+    Object.defineProperty(this.constants, name, {
+      value,
+    });
+    return this;
+  }
 
-    onTransitionTo (name, handler) {
-        if ( ! this.transitions.hasOwnProperty(name) ) {
-            this.transitions[name] = [];
-        }
-        this.transitions[name].push(handler);
-        return this;
-    }
+  beforeAll(name, handler) {
+    this.beforeAlls.push({
+      name,
+      handler,
+    });
+    return this;
+  }
 
-    build () {
-        const params = {};
-        for ( const facet of this.constructor.COMMON_1 ) {
-            params[facet + 's'] = this[facet + 's'];
-        }
-        return new StatefulProcessor({
-            ...params,
-            constants: this.constants,
-            beforeAlls: this.beforeAlls,
-            transitions: this.transitions,
-        });
+  onTransitionTo(name, handler) {
+    if (!this.transitions.hasOwnProperty(name)) {
+      this.transitions[name] = [];
     }
+    this.transitions[name].push(handler);
+    return this;
+  }
+
+  build() {
+    const params = {};
+    for (const facet of this.constructor.COMMON_1) {
+      params[facet + 's'] = this[facet + 's'];
+    }
+    return new StatefulProcessor({
+      ...params,
+      constants: this.constants,
+      beforeAlls: this.beforeAlls,
+      transitions: this.transitions,
+    });
+  }
 }

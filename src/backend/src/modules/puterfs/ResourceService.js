@@ -16,13 +16,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("../../services/BaseService");
+const BaseService = require('../../services/BaseService');
 const {
-    NodePathSelector,
-    NodeUIDSelector,
-    NodeInternalIDSelector,
-    NodeChildSelector,
-} = require("../../filesystem/node/selectors");
+  NodePathSelector,
+  NodeUIDSelector,
+  NodeInternalIDSelector,
+  NodeChildSelector,
+} = require('../../filesystem/node/selectors');
 
 const RESOURCE_STATUS_PENDING_CREATE = {};
 const RESOURCE_STATUS_PENDING_UPDATE = {};
@@ -42,90 +42,86 @@ const RS_DIRECTORY_PENDING_CHILD_INSERT = {};
  * handle this in the future.
  */
 class ResourceService extends BaseService {
-    _construct () {
-        this.uidToEntry = {};
-        this.uidToPath = {};
-        this.pathToEntry = {};
+  _construct() {
+    this.uidToEntry = {};
+    this.uidToPath = {};
+    this.pathToEntry = {};
+  }
+
+  register(entry) {
+    entry = { ...entry };
+
+    if (!entry.uid) {
+      // TODO: resource service needs logger access
+      return;
     }
 
-    register (entry) {
-        entry = { ...entry };
-
-        if ( ! entry.uid ) {
-            // TODO: resource service needs logger access
-            return;
-        }
-
-        entry.freePromise = new Promise((resolve, reject) => {
-            entry.free = () => {
-                resolve();
-            };
-        });
-        entry.onFree = entry.freePromise.then.bind(entry.freePromise);
-        this.log.info(`registering resource`, { uid: entry.uid });
-        this.uidToEntry[entry.uid] = entry;
-        if ( entry.path ) {
-            this.uidToPath[entry.uid] = entry.path;
-            this.pathToEntry[entry.path] = entry;
-        }
-        return entry;
+    entry.freePromise = new Promise((resolve, reject) => {
+      entry.free = () => {
+        resolve();
+      };
+    });
+    entry.onFree = entry.freePromise.then.bind(entry.freePromise);
+    this.log.info(`registering resource`, { uid: entry.uid });
+    this.uidToEntry[entry.uid] = entry;
+    if (entry.path) {
+      this.uidToPath[entry.uid] = entry.path;
+      this.pathToEntry[entry.path] = entry;
     }
+    return entry;
+  }
 
-    free (uid) {
-        this.log.info(`freeing`, { uid });
-        const entry = this.uidToEntry[uid];
-        if ( ! entry ) return;
-        delete this.uidToEntry[uid];
-        if ( this.uidToPath.hasOwnProperty(uid) ) {
-            const path = this.uidToPath[uid];
-            delete this.pathToEntry[path];
-            delete this.uidToPath[uid];
-        }
-        entry.free();
+  free(uid) {
+    this.log.info(`freeing`, { uid });
+    const entry = this.uidToEntry[uid];
+    if (!entry) return;
+    delete this.uidToEntry[uid];
+    if (this.uidToPath.hasOwnProperty(uid)) {
+      const path = this.uidToPath[uid];
+      delete this.pathToEntry[path];
+      delete this.uidToPath[uid];
     }
+    entry.free();
+  }
 
-    async waitForResourceByPath (path) {
-        const entry = this.pathToEntry[path];
-        if (!entry) {
-            return;
-        }
-        await entry.freePromise;
+  async waitForResourceByPath(path) {
+    const entry = this.pathToEntry[path];
+    if (!entry) {
+      return;
     }
+    await entry.freePromise;
+  }
 
-    async waitForResourceByUID (uid) {
-        const entry = this.uidToEntry[uid];
-        if (!entry) {
-            return;
-        }
-        await entry.freePromise;
+  async waitForResourceByUID(uid) {
+    const entry = this.uidToEntry[uid];
+    if (!entry) {
+      return;
     }
+    await entry.freePromise;
+  }
 
-    async waitForResource (selector) {
-        if ( selector instanceof NodePathSelector ) {
-            await this.waitForResourceByPath(selector.value);
-        }
-        else
-        if ( selector instanceof NodeUIDSelector ) {
-            await this.waitForResourceByUID(selector.value);
-        }
-        else
-        if ( selector instanceof NodeInternalIDSelector ) {
-            // Can't wait intelligently for this
-        }
-        if ( selector instanceof NodeChildSelector ) {
-            await this.waitForResource(selector.parent);
-        }
+  async waitForResource(selector) {
+    if (selector instanceof NodePathSelector) {
+      await this.waitForResourceByPath(selector.value);
+    } else if (selector instanceof NodeUIDSelector) {
+      await this.waitForResourceByUID(selector.value);
+    } else if (selector instanceof NodeInternalIDSelector) {
+      // Can't wait intelligently for this
     }
+    if (selector instanceof NodeChildSelector) {
+      await this.waitForResource(selector.parent);
+    }
+  }
 
-    getResourceInfo (uid) {
-        if ( ! uid ) return;
-        return this.uidToEntry[uid];
-    }
+  getResourceInfo(uid) {
+    if (!uid) return;
+    return this.uidToEntry[uid];
+  }
 }
 
 module.exports = {
-    ResourceService,
-    RESOURCE_STATUS_PENDING_CREATE,
-    RESOURCE_STATUS_PENDING_UPDATE,
-    RS_DIRECTORY_PENDING_CHILD_INSERT,
+  ResourceService,
+  RESOURCE_STATUS_PENDING_CREATE,
+  RESOURCE_STATUS_PENDING_UPDATE,
+  RS_DIRECTORY_PENDING_CHILD_INSERT,
 };

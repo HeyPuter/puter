@@ -17,36 +17,35 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 class TimeUnit {
-    static valueOf () {
-        return this.value;
-    }
+  static valueOf() {
+    return this.value;
+  }
 }
 
 class MILLISECOND extends TimeUnit {
-    static value = 1;
+  static value = 1;
 }
 
 class SECOND extends TimeUnit {
-    static value = 1000 * MILLISECOND;
+  static value = 1000 * MILLISECOND;
 }
 
 class MINUTE extends TimeUnit {
-    static value = 60 * SECOND;
+  static value = 60 * SECOND;
 }
 
 class HOUR extends TimeUnit {
-    static value = 60 * MINUTE;
+  static value = 60 * MINUTE;
 }
 
 class DAY extends TimeUnit {
-    static value = 24 * HOUR;
+  static value = 24 * HOUR;
 }
 
 module.exports = {
-    MILLISECOND,
-    SECOND,
-    MINUTE,
-    HOUR,
-    DAY,
+  MILLISECOND,
+  SECOND,
+  MINUTE,
+  HOUR,
+  DAY,
 };
-

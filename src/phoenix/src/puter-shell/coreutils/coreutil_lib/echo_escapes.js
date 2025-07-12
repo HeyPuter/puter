@@ -54,109 +54,109 @@
 // TODO: get these values from a common place
 const NUL = String.fromCharCode(1);
 const BEL = String.fromCharCode(7);
-const BS  = String.fromCharCode(8);
-const VT  = String.fromCharCode(0x0B);
-const FF  = String.fromCharCode(0x0C);
-const ESC = String.fromCharCode(0x1B);
+const BS = String.fromCharCode(8);
+const VT = String.fromCharCode(0x0b);
+const FF = String.fromCharCode(0x0c);
+const ESC = String.fromCharCode(0x1b);
 
 const HEX_REGEX = /^[A-Fa-f0-9]/;
 const OCT_REGEX = /^[0-7]/;
-const maybeGetHex = chr => {
-    let hexchars = '';
-    if ( chr.match(HEX_REGEX) ) {
-        //
-    }
+const maybeGetHex = (chr) => {
+  let hexchars = '';
+  if (chr.match(HEX_REGEX)) {
+    //
+  }
 };
 
 const echo_escapes = {
-    'a': caller => caller.output(BEL),
-    'b': caller => caller.output(BS),
-    'c': caller => caller.outputETX(),
-    'e': caller => caller.output(ESC),
-    'f': caller => caller.output(FF),
-    'n': caller => caller.output('\n'),
-    'r': caller => caller.output('\r'),
-    't': caller => caller.output('\t'),
-    'v': caller => caller.output(VT),
-    'x': caller => {
-        let hexchars = '';
-        while ( caller.peek().match(HEX_REGEX) ) {
-            hexchars += caller.peek();
-            caller.advance();
+  a: (caller) => caller.output(BEL),
+  b: (caller) => caller.output(BS),
+  c: (caller) => caller.outputETX(),
+  e: (caller) => caller.output(ESC),
+  f: (caller) => caller.output(FF),
+  n: (caller) => caller.output('\n'),
+  r: (caller) => caller.output('\r'),
+  t: (caller) => caller.output('\t'),
+  v: (caller) => caller.output(VT),
+  x: (caller) => {
+    let hexchars = '';
+    while (caller.peek().match(HEX_REGEX)) {
+      hexchars += caller.peek();
+      caller.advance();
 
-            if ( hexchars.length === 2 ) break;
-        }
-        if ( hexchars.length === 0 ) {
-            caller.markIgnored();
-            return;
-        }
-        caller.output(String.fromCharCode(Number.parseInt(hexchars, 16)));
-    },
-    '0': caller => {
-        let octchars = '';
-        while ( caller.peek().match(OCT_REGEX) ) {
-            octchars += caller.peek();
-            caller.advance();
+      if (hexchars.length === 2) break;
+    }
+    if (hexchars.length === 0) {
+      caller.markIgnored();
+      return;
+    }
+    caller.output(String.fromCharCode(Number.parseInt(hexchars, 16)));
+  },
+  0: (caller) => {
+    let octchars = '';
+    while (caller.peek().match(OCT_REGEX)) {
+      octchars += caller.peek();
+      caller.advance();
 
-            if ( octchars.length === 3 ) break;
-        }
-        if ( octchars.length === 0 ) {
-            caller.output(NUL);
-            return;
-        }
-        caller.output(String.fromCharCode(Number.parseInt(octchars, 8)));
-    },
-    '\\': caller => caller.output('\\'),
+      if (octchars.length === 3) break;
+    }
+    if (octchars.length === 0) {
+      caller.output(NUL);
+      return;
+    }
+    caller.output(String.fromCharCode(Number.parseInt(octchars, 8)));
+  },
+  '\\': (caller) => caller.output('\\'),
 };
 
-export const processEscapes = str => {
-    let output = '';
+export const processEscapes = (str) => {
+  let output = '';
 
-    let state = null;
-    const states = {};
-    states.STATE_ESCAPE = i => {
-        state = states.STATE_NORMAL;
-
-        let ignored = false;
-
-        const chr = str[i];
-        i++;
-        const apiToCaller = {
-            advance: n => {
-                n = n ?? 1;
-                i += n;
-            },
-            peek: () => str[i],
-            output: text => output += text,
-            markIgnored: () => ignored = true,
-            outputETX: () => {
-                state = states.STATE_ETX;
-            }
-        };
-        echo_escapes[chr](apiToCaller);
-
-        if ( ignored ) {
-            output += '\\' + str[i];
-            return;
-        }
-        
-        return i;
-    };
-    states.STATE_NORMAL = i => {
-        console.log('str@i', str[i]);
-        if ( str[i] === '\\' ) {
-            console.log('escape state?');
-            state = states.STATE_ESCAPE;
-            return;
-        }
-        output += str[i];
-    };
-    states.STATE_ETX = () => str.length;
+  let state = null;
+  const states = {};
+  states.STATE_ESCAPE = (i) => {
     state = states.STATE_NORMAL;
 
-    for ( let i=0 ; i < str.length ; ) {
-        i = state(i) ?? i+1;
+    let ignored = false;
+
+    const chr = str[i];
+    i++;
+    const apiToCaller = {
+      advance: (n) => {
+        n = n ?? 1;
+        i += n;
+      },
+      peek: () => str[i],
+      output: (text) => (output += text),
+      markIgnored: () => (ignored = true),
+      outputETX: () => {
+        state = states.STATE_ETX;
+      },
+    };
+    echo_escapes[chr](apiToCaller);
+
+    if (ignored) {
+      output += '\\' + str[i];
+      return;
     }
 
-    return output;
+    return i;
+  };
+  states.STATE_NORMAL = (i) => {
+    console.log('str@i', str[i]);
+    if (str[i] === '\\') {
+      console.log('escape state?');
+      state = states.STATE_ESCAPE;
+      return;
+    }
+    output += str[i];
+  };
+  states.STATE_ETX = () => str.length;
+  state = states.STATE_NORMAL;
+
+  for (let i = 0; i < str.length; ) {
+    i = state(i) ?? i + 1;
+  }
+
+  return output;
 };

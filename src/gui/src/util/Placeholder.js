@@ -37,16 +37,16 @@
  * @returns {PlaceholderReturn}
  */
 const Placeholder = def(() => {
-    const id = Placeholder.get_next_id_();
-    return {
-        $: 'placeholder',
-        html: `<div id="${id}"></div>`,
-        id,
-        replaceWith: (el) => {
-            const place = document.getElementById(id);
-            place.replaceWith(el);
-        }
-    };
+  const id = Placeholder.get_next_id_();
+  return {
+    $: 'placeholder',
+    html: `<div id="${id}"></div>`,
+    id,
+    replaceWith: (el) => {
+      const place = document.getElementById(id);
+      place.replaceWith(el);
+    },
+  };
 }, 'util.Placeholder');
 
 const anti_collision = `a4d2cb6b85a1`; // Arbitrary random string

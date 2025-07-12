@@ -16,59 +16,59 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { END_HARD, END_SOFT } from "../definitions.js";
-import UIAlert from "./UIAlert.js";
-import UIContextMenu from "./UIContextMenu.js";
+import { END_HARD, END_SOFT } from '../definitions.js';
+import UIAlert from './UIAlert.js';
+import UIContextMenu from './UIContextMenu.js';
 import { Component, defineComponent } from '../util/Component.js';
 import UIComponentWindow from './UIComponentWindow.js';
 
 const end_process = async (uuid, force) => {
-    const svc_process = globalThis.services.get('process');
-    const process = svc_process.get_by_uuid(uuid);
-    if (!process) {
-        console.warn(`Can't end process with uuid='${uuid}': does not exist`);
-        return;
-    }
+  const svc_process = globalThis.services.get('process');
+  const process = svc_process.get_by_uuid(uuid);
+  if (!process) {
+    console.warn(`Can't end process with uuid='${uuid}': does not exist`);
+    return;
+  }
 
-    let confirmation;
-    if ( process.is_init() ) {
-        if ( ! force ) {
-            confirmation = i18n('close_all_windows_confirm');
-        } else {
-            confirmation = i18n('restart_puter_confirm');
-        }
-    } else if ( force ) {
-        confirmation = i18n('end_process_force_confirm');
+  let confirmation;
+  if (process.is_init()) {
+    if (!force) {
+      confirmation = i18n('close_all_windows_confirm');
+    } else {
+      confirmation = i18n('restart_puter_confirm');
     }
+  } else if (force) {
+    confirmation = i18n('end_process_force_confirm');
+  }
 
-    if ( confirmation ) {
-        const alert_resp = await UIAlert({
-            message: confirmation,
-            buttons:[
-                {
-                    label: i18n('yes'),
-                    value: true,
-                    type: 'primary',
-                },
-                {
-                    label: i18n('no'),
-                    value: false,
-                },
-            ]
-        })
-        if ( ! alert_resp ) return;
-    }
+  if (confirmation) {
+    const alert_resp = await UIAlert({
+      message: confirmation,
+      buttons: [
+        {
+          label: i18n('yes'),
+          value: true,
+          type: 'primary',
+        },
+        {
+          label: i18n('no'),
+          value: false,
+        },
+      ],
+    });
+    if (!alert_resp) return;
+  }
 
-    process.signal(force ? END_HARD : END_SOFT);
+  process.signal(force ? END_HARD : END_SOFT);
 };
 
 class TaskManagerTable extends Component {
-    static ID = 'ui.component.TaskManagerTable';
-    static PROPERTIES = {
-        tasks: { value: [] },
-    };
+  static ID = 'ui.component.TaskManagerTable';
+  static PROPERTIES = {
+    tasks: { value: [] },
+  };
 
-    static CSS = /*css*/`
+  static CSS = /*css*/ `
         :host {
             flex-grow: 1;
             display: flex;
@@ -111,10 +111,10 @@ class TaskManagerTable extends Component {
         }
     `;
 
-    #svc_process = globalThis.services.get('process');
+  #svc_process = globalThis.services.get('process');
 
-    create_template ({ template }) {
-        $(template).html(`
+  create_template({ template }) {
+    $(template).html(`
             <table>
                 <thead>
                     <tr>
@@ -127,84 +127,84 @@ class TaskManagerTable extends Component {
                 </tbody>
             </table>
         `);
+  }
+
+  on_ready({ listen }) {
+    listen('tasks', (tasks) => {
+      const row_data = this.#iter_tasks(tasks, { indent_level: 0, is_last_item_stack: [] });
+      const tbody = $(this.dom_).find('.taskmgr-taskarea');
+      tbody.empty();
+
+      for (const data of row_data) {
+        const row = new TaskManagerRow(data);
+        row.attach(tbody[0]);
+      }
+    });
+  }
+
+  #calculate_indent_string(indent_level, is_last_item_stack, is_last_item) {
+    // Returns a string of '| ├└'
+    let result = '';
+
+    for (let i = 0; i < indent_level; i++) {
+      const last_cell = i === indent_level - 1;
+      const has_trunk = (last_cell && !is_last_item) || (!last_cell && !is_last_item_stack[i + 1]);
+      const has_branch = last_cell;
+
+      if (has_trunk && has_branch) {
+        result += '├';
+      } else if (has_trunk) {
+        result += '|';
+      } else if (has_branch) {
+        result += '└';
+      } else {
+        result += ' ';
+      }
     }
 
-    on_ready ({ listen }) {
-        listen('tasks', tasks => {
-            const row_data = this.#iter_tasks(tasks, { indent_level: 0, is_last_item_stack: [] });
-            const tbody = $(this.dom_).find('.taskmgr-taskarea');
-            tbody.empty();
+    return result;
+  }
 
-            for (const data of row_data) {
-                const row = new TaskManagerRow(data);
-                row.attach(tbody[0]);
-            }
-        });
+  #iter_tasks(items, { indent_level, is_last_item_stack }) {
+    const rows = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const is_last_item = i === items.length - 1;
+      rows.push({
+        name: item.name,
+        uuid: item.uuid,
+        process_type: item.type,
+        process_status: item.status.i18n_key,
+        indentation: this.#calculate_indent_string(indent_level, is_last_item_stack, is_last_item),
+      });
+
+      const children = this.#svc_process.get_children_of(item.uuid);
+      if (children) {
+        rows.push(
+          ...this.#iter_tasks(children, {
+            indent_level: indent_level + 1,
+            is_last_item_stack: [...is_last_item_stack, is_last_item],
+          })
+        );
+      }
     }
-
-    #calculate_indent_string (indent_level, is_last_item_stack, is_last_item) {
-        // Returns a string of '| ├└'
-        let result = '';
-
-        for ( let i=0; i < indent_level; i++ ) {
-            const last_cell = i === indent_level - 1;
-            const has_trunk = (last_cell && ( ! is_last_item )) ||
-                    (!last_cell && !is_last_item_stack[i+1]);
-            const has_branch = last_cell;
-
-            if (has_trunk && has_branch) {
-                result += '├';
-            } else if (has_trunk) {
-                result += '|';
-            } else if (has_branch) {
-                result += '└';
-            } else {
-                result += ' ';
-            }
-        }
-
-        return result;
-    }
-
-    #iter_tasks (items, { indent_level, is_last_item_stack }) {
-        const rows = [];
-        for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            const is_last_item = i === items.length - 1;
-            rows.push({
-                name: item.name,
-                uuid: item.uuid,
-                process_type: item.type,
-                process_status: item.status.i18n_key,
-                indentation: this.#calculate_indent_string(indent_level, is_last_item_stack, is_last_item),
-            });
-
-            const children = this.#svc_process.get_children_of(item.uuid);
-            if (children) {
-                rows.push(...this.#iter_tasks(children, {
-                    indent_level: indent_level + 1,
-                    is_last_item_stack:
-                        [ ...is_last_item_stack, is_last_item ],
-                }));
-            }
-        }
-        return rows;
-    };
+    return rows;
+  }
 }
 defineComponent(TaskManagerTable);
 
 class TaskManagerRow extends Component {
-    static ID = 'ui.component.TaskManagerRow';
+  static ID = 'ui.component.TaskManagerRow';
 
-    static PROPERTIES = {
-        name: {},
-        uuid: {},
-        process_type: {},
-        process_status: {},
-        indentation: { value: '' },
-    };
+  static PROPERTIES = {
+    name: {},
+    uuid: {},
+    process_type: {},
+    process_status: {},
+    indentation: { value: '' },
+  };
 
-    static CSS = /*css*/`
+  static CSS = /*css*/ `
         :host {
             display: table-row;
         }
@@ -256,8 +256,8 @@ class TaskManagerRow extends Component {
         }
     `;
 
-    create_template ({ template }) {
-        template.innerHTML = `
+  create_template({ template }) {
+    template.innerHTML = `
             <td>
                 <div class="task">
                     <div class="task-indentation"></div>
@@ -267,129 +267,133 @@ class TaskManagerRow extends Component {
             <td><span class="process-type"></span></td>
             <td><span class="process-status"></span></td>
         `;
-    }
+  }
 
-    on_ready ({ listen }) {
-        listen('name', name => {
-            $(this.dom_).find('.task-name').text(name);
-        });
-        listen('uuid', uuid => {
-            this.setAttribute('data-uuid', uuid);
-        });
-        listen('process_type', type => {
-            $(this.dom_).find('.process-type').text(i18n('process_type_' + type));
-        });
-        listen('process_status', status => {
-            $(this.dom_).find('.process-status').text(i18n('process_status_' + status));
-        });
-        listen('indentation', indentation => {
-            const el = $(this.dom_).find('.task-indentation');
-            let h = '';
-            for (const c of indentation) {
-                h += `<div class="indentcell">`;
-                switch (c) {
-                    case ' ':
-                        break;
-                    case '|':
-                        h += `<div class="indentcell-trunk"></div>`;
-                        break;
-                    case '└':
-                        h += `<div class="indentcell-branch"></div>`;
-                        break;
-                    case '├':
-                        h += `<div class="indentcell-trunk"></div>`;
-                        h += `<div class="indentcell-branch"></div>`;
-                        break;
-                }
-                h += `</div>`;
-            }
-            el.html(h);
-        });
+  on_ready({ listen }) {
+    listen('name', (name) => {
+      $(this.dom_).find('.task-name').text(name);
+    });
+    listen('uuid', (uuid) => {
+      this.setAttribute('data-uuid', uuid);
+    });
+    listen('process_type', (type) => {
+      $(this.dom_)
+        .find('.process-type')
+        .text(i18n('process_type_' + type));
+    });
+    listen('process_status', (status) => {
+      $(this.dom_)
+        .find('.process-status')
+        .text(i18n('process_status_' + status));
+    });
+    listen('indentation', (indentation) => {
+      const el = $(this.dom_).find('.task-indentation');
+      let h = '';
+      for (const c of indentation) {
+        h += `<div class="indentcell">`;
+        switch (c) {
+          case ' ':
+            break;
+          case '|':
+            h += `<div class="indentcell-trunk"></div>`;
+            break;
+          case '└':
+            h += `<div class="indentcell-branch"></div>`;
+            break;
+          case '├':
+            h += `<div class="indentcell-trunk"></div>`;
+            h += `<div class="indentcell-branch"></div>`;
+            break;
+        }
+        h += `</div>`;
+      }
+      el.html(h);
+    });
 
-        $(this).on('contextmenu', () => {
-            const uuid = this.get('uuid');
-            UIContextMenu({
-                items: [
-                    {
-                        html: i18n('close'),
-                        onClick: () => {
-                            end_process(uuid);
-                        },
-                    },
-                    {
-                        html: i18n('force_quit'),
-                        onClick: () => {
-                            end_process(uuid, true);
-                        },
-                    },
-                ],
-            });
-        });
-    }
+    $(this).on('contextmenu', () => {
+      const uuid = this.get('uuid');
+      UIContextMenu({
+        items: [
+          {
+            html: i18n('close'),
+            onClick: () => {
+              end_process(uuid);
+            },
+          },
+          {
+            html: i18n('force_quit'),
+            onClick: () => {
+              end_process(uuid, true);
+            },
+          },
+        ],
+      });
+    });
+  }
 }
 defineComponent(TaskManagerRow);
 
-const UIWindowTaskManager = async function UIWindowTaskManager () {
-    const svc_process = globalThis.services.get('process');
+const UIWindowTaskManager = async function UIWindowTaskManager() {
+  const svc_process = globalThis.services.get('process');
 
-    let task_manager_table = new TaskManagerTable({
-        tasks: [svc_process.get_init()],
-    });
+  let task_manager_table = new TaskManagerTable({
+    tasks: [svc_process.get_init()],
+  });
 
-    const interval = setInterval(() => {
-        const processes = [svc_process.get_init()];
-        task_manager_table.set('tasks', processes);
-    }, 500);
+  const interval = setInterval(() => {
+    const processes = [svc_process.get_init()];
+    task_manager_table.set('tasks', processes);
+  }, 500);
 
-    const w = await UIComponentWindow({
-        component: task_manager_table,
-        window_class: 'window-task-manager',
-        title: i18n('task_manager'),
-        icon: globalThis.icons['cog.svg'],
-        uid: null,
-        is_dir: false,
-        message: 'message',
-        single_instance: true,
-        app: 'taskmgr',
-        // body_icon: options.body_icon,
-        // backdrop: options.backdrop ?? false,
-        is_resizable: true,
-        is_droppable: false,
-        has_head: true,
-        selectable_body: true,
-        draggable_body: false,
-        allow_context_menu: false,
-        // allow_native_ctxmenu: true,
-        show_in_taskbar: true,
-        dominant: true,
-        body_content: '',
-        width: 350,
-        // parent_uuid: options.parent_uuid,
-        // ...options.window_options,
-        window_css:{
-            height: 'initial',
-        },
-        body_css: {
-            width: 'initial',
-            padding: '20px',
-            'background-color': `hsla(
+  const w = await UIComponentWindow({
+    component: task_manager_table,
+    window_class: 'window-task-manager',
+    title: i18n('task_manager'),
+    icon: globalThis.icons['cog.svg'],
+    uid: null,
+    is_dir: false,
+    message: 'message',
+    single_instance: true,
+    app: 'taskmgr',
+    // body_icon: options.body_icon,
+    // backdrop: options.backdrop ?? false,
+    is_resizable: true,
+    is_droppable: false,
+    has_head: true,
+    selectable_body: true,
+    draggable_body: false,
+    allow_context_menu: false,
+    // allow_native_ctxmenu: true,
+    show_in_taskbar: true,
+    dominant: true,
+    body_content: '',
+    width: 350,
+    // parent_uuid: options.parent_uuid,
+    // ...options.window_options,
+    window_css: {
+      height: 'initial',
+    },
+    body_css: {
+      width: 'initial',
+      padding: '20px',
+      'background-color': `hsla(
                 var(--primary-hue),
                 var(--primary-saturation),
                 var(--primary-lightness),
                 var(--primary-alpha))`,
-            'backdrop-filter': 'blur(3px)',
-            'box-sizing': 'border-box',
-            // could have been avoided with box-sizing: border-box
-            height: 'calc(100% - 30px)',
-            display: 'flex',
-            'flex-direction': 'column',
-            '--scale': '2pt',
-            '--line-color': '#6e6e6ebd',
-        },
-        on_close: () => {
-            clearInterval(interval);
-        },
-    });
-}
+      'backdrop-filter': 'blur(3px)',
+      'box-sizing': 'border-box',
+      // could have been avoided with box-sizing: border-box
+      height: 'calc(100% - 30px)',
+      display: 'flex',
+      'flex-direction': 'column',
+      '--scale': '2pt',
+      '--line-color': '#6e6e6ebd',
+    },
+    on_close: () => {
+      clearInterval(interval);
+    },
+  });
+};
 
 export default UIWindowTaskManager;

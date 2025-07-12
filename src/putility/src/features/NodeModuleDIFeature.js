@@ -35,25 +35,25 @@
  * });
  */
 module.exports = {
-    install_in_instance: (instance, { parameters }) => {
-        const modules = instance._get_merged_static_object('MODULES');
+  install_in_instance: (instance, { parameters }) => {
+    const modules = instance._get_merged_static_object('MODULES');
 
-        if ( parameters.modules ) {
-            for ( const k in parameters.modules ) {
-                modules[k] = parameters.modules[k];
-            }
-        }
+    if (parameters.modules) {
+      for (const k in parameters.modules) {
+        modules[k] = parameters.modules[k];
+      }
+    }
 
-        instance.modules = modules;
-        
-        // This "require" function can shadow the real one so
-        // that editor tools are aware of the modules that
-        // are being used.
-        instance.require = (name) => {
-            if ( instance.modules[name] ) {
-                return instance.modules[name];
-            }
-            return require(name);
-        }
-    },
+    instance.modules = modules;
+
+    // This "require" function can shadow the real one so
+    // that editor tools are aware of the modules that
+    // are being used.
+    instance.require = (name) => {
+      if (instance.modules[name]) {
+        return instance.modules[name];
+      }
+      return require(name);
+    };
+  },
 };

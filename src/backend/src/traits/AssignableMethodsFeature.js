@@ -17,15 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 class AssignableMethodsFeature {
-    install_in_instance (instance) {
-        const methods = instance._get_merged_static_object('METHODS');
+  install_in_instance(instance) {
+    const methods = instance._get_merged_static_object('METHODS');
 
-        for ( const k in methods ) {
-            instance[k] = methods[k];
-        }
+    for (const k in methods) {
+      instance[k] = methods[k];
     }
+  }
 }
 
 module.exports = {
-    AssignableMethodsFeature
+  AssignableMethodsFeature,
 };

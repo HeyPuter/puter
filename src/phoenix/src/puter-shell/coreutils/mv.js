@@ -20,36 +20,36 @@ import { Exit } from './coreutil_lib/exit.js';
 import { resolveRelativePath } from '../../util/path.js';
 
 export default {
-    name: 'mv',
-    usage: 'mv SOURCE DESTINATION',
-    description: 'Move SOURCE file or directory to DESTINATION.',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: true
-    },
-    execute: async ctx => {
-        const { positionals } = ctx.locals;
-        const { out, err } = ctx.externs;
-        const { filesystem } = ctx.platform;
+  name: 'mv',
+  usage: 'mv SOURCE DESTINATION',
+  description: 'Move SOURCE file or directory to DESTINATION.',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: true,
+  },
+  execute: async (ctx) => {
+    const { positionals } = ctx.locals;
+    const { out, err } = ctx.externs;
+    const { filesystem } = ctx.platform;
 
-        if ( positionals.length < 1 ) {
-            await err.write('mv: missing file operand\n');
-            throw new Exit(1);
-        }
-
-        const srcRelPath = positionals.shift();
-
-        if ( positionals.length < 1 ) {
-            const aft = positionals[0];
-            await err.write(`mv: missing destination file operand after '${aft}'\n`);
-            throw new Exit(1);
-        }
-
-        const dstRelPath = positionals.shift();
-
-        const srcAbsPath = resolveRelativePath(ctx.vars, srcRelPath);
-        let   dstAbsPath = resolveRelativePath(ctx.vars, dstRelPath);
-
-        await filesystem.move(srcAbsPath, dstAbsPath);
+    if (positionals.length < 1) {
+      await err.write('mv: missing file operand\n');
+      throw new Exit(1);
     }
-}
+
+    const srcRelPath = positionals.shift();
+
+    if (positionals.length < 1) {
+      const aft = positionals[0];
+      await err.write(`mv: missing destination file operand after '${aft}'\n`);
+      throw new Exit(1);
+    }
+
+    const dstRelPath = positionals.shift();
+
+    const srcAbsPath = resolveRelativePath(ctx.vars, srcRelPath);
+    let dstAbsPath = resolveRelativePath(ctx.vars, dstRelPath);
+
+    await filesystem.move(srcAbsPath, dstAbsPath);
+  },
+};

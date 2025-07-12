@@ -21,33 +21,33 @@
  * key orderings will still be considered equal.
  * @param {*} obj
  */
-const stringify_serializable_object = obj => {
-    if ( obj === undefined ) return '[undefined]';
-    if ( obj === null ) return '[null]';
-    if ( typeof obj === 'function' ) return '[function]';
-    if ( typeof obj !== 'object' ) return JSON.stringify(obj);
+const stringify_serializable_object = (obj) => {
+  if (obj === undefined) return '[undefined]';
+  if (obj === null) return '[null]';
+  if (typeof obj === 'function') return '[function]';
+  if (typeof obj !== 'object') return JSON.stringify(obj);
 
-    // ensure an error is thrown if the object is not serializable.
-    // (instead of failing with a stack overflow)
-    JSON.stringify(obj);
+  // ensure an error is thrown if the object is not serializable.
+  // (instead of failing with a stack overflow)
+  JSON.stringify(obj);
 
-    const keys = Object.keys(obj).sort();
-    const pairs = keys.map(key => {
-        const value = stringify_serializable_object(obj[key]);
-        const outer_json = JSON.stringify({ [key]: value });
-        return outer_json.slice(1, -1);
-    });
+  const keys = Object.keys(obj).sort();
+  const pairs = keys.map((key) => {
+    const value = stringify_serializable_object(obj[key]);
+    const outer_json = JSON.stringify({ [key]: value });
+    return outer_json.slice(1, -1);
+  });
 
-    return '{' + pairs.join(',') + '}';
+  return '{' + pairs.join(',') + '}';
 };
 
-const hash_serializable_object = obj => {
-    const crypto = require('crypto');
-    const str = stringify_serializable_object(obj);
-    return crypto.createHash('sha1').update(str).digest('hex');
+const hash_serializable_object = (obj) => {
+  const crypto = require('crypto');
+  const str = stringify_serializable_object(obj);
+  return crypto.createHash('sha1').update(str).digest('hex');
 };
 
 module.exports = {
-    stringify_serializable_object,
-    hash_serializable_object,
+  stringify_serializable_object,
+  hash_serializable_object,
 };

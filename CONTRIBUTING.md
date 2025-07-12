@@ -52,6 +52,7 @@ We'll review your pull request and work with you to get your changes merged into
 Please try to keep code style consistent with other source files in the area you are
 changing. We are a monorepo, which means there are multiple projects in this repository
 which may have different style conventions. For example:
+
 - Most code in `src/backend` follows [FOAM's whitespace convention](https://github.com/kgrgreer/foam3/blob/development/doc/guides/StyleGuide.md) for control structures.
   While it's not a well-known or popular convention, it gives the visual cortex a bit
   more room to breath when reading or skimming code.
@@ -83,7 +84,6 @@ project they reside under. **DO NOT** include functional changes in these PRs. I
 to review style PRs separately because we can use javascript parsers to verify that there
 are no functional changes and then simply skim though the code and see if it "looks better".
 
-
 ## Repository Structure
 
 ![file structure](./doc/File%20Structure.drawio.png)
@@ -95,6 +95,7 @@ We maintain a list of issues that are good for first-time contributors. You can 
 ## Documentation for Contributors
 
 ### Backend
+
 See [src/backend/CONTRIBUTING.md](src/backend/CONTRIBUTING.md)
 
 <br>
@@ -102,6 +103,7 @@ See [src/backend/CONTRIBUTING.md](src/backend/CONTRIBUTING.md)
 ## PR Standards
 
 We expect the following from pull requests (it makes things easier):
+
 - If you're closing an issue, please reference that issue in the PR description
 - Avoid whitespace changes
 - No regressions for "appspace" (Puter apps)
@@ -113,7 +115,9 @@ We expect the following from pull requests (it makes things easier):
 **Note:** we will squash-merge some PRs so they follow . Large PRs should follow conventional commits also. The instructions below are outdated but suitable for most PRs.
 
 ### Conventional Commits
+
 We use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) with the following prefixes:
+
 - `fix:` for bug fixes
 - `dev:` instead of `refactor:`; covers more basis
 - `tweak:` for small updates
@@ -127,12 +131,14 @@ Commit messages after the prefix should use the imperative (the same convention 
 - incorrect: `dev: improving readdir`
 
 We have the following exceptions to this rule:
+
 - If the commit message is in _past tense_, it's a shorthand for the following:
   - `dev: apply changes that would be applied after one had <past tense message>`
 - If the commit message is in _present tense_, it's shorthand for the following:
   - `dev: apply changes that would be applied after <present-tense message>`
 
 For example, the following are correct:
+
 - `dev: improved readdir`
   - interpret this as: `dev: apply changes that would be applied after one had improved readdir`
 - `dev: improving readdir`

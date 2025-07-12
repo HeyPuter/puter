@@ -17,46 +17,56 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Service } from "../definitions.js";
+import { Service } from '../definitions.js';
 
 export class BroadcastService extends Service {
-    // After a new app is launched, it will receive these broadcasts
-    #broadcastsToSendToNewAppInstances = new Map(); // name -> data
+  // After a new app is launched, it will receive these broadcasts
+  #broadcastsToSendToNewAppInstances = new Map(); // name -> data
 
-    async _init() {
-        // Nothing
+  async _init() {
+    // Nothing
+  }
+
+  // Send a 'broadcast' message to all open apps, with the given name and data.
+  // If sendToNewAppInstances is true, the message will be saved, and sent to any apps that are launched later.
+  // A new saved broadcast will replace an earlier one with the same name.
+  sendBroadcast(name, data, { sendToNewAppInstances = false } = {}) {
+    $('.window-app-iframe[data-appUsesSDK=true]').each((_, iframe) => {
+      iframe.contentWindow.postMessage(
+        {
+          msg: 'broadcast',
+          name: name,
+          data: data,
+        },
+        '*'
+      );
+    });
+
+    if (sendToNewAppInstances) {
+      this.#broadcastsToSendToNewAppInstances.set(name, data);
     }
+  }
 
-    // Send a 'broadcast' message to all open apps, with the given name and data.
-    // If sendToNewAppInstances is true, the message will be saved, and sent to any apps that are launched later.
-    // A new saved broadcast will replace an earlier one with the same name.
-    sendBroadcast(name, data, { sendToNewAppInstances = false } = {}) {
-        $('.window-app-iframe[data-appUsesSDK=true]').each((_, iframe) => {
-            iframe.contentWindow.postMessage({
-                msg: 'broadcast',
-                name: name,
-                data: data,
-            }, '*');
-        });
-
-        if (sendToNewAppInstances) {
-            this.#broadcastsToSendToNewAppInstances.set(name, data);
-        }
+  // Send all saved broadcast messages to the given app instance.
+  sendSavedBroadcastsTo(appInstanceID) {
+    const iframe = $(
+      `.window[data-element_uuid="${appInstanceID}"] .window-app-iframe[data-appUsesSDK=true]`
+    ).get(0);
+    if (!iframe) {
+      console.error(
+        `Attempted to send saved broadcasts to app instance ${appInstanceID}, which is not using the Puter SDK`
+      );
+      return;
     }
-
-    // Send all saved broadcast messages to the given app instance.
-    sendSavedBroadcastsTo(appInstanceID) {
-        const iframe = $(`.window[data-element_uuid="${appInstanceID}"] .window-app-iframe[data-appUsesSDK=true]`).get(0);
-        if (!iframe) {
-            console.error(`Attempted to send saved broadcasts to app instance ${appInstanceID}, which is not using the Puter SDK`);
-            return;
-        }
-        for (const [name, data] of this.#broadcastsToSendToNewAppInstances) {
-            iframe.contentWindow.postMessage({
-                msg: 'broadcast',
-                name: name,
-                data: data,
-            }, '*');
-        }
+    for (const [name, data] of this.#broadcastsToSendToNewAppInstances) {
+      iframe.contentWindow.postMessage(
+        {
+          msg: 'broadcast',
+          name: name,
+          data: data,
+        },
+        '*'
+      );
     }
+  }
 }

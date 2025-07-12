@@ -16,41 +16,44 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const eggspress = require("../../api/eggspress");
-const { UserActorType } = require("../../services/auth/Actor");
-const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
+const { UserActorType } = require('../../services/auth/Actor');
+const { Context } = require('../../util/context');
 
-module.exports = eggspress('/auth/revoke-session', {
+module.exports = eggspress(
+  '/auth/revoke-session',
+  {
     subdomain: 'api',
     auth2: true,
     allowedMethods: ['POST'],
-}, async (req, res, next) => {
+  },
+  async (req, res, next) => {
     const x = Context.get();
     const svc_auth = x.get('services').get('auth');
 
     // Only users can list their own sessions
     // apps, access tokens, etc should NEVER access this
     const actor = x.get('actor');
-    if ( ! (actor.type instanceof UserActorType) ) {
-        throw APIError.create('forbidden');
+    if (!(actor.type instanceof UserActorType)) {
+      throw APIError.create('forbidden');
     }
 
     const svc_antiCSRF = req.services.get('anti-csrf');
-    if ( ! svc_antiCSRF.consume_token(actor.type.user.uuid, req.body.anti_csrf) ) {
-        return res.status(400).json({ message: 'incorrect anti-CSRF token' });
+    if (!svc_antiCSRF.consume_token(actor.type.user.uuid, req.body.anti_csrf)) {
+      return res.status(400).json({ message: 'incorrect anti-CSRF token' });
     }
 
     // Ensure valid UUID
-    if ( ! req.body.uuid || typeof req.body.uuid !== 'string' ) {
-        throw APIError.create('field_invalid', null, {
-            key: 'uuid',
-            expected: 'string'
-        });
+    if (!req.body.uuid || typeof req.body.uuid !== 'string') {
+      throw APIError.create('field_invalid', null, {
+        key: 'uuid',
+        expected: 'string',
+      });
     }
 
-    const sessions = await svc_auth.revoke_session(
-        actor, req.body.uuid);
+    const sessions = await svc_auth.revoke_session(actor, req.body.uuid);
 
     res.json({ sessions });
-});
+  }
+);

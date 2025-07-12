@@ -8,11 +8,13 @@ Following the spirit of open-source initiatives we've seen like
 [SerenityOS](https://serenityos.org/),
 we've built much of the shell's functionality from scratch.
 Some interesting portions of this shell include:
+
 - A shell parser which produces a Concrete-Syntax-Tree
 - Pipeline constructs built on top of the [Streams API](https://developer.mozilla.org/en-US/docs/Web/API/Streams_API)
 - Platform support for Puter
 
 The shell is a work in progress. The following improvements are considered in-scope:
+
 - Anything specified in [POSIX.1-2017 Chapter 2](https://pubs.opengroup.org/onlinepubs/9699919799.2018edition/utilities/V3_chap02.html)
 - UX improvements over traditional shells
   > examples include: readline syntax highlighting, hex view for binary streams
@@ -51,4 +53,3 @@ Here are a few ideas we have for the future:
   > See [this issue](https://github.com/HeyPuter/phoenix/issues/14)
 - further support for the POSIX Command Language
   > Check our list of [missing features](doc/missing-posix.md)
-

@@ -15,7 +15,7 @@ It provides methods for creating, clearing, and handling alarms.
 ##### `boot.consolidation`
 
 AlarmService registers its commands at the consolidation phase because
-the '_init' method of CommandService may not have been called yet.
+the '\_init' method of CommandService may not have been called yet.
 
 #### Methods
 
@@ -79,14 +79,12 @@ the source of the error.
 
 ### ExpectationService
 
-
-
 #### Listeners
 
 ##### `boot.consolidation`
 
 ExpectationService registers its commands at the consolidation phase because
-the '_init' method of CommandService may not have been called yet.
+the '\_init' method of CommandService may not have been called yet.
 
 #### Methods
 
@@ -101,9 +99,9 @@ Registers an expectation to be tracked by the service.
 
 ### LogService
 
-The `LogService` class extends `BaseService` and is responsible for managing and 
-orchestrating various logging functionalities within the application. It handles 
-log initialization, middleware registration, log directory management, and 
+The `LogService` class extends `BaseService` and is responsible for managing and
+orchestrating various logging functionalities within the application. It handles
+log initialization, middleware registration, log directory management, and
 provides methods for creating log contexts and managing log output levels.
 
 #### Listeners
@@ -146,14 +144,12 @@ By default, the buffer contains the last 20 log entries.
 
 ### PagerService
 
-
-
 #### Listeners
 
 ##### `boot.consolidation`
 
 PagerService registers its commands at the consolidation phase because
-the '_init' method of CommandService may not have been called yet.
+the '\_init' method of CommandService may not have been called yet.
 
 #### Methods
 
@@ -259,6 +255,7 @@ removed it may become possible to move this module to an
 extension.
 
 **Imports:**
+
 - `../../services/BaseService.js`
 - `../../util/context.js`
 - `../../services/BaseService` (use.BaseService)

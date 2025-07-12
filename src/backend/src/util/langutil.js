@@ -20,30 +20,30 @@
  * whatis is an alterative to typeof that reports what
  * the type of the value actually is for real.
  */
-const whatis = thing => {
-    if ( Array.isArray(thing) ) return 'array';
-    if ( thing === null ) return 'null';
-    return typeof thing;
+const whatis = (thing) => {
+  if (Array.isArray(thing)) return 'array';
+  if (thing === null) return 'null';
+  return typeof thing;
 };
 
-const nou = v => v === null || v === undefined;
+const nou = (v) => v === null || v === undefined;
 
 const can = (v, ...checking) => {
-    if ( nou(v) ) return false;
-    const capabilities = {};
-    if ( v[Symbol.iterator] ) {
-        capabilities['iterate'] = true;
+  if (nou(v)) return false;
+  const capabilities = {};
+  if (v[Symbol.iterator]) {
+    capabilities['iterate'] = true;
+  }
+  for (const to_check of checking) {
+    if (!capabilities[to_check]) {
+      return false;
     }
-    for ( const to_check of checking ) {
-        if ( ! capabilities[to_check] ) {
-            return false;
-        }
-    }
-    return true;
-}
+  }
+  return true;
+};
 
 module.exports = {
-    whatis,
-    nou,
-    can,
+  whatis,
+  nou,
+  can,
 };

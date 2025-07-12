@@ -18,1113 +18,1200 @@
  */
 
 * {
-    font-family: "Helvetica Neue", Helvetica, Arial, "Lucida Grande", sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+  font-family: 'Helvetica Neue', Helvetica, Arial, 'Lucida Grande', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 html {
-    width: 100vw;
-    height: 100vh;
-    background-color: #eff1f5
+  width: 100vw;
+  height: 100vh;
+  background-color: #eff1f5;
 }
 
-body{
-    display: flex; 
-    flex-direction: column; 
-    justify-content: center; 
-    align-items: center; 
-    flex: 1;
+body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  flex: 1;
 }
 
-h1 .app-count{
-    font-size: 20px;
-    color: #6d767d;
-    font-weight: 400;
-    margin-left: 10px;
-    background-color: #EEE;
-    padding: 2px 10px;
-    border-radius: 3px;
+h1 .app-count {
+  font-size: 20px;
+  color: #6d767d;
+  font-weight: 400;
+  margin-left: 10px;
+  background-color: #eee;
+  padding: 2px 10px;
+  border-radius: 3px;
 }
 /* ------------------------------------
    Button
    ------------------------------------*/
 
 .button {
-    color: #666666;
-    background-color: #eeeeee;
-    border-color: #eeeeee;
-    font-size: 14px;
-    text-decoration: none;
-    text-align: center;
-    line-height: 40px;
-    height: 35px;
-    padding: 0 25px;
-    margin: 0;
-    display: inline-block;
-    appearance: none;
-    cursor: pointer;
-    border: none;
-    -webkit-box-sizing: border-box;
-    -moz-box-sizing: border-box;
-    box-sizing: border-box;
-    border-color: #b9b9b9;
-    border-style: solid;
-    border-width: 1px;
-    line-height: 35px;
-    background: -webkit-gradient(linear, left top, left bottom, from(#f6f6f6), to(#e1e1e1));
-    background: linear-gradient(#f6f6f6, #e1e1e1);
-    -webkit-box-shadow: inset 0px 1px 0px rgb(255 255 255 / 30%), 0 1px 2px rgb(0 0 0 / 15%);
-    box-shadow: inset 0px 1px 0px rgb(255 255 255 / 30%), 0 1px 2px rgb(0 0 0 / 15%);
-    border-radius: 4px;
-    outline: none;
+  color: #666666;
+  background-color: #eeeeee;
+  border-color: #eeeeee;
+  font-size: 14px;
+  text-decoration: none;
+  text-align: center;
+  line-height: 40px;
+  height: 35px;
+  padding: 0 25px;
+  margin: 0;
+  display: inline-block;
+  appearance: none;
+  cursor: pointer;
+  border: none;
+  -webkit-box-sizing: border-box;
+  -moz-box-sizing: border-box;
+  box-sizing: border-box;
+  border-color: #b9b9b9;
+  border-style: solid;
+  border-width: 1px;
+  line-height: 35px;
+  background: -webkit-gradient(linear, left top, left bottom, from(#f6f6f6), to(#e1e1e1));
+  background: linear-gradient(#f6f6f6, #e1e1e1);
+  -webkit-box-shadow:
+    inset 0px 1px 0px rgb(255 255 255 / 30%),
+    0 1px 2px rgb(0 0 0 / 15%);
+  box-shadow:
+    inset 0px 1px 0px rgb(255 255 255 / 30%),
+    0 1px 2px rgb(0 0 0 / 15%);
+  border-radius: 4px;
+  outline: none;
 
-    /* Disable user select */
-    -webkit-touch-callout: none !important;
-    -webkit-user-select: none !important;
-    -khtml-user-select: none !important;
-    -moz-user-select: none !important;
-    -ms-user-select: none !important;
-    user-select: none !important;
+  /* Disable user select */
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  -khtml-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  user-select: none !important;
 }
 
 .button:focus-visible {
-    border-color: rgb(118 118 118);
+  border-color: rgb(118 118 118);
 }
 
-.button:active, .button.active, .button.is-active, .button.has-open-contextmenu {
-    text-decoration: none;
-    background-color: #eeeeee;
-    border-color: #cfcfcf;
-    color: #a9a9a9;
-    -webkit-transition-duration: 0s;
-    transition-duration: 0s;
-    -webkit-box-shadow: inset 0 1px 3px rgb(0 0 0 / 20%);
-    box-shadow: inset 0px 2px 3px rgb(0 0 0 / 36%), 0px 1px 0px white;
+.button:active,
+.button.active,
+.button.is-active,
+.button.has-open-contextmenu {
+  text-decoration: none;
+  background-color: #eeeeee;
+  border-color: #cfcfcf;
+  color: #a9a9a9;
+  -webkit-transition-duration: 0s;
+  transition-duration: 0s;
+  -webkit-box-shadow: inset 0 1px 3px rgb(0 0 0 / 20%);
+  box-shadow:
+    inset 0px 2px 3px rgb(0 0 0 / 36%),
+    0px 1px 0px white;
 }
 
-.button.disabled, .button.is-disabled, .button:disabled {
-    top: 0 !important;
-    background: #EEE !important;
-    border: 1px solid #DDD !important;
-    text-shadow: 0 1px 1px white !important;
-    color: #CCC !important;
-    cursor: default !important;
-    appearance: none !important;
-    pointer-events: none;
+.button.disabled,
+.button.is-disabled,
+.button:disabled {
+  top: 0 !important;
+  background: #eee !important;
+  border: 1px solid #ddd !important;
+  text-shadow: 0 1px 1px white !important;
+  color: #ccc !important;
+  cursor: default !important;
+  appearance: none !important;
+  pointer-events: none;
 }
 
-.button-action.disabled, .button-action.is-disabled, .button-action:disabled {
-    background: #55a975 !important;
-    border: 1px solid #60ab7d !important;
-    text-shadow: none !important;
-    color: #CCC !important;
+.button-action.disabled,
+.button-action.is-disabled,
+.button-action:disabled {
+  background: #55a975 !important;
+  border: 1px solid #60ab7d !important;
+  text-shadow: none !important;
+  color: #ccc !important;
 }
 
-.button-primary.disabled, .button-primary.is-disabled, .button-primary:disabled {
-    background: #8fc2e7 !important;
-    border: 1px solid #98adbd !important;
-    text-shadow: none !important;
-    color: #f5f5f5 !important;
+.button-primary.disabled,
+.button-primary.is-disabled,
+.button-primary:disabled {
+  background: #8fc2e7 !important;
+  border: 1px solid #98adbd !important;
+  text-shadow: none !important;
+  color: #f5f5f5 !important;
 }
 
 .button-block {
-    width: 100%;
+  width: 100%;
 }
 
 .button-primary {
-    border-color: #088ef0;
-    background: -webkit-gradient(linear, left top, left bottom, from(#34a5f8), to(#088ef0));
-    background: linear-gradient(#34a5f8, #088ef0);
-    color: white;
+  border-color: #088ef0;
+  background: -webkit-gradient(linear, left top, left bottom, from(#34a5f8), to(#088ef0));
+  background: linear-gradient(#34a5f8, #088ef0);
+  color: white;
 }
 
-.button-primary:active, .button-primary.active, .button-primary.is-active, .button-primary-flat:active, .button-primary-flat.active, .button-primary-flat.is-active {
-    background-color: #2798eb;
-    border-color: #2798eb;
-    color: #bedef5;
+.button-primary:active,
+.button-primary.active,
+.button-primary.is-active,
+.button-primary-flat:active,
+.button-primary-flat.active,
+.button-primary-flat.is-active {
+  background-color: #2798eb;
+  border-color: #2798eb;
+  color: #bedef5;
 }
 
 .button-action {
-    border-color: #08bf4e;
-    background: -webkit-gradient(linear, left top, left bottom, from(#0dca47), to(#05c04e));
-    background: linear-gradient(#0dca47, #05c04e);
-    color: white;
+  border-color: #08bf4e;
+  background: -webkit-gradient(linear, left top, left bottom, from(#0dca47), to(#05c04e));
+  background: linear-gradient(#0dca47, #05c04e);
+  color: white;
 }
 
-.button-action:active, .button-action.active, .button-action.is-active, .button-action-flat:active, .button-action-flat.active, .button-action-flat.is-active {
-    background-color: #27eb41;
-    border-color: #27eb41;
-    color: #bef5ca;
+.button-action:active,
+.button-action.active,
+.button-action.is-active,
+.button-action-flat:active,
+.button-action-flat.active,
+.button-action-flat.is-active {
+  background-color: #27eb41;
+  border-color: #27eb41;
+  color: #bef5ca;
 }
 
 .button-danger {
-    border-color: #f00808;
-    background: -webkit-gradient(linear, left top, left bottom, from(#f83434), to(#f00808));
-    background: linear-gradient(#f83434, #f00808);
-    color: white;
+  border-color: #f00808;
+  background: -webkit-gradient(linear, left top, left bottom, from(#f83434), to(#f00808));
+  background: linear-gradient(#f83434, #f00808);
+  color: white;
 }
 
 .button-giant {
-    font-size: 28px;
-    height: 70px;
-    line-height: 70px;
-    padding: 0 70px;
+  font-size: 28px;
+  height: 70px;
+  line-height: 70px;
+  padding: 0 70px;
 }
 
 .button-jumbo {
-    font-size: 24px;
-    height: 60px;
-    line-height: 60px;
-    padding: 0 60px;
+  font-size: 24px;
+  height: 60px;
+  line-height: 60px;
+  padding: 0 60px;
 }
 
 .button-large {
-    font-size: 20px;
-    height: 50px;
-    line-height: 50px;
-    padding: 0 50px;
+  font-size: 20px;
+  height: 50px;
+  line-height: 50px;
+  padding: 0 50px;
 }
 
 .button-normal {
-    font-size: 16px;
-    height: 40px;
-    line-height: 38px;
-    padding: 0 40px;
+  font-size: 16px;
+  height: 40px;
+  line-height: 38px;
+  padding: 0 40px;
 }
 
 .button-small {
-    height: 30px;
-    line-height: 29px;
-    padding: 0 30px;
+  height: 30px;
+  line-height: 29px;
+  padding: 0 30px;
 }
 
 .button-tiny {
-    font-size: 9.6px;
-    height: 24px;
-    line-height: 24px;
-    padding: 0 24px;
+  font-size: 9.6px;
+  height: 24px;
+  line-height: 24px;
+  padding: 0 24px;
 }
 
 a {
-    color: #0d6efd;
-    text-decoration: none;
+  color: #0d6efd;
+  text-decoration: none;
 }
 
 a:hover {
-    text-decoration: underline;
+  text-decoration: underline;
 }
 
 .hidden {
-    display: none;
+  display: none;
 }
 
 section {
-    padding: 10px;
-    overflow: hidden;
-    width: 100%;
-    padding-right: 20px;
-    padding-left: 20px;
-    box-sizing: border-box;
+  padding: 10px;
+  overflow: hidden;
+  width: 100%;
+  padding-right: 20px;
+  padding-left: 20px;
+  box-sizing: border-box;
 }
-#app-list{
-    display: none;
+#app-list {
+  display: none;
 }
-#app-list-table > thead{
-    font-size:14px; background-color: #f7fafc; border-top: 1px solid #DDD; text-transform: uppercase; color: #6d767d;
-    cursor: default;
+#app-list-table > thead {
+  font-size: 14px;
+  background-color: #f7fafc;
+  border-top: 1px solid #ddd;
+  text-transform: uppercase;
+  color: #6d767d;
+  cursor: default;
 }
 .app-card {
-    padding: 12px;
-    border-top: 1px solid #d8dce5;
-    border-radius: 0;
-    clear: both;
-    background: white;
-    overflow: hidden;
-    position: relative;
+  padding: 12px;
+  border-top: 1px solid #d8dce5;
+  border-radius: 0;
+  clear: both;
+  background: white;
+  overflow: hidden;
+  position: relative;
 }
 
 .app-card:hover {
-    background-color: #e8eff66e;
+  background-color: #e8eff66e;
 }
 .app-card.active {
-    background-color: #e8eff6;
+  background-color: #e8eff6;
 }
 
-.app-card:hover .app-row-toolbar{
-    display: block;
+.app-card:hover .app-row-toolbar {
+  display: block;
 }
 
 .app-card h1 {
-    margin-top: 0;
-    color: #657188;
-    font-weight: 400;
-    font-size: 25px;
+  margin-top: 0;
+  color: #657188;
+  font-weight: 400;
+  font-size: 25px;
 }
 
 #create-app-success {
-    height: calc(100vh - 40px);
-    overflow: hidden;
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    box-sizing: border-box;
+  height: calc(100vh - 40px);
+  overflow: hidden;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-sizing: border-box;
 }
 
-label, input[type="text"] {
-    display: block;
-    user-select: none;
+label,
+input[type='text'] {
+  display: block;
+  user-select: none;
 }
 
 #delete-app {
-    cursor: pointer;
-    float: left;
-    margin-top: 30px;
-    color: red;
-    font-size: 13px;
+  cursor: pointer;
+  float: left;
+  margin-top: 30px;
+  color: red;
+  font-size: 13px;
 }
 
 #delete-app:hover {
-    text-decoration: underline;
+  text-decoration: underline;
 }
 
-input[type="text"], textarea, input[type="number"] {
-    display: block;
-    width: 100%;
-    height: 34px;
-    padding: 6px 12px;
-    font-size: 14px;
-    line-height: 1.42857143;
-    color: #000000;
-    background-color: #fff;
-    background-image: none;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    -webkit-box-shadow: inset 0 1px 1px rgb(0 0 0 / 8%);
-    box-shadow: inset 0 1px 1px rgb(0 0 0 / 8%);
-    -webkit-transition: border-color ease-in-out .15s, box-shadow ease-in-out .15s;
-    -o-transition: border-color ease-in-out .15s, box-shadow ease-in-out .15s;
-    -webkit-transition: border-color ease-in-out .15s, -webkit-box-shadow ease-in-out .15s;
-    transition: border-color ease-in-out .15s, -webkit-box-shadow ease-in-out .15s;
-    transition: border-color ease-in-out .15s, box-shadow ease-in-out .15s;
-    transition: border-color ease-in-out .15s, box-shadow ease-in-out .15s, -webkit-box-shadow ease-in-out .15s;
-    box-sizing: border-box;
+input[type='text'],
+textarea,
+input[type='number'] {
+  display: block;
+  width: 100%;
+  height: 34px;
+  padding: 6px 12px;
+  font-size: 14px;
+  line-height: 1.42857143;
+  color: #000000;
+  background-color: #fff;
+  background-image: none;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  -webkit-box-shadow: inset 0 1px 1px rgb(0 0 0 / 8%);
+  box-shadow: inset 0 1px 1px rgb(0 0 0 / 8%);
+  -webkit-transition:
+    border-color ease-in-out 0.15s,
+    box-shadow ease-in-out 0.15s;
+  -o-transition:
+    border-color ease-in-out 0.15s,
+    box-shadow ease-in-out 0.15s;
+  -webkit-transition:
+    border-color ease-in-out 0.15s,
+    -webkit-box-shadow ease-in-out 0.15s;
+  transition:
+    border-color ease-in-out 0.15s,
+    -webkit-box-shadow ease-in-out 0.15s;
+  transition:
+    border-color ease-in-out 0.15s,
+    box-shadow ease-in-out 0.15s;
+  transition:
+    border-color ease-in-out 0.15s,
+    box-shadow ease-in-out 0.15s,
+    -webkit-box-shadow ease-in-out 0.15s;
+  box-sizing: border-box;
 }
 
 textarea {
-    height: 200px;
+  height: 200px;
 }
 
 label {
-    margin-top: 20px;
-    font-size: 15px;
+  margin-top: 20px;
+  font-size: 15px;
 }
 
 .error {
-    border: 1px solid red;
-    color: red;
-    padding: 10px;
-    border-radius: 3px;
+  border: 1px solid red;
+  color: red;
+  padding: 10px;
+  border-radius: 3px;
 }
 
 .success {
-    border: 1px solid rgb(43 151 43);
-    color: rgb(7 135 7);
-    padding: 15px;
-    border-radius: 3px;
-    background: #ddf3dd;
+  border: 1px solid rgb(43 151 43);
+  color: rgb(7 135 7);
+  padding: 15px;
+  border-radius: 3px;
+  background: #ddf3dd;
 }
-#edit-app{
-    display: none;
+#edit-app {
+  display: none;
 }
-#create-app-error, #edit-app-error, #jip-error {
-    display: none;
+#create-app-error,
+#edit-app-error,
+#jip-error {
+  display: none;
 }
 
 #edit-app-success {
-    position: relative;
-    display: none;
+  position: relative;
+  display: none;
 }
 
 .link-span {
-    cursor: pointer;
+  cursor: pointer;
 }
 
 .link-span:hover {
-    text-decoration: underline;
+  text-decoration: underline;
 }
 
-#new-app-icon, #edit-app-icon {
-    width: 80px;
-    height: 80px;
-    border: 1px solid;
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: cover;
-    cursor: pointer;
-    background-image: url(../img/app.svg);
-    background-color: white;
+#new-app-icon,
+#edit-app-icon {
+  width: 80px;
+  height: 80px;
+  border: 1px solid;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+  cursor: pointer;
+  background-image: url(../img/app.svg);
+  background-color: white;
 }
 
-#new-app-icon-delete, #edit-app-icon-delete {
-    display: none;
-    color: red;
-    cursor: pointer;
-    width: 100px;
+#new-app-icon-delete,
+#edit-app-icon-delete {
+  display: none;
+  color: red;
+  cursor: pointer;
+  width: 100px;
 }
 
-#new-app-icon-delete:hover, #edit-app-icon-delete:hover {
-    text-decoration: underline;
+#new-app-icon-delete:hover,
+#edit-app-icon-delete:hover {
+  text-decoration: underline;
 }
 
 #change-app-icon {
-    width: 80px;
-    height: 80px;
-    background-color: rgb(0 0 0 / 37%);
-    color: white;
-    display: none;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    text-align: center;
-    font-size: 15px;
-    font-weight: bold;
+  width: 80px;
+  height: 80px;
+  background-color: rgb(0 0 0 / 37%);
+  color: white;
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  font-size: 15px;
+  font-weight: bold;
 }
 
 #new-app-icon:hover #change-app-icon {
-    display: flex;
+  display: flex;
 }
 
-.edit-app, .open-app-btn, .app-card-link, .delete-app, .add-app-to-desktop, .delete-app-settings {
-    color: #000000;
-    cursor: pointer;
-    font-size: 13px;
+.edit-app,
+.open-app-btn,
+.app-card-link,
+.delete-app,
+.add-app-to-desktop,
+.delete-app-settings {
+  color: #000000;
+  cursor: pointer;
+  font-size: 13px;
 }
-.delete-app, .delete-app-settings{
-    color: red;
+.delete-app,
+.delete-app-settings {
+  color: red;
 }
-.edit-app:hover, .open-app-btn:hover, .app-card-link:hover img, 
+.edit-app:hover,
+.open-app-btn:hover,
+.app-card-link:hover img,
 .delete-app-settings:hover,
-.delete-app:hover, .add-app-to-desktop:hover {
-    text-decoration: underline;
+.delete-app:hover,
+.add-app-to-desktop:hover {
+  text-decoration: underline;
 }
 
-.app-card-link:hover{
-    text-decoration: underline;
+.app-card-link:hover {
+  text-decoration: underline;
 }
 
 .edit-app img {
-    width: 25px;
-    height: 25px;
+  width: 25px;
+  height: 25px;
 }
 
-#new-app-filetype-associations, #edit-app-filetype-associations {
-    font-family: monospace;
+#new-app-filetype-associations,
+#edit-app-filetype-associations {
+  font-family: monospace;
 }
 
 .sidebar {
-    position: fixed;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 1000;
-    display: block;
-    padding: 30px 16px;
-    overflow-x: hidden;
-    overflow-y: auto;
-    background-color: white;
-    border-right: 1px solid #e1e1e1;
-    color: rgb(51, 51, 51);
-    font-weight: 400;
-    width: 25px;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1000;
+  display: block;
+  padding: 30px 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background-color: white;
+  border-right: 1px solid #e1e1e1;
+  color: rgb(51, 51, 51);
+  font-weight: 400;
+  width: 25px;
 }
-.sidebar .sidebar-content{
-    display: none;
+.sidebar .sidebar-content {
+  display: none;
 }
-.sidebar.open{
-    width: 250px;
+.sidebar.open {
+  width: 250px;
 }
-.sidebar.open .sidebar-content{
-    display: block;
+.sidebar.open .sidebar-content {
+  display: block;
 }
-.sidebar-toggle{
-    display: block;
-    width: 10px;
-    height: 10px;
-    position: absolute;
-    right: 0;
-    top: 0;
-    padding: 10px;
-    background-size: 15px;
-    background-repeat: no-repeat;
-    background-position: center;
-    cursor: pointer;
-    background-image: url("data:image/svg+xml,%3Csvg%20enable-background%3D%22new%200%200%2024%2024%22%20viewBox%3D%220%200%2024%2024%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22m3%2023-3-3%208-8-8-8%203-3%2011%2011zm10%200-3-3%208-8-8-8%203-3%2011%2011z%22%2F%3E%3C%2Fsvg%3E");
-    opacity: 0.3;
+.sidebar-toggle {
+  display: block;
+  width: 10px;
+  height: 10px;
+  position: absolute;
+  right: 0;
+  top: 0;
+  padding: 10px;
+  background-size: 15px;
+  background-repeat: no-repeat;
+  background-position: center;
+  cursor: pointer;
+  background-image: url('data:image/svg+xml,%3Csvg%20enable-background%3D%22new%200%200%2024%2024%22%20viewBox%3D%220%200%2024%2024%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22m3%2023-3-3%208-8-8-8%203-3%2011%2011zm10%200-3-3%208-8-8-8%203-3%2011%2011z%22%2F%3E%3C%2Fsvg%3E');
+  opacity: 0.3;
 }
-.open .sidebar-toggle{
-    background-image: url("data:image/svg+xml,%3Csvg%20enable-background%3D%22new%200%200%2024%2024%22%20viewBox%3D%220%200%2024%2024%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22m21%201%203%203-8%208%208%208-3%203-11-11zm-10%200%203%203-8%208%208%208-3%203-11-11z%22%2F%3E%3C%2Fsvg%3E");
+.open .sidebar-toggle {
+  background-image: url('data:image/svg+xml,%3Csvg%20enable-background%3D%22new%200%200%2024%2024%22%20viewBox%3D%220%200%2024%2024%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22m21%201%203%203-8%208%208%208-3%203-11-11zm-10%200%203%203-8%208%208%208-3%203-11-11z%22%2F%3E%3C%2Fsvg%3E');
 }
-.sidebar-toggle:hover{
-    opacity: 1;
+.sidebar-toggle:hover {
+  opacity: 1;
 }
 .sidebar-nav {
-    padding-left: 0;
-    list-style: none;
-    margin-right: -21px;
-    margin-bottom: 20px;
-    margin-left: -20px;
-    margin-top: 0;
+  padding-left: 0;
+  list-style: none;
+  margin-right: -21px;
+  margin-bottom: 20px;
+  margin-left: -20px;
+  margin-top: 0;
 }
 
-.sidebar-nav>li {
-    position: relative;
-    display: block;
-    padding: 10px 20px;
-    cursor: pointer;
+.sidebar-nav > li {
+  position: relative;
+  display: block;
+  padding: 10px 20px;
+  cursor: pointer;
 }
 
-.sidebar-nav>li.active {
-    color: #fff;
-    background-color: #3273dc;
+.sidebar-nav > li.active {
+  color: #fff;
+  background-color: #3273dc;
 }
 
-.sidebar-nav > li .app-count{
-    font-size: 14px;
-    color: #6d767d;
-    font-weight: 400;
-    margin-left: 10px;
-    float: right;
+.sidebar-nav > li .app-count {
+  font-size: 14px;
+  color: #6d767d;
+  font-weight: 400;
+  margin-left: 10px;
+  float: right;
 }
 
-.tab-btn.active .app-count{
-    color: #f6f6f6;
+.tab-btn.active .app-count {
+  color: #f6f6f6;
 }
 
 .sidebar hr {
-    margin-top: 20px;
-    margin-bottom: 20px;
-    border: 0;
-    border-top: 1px solid #eeeeee;
+  margin-top: 20px;
+  margin-bottom: 20px;
+  border: 0;
+  border-top: 1px solid #eeeeee;
 }
 
 .main {
-    width: calc(100% - 35px);
-    left: 25px;
-    top: 0px;
-    position: absolute;
-    box-sizing: border-box;
-    padding: 12px 20px;
-    padding-right: 0;
-    display: flex;
-    flex-direction: column;
+  width: calc(100% - 35px);
+  left: 25px;
+  top: 0px;
+  position: absolute;
+  box-sizing: border-box;
+  padding: 12px 20px;
+  padding-right: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .sidebar-open .main {
-    width: calc(100% - 250px);
-    left: 240px;
+  width: calc(100% - 250px);
+  left: 240px;
 }
 
-.main>section {
-    background-color: white;
-    box-shadow: 0px 0px 3px #E1E1E1;
-    border: 1px solid #e1e1e1;
-    border-radius: 3px;
+.main > section {
+  background-color: white;
+  box-shadow: 0px 0px 3px #e1e1e1;
+  border: 1px solid #e1e1e1;
+  border-radius: 3px;
 }
 
-.link-to-docs{
-    color: #586373; 
-    font-size: 15px;
+.link-to-docs {
+  color: #586373;
+  font-size: 15px;
 }
-.link-to-docs, .link-to-docs:hover {
-    text-decoration: none;
+.link-to-docs,
+.link-to-docs:hover {
+  text-decoration: none;
 }
-.link-to-docs img{
-    width: 12px; 
-    margin-bottom: -1px;
+.link-to-docs img {
+  width: 12px;
+  margin-bottom: -1px;
 }
 .tab-btn {
-    background-size: 20px;
-    background-repeat: no-repeat;
-    display: block;
-    background-position: 20px;
-    padding-left: 50px !important;
+  background-size: 20px;
+  background-repeat: no-repeat;
+  display: block;
+  background-position: 20px;
+  padding-left: 50px !important;
 }
 
-.tab-btn.active[data-tab="apps"] {
-    background-image: url(../img/apps-outline-white.svg);
+.tab-btn.active[data-tab='apps'] {
+  background-image: url(../img/apps-outline-white.svg);
 }
 
-.tab-btn[data-tab="apps"] {
-    background-image: url(../img/apps-outline-black.svg);
+.tab-btn[data-tab='apps'] {
+  background-image: url(../img/apps-outline-black.svg);
 }
 
-.tab-btn[data-tab="payout-method"] {
-    background-image: url(../img/wallet.svg);
+.tab-btn[data-tab='payout-method'] {
+  background-image: url(../img/wallet.svg);
 }
 
-.tab-btn.active[data-tab="payout-method"] {
-    background-image: url(../img/wallet-white.svg);
+.tab-btn.active[data-tab='payout-method'] {
+  background-image: url(../img/wallet-white.svg);
 }
 
 .app-icon {
-    margin-bottom: 0;
-    width: 65px;
-    height: 65px;
-    float: left;
-    margin-right: 10px;
-    border: 1px solid #CCC;
-    background-color: #f6faff;
-    border-radius: 3px;
-    padding: 3px;
-    box-sizing: border-box;
+  margin-bottom: 0;
+  width: 65px;
+  height: 65px;
+  float: left;
+  margin-right: 10px;
+  border: 1px solid #ccc;
+  background-color: #f6faff;
+  border-radius: 3px;
+  padding: 3px;
+  box-sizing: border-box;
 }
 
-#no-apps-notice, #loading {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    box-sizing: border-box;
-    background: none;
-    border: none;
-    box-shadow: none;
-    height: calc(100vh - 100px);
+#no-apps-notice,
+#loading {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  box-sizing: border-box;
+  background: none;
+  border: none;
+  box-shadow: none;
+  height: calc(100vh - 100px);
 }
 
 .table {
-    width: 100%;
-    max-width: 100%;
-    margin-bottom: 20px;
+  width: 100%;
+  max-width: 100%;
+  margin-bottom: 20px;
 }
 
 table {
-    background-color: transparent;
+  background-color: transparent;
 }
 
 table {
-    border-collapse: collapse;
-    border-spacing: 0;
+  border-collapse: collapse;
+  border-spacing: 0;
 }
 
-.table>caption+thead>tr:first-child>th, .table>colgroup+thead>tr:first-child>th, .table>thead:first-child>tr:first-child>th, .table>caption+thead>tr:first-child>td, .table>colgroup+thead>tr:first-child>td, .table>thead:first-child>tr:first-child>td {
-    border-top: 0;
+.table > caption + thead > tr:first-child > th,
+.table > colgroup + thead > tr:first-child > th,
+.table > thead:first-child > tr:first-child > th,
+.table > caption + thead > tr:first-child > td,
+.table > colgroup + thead > tr:first-child > td,
+.table > thead:first-child > tr:first-child > td {
+  border-top: 0;
 }
 
-.table>thead>tr>th {
-    border-bottom: 1px solid #ddd;
+.table > thead > tr > th {
+  border-bottom: 1px solid #ddd;
 }
 
-.table>thead>tr>th {
-    vertical-align: bottom;
-    border-bottom: 2px solid #ddd;
+.table > thead > tr > th {
+  vertical-align: bottom;
+  border-bottom: 2px solid #ddd;
 }
 
-.table>thead>tr>th, .table>tbody>tr>th, .table>tfoot>tr>th, .table>thead>tr>td, .table>tbody>tr>td, .table>tfoot>tr>td {
-    padding: 8px;
-    line-height: 1.42857143;
-    vertical-align: top;
+.table > thead > tr > th,
+.table > tbody > tr > th,
+.table > tfoot > tr > th,
+.table > thead > tr > td,
+.table > tbody > tr > td,
+.table > tfoot > tr > td {
+  padding: 8px;
+  line-height: 1.42857143;
+  vertical-align: top;
 }
-.table>thead>tr>th{
-    padding: 5px;
+.table > thead > tr > th {
+  padding: 5px;
 }
 th {
-    text-align: left;
-    padding-bottom: 0 !important;
+  text-align: left;
+  padding-bottom: 0 !important;
 }
 
-td, th {
-    padding: 0;
+td,
+th {
+  padding: 0;
 }
-th.sorted{
-    color:black;
+th.sorted {
+  color: black;
 }
 .app-card-title {
-    font-size: 16px;
-    display: block;
-    margin: 0;
-    font-weight: 500;
-    color: #414b56;
-    cursor: pointer;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    overflow: hidden;
-    max-width: 350px;
-    margin-bottom: 0;
+  font-size: 16px;
+  display: block;
+  margin: 0;
+  font-weight: 500;
+  color: #414b56;
+  cursor: pointer;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 350px;
+  margin-bottom: 0;
 }
 
 .app-card-link {
-    display: inline-block;
-    text-overflow: ellipsis;
-    overflow: hidden;
-    white-space: nowrap;
-    color: #0074ff;
-    opacity: 1;
+  display: inline-block;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  color: #0074ff;
+  opacity: 1;
 }
 
 #payout-method-email {
-    margin-top: 13px;
-    margin-left: 5px;
-    font-size: 18px;
-    display: inline-block;
+  margin-top: 13px;
+  margin-left: 5px;
+  font-size: 18px;
+  display: inline-block;
 }
 
 #join-incentive-program {
-    padding: 0;
-    display: none; 
-    margin-bottom: 30px;
+  padding: 0;
+  display: none;
+  margin-bottom: 30px;
 }
 
 #jip-success {
-    padding: 20px;
-    position: relative; 
-    display: none; 
-    padding: 20px 35px 30px; 
-    color: #094509; 
-    background-color: #e6ffe6;
+  padding: 20px;
+  position: relative;
+  display: none;
+  padding: 20px 35px 30px;
+  color: #094509;
+  background-color: #e6ffe6;
 }
 
 .close-message {
-    position: absolute;
-    right: 15px; 
-    top: 10px;
-    font-size: 25px;
-    opacity: 0.5;
-    cursor: pointer;
+  position: absolute;
+  right: 15px;
+  top: 10px;
+  font-size: 25px;
+  opacity: 0.5;
+  cursor: pointer;
 }
 
 .close-message:hover {
-    opacity: 1;
+  opacity: 1;
 }
 
 .disable-user-select {
-    cursor: default;
-    -webkit-touch-callout: none !important;
-    -webkit-user-select: none !important;
-    -khtml-user-select: none !important;
-    -moz-user-select: none !important;
-    -ms-user-select: none !important;
-    user-select: none !important;
+  cursor: default;
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  -khtml-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  user-select: none !important;
 }
 
 .my-apps-title {
-    font-size: 27px;
-    margin-top: 0px;
-    float: left;
-    font-weight: 500;
-    margin-bottom: 15px;
-    color: #394254;
+  font-size: 27px;
+  margin-top: 0px;
+  float: left;
+  font-weight: 500;
+  margin-bottom: 15px;
+  color: #394254;
 }
 
-.app-row-toolbar{
-    margin-top: -7px;
-    display: none;
-    width: 350px;
+.app-row-toolbar {
+  margin-top: -7px;
+  display: none;
+  width: 350px;
 }
 
 .app-row-toolbar img {
-    opacity: 0.5;
+  opacity: 0.5;
 }
 
 .app-row-toolbar img:hover {
-    opacity: 1;
+  opacity: 1;
 }
 
 ol {
-    counter-reset: olcounter;
-    margin: 0;
-    padding: 0;
-    list-style-type: none;
-    margin-top: 25px;
-    margin-bottom: 20px;
+  counter-reset: olcounter;
+  margin: 0;
+  padding: 0;
+  list-style-type: none;
+  margin-top: 25px;
+  margin-bottom: 20px;
 }
 
 ol li {
-    list-style-type: none;
-    position: relative;
-    margin-bottom: 10px;
-    padding-bottom: 20px;
-    font-size: 16px;
-    position: relative;
-    margin-bottom: 10px;
-    padding-left: 35px;
-    padding-top: 3px;
+  list-style-type: none;
+  position: relative;
+  margin-bottom: 10px;
+  padding-bottom: 20px;
+  font-size: 16px;
+  position: relative;
+  margin-bottom: 10px;
+  padding-left: 35px;
+  padding-top: 3px;
 }
 
 ol li:before {
-    counter-increment: olcounter;
-    content: counter(olcounter);
-    margin-right: 5px;
-    font-size: 80%;
-    background-color: #8296af;
-    color: white;
-    font-weight: bold;
-    border-radius: 2px;
-    position: absolute;
-    left: 0;
-    top: 0;
-    text-align: center;
-    padding: 3px;
-    width: 20px;
-    font-size: 15px;
+  counter-increment: olcounter;
+  content: counter(olcounter);
+  margin-right: 5px;
+  font-size: 80%;
+  background-color: #8296af;
+  color: white;
+  font-weight: bold;
+  border-radius: 2px;
+  position: absolute;
+  left: 0;
+  top: 0;
+  text-align: center;
+  padding: 3px;
+  width: 20px;
+  font-size: 15px;
 }
-.sort-arrow{
-    display: none;
-    padding: 3px;
+.sort-arrow {
+  display: none;
+  padding: 3px;
 }
 
 .disable-user-select {
-    cursor: default;
-    -webkit-touch-callout: none !important;
-    -webkit-user-select: none !important;
-    -khtml-user-select: none !important;
-    -moz-user-select: none !important;
-    -ms-user-select: none !important;
-    user-select: none !important;
+  cursor: default;
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  -khtml-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  user-select: none !important;
 }
 
-#new-app-title, #new-app-name, #edit-app-title, #edit-app-name{
-    max-width: 300px;
+#new-app-title,
+#new-app-name,
+#edit-app-title,
+#edit-app-name {
+  max-width: 300px;
 }
-.app-uid{
-    font-family: monospace;
+.app-uid {
+  font-family: monospace;
 }
-.app-url{
-    font-size: 15px;
+.app-url {
+  font-size: 15px;
 }
 
-.section-tab-buttons{
-    border-bottom: 1px solid #ddd;
-    padding-left: 0;
-    margin-bottom: 20px;
-    list-style: none;
-    box-sizing: border-box;
-    height: 44px;
+.section-tab-buttons {
+  border-bottom: 1px solid #ddd;
+  padding-left: 0;
+  margin-bottom: 20px;
+  list-style: none;
+  box-sizing: border-box;
+  height: 44px;
 }
 .section-tab-buttons > li {
-    float: left;
-    margin-bottom: -1px;
-    position: relative;
-    display: block;
+  float: left;
+  margin-bottom: -1px;
+  position: relative;
+  display: block;
 }
 .section-tab-buttons > li > span {
-    position: relative;
-    display: block;
-    padding: 10px 15px;
-    margin-right: 15px;
-    line-height: 1.42857143;
-    border: 1px solid transparent;
-    border-radius: 4px 4px 0 0;
-    color: #5a5a5a;
+  position: relative;
+  display: block;
+  padding: 10px 15px;
+  margin-right: 15px;
+  line-height: 1.42857143;
+  border: 1px solid transparent;
+  border-radius: 4px 4px 0 0;
+  color: #5a5a5a;
 }
-.section-tab-buttons > li:hover > span{
-    cursor: pointer;
-    border-bottom:none;
-    background-color:#f7f7f7;
+.section-tab-buttons > li:hover > span {
+  cursor: pointer;
+  border-bottom: none;
+  background-color: #f7f7f7;
 }
-.section-tab-buttons > li.active > span{
-    color: #000000;
-    cursor: default;
-    background-color: #fff;
-    border: 1px solid #ddd;
-    border-bottom-color: transparent;
+.section-tab-buttons > li.active > span {
+  color: #000000;
+  cursor: default;
+  background-color: #fff;
+  border: 1px solid #ddd;
+  border-bottom-color: transparent;
 }
-.section-tab{
-    display: none;
+.section-tab {
+  display: none;
 }
-.section-tab.active{
-    display: block;
+.section-tab.active {
+  display: block;
 }
 
-.drop-area{
-    width: 100%;
-    height: 300px;
-    background: #f7f7f742;
-    border: 2px dashed #CCC;
-    border-radius: 5px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    cursor: default;
-    font-size: 20px;
-    color: #717171;
-    transition: all 0.3s ease;
-    text-align: center;
-    box-sizing: border-box;
+.drop-area {
+  width: 100%;
+  height: 300px;
+  background: #f7f7f742;
+  border: 2px dashed #ccc;
+  border-radius: 5px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  cursor: default;
+  font-size: 20px;
+  color: #717171;
+  transition: all 0.3s ease;
+  text-align: center;
+  box-sizing: border-box;
 }
-.drop-area-ready-to-deploy{
-    background: #ebf6ff;
-    color: #0074ce;
-    border: 2px solid #0074ce;
+.drop-area-ready-to-deploy {
+  background: #ebf6ff;
+  color: #0074ce;
+  border: 2px solid #0074ce;
 }
-.drop-area-hover{
-    border:2px dashed black;
-    background-color: #f2f2f2;
-    color: black;
+.drop-area-hover {
+  border: 2px dashed black;
+  background-color: #f2f2f2;
+  color: black;
 }
-.reset-deploy{
-    color: #8a8a8a;
-    font-size: 15px;
-    margin-top: 0;
+.reset-deploy {
+  color: #8a8a8a;
+  font-size: 15px;
+  margin-top: 0;
 }
-.reset-deploy:hover{
-    color: black;
-    cursor: pointer;
+.reset-deploy:hover {
+  color: black;
+  cursor: pointer;
 }
-.deploy-btn{
-    margin-bottom: 20px; 
-    margin-top:10px;
+.deploy-btn {
+  margin-bottom: 20px;
+  margin-top: 10px;
 }
-.deploy-success-msg{
-    display: none;
-    margin-bottom: 10px;
-    position: relative;
+.deploy-success-msg {
+  display: none;
+  margin-bottom: 10px;
+  position: relative;
 }
-#earn-money{
-    max-width:600px;
-    position: relative; 
-    color: #3d4750;
-    font-smoothing: antialiased;
-    -webkit-font-smoothing: antialiased;
-    -moz-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    padding: 40px;
-    box-sizing: border-box;
+#earn-money {
+  max-width: 600px;
+  position: relative;
+  color: #3d4750;
+  font-smoothing: antialiased;
+  -webkit-font-smoothing: antialiased;
+  -moz-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  padding: 40px;
+  box-sizing: border-box;
 }
 #earn-money::backdrop {
-    background-color: rgba(0, 0, 0, 0.4);
-}
-  
-.create-an-app-btn{
-    float:right; margin-bottom: 10px;
-}
-.create-an-app-btn img{
-    width: 20px;
-    margin-bottom: -5px; 
-    margin-right: 10px;
-}
-.jip-submit-btn{
-    float: left; 
-    margin-top: 10px; 
-    margin-bottom: 20px;
-}
-.ip-terms-notice{
-    font-size: 12px; margin-top: 20px; margin-bottom: 0;
-}
-.app-list-nav{
-    overflow: hidden; margin-bottom: 40px; margin-top: 10px;
-}
-.back-to-main-btn{
-    float:right; margin-bottom: 10px;
-}
-.edit-app-navbar{
-    overflow: hidden; 
-    margin-bottom: 60px; 
-    margin-top: 20px;
-    display: flex;
-    align-items: center;
-}
-.app-title{
-    margin-top:0px; 
-    margin-bottom: 0;
-}
-.close-success-msg{
-    float: right;
-    font-size: 20px;
-    cursor: pointer;
-    line-height: 16px;
-    position: absolute;
-    top: 5px;
-    right: 10px;
+  background-color: rgba(0, 0, 0, 0.4);
 }
 
-.close-success-msg:hover{
-    color: black;
+.create-an-app-btn {
+  float: right;
+  margin-bottom: 10px;
 }
-.th-name{
-    padding-left: 10px !important;
+.create-an-app-btn img {
+  width: 20px;
+  margin-bottom: -5px;
+  margin-right: 10px;
 }
-.edit-app-save-btn{
-    float: right; 
-    margin-top: 20px; 
-    margin-bottom: 20px;
+.jip-submit-btn {
+  float: left;
+  margin-top: 10px;
+  margin-bottom: 20px;
 }
-.edit-app-reset-btn{
-    float: right; 
-    margin-top: 20px; 
-    margin-bottom: 20px;
-    margin-right: 10px;
+.ip-terms-notice {
+  font-size: 12px;
+  margin-top: 20px;
+  margin-bottom: 0;
+}
+.app-list-nav {
+  overflow: hidden;
+  margin-bottom: 40px;
+  margin-top: 10px;
+}
+.back-to-main-btn {
+  float: right;
+  margin-bottom: 10px;
+}
+.edit-app-navbar {
+  overflow: hidden;
+  margin-bottom: 60px;
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+}
+.app-title {
+  margin-top: 0px;
+  margin-bottom: 0;
+}
+.close-success-msg {
+  float: right;
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 16px;
+  position: absolute;
+  top: 5px;
+  right: 10px;
+}
+
+.close-success-msg:hover {
+  color: black;
+}
+.th-name {
+  padding-left: 10px !important;
+}
+.edit-app-save-btn {
+  float: right;
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+.edit-app-reset-btn {
+  float: right;
+  margin-top: 20px;
+  margin-bottom: 20px;
+  margin-right: 10px;
 }
 input:read-only {
-    background-color: rgb(242 242 242);
+  background-color: rgb(242 242 242);
 }
 
-dialog{
-    border: 1px solid #CCC;
-    border-radius: 5px;
-    box-shadow: 0px 0px 5px #949494;
-    outline: none;
+dialog {
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  box-shadow: 0px 0px 5px #949494;
+  outline: none;
 }
-.new-app-modal, .deleting-app-modal, .loading-modal{
-    padding: 60px 50px;
-    width: 150px;
-    text-align: center;
-}
-
-.insta-deploy-to-new-app, .insta-deploy-to-existing-app{
-    float: left;
-    width: 190px;
-    height: 220px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    cursor: pointer;
-    border: 2px solid #cdcdcd;
-    padding: 10px;
-    border-radius: 5px;
-    color: #5f5e5e;
-    font-size: 18px;
-}
-.insta-deploy-to-new-app:hover, .insta-deploy-to-existing-app:hover{
-    border: 2px solid #0074ce;
-    color: #00477d;
-    background-color: #f3faff;
-}
-.insta-deploy-to-new-app{
-    margin-right: 15px;
-}
-.insta-deploy-cancel, .insta-deploy-existing-app-back{
-    clear: both;
-    margin-top: 15px;
-    font-size: 13px;
-    color: #626262;
-    cursor: pointer;
-    display: inline-block;
-}
-.insta-deploy-existing-app-back{
-    margin: 0;
-    position: absolute;
-    top: 10px;
-    right: 12px;
-}
-.insta-deploy-cancel:hover, .insta-deploy-existing-app-back:hover{
-    color: #000;
-}
-.insta-deploy-app-selector{
-    height: 70px;
-    overflow: hidden;
-    cursor: pointer;
-    padding: 10px;
-    border-radius: 5px;
-    background: #eeeeee63;
-    margin-bottom: 10px;
-    box-sizing: border-box;
-    border: 2px solid transparent;
-}
-.insta-deploy-app-selector:hover{
-    background-color: #EEE;
-}
-.insta-deploy-app-selector.active{
-    background-color: #e3ebf0;
-    border: 2px solid #0074ce
+.new-app-modal,
+.deleting-app-modal,
+.loading-modal {
+  padding: 60px 50px;
+  width: 150px;
+  text-align: center;
 }
 
-.insta-deploy-app-icon{
-    width: 50px;
-    height: 50px;
-    float:left;
-    margin-right:20px;
+.insta-deploy-to-new-app,
+.insta-deploy-to-existing-app {
+  float: left;
+  width: 190px;
+  height: 220px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  border: 2px solid #cdcdcd;
+  padding: 10px;
+  border-radius: 5px;
+  color: #5f5e5e;
+  font-size: 18px;
 }
-.insta-deploy-existing-app-list{
-    height: 300px;
-    width: 300px;
-    overflow-y: scroll;
-    overflow-x: hidden;
-    border: 1px solid #EEE;
-    border-radius: 5px;
-    padding: 10px;
-    box-shadow: 1px 2px 5px inset #EEE;
-    
+.insta-deploy-to-new-app:hover,
+.insta-deploy-to-existing-app:hover {
+  border: 2px solid #0074ce;
+  color: #00477d;
+  background-color: #f3faff;
+}
+.insta-deploy-to-new-app {
+  margin-right: 15px;
+}
+.insta-deploy-cancel,
+.insta-deploy-existing-app-back {
+  clear: both;
+  margin-top: 15px;
+  font-size: 13px;
+  color: #626262;
+  cursor: pointer;
+  display: inline-block;
+}
+.insta-deploy-existing-app-back {
+  margin: 0;
+  position: absolute;
+  top: 10px;
+  right: 12px;
+}
+.insta-deploy-cancel:hover,
+.insta-deploy-existing-app-back:hover {
+  color: #000;
+}
+.insta-deploy-app-selector {
+  height: 70px;
+  overflow: hidden;
+  cursor: pointer;
+  padding: 10px;
+  border-radius: 5px;
+  background: #eeeeee63;
+  margin-bottom: 10px;
+  box-sizing: border-box;
+  border: 2px solid transparent;
+}
+.insta-deploy-app-selector:hover {
+  background-color: #eee;
+}
+.insta-deploy-app-selector.active {
+  background-color: #e3ebf0;
+  border: 2px solid #0074ce;
+}
+
+.insta-deploy-app-icon {
+  width: 50px;
+  height: 50px;
+  float: left;
+  margin-right: 20px;
+}
+.insta-deploy-existing-app-list {
+  height: 300px;
+  width: 300px;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  border: 1px solid #eee;
+  border-radius: 5px;
+  padding: 10px;
+  box-shadow: 1px 2px 5px inset #eee;
 }
 
 .insta-deploy-existing-app-list::-webkit-scrollbar {
-    display: none;
+  display: none;
 }
 
-.no-existing-apps{
-    margin-top: 20px;
-    font-size: 15px;
-    color: #777777;
-    text-align: center;
-    cursor: default;
+.no-existing-apps {
+  margin-top: 20px;
+  font-size: 15px;
+  color: #777777;
+  text-align: center;
+  cursor: default;
 }
 
 .search {
-    border-radius: 5px;
-    background-repeat: no-repeat;
-    width: 100%;
-    box-sizing: border-box;
-    background-color: white;
-    padding: 5px;
-    background-size: 20px;
-    background-position-y: center;
-    background-position-x: 5px;
-    padding-left: 35px;
-    padding-right: 35px;
-    border: 2px solid #CCC;
+  border-radius: 5px;
+  background-repeat: no-repeat;
+  width: 100%;
+  box-sizing: border-box;
+  background-color: white;
+  padding: 5px;
+  background-size: 20px;
+  background-position-y: center;
+  background-position-x: 5px;
+  padding-left: 35px;
+  padding-right: 35px;
+  border: 2px solid #ccc;
 }
 
 .search-clear {
-    display: none;
-    position: absolute;
-    right: 6px;
-    top: 6px;
-    opacity: 0.3;
-    height: 20px;
+  display: none;
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  opacity: 0.3;
+  height: 20px;
 }
 
 .search-clear:hover {
-    opacity: 1;
+  opacity: 1;
 }
-.approval-badge{
-    float:right;
-    padding: 4px;
-    font-size: 12px;
-    border-radius: 5px;
-    margin-top: 0; 
-    display: block;
-    width: 170px;
-    margin-bottom: 0;
-    width: 20px;
-    height: 20px;
-    margin-right: 3px;
-    filter: grayscale(100%);
-    color: green;
-    background: #c6f6c6;
-    border: 3px solid #00d251;
-    opacity: 0.4;
-    background-position: center;
-    background-size: contain;
-}
-
-.approval-badge-lsiting{
-    background-image: url("data:image/svg+xml,%3C%3Fxml%20version%3D%221.0%22%20encoding%3D%22utf-8%22%3F%3E%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20500%20500%22%3E%3Cg%20transform%3D%22matrix(1.235356%2C%200%2C%200%2C%201.216956%2C%202.740952%2C%205.645954)%22%20style%3D%22%22%3E%3ClinearGradient%20id%3D%22SVGID_1_%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%2285.941%22%20y1%3D%22446.6405%22%20x2%3D%22282.8565%22%20y2%3D%2220.8316%22%20gradientTransform%3D%22matrix(1%200%200%20-1%200%20400)%22%3E%3Cstop%20offset%3D%220%22%20style%3D%22stop-color%3A%23f0f2f5%22%2F%3E%3Cstop%20offset%3D%221%22%20style%3D%22stop-color%3A%23F5F3FF%22%2F%3E%3C%2FlinearGradient%3E%3Cpath%20class%3D%22st0%22%20d%3D%22M338.8%2C400H61.2C27.4%2C400%2C0%2C372.6%2C0%2C338.8V61.2C0%2C27.4%2C27.4%2C0%2C61.2%2C0h277.6C372.6%2C0%2C400%2C27.4%2C400%2C61.2v277.6%20%20%20C400%2C372.6%2C372.6%2C400%2C338.8%2C400z%22%20style%3D%22fill%3A%20%23ffffff00%3B%22%2F%3E%3C%2Fg%3E%3ClinearGradient%20id%3D%22linear-gradient%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%22215.26%22%20x2%3D%22107.98%22%20y1%3D%22215.26%22%20y2%3D%22107.98%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23ef3739%22%2F%3E%3Cstop%20offset%3D%220.54%22%20stop-color%3D%22%23ef3739%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23ff8c8b%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22linear-gradient-2%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%22213.43%22%20x2%3D%22110.21%22%20y1%3D%22401.8%22%20y2%3D%22298.58%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%231eb4eb%22%2F%3E%3Cstop%20offset%3D%220.54%22%20stop-color%3D%22%231eb4eb%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%2392f4fe%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22linear-gradient-3%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%22402.59%22%20x2%3D%22298.14%22%20y1%3D%22223.82%22%20y2%3D%22119.37%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23fe7838%22%2F%3E%3Cstop%20offset%3D%220.54%22%20stop-color%3D%22%23fe7636%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23ffad8a%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22linear-gradient-4%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%22411.68%22%20x2%3D%22289.18%22%20y1%3D%22411.68%22%20y2%3D%22289.18%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%236f2efe%22%2F%3E%3Cstop%20offset%3D%220.36%22%20stop-color%3D%22%236f2efe%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23ae90ff%22%2F%3E%3C%2FlinearGradient%3E%3Cg%20transform%3D%22matrix(1%2C%200%2C%200%2C%201%2C%20-6.481849%2C%20-8.898556)%22%3E%3Ccircle%20cx%3D%22161.62%22%20cy%3D%22161.62%22%20fill%3D%22url(%23linear-gradient)%22%20r%3D%2275.86%22%2F%3E%3Cpath%20d%3D%22m92.28%20419.73c8.68%208.68%2022.77%208.68%2031.45%200l37.19-37.19%2013.92%2022c9.77%2015.43%2033.27%2011.63%2037.66-6.1l24.33-98.13c3.76-15.16-9.96-28.89-25.13-25.13l-98.13%2024.33c-17.73%204.39-21.53%2027.9-6.1%2037.66l22%2013.92-37.19%2037.19c-8.68%208.68-8.68%2022.76%200%2031.45z%22%20fill%3D%22url(%23linear-gradient-2)%22%2F%3E%3Cpath%20d%3D%22m416.26%20136.29c-12.88-2.11-25.73-4.2-38.56-6.22-5.87-11.69-11.73-23.43-17.43-35.16-4.15-8.54-15.66-8.54-19.81%200-5.7%2011.73-11.56%2023.47-17.43%2035.16-12.82%202.01-25.68%204.1-38.56%206.22-9.36%201.58-13.38%2012.63-6.62%2018.93%209.27%208.72%2018.69%2017.69%2028.11%2026.78-2.02%2012.64-3.86%2025.24-5.44%2037.76-1.1%209.06%208.68%2016.58%2016.53%2012.5%2010.89-5.63%2022.02-11.56%2033.31-17.62%2011.29%206.06%2022.43%2011.98%2033.31%2017.62%207.85%204.08%2017.62-3.43%2016.53-12.5-1.58-12.53-3.42-25.12-5.44-37.76%209.42-9.09%2018.84-18.07%2028.11-26.78%206.75-6.31%202.73-17.36-6.62-18.93z%22%20fill%3D%22url(%23linear-gradient-3)%22%2F%3E%3Cpath%20d%3D%22m390.52%20277.7c-9.5-1.58-22.43-3.06-40.09-3.08-17.66.02-30.59%201.5-40.09%203.08-15.66%202.77-29.88%2016.99-32.64%2032.64-1.58%209.5-3.06%2022.43-3.08%2040.09.02%2017.66%201.5%2030.59%203.08%2040.09%202.77%2015.66%2016.99%2029.88%2032.64%2032.64%209.5%201.58%2022.43%203.06%2040.09%203.08%2017.66-.02%2030.59-1.5%2040.09-3.08%2015.66-2.77%2029.88-16.99%2032.64-32.64%201.58-9.5%203.06-22.43%203.08-40.09-.02-17.66-1.5-30.59-3.08-40.09-2.77-15.66-16.99-29.88-32.64-32.64z%22%20fill%3D%22url(%23linear-gradient-4)%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+.approval-badge {
+  float: right;
+  padding: 4px;
+  font-size: 12px;
+  border-radius: 5px;
+  margin-top: 0;
+  display: block;
+  width: 170px;
+  margin-bottom: 0;
+  width: 20px;
+  height: 20px;
+  margin-right: 3px;
+  filter: grayscale(100%);
+  color: green;
+  background: #c6f6c6;
+  border: 3px solid #00d251;
+  opacity: 0.4;
+  background-position: center;
+  background-size: contain;
 }
 
-.approval-badge-incentive{
-    background-image: url("data:image/svg+xml,%3Csvg%20fill%3D%22none%22%20height%3D%2232%22%20viewBox%3D%220%200%2032%2032%22%20width%3D%2232%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20xmlns%3Axlink%3D%22http%3A%2F%2Fwww.w3.org%2F1999%2Fxlink%22%3E%3Cfilter%20id%3D%22a%22%20color-interpolation-filters%3D%22sRGB%22%20filterUnits%3D%22userSpaceOnUse%22%20height%3D%2222.0859%22%20width%3D%2224.5625%22%20x%3D%224.44214%22%20y%3D%227.88281%22%3E%3CfeFlood%20flood-opacity%3D%220%22%20result%3D%22BackgroundImageFix%22%2F%3E%3CfeBlend%20in%3D%22SourceGraphic%22%20in2%3D%22BackgroundImageFix%22%20mode%3D%22normal%22%20result%3D%22shape%22%2F%3E%3CfeColorMatrix%20in%3D%22SourceAlpha%22%20result%3D%22hardAlpha%22%20type%3D%22matrix%22%20values%3D%220%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%20127%200%22%2F%3E%3CfeOffset%20dx%3D%221%22%20dy%3D%22-1.5%22%2F%3E%3CfeGaussianBlur%20stdDeviation%3D%221.75%22%2F%3E%3CfeComposite%20in2%3D%22hardAlpha%22%20k2%3D%22-1%22%20k3%3D%221%22%20operator%3D%22arithmetic%22%2F%3E%3CfeColorMatrix%20type%3D%22matrix%22%20values%3D%220%200%200%200%200.713726%200%200%200%200%200.321569%200%200%200%200%200.211765%200%200%200%201%200%22%2F%3E%3CfeBlend%20in2%3D%22shape%22%20mode%3D%22normal%22%20result%3D%22effect1_innerShadow_18_21307%22%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%22b%22%20color-interpolation-filters%3D%22sRGB%22%20filterUnits%3D%22userSpaceOnUse%22%20height%3D%225.70781%22%20width%3D%228.64821%22%20x%3D%2211.8493%22%20y%3D%221.85938%22%3E%3CfeFlood%20flood-opacity%3D%220%22%20result%3D%22BackgroundImageFix%22%2F%3E%3CfeBlend%20in%3D%22SourceGraphic%22%20in2%3D%22BackgroundImageFix%22%20mode%3D%22normal%22%20result%3D%22shape%22%2F%3E%3CfeColorMatrix%20in%3D%22SourceAlpha%22%20result%3D%22hardAlpha%22%20type%3D%22matrix%22%20values%3D%220%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%20127%200%22%2F%3E%3CfeOffset%20dx%3D%22-.2%22%20dy%3D%22.2%22%2F%3E%3CfeGaussianBlur%20stdDeviation%3D%22.15%22%2F%3E%3CfeComposite%20in2%3D%22hardAlpha%22%20k2%3D%22-1%22%20k3%3D%221%22%20operator%3D%22arithmetic%22%2F%3E%3CfeColorMatrix%20type%3D%22matrix%22%20values%3D%220%200%200%200%201%200%200%200%200%200.92549%200%200%200%200%200.403922%200%200%200%201%200%22%2F%3E%3CfeBlend%20in2%3D%22shape%22%20mode%3D%22normal%22%20result%3D%22effect1_innerShadow_18_21307%22%2F%3E%3CfeColorMatrix%20in%3D%22SourceAlpha%22%20result%3D%22hardAlpha%22%20type%3D%22matrix%22%20values%3D%220%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%20127%200%22%2F%3E%3CfeOffset%20dx%3D%22.1%22%20dy%3D%22-.25%22%2F%3E%3CfeGaussianBlur%20stdDeviation%3D%22.25%22%2F%3E%3CfeComposite%20in2%3D%22hardAlpha%22%20k2%3D%22-1%22%20k3%3D%221%22%20operator%3D%22arithmetic%22%2F%3E%3CfeColorMatrix%20type%3D%22matrix%22%20values%3D%220%200%200%200%200.788235%200%200%200%200%200.364706%200%200%200%200%200.12549%200%200%200%201%200%22%2F%3E%3CfeBlend%20in2%3D%22effect1_innerShadow_18_21307%22%20mode%3D%22normal%22%20result%3D%22effect2_innerShadow_18_21307%22%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%22c%22%20color-interpolation-filters%3D%22sRGB%22%20filterUnits%3D%22userSpaceOnUse%22%20height%3D%2214.4657%22%20width%3D%226.82797%22%20x%3D%2212.586%22%20y%3D%2213.1578%22%3E%3CfeFlood%20flood-opacity%3D%220%22%20result%3D%22BackgroundImageFix%22%2F%3E%3CfeBlend%20in%3D%22SourceGraphic%22%20in2%3D%22BackgroundImageFix%22%20mode%3D%22normal%22%20result%3D%22shape%22%2F%3E%3CfeGaussianBlur%20result%3D%22effect1_foregroundBlur_18_21307%22%20stdDeviation%3D%22.15%22%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%22d%22%20color-interpolation-filters%3D%22sRGB%22%20filterUnits%3D%22userSpaceOnUse%22%20height%3D%2214.2157%22%20width%3D%226.47797%22%20x%3D%2212.9859%22%20y%3D%2213.1562%22%3E%3CfeFlood%20flood-opacity%3D%220%22%20result%3D%22BackgroundImageFix%22%2F%3E%3CfeBlend%20in%3D%22SourceGraphic%22%20in2%3D%22BackgroundImageFix%22%20mode%3D%22normal%22%20result%3D%22shape%22%2F%3E%3CfeColorMatrix%20in%3D%22SourceAlpha%22%20result%3D%22hardAlpha%22%20type%3D%22matrix%22%20values%3D%220%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%20127%200%22%2F%3E%3CfeOffset%20dx%3D%22.15%22%20dy%3D%22-.2%22%2F%3E%3CfeGaussianBlur%20stdDeviation%3D%22.15%22%2F%3E%3CfeComposite%20in2%3D%22hardAlpha%22%20k2%3D%22-1%22%20k3%3D%221%22%20operator%3D%22arithmetic%22%2F%3E%3CfeColorMatrix%20type%3D%22matrix%22%20values%3D%220%200%200%200%200.352941%200%200%200%200%200.168627%200%200%200%200%200.188235%200%200%200%201%200%22%2F%3E%3CfeBlend%20in2%3D%22shape%22%20mode%3D%22normal%22%20result%3D%22effect1_innerShadow_18_21307%22%2F%3E%3CfeColorMatrix%20in%3D%22SourceAlpha%22%20result%3D%22hardAlpha%22%20type%3D%22matrix%22%20values%3D%220%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%20127%200%22%2F%3E%3CfeOffset%20dx%3D%22-.1%22%20dy%3D%22.15%22%2F%3E%3CfeGaussianBlur%20stdDeviation%3D%22.11%22%2F%3E%3CfeComposite%20in2%3D%22hardAlpha%22%20k2%3D%22-1%22%20k3%3D%221%22%20operator%3D%22arithmetic%22%2F%3E%3CfeColorMatrix%20type%3D%22matrix%22%20values%3D%220%200%200%200%200.670588%200%200%200%200%200.458824%200%200%200%200%200.403922%200%200%200%201%200%22%2F%3E%3CfeBlend%20in2%3D%22effect1_innerShadow_18_21307%22%20mode%3D%22normal%22%20result%3D%22effect2_innerShadow_18_21307%22%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%22e%22%20color-interpolation-filters%3D%22sRGB%22%20filterUnits%3D%22userSpaceOnUse%22%20height%3D%222.70938%22%20width%3D%225.73438%22%20x%3D%2213.3328%22%20y%3D%226.76719%22%3E%3CfeFlood%20flood-opacity%3D%220%22%20result%3D%22BackgroundImageFix%22%2F%3E%3CfeBlend%20in%3D%22SourceGraphic%22%20in2%3D%22BackgroundImageFix%22%20mode%3D%22normal%22%20result%3D%22shape%22%2F%3E%3CfeColorMatrix%20in%3D%22SourceAlpha%22%20result%3D%22hardAlpha%22%20type%3D%22matrix%22%20values%3D%220%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%20127%200%22%2F%3E%3CfeOffset%20dy%3D%22-.6%22%2F%3E%3CfeGaussianBlur%20stdDeviation%3D%22.5%22%2F%3E%3CfeComposite%20in2%3D%22hardAlpha%22%20k2%3D%22-1%22%20k3%3D%221%22%20operator%3D%22arithmetic%22%2F%3E%3CfeColorMatrix%20type%3D%22matrix%22%20values%3D%220%200%200%200%200.388235%200%200%200%200%200.223529%200%200%200%200%200.109804%200%200%200%201%200%22%2F%3E%3CfeBlend%20in2%3D%22shape%22%20mode%3D%22normal%22%20result%3D%22effect1_innerShadow_18_21307%22%2F%3E%3C%2Ffilter%3E%3CradialGradient%20id%3D%22f%22%20cx%3D%220%22%20cy%3D%220%22%20gradientTransform%3D%22matrix(-3.21876612%2018.12501307%20-18.98387517%20-3.37128884%2019.4421%2011.3125)%22%20gradientUnits%3D%22userSpaceOnUse%22%20r%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23f6c93b%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e88340%22%2F%3E%3C%2FradialGradient%3E%3CradialGradient%20id%3D%22g%22%20cx%3D%220%22%20cy%3D%220%22%20gradientTransform%3D%22matrix(-4.8125163%205.12498858%20-8.5863706%20-8.06285668%2024.0671%2014.1875)%22%20gradientUnits%3D%22userSpaceOnUse%22%20r%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23ffe065%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23ffe065%22%20stop-opacity%3D%220%22%2F%3E%3C%2FradialGradient%3E%3CradialGradient%20id%3D%22h%22%20cx%3D%220%22%20cy%3D%220%22%20gradientTransform%3D%22matrix(4.56250153%202.81250392%20-6.970389%2011.30750795%206.06714%2014.1875)%22%20gradientUnits%3D%22userSpaceOnUse%22%20r%3D%221%22%3E%3Cstop%20offset%3D%22.187216%22%20stop-color%3D%22%23ffa45d%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23ffa45d%22%20stop-opacity%3D%220%22%2F%3E%3C%2FradialGradient%3E%3CradialGradient%20id%3D%22i%22%20cx%3D%220%22%20cy%3D%220%22%20gradientTransform%3D%22matrix(0%20-16.3125%2024.5772%200%2016.2234%2025.25)%22%20gradientUnits%3D%22userSpaceOnUse%22%20r%3D%221%22%3E%3Cstop%20offset%3D%22.928161%22%20stop-color%3D%22%23f3bd46%22%20stop-opacity%3D%220%22%2F%3E%3Cstop%20offset%3D%22.979885%22%20stop-color%3D%22%23917011%22%2F%3E%3C%2FradialGradient%3E%3ClinearGradient%20id%3D%22j%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%2217.4773%22%20x2%3D%2216.2234%22%20y1%3D%223.89063%22%20y2%3D%227.36719%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23f3c048%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e67a41%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22k%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%2216%22%20x2%3D%2216%22%20y1%3D%2213.789%22%20y2%3D%2226.6015%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23a6782c%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23b95940%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22l%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%2219.6609%22%20x2%3D%2213.0859%22%20y1%3D%2221.8749%22%20y2%3D%2221.8749%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%239d6360%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23724a4d%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22m%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%2214.1296%22%20x2%3D%2219.0671%22%20y1%3D%228.42188%22%20y2%3D%228.42188%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23834b41%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23735854%22%2F%3E%3C%2FlinearGradient%3E%3CradialGradient%20id%3D%22n%22%20cx%3D%220%22%20cy%3D%220%22%20gradientTransform%3D%22matrix(-1.86719%200%200%20-1.40625%2018.0671%208.09375)%22%20gradientUnits%3D%22userSpaceOnUse%22%20r%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%237d5a54%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%237d5a54%22%20stop-opacity%3D%220%22%2F%3E%3C%2FradialGradient%3E%3CradialGradient%20id%3D%22o%22%20cx%3D%220%22%20cy%3D%220%22%20gradientTransform%3D%22matrix(-5.53125%200%200%20-4.43103%2018.3171%208.42187)%22%20gradientUnits%3D%22userSpaceOnUse%22%20r%3D%221%22%3E%3Cstop%20offset%3D%22.694915%22%20stop-color%3D%22%23b3624d%22%20stop-opacity%3D%220%22%2F%3E%3Cstop%20offset%3D%22.960452%22%20stop-color%3D%22%23b3624d%22%2F%3E%3C%2FradialGradient%3E%3Cg%20filter%3D%22url(%23a)%22%3E%3Cpath%20d%3D%22m4.44214%2020.8828c0-6.3513%205.14872-11.49999%2011.49996-11.49999h.5625c6.3513%200%2011.5%205.14869%2011.5%2011.49999v.2859c0%204.8602-3.9399%208.8001-8.8%208.8001h-5.9625c-4.86007%200-8.79996-3.9399-8.79996-8.8001z%22%20fill%3D%22url(%23f)%22%2F%3E%3Cpath%20d%3D%22m4.44214%2020.8828c0-6.3513%205.14872-11.49999%2011.49996-11.49999h.5625c6.3513%200%2011.5%205.14869%2011.5%2011.49999v.2859c0%204.8602-3.9399%208.8001-8.8%208.8001h-5.9625c-4.86007%200-8.79996-3.9399-8.79996-8.8001z%22%20fill%3D%22url(%23g)%22%2F%3E%3C%2Fg%3E%3Cpath%20d%3D%22m4.44214%2020.8828c0-6.3513%205.14872-11.49999%2011.49996-11.49999h.5625c6.3513%200%2011.5%205.14869%2011.5%2011.49999v.2859c0%204.8602-3.9399%208.8001-8.8%208.8001h-5.9625c-4.86007%200-8.79996-3.9399-8.79996-8.8001z%22%20fill%3D%22url(%23h)%22%2F%3E%3Cpath%20d%3D%22m4.44214%2020.8828c0-6.3513%205.14872-11.49999%2011.49996-11.49999h.5625c6.3513%200%2011.5%205.14869%2011.5%2011.49999v.2859c0%204.8602-3.9399%208.8001-8.8%208.8001h-5.9625c-4.86007%200-8.79996-3.9399-8.79996-8.8001z%22%20fill%3D%22url(%23i)%22%2F%3E%3Cg%20filter%3D%22url(%23b)%22%3E%3Cpath%20d%3D%22m12.1611%204.69522c.4705.80115%201.1549%201.82883%202.035%202.67197h4.0547c.88-.84314%201.5645-1.87082%202.0349-2.67197.2426-.41312.0748-.94037-.3522-1.15765-.3206-.16321-.6967-.08573-1.0076.09543-.7016.40878-1.1068-.07312-1.7259-1.01972-.3114-.47595-.7862-.50131-.9766-.5039-.1904.00259-.6652.02795-.9765.5039-.6192.9466-1.0244%201.4285-1.726%201.01972-.3109-.18116-.6869-.25864-1.0076-.09543-.427.21728-.5948.74453-.3522%201.15765z%22%20fill%3D%22url(%23j)%22%2F%3E%3C%2Fg%3E%3Cg%20filter%3D%22url(%23c)%22%3E%3Cpath%20d%3D%22m16.8%2014.2578c0-.4419-.3582-.8-.8-.8-.4419%200-.8.3581-.8.8v.755c0%20.1789-.1198.3338-.2869.3977-.2771.1059-.5538.2528-.808.4432-.6375.4771-1.1566%201.249-1.1566%202.3259%200%201.0601.4778%201.8283%201.1266%202.3205.6182.469%201.3644.6721%201.9604.7263.2416.0219.6022.0861.901.2746.2581.1628.5156.4421.57%201.0401.052.5724-.1805.912-.4839%201.1433-.3502.267-.7568.3515-.86.3515-.2409%200-.654-.032-1.0032-.2215-.294-.1596-.6109-.4618-.6765-1.198-.0393-.4401-.4278-.765-.8679-.7258s-.765.4278-.7258.8679c.1141%201.2794.7503%202.0514%201.507%202.4621.1671.0907.3361.1618.5011.2174.1751.059.3027.2173.3027.4021v.6833c0%20.4418.3581.8.8.8.4418%200%20.8-.3582.8-.8v-.6761c0-.1808.122-.337.2916-.3994.3007-.1108.6144-.2726.9009-.491.6648-.5067%201.2174-1.3506%201.1074-2.5606-.1018-1.1207-.6639-1.7949-1.3201-2.2089-.6156-.3882-1.2897-.5163-1.625-.5468-.9084-.0471-1.6063-.5485-1.6063-1.461%200-.5012.1988-.8691.4937-1.0898.6087-.5156%201.644-.4455%202.1329.2025.2164.2868.3133.6029.3352.8873.0338.4405.4149.7917.8554.7578.4405-.0338.7691-.3786.7352-.8191-.0354-.4604-.1877-1.1343-.6531-1.7512-.304-.4028-.8784-.7891-1.3507-.9836-.1704-.0702-.2971-.2293-.2971-.4135z%22%20fill%3D%22url(%23k)%22%2F%3E%3C%2Fg%3E%3Cg%20filter%3D%22url(%23d)%22%3E%3Cpath%20d%3D%22m16.9999%2014.1562c0-.4418-.3582-.8-.8-.8s-.8.3582-.8.8v.755c0%20.1789-.1198.3339-.2869.3978-.2771.1059-.5538.2528-.808.4431-.6374.4772-1.1565%201.249-1.1565%202.326%200%201.06.4777%201.8282%201.1266%202.3205.6182.469%201.3643.672%201.9603.7262.2417.022.6023.0861.9011.2746.2581.1628.5156.4421.57%201.0402.052.5723-.1805.912-.484%201.1433-.3502.2669-.7567.3514-.86.3514-.2409%200-.6539-.0319-1.0031-.2214-.294-.1596-.6109-.4619-.6766-1.198-.0392-.4401-.4278-.7651-.8678-.7259-.4401.0393-.7651.4278-.7259.8679.1141%201.2795.7503%202.0515%201.5071%202.4622.1671.0907.3361.1617.5011.2173.1751.0591.3026.2174.3026.4022v.6832c0%20.4419.3582.8.8.8s.8-.3581.8-.8v-.6761c0-.1807.1221-.3369.2917-.3994.3006-.1108.6144-.2726.9009-.4909.6647-.5068%201.2174-1.3507%201.1074-2.5607-.1019-1.1207-.6639-1.7949-1.3202-2.2088-.6155-.3883-1.2897-.5164-1.625-.5469-.9083-.047-1.6062-.5485-1.6062-1.4609%200-.5012.1988-.8691.4937-1.0899.6086-.5156%201.644-.4455%202.1329.2026.2163.2867.3132.6029.3351.8873.0339.4405.4149.7917.8555.7578.4405-.0339.769-.3787.7351-.8192-.0354-.4604-.1877-1.1342-.6531-1.7511-.304-.4029-.8783-.7892-1.3506-.9837-.1704-.0701-.2972-.2292-.2972-.4135z%22%20fill%3D%22url(%23l)%22%2F%3E%3C%2Fg%3E%3Cg%20filter%3D%22url(%23e)%22%3E%3Crect%20fill%3D%22url(%23m)%22%20height%3D%222.10938%22%20rx%3D%221.05078%22%20width%3D%225.73438%22%20x%3D%2213.3328%22%20y%3D%227.36719%22%2F%3E%3Crect%20fill%3D%22url(%23n)%22%20height%3D%222.10938%22%20rx%3D%221.05078%22%20width%3D%225.73438%22%20x%3D%2213.3328%22%20y%3D%227.36719%22%2F%3E%3C%2Fg%3E%3Crect%20fill%3D%22url(%23o)%22%20height%3D%222.10938%22%20rx%3D%221.05078%22%20width%3D%225.73438%22%20x%3D%2213.3328%22%20y%3D%227.36719%22%2F%3E%3C%2Fsvg%3E");
+.approval-badge-lsiting {
+  background-image: url('data:image/svg+xml,%3C%3Fxml%20version%3D%221.0%22%20encoding%3D%22utf-8%22%3F%3E%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20500%20500%22%3E%3Cg%20transform%3D%22matrix(1.235356%2C%200%2C%200%2C%201.216956%2C%202.740952%2C%205.645954)%22%20style%3D%22%22%3E%3ClinearGradient%20id%3D%22SVGID_1_%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%2285.941%22%20y1%3D%22446.6405%22%20x2%3D%22282.8565%22%20y2%3D%2220.8316%22%20gradientTransform%3D%22matrix(1%200%200%20-1%200%20400)%22%3E%3Cstop%20offset%3D%220%22%20style%3D%22stop-color%3A%23f0f2f5%22%2F%3E%3Cstop%20offset%3D%221%22%20style%3D%22stop-color%3A%23F5F3FF%22%2F%3E%3C%2FlinearGradient%3E%3Cpath%20class%3D%22st0%22%20d%3D%22M338.8%2C400H61.2C27.4%2C400%2C0%2C372.6%2C0%2C338.8V61.2C0%2C27.4%2C27.4%2C0%2C61.2%2C0h277.6C372.6%2C0%2C400%2C27.4%2C400%2C61.2v277.6%20%20%20C400%2C372.6%2C372.6%2C400%2C338.8%2C400z%22%20style%3D%22fill%3A%20%23ffffff00%3B%22%2F%3E%3C%2Fg%3E%3ClinearGradient%20id%3D%22linear-gradient%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%22215.26%22%20x2%3D%22107.98%22%20y1%3D%22215.26%22%20y2%3D%22107.98%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23ef3739%22%2F%3E%3Cstop%20offset%3D%220.54%22%20stop-color%3D%22%23ef3739%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23ff8c8b%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22linear-gradient-2%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%22213.43%22%20x2%3D%22110.21%22%20y1%3D%22401.8%22%20y2%3D%22298.58%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%231eb4eb%22%2F%3E%3Cstop%20offset%3D%220.54%22%20stop-color%3D%22%231eb4eb%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%2392f4fe%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22linear-gradient-3%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%22402.59%22%20x2%3D%22298.14%22%20y1%3D%22223.82%22%20y2%3D%22119.37%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23fe7838%22%2F%3E%3Cstop%20offset%3D%220.54%22%20stop-color%3D%22%23fe7636%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23ffad8a%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22linear-gradient-4%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%22411.68%22%20x2%3D%22289.18%22%20y1%3D%22411.68%22%20y2%3D%22289.18%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%236f2efe%22%2F%3E%3Cstop%20offset%3D%220.36%22%20stop-color%3D%22%236f2efe%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23ae90ff%22%2F%3E%3C%2FlinearGradient%3E%3Cg%20transform%3D%22matrix(1%2C%200%2C%200%2C%201%2C%20-6.481849%2C%20-8.898556)%22%3E%3Ccircle%20cx%3D%22161.62%22%20cy%3D%22161.62%22%20fill%3D%22url(%23linear-gradient)%22%20r%3D%2275.86%22%2F%3E%3Cpath%20d%3D%22m92.28%20419.73c8.68%208.68%2022.77%208.68%2031.45%200l37.19-37.19%2013.92%2022c9.77%2015.43%2033.27%2011.63%2037.66-6.1l24.33-98.13c3.76-15.16-9.96-28.89-25.13-25.13l-98.13%2024.33c-17.73%204.39-21.53%2027.9-6.1%2037.66l22%2013.92-37.19%2037.19c-8.68%208.68-8.68%2022.76%200%2031.45z%22%20fill%3D%22url(%23linear-gradient-2)%22%2F%3E%3Cpath%20d%3D%22m416.26%20136.29c-12.88-2.11-25.73-4.2-38.56-6.22-5.87-11.69-11.73-23.43-17.43-35.16-4.15-8.54-15.66-8.54-19.81%200-5.7%2011.73-11.56%2023.47-17.43%2035.16-12.82%202.01-25.68%204.1-38.56%206.22-9.36%201.58-13.38%2012.63-6.62%2018.93%209.27%208.72%2018.69%2017.69%2028.11%2026.78-2.02%2012.64-3.86%2025.24-5.44%2037.76-1.1%209.06%208.68%2016.58%2016.53%2012.5%2010.89-5.63%2022.02-11.56%2033.31-17.62%2011.29%206.06%2022.43%2011.98%2033.31%2017.62%207.85%204.08%2017.62-3.43%2016.53-12.5-1.58-12.53-3.42-25.12-5.44-37.76%209.42-9.09%2018.84-18.07%2028.11-26.78%206.75-6.31%202.73-17.36-6.62-18.93z%22%20fill%3D%22url(%23linear-gradient-3)%22%2F%3E%3Cpath%20d%3D%22m390.52%20277.7c-9.5-1.58-22.43-3.06-40.09-3.08-17.66.02-30.59%201.5-40.09%203.08-15.66%202.77-29.88%2016.99-32.64%2032.64-1.58%209.5-3.06%2022.43-3.08%2040.09.02%2017.66%201.5%2030.59%203.08%2040.09%202.77%2015.66%2016.99%2029.88%2032.64%2032.64%209.5%201.58%2022.43%203.06%2040.09%203.08%2017.66-.02%2030.59-1.5%2040.09-3.08%2015.66-2.77%2029.88-16.99%2032.64-32.64%201.58-9.5%203.06-22.43%203.08-40.09-.02-17.66-1.5-30.59-3.08-40.09-2.77-15.66-16.99-29.88-32.64-32.64z%22%20fill%3D%22url(%23linear-gradient-4)%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E');
 }
 
-.approval-badge-opening{
-    background-image: url("data:image/svg+xml,%3Csvg%20fill%3D%22none%22%20height%3D%2248%22%20viewBox%3D%220%200%2048%2048%22%20width%3D%2248%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22m0%200h48v48h-48z%22%20fill%3D%22%23fff%22%20fill-opacity%3D%22.01%22%2F%3E%3Cg%20stroke%3D%22%23000%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%224%22%3E%3Cpath%20d%3D%22m24%204v8%22%2F%3E%3Cpath%20clip-rule%3D%22evenodd%22%20d%3D%22m22%2022%2020%204-6%204%206%206-6%206-6-6-4%206z%22%20fill%3D%22%232f88ff%22%20fill-rule%3D%22evenodd%22%2F%3E%3Cpath%20d%3D%22m38.1421%209.85795-5.6568%205.65685%22%2F%3E%3Cpath%20d%3D%22m9.85787%2038.1421%205.65683-5.6569%22%2F%3E%3Cpath%20d%3D%22m4%2024h8%22%2F%3E%3Cpath%20d%3D%22m9.85783%209.85787%205.65687%205.65683%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E")
+.approval-badge-incentive {
+  background-image: url('data:image/svg+xml,%3Csvg%20fill%3D%22none%22%20height%3D%2232%22%20viewBox%3D%220%200%2032%2032%22%20width%3D%2232%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20xmlns%3Axlink%3D%22http%3A%2F%2Fwww.w3.org%2F1999%2Fxlink%22%3E%3Cfilter%20id%3D%22a%22%20color-interpolation-filters%3D%22sRGB%22%20filterUnits%3D%22userSpaceOnUse%22%20height%3D%2222.0859%22%20width%3D%2224.5625%22%20x%3D%224.44214%22%20y%3D%227.88281%22%3E%3CfeFlood%20flood-opacity%3D%220%22%20result%3D%22BackgroundImageFix%22%2F%3E%3CfeBlend%20in%3D%22SourceGraphic%22%20in2%3D%22BackgroundImageFix%22%20mode%3D%22normal%22%20result%3D%22shape%22%2F%3E%3CfeColorMatrix%20in%3D%22SourceAlpha%22%20result%3D%22hardAlpha%22%20type%3D%22matrix%22%20values%3D%220%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%20127%200%22%2F%3E%3CfeOffset%20dx%3D%221%22%20dy%3D%22-1.5%22%2F%3E%3CfeGaussianBlur%20stdDeviation%3D%221.75%22%2F%3E%3CfeComposite%20in2%3D%22hardAlpha%22%20k2%3D%22-1%22%20k3%3D%221%22%20operator%3D%22arithmetic%22%2F%3E%3CfeColorMatrix%20type%3D%22matrix%22%20values%3D%220%200%200%200%200.713726%200%200%200%200%200.321569%200%200%200%200%200.211765%200%200%200%201%200%22%2F%3E%3CfeBlend%20in2%3D%22shape%22%20mode%3D%22normal%22%20result%3D%22effect1_innerShadow_18_21307%22%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%22b%22%20color-interpolation-filters%3D%22sRGB%22%20filterUnits%3D%22userSpaceOnUse%22%20height%3D%225.70781%22%20width%3D%228.64821%22%20x%3D%2211.8493%22%20y%3D%221.85938%22%3E%3CfeFlood%20flood-opacity%3D%220%22%20result%3D%22BackgroundImageFix%22%2F%3E%3CfeBlend%20in%3D%22SourceGraphic%22%20in2%3D%22BackgroundImageFix%22%20mode%3D%22normal%22%20result%3D%22shape%22%2F%3E%3CfeColorMatrix%20in%3D%22SourceAlpha%22%20result%3D%22hardAlpha%22%20type%3D%22matrix%22%20values%3D%220%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%20127%200%22%2F%3E%3CfeOffset%20dx%3D%22-.2%22%20dy%3D%22.2%22%2F%3E%3CfeGaussianBlur%20stdDeviation%3D%22.15%22%2F%3E%3CfeComposite%20in2%3D%22hardAlpha%22%20k2%3D%22-1%22%20k3%3D%221%22%20operator%3D%22arithmetic%22%2F%3E%3CfeColorMatrix%20type%3D%22matrix%22%20values%3D%220%200%200%200%201%200%200%200%200%200.92549%200%200%200%200%200.403922%200%200%200%201%200%22%2F%3E%3CfeBlend%20in2%3D%22shape%22%20mode%3D%22normal%22%20result%3D%22effect1_innerShadow_18_21307%22%2F%3E%3CfeColorMatrix%20in%3D%22SourceAlpha%22%20result%3D%22hardAlpha%22%20type%3D%22matrix%22%20values%3D%220%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%20127%200%22%2F%3E%3CfeOffset%20dx%3D%22.1%22%20dy%3D%22-.25%22%2F%3E%3CfeGaussianBlur%20stdDeviation%3D%22.25%22%2F%3E%3CfeComposite%20in2%3D%22hardAlpha%22%20k2%3D%22-1%22%20k3%3D%221%22%20operator%3D%22arithmetic%22%2F%3E%3CfeColorMatrix%20type%3D%22matrix%22%20values%3D%220%200%200%200%200.788235%200%200%200%200%200.364706%200%200%200%200%200.12549%200%200%200%201%200%22%2F%3E%3CfeBlend%20in2%3D%22effect1_innerShadow_18_21307%22%20mode%3D%22normal%22%20result%3D%22effect2_innerShadow_18_21307%22%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%22c%22%20color-interpolation-filters%3D%22sRGB%22%20filterUnits%3D%22userSpaceOnUse%22%20height%3D%2214.4657%22%20width%3D%226.82797%22%20x%3D%2212.586%22%20y%3D%2213.1578%22%3E%3CfeFlood%20flood-opacity%3D%220%22%20result%3D%22BackgroundImageFix%22%2F%3E%3CfeBlend%20in%3D%22SourceGraphic%22%20in2%3D%22BackgroundImageFix%22%20mode%3D%22normal%22%20result%3D%22shape%22%2F%3E%3CfeGaussianBlur%20result%3D%22effect1_foregroundBlur_18_21307%22%20stdDeviation%3D%22.15%22%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%22d%22%20color-interpolation-filters%3D%22sRGB%22%20filterUnits%3D%22userSpaceOnUse%22%20height%3D%2214.2157%22%20width%3D%226.47797%22%20x%3D%2212.9859%22%20y%3D%2213.1562%22%3E%3CfeFlood%20flood-opacity%3D%220%22%20result%3D%22BackgroundImageFix%22%2F%3E%3CfeBlend%20in%3D%22SourceGraphic%22%20in2%3D%22BackgroundImageFix%22%20mode%3D%22normal%22%20result%3D%22shape%22%2F%3E%3CfeColorMatrix%20in%3D%22SourceAlpha%22%20result%3D%22hardAlpha%22%20type%3D%22matrix%22%20values%3D%220%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%20127%200%22%2F%3E%3CfeOffset%20dx%3D%22.15%22%20dy%3D%22-.2%22%2F%3E%3CfeGaussianBlur%20stdDeviation%3D%22.15%22%2F%3E%3CfeComposite%20in2%3D%22hardAlpha%22%20k2%3D%22-1%22%20k3%3D%221%22%20operator%3D%22arithmetic%22%2F%3E%3CfeColorMatrix%20type%3D%22matrix%22%20values%3D%220%200%200%200%200.352941%200%200%200%200%200.168627%200%200%200%200%200.188235%200%200%200%201%200%22%2F%3E%3CfeBlend%20in2%3D%22shape%22%20mode%3D%22normal%22%20result%3D%22effect1_innerShadow_18_21307%22%2F%3E%3CfeColorMatrix%20in%3D%22SourceAlpha%22%20result%3D%22hardAlpha%22%20type%3D%22matrix%22%20values%3D%220%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%20127%200%22%2F%3E%3CfeOffset%20dx%3D%22-.1%22%20dy%3D%22.15%22%2F%3E%3CfeGaussianBlur%20stdDeviation%3D%22.11%22%2F%3E%3CfeComposite%20in2%3D%22hardAlpha%22%20k2%3D%22-1%22%20k3%3D%221%22%20operator%3D%22arithmetic%22%2F%3E%3CfeColorMatrix%20type%3D%22matrix%22%20values%3D%220%200%200%200%200.670588%200%200%200%200%200.458824%200%200%200%200%200.403922%200%200%200%201%200%22%2F%3E%3CfeBlend%20in2%3D%22effect1_innerShadow_18_21307%22%20mode%3D%22normal%22%20result%3D%22effect2_innerShadow_18_21307%22%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%22e%22%20color-interpolation-filters%3D%22sRGB%22%20filterUnits%3D%22userSpaceOnUse%22%20height%3D%222.70938%22%20width%3D%225.73438%22%20x%3D%2213.3328%22%20y%3D%226.76719%22%3E%3CfeFlood%20flood-opacity%3D%220%22%20result%3D%22BackgroundImageFix%22%2F%3E%3CfeBlend%20in%3D%22SourceGraphic%22%20in2%3D%22BackgroundImageFix%22%20mode%3D%22normal%22%20result%3D%22shape%22%2F%3E%3CfeColorMatrix%20in%3D%22SourceAlpha%22%20result%3D%22hardAlpha%22%20type%3D%22matrix%22%20values%3D%220%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%20127%200%22%2F%3E%3CfeOffset%20dy%3D%22-.6%22%2F%3E%3CfeGaussianBlur%20stdDeviation%3D%22.5%22%2F%3E%3CfeComposite%20in2%3D%22hardAlpha%22%20k2%3D%22-1%22%20k3%3D%221%22%20operator%3D%22arithmetic%22%2F%3E%3CfeColorMatrix%20type%3D%22matrix%22%20values%3D%220%200%200%200%200.388235%200%200%200%200%200.223529%200%200%200%200%200.109804%200%200%200%201%200%22%2F%3E%3CfeBlend%20in2%3D%22shape%22%20mode%3D%22normal%22%20result%3D%22effect1_innerShadow_18_21307%22%2F%3E%3C%2Ffilter%3E%3CradialGradient%20id%3D%22f%22%20cx%3D%220%22%20cy%3D%220%22%20gradientTransform%3D%22matrix(-3.21876612%2018.12501307%20-18.98387517%20-3.37128884%2019.4421%2011.3125)%22%20gradientUnits%3D%22userSpaceOnUse%22%20r%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23f6c93b%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e88340%22%2F%3E%3C%2FradialGradient%3E%3CradialGradient%20id%3D%22g%22%20cx%3D%220%22%20cy%3D%220%22%20gradientTransform%3D%22matrix(-4.8125163%205.12498858%20-8.5863706%20-8.06285668%2024.0671%2014.1875)%22%20gradientUnits%3D%22userSpaceOnUse%22%20r%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23ffe065%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23ffe065%22%20stop-opacity%3D%220%22%2F%3E%3C%2FradialGradient%3E%3CradialGradient%20id%3D%22h%22%20cx%3D%220%22%20cy%3D%220%22%20gradientTransform%3D%22matrix(4.56250153%202.81250392%20-6.970389%2011.30750795%206.06714%2014.1875)%22%20gradientUnits%3D%22userSpaceOnUse%22%20r%3D%221%22%3E%3Cstop%20offset%3D%22.187216%22%20stop-color%3D%22%23ffa45d%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23ffa45d%22%20stop-opacity%3D%220%22%2F%3E%3C%2FradialGradient%3E%3CradialGradient%20id%3D%22i%22%20cx%3D%220%22%20cy%3D%220%22%20gradientTransform%3D%22matrix(0%20-16.3125%2024.5772%200%2016.2234%2025.25)%22%20gradientUnits%3D%22userSpaceOnUse%22%20r%3D%221%22%3E%3Cstop%20offset%3D%22.928161%22%20stop-color%3D%22%23f3bd46%22%20stop-opacity%3D%220%22%2F%3E%3Cstop%20offset%3D%22.979885%22%20stop-color%3D%22%23917011%22%2F%3E%3C%2FradialGradient%3E%3ClinearGradient%20id%3D%22j%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%2217.4773%22%20x2%3D%2216.2234%22%20y1%3D%223.89063%22%20y2%3D%227.36719%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23f3c048%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e67a41%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22k%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%2216%22%20x2%3D%2216%22%20y1%3D%2213.789%22%20y2%3D%2226.6015%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23a6782c%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23b95940%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22l%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%2219.6609%22%20x2%3D%2213.0859%22%20y1%3D%2221.8749%22%20y2%3D%2221.8749%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%239d6360%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23724a4d%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22m%22%20gradientUnits%3D%22userSpaceOnUse%22%20x1%3D%2214.1296%22%20x2%3D%2219.0671%22%20y1%3D%228.42188%22%20y2%3D%228.42188%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23834b41%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23735854%22%2F%3E%3C%2FlinearGradient%3E%3CradialGradient%20id%3D%22n%22%20cx%3D%220%22%20cy%3D%220%22%20gradientTransform%3D%22matrix(-1.86719%200%200%20-1.40625%2018.0671%208.09375)%22%20gradientUnits%3D%22userSpaceOnUse%22%20r%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%237d5a54%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%237d5a54%22%20stop-opacity%3D%220%22%2F%3E%3C%2FradialGradient%3E%3CradialGradient%20id%3D%22o%22%20cx%3D%220%22%20cy%3D%220%22%20gradientTransform%3D%22matrix(-5.53125%200%200%20-4.43103%2018.3171%208.42187)%22%20gradientUnits%3D%22userSpaceOnUse%22%20r%3D%221%22%3E%3Cstop%20offset%3D%22.694915%22%20stop-color%3D%22%23b3624d%22%20stop-opacity%3D%220%22%2F%3E%3Cstop%20offset%3D%22.960452%22%20stop-color%3D%22%23b3624d%22%2F%3E%3C%2FradialGradient%3E%3Cg%20filter%3D%22url(%23a)%22%3E%3Cpath%20d%3D%22m4.44214%2020.8828c0-6.3513%205.14872-11.49999%2011.49996-11.49999h.5625c6.3513%200%2011.5%205.14869%2011.5%2011.49999v.2859c0%204.8602-3.9399%208.8001-8.8%208.8001h-5.9625c-4.86007%200-8.79996-3.9399-8.79996-8.8001z%22%20fill%3D%22url(%23f)%22%2F%3E%3Cpath%20d%3D%22m4.44214%2020.8828c0-6.3513%205.14872-11.49999%2011.49996-11.49999h.5625c6.3513%200%2011.5%205.14869%2011.5%2011.49999v.2859c0%204.8602-3.9399%208.8001-8.8%208.8001h-5.9625c-4.86007%200-8.79996-3.9399-8.79996-8.8001z%22%20fill%3D%22url(%23g)%22%2F%3E%3C%2Fg%3E%3Cpath%20d%3D%22m4.44214%2020.8828c0-6.3513%205.14872-11.49999%2011.49996-11.49999h.5625c6.3513%200%2011.5%205.14869%2011.5%2011.49999v.2859c0%204.8602-3.9399%208.8001-8.8%208.8001h-5.9625c-4.86007%200-8.79996-3.9399-8.79996-8.8001z%22%20fill%3D%22url(%23h)%22%2F%3E%3Cpath%20d%3D%22m4.44214%2020.8828c0-6.3513%205.14872-11.49999%2011.49996-11.49999h.5625c6.3513%200%2011.5%205.14869%2011.5%2011.49999v.2859c0%204.8602-3.9399%208.8001-8.8%208.8001h-5.9625c-4.86007%200-8.79996-3.9399-8.79996-8.8001z%22%20fill%3D%22url(%23i)%22%2F%3E%3Cg%20filter%3D%22url(%23b)%22%3E%3Cpath%20d%3D%22m12.1611%204.69522c.4705.80115%201.1549%201.82883%202.035%202.67197h4.0547c.88-.84314%201.5645-1.87082%202.0349-2.67197.2426-.41312.0748-.94037-.3522-1.15765-.3206-.16321-.6967-.08573-1.0076.09543-.7016.40878-1.1068-.07312-1.7259-1.01972-.3114-.47595-.7862-.50131-.9766-.5039-.1904.00259-.6652.02795-.9765.5039-.6192.9466-1.0244%201.4285-1.726%201.01972-.3109-.18116-.6869-.25864-1.0076-.09543-.427.21728-.5948.74453-.3522%201.15765z%22%20fill%3D%22url(%23j)%22%2F%3E%3C%2Fg%3E%3Cg%20filter%3D%22url(%23c)%22%3E%3Cpath%20d%3D%22m16.8%2014.2578c0-.4419-.3582-.8-.8-.8-.4419%200-.8.3581-.8.8v.755c0%20.1789-.1198.3338-.2869.3977-.2771.1059-.5538.2528-.808.4432-.6375.4771-1.1566%201.249-1.1566%202.3259%200%201.0601.4778%201.8283%201.1266%202.3205.6182.469%201.3644.6721%201.9604.7263.2416.0219.6022.0861.901.2746.2581.1628.5156.4421.57%201.0401.052.5724-.1805.912-.4839%201.1433-.3502.267-.7568.3515-.86.3515-.2409%200-.654-.032-1.0032-.2215-.294-.1596-.6109-.4618-.6765-1.198-.0393-.4401-.4278-.765-.8679-.7258s-.765.4278-.7258.8679c.1141%201.2794.7503%202.0514%201.507%202.4621.1671.0907.3361.1618.5011.2174.1751.059.3027.2173.3027.4021v.6833c0%20.4418.3581.8.8.8.4418%200%20.8-.3582.8-.8v-.6761c0-.1808.122-.337.2916-.3994.3007-.1108.6144-.2726.9009-.491.6648-.5067%201.2174-1.3506%201.1074-2.5606-.1018-1.1207-.6639-1.7949-1.3201-2.2089-.6156-.3882-1.2897-.5163-1.625-.5468-.9084-.0471-1.6063-.5485-1.6063-1.461%200-.5012.1988-.8691.4937-1.0898.6087-.5156%201.644-.4455%202.1329.2025.2164.2868.3133.6029.3352.8873.0338.4405.4149.7917.8554.7578.4405-.0338.7691-.3786.7352-.8191-.0354-.4604-.1877-1.1343-.6531-1.7512-.304-.4028-.8784-.7891-1.3507-.9836-.1704-.0702-.2971-.2293-.2971-.4135z%22%20fill%3D%22url(%23k)%22%2F%3E%3C%2Fg%3E%3Cg%20filter%3D%22url(%23d)%22%3E%3Cpath%20d%3D%22m16.9999%2014.1562c0-.4418-.3582-.8-.8-.8s-.8.3582-.8.8v.755c0%20.1789-.1198.3339-.2869.3978-.2771.1059-.5538.2528-.808.4431-.6374.4772-1.1565%201.249-1.1565%202.326%200%201.06.4777%201.8282%201.1266%202.3205.6182.469%201.3643.672%201.9603.7262.2417.022.6023.0861.9011.2746.2581.1628.5156.4421.57%201.0402.052.5723-.1805.912-.484%201.1433-.3502.2669-.7567.3514-.86.3514-.2409%200-.6539-.0319-1.0031-.2214-.294-.1596-.6109-.4619-.6766-1.198-.0392-.4401-.4278-.7651-.8678-.7259-.4401.0393-.7651.4278-.7259.8679.1141%201.2795.7503%202.0515%201.5071%202.4622.1671.0907.3361.1617.5011.2173.1751.0591.3026.2174.3026.4022v.6832c0%20.4419.3582.8.8.8s.8-.3581.8-.8v-.6761c0-.1807.1221-.3369.2917-.3994.3006-.1108.6144-.2726.9009-.4909.6647-.5068%201.2174-1.3507%201.1074-2.5607-.1019-1.1207-.6639-1.7949-1.3202-2.2088-.6155-.3883-1.2897-.5164-1.625-.5469-.9083-.047-1.6062-.5485-1.6062-1.4609%200-.5012.1988-.8691.4937-1.0899.6086-.5156%201.644-.4455%202.1329.2026.2163.2867.3132.6029.3351.8873.0339.4405.4149.7917.8555.7578.4405-.0339.769-.3787.7351-.8192-.0354-.4604-.1877-1.1342-.6531-1.7511-.304-.4029-.8783-.7892-1.3506-.9837-.1704-.0701-.2972-.2292-.2972-.4135z%22%20fill%3D%22url(%23l)%22%2F%3E%3C%2Fg%3E%3Cg%20filter%3D%22url(%23e)%22%3E%3Crect%20fill%3D%22url(%23m)%22%20height%3D%222.10938%22%20rx%3D%221.05078%22%20width%3D%225.73438%22%20x%3D%2213.3328%22%20y%3D%227.36719%22%2F%3E%3Crect%20fill%3D%22url(%23n)%22%20height%3D%222.10938%22%20rx%3D%221.05078%22%20width%3D%225.73438%22%20x%3D%2213.3328%22%20y%3D%227.36719%22%2F%3E%3C%2Fg%3E%3Crect%20fill%3D%22url(%23o)%22%20height%3D%222.10938%22%20rx%3D%221.05078%22%20width%3D%225.73438%22%20x%3D%2213.3328%22%20y%3D%227.36719%22%2F%3E%3C%2Fsvg%3E');
 }
 
-.approval-badge.active{
-    filter: none;
-    opacity: 1;
+.approval-badge-opening {
+  background-image: url('data:image/svg+xml,%3Csvg%20fill%3D%22none%22%20height%3D%2248%22%20viewBox%3D%220%200%2048%2048%22%20width%3D%2248%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22m0%200h48v48h-48z%22%20fill%3D%22%23fff%22%20fill-opacity%3D%22.01%22%2F%3E%3Cg%20stroke%3D%22%23000%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%224%22%3E%3Cpath%20d%3D%22m24%204v8%22%2F%3E%3Cpath%20clip-rule%3D%22evenodd%22%20d%3D%22m22%2022%2020%204-6%204%206%206-6%206-6-6-4%206z%22%20fill%3D%22%232f88ff%22%20fill-rule%3D%22evenodd%22%2F%3E%3Cpath%20d%3D%22m38.1421%209.85795-5.6568%205.65685%22%2F%3E%3Cpath%20d%3D%22m9.85787%2038.1421%205.65683-5.6569%22%2F%3E%3Cpath%20d%3D%22m4%2024h8%22%2F%3E%3Cpath%20d%3D%22m9.85783%209.85787%205.65687%205.65683%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E');
+}
+
+.approval-badge.active {
+  filter: none;
+  opacity: 1;
 }
 
 /* 
@@ -1132,84 +1219,86 @@ dialog{
 */
 
 #edit-app-social-image {
-    width: 300px;
-    height: 157px; /* Maintains 1200x630 aspect ratio at smaller scale */
-    border: 2px dashed #ccc;
-    border-radius: 5px;
-    cursor: pointer;
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-    position: relative;
-    margin-bottom: 5px;
+  width: 300px;
+  height: 157px; /* Maintains 1200x630 aspect ratio at smaller scale */
+  border: 2px dashed #ccc;
+  border-radius: 5px;
+  cursor: pointer;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  position: relative;
+  margin-bottom: 5px;
 }
 
 #change-social-image {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    color: #666;
-    text-align: center;
-    font-size: 14px;
-    opacity: 0;
-    transition: opacity 0.2s;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #666;
+  text-align: center;
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.2s;
 }
 
 #edit-app-social-image:hover #change-social-image {
-    opacity: 1;
-    background: rgba(255, 255, 255, 0.9);
-    padding: 10px;
-    border-radius: 5px;
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 10px;
+  border-radius: 5px;
 }
 
 #edit-app-social-image-delete {
-    display: none;
-    color: #ff4444;
-    cursor: pointer;
-    font-size: 13px;
-    margin-top: 5px;
+  display: none;
+  color: #ff4444;
+  cursor: pointer;
+  font-size: 13px;
+  margin-top: 5px;
 }
 
 .social-image-help {
-    color: #666;
-    font-size: 13px;
-    margin-top: 5px;
+  color: #666;
+  font-size: 13px;
+  margin-top: 5px;
 }
 
 .app-categories {
-    margin-top: 4px;
-    display: flex;
-    gap: 8px;
+  margin-top: 4px;
+  display: flex;
+  gap: 8px;
 }
 
 .app-category {
-    font-size: 12px;
-    padding: 2px 8px;
-    border-radius: 12px;
-    display: inline-block;
-    background-color: #e3f2fd;
-    color: #1976d2;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  display: inline-block;
+  background-color: #e3f2fd;
+  color: #1976d2;
 }
 
 .category-select {
-    width: 300px;
-    padding: 8px;
-    margin-bottom: 16px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    font-size: 14px;
+  width: 300px;
+  padding: 8px;
+  margin-bottom: 16px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
 }
-.stats-cell{
-    width: 100px; 
-    display: inline-block; 
-    font-size: 14px;
-    opacity: 0.7; 
+.stats-cell {
+  width: 100px;
+  display: inline-block;
+  font-size: 14px;
+  opacity: 0.7;
 }
-.stats-cell:hover{
-    cursor: pointer;
-    opacity: 1 !important;
+.stats-cell:hover {
+  cursor: pointer;
+  opacity: 1 !important;
 }
-.stats-cell img{
-    width: 18px; margin-right: 5px; margin-bottom: -4px;
+.stats-cell img {
+  width: 18px;
+  margin-right: 5px;
+  margin-bottom: -4px;
 }

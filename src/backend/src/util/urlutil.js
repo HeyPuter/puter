@@ -16,17 +16,17 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const origin_from_url = url => {
-    try {
-        const parsedUrl = new URL(url);
-        // Origin is protocol + hostname + port
-        return `${parsedUrl.protocol}//${parsedUrl.hostname}${parsedUrl.port ? `:${parsedUrl.port}` : ''}`;
-    } catch (error) {
-        console.error('Invalid URL:', error.message);
-        return null;
-    }
+const origin_from_url = (url) => {
+  try {
+    const parsedUrl = new URL(url);
+    // Origin is protocol + hostname + port
+    return `${parsedUrl.protocol}//${parsedUrl.hostname}${parsedUrl.port ? `:${parsedUrl.port}` : ''}`;
+  } catch (error) {
+    console.error('Invalid URL:', error.message);
+    return null;
+  }
 };
 
 module.exports = {
-    origin_from_url
+  origin_from_url,
 };

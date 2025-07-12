@@ -17,21 +17,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 const Component = use('util.Component');
 
-export default def(class CodeEntryView extends Component {
+export default def(
+  class CodeEntryView extends Component {
     static ID = 'ui.component.CodeEntryView';
 
     static PROPERTIES = {
-        value: {},
-        error: {},
-        is_checking_code: {},
-    }
+      value: {},
+      error: {},
+      is_checking_code: {},
+    };
 
     static RENDER_MODE = Component.NO_SHADOW;
 
-    static CSS = /*css*/`
+    static CSS = /*css*/ `
         .wrapper {
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
@@ -69,13 +69,13 @@ export default def(class CodeEntryView extends Component {
             font-size: 40px;
             font-weight: 300;
         }
-    `
+    `;
 
-    create_template ({ template }) {
-        // TODO: static member for strings
-        const submit_btn_txt = i18n('confirm_code_generic_submit');
+    create_template({ template }) {
+      // TODO: static member for strings
+      const submit_btn_txt = i18n('confirm_code_generic_submit');
 
-        $(template).html(/*html*/`
+      $(template).html(/*html*/ `
             <div class="wrapper">
                 <form>
                     <div class="error"></div>
@@ -89,150 +89,156 @@ export default def(class CodeEntryView extends Component {
                         <input class="digit-input" type="number" min='0' max='9' name='number-code-5' data-number-code-input='5' required />
                     </fieldset>
                     <button type="submit" class="button button-block button-primary code-confirm-btn" style="margin-top:10px;" disabled>${
-                        submit_btn_txt
+                      submit_btn_txt
                     }</button>
                 </form>
             </div>
         `);
     }
 
-    on_focus () {
-        $(this.dom_).find('.digit-input').first().focus();
+    on_focus() {
+      $(this.dom_).find('.digit-input').first().focus();
     }
 
-    on_ready ({ listen }) {
-        listen('error', (error) => {
-            if ( ! error ) return $(this.dom_).find('.error').hide();
-            $(this.dom_).find('.error').text(error).show();
+    on_ready({ listen }) {
+      listen('error', (error) => {
+        if (!error) return $(this.dom_).find('.error').hide();
+        $(this.dom_).find('.error').text(error).show();
+      });
+
+      listen('value', (value) => {
+        // clear the inputs
+        if (value === undefined) {
+          $(this.dom_).find('.digit-input').val('');
+          return;
+        }
+      });
+
+      listen('is_checking_code', (is_checking_code, { old_value }) => {
+        if (old_value === is_checking_code) return;
+        if (old_value === undefined) return;
+
+        const $button = $(this.dom_).find('.code-confirm-btn');
+
+        if (is_checking_code) {
+          // set animation
+          $button.prop('disabled', true);
+          $button.html(
+            `<svg style="width:20px; margin-top: 5px;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#fff" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#eee" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`
+          );
+          return;
+        }
+
+        const submit_btn_txt = i18n('confirm_code_generic_try_again');
+        $button.html(submit_btn_txt);
+        $button.prop('disabled', false);
+      });
+
+      const that = this;
+      $(this.dom_)
+        .find('.code-confirm-btn')
+        .on('click submit', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+
+          const $button = $(this);
+
+          $button.prop('disabled', true);
+          $button.closest('.error').hide();
+
+          that.set('is_checking_code', true);
+
+          // force update to trigger the listener
+          that.set('value', that.get('value'));
         });
 
-        listen('value', value => {
-            // clear the inputs
-            if ( value === undefined ) {
-                $(this.dom_).find('.digit-input').val('');
-                return;
+      // Elements
+      const numberCodeForm = this.dom_.querySelector('[data-number-code-form]');
+      const numberCodeInputs = [...numberCodeForm.querySelectorAll('[data-number-code-input]')];
+
+      // Event listeners
+      numberCodeForm.addEventListener('input', ({ target }) => {
+        const inputLength = target.value.length || 0;
+        let currentIndex = Number(target.dataset.numberCodeInput);
+        if (inputLength === 2) {
+          const inputValues = target.value.split('');
+          target.value = inputValues[0];
+        } else if (inputLength > 1) {
+          const inputValues = target.value.split('');
+
+          inputValues.forEach((value, valueIndex) => {
+            const nextValueIndex = currentIndex + valueIndex;
+
+            if (nextValueIndex >= numberCodeInputs.length) {
+              return;
             }
-        })
 
-        listen('is_checking_code', (is_checking_code, { old_value }) => {
-            if ( old_value === is_checking_code ) return;
-            if ( old_value === undefined ) return;
+            numberCodeInputs[nextValueIndex].value = value;
+          });
+          currentIndex += inputValues.length - 2;
+        }
 
-            const $button = $(this.dom_).find('.code-confirm-btn');
+        const nextIndex = currentIndex + 1;
 
-            if ( is_checking_code ) {
-                // set animation
-                $button.prop('disabled', true);
-                $button.html(`<svg style="width:20px; margin-top: 5px;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#fff" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#eee" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`);
-                return;
+        if (nextIndex < numberCodeInputs.length) {
+          numberCodeInputs[nextIndex].focus();
+        }
+
+        // Concatenate all inputs into one string to create the final code
+        let current_code = '';
+        for (let i = 0; i < numberCodeInputs.length; i++) {
+          current_code += numberCodeInputs[i].value;
+        }
+
+        const submit_btn_txt = i18n('confirm_code_generic_submit');
+        $(this.dom_).find('.code-confirm-btn').html(submit_btn_txt);
+
+        // Automatically submit if 6 digits entered
+        if (current_code.length === 6) {
+          $(this.dom_).find('.code-confirm-btn').prop('disabled', false);
+          this.set('value', current_code);
+          this.set('is_checking_code', true);
+        } else {
+          $(this.dom_).find('.code-confirm-btn').prop('disabled', true);
+        }
+      });
+
+      numberCodeForm.addEventListener('keydown', (e) => {
+        const { code, target } = e;
+
+        const currentIndex = Number(target.dataset.numberCodeInput);
+        const previousIndex = currentIndex - 1;
+        const nextIndex = currentIndex + 1;
+
+        const hasPreviousIndex = previousIndex >= 0;
+        const hasNextIndex = nextIndex <= numberCodeInputs.length - 1;
+
+        switch (code) {
+          case 'ArrowLeft':
+          case 'ArrowUp':
+            if (hasPreviousIndex) {
+              numberCodeInputs[previousIndex].focus();
             }
-
-            const submit_btn_txt = i18n('confirm_code_generic_try_again');
-            $button.html(submit_btn_txt);
-            $button.prop('disabled', false);
-        });
-
-        const that = this;
-        $(this.dom_).find('.code-confirm-btn').on('click submit', function(e){
             e.preventDefault();
-            e.stopPropagation();
+            break;
 
-            const $button = $(this);
-
-            $button.prop('disabled', true);
-            $button.closest('.error').hide();
-
-            that.set('is_checking_code', true);
-            
-            // force update to trigger the listener
-            that.set('value', that.get('value'));
-        })
-
-        // Elements
-        const numberCodeForm = this.dom_.querySelector('[data-number-code-form]');
-        const numberCodeInputs = [...numberCodeForm.querySelectorAll('[data-number-code-input]')];
-
-        // Event listeners
-        numberCodeForm.addEventListener('input', ({ target }) => {
-            const inputLength = target.value.length || 0;
-            let currentIndex = Number(target.dataset.numberCodeInput);
-            if(inputLength === 2){
-                const inputValues = target.value.split('');
-                target.value = inputValues[0];
+          case 'ArrowRight':
+          case 'ArrowDown':
+            if (hasNextIndex) {
+              numberCodeInputs[nextIndex].focus();
             }
-            else if (inputLength > 1) {
-                const inputValues = target.value.split('');
-
-                inputValues.forEach((value, valueIndex) => {
-                    const nextValueIndex = currentIndex + valueIndex;
-
-                    if (nextValueIndex >= numberCodeInputs.length) { return; }
-
-                    numberCodeInputs[nextValueIndex].value = value;
-                });
-                currentIndex += inputValues.length - 2;
+            e.preventDefault();
+            break;
+          case 'Backspace':
+            if (!e.target.value.length && hasPreviousIndex) {
+              numberCodeInputs[previousIndex].value = null;
+              numberCodeInputs[previousIndex].focus();
             }
-
-            const nextIndex = currentIndex + 1;
-
-            if (nextIndex < numberCodeInputs.length) {
-                numberCodeInputs[nextIndex].focus();
-            }
-
-            // Concatenate all inputs into one string to create the final code
-            let current_code = '';
-            for(let i=0; i< numberCodeInputs.length; i++){
-                current_code += numberCodeInputs[i].value;
-            }
-
-            const submit_btn_txt = i18n('confirm_code_generic_submit');
-            $(this.dom_).find('.code-confirm-btn').html(submit_btn_txt);
-
-            // Automatically submit if 6 digits entered
-            if(current_code.length === 6){
-                $(this.dom_).find('.code-confirm-btn').prop('disabled', false);
-                this.set('value', current_code);
-                this.set('is_checking_code', true);
-            } else {
-                $(this.dom_).find('.code-confirm-btn').prop('disabled', true);
-            }
-        });
-
-        numberCodeForm.addEventListener('keydown', (e) => {
-            const { code, target } = e;
-
-            const currentIndex = Number(target.dataset.numberCodeInput);
-            const previousIndex = currentIndex - 1;
-            const nextIndex = currentIndex + 1;
-
-            const hasPreviousIndex = previousIndex >= 0;
-            const hasNextIndex = nextIndex <= numberCodeInputs.length - 1
-
-            switch (code) {
-                case 'ArrowLeft':
-                case 'ArrowUp':
-                    if (hasPreviousIndex) {
-                        numberCodeInputs[previousIndex].focus();
-                    }
-                    e.preventDefault();
-                    break;
-
-                case 'ArrowRight':
-                case 'ArrowDown':
-                    if (hasNextIndex) {
-                        numberCodeInputs[nextIndex].focus();
-                    }
-                    e.preventDefault();
-                    break;
-                case 'Backspace':
-                    if (!e.target.value.length && hasPreviousIndex) {
-                        numberCodeInputs[previousIndex].value = null;
-                        numberCodeInputs[previousIndex].focus();
-                    }
-                    break;
-                default:
-                    break;
-            }
-        });
+            break;
+          default:
+            break;
+        }
+      });
     }
-})
+  }
+);

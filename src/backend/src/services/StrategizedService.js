@@ -17,9 +17,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { TechnicalError } = require("../errors/TechnicalError");
+const { TechnicalError } = require('../errors/TechnicalError');
 const { quot } = require('@heyputer/putility').libs.string;
-
 
 /**
  * An abstract service used to strategize services in confirguration,
@@ -27,51 +26,47 @@ const { quot } = require('@heyputer/putility').libs.string;
  * to strategize any service.
  */
 class StrategizedService {
-    constructor (service_resources, ...a) {
-        const { my_config, args, name } = service_resources;
+  constructor(service_resources, ...a) {
+    const { my_config, args, name } = service_resources;
 
-        const key = args.strategy_key;
-        if ( ! args.default_strategy && ! my_config.hasOwnProperty(key) ) {
-            this.initError = new TechnicalError(
-                `Must specify ${quot(key)} for service ${quot(name)}.`
-            );
-            return;
-        }
-
-        if ( ! args.hasOwnProperty('strategies') ) {
-            throw new Error('strategies not defined in service args')
-        }
-
-        const strategy_key = my_config[key] ?? args.default_strategy;
-        if ( ! args.strategies.hasOwnProperty(strategy_key) ) {
-            this.initError = new TechnicalError(
-                `Invalid ${key} ${quot(strategy_key)} for service ${quot(name)}.`
-            );
-            return;
-        }
-        const [cls, cls_args] = args.strategies[strategy_key];
-
-        const cls_resources = {
-            ...service_resources,
-            args: cls_args,
-        };
-        this.strategy = new cls(cls_resources, ...a);
-
-        return this.strategy;
+    const key = args.strategy_key;
+    if (!args.default_strategy && !my_config.hasOwnProperty(key)) {
+      this.initError = new TechnicalError(`Must specify ${quot(key)} for service ${quot(name)}.`);
+      return;
     }
 
-
-    /**
-     * This method must be implemented by the delegate or an error will be thrown
-     */
-    async init () {
-        throw this.initError;
+    if (!args.hasOwnProperty('strategies')) {
+      throw new Error('strategies not defined in service args');
     }
 
+    const strategy_key = my_config[key] ?? args.default_strategy;
+    if (!args.strategies.hasOwnProperty(strategy_key)) {
+      this.initError = new TechnicalError(
+        `Invalid ${key} ${quot(strategy_key)} for service ${quot(name)}.`
+      );
+      return;
+    }
+    const [cls, cls_args] = args.strategies[strategy_key];
 
-    async construct () {}
+    const cls_resources = {
+      ...service_resources,
+      args: cls_args,
+    };
+    this.strategy = new cls(cls_resources, ...a);
+
+    return this.strategy;
+  }
+
+  /**
+   * This method must be implemented by the delegate or an error will be thrown
+   */
+  async init() {
+    throw this.initError;
+  }
+
+  async construct() {}
 }
 
 module.exports = {
-    StrategizedService,
+  StrategizedService,
 };

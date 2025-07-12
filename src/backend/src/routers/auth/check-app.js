@@ -16,54 +16,56 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const eggspress = require("../../api/eggspress");
-const { get_app } = require("../../helpers");
-const { UserActorType, Actor, AppUnderUserActorType } = require("../../services/auth/Actor");
-const { PermissionUtil } = require("../../services/auth/PermissionService");
-const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
+const { get_app } = require('../../helpers');
+const { UserActorType, Actor, AppUnderUserActorType } = require('../../services/auth/Actor');
+const { PermissionUtil } = require('../../services/auth/PermissionService');
+const { Context } = require('../../util/context');
 
-module.exports = eggspress('/auth/check-app', {
+module.exports = eggspress(
+  '/auth/check-app',
+  {
     subdomain: 'api',
     auth2: true,
     allowedMethods: ['POST'],
-}, async (req, res, next) => {
+  },
+  async (req, res, next) => {
     const x = Context.get();
     const svc_auth = x.get('services').get('auth');
     const svc_permission = x.get('services').get('permission');
 
     // Only users can get user-app tokens
     const actor = Context.get('actor');
-    if ( ! (actor.type instanceof UserActorType) ) {
-        throw APIError.create('forbidden');
+    if (!(actor.type instanceof UserActorType)) {
+      throw APIError.create('forbidden');
     }
 
-    if ( req.body.app_uid === undefined && req.body.origin === undefined ) {
-        throw APIError.create('field_missing', null, {
-            // TODO: standardize a way to provide multiple options
-            key: 'app_uid or origin',
-        });
+    if (req.body.app_uid === undefined && req.body.origin === undefined) {
+      throw APIError.create('field_missing', null, {
+        // TODO: standardize a way to provide multiple options
+        key: 'app_uid or origin',
+      });
     }
 
-    const app_uid = req.body.app_uid ??
-        await svc_auth.app_uid_from_origin(req.body.origin);
+    const app_uid = req.body.app_uid ?? (await svc_auth.app_uid_from_origin(req.body.origin));
 
     const app = await get_app({ uid: app_uid });
-    if ( ! app ) {
-        throw APIError.create('app_does_not_exist', null, {
-            identifier: app_uid,
-        });
+    if (!app) {
+      throw APIError.create('app_does_not_exist', null, {
+        identifier: app_uid,
+      });
     }
 
     const user = actor.type.user;
 
     const app_actor = new Actor({
-        user_uid: user.uuid,
-        app_uid,
-        type: new AppUnderUserActorType({
-            user,
-            app,
-        }),
+      user_uid: user.uuid,
+      app_uid,
+      type: new AppUnderUserActorType({
+        user,
+        app,
+      }),
     });
 
     const reading = await svc_permission.scan(app_actor, 'flag:app-is-authenticated');
@@ -71,13 +73,12 @@ module.exports = eggspress('/auth/check-app', {
     const authenticated = options.length > 0;
 
     let token;
-    if ( authenticated ) token = await svc_auth.get_user_app_token(app_uid);
+    if (authenticated) token = await svc_auth.get_user_app_token(app_uid);
 
     res.json({
-        ...(token ? { token } : {}),
-        app_uid: app_uid ||
-            await svc_auth.app_uid_from_origin(req.body.origin),
-        authenticated,
+      ...(token ? { token } : {}),
+      app_uid: app_uid || (await svc_auth.app_uid_from_origin(req.body.origin)),
+      authenticated,
     });
-});
-
+  }
+);

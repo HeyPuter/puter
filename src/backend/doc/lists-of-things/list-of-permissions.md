@@ -26,6 +26,7 @@
 ## App and Subdomain permissions
 
 ### `site:<NAME-OF-SITE>:access`
+
 - `<NAME-OF-SITE>` specifies the subdomain that this
   permission is associated with.
   Here, "subdomain" means the **"name of the subdomain"**,
@@ -35,6 +36,7 @@
   described below (backend does this automatically).
 
 ### `site:uid#<UUID-OF-SITE>:access`
+
 - If the subdomain is **not** [protected](../features/protected-apps.md),
   this permission is ignored by the system.
 - If the subdomain **is** protected, this permission will
@@ -47,8 +49,9 @@
   permission is associated with.
 - This permission is always rewritten as the permission
   described below (backend does this automatically).
-  
+
 ### `app:uid#<UUID-OF-APP>:access`
+
 - If the app is **not** [protected](../features/protected-apps.md),
   this permission is ignored by the system.
 - If the app **is** protected, this permission will

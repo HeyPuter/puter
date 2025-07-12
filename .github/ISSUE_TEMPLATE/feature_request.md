@@ -4,7 +4,4 @@ about: Suggest an idea for Puter
 title: ''
 labels: idea
 assignees: ''
-
 ---
-
-

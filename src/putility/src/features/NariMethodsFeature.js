@@ -1,24 +1,24 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 module.exports = {
-    readme: `
+  readme: `
         Normalized Asynchronous Request Invocation (NARI) Methods Feature
 
         This feature allows a class to define "Nari methods", which are methods
@@ -60,77 +60,77 @@ module.exports = {
         });
         \`\`\`
     `,
-    install_in_instance: (instance) => {
-        const nariMethodSpecs = instance._get_merged_static_object('NARI_METHODS');
+  install_in_instance: (instance) => {
+    const nariMethodSpecs = instance._get_merged_static_object('NARI_METHODS');
 
-        instance._.nariMethods = {};
+    instance._.nariMethods = {};
 
-        for ( const method_name in nariMethodSpecs ) {
-            const spec = nariMethodSpecs[method_name];
-            const bound_fn = spec.fn.bind(instance);
-            instance._.nariMethods[method_name] = bound_fn;
+    for (const method_name in nariMethodSpecs) {
+      const spec = nariMethodSpecs[method_name];
+      const bound_fn = spec.fn.bind(instance);
+      instance._.nariMethods[method_name] = bound_fn;
 
-            instance[method_name] = async (...args) => {
-                const endArgsIndex = (() => {
-                    if ( spec.firstarg_options ) {
-                        if ( typeof args[0] === 'object' ) {
-                            return 0;
-                        }
-                    }
-                    return spec.positional.length;
-                })();
-                const posArgs = args.slice(0, endArgsIndex);
-                const endArgs = args.slice(endArgsIndex);
+      instance[method_name] = async (...args) => {
+        const endArgsIndex = (() => {
+          if (spec.firstarg_options) {
+            if (typeof args[0] === 'object') {
+              return 0;
+            }
+          }
+          return spec.positional.length;
+        })();
+        const posArgs = args.slice(0, endArgsIndex);
+        const endArgs = args.slice(endArgsIndex);
 
-                const parameters = {};
-                const options = {};
-                const callbacks = {};
-                for ( const [index, arg] of posArgs.entries() ) {
-                    parameters[spec.positional[index]] = arg;
-                }
-                
-                if ( typeof endArgs[0] === 'object' ) {
-                    Object.assign(options, endArgs[0]);
-                    endArgs.shift();
-                }
-
-                if ( typeof endArgs[0] === 'function' ) {
-                    callbacks.success = endArgs[0];
-                    endArgs.shift();
-                } else if ( options.success ) {
-                    callbacks.success = options.success;
-                }
-
-                if ( typeof endArgs[0] === 'function' ) {
-                    callbacks.error = endArgs[0];
-                    endArgs.shift();
-                } else if ( options.error ) {
-                    callbacks.error = options.error;
-                }
-
-                if ( spec.separate_options ) {
-                    parameters.options = options;
-                } else {
-                    Object.assign(parameters, options);
-                }
-
-                let retval;
-                try {
-                    retval = await bound_fn(parameters);
-                } catch (e) {
-                    if ( callbacks.error ) {
-                        callbacks.error(e);
-                    } else {
-                        throw e;
-                    }
-                }
-
-                if ( callbacks.success ) {
-                    callbacks.success(retval);
-                }
-
-                return retval;
-            };
+        const parameters = {};
+        const options = {};
+        const callbacks = {};
+        for (const [index, arg] of posArgs.entries()) {
+          parameters[spec.positional[index]] = arg;
         }
+
+        if (typeof endArgs[0] === 'object') {
+          Object.assign(options, endArgs[0]);
+          endArgs.shift();
+        }
+
+        if (typeof endArgs[0] === 'function') {
+          callbacks.success = endArgs[0];
+          endArgs.shift();
+        } else if (options.success) {
+          callbacks.success = options.success;
+        }
+
+        if (typeof endArgs[0] === 'function') {
+          callbacks.error = endArgs[0];
+          endArgs.shift();
+        } else if (options.error) {
+          callbacks.error = options.error;
+        }
+
+        if (spec.separate_options) {
+          parameters.options = options;
+        } else {
+          Object.assign(parameters, options);
+        }
+
+        let retval;
+        try {
+          retval = await bound_fn(parameters);
+        } catch (e) {
+          if (callbacks.error) {
+            callbacks.error(e);
+          } else {
+            throw e;
+          }
+        }
+
+        if (callbacks.success) {
+          callbacks.success(retval);
+        }
+
+        return retval;
+      };
     }
+  },
 };

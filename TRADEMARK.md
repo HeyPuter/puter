@@ -6,7 +6,6 @@ Version 1.0 dated January 1, 2025
 
 <br>
 
-
 This trademark policy was prepared to help you understand how to use the Puter trademarks, service marks and logos with Puter Technologies Inc.'s Puter software.
 
 While some of our software is available under a free and open source software license, that copyright license does not include a license to use our trademark, and this Policy is intended to explain how to use our marks consistent with background law and community expectation.
@@ -47,9 +46,9 @@ Trademark law does not allow your use of names or trademarks that are too simila
 
 When you redistribute an unmodified copy of Puter software, you must retain all trademarks, logos, and notices we have placed on the software to identify its origin. This includes:
 
-* Binary distributions exactly as we provide them
-* Source code distributions exactly as we provide them
-* Documentation and other materials directly from our official repositories
+- Binary distributions exactly as we provide them
+- Source code distributions exactly as we provide them
+- Documentation and other materials directly from our official repositories
 
 <br>
 
@@ -57,10 +56,10 @@ When you redistribute an unmodified copy of Puter software, you must retain all 
 
 If you distribute a modified version of Puter software, you:
 
-* Must remove all Puter logos from the modified software
-* May use our word marks (but not logos) to accurately describe the software's origin
-* Must clearly indicate that the software has been modified
-* Must include a notice stating: "This software is a modified version of Puter software and is not endorsed by Puter Technologies Inc."
+- Must remove all Puter logos from the modified software
+- May use our word marks (but not logos) to accurately describe the software's origin
+- Must clearly indicate that the software has been modified
+- Must include a notice stating: "This software is a modified version of Puter software and is not endorsed by Puter Technologies Inc."
 
 Example of acceptable description: "This software is derived from Puter software and includes modifications for [describe your changes]."
 
@@ -70,10 +69,9 @@ Example of acceptable description: "This software is derived from Puter software
 
 You may use our word marks (but not logos) to accurately describe your software's compatibility with Puter software under these conditions:
 
-* Your statements about compatibility must be accurate and not misleading
-* You must include the following notice: "Puter is a trademark of Puter Technologies Inc. This [product/service] is not affiliated with or endorsed by Puter Technologies Inc."
-* You may not suggest that Puter Technologies Inc. has certified or approved your software
-
+- Your statements about compatibility must be accurate and not misleading
+- You must include the following notice: "Puter is a trademark of Puter Technologies Inc. This [product/service] is not affiliated with or endorsed by Puter Technologies Inc."
+- You may not suggest that Puter Technologies Inc. has certified or approved your software
 
 <br>
 
@@ -81,10 +79,10 @@ You may use our word marks (but not logos) to accurately describe your software'
 
 You may describe your product as working with or being built for Puter if:
 
-* Your product is fully compatible with the documented Puter APIs
-* Your product name follows this format: "[Your Product Name] for Puter"
-* You include this notice in all materials: "Puter is a trademark of Puter Technologies Inc. [Your Product Name] is not affiliated with or endorsed by Puter Technologies Inc."
-* Your branding and marketing materials do not create confusion about the source of your product
+- Your product is fully compatible with the documented Puter APIs
+- Your product name follows this format: "[Your Product Name] for Puter"
+- You include this notice in all materials: "Puter is a trademark of Puter Technologies Inc. [Your Product Name] is not affiliated with or endorsed by Puter Technologies Inc."
+- Your branding and marketing materials do not create confusion about the source of your product
 
 <br>
 
@@ -92,12 +90,12 @@ You may describe your product as working with or being built for Puter if:
 
 For open source projects that interact with or extend Puter software:
 
-* You may use "puter" as part of your project name only if:
-  * The name is in the format "[descriptor]-puter" (e.g., "auth-puter", "backup-puter")
-  * The project's README clearly states it's not officially associated with Puter
-  * The project maintains compatibility with current Puter APIs
-* You must not use our logos without explicit permission
-* You must include appropriate trademark attribution notices
+- You may use "puter" as part of your project name only if:
+  - The name is in the format "[descriptor]-puter" (e.g., "auth-puter", "backup-puter")
+  - The project's README clearly states it's not officially associated with Puter
+  - The project maintains compatibility with current Puter APIs
+- You must not use our logos without explicit permission
+- You must include appropriate trademark attribution notices
 
 <br>
 
@@ -105,16 +103,16 @@ For open source projects that interact with or extend Puter software:
 
 You may use our word marks (but not logos) for non-commercial community activities:
 
-* User groups and meetups focused on Puter software
-* Educational content about Puter software
-* Blog posts, videos, articles, or tutorials about Puter software
+- User groups and meetups focused on Puter software
+- Educational content about Puter software
+- Blog posts, videos, articles, or tutorials about Puter software
 
 Conditions for community use:
 
-* Activities must be non-commercial
-* Any fees charged must only cover actual costs
-* You must include appropriate trademark attribution
-* You must not suggest official endorsement without explicit permission
+- Activities must be non-commercial
+- Any fees charged must only cover actual costs
+- You must include appropriate trademark attribution
+- You must not suggest official endorsement without explicit permission
 
 <br>
 
@@ -128,10 +126,10 @@ You may not create merchandise or promotional items bearing our marks without ex
 
 You may use our word marks (but not logos) in:
 
-* Academic papers
-* Research publications
-* Technical documentation
-* Educational materials
+- Academic papers
+- Research publications
+- Technical documentation
+- Educational materials
 
 Include appropriate citations and trademark attributions in such uses.
 
@@ -141,11 +139,11 @@ Include appropriate citations and trademark attributions in such uses.
 
 When using our marks in online content:
 
-* You may use our word marks in hashtags, handles, or usernames if:
-  * The content is clearly about Puter software
-  * You don't imply official status
-  * You include appropriate trademark attribution
-* You must not register social media accounts that could be confused with official Puter accounts
+- You may use our word marks in hashtags, handles, or usernames if:
+  - The content is clearly about Puter software
+  - You don't imply official status
+  - You include appropriate trademark attribution
+- You must not register social media accounts that could be confused with official Puter accounts
 
 <br>
 
@@ -153,10 +151,10 @@ When using our marks in online content:
 
 When developing with Puter APIs:
 
-* You may use our word marks to accurately describe your integration
-* You must not use our marks in a way that suggests your API or service is endorse by
-Puter or provided by Puter
-* You must include appropriate trademark attribution
+- You may use our word marks to accurately describe your integration
+- You must not use our marks in a way that suggests your API or service is endorse by
+  Puter or provided by Puter
+- You must include appropriate trademark attribution
 
 All uses described above must also comply with the General Guidelines section of this policy and maintain the integrity of our marks as described in the How to Display Our Marks section.
 

@@ -38,7 +38,6 @@ Puter est un système d'exploitation internet avancé, open-source, conçu pour 
 
 ## Démarrage
 
-
 ### 💻 Développement Local
 
 ```bash
@@ -83,6 +82,7 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+
 <br/>
 
 ### ☁️ Puter.com
@@ -92,6 +92,7 @@ Puter est disponible en tant que service hébergé sur [**puter.com**](https://p
 <br/>
 
 ## Configuration système requise
+
 - **Systèmes d'exploitation:** Linux, macOS, Windows
 - **RAM:** Minimum 2 Go (4 Go recommandés)
 - **Espace disque:** 1 Go d'espace libre
@@ -104,7 +105,7 @@ Puter est disponible en tant que service hébergé sur [**puter.com**](https://p
 
 Connectez-vous avec les mainteneurs et la communauté via ces canaux :
 
-- Un bug ou une demande de fonctionnalité ? Veuillez  [ouvrir une issue](https://github.com/HeyPuter/puter/issues/new/choose).
+- Un bug ou une demande de fonctionnalité ? Veuillez [ouvrir une issue](https://github.com/HeyPuter/puter/issues/new/choose).
 - Discord: [discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
 - X (Twitter): [x.com/HeyPuter](https://x.com/HeyPuter)
 - Reddit: [reddit.com/r/puter/](https://www.reddit.com/r/puter/)
@@ -116,10 +117,8 @@ Nous sommes toujours heureux de vous aider avec toutes les questions que vous po
 
 <br/>
 
-
-##  License
+## License
 
 Ce dépôt, y compris tout son contenu, sous-projets, modules et composants, est licencié sous [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) sauf indication contraire explicite. Les bibliothèques tierces incluses dans ce dépôt peuvent être soumises à leurs propres licences.
 
 <br/>
-

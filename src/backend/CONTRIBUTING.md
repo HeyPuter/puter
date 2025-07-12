@@ -2,8 +2,6 @@
 
 ## File Structure
 
-
-
 ## Architecture
 
 - [boot sequence](./doc/contributors/boot-sequence.md)
@@ -45,6 +43,7 @@ here's a handy list!
 ### The copy-paste rule
 
 If you're copying and pasting code, you need to ask this question:
+
 - am I copying as a reference (i.e. how this function is used),
 - or am I copying an implementation of actual behavior?
 
@@ -53,7 +52,7 @@ code that's doing the same thing you want to do and see if any of them
 are doing it differently. One of the ways of doing this thing is going
 to be more recent and/or (yes, potentially "or") more correct.
 More correct approaches are ones which reduce
-[coupling](https://en.wikipedia.org/wiki/Coupling_(computer_programming)),
+[coupling](<https://en.wikipedia.org/wiki/Coupling_(computer_programming)>),
 move from legacy implementations to more recent ones, and are actually
 more convenient for you to use. Whenever ever any of these three things
 are in contention it's very important to communicate this to the
@@ -65,12 +64,12 @@ If your answer is the second, you should find a way to
 ### Architecture Mistakes? You will make them and it will suck.
 
 In my experience, the harder I think about the correct way to implement
-something, the bigger a mistake I'm going to make; ***unless*** a big part
+something, the bigger a mistake I'm going to make; **_unless_** a big part
 of the reason I'm thinking so hard is because I want to find a solution
 that reduces complexity and has the right maintenance trade-off.
 There's no easy solution for this so just keep it in mind; there are some
 things we might write 2 times, 3 times, even more times over before we
-really get it right and *that's okay*; sometimes part of doing useful work is
+really get it right and _that's okay_; sometimes part of doing useful work is
 doing the useless work that reveals what the useful work is.
 
 ## Underlying Constructs

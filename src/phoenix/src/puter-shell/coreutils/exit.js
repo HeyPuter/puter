@@ -19,30 +19,31 @@
 import { Exit } from './coreutil_lib/exit.js';
 
 export default {
-    name: 'exit',
-    usage: 'exit [CODE]',
-    description: 'Exit the shell and return the given CODE. If no argument is given, uses the most recent return code.',
-    args: {
-        $: 'simple-parser',
-        allowPositionals: true
-    },
-    execute: async ctx => {
-        const { positionals, exit } = ctx.locals;
+  name: 'exit',
+  usage: 'exit [CODE]',
+  description:
+    'Exit the shell and return the given CODE. If no argument is given, uses the most recent return code.',
+  args: {
+    $: 'simple-parser',
+    allowPositionals: true,
+  },
+  execute: async (ctx) => {
+    const { positionals, exit } = ctx.locals;
 
-        let status_code = 0;
+    let status_code = 0;
 
-        if (positionals.length === 0) {
-            status_code = exit;
-        } else if (positionals.length === 1) {
-            const maybe_number = Number(positionals[0]);
-            if (Number.isInteger(maybe_number)) {
-                status_code = maybe_number;
-            }
-        } else {
-            await ctx.externs.err.write('exit: Too many arguments');
-            throw new Exit(1);
-        }
-
-        ctx.platform.system.exit(status_code);
+    if (positionals.length === 0) {
+      status_code = exit;
+    } else if (positionals.length === 1) {
+      const maybe_number = Number(positionals[0]);
+      if (Number.isInteger(maybe_number)) {
+        status_code = maybe_number;
+      }
+    } else {
+      await ctx.externs.err.write('exit: Too many arguments');
+      throw new Exit(1);
     }
+
+    ctx.platform.system.exit(status_code);
+  },
 };

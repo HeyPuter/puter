@@ -5,128 +5,127 @@
  */
 
 module.exports = class GeminiSquareHole {
-    static process_input_messages = async (messages) => {
-        messages = messages.slice();
+  static process_input_messages = async (messages) => {
+    messages = messages.slice();
 
-        for ( const msg of messages ) {
-            msg.parts = msg.content;
-            delete msg.content;
+    for (const msg of messages) {
+      msg.parts = msg.content;
+      delete msg.content;
 
-            if ( msg.role === 'assistant' ) {
-                msg.role = 'model';
-            }
+      if (msg.role === 'assistant') {
+        msg.role = 'model';
+      }
 
-            for ( let i=0 ; i < msg.parts.length ; i++ ) {
-                const part = msg.parts[i];
-                if ( part.type === 'tool_use' ) {
-                    msg.parts[i] = {
-                        functionCall: {
-                            name: part.id,
-                            args: part.input,
-                        },
-                    };
-                }
-                if ( part.type === 'tool_result' ) {
-                    msg.parts[i] = {
-                        functionResponse: {
-                            name: part.tool_use_id,
-                            response: {
-                                name: part.tool_use_id,
-                                content: part.content,
-                            },
-                        },
-                    };
-                }
-                if ( part.type === 'text' ) {
-                    msg.parts[i] = {
-                        text: part.text,
-                    };
-                }
-            }
+      for (let i = 0; i < msg.parts.length; i++) {
+        const part = msg.parts[i];
+        if (part.type === 'tool_use') {
+          msg.parts[i] = {
+            functionCall: {
+              name: part.id,
+              args: part.input,
+            },
+          };
         }
-
-        return messages;
+        if (part.type === 'tool_result') {
+          msg.parts[i] = {
+            functionResponse: {
+              name: part.tool_use_id,
+              response: {
+                name: part.tool_use_id,
+                content: part.content,
+              },
+            },
+          };
+        }
+        if (part.type === 'text') {
+          msg.parts[i] = {
+            text: part.text,
+          };
+        }
+      }
     }
 
-    static create_usage_calculator = ({ model_details }) => {
-        return ({ usageMetadata }) => {
-            const tokens = [];
-            
-            tokens.push({
-                type: 'prompt',
-                model: model_details.id,
-                amount: usageMetadata.promptTokenCount,
-                cost: model_details.cost.input * usageMetadata.promptTokenCount,
-            });
+    return messages;
+  };
 
-            tokens.push({
-                type: 'completion',
-                model: model_details.id,
-                amount: usageMetadata.candidatesTokenCount,
-                cost: model_details.cost.output * usageMetadata.candidatesTokenCount,
-            });
+  static create_usage_calculator = ({ model_details }) => {
+    return ({ usageMetadata }) => {
+      const tokens = [];
 
-            return tokens;
-        };
+      tokens.push({
+        type: 'prompt',
+        model: model_details.id,
+        amount: usageMetadata.promptTokenCount,
+        cost: model_details.cost.input * usageMetadata.promptTokenCount,
+      });
+
+      tokens.push({
+        type: 'completion',
+        model: model_details.id,
+        amount: usageMetadata.candidatesTokenCount,
+        cost: model_details.cost.output * usageMetadata.candidatesTokenCount,
+      });
+
+      return tokens;
     };
+  };
 
-    static create_chat_stream_handler = ({
-        stream, // GenerateContentStreamResult:stream
-        usage_promise,
-    }) => async ({ chatStream }) => {
-        const message = chatStream.message();
-        
-        let textblock = message.contentBlock({ type: 'text' });
-        let toolblock = null;
-        let mode = 'text';
+  static create_chat_stream_handler =
+    ({
+      stream, // GenerateContentStreamResult:stream
+      usage_promise,
+    }) =>
+    async ({ chatStream }) => {
+      const message = chatStream.message();
 
-        
-        let last_usage = null;
-        for await ( const chunk of stream ) {
-            // This is spread across several lines so that the stack trace
-            // is more helpful if we get an exception because of an
-            // inconsistent response from the model.
-            const candidate = chunk.candidates[0];
-            const content = candidate.content;
-            const parts = content.parts;
-            for ( const part of parts ) {
-                if ( part.functionCall ) {
-                    if ( mode === 'text' ) {
-                        mode = 'tool';
-                        textblock.end();
-                    }
+      let textblock = message.contentBlock({ type: 'text' });
+      let toolblock = null;
+      let mode = 'text';
 
-                    toolblock = message.contentBlock({
-                        type: 'tool_use',
-                        id: part.functionCall.name,
-                        name: part.functionCall.name,
-                    });
-                    toolblock.addPartialJSON(JSON.stringify(
-                        part.functionCall.args,
-                    ));
-
-                    continue;
-                }
-
-                if ( mode === 'tool' ) {
-                    mode = 'text';
-                    toolblock.end();
-                    textblock = message.contentBlock({ type: 'text' });
-                }
-
-                // assume text as default
-                const text = part.text;
-                textblock.addText(text);
+      let last_usage = null;
+      for await (const chunk of stream) {
+        // This is spread across several lines so that the stack trace
+        // is more helpful if we get an exception because of an
+        // inconsistent response from the model.
+        const candidate = chunk.candidates[0];
+        const content = candidate.content;
+        const parts = content.parts;
+        for (const part of parts) {
+          if (part.functionCall) {
+            if (mode === 'text') {
+              mode = 'tool';
+              textblock.end();
             }
 
-            last_usage = chunk.usageMetadata;
+            toolblock = message.contentBlock({
+              type: 'tool_use',
+              id: part.functionCall.name,
+              name: part.functionCall.name,
+            });
+            toolblock.addPartialJSON(JSON.stringify(part.functionCall.args));
+
+            continue;
+          }
+
+          if (mode === 'tool') {
+            mode = 'text';
+            toolblock.end();
+            textblock = message.contentBlock({ type: 'text' });
+          }
+
+          // assume text as default
+          const text = part.text;
+          textblock.addText(text);
         }
 
-        usage_promise.resolve(last_usage);
+        last_usage = chunk.usageMetadata;
+      }
 
-        if ( mode === 'text' ) textblock.end();
-        if ( mode === 'tool' ) toolblock.end();
-        message.end();
-        chatStream.end();
-    }
-}
+      usage_promise.resolve(last_usage);
+
+      if (mode === 'text') textblock.end();
+      if (mode === 'tool') toolblock.end();
+      message.end();
+      chatStream.end();
+    };
+};

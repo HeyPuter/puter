@@ -19,38 +19,38 @@
 const APIError = require('../../api/APIError');
 
 module.exports = class StringParam {
-    constructor (srckey, options) {
-        this.srckey = srckey;
-        this.options = options ?? {};
-        this.optional = this.options.optional ?? false;
+  constructor(srckey, options) {
+    this.srckey = srckey;
+    this.options = options ?? {};
+    this.optional = this.options.optional ?? false;
+  }
+
+  async consolidate({ req, getParam }) {
+    const log = globalThis.services.get('log-service').create('string-param');
+
+    const value = getParam(this.srckey);
+    if (value === undefined) {
+      if (this.optional) return undefined;
+      throw APIError.create('field_missing', null, {
+        key: this.srckey,
+      });
     }
 
-    async consolidate ({ req, getParam }) {
-        const log = globalThis.services.get('log-service').create('string-param');
-
-        const value = getParam(this.srckey);
-        if ( value === undefined ) {
-            if ( this.optional ) return undefined;
-            throw APIError.create('field_missing', null, {
-                key: this.srckey,
-            });
-        }
-
-        if ( value.length === 0 ) {
-            if ( this.optional ) return undefined;
-            APIError.create('field_empty', null, {
-                key: this.srckey,
-            });
-        }
-
-        if ( typeof value !== 'string' ) {
-            log.debug('tried string', { value })
-            throw APIError.create('field_invalid', null, {
-                key: this.srckey,
-                expected: 'string',
-            });
-        }
-
-        return value;
+    if (value.length === 0) {
+      if (this.optional) return undefined;
+      APIError.create('field_empty', null, {
+        key: this.srckey,
+      });
     }
-}
+
+    if (typeof value !== 'string') {
+      log.debug('tried string', { value });
+      throw APIError.create('field_invalid', null, {
+        key: this.srckey,
+        expected: 'string',
+      });
+    }
+
+    return value;
+  }
+};
