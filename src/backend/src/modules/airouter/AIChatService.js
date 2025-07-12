@@ -456,16 +456,33 @@ class AIChatService extends BaseService {
                     UniversalToolsNormalizer.normalize_tools_object(parameters.tools);
                 }
 
-                if ( intended_service === this.service_name ) {
-                    throw new Error('Calling ai-chat directly is not yet supported');
+                const { target_service, delegate, supplier, vendor, model } = this.disentangle_model(parameters.model, intended_service);
+                // Write "target_service" back to "intended_service".
+                // 
+                // TODO (xiaochen): remove the redundant "target_service".
+                intended_service = target_service;
+
+                // Hardcode the services that accept <vendor>/<model> format. This will be
+                // removed in the future.
+                // 
+                // TODO (xiaochen): pass the whole details (supplier, vendor, model) to the
+                // delegate service, and let it decide how to handle it.
+                if (intended_service === 'openrouter') {
+                    parameters.model = vendor + '/' + model;
+                } else {
+                    parameters.model = model;
                 }
 
                 const svc_driver = this.services.get('driver');
                 let ret, error;
                 let service_used = intended_service;
+
                 let model_used = this.get_model_from_request(parameters, {
                     intended_service
                 });
+
+                if (!delegate) {
+                    // TODO (xiaochen): delegate all ai services in the future, this branch will be removed.
 
                 // Updated: Check usage and get a boolean result instead of throwing error
                 const svc_cost = this.services.get('cost');
@@ -529,6 +546,7 @@ class AIChatService extends BaseService {
                 }
 
                 this.log.noticeme('AI PARAMETERS', parameters);
+                }
 
                 try {
                     ret = await svc_driver.call_new_({
@@ -768,7 +786,6 @@ class AIChatService extends BaseService {
             }
         }
     }
-    
 
     /**
     * Checks if the user has permission to use AI services and verifies usage limits
@@ -1010,6 +1027,122 @@ class AIChatService extends BaseService {
 
         return model;
     }
+
+    /**
+     * Determines the target service to use for AI operations based on intended service and model specification.
+     * 
+     * The method follows this priority order:
+     * 1. If "intended_service" is not "ai-chat", use it as the target service.
+     * 2. If "supplier" is specified by model (e.g., "azure" in "azure:openai/gpt-4o"), use it as the target service.
+     * 3. If "vendor" is specified by model (e.g., "openai" in "openai/gpt-4o"), use it as the target service.
+     * 4. Try to infer the service from the model name itself. (e.g., "gpt-4o" -> "openai")
+     * 5. If all else fails, throw an error.
+     * 
+     * Note that the "intended_service" corresponds to the "driver" field and "interface" field of the http request.
+     * 
+     * This method also inherits the "fallback to the default model" feature from the old "get_model_from_request" api. This logic may be removed in the future.
+     * 
+     * @param {string} qualified_model - The model string to parse
+     * @param {string} intended_service - The originally intended service name
+     * @returns {string} returns.target_service - The target service name to use for the AI operation
+     * @returns {boolean} returns.delegate - Whether to delegate all responsibility to the target service, including usage tracking, model validation, etc. This is the desired behavior for the future, i.e., we can remove this field once all services are delegated.
+     * @returns {string} returns.supplier - The supplier (e.g., "openrouter") or null if not specified
+     * @returns {string} returns.vendor - The vendor (e.g., "openai") or null if not specified
+     * @returns {string} returns.model - The model name (e.g., "gpt-4o")
+     */
+    disentangle_model(qualified_model, intended_service) {
+        if (!qualified_model) {
+            const service = this.services.get(intended_service);
+            if (!service.get_default_model) {
+                throw new Error('could not infer model from service');
+            }
+            qualified_model = service.get_default_model();
+            if (!qualified_model) {
+                throw new Error('could not infer model from service');
+            }
+        }
+
+        const { supplier, vendor, model } = parse_qualified_model(qualified_model);
+
+        let result = {
+            target_service: intended_service,
+            delegate: false,
+            supplier,
+            vendor,
+            model,
+        };
+
+        if (intended_service !== 'ai-chat') {
+            result.delegate = true;
+            return result;
+        }
+
+        let service = null;
+        if (supplier) {
+            result.target_service = supplier;
+            // We should delegate to the supplier if it is specified.
+            result.delegate = true;
+        } else if (vendor) {
+            result.target_service = vendor;
+        } else if (model) {
+            // TODO (xiaochen): infer the service from the model name
+            result.target_service = model;
+        }
+
+        const service_map = {
+            'openai': 'openai-completion',
+        }
+        result.target_service = service_map[result.target_service] || result.target_service;
+
+        return result;
+    }
+}
+
+/**
+ * Parses a qualified model name string into its components.
+ * 
+ * 3 formats are allowed:
+ * - `<model-name>` (e.g., `gpt-4o`)
+ * - `<vendor>/<model-name>` (e.g., `openai/gpt-4o`)
+ * - `<supplier>:<vendor>/<model-name>` (e.g., `azure:openai/gpt-4o`)
+ * 
+ * @param {string} qualified_model - The model string to parse
+ * @returns {Object} Object containing parsed components
+ * @returns {string|null} returns.supplier - The supplier (e.g., "azure") or null if not specified
+ * @returns {string|null} returns.vendor - The vendor (e.g., "openai") or null if not specified
+ * @returns {string} returns.model - The model name (e.g., "gpt-4o")
+ * @throws {Error} If the input is not a string or has an invalid format
+ */
+function parse_qualified_model(qualified_model) {
+    if (typeof qualified_model !== 'string') {
+        throw new Error('Input must be a string');
+    }
+
+    let supplier = null;
+    let vendor = null;
+    let model_name = null;
+
+    // Match patterns
+    const fullPattern = /^([^:]+):([^/]+)\/(.+)$/;         // supplier:vendor/model
+    const vendorPattern = /^([^/]+)\/(.+)$/;               // vendor/model
+    const simplePattern = /^[^:/]+$/;                      // model
+
+    if (fullPattern.test(qualified_model)) {
+        const match = qualified_model.match(fullPattern);
+        supplier = match[1];
+        vendor = match[2];
+        model_name = match[3];
+    } else if (vendorPattern.test(qualified_model)) {
+        const match = qualified_model.match(vendorPattern);
+        vendor = match[1];
+        model_name = match[2];
+    } else if (simplePattern.test(qualified_model)) {
+        model_name = qualified_model;
+    } else {
+        throw new Error(`Invalid model format: "${qualified_model}"`);
+    }
+
+    return { supplier, vendor, model: model_name };
 }
 
 module.exports = { AIChatService };
