@@ -111,8 +111,8 @@ export class AnthropicAPIType {
             model: options.model,
             max_tokens: Math.floor(options.max_tokens) ||
                 ((
-                    model === 'claude-3-5-sonnet-20241022'
-                    || model === 'claude-3-5-sonnet-20240620'
+                    options.model === 'claude-3-5-sonnet-20241022'
+                    || options.model === 'claude-3-5-sonnet-20240620'
                 ) ? 8192 : 4096), //required
             temperature: options.temperature || 0, // required
             ...(system_prompts ? {
