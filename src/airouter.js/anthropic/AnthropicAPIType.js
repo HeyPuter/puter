@@ -1,7 +1,8 @@
 import { AnthropicStreamAdapter } from "./AnthropicStreamAdapter.js";
 import { AnthropicToolsAdapter } from "./AnthropicToolsAdapter.js";
 import { NormalizedPromptUtil } from "../common/prompt/NormalizedPromptUtil.js";
-import { PassThrough } from 'node:stream';
+
+import { toFile } from '@anthropic-ai/sdk';
 
 const FILES_API_BETA_STRING = 'files-api-2025-04-14';
 
@@ -69,9 +70,14 @@ export class AnthropicAPIType {
         
         const cleanups = [];
         
-        const has_files = await this.handle_files_({ cleanups, messages: options.messages });
+        const betas = [];
+        const has_files = await this.handle_files_({ client, cleanups, messages: options.messages });
         if ( has_files ) {
             client = client.beta;
+            betas.push(FILES_API_BETA_STRING);
+        }
+        if ( betas.length > 0 ) {
+            Object.assign(sdk_params, { betas });
         }
         
         const usageWriter = options.usageWriter ?? { resolve: () => {} };
@@ -89,9 +95,14 @@ export class AnthropicAPIType {
         
         const cleanups = [];
         
-        const has_files = await this.handle_files_({ cleanups, messages: options.messages });
+        const betas = [];
+        const has_files = await this.handle_files_({ client, cleanups, messages: options.messages });
         if ( has_files ) {
             client = client.beta;
+            betas.push(FILES_API_BETA_STRING);
+        }
+        if ( betas.length > 0 ) {
+            Object.assign(sdk_params, { betas });
         }
         
         return new AnthropicAPISyncInvocation({
@@ -125,7 +136,7 @@ export class AnthropicAPIType {
         };
     }
     
-    async handle_files_ ({ cleanups, messages }) {
+    async handle_files_ ({ client, cleanups, messages }) {
         const file_input_tasks = [];
         for ( const message of messages ) {
             // We can assume `message.content` is not undefined because
@@ -148,14 +159,13 @@ export class AnthropicAPIType {
             const stream = await task.data.getStream();
             const mimeType = await task.data.getMimeType();
 
-            beta_mode = true;
-            const fileUpload = await this.anthropic.beta.files.upload({
+            const fileUpload = await client.beta.files.upload({
                 file: await toFile(stream, undefined, { type: mimeType })
             }, {
                 betas: [FILES_API_BETA_STRING]
             });
             
-            cleanups.push(() => this.anthropic.beta.files.delete(
+            cleanups.push(() => client.beta.files.delete(
                 fileUpload.id,
                 { betas: [FILES_API_BETA_STRING] },
             ));
