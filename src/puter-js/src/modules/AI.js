@@ -451,6 +451,9 @@ class AI{
         }else if(requestParams.model === 'grok-beta') {
             driver = 'xai';
         }
+        else if(requestParams.model.startsWith('grok-')){
+            driver = 'openrouter';
+        }
         else if(
             requestParams.model === 'deepseek-chat' ||
             requestParams.model === 'deepseek-reasoner'
