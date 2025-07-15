@@ -315,13 +315,18 @@ async function create_app(title, source_path = null, items = null) {
             // Update the app with the new hostname
             // ----------------------------------------------------
             puter.apps.update(app.name, {
-                title: title,
-                indexURL: source_path ? protocol + `://${subdomain}.` + static_hosting_domain : 'https://dev-center.puter.com/coming-soon.html',
-                icon: icon,
-                description: ' ',
-                maximizeOnStart: false,
-                background: false,
-            }).then(async (app) => {
+    title: title,
+    indexURL: source_path ? protocol + `://${subdomain}.` + static_hosting_domain : 'https://dev-center.puter.com/coming-soon.html',
+    icon: icon,
+    description: ' ',
+    maximizeOnStart: false,
+    background: false,
+    metadata: {
+        category: null, // default category on creation
+        window_resizable: true,
+        fullpage_on_landing: true,
+    }
+}).then(async (app) => {
                 // refresh app list
                 puter.apps.list({ icon_size: 64 }).then(async (resp) => {
                     apps = resp;
@@ -330,6 +335,8 @@ async function create_app(title, source_path = null, items = null) {
                     setTimeout(() => {
                         // open edit app section
                         edit_app_section(app.name);
+                        refresh_app_list(); // ✅ Refreshes main app list
+
                         // set drop area if source_path was provided or items were dropped
                         if (source_path || items) {
                             $('.drop-area').removeClass('drop-area-hover');
@@ -1381,6 +1388,8 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         },
         filetypeAssociations: filetype_associations,
     }).then(async (app) => {
+        refresh_app_list();
+
         currently_editing_app = app;
         trackOriginalValues();  // Update original values after save
         toggleSaveButton();  //Disable Save Button after succesful save
@@ -1662,7 +1671,8 @@ function generate_app_card(app) {
         h += `</div>`;
     h += `</td>`;
     // App info
-    h += `<td style="height: 60px; width: 450px; display: flex; flex-direction: row; overflow:hidden;">`;
+    h += '<td style="min-height: 60px; width: 450px; display: flex; flex-direction: row; overflow: visible; align-items: flex-start;">';
+
     // Icon
     h += `<div class="got-to-edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-locked="${html_encode(app.metadata?.locked)}" data-app-uid="${html_encode(app.uid)}" style="background-position: center; background-repeat: no-repeat; background-size: 92%; background-image:url(${app.icon === null ? './img/app.svg' : app.icon}); width: 60px; height: 60px; float:left; margin-bottom: -14px; color: #414b56; cursor: pointer; background-color: white; border-radius: 3px; flex-shrink:0;"></div>`;
     // Info
@@ -1670,14 +1680,24 @@ function generate_app_card(app) {
     // Title
     h += `<h3 class="got-to-edit-app app-card-title" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg_tippy : ''}</h3>`;
     // // Category
-    // if (app.metadata?.category) {
-    //     const category = APP_CATEGORIES.find(c => c.id === app.metadata.category);
-    //     if (category) {
-    //         h += `<div class="app-categories">`;
-    //         h += `<span class="app-category">${category.label}</span>`;
-    //         h += `</div>`;
-    //     }
-    // }
+   
+// Category badge
+if (app.metadata?.category) {
+    const category = APP_CATEGORIES.find(c => c.id === app.metadata.category);
+    if (category) {
+        h += `<div class="app-categories" style="margin: 4px 0;">`;
+        h += `<span class="app-category" style="
+            display: inline-block;
+            background-color: #f3f4f6;
+            color: #374151;
+            padding: 2px 6px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+        ">${html_encode(category.label)}</span>`;
+        h += `</div>`;
+    }
+}
 
     // link
     h += `<a class="app-card-link" href="${html_encode(applink(app))}" target="_blank">${html_encode(applink(app))}</a>`;

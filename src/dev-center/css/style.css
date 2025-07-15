@@ -1213,3 +1213,24 @@ dialog{
 .stats-cell img{
     width: 18px; margin-right: 5px; margin-bottom: -4px;
 }
+.category-badge {
+  display: inline-block;
+  background-color: #f2f2f2;
+  color: #555;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 6px;
+  margin-left: 8px;
+  border-radius: 6px;
+  vertical-align: middle;
+}
+.app-category {
+  display: inline-block;
+  background-color: #f3f4f6;
+  color: #374151;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-top: 4px;
+}
