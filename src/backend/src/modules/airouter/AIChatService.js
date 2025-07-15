@@ -481,9 +481,6 @@ class AIChatService extends BaseService {
                     intended_service
                 });
 
-                if (!delegate) {
-                    // TODO (xiaochen): delegate all ai services in the future, this branch will be removed.
-
                 // Updated: Check usage and get a boolean result instead of throwing error
                 const svc_cost = this.services.get('cost');
                 const available = await svc_cost.get_available_amount();
@@ -546,7 +543,6 @@ class AIChatService extends BaseService {
                 }
 
                 this.log.noticeme('AI PARAMETERS', parameters);
-                }
 
                 try {
                     ret = await svc_driver.call_new_({
