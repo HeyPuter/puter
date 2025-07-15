@@ -21,7 +21,6 @@
 const { default: Anthropic, toFile } = require("@anthropic-ai/sdk");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
-const { NodePathSelector } = require("../../filesystem/node/selectors");
 const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Context } = require("../../util/context");
@@ -121,6 +120,8 @@ class ClaudeService extends BaseService {
             * @this {ClaudeService}
             */
             async complete ({ messages, stream, model, tools, max_tokens, temperature}) {
+                await this.handle_puter_paths_(messages);
+
                 if ( stream ) {
                     let usage_promise = new TeePromise();
 
@@ -130,9 +131,6 @@ class ClaudeService extends BaseService {
                             messages, model, tools, max_tokens, temperature,
                         })
                         await streamOperation.run();
-                        // const input = await anthropic.messages.stream(sdk_params);
-                        // await this.AnthropicStreamAdapter.write_to_stream(
-                        //     { input, completionWriter, usageWriter: usage_promise })
                     };
 
                     return new TypedValue({ $: 'ai-chat-intermediate' }, {
@@ -151,155 +149,38 @@ class ClaudeService extends BaseService {
                     await syncOperation.cleanup();
                     return retVal;
                 }
-                tools = this.AnthropicToolsAdapter.adapt_tools(tools);
+            }
+        }
+    }
+    
+    async handle_puter_paths_(messages) {
+        const require = this.require;
                 
-                let system_prompts;
-                [system_prompts, messages] = this.NormalizedPromptUtil.extract_and_remove_system_messages(messages);
+        const actor = Context.get('actor');
+        const { user } = actor.type;
+        for ( const message of messages ) {
+            for ( const contentPart of message.content ) {
+                if ( ! contentPart.puter_path ) continue;
                 
-                const sdk_params = {
-                    model: model ?? this.get_default_model(),
-                    max_tokens: Math.floor(max_tokens) ||
-                        ((
-                            model === 'claude-3-5-sonnet-20241022'
-                            || model === 'claude-3-5-sonnet-20240620'
-                        ) ? 8192 : 4096), //required
-                    temperature: temperature || 0, // required
-                    ...(system_prompts ? {
-                        system: system_prompts.length > 1
-                            ? JSON.stringify(system_prompts)
-                            : JSON.stringify(system_prompts[0])
-                    } : {}),
-                    messages,
-                    ...(tools ? { tools } : {}),
-                };
-                
-                console.log('\x1B[26;1m ===== SDK PARAMETERS', require('util').inspect(sdk_params, undefined, Infinity));
-                
-                let beta_mode = false;
-                
-                // Perform file uploads
-                const file_delete_tasks = [];
-                {
-                    const actor = Context.get('actor');
-                    const { user } = actor.type;
+                const node = await (new FSNodeParam(contentPart.puter_path)).consolidate({
+                    req: { user },
+                    getParam: () => contentPart.puter_path,
+                });
 
-                    const file_input_tasks = [];
-                    for ( const message of messages ) {
-                        // We can assume `message.content` is not undefined because
-                        // Messages.normalize_single_message ensures this.
-                        for ( const contentPart of message.content ) {
-                            if ( ! contentPart.puter_path ) continue;
-                            file_input_tasks.push({
-                                node: await (new FSNodeParam(contentPart.puter_path)).consolidate({
-                                    req: { user },
-                                    getParam: () => contentPart.puter_path,
-                                }),
-                                contentPart,
-                            });
-                        }
-                    }
-                    
-                    const promises = [];
-                    for ( const task of file_input_tasks ) promises.push((async () => {
+                delete contentPart.puter_path;
+                contentPart.type = 'data';
+                contentPart.data = {
+                    async getStream () {
                         const ll_read = new LLRead();
-                        const stream = await ll_read.run({
+                        return await ll_read.run({
                             actor: Context.get('actor'),
-                            fsNode: task.node,
+                            fsNode: node,
                         });
-                        
-                        const require = this.require;
+                    },
+                    async getMimeType () {
                         const mime = require('mime-types');
-                        const mimeType = mime.contentType(await task.node.get('name'));
-
-                        beta_mode = true;
-                        const fileUpload = await this.anthropic.beta.files.upload({
-                            file: await toFile(stream, undefined, { type: mimeType })
-                        }, {
-                            betas: ['files-api-2025-04-14']
-                        });
-                        
-                        file_delete_tasks.push({ file_id: fileUpload.id });
-                        // We have to copy a table from the documentation here:
-                        // https://docs.anthropic.com/en/docs/build-with-claude/files
-                        const contentBlockTypeForFileBasedOnMime = (() => {
-                            if ( mimeType.startsWith('image/') ) {
-                                return 'image';
-                            }
-                            if ( mimeType.startsWith('text/') ) {
-                                return 'document';
-                            }
-                            if ( mimeType === 'application/pdf' || mimeType === 'application/x-pdf' ) {
-                                return 'document';
-                            }
-                            return 'container_upload';
-                        })();
-                        
-                        // {
-                        //     'application/pdf': 'document',
-                        //     'text/plain': 'document',
-                        //     'image/': 'image'
-                        // }[mimeType];
-
-                        
-                        delete task.contentPart.puter_path,
-                        task.contentPart.type = contentBlockTypeForFileBasedOnMime;
-                        task.contentPart.source = {
-                            type: 'file',
-                            file_id: fileUpload.id,
-                        };
-                    })());
-                    await Promise.all(promises);
-                }
-                const cleanup_files = async () => {
-                    const promises = [];
-                    for ( const task of file_delete_tasks ) promises.push((async () => {
-                        try {
-                            await this.anthropic.beta.files.delete(
-                                task.file_id,
-                                { betas: ['files-api-2025-04-14'] }
-                            );
-                        }  catch (e) {
-                            this.errors.report('claude:file-delete-task', {
-                                source: e,
-                                trace: true,
-                                alarm: true,
-                                extra: { file_id: task.file_id },
-                            });
-                        }
-                    })());
-                    await Promise.all(promises);
-                };
-
-                
-                if ( beta_mode ) {
-                    Object.assign(sdk_params, { betas: ['files-api-2025-04-14'] });
-                }
-                const anthropic = (c => beta_mode ? c.beta : c)(this.anthropic);
-
-                if ( stream ) {
-                    let usage_promise = new TeePromise();
-
-                    const init_chat_stream = async ({ chatStream: completionWriter }) => {
-                        const input = await anthropic.messages.stream(sdk_params);
-                        await this.AnthropicStreamAdapter.write_to_stream(
-                            { input, completionWriter, usageWriter: usage_promise })
-                    };
-
-                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
-                        init_chat_stream,
-                        stream: true,
-                        usage_promise: usage_promise,
-                        finally_fn: cleanup_files,
-                    });
-                }
-                
-                const msg = await anthropic.messages.create(sdk_params);
-                await cleanup_files();
-                
-                return {
-                    message: msg,
-                    usage: msg.usage,
-                    finish_reason: 'stop'
+                        return mime.contentType(await node.get('name'));
+                    },
                 };
             }
         }
