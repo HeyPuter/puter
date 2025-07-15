@@ -282,6 +282,7 @@ class HLMkdir extends HLFilesystemOperation {
             : await this._get_existing_top_parent({ top_parent: parent_node })
             ;
 
+        // TODO: this can be removed upon completion of: https://github.com/HeyPuter/puter/issues/1352
         if ( top_parent.isRoot ) {
             // root directory is read-only
             throw APIError.create('forbidden', null, {
