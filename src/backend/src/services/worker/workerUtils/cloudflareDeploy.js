@@ -25,6 +25,7 @@ async function createWorker(userData, authorization, workerId, body, PREAMBLE_LE
     const workerMetaData = {
 
         body_part: "swCode",
+        compatibility_date: "2025-07-15",
         bindings: [
             {
                 type: "secret_text",
