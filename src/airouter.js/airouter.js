@@ -1,3 +1,6 @@
+import { AnthropicAPIType } from './anthropic/AnthropicAPIType.js';
+import { LLMRegistry } from './router/LLMRegistry.js';
+
 // Streaming Utilities
 export { CompletionWriter } from './common/stream/CompletionWriter.js';
 export { MessageWriter } from './common/stream/MessageWriter.js';
@@ -18,3 +21,10 @@ export { GeminiToolsAdapter } from './gemini/GeminiToolsAdapter.js';
 // Model-Specific Output Adaptation
 export { AnthropicStreamAdapter } from './anthropic/AnthropicStreamAdapter.js';
 export { AnthropicAPIType } from './anthropic/AnthropicAPIType.js';
+
+export class AIRouter extends LLMRegistry {
+    constructor () {
+        super();
+        this.registerApiType('claude', new AnthropicAPIType());
+    }
+}
