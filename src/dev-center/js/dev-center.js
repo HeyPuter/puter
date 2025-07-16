@@ -1693,7 +1693,7 @@ h += `<div style="display: flex; flex-direction: row; align-items: center; heigh
     "></div>`;
 
     // App info content
-    h += `<div style="display: flex; flex-direction: column; justify-content: space-between; height: 100%; overflow: hidden;">`;
+    h += `<div style="display: flex; flex-direction: column; justify-content: space-between; height: 100%; overflow: visible;">`;
 
     // Info block with fixed layout
 h += `<div style="display: flex; flex-direction: column; justify-content: center; padding-left: 10px; flex-grow: 1; overflow: hidden; gap: 1px; height: 100%;">`;
@@ -1747,23 +1747,12 @@ h += `</div>`;
 
 
       // Toolbar
-      h += `<div class="app-toolbar-container" style="height: 16px; overflow: hidden;">`;
-    h += `<div class="app-row-toolbar disable-user-select" style="
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  height: 20px;  /* ✅ Set fixed height */
-  display: flex;
-  align-items: center;
-  opacity: 0.7;  /* Optional: fade effect */
-  transition: opacity 0.2s ease; /* ✅ Smooth transition */
-">`;
+      h += `<div class="app-toolbar-container" style="height: 16px; overflow: visible;">`;
+   h += `<div class="app-row-toolbar disable-user-select">`; // remove inline styles
+
         h += `<span title="Open app" class="open-app-btn" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Open</span>`;
-        h += `<span style="margin: 0 4px; color: #CCC;">&bull;</span>`;
         h += `<span title="Edit app" class="edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">Settings</span>`;
-        h += `<span style="margin: 0 4px; color: #CCC;">&bull;</span>`;
         h += `<span class="add-app-to-desktop" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}">Add Shortcut to Desktop</span>`;
-        h += `<span style="margin: 0 4px; color: #CCC;">&bull;</span>`;
         h += `<span title="Delete app" class="delete-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">Delete</span>`;
       h += `</div>`;
 h += `</div>`;

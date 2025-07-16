@@ -730,8 +730,15 @@ th.sorted{
     visibility: hidden;
     opacity: 0;
     transition: opacity 0.2s ease;
-    height: 20px;
-    overflow: hidden;
+    height: auto; /* allow full content */
+    overflow: visible; /* allow overflow */
+    display: flex;
+    align-items: center;
+    gap: 4px; /* adjust spacing here */
+      font-size: 12px;
+  padding-top: 2px;
+  
+ 
 }
 
 .app-row-toolbar img {
