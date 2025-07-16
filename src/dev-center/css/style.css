@@ -242,6 +242,7 @@ section {
     background: white;
     overflow: hidden;
     position: relative;
+
 }
 
 .app-card:hover {
@@ -251,8 +252,16 @@ section {
     background-color: #e8eff6;
 }
 
-.app-card:hover .app-row-toolbar{
-    display: block;
+
+.app-card:hover .app-row-toolbar {
+    visibility: visible;
+    opacity: 1;
+}
+
+.app-toolbar-container {
+  height: 16px;
+  overflow: hidden;
+  position: relative;
 }
 
 .app-card h1 {
@@ -717,14 +726,17 @@ th.sorted{
     color: #394254;
 }
 
-.app-row-toolbar{
-    margin-top: -7px;
-    display: none;
-    width: 350px;
+.app-row-toolbar {
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    height: 20px;
+    overflow: hidden;
 }
 
 .app-row-toolbar img {
     opacity: 0.5;
+    transition: opacity 0.2s ease;
 }
 
 .app-row-toolbar img:hover {
@@ -1228,9 +1240,28 @@ dialog{
   display: inline-block;
   background-color: #f3f4f6;
   color: #374151;
-  padding: 2px 6px;
-  border-radius: 6px;
-  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
   font-weight: 500;
-  margin-top: 4px;
+  margin-top: 2px;
+  max-height: 18px;
+  line-height: 1.2;
+  white-space: nowrap;
 }
+
+.app-row-toolbar span {
+  margin: 0 4px;
+  font-size: 12px;
+  line-height: 1;
+  vertical-align: middle;
+  padding: 2px 4px;
+}
+
+.app-row-toolbar span:hover {
+    text-decoration: underline;
+    cursor: pointer;
+    color: #000; /* Optional: darken on hover */
+}
+
+

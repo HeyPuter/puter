@@ -1663,64 +1663,114 @@ async function getBase64ImageFromUrl(imageUrl) {
  */
 function generate_app_card(app) {
     let h = ``;
-    h += `<tr class="app-card" data-uid="${html_encode(app.uid)}" data-title="${html_encode(app.title)}" data-name="${html_encode(app.name)}">`;
+h += `<tr class="app-card" data-uid="${html_encode(app.uid)}" data-title="${html_encode(app.title)}" data-name="${html_encode(app.name)}" style="height: 86px;">`;
     // check box
     h += `<td style="height: 60px; width: 20px;">`;
         h += `<div style="width: 20px; height: 20px; margin-top: 20px; margin-right: 10px; flex-shrink:0;">`;
             h += `<input type="checkbox" class="app-checkbox" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}" style="width: 20px; height: 20px;">`;
         h += `</div>`;
     h += `</td>`;
-    // App info
-    h += '<td style="min-height: 60px; width: 450px; display: flex; flex-direction: row; overflow: visible; align-items: flex-start;">';
+  // App info (title, category, toolbar)
+h += `<td style="height: 72px; width: 450px;">`;
+
+  // Wrapper for icon + content side by side
+h += `<div style="display: flex; flex-direction: row; align-items: center; height: 86px; overflow: hidden;">`;
 
     // Icon
-    h += `<div class="got-to-edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-locked="${html_encode(app.metadata?.locked)}" data-app-uid="${html_encode(app.uid)}" style="background-position: center; background-repeat: no-repeat; background-size: 92%; background-image:url(${app.icon === null ? './img/app.svg' : app.icon}); width: 60px; height: 60px; float:left; margin-bottom: -14px; color: #414b56; cursor: pointer; background-color: white; border-radius: 3px; flex-shrink:0;"></div>`;
-    // Info
-    h += `<div style="float:left; padding-left: 10px;">`;
-    // Title
-    h += `<h3 class="got-to-edit-app app-card-title" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg_tippy : ''}</h3>`;
-    // // Category
-   
-// Category badge
-if (app.metadata?.category) {
+    h += `<div class="got-to-edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-locked="${html_encode(app.metadata?.locked)}" data-app-uid="${html_encode(app.uid)}" style="
+      background-position: center;
+      background-repeat: no-repeat;
+      background-size: 92%;
+      background-image: url(${app.icon === null ? './img/app.svg' : app.icon});
+      width: 60px;
+      height: 60px;
+      margin-right: 10px;
+      color: #414b56;
+      cursor: pointer;
+      background-color: white;
+      border-radius: 3px;
+      flex-shrink: 0;
+    "></div>`;
+
+    // App info content
+    h += `<div style="display: flex; flex-direction: column; justify-content: space-between; height: 100%; overflow: hidden;">`;
+
+    // Info block with fixed layout
+h += `<div style="display: flex; flex-direction: column; justify-content: center; padding-left: 10px; flex-grow: 1; overflow: hidden; gap: 1px; height: 100%;">`;
+
+  // Title
+  h += `<h3 class="got-to-edit-app app-card-title" style="
+    margin: 0;
+    font-size: 16px;
+    line-height: 20px;
+    height: 20px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  " data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">
+    ${html_encode(app.title)}${app.metadata?.locked ? lock_svg_tippy : ''}
+  </h3>`;
+
+  // Category (optional)
+  if (app.metadata?.category) {
     const category = APP_CATEGORIES.find(c => c.id === app.metadata.category);
     if (category) {
-        h += `<div class="app-categories" style="margin: 4px 0;">`;
-        h += `<span class="app-category" style="
-            display: inline-block;
-            background-color: #f3f4f6;
-            color: #374151;
-            padding: 2px 6px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 500;
-        ">${html_encode(category.label)}</span>`;
-        h += `</div>`;
+      h += `<span class="app-category" style="
+        background-color: #f3f4f6;
+        color: #374151;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
+        margin: 1px 0 0 0;
+        max-width: fit-content;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      ">${html_encode(category.label)}</span>`;
     }
-}
+  }
 
-    // link
-    h += `<a class="app-card-link" href="${html_encode(applink(app))}" target="_blank">${html_encode(applink(app))}</a>`;
+  // Link
+  h += `<a class="app-card-link" href="${html_encode(applink(app))}" target="_blank" style="
+    font-size: 13px;
+    margin: 2px 0 0 0;
+    color: #2563eb;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-decoration: none;
+  ">${html_encode(applink(app))}</a>`;
 
-    // toolbar
-    h += `<div style="" class="app-row-toolbar disable-user-select">`;
+h += `</div>`;
 
-    // Open
-    h += `<span title="Open app" class="open-app-btn" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}" style="">Open</span>`;
-    h += `<span style="margin-right: 10px; margin-left: 10px; color: #CCC; cursor:default;">&bull;</span>`;
 
-    // Settings
-    h += `<span title="Edit app" class="edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">Settings</span>`;
-    h += `<span style="margin-right: 10px; margin-left: 10px; color: #CCC; cursor:default;">&bull;</span>`;
 
-    // add to desktop
-    h += `<span class="add-app-to-desktop" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}">Add Shortcut to Desktop</span>`
-    h += `<span style="margin-right: 10px; margin-left: 10px; color: #CCC; cursor:default;">&bull;</span>`;
+      // Toolbar
+      h += `<div class="app-toolbar-container" style="height: 16px; overflow: hidden;">`;
+    h += `<div class="app-row-toolbar disable-user-select" style="
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  height: 20px;  /* ✅ Set fixed height */
+  display: flex;
+  align-items: center;
+  opacity: 0.7;  /* Optional: fade effect */
+  transition: opacity 0.2s ease; /* ✅ Smooth transition */
+">`;
+        h += `<span title="Open app" class="open-app-btn" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Open</span>`;
+        h += `<span style="margin: 0 4px; color: #CCC;">&bull;</span>`;
+        h += `<span title="Edit app" class="edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">Settings</span>`;
+        h += `<span style="margin: 0 4px; color: #CCC;">&bull;</span>`;
+        h += `<span class="add-app-to-desktop" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}">Add Shortcut to Desktop</span>`;
+        h += `<span style="margin: 0 4px; color: #CCC;">&bull;</span>`;
+        h += `<span title="Delete app" class="delete-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">Delete</span>`;
+      h += `</div>`;
+h += `</div>`;
+    h += `</div>`; // end info column
+  h += `</div>`; // end row
+h += `</td>`;
 
-    // Delete
-    h += `<span title="Delete app" class="delete-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">Delete</span>`;
-    h += `</div>`;
-    h += `</td>`;
 
     // users count
     h += `<td style="margin-top:10px; font-size:15px; vertical-align:middle;">`;
