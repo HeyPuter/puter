@@ -1,6 +1,7 @@
 const putility = require("@heyputer/putility");
 const { TypedValue } = require("../../../services/drivers/meta/Runtime");
 const { nou } = require("../../../util/langutil");
+const { OpenAIStyleStreamAdapter } = require("@heyputer/airouter.js");
 
 module.exports = class OpenAIUtil {
     /**
@@ -41,74 +42,16 @@ module.exports = class OpenAIUtil {
         deviations,
         completion, usage_promise,
     }) => async ({ chatStream }) => {
-        deviations = Object.assign({
-            // affected by: Groq
-            index_usage_from_stream_chunk: chunk => chunk.usage,
-            // affected by: Mistral
-            chunk_but_like_actually: chunk => chunk,
-            index_tool_calls_from_stream_choice: choice => choice.delta.tool_calls,
-        }, deviations);
-
-        const message = chatStream.message();
-        let textblock = message.contentBlock({ type: 'text' });
-        let toolblock = null;
-        let mode = 'text';
-        const tool_call_blocks = [];
-
-        let last_usage = null;
-        for await ( let chunk of completion ) {
-            chunk = deviations.chunk_but_like_actually(chunk);
-            if ( process.env.DEBUG ) {
-                const delta = chunk?.choices?.[0]?.delta;
-                console.log(
-                    `AI CHUNK`,
-                    chunk,
-                    delta && JSON.stringify(delta)
-                );
-            }
-            const chunk_usage = deviations.index_usage_from_stream_chunk(chunk);
-            if ( chunk_usage ) last_usage = chunk_usage;
-            if ( chunk.choices.length < 1 ) continue;
-            
-            const choice = chunk.choices[0];
-
-            if ( ! nou(choice.delta.content) ) {
-                if ( mode === 'tool' ) {
-                    toolblock.end();
-                    mode = 'text';
-                    textblock = message.contentBlock({ type: 'text' });
-                }
-                textblock.addText(choice.delta.content);
-                continue;
-            }
-
-            const tool_calls = deviations.index_tool_calls_from_stream_choice(choice);
-            if (  ! nou(tool_calls) ) {
-                if ( mode === 'text' ) {
-                    mode = 'tool';
-                    textblock.end();
-                }
-                for ( const tool_call of tool_calls ) {
-                    if ( ! tool_call_blocks[tool_call.index] ) {
-                        toolblock = message.contentBlock({
-                            type: 'tool_use',
-                            id: tool_call.id,
-                            name: tool_call.function.name,
-                        });
-                        tool_call_blocks[tool_call.index] = toolblock;
-                    } else {
-                        toolblock = tool_call_blocks[tool_call.index];
-                    }
-                    toolblock.addPartialJSON(tool_call.function.arguments);
-                }
-            }
+        const StreamAdapter = class extends OpenAIStyleStreamAdapter {};
+        for ( const key in deviations ) {
+            StreamAdapter[key] = deviations[key];
         }
-        usage_promise.resolve(last_usage);
-
-        if ( mode === 'text' ) textblock.end();
-        if ( mode === 'tool' ) toolblock.end();
-        message.end();
-        chatStream.end();
+        
+        await StreamAdapter.write_to_stream({
+            input: completion,
+            completionWriter: chatStream,
+            usageWriter: usage_promise,
+        });
     };
 
     static async handle_completion_output ({

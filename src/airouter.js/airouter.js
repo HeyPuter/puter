@@ -23,6 +23,7 @@ export { AnthropicStreamAdapter } from './anthropic/AnthropicStreamAdapter.js';
 export { AnthropicAPIType } from './anthropic/AnthropicAPIType.js';
 
 export { OpenAIStyleMessagesAdapter } from './convention/openai/OpenAIStyleMessagesAdapter.js';
+export { OpenAIStyleStreamAdapter } from './convention/openai/OpenAIStyleStreamAdapter.js';
 
 export class AIRouter extends LLMRegistry {
     constructor () {
