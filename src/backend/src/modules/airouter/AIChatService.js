@@ -456,7 +456,7 @@ class AIChatService extends BaseService {
                     UniversalToolsNormalizer.normalize_tools_object(parameters.tools);
                 }
 
-                const { target_service, delegate, supplier, vendor, model } = this.disentangle_model(parameters.model, intended_service);
+                const { target_service, supplier, vendor, model } = this.disentangle_model(parameters.model, intended_service);
                 // Write "target_service" back to "intended_service".
                 // 
                 // TODO (xiaochen): remove the redundant "target_service".
