@@ -2122,208 +2122,217 @@ async function UIWindow(options) {
         if(options.allow_context_menu && event.target === el_window_body){
             // Regular directories
             if($(el_window).attr('data-path') !== window.trash_path){
+                let menu_items = [];
+
+                // -------------------------------------------
+                // Sort by
+                // -------------------------------------------
+                menu_items.push(
+                {
+                    html: i18n('sort_by'),
+                    items: [
+                        {
+                            html: i18n('name'),
+                            icon: $(el_window).attr('data-sort_by') === 'name' ? '✓' : '',
+                            onClick: async function(){
+                                window.sort_items(el_window_body, 'name', $(el_window).attr('data-sort_order'));
+                                window.set_sort_by($(el_window).attr('data-uid'), 'name', $(el_window).attr('data-sort_order'))
+                            }
+                        },
+                        {
+                            html: i18n('date_modified'),
+                            icon: $(el_window).attr('data-sort_by') === 'modified' ? '✓' : '',
+                            onClick: async function(){
+                                window.sort_items(el_window_body, 'modified', $(el_window).attr('data-sort_order'));
+                                window.set_sort_by($(el_window).attr('data-uid'), 'modified', $(el_window).attr('data-sort_order'))
+                            }
+                        },
+                        {
+                            html: i18n('type'),
+                            icon: $(el_window).attr('data-sort_by') === 'type' ? '✓' : '',
+                            onClick: async function(){
+                                window.sort_items(el_window_body, 'type', $(el_window).attr('data-sort_order'));
+                                window.set_sort_by($(el_window).attr('data-uid'), 'type', $(el_window).attr('data-sort_order'))
+                            }
+                        },
+                        {
+                            html: i18n('size'),
+                            icon: $(el_window).attr('data-sort_by') === 'size' ? '✓' : '',
+                            onClick: async function(){
+                                window.sort_items(el_window_body, 'size', $(el_window).attr('data-sort_order'));
+                                window.set_sort_by($(el_window).attr('data-uid'), 'size', $(el_window).attr('data-sort_order'))
+                            }
+                        },
+                        // -------------------------------------------
+                        // -
+                        // -------------------------------------------
+                        '-',
+                        {
+                            html: i18n('ascending'),
+                            icon: $(el_window).attr('data-sort_order') === 'asc' ? '✓' : '',
+                            onClick: async function(){
+                                const sort_by = $(el_window).attr('data-sort_by')
+                                window.sort_items(el_window_body, sort_by, 'asc');
+                                window.set_sort_by($(el_window).attr('data-uid'), sort_by, 'asc')
+                            }
+                        },
+                        {
+                            html: i18n('descending'),
+                            icon: $(el_window).attr('data-sort_order') === 'desc' ? '✓' : '',
+                            onClick: async function(){
+                                const sort_by = $(el_window).attr('data-sort_by')
+                                window.sort_items(el_window_body, sort_by, 'desc');
+                                window.set_sort_by($(el_window).attr('data-uid'), sort_by, 'desc')
+                            }
+                        },
+
+                    ]
+                })
+                // -------------------------------------------
+                // Refresh
+                // -------------------------------------------
+                menu_items.push({
+                    html: i18n('refresh'),
+                    onClick: function(){
+                        refresh_item_container(el_window_body, options);
+                    }
+                })
+                // -------------------------------------------
+                // Show/Hide hidden files
+                // -------------------------------------------
+                menu_items.push({
+                    html: i18n('show_hidden'),
+                    icon: window.user_preferences.show_hidden_files ? '✓' : '',
+                    onClick: function(){
+                        window.mutate_user_preferences({
+                            show_hidden_files : !window.user_preferences.show_hidden_files,
+                        });
+                        window.show_or_hide_files(document.querySelectorAll('.item-container'));
+                    }
+                })
+
+                if($(el_window).attr('data-path') !== '/'){
+                    // -------------------------------------------
+                    // -
+                    // -------------------------------------------
+                    menu_items.push('-');
+                    // -------------------------------------------
+                    // New
+                    // -------------------------------------------
+                    menu_items.push(new_context_menu_item($(el_window).attr('data-path'), el_window_body))
+                    // -------------------------------------------
+                    // -
+                    // -------------------------------------------
+                    menu_items.push('-');
+                    // -------------------------------------------
+                    // Paste
+                    // -------------------------------------------
+                    menu_items.push({
+                        html: i18n('paste'),
+                        disabled: (window.clipboard.length === 0 || $(el_window).attr('data-path') === '/') ? true : false,
+                        onClick: function(){
+                            if(window.clipboard_op === 'copy')
+                                window.copy_clipboard_items($(el_window).attr('data-path'), el_window_body);
+                            else if(window.clipboard_op === 'move')
+                                window.move_clipboard_items(el_window_body)
+                        }
+                    })
+                    // -------------------------------------------
+                    // Undo
+                    // -------------------------------------------
+                    menu_items.push({
+                        html: i18n('undo'),
+                        disabled: window.actions_history.length > 0 ? false : true,
+                        onClick: function(){
+                            window.undo_last_action();
+                        }
+                    })
+                    // -------------------------------------------
+                    // Upload Here
+                    // -------------------------------------------
+                    menu_items.push({
+                        html: i18n('upload_here'),
+                        disabled: $(el_window).attr('data-path') === '/' ? true : false,
+                        onClick: function(){
+                            window.init_upload_using_dialog(el_window_body, $(el_window).attr('data-path') + '/');
+                        }
+                    })
+                    // -------------------------------------------
+                    // -
+                    // -------------------------------------------
+                    menu_items.push('-');
+                    // -------------------------------------------
+                    // Publish As Website
+                    // -------------------------------------------
+                    menu_items.push({
+                        html: i18n('publish_as_website'),
+                        disabled: !options.is_dir,
+                        onClick: async function () {
+                            if (window.require_email_verification_to_publish_website) {
+                                if (window.user.is_temp &&
+                                    !await UIWindowSaveAccount({
+                                        send_confirmation_code: true,
+                                        message: i18n('save_account_to_publish'),
+                                        window_options: {
+                                            backdrop: true,
+                                            close_on_backdrop_click: false,
+                                        }
+                                    }))
+                                    return;
+                                else if (!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired())
+                                    return;
+                            }
+                            UIWindowPublishWebsite($(el_window).attr('data-uid'), $(el_window).attr('data-name'), $(el_window).attr('data-path'));
+                        }
+                    })
+                    // -------------------------------------------
+                    // Deploy as App
+                    // -------------------------------------------
+                    menu_items.push({
+                        html: i18n('deploy_as_app'),
+                        disabled: !options.is_dir,
+                        onClick: async function () {
+                            launch_app({
+                                name: 'dev-center',
+                                file_path: $(el_window).attr('data-path'),
+                                file_uid: $(el_window).attr('data-uid'),
+                                params: {
+                                    source_path: $(el_window).attr('data-path'),
+                                }
+                            })
+                        }
+                    })
+                    // -------------------------------------------
+                    // -
+                    // -------------------------------------------
+                    menu_items.push('-');                      
+                    // -------------------------------------------
+                    // Properties
+                    // -------------------------------------------
+                    menu_items.push({
+                        html: i18n('properties'),
+                        onClick: function(){
+                            let window_height = 500;
+                            let window_width = 450;
+
+                            let left = window.mouseX;
+                            left -= 200;
+                            left = left > (window.innerWidth - window_width)? (window.innerWidth - window_width) : left;
+
+                            let top = window.mouseY;
+                            top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height))? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
+
+                            UIWindowItemProperties(options.title, options.path, options.uid, left, top, window_width, window_height);
+                        }
+                    })
+                }
+
+                // -------------------------------------------
+                // Context Menu
+                // -------------------------------------------
                 UIContextMenu({
                     parent_element: el_window_body,
-                    items: [
-                        // -------------------------------------------
-                        // Sort by
-                        // -------------------------------------------
-                        {
-                            html: i18n('sort_by'),
-                            items: [
-                                {
-                                    html: i18n('name'),
-                                    icon: $(el_window).attr('data-sort_by') === 'name' ? '✓' : '',
-                                    onClick: async function(){
-                                        window.sort_items(el_window_body, 'name', $(el_window).attr('data-sort_order'));
-                                        window.set_sort_by($(el_window).attr('data-uid'), 'name', $(el_window).attr('data-sort_order'))
-                                    }
-                                },
-                                {
-                                    html: i18n('date_modified'),
-                                    icon: $(el_window).attr('data-sort_by') === 'modified' ? '✓' : '',
-                                    onClick: async function(){
-                                        window.sort_items(el_window_body, 'modified', $(el_window).attr('data-sort_order'));
-                                        window.set_sort_by($(el_window).attr('data-uid'), 'modified', $(el_window).attr('data-sort_order'))
-                                    }
-                                },
-                                {
-                                    html: i18n('type'),
-                                    icon: $(el_window).attr('data-sort_by') === 'type' ? '✓' : '',
-                                    onClick: async function(){
-                                        window.sort_items(el_window_body, 'type', $(el_window).attr('data-sort_order'));
-                                        window.set_sort_by($(el_window).attr('data-uid'), 'type', $(el_window).attr('data-sort_order'))
-                                    }
-                                },
-                                {
-                                    html: i18n('size'),
-                                    icon: $(el_window).attr('data-sort_by') === 'size' ? '✓' : '',
-                                    onClick: async function(){
-                                        window.sort_items(el_window_body, 'size', $(el_window).attr('data-sort_order'));
-                                        window.set_sort_by($(el_window).attr('data-uid'), 'size', $(el_window).attr('data-sort_order'))
-                                    }
-                                },
-                                // -------------------------------------------
-                                // -
-                                // -------------------------------------------
-                                '-',
-                                {
-                                    html: i18n('ascending'),
-                                    icon: $(el_window).attr('data-sort_order') === 'asc' ? '✓' : '',
-                                    onClick: async function(){
-                                        const sort_by = $(el_window).attr('data-sort_by')
-                                        window.sort_items(el_window_body, sort_by, 'asc');
-                                        window.set_sort_by($(el_window).attr('data-uid'), sort_by, 'asc')
-                                    }
-                                },
-                                {
-                                    html: i18n('descending'),
-                                    icon: $(el_window).attr('data-sort_order') === 'desc' ? '✓' : '',
-                                    onClick: async function(){
-                                        const sort_by = $(el_window).attr('data-sort_by')
-                                        window.sort_items(el_window_body, sort_by, 'desc');
-                                        window.set_sort_by($(el_window).attr('data-uid'), sort_by, 'desc')
-                                    }
-                                },
-
-                            ]
-                        },
-                        // -------------------------------------------
-                        // Refresh
-                        // -------------------------------------------
-                        {
-                            html: i18n('refresh'),
-                            onClick: function(){
-                                refresh_item_container(el_window_body, options);
-                            }
-                        },
-                        // -------------------------------------------
-                        // Show/Hide hidden files
-                        // -------------------------------------------
-                        {
-                            html: i18n('show_hidden'),
-                            icon: window.user_preferences.show_hidden_files ? '✓' : '',
-                            onClick: function(){
-                                window.mutate_user_preferences({
-                                    show_hidden_files : !window.user_preferences.show_hidden_files,
-                                });
-                                window.show_or_hide_files(document.querySelectorAll('.item-container'));
-                            }
-                        },
-                        // -------------------------------------------
-                        // -
-                        // -------------------------------------------
-                        '-',
-                        // -------------------------------------------
-                        // New
-                        // -------------------------------------------
-                        new_context_menu_item($(el_window).attr('data-path'), el_window_body),
-                        // -------------------------------------------
-                        // -
-                        // -------------------------------------------
-                        '-',
-                        // -------------------------------------------
-                        // Paste
-                        // -------------------------------------------
-                        {
-                            html: i18n('paste'),
-                            disabled: (window.clipboard.length === 0 || $(el_window).attr('data-path') === '/') ? true : false,
-                            onClick: function(){
-                                if(window.clipboard_op === 'copy')
-                                    window.copy_clipboard_items($(el_window).attr('data-path'), el_window_body);
-                                else if(window.clipboard_op === 'move')
-                                    window.move_clipboard_items(el_window_body)
-                            }
-                        },
-                        // -------------------------------------------
-                        // Undo
-                        // -------------------------------------------
-                        {
-                            html: i18n('undo'),
-                            disabled: window.actions_history.length > 0 ? false : true,
-                            onClick: function(){
-                                window.undo_last_action();
-                            }
-                        },
-                        // -------------------------------------------
-                        // Upload Here
-                        // -------------------------------------------
-                        {
-                            html: i18n('upload_here'),
-                            disabled: $(el_window).attr('data-path') === '/' ? true : false,
-                            onClick: function(){
-                                window.init_upload_using_dialog(el_window_body, $(el_window).attr('data-path') + '/');
-                            }
-                        },
-                        // -------------------------------------------
-                        // -
-                        // -------------------------------------------
-                        '-',
-                        // -------------------------------------------
-                        // Publish As Website
-                        // -------------------------------------------
-                        {
-                            html: i18n('publish_as_website'),
-                            disabled: !options.is_dir,
-                            onClick: async function () {
-                                if (window.require_email_verification_to_publish_website) {
-                                    if (window.user.is_temp &&
-                                        !await UIWindowSaveAccount({
-                                            send_confirmation_code: true,
-                                            message: i18n('save_account_to_publish'),
-                                            window_options: {
-                                                backdrop: true,
-                                                close_on_backdrop_click: false,
-                                            }
-                                        }))
-                                        return;
-                                    else if (!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired())
-                                        return;
-                                }
-                                UIWindowPublishWebsite($(el_window).attr('data-uid'), $(el_window).attr('data-name'), $(el_window).attr('data-path'));
-                            }
-                        },
-                        // -------------------------------------------
-                        // Deploy as App
-                        // -------------------------------------------
-                        {
-                            html: i18n('deploy_as_app'),
-                            disabled: !options.is_dir,
-                            onClick: async function () {
-                                launch_app({
-                                    name: 'dev-center',
-                                    file_path: $(el_window).attr('data-path'),
-                                    file_uid: $(el_window).attr('data-uid'),
-                                    params: {
-                                        source_path: $(el_window).attr('data-path'),
-                                    }
-                                })
-                            }
-                        },
-                        // -------------------------------------------
-                        // -
-                        // -------------------------------------------
-                        '-',                        
-                        // -------------------------------------------
-                        // Properties
-                        // -------------------------------------------
-                        {
-                            html: i18n('properties'),
-                            onClick: function(){
-                                let window_height = 500;
-                                let window_width = 450;
-
-                                let left = window.mouseX;
-                                left -= 200;
-                                left = left > (window.innerWidth - window_width)? (window.innerWidth - window_width) : left;
-
-                                let top = window.mouseY;
-                                top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height))? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
-
-                                UIWindowItemProperties(options.title, options.path, options.uid, left, top, window_width, window_height);
-                            }
-                        },
-                    ]
+                    items: menu_items,
                 });
             }
             // Trash conext menu
