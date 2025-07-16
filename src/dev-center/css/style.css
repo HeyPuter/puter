@@ -737,7 +737,7 @@ th.sorted{
     gap: 4px; /* adjust spacing here */
       font-size: 12px;
   padding-top: 2px;
-  
+ margin-top: -4px; 
  
 }
 
