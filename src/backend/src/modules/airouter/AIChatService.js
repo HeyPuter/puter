@@ -456,7 +456,7 @@ class AIChatService extends BaseService {
                     UniversalToolsNormalizer.normalize_tools_object(parameters.tools);
                 }
 
-                const { target_service, delegate, supplier, vendor, model } = this.disentangle_model(parameters.model, intended_service);
+                const { target_service, supplier, vendor, model } = this.disentangle_model(parameters.model, intended_service);
                 // Write "target_service" back to "intended_service".
                 // 
                 // TODO (xiaochen): remove the redundant "target_service".
@@ -1041,7 +1041,6 @@ class AIChatService extends BaseService {
      * @param {string} qualified_model - The model string to parse
      * @param {string} intended_service - The originally intended service name
      * @returns {string} returns.target_service - The target service name to use for the AI operation
-     * @returns {boolean} returns.delegate - Whether to delegate all responsibility to the target service, including usage tracking, model validation, etc. This is the desired behavior for the future, i.e., we can remove this field once all services are delegated.
      * @returns {string} returns.supplier - The supplier (e.g., "openrouter") or null if not specified
      * @returns {string} returns.vendor - The vendor (e.g., "openai") or null if not specified
      * @returns {string} returns.model - The model name (e.g., "gpt-4o")
@@ -1062,22 +1061,19 @@ class AIChatService extends BaseService {
 
         let result = {
             target_service: intended_service,
-            delegate: false,
             supplier,
             vendor,
             model,
         };
 
         if (intended_service !== 'ai-chat') {
-            result.delegate = true;
+            // Already have a valid target service, no need to infer.
             return result;
         }
 
         let service = null;
         if (supplier) {
             result.target_service = supplier;
-            // We should delegate to the supplier if it is specified.
-            result.delegate = true;
         } else if (vendor) {
             result.target_service = vendor;
         } else if (model) {
