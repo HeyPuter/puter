@@ -22,6 +22,8 @@ export { GeminiToolsAdapter } from './gemini/GeminiToolsAdapter.js';
 export { AnthropicStreamAdapter } from './anthropic/AnthropicStreamAdapter.js';
 export { AnthropicAPIType } from './anthropic/AnthropicAPIType.js';
 
+export { OpenAIStyleMessagesAdapter } from './convention/openai/OpenAIStyleMessagesAdapter.js';
+
 export class AIRouter extends LLMRegistry {
     constructor () {
         super();
