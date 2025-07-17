@@ -3,21 +3,22 @@
 <h3 align="center">O Sistema Operacional da Internet! Gratuito, de Código Aberto e Auto-Hospedável.</h3>
 
 <p align="center">
-    <img alt="Tamanho do repositório do GitHub" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="Lançamento no GitHub" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=latest%20version"> <img alt="Licença do GitHub" src="https://img.shields.io/github/license/HeyPuter/puter">
-</p>
-<p align="center">
     <a href="https://puter.com/"><strong>« DEMONSTRAÇÃO AO VIVO »</strong></a>
     <br />
     <br />
     <a href="https://puter.com">Puter.com</a>
     ·
-    <a href="https://docs.puter.com" target="_blank">SDK</a>
+    <a href="https://puter.com/app/app-center">App Store</a>
+    ·
+    <a href="https://developer.puter.com" target="_blank">Developers</a>
+    ·
+    <a href="https://github.com/heyputer/puter-cli" target="_blank">CLI</a>
     ·
     <a href="https://discord.com/invite/PQcx7Teh8u">Discord</a>
     ·
     <a href="https://reddit.com/r/puter">Reddit</a>
     ·
-    <a href="https://twitter.com/HeyPuter">X (Twitter)</a>
+    <a href="https://x.com/HeyPuter">X (Twitter)</a>
 </p>
 
 <h3 align="center"><img width="800" style="border-radius:5px;" alt="screenshot" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>
@@ -40,15 +41,17 @@ Puter é um sistema operacional de internet avançado e de código aberto, proje
 
 
 ### 💻 Desenvolvimento Local
-
-```bash
+```
 git clone https://github.com/HeyPuter/puter
 cd puter
 npm install
 npm start
 ```
 
-Isso iniciará o Puter em http://puter.localhost:4100 (ou na próxima porta disponível).
+✨ Isso iniciará o Puter em http://puter.localhost:4100 (ou na próxima porta disponível).
+
+
+Se isso não funcionar, consulte [First Run Issues](./doc/self-hosters/first-run-issues.md) para solucionar os problemas.
 
 <br/>
 
@@ -58,6 +61,7 @@ Isso iniciará o Puter em http://puter.localhost:4100 (ou na próxima porta disp
 ```bash
 mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
 ```
+✨ Isso iniciará o Puter em http://puter.localhost:4100 (ou na próxima porta disponível).
 
 <br/>
 
@@ -72,6 +76,8 @@ sudo chown -R 1000:1000 puter
 wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
 docker compose up
 ```
+✨ Isso iniciará o Puter em http://puter.localhost:4100 (ou na próxima porta disponível).
+
 <br/>
 
 #### Windows
@@ -85,7 +91,13 @@ New-Item -Path "puter\data" -ItemType Directory -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
 docker compose up
 ```
+✨ Isso iniciará o Puter em http://puter.localhost:4100 (ou na próxima porta disponível).
+
 <br/>
+
+### 🚀 Auto-Hospedagem
+
+Para guia detalhados sobre como auto-hospedar o Puter, incluindo opções de configuração e melhores práticas, consulte nossa [Documentação de Auto-Hospedagem](https://github.com/HeyPuter/puter/blob/main/doc/self-hosters/instructions.md).
 
 ### ☁️ Puter.com
 
@@ -98,7 +110,7 @@ O Puter está disponível como um serviço hospedado em [**puter.com**](https://
 - **Sistema operacional:** Linux, macOS, Windows
 - **RAM:** 2GB mínimo (4GB recomendado)
 - **Espaço de disco:** 1GB de espaço disponível
-- **Node.js:** Versão 16+ (Versão 22+ recomendada)
+- **Node.js:** Versão 16+ (Versão 23+ recomendada)
 - **npm:** Última versão estável
 
 <br/>
