@@ -19,12 +19,12 @@ async function getWorker(userData, authorization, workerId) {
     await cfFetch(`${WORKERS_BASE_URL}/scripts/${calculateWorkerName(userData.username, workerId)}`, "GET");
 }
 async function createWorker(userData, authorization, workerId, body, PREAMBLE_LENGTH) {
-    console.log(body)
     const formData = new FormData();
 
     const workerMetaData = {
 
         body_part: "swCode",
+        compatibility_date: "2025-07-15",
         bindings: [
             {
                 type: "secret_text",

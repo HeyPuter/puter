@@ -4,6 +4,7 @@ function inits2w() {
     // s2w router itself: Not part of any package, just a simple router.
     const s2w = {
         routing: true,
+        handleCors: true,
         map: new Map(),
         custom(eventName, route, eventListener) {
             const matchExp = match(route);
@@ -28,14 +29,52 @@ function inits2w() {
         delete(...args) {
             this.custom("DELETE", ...args)
         },
+        async handleOptions(request) {
+            const corsHeaders = {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET,HEAD,POST,OPTIONS",
+                "Access-Control-Max-Age": "86400",
+            };
+            if (
+                request.headers.get("Origin") !== null &&
+                request.headers.get("Access-Control-Request-Method") !== null &&
+                request.headers.get("Access-Control-Request-Headers") !== null
+            ) {
+                // Handle CORS preflight requests.
+                return new Response(null, {
+                    headers: {
+                        ...corsHeaders,
+                        "Access-Control-Allow-Headers": request.headers.get(
+                            "Access-Control-Request-Headers",
+                        ),
+                    },
+                });
+            } else {
+                // Handle standard OPTIONS request.
+                return new Response(null, {
+                    headers: {
+                        Allow: "GET, HEAD, POST, OPTIONS",
+                    },
+                });
+            }
+        },
+        /**
+         * 
+         * @param {FetchEvent } event 
+         * @returns 
+         */
         async route(event) {
             if (!globalThis.puter) {
-                console.log("Puter not loaded, initializing...");
                 const success = init_puter_portable(globalThis.puter_auth, globalThis.puter_endpoint || "https://api.puter.com");
-                console.log("Puter.js initialized successfully");
             }
-            
+            if (event.request.headers.has("puter-authorization")) {
+                event.puter = init_puter_portable(event.request.headers.get("puter-authorization"), globalThis.puter_endpoint || "https://api.puter.com", "userPuter");
+            }
+
             const mappings = this.map.get(event.request.method);
+            if (this.handleCors && event.request.method === "OPTIONS" && !mappings) {
+                return this.handleOptions(event.request);
+            }
             const url = new URL(event.request.url);
             try {
                 for (const mapping of mappings) {
@@ -43,18 +82,22 @@ function inits2w() {
                     const results = mapping[0](url.pathname)
                     if (results) {
                         event.params = results.params;
-                        return mapping[1](event);
+                        const response = await mapping[1](event);
+                        if (this.handleCors && !response.headers.has("access-control-allow-origin")) {
+                            response.headers.set("Access-Control-Allow-Origin", "*");
+                        }
+                        return response;
                     }
                 }
             } catch (e) {
-                return new Response(e, {status: 500, statusText: "Server Error"})
+                return new Response(e, { status: 500, statusText: "Server Error" })
             }
 
-            return new Response("Path not found", {status: 404, statusText: "Not found"});
+            return new Response("Path not found", { status: 404, statusText: "Not found" });
         }
     }
     globalThis.s2w = s2w;
-    self.addEventListener("fetch", (event)=> {
+    self.addEventListener("fetch", (event) => {
         if (!s2w.routing)
             return false;
         event.respondWith(s2w.route(event));
