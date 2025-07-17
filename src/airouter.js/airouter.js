@@ -28,6 +28,10 @@ export { AnthropicAPIType } from './anthropic/AnthropicAPIType.js';
 
 export { OpenAIAPIType } from './openai/OpenAIAPIType.js';
 
+import openai_models from './models/openai.json' with { type: 'json' };
+export const models = {
+    openai: openai_models,
+};
 
 export class AIRouter extends LLMRegistry {
     constructor () {

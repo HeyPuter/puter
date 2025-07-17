@@ -4,7 +4,7 @@ import { stream_to_buffer } from '../common/util/streamutil.js';
 import { OpenAIStreamAdapter } from './OpenAIStreamAdapter.js';
 import { OpenAIToolsAdapter } from './OpenAIToolsAdapter.js';
 
-import models from './models.json' with { type: 'json' };
+import models from '../models/openai.json' with { type: 'json' };
 
 const MAX_FILE_SIZE = 5 * 1_000_000;
 
