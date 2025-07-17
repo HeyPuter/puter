@@ -19,7 +19,6 @@ async function getWorker(userData, authorization, workerId) {
     await cfFetch(`${WORKERS_BASE_URL}/scripts/${calculateWorkerName(userData.username, workerId)}`, "GET");
 }
 async function createWorker(userData, authorization, workerId, body, PREAMBLE_LENGTH) {
-    console.log(body)
     const formData = new FormData();
 
     const workerMetaData = {
