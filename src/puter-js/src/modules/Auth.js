@@ -50,12 +50,27 @@ class Auth{
             let title = 'Puter';
             var left = (screen.width/2)-(w/2);
             var top = (screen.height/2)-(h/2);
-            window.open(puter.defaultGUIOrigin + '/action/sign-in?embedded_in_popup=true&msg_id=' + msg_id + (window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''), 
+            
+            // Store reference to the popup window
+            const popup = window.open(puter.defaultGUIOrigin + '/action/sign-in?embedded_in_popup=true&msg_id=' + msg_id + (window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''), 
             title, 
             'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left);
 
-            window.addEventListener('message', function(e){
+            // Set up interval to check if popup was closed
+            const checkClosed = setInterval(() => {
+                if (popup.closed) {
+                    clearInterval(checkClosed);
+                    // Remove the message listener
+                    window.removeEventListener('message', messageHandler);
+                    reject({ error: 'auth_window_closed', msg: 'Authentication window was closed by the user without completing the process.' });
+                }
+            }, 100);
+
+            function messageHandler(e) {
                 if(e.data.msg_id == msg_id){
+                    // Clear the interval since we got a response
+                    clearInterval(checkClosed);
+                    
                     // remove redundant attributes
                     delete e.data.msg_id;
                     delete e.data.msg;
@@ -69,9 +84,11 @@ class Auth{
                         reject(e.data);
 
                     // delete the listener
-                    window.removeEventListener('message', this);
+                    window.removeEventListener('message', messageHandler);
                 }
-            });
+            }
+
+            window.addEventListener('message', messageHandler);
         });
     }
 
