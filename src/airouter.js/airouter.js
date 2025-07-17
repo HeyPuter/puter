@@ -13,6 +13,10 @@ export { UniversalPromptNormalizer } from './common/prompt/UniversalPromptNormal
 export { NormalizedPromptUtil } from './common/prompt/NormalizedPromptUtil.js';
 export { UniversalToolsNormalizer } from './common/prompt/UniversalToolsNormalizer.js';
 
+// Conventional Processing
+export { OpenAIStyleMessagesAdapter } from './convention/openai/OpenAIStyleMessagesAdapter.js';
+export { OpenAIStyleStreamAdapter } from './convention/openai/OpenAIStyleStreamAdapter.js';
+
 // Model-Specific Processing
 export { AnthropicToolsAdapter } from './anthropic/AnthropicToolsAdapter.js';
 export { OpenAIToolsAdapter } from './openai/OpenAIToolsAdapter.js';
@@ -22,8 +26,8 @@ export { GeminiToolsAdapter } from './gemini/GeminiToolsAdapter.js';
 export { AnthropicStreamAdapter } from './anthropic/AnthropicStreamAdapter.js';
 export { AnthropicAPIType } from './anthropic/AnthropicAPIType.js';
 
-export { OpenAIStyleMessagesAdapter } from './convention/openai/OpenAIStyleMessagesAdapter.js';
-export { OpenAIStyleStreamAdapter } from './convention/openai/OpenAIStyleStreamAdapter.js';
+export { OpenAIAPIType } from './openai/OpenAIAPIType.js';
+
 
 export class AIRouter extends LLMRegistry {
     constructor () {

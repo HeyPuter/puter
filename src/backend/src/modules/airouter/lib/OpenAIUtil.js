@@ -1,7 +1,6 @@
 const putility = require("@heyputer/putility");
 const { TypedValue } = require("../../../services/drivers/meta/Runtime");
 const { nou } = require("../../../util/langutil");
-const { OpenAIStyleStreamAdapter } = require("@heyputer/airouter.js");
 
 module.exports = class OpenAIUtil {
     /**
@@ -42,6 +41,7 @@ module.exports = class OpenAIUtil {
         deviations,
         completion, usage_promise,
     }) => async ({ chatStream }) => {
+        const { OpenAIStyleStreamAdapter } = await import("@heyputer/airouter.js");
         const StreamAdapter = class extends OpenAIStyleStreamAdapter {};
         for ( const key in deviations ) {
             StreamAdapter[key] = deviations[key];

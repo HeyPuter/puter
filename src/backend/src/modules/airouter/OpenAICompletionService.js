@@ -18,12 +18,14 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
+const { TeePromise } = require('@heyputer/putility/src/libs/promise');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam');
 const { LLRead } = require('../../filesystem/ll_operations/ll_read');
 const BaseService = require('../../services/BaseService');
 const { Context } = require('../../util/context');
 const { stream_to_buffer } = require('../../util/streamutil');
 const OpenAIUtil = require('./lib/OpenAIUtil');
+const { TypedValue } = require('../../services/drivers/meta/Runtime');
 
 // We're capping at 5MB, which sucks, but Chat Completions doesn't suuport
 // file inputs.
@@ -46,6 +48,11 @@ class OpenAICompletionService extends BaseService {
      * @type {import('openai').OpenAI}
      */
     openai;
+    
+    async _construct () {
+        const airouter = await import('@heyputer/airouter.js');
+        this.openAIAPIType = new airouter.OpenAIAPIType();
+    }
 
     /**
     * Initializes the OpenAI service by setting up the API client with credentials
@@ -338,95 +345,73 @@ class OpenAICompletionService extends BaseService {
 
         this.log.info('PRIVATE UID FOR USER ' + user_private_uid)
         
-        // Perform file uploads
-        {
-            const actor = Context.get('actor');
-            const { user } = actor.type;
-            
-            const file_input_tasks = [];
-            for ( const message of messages ) {
-                // We can assume `message.content` is not undefined because
-                // Messages.normalize_single_message ensures this.
-                for ( const contentPart of message.content ) {
-                    if ( ! contentPart.puter_path ) continue;
-                    file_input_tasks.push({
-                        node: await (new FSNodeParam(contentPart.puter_path)).consolidate({
-                            req: { user },
-                            getParam: () => contentPart.puter_path,
-                        }),
-                        contentPart,
-                    });
-                }
-            }
-            
-            const promises = [];
-            for ( const task of file_input_tasks ) promises.push((async () => {
-                if ( await task.node.get('size') > MAX_FILE_SIZE ) {
-                    delete task.contentPart.puter_path;
-                    task.contentPart.type = 'text';
-                    task.contentPart.text = `{error: input file exceeded maximum of ${MAX_FILE_SIZE} bytes; ` +
-                        `the user did not write this message}`; // "poor man's system prompt"
-                    return; // "continue"
-                }
-                
-                const ll_read = new LLRead();
-                const stream = await ll_read.run({
-                    actor: Context.get('actor'),
-                    fsNode: task.node,
-                });
-                const require = this.require;
-                const mime = require('mime-types');
-                const mimeType = mime.contentType(await task.node.get('name'));
-                
-                const buffer = await stream_to_buffer(stream);
-                const base64 = buffer.toString('base64');
-                
-                delete task.contentPart.puter_path;
-                if ( mimeType.startsWith('image/') ) {
-                    task.contentPart.type = 'image_url',
-                    task.contentPart.image_url = {
-                        url: `data:${mimeType};base64,${base64}`,
-                    };
-                } else if ( mimeType.startsWith('audio/') ) {
-                    task.contentPart.type = 'input_audio',
-                    task.contentPart.input_audio = {
-                        data: `data:${mimeType};base64,${base64}`,
-                        format: mimeType.split('/')[1],
-                    }
-                } else {
-                    task.contentPart.type = 'text';
-                    task.contentPart.text = `{error: input file has unsupported MIME type; ` +
-                        `the user did not write this message}`; // "poor man's system prompt"
-                }
-            })());
-            await Promise.all(promises);
-        }
+        await this.handle_puter_paths_(messages);
         
-        // Here's something fun; the documentation shows `type: 'image_url'` in
-        // objects that contain an image url, but everything still works if
-        // that's missing. We normalise it here so the token count code works.
-        messages = await OpenAIUtil.process_input_messages(messages);
+        if ( stream ) {
+            let usage_promise = new TeePromise();
 
-        const completion = await this.openai.chat.completions.create({
-            user: user_private_uid,
-            messages: messages,
-            model: model,
-            ...(tools ? { tools } : {}),
-            ...(max_tokens ? { max_completion_tokens: max_tokens } : {}),
-            ...(temperature ? { temperature } : {}),
-            stream,
-            ...(stream ? {
-                stream_options: { include_usage: true },
-            } : {}),
-        });
+            let streamOperation;
+            const init_chat_stream = async ({ chatStream: completionWriter }) => {
+                streamOperation = await this.openAIAPIType.stream(this.openai, completionWriter, {
+                    messages, model, tools, max_tokens, temperature,
+                    user_id: user_private_uid,
+                })
+                await streamOperation.run();
+            };
 
-        return OpenAIUtil.handle_completion_output({
-            usage_calculator: OpenAIUtil.create_usage_calculator({
-                model_details: (await this.models_()).find(m => m.id === model),
-            }),
-            stream, completion,
-            moderate: moderation && this.check_moderation.bind(this),
-        });
+            return new TypedValue({ $: 'ai-chat-intermediate' }, {
+                init_chat_stream,
+                stream: true,
+                usage_promise: usage_promise,
+                finally_fn: async () => {
+                    await streamOperation.cleanup();
+                },
+            });
+        } else {
+            const syncOperation = await this.openAIAPIType.create(this.openai, {
+                messages, model, tools, max_tokens, temperature,
+                user_id: user_private_uid,
+            });
+            const retVal = await syncOperation.run();
+            await syncOperation.cleanup();
+            return retVal;
+        }
+    }
+
+    async handle_puter_paths_(messages) {
+        const require = this.require;
+                
+        const actor = Context.get('actor');
+        const { user } = actor.type;
+        for ( const message of messages ) {
+            for ( const contentPart of message.content ) {
+                if ( ! contentPart.puter_path ) continue;
+                
+                const node = await (new FSNodeParam(contentPart.puter_path)).consolidate({
+                    req: { user },
+                    getParam: () => contentPart.puter_path,
+                });
+
+                delete contentPart.puter_path;
+                contentPart.type = 'data';
+                contentPart.data = {
+                    async getSize () {
+                        return await node.get('size')
+                    },
+                    async getStream () {
+                        const ll_read = new LLRead();
+                        return await ll_read.run({
+                            actor: Context.get('actor'),
+                            fsNode: node,
+                        });
+                    },
+                    async getMimeType () {
+                        const mime = require('mime-types');
+                        return mime.contentType(await node.get('name'));
+                    },
+                };
+            }
+        }
     }
 }
 
