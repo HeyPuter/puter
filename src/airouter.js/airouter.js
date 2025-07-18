@@ -27,6 +27,7 @@ export { AnthropicStreamAdapter } from './anthropic/AnthropicStreamAdapter.js';
 export { AnthropicAPIType } from './anthropic/AnthropicAPIType.js';
 
 export { OpenAIAPIType } from './openai/OpenAIAPIType.js';
+export { DeepSeekAPIType } from './deepseek/DeekSeekAPIType.js';
 
 import openai_models from './models/openai.json' with { type: 'json' };
 export const models = {

@@ -43,6 +43,10 @@ class DeepSeekService extends BaseService {
         return model;
     }
     
+    async _construct () {
+        const airouter = await import('@heyputer/airouter.js');
+        this.deepSeekApiType = new airouter.DeepSeekAPIType();
+    }
 
     /**
     * Initializes the XAI service by setting up the OpenAI client and registering with the AI chat provider
@@ -106,6 +110,36 @@ class DeepSeekService extends BaseService {
              */
             async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
                 model = this.adapt_model(model);
+                
+
+                if ( stream ) {
+                    let usage_promise = new TeePromise();
+
+                    let streamOperation;
+                    const init_chat_stream = async ({ chatStream: completionWriter }) => {
+                        streamOperation = await this.deepSeekApiType.stream(this.openai, completionWriter, {
+                            messages, model, tools, max_tokens, temperature,
+                            user_id: user_private_uid,
+                        })
+                        await streamOperation.run();
+                    };
+
+                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
+                        init_chat_stream,
+                        stream: true,
+                        usage_promise: usage_promise,
+                        finally_fn: async () => {
+                            await streamOperation.cleanup();
+                        },
+                    });
+                } else {
+                    const syncOperation = await this.deepSeekApiType.create(this.openai, {
+                        messages, model, tools, max_tokens, temperature,
+                    });
+                    const retVal = await syncOperation.run();
+                    await syncOperation.cleanup();
+                    return retVal;
+                }
 
                 messages = await OpenAIUtil.process_input_messages(messages);
                 for ( const message of messages ) {
@@ -160,6 +194,42 @@ class DeepSeekService extends BaseService {
                 return OpenAIUtil.handle_completion_output({
                     stream, completion,
                 });
+            }
+        }
+    }
+
+    async handle_puter_paths_(messages) {
+        const require = this.require;
+                
+        const actor = Context.get('actor');
+        const { user } = actor.type;
+        for ( const message of messages ) {
+            for ( const contentPart of message.content ) {
+                if ( ! contentPart.puter_path ) continue;
+                
+                const node = await (new FSNodeParam(contentPart.puter_path)).consolidate({
+                    req: { user },
+                    getParam: () => contentPart.puter_path,
+                });
+
+                delete contentPart.puter_path;
+                contentPart.type = 'data';
+                contentPart.data = {
+                    async getSize () {
+                        return await node.get('size')
+                    },
+                    async getStream () {
+                        const ll_read = new LLRead();
+                        return await ll_read.run({
+                            actor: Context.get('actor'),
+                            fsNode: node,
+                        });
+                    },
+                    async getMimeType () {
+                        const mime = require('mime-types');
+                        return mime.contentType(await node.get('name'));
+                    },
+                };
             }
         }
     }
