@@ -242,6 +242,7 @@ section {
     background: white;
     overflow: hidden;
     position: relative;
+
 }
 
 .app-card:hover {
@@ -251,8 +252,16 @@ section {
     background-color: #e8eff6;
 }
 
-.app-card:hover .app-row-toolbar{
-    display: block;
+
+.app-card:hover .app-row-toolbar {
+    visibility: visible;
+    opacity: 1;
+}
+
+.app-toolbar-container {
+  height: 16px;
+  overflow: hidden;
+  position: relative;
 }
 
 .app-card h1 {
@@ -717,14 +726,24 @@ th.sorted{
     color: #394254;
 }
 
-.app-row-toolbar{
-    margin-top: -7px;
-    display: none;
-    width: 350px;
+.app-row-toolbar {
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    height: auto; /* allow full content */
+    overflow: visible; /* allow overflow */
+    display: flex;
+    align-items: center;
+    gap: 4px; /* adjust spacing here */
+      font-size: 12px;
+  padding-top: 2px;
+ margin-top: -4px; 
+ 
 }
 
 .app-row-toolbar img {
     opacity: 0.5;
+    transition: opacity 0.2s ease;
 }
 
 .app-row-toolbar img:hover {
@@ -1213,3 +1232,43 @@ dialog{
 .stats-cell img{
     width: 18px; margin-right: 5px; margin-bottom: -4px;
 }
+.category-badge {
+  display: inline-block;
+  background-color: #f2f2f2;
+  color: #555;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 6px;
+  margin-left: 8px;
+  border-radius: 6px;
+  vertical-align: middle;
+}
+.app-category {
+  display: inline-block;
+  background-color: #f3f4f6;
+  color: #374151;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-top: 2px;
+  max-height: 18px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.app-row-toolbar span {
+  margin: 0 4px;
+  font-size: 12px;
+  line-height: 1;
+  vertical-align: middle;
+  padding: 2px 4px;
+}
+
+.app-row-toolbar span:hover {
+    text-decoration: underline;
+    cursor: pointer;
+    color: #000; /* Optional: darken on hover */
+}
+
+
