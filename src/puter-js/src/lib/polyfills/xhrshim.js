@@ -187,7 +187,7 @@ const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
       this[sRespHeaders] = resp.headers;
       this.readyState = this.constructor.HEADERS_RECEIVED;
 
-      if (resp.headers.get("content-type", "application/x-ndjson") || this.streamRequestBadForPerformance) {
+      if (resp.headers.get("content-type").includes("application/x-ndjson") || this.streamRequestBadForPerformance) {
         let bytes = new Uint8Array();
         for await (const chunk of resp.body) {
           this.readyState = this.constructor.LOADING;
