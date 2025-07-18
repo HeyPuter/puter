@@ -1665,7 +1665,7 @@ function generate_app_card(app) {
     let h = ``;
 h += `<tr class="app-card" data-uid="${html_encode(app.uid)}" data-title="${html_encode(app.title)}" data-name="${html_encode(app.name)}" style="height: 86px;">`;
     // check box
-    h += `<td style="height: 60px; width: 20px;">`;
+    h += `<td style="height: 60px; width: 20px; display: flex ; align-items: center;">`;
         h += `<div style="width: 20px; height: 20px; margin-top: 20px; margin-right: 10px; flex-shrink:0;">`;
             h += `<input type="checkbox" class="app-checkbox" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}" style="width: 20px; height: 20px;">`;
         h += `</div>`;
