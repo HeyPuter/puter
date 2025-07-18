@@ -35,6 +35,7 @@ function mergeUint8Arrays(...arrays) {
  * @param {Uint8Array} bytes
  */
 async function parseBody(bytes) {
+  const responseType = this.responseType || "text";
   const textde = new TextDecoder();
   const finalMIME = this[sMIME] || this[sRespHeaders].get("content-type") || "text/plain";
   switch (responseType) {
@@ -187,7 +188,7 @@ const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
       this.readyState = this.constructor.HEADERS_RECEIVED;
 
       if (resp.headers.get("content-type", "application/x-ndjson") || this.streamRequestBadForPerformance) {
-        const bytes = new Uint8Array();
+        let bytes = new Uint8Array();
         for await (const chunk of resp.body) {
           this.readyState = this.constructor.LOADING;
 
