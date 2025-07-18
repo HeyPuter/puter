@@ -89,6 +89,9 @@ class DefaultUserService extends BaseService {
         );
         if ( ! is_default_password ) return;
 
+        console.log(`username: ${USERNAME}`);
+        console.log(`tmp_password: ${tmp_password}`);
+
         // show console widget
         this.default_user_widget = ({ is_docker }) => {
             if ( is_docker ) {

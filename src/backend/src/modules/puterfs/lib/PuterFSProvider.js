@@ -32,6 +32,8 @@ const { ParallelTasks } = require('../../../util/otelutil');
 const { TYPE_DIRECTORY } = require('../../../filesystem/FSNodeContext');
 const APIError = require('../../../api/APIError');
 
+const { MODE_WRITE } = require("../../../services/fs/FSLockService");
+
 class PuterFSProvider extends putility.AdvancedBase {
     static MODULES = {
         _path: require('path'),
@@ -428,6 +430,113 @@ class PuterFSProvider extends putility.AdvancedBase {
         }
 
         await tasks.awaitAll();
+    }
+
+    /**
+     * Create a new directory.
+     * 
+     * @param {Object} param
+     * @param {Context} param.context
+     * @param {FSNode} param.parent
+     * @param {string} param.name
+     * @param {boolean} param.immutable
+     * @param {Actor} param.actor
+     * @param {Object} param.thumbnail
+     * @param {BaseOperation} param.op - an operation that has "log", "field" and "checkpoint" methods
+     * @returns {Promise<FSNode>}
+     */
+    async mkdir({ context, parent, name, immutable, actor, thumbnail, op }) {
+        op.checkpoint('mkdir');
+        op.log.noticeme('GET FSLOCK');
+
+        const svc_fslock = context.get('services').get('fslock');
+        op.log.noticeme('REQUESTING LOCK', {
+            parent: await parent.get('path'),
+            name,
+        });
+        const lock_handle = await svc_fslock.lock_child(
+            await parent.get('path'),
+            await name,
+            MODE_WRITE,
+        );
+
+        op.log.noticeme('GOT LOCK', {
+            parent: await parent.get('path'),
+            name,
+        });
+        op.checkpoint('lock acquired');
+
+        try {
+            return await this.mkdir_locked_({ context, parent, name, immutable, actor, thumbnail, op });
+        } finally {
+            await lock_handle.unlock();
+        }
+    }
+
+    async mkdir_locked_({ context, parent, name, immutable, actor, thumbnail, op }) {
+        const { _path, uuidv4 } = this.modules;
+
+        const ts = Math.round(Date.now() / 1000);
+        const uid = uuidv4();
+        const resourceService = context.get('services').get('resourceService');
+        const svc_fsEntry = context.get('services').get('fsEntryService');
+        const svc_event = context.get('services').get('event');
+        const fs = context.get('services').get('filesystem');
+
+        op.field('fsentry-uid', uid);
+
+        const existing = await fs.node(
+            new NodeChildSelector(parent.selector, name)
+        );
+
+        if ( await existing.exists() ) {
+            throw APIError.create('item_with_same_name_exists', null, {
+                entry_name: name,
+            });
+        }
+
+        resourceService.register({
+            uid,
+            status: RESOURCE_STATUS_PENDING_CREATE,
+        });
+
+        const raw_fsentry = {
+            is_dir: 1,
+            uuid: uid,
+            parent_uid: await parent.get('uid'),
+            path: _path.join(await parent.get('path'), name),
+            user_id: actor.type.user.id,
+            name,
+            created: ts,
+            accessed: ts,
+            modified: ts,
+            immutable: immutable ?? false,
+            ...(thumbnail ? {
+                thumbnail: thumbnail,
+            } : {}),
+        };
+
+        op.log.noticeme('creating fsentry', { fsentry: raw_fsentry })
+
+        op.checkpoint('about to enqueue insert');
+        const entryOp = await svc_fsEntry.insert(raw_fsentry);
+
+        op.field('fsentry-created', false);
+
+        await entryOp.awaitDone();
+        op.log.noticeme('finished creating fsentry', { uid })
+        resourceService.free(uid);
+        op.field('fsentry-created', true);
+
+        const node = await fs.node(new NodeUIDSelector(uid));
+
+        svc_event.emit('fs.create.directory', {
+            node,
+            context: Context.get(),
+        });
+
+        op.checkpoint('returning node');
+        return node;
     }
 }
 
