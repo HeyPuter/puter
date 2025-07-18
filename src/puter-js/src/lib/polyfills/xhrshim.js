@@ -1,4 +1,4 @@
-// https://www.npmjs.com/package/xhr-shim under MIT
+// Originally from https://www.npmjs.com/package/xhr-shim under MIT, heavily modified since
 
 /* global module */
 /* global EventTarget, AbortController, DOMException */
