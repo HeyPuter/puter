@@ -1,0 +1,26 @@
+[
+    {
+        "id": "deepseek-chat",
+        "name": "DeepSeek Chat",
+        "context": 64000,
+        "cost": {
+            "currency": "usd-cents",
+            "tokens": 1000000,
+            "input": 14,
+            "output": 28
+        },
+        "max_tokens": 8000
+    },
+    {
+        "id": "deepseek-reasoner",
+        "name": "DeepSeek Reasoner",
+        "context": 64000,
+        "cost": {
+            "currency": "usd-cents",
+            "tokens": 1000000,
+            "input": 55,
+            "output": 219
+        },
+        "max_tokens": 64000
+    }
+]
