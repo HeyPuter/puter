@@ -7,12 +7,12 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -45,19 +45,20 @@ function UITaskbarItem(options){
                 title = "${html_encode(options.name)}"
                 style= "${options.style ? html_encode(options.style) : ''}"
             >`;
-        let icon = options.icon ? options.icon : window.icons['app.svg'];
-        if(options.app === 'explorer')
-            icon = window.icons['folders.svg'];
+    let icon = options.icon ? options.icon : window.icons['app.svg'];
+    if(options.app === 'explorer')
+        icon = window.icons['folders.svg'];
 
-        // taskbar icon
-        h += `<div class="taskbar-icon">`;
-            h += `<img src="${html_encode(icon)}" style="${options.group === 'apps' ? 'filter:none;' : ''}">`;
-        h += `</div>`;
-
-        // active indicator
-        if(options.app !== 'apps')
-            h += `<span class="active-taskbar-indicator"></span>`;
+    // taskbar icon
+    h += `<div class="taskbar-icon">`;
+    h += `<img src="${html_encode(icon)}" style="${options.group === 'apps' ? 'filter:none;' : ''}">`;
     h += `</div>`;
+
+    // active indicator
+    if(options.app !== 'apps')
+        h += `<span class="active-taskbar-indicator"></span>`;
+    h += `</div>`;
+    // h += `<div class="taskbar-gap"></div>`
 
     if(options.append_to_taskbar) {
         if (options.before_trash){
@@ -85,10 +86,10 @@ function UITaskbarItem(options){
     $(el_taskbar_item).on("click", function(e){
         e.preventDefault();
         e.stopPropagation();
-        
+
         // if this is for the launcher popover, and it's mobile, and has-open-popover, close the popover
         if( $(el_taskbar_item).attr('data-name') === 'Start'
-             && (isMobile.phone || isMobile.tablet) && $(el_taskbar_item).hasClass('has-open-popover')){
+            && (isMobile.phone || isMobile.tablet) && $(el_taskbar_item).hasClass('has-open-popover')){
             $('.popover').remove();
             return;
         }
@@ -99,15 +100,15 @@ function UITaskbarItem(options){
 
         el_taskbar_item.querySelector("img").animate(
             [
-              { transform: 'translateY(0) scale(1)' },
-              { transform: 'translateY(-5px) scale(1.2)' },
-              { transform: 'translateY(0) scale(1)' }
+                { transform: 'translateY(0) scale(1)' },
+                { transform: 'translateY(-5px) scale(1.2)' },
+                { transform: 'translateY(0) scale(1)' }
             ],
             {
-              duration: 300,
-              easing: 'ease-out',
+                duration: 300,
+                easing: 'ease-out',
             }
-          );   
+        );
 
         if(options.onClick === undefined || options.onClick(el_taskbar_item) === false){
             // re-show each window in this app group
@@ -133,7 +134,7 @@ function UITaskbarItem(options){
             return;
 
         const menu_items =[];
-        const open_windows = parseInt($(el_taskbar_item).attr('data-open-windows'));        
+        const open_windows = parseInt($(el_taskbar_item).attr('data-open-windows'));
         // -------------------------------------------
         // List of open windows belonging to this app
         // -------------------------------------------
@@ -167,8 +168,8 @@ function UITaskbarItem(options){
                 }
             })
         }
-        //------------------------------------------
-        // Open Trash
+            //------------------------------------------
+            // Open Trash
         //------------------------------------------
         else if(options.app && options.app === 'trash'){
             menu_items.push({
@@ -216,8 +217,8 @@ function UITaskbarItem(options){
                 }
             })
         }
-        //------------------------------------------
-        // Keep in Taskbar
+            //------------------------------------------
+            // Keep in Taskbar
         //------------------------------------------
         else if(!options.keep_in_taskbar){
             menu_items.push({
@@ -228,7 +229,7 @@ function UITaskbarItem(options){
                     window.update_taskbar();
                     options.keep_in_taskbar = true;
                 }
-            })  
+            })
         }
 
         if(open_windows > 0){
@@ -281,14 +282,14 @@ function UITaskbarItem(options){
             my: "center bottom-20",
             at: "center top",
             using: function( position, feedback ) {
-              $( this ).css( position );
-              $( "<div>" )
-                .addClass( "arrow" )
-                .addClass( feedback.vertical )
-                .addClass( feedback.horizontal )
-                .appendTo( this );
+                $( this ).css( position );
+                $( "<div>" )
+                    .addClass( "arrow" )
+                    .addClass( feedback.vertical )
+                    .addClass( feedback.horizontal )
+                    .appendTo( this );
             }
-        }    
+        }
     });
 
     // --------------------------------------------------------
@@ -308,10 +309,10 @@ function UITaskbarItem(options){
                 return;
 
             const items_to_move = []
-            
+
             // First item
-            items_to_move.push(ui.draggable); 
-            
+            items_to_move.push(ui.draggable);
+
             // All subsequent items
             const cloned_items = document.getElementsByClassName('item-selected-clone');
             for(let i =0; i<cloned_items.length; i++){
@@ -327,8 +328,8 @@ function UITaskbarItem(options){
                 options.onItemsDrop(items_to_move);
                 return;
             }
-            // --------------------------------------------------------
-            // If dropped on an app, open the app with the dropped item as an argument
+                // --------------------------------------------------------
+                // If dropped on an app, open the app with the dropped item as an argument
             //--------------------------------------------------------
             else if(options.app){
                 // an array that hold the items to sign
@@ -337,9 +338,9 @@ function UITaskbarItem(options){
                 // prepare items to sign
                 for(let i=0; i < items_to_move.length; i++){
                     items_to_sign.push({
-                        name: $(items_to_move[i]).attr('data-name'), 
-                        uid: $(items_to_move[i]).attr('data-uid'), 
-                        action: 'write', 
+                        name: $(items_to_move[i]).attr('data-name'),
+                        uid: $(items_to_move[i]).attr('data-uid'),
+                        action: 'write',
                         path: $(items_to_move[i]).attr('data-path')
                     });
                 }
@@ -348,7 +349,7 @@ function UITaskbarItem(options){
                 for (let i = 0; i < items_to_sign.length; i++) {
                     const item = items_to_sign[i];
                     launch_app({
-                        name: options.app, 
+                        name: options.app,
                         file_path: item.path,
                         // app_obj: open_item_meta.suggested_apps[0],
                         window_title: item.name,
@@ -408,7 +409,7 @@ function UITaskbarItem(options){
                 $('.ui-draggable-dragging .item-name, .item-selected-clone .item-name').css('opacity', 'initial')
                 $('.item-container').removeClass('item-container-transparent-border')
             }
-            $('.item-container').droppable( 'enable' )    
+            $('.item-container').droppable( 'enable' )
         }
     });
 
