@@ -96,6 +96,12 @@ module.exports = class TestSDK {
     async case (id, fn) {
         this.nameStack.push(id);
 
+        // Always reset cwd for top-level cases to prevent them from affecting
+        // each other.
+        if (this.nameStack.length === 1) {
+            this.resetCwd();
+        }
+
         const tabs = Array(this.nameStack.length - 2).fill('  ').join('');
         const strid = tabs + this.nameStack.join(` \x1B[36;1m->\x1B[0m `);
         process.stdout.write(strid + ' ... \n');
@@ -167,6 +173,12 @@ module.exports = class TestSDK {
     cd (path) {
         this.cwd = path_.posix.join(this.cwd, path);
     }
+
+    resetCwd () {
+        // TODO (xiaochen): update the hardcoded path to a global constant
+        this.cwd = '/admin/api_test';
+    }
+
     resolve (path) {
         if ( path.startsWith('$') ) return path;
         if ( path.startsWith('/') ) return path;
