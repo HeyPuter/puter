@@ -271,8 +271,32 @@ class HLMkdir extends HLFilesystemOperation {
             });
         }
 
+        // Unify the following formats:
+        // - full path: {"path":"/foo/bar", args...}, used by apitest (./tools/api-tester/apitest.js)
+        // - parent + path: {"parent": "/foo", "path":"bar", args...}, used by puter-js (puter.fs.mkdir("/foo/bar"))
+        if ( !values.parent && values.path ) {
+            values.parent = await fs.node(new NodePathSelector(_path.dirname(values.path)));
+            values.path = _path.basename(values.path);
+        }
+
         let parent_node = values.parent || await fs.node(new RootNodeSelector());
+        if ( parent_node.isRoot ) {
+            // root directory is read-only
+            throw APIError.create('forbidden', null, {
+                message: 'Cannot create directories in the root directory.'
+            });
+        }
         console.log('USING PARENT', parent_node.selector.describe());
+
+        // TODO: this can be removed upon completion of: https://github.com/HeyPuter/puter/issues/1352
+        if ( parent_node.isRoot ) {
+            // root directory is read-only
+            throw APIError.create('forbidden', null, {
+                message: 'Cannot create directories in the root directory.'
+            });
+        }
+
+
         let target_basename = _path.basename(values.path);
 
         // "top_parent" is the immediate parent of the target directory
@@ -281,14 +305,6 @@ class HLMkdir extends HLFilesystemOperation {
             ? await this._create_top_parent({ top_parent: parent_node })
             : await this._get_existing_top_parent({ top_parent: parent_node })
             ;
-
-        // TODO: this can be removed upon completion of: https://github.com/HeyPuter/puter/issues/1352
-        if ( top_parent.isRoot ) {
-            // root directory is read-only
-            throw APIError.create('forbidden', null, {
-                message: 'Cannot create directories in the root directory.'
-            });
-        }
 
         // `parent_node` becomes the parent of the last directory name
         // specified under `path`.

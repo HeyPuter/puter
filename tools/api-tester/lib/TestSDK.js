@@ -188,6 +188,16 @@ module.exports = class TestSDK {
             });
             return res.data;
         };
+        // parent + path format: {"parent": "/foo", "path":"bar", args...}
+        // this is used by puter-js (puter.fs.mkdir("/foo/bar"))
+        this.mkdir_v2 = async (parent, path, opts) => {
+            const res = await this.post('mkdir', {
+                parent: p(parent),
+                path: p(path),
+                ...(opts ?? {})
+            });
+            return res.data;
+        }
         this.write = async (path, bin, params) => {
             path = p(path);
             params = params ?? {};
