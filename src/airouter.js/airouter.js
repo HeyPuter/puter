@@ -37,9 +37,6 @@ export { OpenAIStyleStreamAdapter } from './convention/openai/OpenAIStyleStreamA
 export { OpenAIToolsAdapter } from './openai/OpenAIToolsAdapter.js';
 export { GeminiToolsAdapter } from './gemini/GeminiToolsAdapter.js';
 
-// Model-Specific Output Adaptation
-export { DeepSeekAPIType } from './deepseek/DeekSeekAPIType.js';
-
 // API Keys
 export { ANTHROPIC_API_KEY } from './anthropic/index.js';
 export { OPENAI_CLIENT } from './openai/index.js';

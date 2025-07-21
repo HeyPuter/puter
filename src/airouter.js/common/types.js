@@ -14,6 +14,10 @@ export const COERCED_MESSAGES = Symbol('COERCED_MESSAGES');
 export const COERCED_USAGE = Symbol('COERCED_USAGE');
 export const MODEL_DETAILS = Symbol('COERCED_USAGE');
 
+// SDK Styles
+export const SDK_STYLE = Symbol('SDK_STYLE');
+export const USAGE_SDK_STYLE = Symbol('USAGE_SDK_STYLE');
+
 // Puter Migration Intermediaries
 export const COMPLETION_WRITER = Symbol('COMPLETION_WRITER');
 

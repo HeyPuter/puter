@@ -18,9 +18,13 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
+const { TeePromise } = require("@heyputer/putility/src/libs/promise");
 const BaseService = require("../../services/BaseService");
-const OpenAIUtil = require("./lib/OpenAIUtil");
-const dedent = require('dedent');
+const { TypedValue } = require("../../services/drivers/meta/Runtime");
+let
+    obtain,
+    OPENAI_CLIENT, SYNC_RESPONSE, PROVIDER_NAME, NORMALIZED_LLM_PARAMS,
+    ASYNC_RESPONSE, USAGE_WRITER, COMPLETION_WRITER;
 
 /**
 * DeepSeekService class - Provides integration with X.AI's API for chat completions
@@ -44,8 +48,11 @@ class DeepSeekService extends BaseService {
     }
     
     async _construct () {
-        const airouter = await import('@heyputer/airouter.js');
-        this.deepSeekApiType = new airouter.DeepSeekAPIType();
+        ({
+            obtain,
+            OPENAI_CLIENT, SYNC_RESPONSE, PROVIDER_NAME, NORMALIZED_LLM_PARAMS,
+            ASYNC_RESPONSE, USAGE_WRITER, COMPLETION_WRITER
+        } = require('@heyputer/airouter.js'));
     }
 
     /**
@@ -117,11 +124,15 @@ class DeepSeekService extends BaseService {
 
                     let streamOperation;
                     const init_chat_stream = async ({ chatStream: completionWriter }) => {
-                        streamOperation = await this.deepSeekApiType.stream(this.openai, completionWriter, {
-                            messages, model, tools, max_tokens, temperature,
-                            user_id: user_private_uid,
+                        await obtain(ASYNC_RESPONSE, {
+                            [PROVIDER_NAME]: 'openai',
+                            [NORMALIZED_LLM_PARAMS]: {
+                                messages, model, tools, max_tokens, temperature,
+                            },
+                            [COMPLETION_WRITER]: completionWriter,
+                            [OPENAI_CLIENT]: this.openai,
+                            [USAGE_WRITER]: usage_promise,
                         })
-                        await streamOperation.run();
                     };
 
                     return new TypedValue({ $: 'ai-chat-intermediate' }, {
@@ -133,67 +144,14 @@ class DeepSeekService extends BaseService {
                         },
                     });
                 } else {
-                    const syncOperation = await this.deepSeekApiType.create(this.openai, {
-                        messages, model, tools, max_tokens, temperature,
+                    return await obtain(SYNC_RESPONSE, {
+                        [PROVIDER_NAME]: 'openai',
+                        [NORMALIZED_LLM_PARAMS]: {
+                            messages, model, tools, max_tokens, temperature,
+                        },
+                        [OPENAI_CLIENT]: this.openai,
                     });
-                    const retVal = await syncOperation.run();
-                    await syncOperation.cleanup();
-                    return retVal;
                 }
-
-                messages = await OpenAIUtil.process_input_messages(messages);
-                for ( const message of messages ) {
-                    // DeepSeek doesn't appreciate arrays here
-                    if ( message.tool_calls && Array.isArray(message.content) ) {
-                        message.content = "";
-                    }
-                }
-                
-                // Function calling is just broken on DeepSeek - it never awknowledges
-                // the tool results and instead keeps calling the function over and over.
-                // (see https://github.com/deepseek-ai/DeepSeek-V3/issues/15)
-                // To fix this, we inject a message that tells DeepSeek what happened.
-                const TOOL_TEXT = message => dedent(`
-                    Hi DeepSeek V3, your tool calling is broken and you are not able to
-                    obtain tool results in the expected way. That's okay, we can work
-                    around this.
-
-                    Please do not repeat this tool call.
-
-                    We have provided the tool call results below:
-
-                    Tool call ${message.tool_call_id} returned: ${message.content}.
-                `);
-                for ( let i=messages.length-1; i >= 0 ; i-- ) {
-                    const message = messages[i];
-                    if ( message.role === 'tool' ) {
-                        messages.splice(i+1, 0, {
-                            role: 'system',
-                            content: [
-                                {
-                                    type: 'text',
-                                    text: TOOL_TEXT(message),
-                                }
-                            ]
-                        });
-                    }
-                }
-
-                const completion = await this.openai.chat.completions.create({
-                    messages,
-                    model: model ?? this.get_default_model(),
-                    ...(tools ? { tools } : {}),
-                    max_tokens: max_tokens || 1000,
-                    temperature, // the default temperature is 1.0. suggested 0 for math/coding and 1.5 for creative poetry
-                    stream,
-                    ...(stream ? {
-                        stream_options: { include_usage: true },
-                    } : {}),
-                });
-                
-                return OpenAIUtil.handle_completion_output({
-                    stream, completion,
-                });
             }
         }
     }

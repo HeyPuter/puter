@@ -1,5 +1,5 @@
 import openai_models from '../models/openai.json' with { type: 'json' };
-import { ASYNC_RESPONSE, COERCED_MESSAGES, COERCED_PARAMS, COERCED_TOOLS, COERCED_USAGE, COMPLETION_WRITER, MODEL_DETAILS, NORMALIZED_LLM_MESSAGES, NORMALIZED_LLM_PARAMS, NORMALIZED_LLM_TOOLS, PROVIDER_NAME, STREAM_WRITTEN_TO_COMPLETION_WRITER, SYNC_RESPONSE, USAGE_WRITER } from "../common/types.js";
+import { ASYNC_RESPONSE, COERCED_MESSAGES, COERCED_PARAMS, COERCED_TOOLS, COERCED_USAGE, COMPLETION_WRITER, MODEL_DETAILS, NORMALIZED_LLM_MESSAGES, NORMALIZED_LLM_PARAMS, NORMALIZED_LLM_TOOLS, PROVIDER_NAME, STREAM_WRITTEN_TO_COMPLETION_WRITER, SYNC_RESPONSE, USAGE_SDK_STYLE, USAGE_WRITER } from "../common/types.js";
 import handle_files from './handle_files.js';
 import { TransformUsageWriter } from '../common/usage/TransformUsageWriter.js';
 import { OpenAIStreamAdapter } from './OpenAIStreamAdapter.js';
@@ -38,6 +38,7 @@ export default define => {
     })
     
     define.howToGet(COERCED_USAGE).from(OPENAI_USAGE, MODEL_DETAILS)
+    .provided(async x => await x.obtain(USAGE_SDK_STYLE) === 'openai')
     .as(async x => {
         const openai_usage = x.get(OPENAI_USAGE);
         const model_details = x.get(MODEL_DETAILS);
