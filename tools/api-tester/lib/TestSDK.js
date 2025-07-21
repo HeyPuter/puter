@@ -193,7 +193,7 @@ module.exports = class TestSDK {
         this.mkdir_v2 = async (parent, path, opts) => {
             const res = await this.post('mkdir', {
                 parent: p(parent),
-                path: p(path),
+                path: path, // "path" arg should remain relative in this api
                 ...(opts ?? {})
             });
             return res.data;

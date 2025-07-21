@@ -152,19 +152,38 @@ module.exports = {
                     create_missing_parents: true,
                 });
                 expect(result.name).equal('c');
+
+                await t.case('can stat directories along the path', async () => {
+                    let stat = await t.stat('a');
+                    expect(stat.name).equal('a');
+
+                    stat = await t.stat('a/b');
+                    expect(stat.name).equal('b');
+
+                    stat = await t.stat('a/b/c');
+                    expect(stat.name).equal('c');
+                });
             });
 
-            await t.case('can stat the directory', async () => {
-                const stat = await t.stat(path);
-                expect(stat.name).equal('c');
-            });
+            await t.case('composite path', async () => {
+                const result = await t.mkdir_v2('1/2', '3/4', {
+                    create_missing_parents: true,
+                });
+                expect(result.name).equal('4');
 
-            await t.case('can stat the parent directory', async () => {
-                let stat = await t.stat('a');
-                expect(stat.name).equal('a');
+                await t.case('can stat directories along the path', async () => {
+                    let stat = await t.stat('1');
+                    expect(stat.name).equal('1');
 
-                stat = await t.stat('a/b');
-                expect(stat.name).equal('b');
+                    stat = await t.stat('1/2');
+                    expect(stat.name).equal('2');
+
+                    stat = await t.stat('1/2/3');
+                    expect(stat.name).equal('3');
+
+                    stat = await t.stat('1/2/3/4');
+                    expect(stat.name).equal('4');
+                });
             });
         });
     }
