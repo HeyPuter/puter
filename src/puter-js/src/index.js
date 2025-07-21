@@ -130,7 +130,7 @@ export default globalThis.puter = (function() {
 
             // Figure out the environment in which the SDK is running
             if (URLParams.has('puter.app_instance_id')) {
-                sessionStorage.setItem("puter_search_params", globalThis.sessionStorage?.getItem("puter_search_params") || globalThis.location?.search)
+                globalThis.sessionStorage?.setItem("puter_search_params", globalThis.sessionStorage?.getItem("puter_search_params") || globalThis.location?.search)
                 this.env = 'app';
             } else if(globalThis.puter_gui_enabled === true)
                 this.env = 'gui';
