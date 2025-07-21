@@ -108,13 +108,8 @@ export class Registry {
             
             const applicableProviders = [];
             for ( const provider of providers ) {
-                if ( ! provider.fn ) {
-                    // TODO: warn incomplete provider
-                    continue;
-                }
-                
-                if ( ! provider.inputTypes ) {
-                    // TODO: warn incomplete provider
+                if ( ! provider.fn || ! provider.inputTypes ) {
+                    console.warn(`Incomplete provider for ${outputType.toString()}`);
                     continue;
                 }
                 
@@ -128,6 +123,40 @@ export class Registry {
                 
                 if ( canSatisfyRequiredInputs ) {
                     applicableProviders.push(provider);
+                }
+            }
+            
+            // If no providers are applicable, try to obtain missing inputs
+            // Recursion can be disabled by commenting out this block
+            if (applicableProviders.length === 0) {
+                for (const provider of providers) {
+                    if ( ! provider.fn || ! provider.inputTypes ) {
+                        console.warn(`Incomplete provider for ${outputType.toString()}`);
+                        continue;
+                    }
+                    
+                    const newInputs = {};
+                    let canSatisfyWithRecursion = true;
+                    
+                    // Try to obtain each missing input
+                    for (const neededInputType of provider.inputTypes) {
+                        if (!availableInputs.has(neededInputType)) {
+                            try {
+                                // Recursively obtain the missing input
+                                const inputValue = await this.getObtainAPI(context)(neededInputType, {});
+                                newInputs[neededInputType] = inputValue;
+                                context.inputs[neededInputType] = inputValue; // Update context
+                                availableInputs.add(neededInputType); // Update available inputs
+                            } catch (e) {
+                                canSatisfyWithRecursion = false;
+                                break; // Cannot satisfy this provider
+                            }
+                        }
+                    }
+                    
+                    if (canSatisfyWithRecursion) {
+                        applicableProviders.push(provider);
+                    }
                 }
             }
             
@@ -156,6 +185,7 @@ export class Registry {
             }
             
             // TODO: diagnostic information in error message
+            console.error('no applicable providers', outputType);
             throw new Error(`no applicable providers (2)`);
         }
     }
