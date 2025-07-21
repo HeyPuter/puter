@@ -1,4 +1,4 @@
-import { ASYNC_RESPONSE, COMPLETION_WRITER, NORMALIZED_LLM_PARAMS, NORMALIZED_LLM_TOOLS, PROVIDER_NAME, STREAM, SYNC_RESPONSE, USAGE_WRITER } from "../common/types.js";
+import { ASYNC_RESPONSE, COERCED_PARAMS, COERCED_TOOLS, COMPLETION_WRITER, NORMALIZED_LLM_PARAMS, NORMALIZED_LLM_TOOLS, PROVIDER_NAME, STREAM, SYNC_RESPONSE, USAGE_WRITER } from "../common/types.js";
 
 import { NormalizedPromptUtil } from '../common/prompt/NormalizedPromptUtil.js';
 import Anthropic from "@anthropic-ai/sdk";
@@ -7,20 +7,16 @@ import { betas } from "./consts.js";
 import handle_files from "./handle_files.js";
 import write_to_stream from "./write_to_stream.js";
 
-export const ANTHROPIC_LLM_INPUT = Symbol('ANTHROPIC_LLM_INPUT');
-export const ANTHROPIC_LLM_PARAMS = Symbol('ANTHROPIC_LLM_PARAMS');
-export const ANTHROPIC_LLM_TOOLS = Symbol('ANTHROPIC_LLM_TOOLS');
 export const ANTHROPIC_API_KEY = Symbol('ANTHROPIC_API_KEY');
 export const ANTHROPIC_CLIENT = Symbol('ANTHROPIC_CLIENT');
 
 export default define => {
     // Define how to get parameters for the Anthropic client
-    define.howToGet(ANTHROPIC_LLM_PARAMS).from(NORMALIZED_LLM_PARAMS)
+    define.howToGet(COERCED_PARAMS).from(NORMALIZED_LLM_PARAMS)
+    .provided(x => x.get(PROVIDER_NAME) == 'anthropic')
     .as(async x => {
         const params = x.get(NORMALIZED_LLM_PARAMS);
-        params.tools = await x.obtain(ANTHROPIC_LLM_TOOLS, {
-            [NORMALIZED_LLM_TOOLS]: params.tools,
-        });
+        params.tools = await x.obtain(COERCED_TOOLS);
         
         let system_prompts;
         [system_prompts, params.messages] = NormalizedPromptUtil.extract_and_remove_system_messages(params.messages);
@@ -52,7 +48,8 @@ export default define => {
     });
     
     // Define how to get tools in the format expected by Anthropic
-    define.howToGet(ANTHROPIC_LLM_TOOLS).from(NORMALIZED_LLM_TOOLS)
+    define.howToGet(COERCED_TOOLS).from(NORMALIZED_LLM_TOOLS)
+    .provided(x => x.get(PROVIDER_NAME) == 'anthropic')
     .as(async x => {
         const tools = x.get(NORMALIZED_LLM_TOOLS);
         if ( ! tools ) return undefined;
@@ -76,7 +73,7 @@ export default define => {
     define.howToGet(ASYNC_RESPONSE).from(NORMALIZED_LLM_PARAMS)
     .provided(x => x.get(PROVIDER_NAME) == 'anthropic')
     .as(async x => {
-        const anthropic_params = await x.obtain(ANTHROPIC_LLM_PARAMS, {
+        const anthropic_params = await x.obtain(COERCED_PARAMS, {
             [NORMALIZED_LLM_PARAMS]: x.get(NORMALIZED_LLM_PARAMS),
         });
         let client = await x.obtain(ANTHROPIC_CLIENT);
@@ -95,7 +92,7 @@ export default define => {
     define.howToGet(SYNC_RESPONSE).from(NORMALIZED_LLM_PARAMS)
     .provided(x => x.get(PROVIDER_NAME) == 'anthropic')
     .as(async x => {
-        const anthropic_params = await x.obtain(ANTHROPIC_LLM_PARAMS, {
+        const anthropic_params = await x.obtain(COERCED_PARAMS, {
             [NORMALIZED_LLM_PARAMS]: x.get(NORMALIZED_LLM_PARAMS),
         });
         let client = await x.obtain(ANTHROPIC_CLIENT);

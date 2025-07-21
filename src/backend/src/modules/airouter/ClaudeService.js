@@ -31,6 +31,7 @@ let
     obtain,
     ANTHROPIC_API_KEY,
     NORMALIZED_LLM_PARAMS, COMPLETION_WRITER, PROVIDER_NAME,
+    USAGE_WRITER,
     ASYNC_RESPONSE, SYNC_RESPONSE
 ;
 
@@ -145,6 +146,7 @@ class ClaudeService extends BaseService {
                             },
                             [COMPLETION_WRITER]: completionWriter,
                             [ANTHROPIC_API_KEY]: this.config.apiKey,
+                            [USAGE_WRITER]: usage_promise,
                         });
                         // streamOperation = await this.anthropicApiType.stream(this.anthropic, completionWriter, {
                         //     messages, model, tools, max_tokens, temperature,

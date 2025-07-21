@@ -4,8 +4,14 @@ import { Registry } from './core/Registry.js';
 const registry = new Registry();
 const define = registry.getDefineAPI();
 
+import commonRegistrants from './common/definitions.js';
+commonRegistrants(define);
+
 import anthropicRegistrants from './anthropic/index.js';
 anthropicRegistrants(define);
+
+import openaiRegistrants from './openai/index.js';
+openaiRegistrants(define);
 
 export const obtain = registry.getObtainAPI();
 
@@ -32,11 +38,11 @@ export { OpenAIToolsAdapter } from './openai/OpenAIToolsAdapter.js';
 export { GeminiToolsAdapter } from './gemini/GeminiToolsAdapter.js';
 
 // Model-Specific Output Adaptation
-export { OpenAIAPIType } from './openai/OpenAIAPIType.js';
 export { DeepSeekAPIType } from './deepseek/DeekSeekAPIType.js';
 
 // API Keys
 export { ANTHROPIC_API_KEY } from './anthropic/index.js';
+export { OPENAI_CLIENT } from './openai/index.js';
 
 import openai_models from './models/openai.json' with { type: 'json' };
 export const models = {

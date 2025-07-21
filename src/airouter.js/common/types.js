@@ -8,5 +8,14 @@ export const STREAM = Symbol('STREAM');
 export const SYNC_RESPONSE = Symbol('SYNC_RESPONSE');
 export const PROVIDER_NAME = Symbol('PROVIDER_NAME');
 
+export const COERCED_PARAMS = Symbol('COERCED_TOOLS');
+export const COERCED_TOOLS = Symbol('COERCED_TOOLS');
+export const COERCED_MESSAGES = Symbol('COERCED_MESSAGES');
+export const COERCED_USAGE = Symbol('COERCED_USAGE');
+export const MODEL_DETAILS = Symbol('COERCED_USAGE');
+
 // Puter Migration Intermediaries
 export const COMPLETION_WRITER = Symbol('COMPLETION_WRITER');
+
+// Awkward
+export const STREAM_WRITTEN_TO_COMPLETION_WRITER = Symbol('STREAM_WRITTEN_TO_COMPLETION_WRITER');

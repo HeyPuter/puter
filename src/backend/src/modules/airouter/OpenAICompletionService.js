@@ -23,9 +23,11 @@ const FSNodeParam = require('../../api/filesystem/FSNodeParam');
 const { LLRead } = require('../../filesystem/ll_operations/ll_read');
 const BaseService = require('../../services/BaseService');
 const { Context } = require('../../util/context');
-const { stream_to_buffer } = require('../../util/streamutil');
-const OpenAIUtil = require('./lib/OpenAIUtil');
 const { TypedValue } = require('../../services/drivers/meta/Runtime');
+let
+    obtain,
+    OPENAI_CLIENT, SYNC_RESPONSE, PROVIDER_NAME, NORMALIZED_LLM_PARAMS,
+    ASYNC_RESPONSE, USAGE_WRITER, COMPLETION_WRITER;
 
 // We're capping at 5MB, which sucks, but Chat Completions doesn't suuport
 // file inputs.
@@ -50,8 +52,11 @@ class OpenAICompletionService extends BaseService {
     openai;
     
     async _construct () {
-        const airouter = await import('@heyputer/airouter.js');
-        this.openAIAPIType = new airouter.OpenAIAPIType();
+        ({
+            obtain,
+            OPENAI_CLIENT, SYNC_RESPONSE, PROVIDER_NAME, NORMALIZED_LLM_PARAMS,
+            ASYNC_RESPONSE, USAGE_WRITER, COMPLETION_WRITER
+        } = require('@heyputer/airouter.js'));
     }
 
     /**
@@ -232,11 +237,15 @@ class OpenAICompletionService extends BaseService {
 
             let streamOperation;
             const init_chat_stream = async ({ chatStream: completionWriter }) => {
-                streamOperation = await this.openAIAPIType.stream(this.openai, completionWriter, {
-                    messages, model, tools, max_tokens, temperature,
-                    user_id: user_private_uid,
+                await obtain(ASYNC_RESPONSE, {
+                    [PROVIDER_NAME]: 'openai',
+                    [NORMALIZED_LLM_PARAMS]: {
+                        messages, model, tools, max_tokens, temperature,
+                    },
+                    [COMPLETION_WRITER]: completionWriter,
+                    [OPENAI_CLIENT]: this.openai,
+                    [USAGE_WRITER]: usage_promise,
                 })
-                await streamOperation.run();
             };
 
             return new TypedValue({ $: 'ai-chat-intermediate' }, {
@@ -248,13 +257,13 @@ class OpenAICompletionService extends BaseService {
                 },
             });
         } else {
-            const syncOperation = await this.openAIAPIType.create(this.openai, {
-                messages, model, tools, max_tokens, temperature,
-                user_id: user_private_uid,
+            return await obtain(SYNC_RESPONSE, {
+                [PROVIDER_NAME]: 'openai',
+                [NORMALIZED_LLM_PARAMS]: {
+                    messages, model, tools, max_tokens, temperature,
+                },
+                [OPENAI_CLIENT]: this.openai,
             });
-            const retVal = await syncOperation.run();
-            await syncOperation.cleanup();
-            return retVal;
         }
     }
 

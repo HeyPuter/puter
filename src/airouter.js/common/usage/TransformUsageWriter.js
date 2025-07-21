@@ -4,7 +4,8 @@ export class TransformUsageWriter {
         this.delegate = delegate;
     }
     
-    resolve (v) {
-        return this.delegate(this.fn.call(null, v));
+    async resolve (v) {
+        const v_or_p = this.fn.call(null, v);
+        return this.delegate.resolve(await v_or_p);
     }
 }

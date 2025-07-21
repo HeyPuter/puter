@@ -1,4 +1,4 @@
-import { OpenAIStyleStreamAdapter } from "../airouter.js";
+import { OpenAIStyleStreamAdapter } from '../convention/openai/OpenAIStyleStreamAdapter.js';
 
 /**
  * OpenAIStreamAdapter extends OpenAIStyleStreamAdapter without overriding
