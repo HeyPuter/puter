@@ -280,22 +280,7 @@ class HLMkdir extends HLFilesystemOperation {
         }
 
         let parent_node = values.parent || await fs.node(new RootNodeSelector());
-        if ( parent_node.isRoot ) {
-            // root directory is read-only
-            throw APIError.create('forbidden', null, {
-                message: 'Cannot create directories in the root directory.'
-            });
-        }
         console.log('USING PARENT', parent_node.selector.describe());
-
-        // TODO: this can be removed upon completion of: https://github.com/HeyPuter/puter/issues/1352
-        if ( parent_node.isRoot ) {
-            // root directory is read-only
-            throw APIError.create('forbidden', null, {
-                message: 'Cannot create directories in the root directory.'
-            });
-        }
-
 
         let target_basename = _path.basename(values.path);
 
@@ -305,6 +290,14 @@ class HLMkdir extends HLFilesystemOperation {
             ? await this._create_top_parent({ top_parent: parent_node })
             : await this._get_existing_top_parent({ top_parent: parent_node })
             ;
+
+        // TODO: this can be removed upon completion of: https://github.com/HeyPuter/puter/issues/1352
+        if ( top_parent.isRoot ) {
+            // root directory is read-only
+            throw APIError.create('forbidden', null, {
+                message: 'Cannot create directories in the root directory.'
+            });
+        }
 
         // `parent_node` becomes the parent of the last directory name
         // specified under `path`.
