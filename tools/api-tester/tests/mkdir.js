@@ -65,5 +65,107 @@ module.exports = {
                 expect(stat.name).equal(`a (${i})`);
             }
         });
+
+        await t.case('mkdir in root directory is prohibited', async () => {
+            const path = '/a';
+            await t.case('throws 403', async () => {
+                try {
+                    // full path format: {"path":"/foo/bar", args...}
+                    await t.mkdir(path);
+                } catch (e) {
+                    expect(e.response.status).equal(403);
+                }
+
+                try {
+                    // parent + path format: {"parent": "/foo", "path":"bar", args...}
+                    const parent = '/';
+                    await t.mkdir(path, {
+                        parent: parent,
+                    });
+                } catch (e) {
+                    expect(e.response.status).equal(403);
+                }
+            });
+        });
+
+        await t.case('create_missing_parents works (full path api)', async () => {
+            const path = 'a/b/c';
+
+            await t.case('parent directory does not exist', async () => {
+                try {
+                    await t.stat('a');
+                } catch (e) {
+                    expect(e.response.status).equal(404);
+                }
+            });
+
+            await t.case('mkdir failed without create_missing_parents', async () => {
+                try {
+                    await t.mkdir('a/b/c');
+                } catch (e) {
+                    expect(e.response.status).equal(409);
+                }
+            });
+
+            await t.case('mkdir succeeds with create_missing_parents', async () => {
+                const result = await t.mkdir('a/b/c', {
+                    create_missing_parents: true,
+                });
+                expect(result.name).equal('c');
+            });
+
+            await t.case('can stat the directory', async () => {
+                const stat = await t.stat(path);
+                expect(stat.name).equal('c');
+            });
+
+            await t.case('can stat the parent directory', async () => {
+                let stat = await t.stat('a');
+                expect(stat.name).equal('a');
+
+                stat = await t.stat('a/b');
+                expect(stat.name).equal('b');
+            });
+        });
+
+        await t.case('create_missing_parents works (parent + path api)', async () => {
+            const path = 'a/b/c';
+
+            await t.case('parent directory does not exist', async () => {
+                try {
+                    await t.stat('a');
+                } catch (e) {
+                    expect(e.response.status).equal(404);
+                }
+            });
+
+            await t.case('mkdir failed without create_missing_parents', async () => {
+                try {
+                    await t.mkdir_v2('a/b', 'c');
+                } catch (e) {
+                    expect(e.response.status).equal(409);
+                }
+            });
+
+            await t.case('mkdir succeeds with create_missing_parents', async () => {
+                const result = await t.mkdir_v2('a/b', 'c', {
+                    create_missing_parents: true,
+                });
+                expect(result.name).equal('c');
+            });
+
+            await t.case('can stat the directory', async () => {
+                const stat = await t.stat(path);
+                expect(stat.name).equal('c');
+            });
+
+            await t.case('can stat the parent directory', async () => {
+                let stat = await t.stat('a');
+                expect(stat.name).equal('a');
+
+                stat = await t.stat('a/b');
+                expect(stat.name).equal('b');
+            });
+        });
     }
 };
