@@ -1,5 +1,15 @@
-import { AnthropicAPIType } from './anthropic/AnthropicAPIType.js';
-import { LLMRegistry } from './router/LLMRegistry.js';
+import { Registry } from './core/Registry.js';
+
+
+const registry = new Registry();
+const define = registry.getDefineAPI();
+
+import anthropicRegistrants from './anthropic/index.js';
+anthropicRegistrants(define);
+
+export const obtain = registry.getObtainAPI();
+
+export * from './common/types.js';
 
 // Streaming Utilities
 export { CompletionWriter } from './common/stream/CompletionWriter.js';
@@ -18,25 +28,17 @@ export { OpenAIStyleMessagesAdapter } from './convention/openai/OpenAIStyleMessa
 export { OpenAIStyleStreamAdapter } from './convention/openai/OpenAIStyleStreamAdapter.js';
 
 // Model-Specific Processing
-export { AnthropicToolsAdapter } from './anthropic/AnthropicToolsAdapter.js';
 export { OpenAIToolsAdapter } from './openai/OpenAIToolsAdapter.js';
 export { GeminiToolsAdapter } from './gemini/GeminiToolsAdapter.js';
 
 // Model-Specific Output Adaptation
-export { AnthropicStreamAdapter } from './anthropic/AnthropicStreamAdapter.js';
-export { AnthropicAPIType } from './anthropic/AnthropicAPIType.js';
-
 export { OpenAIAPIType } from './openai/OpenAIAPIType.js';
 export { DeepSeekAPIType } from './deepseek/DeekSeekAPIType.js';
+
+// API Keys
+export { ANTHROPIC_API_KEY } from './anthropic/index.js';
 
 import openai_models from './models/openai.json' with { type: 'json' };
 export const models = {
     openai: openai_models,
 };
-
-export class AIRouter extends LLMRegistry {
-    constructor () {
-        super();
-        this.registerApiType('claude', new AnthropicAPIType());
-    }
-}

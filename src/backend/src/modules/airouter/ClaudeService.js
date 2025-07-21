@@ -26,6 +26,14 @@ const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Context } = require("../../util/context");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
+
+let
+    obtain,
+    ANTHROPIC_API_KEY,
+    NORMALIZED_LLM_PARAMS, COMPLETION_WRITER, PROVIDER_NAME,
+    ASYNC_RESPONSE, SYNC_RESPONSE
+;
+
 /**
 * ClaudeService class extends BaseService to provide integration with Anthropic's Claude AI models.
 * Implements the puter-chat-completion interface for handling AI chat interactions.
@@ -45,10 +53,12 @@ class ClaudeService extends BaseService {
     
     async _construct () {
         const airouter = await import('@heyputer/airouter.js');
-        this.NormalizedPromptUtil = airouter.NormalizedPromptUtil;
-        this.AnthropicToolsAdapter = airouter.AnthropicToolsAdapter;
-        this.AnthropicStreamAdapter = airouter.AnthropicStreamAdapter;
-        this.anthropicApiType = new airouter.AnthropicAPIType();
+        ({
+            obtain,
+            ANTHROPIC_API_KEY,
+            NORMALIZED_LLM_PARAMS, COMPLETION_WRITER, PROVIDER_NAME,
+            ASYNC_RESPONSE, SYNC_RESPONSE
+        } = airouter);
 
     }
     
@@ -127,10 +137,19 @@ class ClaudeService extends BaseService {
 
                     let streamOperation;
                     const init_chat_stream = async ({ chatStream: completionWriter }) => {
-                        streamOperation = await this.anthropicApiType.stream(this.anthropic, completionWriter, {
-                            messages, model, tools, max_tokens, temperature,
-                        })
-                        await streamOperation.run();
+                        console.log('the completion writer?', completionWriter);
+                        await obtain(ASYNC_RESPONSE, {
+                            [PROVIDER_NAME]: 'anthropic',
+                            [NORMALIZED_LLM_PARAMS]: {
+                                messages, model, tools, max_tokens, temperature,
+                            },
+                            [COMPLETION_WRITER]: completionWriter,
+                            [ANTHROPIC_API_KEY]: this.config.apiKey,
+                        });
+                        // streamOperation = await this.anthropicApiType.stream(this.anthropic, completionWriter, {
+                        //     messages, model, tools, max_tokens, temperature,
+                        // })
+                        // await streamOperation.run();
                     };
 
                     return new TypedValue({ $: 'ai-chat-intermediate' }, {
@@ -142,12 +161,13 @@ class ClaudeService extends BaseService {
                         },
                     });
                 } else {
-                    const syncOperation = await this.anthropicApiType.create(this.anthropic, {
-                        messages, model, tools, max_tokens, temperature,
+                    return await obtain(SYNC_RESPONSE, {
+                        [PROVIDER_NAME]: 'anthropic',
+                        [NORMALIZED_LLM_PARAMS]: {
+                            messages, model, tools, max_tokens, temperature,
+                        },
+                        [ANTHROPIC_API_KEY]: this.config.apiKey,
                     });
-                    const retVal = await syncOperation.run();
-                    await syncOperation.cleanup();
-                    return retVal;
                 }
             }
         }
