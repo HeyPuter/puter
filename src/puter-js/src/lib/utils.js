@@ -305,12 +305,31 @@ async function driverCall_(
                     while ( lines_received.length > 0 ) {
                         const line = lines_received.shift();
                         if ( line.trim() === '' ) continue;
-                        yield JSON.parse(line);
+                        const lineObject = (JSON.parse(line));
+                        if (typeof (lineObject.text) === 'string') {
+                            Object.defineProperty(lineObject, 'toString', {
+                                enumerable: false,
+                                value: () => lineObject.text,
+                            });
+                        }
+                        yield lineObject;
                     }
                 }
             }
+
+            const startedStream = Stream();
+            Object.defineProperty(startedStream, 'start', {
+                enumerable: false,
+                value: async(controller) => {
+                    const texten = new TextEncoder();
+                    for await (const part of startedStream) {
+                        controller.enqueue(texten.encode(part))
+                    }
+                    controller.close();
+                }
+            })
         
-            return resolve_func(Stream());
+            return resolve_func(startedStream);
         }
         if ( xhr.readyState === 4 ) {
             response_complete = true;
