@@ -96,8 +96,8 @@ module.exports = class TestSDK {
     async case (id, fn) {
         this.nameStack.push(id);
 
-        // Always reset cwd for top-level cases to prevent them from affecting
-        // each other.
+        // Always reset cwd at the beginning of a test suite to prevent it 
+        // from affected by others.
         if (this.nameStack.length === 1) {
             this.resetCwd();
         }

@@ -9,7 +9,7 @@ const { parseArgs } = require('node:util');
 
 const args = process.argv.slice(2);
 
-let config, report;
+let config, report, suiteName;
 
 try {
     const parsed = parseArgs({
@@ -23,6 +23,7 @@ try {
             onlycase: { type: 'string' },
             bench: { type: 'boolean' },
             unit: { type: 'boolean' },
+            suite: { type: 'string' },
         },
         allowPositionals: true,
     });
@@ -33,9 +34,12 @@ try {
         onlycase,
         bench,
         unit,
+        suite: suiteName,
     }, positionals: [id] } = parsed);
 
     onlycase = onlycase !== undefined ? Number.parseInt(onlycase) : undefined;
+    // Ensure suiteName is a string or undefined
+    suiteName = suiteName || undefined;
 } catch (e) {
     console.error(e);
     console.error(
@@ -44,6 +48,7 @@ try {
         'Options:\n' +
         '  --config=<path>  (required)  Path to configuration file\n' +
         '  --report=<path>  (optional)  Output file for full test results\n' +
+        '  --suite=<name>   (optional)  Run only tests with matching suite name\n' +
         ''
     );
     process.exit(1);
@@ -56,6 +61,7 @@ const main = async () => {
     const context = {
         options: {
             onlycase,
+            suite: suiteName,
         }
     };
     const ts = new TestSDK(conf, context);
@@ -87,7 +93,7 @@ const main = async () => {
     }
 
     if ( unit ) {
-        await registry.run_all_tests();
+        await registry.run_all_tests(suiteName);
     } else if ( bench ) {
         await registry.run_all_benches();
     } else {
