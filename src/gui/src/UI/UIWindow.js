@@ -34,6 +34,37 @@ import item_icon from '../helpers/item_icon.js';
 
 const el_body = document.getElementsByTagName('body')[0];
 
+// Function to get snap dimensions and positions based on taskbar position
+function getSnapDimensions() {
+    const taskbar_position = window.taskbar_position || 'bottom';
+    
+    let available_width, available_height, start_x, start_y;
+    
+    if (taskbar_position === 'left') {
+        available_width = window.innerWidth - window.taskbar_height;
+        available_height = window.innerHeight - window.toolbar_height;
+        start_x = window.taskbar_height;
+        start_y = window.toolbar_height;
+    } else if (taskbar_position === 'right') {
+        available_width = window.innerWidth - window.taskbar_height;
+        available_height = window.innerHeight - window.toolbar_height;
+        start_x = 0;
+        start_y = window.toolbar_height;
+    } else { // bottom (default)
+        available_width = window.innerWidth;
+        available_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
+        start_x = 0;
+        start_y = window.toolbar_height;
+    }
+    
+    return {
+        available_width,
+        available_height,
+        start_x,
+        start_y
+    };
+}
+
 async function UIWindow(options) {
     const win_id = window.global_element_id++;
     window.last_window_zindex++;
@@ -1695,14 +1726,17 @@ async function UIWindow(options) {
                             return;
                         }
 
+                        // Get taskbar-aware snap dimensions
+                        const snapDims = getSnapDimensions();
+
                         // W
                         if(!window_is_snapped && window.current_active_snap_zone === 'w'){
                             window_snap_placeholder.css({
                                 'display': 'block',
-                                'width': '50%',
-                                'height': window.desktop_height,
-                                'top': window.toolbar_height,
-                                'left': 0,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x,
                                 'z-index': window.last_window_zindex - 1,
                             })
                         }
@@ -1710,10 +1744,10 @@ async function UIWindow(options) {
                         else if(!window_is_snapped && window.current_active_snap_zone === 'nw'){
                             window_snap_placeholder.css({
                                 'display': 'block',
-                                'width': '50%',
-                                'height': window.desktop_height/2,
-                                'top': window.toolbar_height,
-                                'left': 0,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x,
                                 'z-index': window.last_window_zindex - 1,
                             })
                         }
@@ -1721,10 +1755,10 @@ async function UIWindow(options) {
                         else if(!window_is_snapped && window.current_active_snap_zone ==='ne'){
                             window_snap_placeholder.css({
                                 'display': 'block',
-                                'width': '50%',
-                                'height': window.desktop_height/2,
-                                'top': window.toolbar_height,
-                                'left': window.desktop_width/2,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x + snapDims.available_width / 2,
                                 'z-index': window.last_window_zindex - 1,
                             })
                         }
@@ -1732,11 +1766,10 @@ async function UIWindow(options) {
                         else if(!window_is_snapped && window.current_active_snap_zone ==='e'){
                             window_snap_placeholder.css({
                                 'display': 'block',
-                                'width': '50%',
-                                'height': window.desktop_height,
-                                'top': window.toolbar_height,
-                                'left': 'initial',
-                                'right': 0,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x + snapDims.available_width / 2,
                                 'z-index': window.last_window_zindex - 1,
                             })
                         }
@@ -1744,10 +1777,10 @@ async function UIWindow(options) {
                         else if(!window_is_snapped && window.current_active_snap_zone ==='n'){
                             window_snap_placeholder.css({
                                 'display': 'block',
-                                'width': window.desktop_width,
-                                'height': window.desktop_height,
-                                'top': window.toolbar_height,
-                                'left': 0,
+                                'width': snapDims.available_width,
+                                'height': snapDims.available_height,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x,
                                 'z-index': window.last_window_zindex - 1,
                             })
                         }
@@ -1755,10 +1788,10 @@ async function UIWindow(options) {
                         else if(!window_is_snapped && window.current_active_snap_zone ==='sw'){
                             window_snap_placeholder.css({
                                 'display': 'block',
-                                'top': window.toolbar_height + window.desktop_height/2,
-                                'left': 0,
-                                'width': '50%',
-                                'height': window.desktop_height/2,
+                                'top': snapDims.start_y + snapDims.available_height / 2,
+                                'left': snapDims.start_x,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
                                 'z-index': window.last_window_zindex - 1,
                             })
                         }
@@ -1766,10 +1799,10 @@ async function UIWindow(options) {
                         else if(!window_is_snapped && window.current_active_snap_zone ==='se'){
                             window_snap_placeholder.css({
                                 'display': 'block',
-                                'top': window.toolbar_height + window.desktop_height/2,
-                                'left': window.desktop_width/2,
-                                'width': '50%',
-                                'height': window.desktop_height/2,
+                                'top': snapDims.start_y + snapDims.available_height / 2,
+                                'left': snapDims.start_x + snapDims.available_width / 2,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
                                 'z-index': window.last_window_zindex - 1,
                             })
                         }
@@ -1817,58 +1850,61 @@ async function UIWindow(options) {
                     $(window_snap_placeholder).css('padding', 0);
 
                     setTimeout(function(){
+                        // Get taskbar-aware snap dimensions for final positioning
+                        const snapDims = getSnapDimensions();
+                        
                         // snap to w
                         if(window.current_active_snap_zone === 'w'){
                             $(el_window).css({
-                                'top': window.toolbar_height,
-                                'left': 0,
-                                'width': '50%',
-                                'height': window.desktop_height - 6,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height - 6,
                             })
                         }
                         // snap to nw
                         else if(window.current_active_snap_zone === 'nw'){
                             $(el_window).css({
-                                'top': window.toolbar_height,
-                                'left': 0,
-                                'width': '50%',
-                                'height': window.desktop_height/2,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
                             })
                         }
                         // snap to ne
                         else if(window.current_active_snap_zone === 'ne'){
                             $(el_window).css({
-                                'top': window.toolbar_height,
-                                'left': '50%',
-                                'width': '50%',
-                                'height': window.desktop_height/2,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x + snapDims.available_width / 2,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
                             })
                         }
                         // snap to sw
                         else if(window.current_active_snap_zone === 'sw'){
                             $(el_window).css({
-                                'top': window.toolbar_height + window.desktop_height/2,
-                                'left': 0,
-                                'width': '50%',
-                                'height': window.desktop_height/2,
+                                'top': snapDims.start_y + snapDims.available_height / 2,
+                                'left': snapDims.start_x,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
                             })
                         }
                         // snap to se
                         else if(window.current_active_snap_zone === 'se'){
                             $(el_window).css({
-                                'top': window.toolbar_height + window.desktop_height/2,
-                                'left': window.desktop_width/2,
-                                'width': '50%',
-                                'height': window.desktop_height/2,
+                                'top': snapDims.start_y + snapDims.available_height / 2,
+                                'left': snapDims.start_x + snapDims.available_width / 2,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
                             })
                         }
                         // snap to e
                         else if(window.current_active_snap_zone === 'e'){
                             $(el_window).css({
-                                'top': window.toolbar_height,
-                                'left': '50%',
-                                'width': '50%',
-                                'height': window.desktop_height - 6,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x + snapDims.available_width / 2,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height - 6,
                             })
                         }
                         // snap to n
@@ -1900,23 +1936,43 @@ async function UIWindow(options) {
                     }, 100);
                 }
 
-                // if window is dropped below the taskbar, move it up
+                // if window is dropped outside the available area, move it back in
+                // Bottom boundary (account for taskbar position)
+                const taskbar_position = window.taskbar_position || 'bottom';
+                let maxTop;
+                if(taskbar_position === 'bottom'){
+                    maxTop = window.innerHeight - window.taskbar_height - 30;
+                } else {
+                    maxTop = window.innerHeight - 30;
+                }
                 // the lst '- 30' is to account for the window head
-                if($(el_window).position().top > window.innerHeight - window.taskbar_height - 30 && !window_will_snap){
+                if($(el_window).position().top > maxTop && !window_will_snap){
                     $(el_window).animate({
-                        top: window.innerHeight - window.taskbar_height - 60,
+                        top: maxTop - 30,
                     }, 100);
                 }
                 // if window is dropped too far to the right, move it left
-                if($(el_window).position().left > window.innerWidth - 50 && !window_will_snap){
+                let maxLeft;
+                if(taskbar_position === 'right'){
+                    maxLeft = window.innerWidth - window.taskbar_height - 50;
+                } else {
+                    maxLeft = window.innerWidth - 50;
+                }
+                if($(el_window).position().left > maxLeft && !window_will_snap){
                     $(el_window).animate({
-                        left: window.innerWidth - 50,
+                        left: maxLeft,
                     }, 100);
                 }
                 // if window is dropped too far to the left, move it right
-                if(($(el_window).position().left + $(el_window).width() - 150 )< 0 && !window_will_snap){
+                let minLeft;
+                if(taskbar_position === 'left'){
+                    minLeft = window.taskbar_height - $(el_window).width() + 150;
+                } else {
+                    minLeft = -$(el_window).width() + 150;
+                }
+                if($(el_window).position().left < minLeft && !window_will_snap){
                     $(el_window).animate({
-                        left: -1 * ($(el_window).width() - 150),
+                        left: minLeft,
                     }, 100);
                 }
             },

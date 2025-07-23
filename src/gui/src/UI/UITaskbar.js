@@ -331,7 +331,6 @@ window.make_taskbar_sortable = function(){
 window.update_taskbar_position = async function(new_position) {
     // Prevent position changes on mobile devices - always keep bottom
     if (isMobile.phone || isMobile.tablet) {
-        console.log('Taskbar position changes are not allowed on mobile devices');
         return;
     }
     
@@ -339,7 +338,6 @@ window.update_taskbar_position = async function(new_position) {
     const valid_positions = ['left', 'bottom', 'right'];
     
     if (!valid_positions.includes(new_position)) {
-        console.error('Invalid taskbar position:', new_position);
         return;
     }
     
