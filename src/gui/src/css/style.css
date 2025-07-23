@@ -340,13 +340,31 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 .desktop {
     display: none;
     overflow: hidden;
-    height: calc(100vh - 60px);
+    height: calc(100vh - 60px) !important;
     width: 100%;
     display: grid;
     grid-template-rows: repeat(auto-fill, 109px);
     grid-auto-flow: column;
     grid-template-columns: repeat(auto-fill, 120px);
     padding-top: 15px;
+}
+
+.device-desktop .desktop {
+    padding-top: 5px;
+}
+
+.desktop.desktop-taskbar-position-left {
+    margin-left: 50px;
+    padding-right: 0;
+    padding-bottom: 0;
+    height: calc(100vh) !important;
+}
+
+.desktop.desktop-taskbar-position-right {
+    margin-right: 50px;
+    padding-left: 0;
+    padding-bottom: 0;
+    height: calc(100vh) !important;
 }
 
 .fullpage-mode .window-minimize-btn {
@@ -356,6 +374,10 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 .device-phone .desktop {
     height: calc(100vh - 90px) !important;
     height: calc(100dvh - 90px) !important;
+    /* Ensure no left/right padding on mobile, regardless of taskbar position classes */
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    padding-bottom: 0 !important;
 }
 
 .item-container-list {
@@ -2355,6 +2377,74 @@ label {
         0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
+/* Bottom positioned taskbar (default) */
+.taskbar.taskbar-position-bottom {
+    bottom: 5px;
+    left: 50%;
+    right: auto;
+    top: auto;
+    width: auto;
+    height: 50px;
+    transform: translateX(-50%);
+    flex-direction: row;
+    justify-content: center;
+    writing-mode: initial;
+}
+
+/* Left positioned taskbar */
+.taskbar.taskbar-position-left {
+    left: 0;
+    top: 0;
+    width: 50px;
+    transform: none;
+    height: 100% !important;
+    flex-direction: column;
+    justify-content: normal;
+    writing-mode: initial;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    padding-left: 0;
+    padding-right: 0;
+    border-radius: 0;
+}
+
+/* Right positioned taskbar */
+.taskbar.taskbar-position-right {
+    right: 0;
+    top: 0;
+    left: auto;
+    bottom: auto;
+    width: 50px;
+    height: 100% !important;
+    transform: none;
+    flex-direction: column;
+    justify-content: normal;
+    writing-mode: initial;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    padding-left: 0;
+    padding-right: 0;
+    border-radius: 0;
+}
+
+.taskbar.taskbar-position-left .taskbar-sortable,
+.taskbar.taskbar-position-right .taskbar-sortable {
+    display: block !important;
+}
+
+/* Taskbar items for left/right positioning */
+.taskbar.taskbar-position-left .taskbar-item,
+.taskbar.taskbar-position-right .taskbar-item {
+    margin-bottom: 5px;
+    margin-left: 0;
+    margin-right: 0;
+}
+
+.taskbar.taskbar-position-left .taskbar-item:last-child,
+.taskbar.taskbar-position-right .taskbar-item:last-child {
+    margin-bottom: 0;
+}
+
 .taskbar .taskbar-item {
     float: left;
     position: relative;
@@ -2386,7 +2476,7 @@ label {
     z-index: 999999999 !important;
 }
 
-.taskbar .taskbar-item:hover .taskbar-icon {
+.desktop:not(.desktop-selectable-active) .taskbar .taskbar-item:hover .taskbar-icon {
     background-color: rgb(255 255 255 / 40%);
     transition: background-color 0.2s;
 }
@@ -2546,6 +2636,7 @@ label {
     filter: drop-shadow(0 0 3px rgba(0, 0, 0, .455));
 }
 
+/* Base arrow styles */
 .arrow {
     width: 70px;
     height: 16px;
@@ -2555,15 +2646,6 @@ label {
     margin-left: -35px;
     bottom: -16px;
     border-top: none;
-}
-
-.arrow.top {
-    top: -16px;
-    bottom: auto;
-}
-
-.arrow.left {
-    left: 20%;
 }
 
 .arrow:after {
@@ -2576,11 +2658,94 @@ label {
     -webkit-transform: rotate(45deg);
     -ms-transform: rotate(45deg);
     transform: rotate(45deg);
+    background-color: rgba(231, 238, 245, .92);
+}
+
+/* Arrow pointing up (tooltip below taskbar item) */
+.arrow.bottom {
+    bottom: auto;
+    top: 31px !important;
+    transform: scaleY(-1);
+    left: calc(50% + 2px) !important;
+}
+
+.arrow.bottom:after {
+    bottom: -20px;
+    top: auto;
+}
+
+/* Arrow pointing down (tooltip above taskbar item) */
+.arrow.top {
+    top: auto;
+    bottom: -16px;
 }
 
 .arrow.top:after {
-    bottom: -20px;
-    top: auto;
+    top: -20px;
+    bottom: auto;
+}
+
+/* Arrow pointing right (tooltip to the right of taskbar item) */
+.arrow.left {
+    width: 16px;
+    height: 70px;
+    left: -16px;
+    right: auto;
+    bottom: auto;
+    margin-left: 0;
+    margin-top: -37px;
+    transform: scaleX(-1);
+    top:18px !important;
+}
+
+.arrow.left:after {
+    left: -20px;
+    top: 20px;
+    right: auto;
+    bottom: auto;
+}
+
+/* Arrow pointing left (tooltip to the left of taskbar item) */
+.arrow.right {
+    width: 16px;
+    height: 70px;
+    right: -16px !important;
+    left: auto;
+    margin-left: 0;
+    margin-top: 35px;
+    transform: scaleX(-1);
+    position: absolute;
+    top:18px !important;
+}
+
+.arrow.right:after {
+    right: -20px !important;
+    left: auto !important;
+    top: 20px;
+    bottom: auto;
+}
+
+/* Center positioning adjustments */
+.arrow.center {
+    left: 50%;
+    margin-left: -35px;
+}
+
+.arrow.middle {
+    top: 50%;
+    margin-top: -35px;
+}
+
+/* Horizontal center adjustments for left/right arrows */
+.arrow.left.middle,
+.arrow.right.middle {
+    margin-top: -35px;
+}
+
+/* Vertical center adjustments for top/bottom arrows */
+.arrow.top.center,
+.arrow.bottom.center {
+    margin-left: -35px;
 }
 
 /******************************************************/
@@ -4599,6 +4764,21 @@ fieldset[name=number-code] {
 
 /* Taskbar container */
 .device-phone .taskbar {
+    /* Force taskbar to bottom on mobile devices, overriding any position classes */
+    position: fixed !important;
+    bottom: 5px !important;
+    left: 50% !important;
+    right: auto !important;
+    top: auto !important;
+    width: auto !important;
+    height: 50px !important;
+    transform: translateX(-50%) !important;
+    flex-direction: row !important;
+    justify-content: left !important;
+    writing-mode: initial !important;
+    padding: 0 7px !important;
+    border-radius: 10px !important;
+    
     /* Enable smooth scrolling */
     -webkit-overflow-scrolling: touch;
     /* Allow horizontal touch scrolling */
@@ -4611,7 +4791,6 @@ fieldset[name=number-code] {
 
     /* Base styling */
     display: flex;
-    justify-content: left;
 }
 
 /* Hide scrollbar while keeping functionality */

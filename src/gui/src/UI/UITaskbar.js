@@ -27,6 +27,30 @@ async function UITaskbar(options){
     options = options ?? {};
     options.content = options.content ?? '';
 
+    // if first visit ever, set taskbar position to left
+    if(window.first_visit_ever){
+        await puter.kv.set('taskbar_position', 'left');
+    }
+
+    // Load taskbar position preference from storage
+    let taskbar_position = await puter.kv.get('taskbar_position');
+    // if this is not first visit, set taskbar position to bottom since it's from a user that
+    // used puter before customizing taskbar position was added and the taskbar position was set to bottom
+    if (!taskbar_position) {
+        taskbar_position = 'bottom'; // default position
+        await puter.kv.set('taskbar_position', taskbar_position);
+    }
+    
+    // Force bottom position on mobile devices
+    if (isMobile.phone || isMobile.tablet) {
+        taskbar_position = 'bottom';
+        // Update the stored preference to bottom for mobile devices
+        await puter.kv.set('taskbar_position', taskbar_position);
+    }
+    
+    // Set global taskbar position
+    window.taskbar_position = taskbar_position;
+
     // get launch apps
     $.ajax({
         url: window.api_origin + "/get-launch-apps?icon_size=64",
@@ -42,10 +66,13 @@ async function UITaskbar(options){
     });
 
     let h = '';
-    h += `<div id="ui-taskbar_${window.global_element_id}" class="taskbar" style="height:${window.taskbar_height}px;">`;
+    h += `<div id="ui-taskbar_${window.global_element_id}" class="taskbar taskbar-position-${taskbar_position}" style="height:${window.taskbar_height}px;">`;
         h += `<div class="taskbar-sortable" style="display: flex; justify-content: center; z-index: 99999;"></div>`;
     h += `</div>`;
 
+    if(taskbar_position === 'left' || taskbar_position === 'right'){
+        $('.desktop').addClass(`desktop-taskbar-position-${taskbar_position}`);
+    }
 
     $('.desktop').append(h);
 
@@ -242,12 +269,15 @@ async function UITaskbar(options){
     window.make_taskbar_sortable();
 }
 
+//-------------------------------------------
+// Taskbar is sortable
+//-------------------------------------------
 window.make_taskbar_sortable = function(){
-    //-------------------------------------------
-    // Taskbar is sortable
-    //-------------------------------------------
+    const position = window.taskbar_position || 'bottom';
+    const axis = position === 'bottom' ? 'x' : 'y';
+    
     $('.taskbar-sortable').sortable({
-        axis: "x",
+        axis: axis,
         items: '.taskbar-item-sortable:not(.has-open-contextmenu)',
         cancel: '.has-open-contextmenu',
         placeholder: "taskbar-item-sortable-placeholder",
@@ -303,5 +333,172 @@ window.make_taskbar_sortable = function(){
         },
     });
 }
+
+// Function to update taskbar position
+window.update_taskbar_position = async function(new_position) {
+    // Prevent position changes on mobile devices - always keep bottom
+    if (isMobile.phone || isMobile.tablet) {
+        return;
+    }
+    
+    // Valid positions
+    const valid_positions = ['left', 'bottom', 'right'];
+    
+    if (!valid_positions.includes(new_position)) {
+        return;
+    }
+    
+    // Store the new position
+    await puter.kv.set('taskbar_position', new_position);
+    window.taskbar_position = new_position;
+    
+    // Remove old position classes and add new one
+    $('.taskbar').removeClass('taskbar-position-left taskbar-position-bottom taskbar-position-right');
+    $('.taskbar').addClass(`taskbar-position-${new_position}`);
+    
+    // update desktop class, if left or right, add `desktop-taskbar-position-left` or `desktop-taskbar-position-right`
+    $('.desktop').removeClass('desktop-taskbar-position-left');
+    $('.desktop').removeClass('desktop-taskbar-position-right');
+    $('.desktop').addClass(`desktop-taskbar-position-${new_position}`);
+    
+    // Update desktop height/width calculations based on new position
+    window.update_desktop_dimensions_for_taskbar();
+    
+    // Update window positions if needed (for maximized windows)
+    $('.window[data-is_maximized="1"]').each(function() {
+        const el_window = this;
+        window.update_maximized_window_for_taskbar(el_window);
+    });
+    
+    // Re-initialize sortable with correct axis
+    $('.taskbar-sortable').sortable('destroy');
+    window.make_taskbar_sortable();
+    
+    // Reinitialize all taskbar item tooltips with new position
+    $('.taskbar-item').each(function() {
+        const $item = $(this);
+        // Destroy existing tooltip
+        if ($item.data('ui-tooltip')) {
+            $item.tooltip('destroy');
+        }
+        
+        // Helper function to get tooltip position based on taskbar position
+        function getTooltipPosition() {
+            const taskbarPosition = window.taskbar_position || 'bottom';
+            
+            if (taskbarPosition === 'bottom') {
+                return {
+                    my: "center bottom-20",
+                    at: "center top"
+                };
+            } else if (taskbarPosition === 'top') {
+                return {
+                    my: "center top+20",
+                    at: "center bottom"
+                };
+            } else if (taskbarPosition === 'left') {
+                return {
+                    my: "left+20 center",
+                    at: "right center"
+                };
+            } else if (taskbarPosition === 'right') {
+                return {
+                    my: "right-20 center",
+                    at: "left center"
+                };
+            }
+            return {
+                my: "center bottom-20",
+                at: "center top"
+            }; // fallback
+        }
+
+        const tooltipPosition = getTooltipPosition();
+        
+        // Reinitialize tooltip with new position
+        $item.tooltip({
+            items: ".taskbar:not(.children-have-open-contextmenu) .taskbar-item",
+            position: {
+                my: tooltipPosition.my,
+                at: tooltipPosition.at,
+                using: function( position, feedback ) {
+                    $( this ).css( position );
+                    $( "<div>" )
+                        .addClass( "arrow" )
+                        .addClass( feedback.vertical )
+                        .addClass( feedback.horizontal )
+                        .appendTo( this );
+                }
+            }    
+        });
+    });
+};
+
+// Function to update desktop dimensions based on taskbar position
+window.update_desktop_dimensions_for_taskbar = function() {
+    const position = window.taskbar_position || 'bottom';
+    
+    if (position === 'bottom') {
+        $('.desktop').css({
+            'height': `calc(100vh - ${window.taskbar_height + window.toolbar_height}px)`,
+            'width': '100%',
+            'left': '0',
+            'top': `${window.toolbar_height}px`
+        });
+    } else if (position === 'left') {
+        $('.desktop').css({
+            'height': `calc(100vh - ${window.toolbar_height}px)`,
+            'width': `calc(100% - ${window.taskbar_height}px)`,
+            'left': `${window.taskbar_height}px`,
+            'top': `${window.toolbar_height}px`
+        });
+    } else if (position === 'right') {
+        $('.desktop').css({
+            'height': `calc(100vh - ${window.toolbar_height}px)`,
+            'width': `calc(100% - ${window.taskbar_height}px)`,
+            'left': '0',
+            'top': `${window.toolbar_height}px`
+        });
+    }
+};
+
+// Function to update maximized window positioning based on taskbar position
+window.update_maximized_window_for_taskbar = function(el_window) {
+    const position = window.taskbar_position || 'bottom';
+    
+    // Handle fullpage mode differently
+    if (window.is_fullpage_mode) {
+        $(el_window).css({
+            'top': window.toolbar_height + 'px',
+            'left': '0',
+            'width': '100%',
+            'height': `calc(100% - ${window.toolbar_height}px)`,
+        });
+        return;
+    }
+    
+    if (position === 'bottom') {
+        $(el_window).css({
+            'top': window.toolbar_height + 'px',
+            'left': '0',
+            'width': '100%',
+            'height': `calc(100% - ${window.taskbar_height + window.toolbar_height + 6}px)`,
+        });
+    } else if (position === 'left') {
+        $(el_window).css({
+            'top': window.toolbar_height + 'px',
+            'left': window.taskbar_height + 'px',
+            'width': `calc(100% - ${window.taskbar_height}px)`,
+            'height': `calc(100% - ${window.toolbar_height}px)`,
+        });
+    } else if (position === 'right') {
+        $(el_window).css({
+            'top': window.toolbar_height + 'px',
+            'left': '0',
+            'width': `calc(100% - ${window.taskbar_height}px)`,
+            'height': `calc(100% - ${window.toolbar_height}px)`,
+        });
+    }
+};
 
 export default UITaskbar;

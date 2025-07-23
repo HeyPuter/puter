@@ -268,27 +268,92 @@ function UITaskbarItem(options){
         const pos = el_taskbar_item.getBoundingClientRect();
         UIContextMenu({
             parent_element: el_taskbar_item,
-            position: {top: pos.top - 15, left: pos.left+5},
+            position: getContextMenuPosition(pos),
             items: menu_items
         });
 
         return false;
     });
 
-    $( el_taskbar_item ).tooltip({
-        items: ".taskbar:not(.children-have-open-contextmenu) .taskbar-item",
-        position: {
+    // Helper function to get tooltip position based on taskbar position
+    function getTooltipPosition() {
+        const taskbarPosition = window.taskbar_position || 'bottom';
+        
+        if (taskbarPosition === 'bottom') {
+            return {
+                my: "center bottom-20",
+                at: "center top"
+            };
+        } else if (taskbarPosition === 'top') {
+            return {
+                my: "center top+20",
+                at: "center bottom"
+            };
+        } else if (taskbarPosition === 'left') {
+            return {
+                my: "left+20 center",
+                at: "right center"
+            };
+        } else if (taskbarPosition === 'right') {
+            return {
+                my: "right-20 center",
+                at: "left center"
+            };
+        }
+        return {
             my: "center bottom-20",
-            at: "center top",
+            at: "center top"
+        }; // fallback
+    }
+
+    // Helper function to get context menu position based on taskbar position
+    function getContextMenuPosition(pos) {
+        const taskbarPosition = window.taskbar_position || 'bottom';
+        
+        if (taskbarPosition === 'bottom') {
+            return {
+                top: pos.top - 15,
+                left: pos.left + 5
+            };
+        } else if (taskbarPosition === 'top') {
+            return {
+                top: pos.bottom + 15,
+                left: pos.left + 5
+            };
+        } else if (taskbarPosition === 'left') {
+            return {
+                top: pos.top + 5,
+                left: pos.right + 5
+            };
+        } else if (taskbarPosition === 'right') {
+            return {
+                top: pos.top + 5,
+                left: pos.left - 20
+            };
+        }
+        return {
+            top: pos.top - 15,
+            left: pos.left + 5
+        }; // fallback
+    }
+
+    const tooltipPosition = getTooltipPosition();
+    
+    $( el_taskbar_item ).tooltip({
+        // only show tooltip if desktop is not selectable active
+        items: ".desktop:not(.desktop-selectable-active) .taskbar:not(.children-have-open-contextmenu) .taskbar-item",
+        position: {
+            my: tooltipPosition.my,
+            at: tooltipPosition.at,
             using: function( position, feedback ) {
-              $( this ).css( position );
-              $( "<div>" )
-                .addClass( "arrow" )
-                .addClass( feedback.vertical )
-                .addClass( feedback.horizontal )
-                .appendTo( this );
+                $( this ).css( position );
+                $( "<div>" )
+                    .addClass( "arrow" )
+                    .addClass( feedback.vertical )
+                    .addClass( feedback.horizontal )
+                    .appendTo( this );
             }
-        }    
+        },
     });
 
     // --------------------------------------------------------
