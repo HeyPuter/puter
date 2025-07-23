@@ -55,7 +55,10 @@ class HLStat extends HLFilesystemOperation {
 
         if (return_size) await subject.fetchSize(user);
         if (return_subdomains) await subject.fetchSubdomains(user)
-        if (return_permissions) await subject.fetchShares();
+        if (return_permissions) {
+            subject.entry.permissions = [];
+            await subject.fetchShares();
+        }
         if (return_versions) await subject.fetchVersions();
 
         await subject.fetchIsEmpty();
