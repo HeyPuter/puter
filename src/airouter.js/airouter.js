@@ -4,7 +4,10 @@ import { Registry } from './core/Registry.js';
 const registry = new Registry();
 const define = registry.getDefineAPI();
 
-import commonRegistrants from './common/definitions.js';
+import convenienceRegistrants from './common/convenience.js';
+convenienceRegistrants(define);
+
+import commonRegistrants from './common/index.js';
 commonRegistrants(define);
 
 import anthropicRegistrants from './anthropic/index.js';
@@ -25,7 +28,6 @@ export { TextWriter } from './common/stream/TextWriter.js';
 export { BaseWriter } from './common/stream/BaseWriter.js';
 
 // Common prompt processing
-export { UniversalPromptNormalizer } from './common/prompt/UniversalPromptNormalizer.js';
 export { NormalizedPromptUtil } from './common/prompt/NormalizedPromptUtil.js';
 export { UniversalToolsNormalizer } from './common/prompt/UniversalToolsNormalizer.js';
 

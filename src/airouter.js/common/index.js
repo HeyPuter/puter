@@ -1,19 +1,24 @@
-import { whatis } from "../util/lang.js";
+import { NORMALIZED_LLM_MESSAGES, NORMALIZED_LLM_PARAMS, NORMALIZED_SINGLE_MESSAGE, UNIVERSAL_LLM_MESSAGES, UNIVERSAL_LLM_PARAMS, UNIVERSAL_SINGLE_MESSAGE } from "./types.js"
+import { whatis } from "./util/lang.js";
 
-/**
- * UniversalPromptNormalizer is a PromptNormalizer which consumes "prompts"
- * (arrays of messages) in a format called "universal", and coerces them into
- * a format called "normalized".
- * 
- * In plain terms, this is the code responsible for taking the input JSON
- * for AI chat and standardizing it into a format that the model-specific
- * prompt adapters can understand.
- */
-export class UniversalPromptNormalizer {
-    static normalize_single_message (message, params = {}) {
-        params = Object.assign({
-            role: 'user',
-        }, params);
+export default define => {
+    define.howToGet(NORMALIZED_LLM_PARAMS).from(UNIVERSAL_LLM_PARAMS)
+    .as(async x => {
+        const universal_params = x.get(UNIVERSAL_LLM_PARAMS);
+        const normalized_params = {
+            ...universal_params,
+        };
+        
+        normalized_params.messages = await x.obtain(NORMALIZED_LLM_MESSAGES);
+        
+        return normalized_params;
+    });
+
+    define.howToGet(NORMALIZED_SINGLE_MESSAGE).from(UNIVERSAL_SINGLE_MESSAGE)
+    .as(async x => {
+        let message = x.get(UNIVERSAL_SINGLE_MESSAGE);
+        
+        const params = { role: 'user' };
 
         if ( typeof message === 'string' ) {
             message = {
@@ -73,10 +78,16 @@ export class UniversalPromptNormalizer {
         }
 
         return message;
-    }
-    static normalize_messages (messages, params = {}) {
+    });
+
+    define.howToGet(NORMALIZED_LLM_MESSAGES).from(UNIVERSAL_LLM_MESSAGES)
+    .as(async x => {
+        let messages = [...x.get(UNIVERSAL_LLM_MESSAGES)];
+
         for ( let i=0 ; i < messages.length ; i++ ) {
-            messages[i] = this.normalize_single_message(messages[i], params);
+            messages[i] = await x.obtain(NORMALIZED_SINGLE_MESSAGE, {
+                [UNIVERSAL_SINGLE_MESSAGE]: messages[i],
+            })
         }
 
         // Split messages with tool_use content into separate messages
@@ -114,5 +125,5 @@ export class UniversalPromptNormalizer {
         }
 
         return merged_messages;
-    }
+    });
 }

@@ -33,7 +33,11 @@ const { AsModeration } = require("./lib/AsModeration");
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
 
 // Imported in _construct bleow.
-let CompletionWriter, UniversalPromptNormalizer, NormalizedPromptUtil, UniversalToolsNormalizer;
+let
+    obtain,
+    NORMALIZED_LLM_MESSAGES, UNIVERSAL_LLM_MESSAGES,
+    NORMALIZED_SINGLE_MESSAGE, UNIVERSAL_SINGLE_MESSAGE,
+    NormalizedPromptUtil, CompletionWriter;
 
 /**
 * AIChatService class extends BaseService to provide AI chat completion functionality.
@@ -100,7 +104,12 @@ class AIChatService extends BaseService {
         this.detail_model_map = {};
         
 
-        ({ CompletionWriter, UniversalPromptNormalizer, NormalizedPromptUtil, UniversalToolsNormalizer } = await import("@heyputer/airouter.js"));
+        ({
+            obtain,
+            NORMALIZED_LLM_MESSAGES, UNIVERSAL_LLM_MESSAGES,
+            NORMALIZED_SINGLE_MESSAGE, UNIVERSAL_SINGLE_MESSAGE,
+            NormalizedPromptUtil, CompletionWriter,
+        } = await import("@heyputer/airouter.js"));
     }
     
     get_model_details (model_name, context) {
@@ -433,8 +442,9 @@ class AIChatService extends BaseService {
                 }
 
                 if ( parameters.messages ) {
-                    parameters.messages =
-                        UniversalPromptNormalizer.normalize_messages(parameters.messages);
+                    parameters.messages = await obtain(NORMALIZED_LLM_MESSAGES, {
+                        [UNIVERSAL_LLM_MESSAGES]: parameters.messages,
+                    });
                 }
 
                 if ( ! test_mode && ! await this.moderate(parameters) ) {
@@ -755,8 +765,9 @@ class AIChatService extends BaseService {
 
 
                 if ( parameters.response?.normalize ) {
-                    ret.result.message =
-                       UniversalPromptNormalizer.normalize_single_message(ret.result.message);
+                    ret.result.message = await obtain(NORMALIZED_SINGLE_MESSAGE, {
+                        [UNIVERSAL_SINGLE_MESSAGE]: ret.result.message,
+                    });
                     ret.result = {
                         message: ret.result.message,
                         via_ai_chat_service: true,
