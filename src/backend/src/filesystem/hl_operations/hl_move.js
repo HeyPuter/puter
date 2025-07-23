@@ -147,7 +147,7 @@ class HLMove extends HLFilesystemOperation {
         if ( await dest.exists() ) {
             if ( ! values.overwrite && ! values.dedupe_name ) {
                 throw APIError.create('item_with_same_name_exists', null, {
-                    entry_name: target_name,
+                    entry_name: await dest.get('name'),
                 });
             }
 
