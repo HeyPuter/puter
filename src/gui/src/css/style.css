@@ -340,7 +340,7 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 .desktop {
     display: none;
     overflow: hidden;
-    height: calc(100vh - 60px);
+    height: calc(100vh - 60px) !important;
     width: 100%;
     display: grid;
     grid-template-rows: repeat(auto-fill, 109px);
@@ -354,14 +354,14 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 }
 
 .desktop.desktop-taskbar-position-left {
-    padding-left: 60px;
+    margin-left: 50px;
     padding-right: 0;
     padding-bottom: 0;
     height: calc(100vh) !important;
 }
 
 .desktop.desktop-taskbar-position-right {
-    padding-right: 50px;
+    margin-right: 50px;
     padding-left: 0;
     padding-bottom: 0;
     height: calc(100vh) !important;
@@ -2476,7 +2476,7 @@ label {
     z-index: 999999999 !important;
 }
 
-.taskbar .taskbar-item:hover .taskbar-icon {
+.desktop:not(.desktop-selectable-active) .taskbar .taskbar-item:hover .taskbar-icon {
     background-color: rgb(255 255 255 / 40%);
     transition: background-color 0.2s;
 }

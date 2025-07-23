@@ -1103,6 +1103,9 @@ async function UIDesktop(options) {
 
                     selection.clearSelection();
                 }
+
+                // mark desktop as selectable active
+                $('.desktop').addClass('desktop-selectable-active');
             })
             .on('move', ({ store: { changed: { added, removed } }, event }) => {
                 window.desktop_selectable_is_active = true;
@@ -1128,6 +1131,7 @@ async function UIDesktop(options) {
             })
             .on('stop', evt => {
                 window.desktop_selectable_is_active = false;
+                $('.desktop').removeClass('desktop-selectable-active');
             });
     }
     // ----------------------------------------------------

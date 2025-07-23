@@ -340,7 +340,8 @@ function UITaskbarItem(options){
     const tooltipPosition = getTooltipPosition();
     
     $( el_taskbar_item ).tooltip({
-        items: ".taskbar:not(.children-have-open-contextmenu) .taskbar-item",
+        // only show tooltip if desktop is not selectable active
+        items: ".desktop:not(.desktop-selectable-active) .taskbar:not(.children-have-open-contextmenu) .taskbar-item",
         position: {
             my: tooltipPosition.my,
             at: tooltipPosition.at,
@@ -352,7 +353,7 @@ function UITaskbarItem(options){
                     .addClass( feedback.horizontal )
                     .appendTo( this );
             }
-        }    
+        },
     });
 
     // --------------------------------------------------------
