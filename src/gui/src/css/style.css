@@ -2630,6 +2630,7 @@ label {
     filter: drop-shadow(0 0 3px rgba(0, 0, 0, .455));
 }
 
+/* Base arrow styles */
 .arrow {
     width: 70px;
     height: 16px;
@@ -2639,15 +2640,6 @@ label {
     margin-left: -35px;
     bottom: -16px;
     border-top: none;
-}
-
-.arrow.top {
-    top: -16px;
-    bottom: auto;
-}
-
-.arrow.left {
-    left: 20%;
 }
 
 .arrow:after {
@@ -2660,11 +2652,94 @@ label {
     -webkit-transform: rotate(45deg);
     -ms-transform: rotate(45deg);
     transform: rotate(45deg);
+    background-color: rgba(231, 238, 245, .92);
+}
+
+/* Arrow pointing up (tooltip below taskbar item) */
+.arrow.bottom {
+    bottom: auto;
+    top: 31px !important;
+    transform: scaleY(-1);
+    left: calc(50% + 2px) !important;
+}
+
+.arrow.bottom:after {
+    bottom: -20px;
+    top: auto;
+}
+
+/* Arrow pointing down (tooltip above taskbar item) */
+.arrow.top {
+    top: auto;
+    bottom: -16px;
 }
 
 .arrow.top:after {
-    bottom: -20px;
-    top: auto;
+    top: -20px;
+    bottom: auto;
+}
+
+/* Arrow pointing right (tooltip to the right of taskbar item) */
+.arrow.left {
+    width: 16px;
+    height: 70px;
+    left: -16px;
+    right: auto;
+    bottom: auto;
+    margin-left: 0;
+    margin-top: -37px;
+    transform: scaleX(-1);
+    top:18px !important;
+}
+
+.arrow.left:after {
+    left: -20px;
+    top: 20px;
+    right: auto;
+    bottom: auto;
+}
+
+/* Arrow pointing left (tooltip to the left of taskbar item) */
+.arrow.right {
+    width: 16px;
+    height: 70px;
+    right: -16px;
+    left: auto;
+    margin-left: 0;
+    margin-top: 35px;
+    transform: scaleX(-1);
+    position: absolute;
+    top:18px !important;
+}
+
+.arrow.right:after {
+    right: -20px;
+    left: auto;
+    top: 20px;
+    bottom: auto;
+}
+
+/* Center positioning adjustments */
+.arrow.center {
+    left: 50%;
+    margin-left: -35px;
+}
+
+.arrow.middle {
+    top: 50%;
+    margin-top: -35px;
+}
+
+/* Horizontal center adjustments for left/right arrows */
+.arrow.left.middle,
+.arrow.right.middle {
+    margin-top: -35px;
+}
+
+/* Vertical center adjustments for top/bottom arrows */
+.arrow.top.center,
+.arrow.bottom.center {
+    margin-left: -35px;
 }
 
 /******************************************************/

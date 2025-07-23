@@ -284,14 +284,19 @@ function UITaskbarItem(options){
                 my: "center bottom-20",
                 at: "center top"
             };
+        } else if (taskbarPosition === 'top') {
+            return {
+                my: "center top+20",
+                at: "center bottom"
+            };
         } else if (taskbarPosition === 'left') {
             return {
-                my: "left+0 center",
+                my: "left+20 center",
                 at: "right center"
             };
         } else if (taskbarPosition === 'right') {
             return {
-                my: "right+20 center",
+                my: "right-20 center",
                 at: "left center"
             };
         }

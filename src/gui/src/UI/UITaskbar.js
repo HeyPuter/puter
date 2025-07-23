@@ -386,9 +386,14 @@ window.update_taskbar_position = async function(new_position) {
                     my: "center bottom-20",
                     at: "center top"
                 };
+            } else if (taskbarPosition === 'top') {
+                return {
+                    my: "center top+20",
+                    at: "center bottom"
+                };
             } else if (taskbarPosition === 'left') {
                 return {
-                    my: "left-20 center",
+                    my: "left+20 center",
                     at: "right center"
                 };
             } else if (taskbarPosition === 'right') {
