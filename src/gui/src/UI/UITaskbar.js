@@ -398,7 +398,7 @@ window.update_taskbar_position = async function(new_position) {
                 };
             } else if (taskbarPosition === 'right') {
                 return {
-                    my: "right+20 center",
+                    my: "right-20 center",
                     at: "left center"
                 };
             }

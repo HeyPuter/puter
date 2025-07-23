@@ -62,7 +62,19 @@ function UIPopover(options){
         // X position
         const popover_width = options.width ?? $(el_popover).width();
         if(options.center_horizontally){
-            x_pos = window.innerWidth/2 - popover_width/2 - 15;
+            // Check taskbar position to determine popover positioning
+            const taskbar_position = window.taskbar_position || 'bottom';
+            
+            if(taskbar_position === 'left'){
+                // Position in top-left corner for left taskbar
+                x_pos = window.taskbar_height + 10; // Just to the right of the taskbar
+            }else if(taskbar_position === 'right'){
+                // Position in top-right corner for right taskbar  
+                x_pos = window.innerWidth - popover_width - window.taskbar_height - 40; // Just to the left of the taskbar
+            }else{
+                // Default bottom taskbar behavior - center horizontally
+                x_pos = window.innerWidth/2 - popover_width/2 - 15;
+            }
         }else{
             if(options.position === 'bottom' || options.position === 'top')
                 x_pos = options.left ?? ($(options.snapToElement).offset().left - (popover_width/ 2) + 10);
@@ -73,7 +85,16 @@ function UIPopover(options){
         // Y position
         const popover_height = options.height ?? $(el_popover).height();
         if(options.center_horizontally){
-            y_pos = options.top ?? (window.innerHeight - (window.taskbar_height + popover_height + 10));
+            // Check taskbar position to determine popover positioning
+            const taskbar_position = window.taskbar_position || 'bottom';
+            
+            if(taskbar_position === 'left' || taskbar_position === 'right'){
+                // Position at top for left/right taskbars
+                y_pos = window.toolbar_height + 10; // Just below the toolbar
+            }else{
+                // Default bottom taskbar behavior - position above taskbar
+                y_pos = options.top ?? (window.innerHeight - (window.taskbar_height + popover_height + 10));
+            }
         }else{
             y_pos = options.top ?? ($(options.snapToElement).offset().top + $(options.snapToElement).height() + 5);
         }

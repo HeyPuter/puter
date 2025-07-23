@@ -2703,7 +2703,7 @@ label {
 .arrow.right {
     width: 16px;
     height: 70px;
-    right: -16px;
+    right: -16px !important;
     left: auto;
     margin-left: 0;
     margin-top: 35px;
@@ -2713,8 +2713,8 @@ label {
 }
 
 .arrow.right:after {
-    right: -20px;
-    left: auto;
+    right: -20px !important;
+    left: auto !important;
     top: 20px;
     bottom: auto;
 }
