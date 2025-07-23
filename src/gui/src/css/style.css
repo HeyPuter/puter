@@ -349,6 +349,18 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
     padding-top: 15px;
 }
 
+.desktop.desktop-taskbar-position-left {
+    padding-left: 50px;
+    padding-right: 0;
+    padding-bottom: 0;
+}
+
+.desktop.desktop-taskbar-position-right {
+    padding-right: 50px;
+    padding-left: 0;
+    padding-bottom: 0;
+}
+
 .fullpage-mode .window-minimize-btn {
     display: none;
 }
@@ -356,6 +368,10 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 .device-phone .desktop {
     height: calc(100vh - 90px) !important;
     height: calc(100dvh - 90px) !important;
+    /* Ensure no left/right padding on mobile, regardless of taskbar position classes */
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    padding-bottom: 0 !important;
 }
 
 .item-container-list {
@@ -2353,6 +2369,74 @@ label {
         inset 0 0 0 0.5px rgba(255, 255, 255, 0.2),
         0 0 0 0.5px rgba(0, 0, 0, 0.2),
         0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Bottom positioned taskbar (default) */
+.taskbar.taskbar-position-bottom {
+    bottom: 5px;
+    left: 50%;
+    right: auto;
+    top: auto;
+    width: auto;
+    height: 50px;
+    transform: translateX(-50%);
+    flex-direction: row;
+    justify-content: center;
+    writing-mode: initial;
+}
+
+/* Left positioned taskbar */
+.taskbar.taskbar-position-left {
+    left: 0;
+    top: 0;
+    width: 50px;
+    transform: none;
+    height: 100% !important;
+    flex-direction: column;
+    justify-content: normal;
+    writing-mode: initial;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    padding-left: 0;
+    padding-right: 0;
+    border-radius: 0;
+}
+
+/* Right positioned taskbar */
+.taskbar.taskbar-position-right {
+    right: 0;
+    top: 0;
+    left: auto;
+    bottom: auto;
+    width: 50px;
+    height: 100% !important;
+    transform: none;
+    flex-direction: column;
+    justify-content: normal;
+    writing-mode: initial;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    padding-left: 0;
+    padding-right: 0;
+    border-radius: 0;
+}
+
+.taskbar.taskbar-position-left .taskbar-sortable,
+.taskbar.taskbar-position-right .taskbar-sortable {
+    display: block !important;
+}
+
+/* Taskbar items for left/right positioning */
+.taskbar.taskbar-position-left .taskbar-item,
+.taskbar.taskbar-position-right .taskbar-item {
+    margin-bottom: 5px;
+    margin-left: 0;
+    margin-right: 0;
+}
+
+.taskbar.taskbar-position-left .taskbar-item:last-child,
+.taskbar.taskbar-position-right .taskbar-item:last-child {
+    margin-bottom: 0;
 }
 
 .taskbar .taskbar-item {
@@ -4599,6 +4683,21 @@ fieldset[name=number-code] {
 
 /* Taskbar container */
 .device-phone .taskbar {
+    /* Force taskbar to bottom on mobile devices, overriding any position classes */
+    position: fixed !important;
+    bottom: 5px !important;
+    left: 50% !important;
+    right: auto !important;
+    top: auto !important;
+    width: auto !important;
+    height: 50px !important;
+    transform: translateX(-50%) !important;
+    flex-direction: row !important;
+    justify-content: left !important;
+    writing-mode: initial !important;
+    padding: 0 7px !important;
+    border-radius: 10px !important;
+    
     /* Enable smooth scrolling */
     -webkit-overflow-scrolling: touch;
     /* Allow horizontal touch scrolling */
@@ -4611,7 +4710,6 @@ fieldset[name=number-code] {
 
     /* Base styling */
     display: flex;
-    justify-content: left;
 }
 
 /* Hide scrollbar while keeping functionality */

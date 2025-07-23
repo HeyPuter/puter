@@ -549,14 +549,8 @@ async function UIWindow(options) {
         // shrink icon
         $(el_window).find('.window-scale-btn>img').attr('src', window.icons['scale-down-3.svg']);
 
-        // set new size and position
-        $(el_window).css({
-            'top': window.toolbar_height + 'px',
-            'left': '0',
-            'width': '100%',
-            'height': `calc(100% - ${window.taskbar_height + window.toolbar_height + 6}px)`,
-            'transform': 'none',
-        });
+        // Use taskbar position-aware window positioning
+        window.update_maximized_window_for_taskbar(el_window);
     }
 
     // when a window is created, focus is brought to it and 
@@ -3296,22 +3290,8 @@ window.scale_window = (el_window)=>{
         // shrink icon
         $(el_window).find('.window-scale-btn>img').attr('src', window.icons['scale-down-3.svg']);
 
-        // calculate height
-        let height;
-        if(window.is_fullpage_mode){
-            height = `calc(100% - ${ window.toolbar_height}px)`;
-        }else{
-            height = `calc(100% - ${window.taskbar_height + window.toolbar_height + 6}px)`;
-        }
-
-        // set new size and position
-        $(el_window).css({
-            'top': window.toolbar_height+'px',
-            'left': '0',
-            'width': '100%',
-            'height': height,
-            'transform': 'none',
-        });
+        // Use taskbar position-aware window positioning
+        window.update_maximized_window_for_taskbar(el_window);
 
         // hide toolbar
         if(!isMobile.phone && !isMobile.tablet){
@@ -3562,9 +3542,29 @@ $.fn.hideWindow = async function(options) {
         if($(this).hasClass('window')){
             // get taskbar item location
             let taskbar_item_pos = $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).position();
-
-            // taskbar position is center of window minus half of taskbar item width
-            taskbar_item_pos.left = taskbar_item_pos.left + ($( window ).width()/ 2) - ($(`.taskbar`).width() / 2);
+            
+            // Calculate animation target based on taskbar position
+            let animationTarget = {};
+            const taskbarPosition = window.taskbar_position || 'bottom';
+            
+            if (taskbarPosition === 'bottom') {
+                // taskbar position is center of window minus half of taskbar item width  
+                taskbar_item_pos.left = taskbar_item_pos.left + ($( window ).width()/ 2) - ($(`.taskbar`).width() / 2);
+                animationTarget = {
+                    top: 'calc(100% - 60px)',
+                    left: taskbar_item_pos.left + 14.5,
+                };
+            } else if (taskbarPosition === 'left') {
+                animationTarget = {
+                    top: taskbar_item_pos.top + ($( window ).height()/ 2) - ($(`.taskbar`).height() / 2) + 14.5,
+                    left: '5px',
+                };
+            } else if (taskbarPosition === 'right') {
+                animationTarget = {
+                    top: taskbar_item_pos.top + ($( window ).height()/ 2) - ($(`.taskbar`).height() / 2) + 14.5,
+                    left: 'calc(100% - 60px)',
+                };
+            }
 
             $(this).attr({
                 'data-orig-width': $(this).width(), 
@@ -3580,8 +3580,7 @@ $.fn.hideWindow = async function(options) {
                 } : {}),
                 width: `0`,
                 height: `0`,
-                top: 'calc(100% - 60px)',
-                left: taskbar_item_pos.left + 14.5,
+                ...animationTarget,
             });
 
             // remove transitions a good while after setting css to make sure 
