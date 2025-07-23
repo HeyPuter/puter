@@ -268,7 +268,7 @@ function UITaskbarItem(options){
         const pos = el_taskbar_item.getBoundingClientRect();
         UIContextMenu({
             parent_element: el_taskbar_item,
-            position: {top: pos.top - 15, left: pos.left+5},
+            position: getContextMenuPosition(pos),
             items: menu_items
         });
 
@@ -303,6 +303,37 @@ function UITaskbarItem(options){
         return {
             my: "center bottom-20",
             at: "center top"
+        }; // fallback
+    }
+
+    // Helper function to get context menu position based on taskbar position
+    function getContextMenuPosition(pos) {
+        const taskbarPosition = window.taskbar_position || 'bottom';
+        
+        if (taskbarPosition === 'bottom') {
+            return {
+                top: pos.top - 15,
+                left: pos.left + 5
+            };
+        } else if (taskbarPosition === 'top') {
+            return {
+                top: pos.bottom + 15,
+                left: pos.left + 5
+            };
+        } else if (taskbarPosition === 'left') {
+            return {
+                top: pos.top + 5,
+                left: pos.right + 5
+            };
+        } else if (taskbarPosition === 'right') {
+            return {
+                top: pos.top + 5,
+                left: pos.left - 20
+            };
+        }
+        return {
+            top: pos.top - 15,
+            left: pos.left + 5
         }; // fallback
     }
 
