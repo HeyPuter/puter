@@ -368,6 +368,60 @@ window.update_taskbar_position = async function(new_position) {
     // Re-initialize sortable with correct axis
     $('.taskbar-sortable').sortable('destroy');
     window.make_taskbar_sortable();
+    
+    // Reinitialize all taskbar item tooltips with new position
+    $('.taskbar-item').each(function() {
+        const $item = $(this);
+        // Destroy existing tooltip
+        if ($item.data('ui-tooltip')) {
+            $item.tooltip('destroy');
+        }
+        
+        // Helper function to get tooltip position based on taskbar position
+        function getTooltipPosition() {
+            const taskbarPosition = window.taskbar_position || 'bottom';
+            
+            if (taskbarPosition === 'bottom') {
+                return {
+                    my: "center bottom-20",
+                    at: "center top"
+                };
+            } else if (taskbarPosition === 'left') {
+                return {
+                    my: "left-20 center",
+                    at: "right center"
+                };
+            } else if (taskbarPosition === 'right') {
+                return {
+                    my: "right+20 center",
+                    at: "left center"
+                };
+            }
+            return {
+                my: "center bottom-20",
+                at: "center top"
+            }; // fallback
+        }
+
+        const tooltipPosition = getTooltipPosition();
+        
+        // Reinitialize tooltip with new position
+        $item.tooltip({
+            items: ".taskbar:not(.children-have-open-contextmenu) .taskbar-item",
+            position: {
+                my: tooltipPosition.my,
+                at: tooltipPosition.at,
+                using: function( position, feedback ) {
+                    $( this ).css( position );
+                    $( "<div>" )
+                        .addClass( "arrow" )
+                        .addClass( feedback.vertical )
+                        .addClass( feedback.horizontal )
+                        .appendTo( this );
+                }
+            }    
+        });
+    });
 };
 
 // Function to update desktop dimensions based on taskbar position

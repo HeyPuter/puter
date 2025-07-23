@@ -275,18 +275,46 @@ function UITaskbarItem(options){
         return false;
     });
 
+    // Helper function to get tooltip position based on taskbar position
+    function getTooltipPosition() {
+        const taskbarPosition = window.taskbar_position || 'bottom';
+        
+        if (taskbarPosition === 'bottom') {
+            return {
+                my: "center bottom-20",
+                at: "center top"
+            };
+        } else if (taskbarPosition === 'left') {
+            return {
+                my: "left+0 center",
+                at: "right center"
+            };
+        } else if (taskbarPosition === 'right') {
+            return {
+                my: "right+20 center",
+                at: "left center"
+            };
+        }
+        return {
+            my: "center bottom-20",
+            at: "center top"
+        }; // fallback
+    }
+
+    const tooltipPosition = getTooltipPosition();
+    
     $( el_taskbar_item ).tooltip({
         items: ".taskbar:not(.children-have-open-contextmenu) .taskbar-item",
         position: {
-            my: "center bottom-20",
-            at: "center top",
+            my: tooltipPosition.my,
+            at: tooltipPosition.at,
             using: function( position, feedback ) {
-              $( this ).css( position );
-              $( "<div>" )
-                .addClass( "arrow" )
-                .addClass( feedback.vertical )
-                .addClass( feedback.horizontal )
-                .appendTo( this );
+                $( this ).css( position );
+                $( "<div>" )
+                    .addClass( "arrow" )
+                    .addClass( feedback.vertical )
+                    .addClass( feedback.horizontal )
+                    .appendTo( this );
             }
         }    
     });
