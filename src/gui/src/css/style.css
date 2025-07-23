@@ -357,12 +357,14 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
     padding-left: 60px;
     padding-right: 0;
     padding-bottom: 0;
+    height: calc(100vh) !important;
 }
 
 .desktop.desktop-taskbar-position-right {
     padding-right: 50px;
     padding-left: 0;
     padding-bottom: 0;
+    height: calc(100vh) !important;
 }
 
 .fullpage-mode .window-minimize-btn {
