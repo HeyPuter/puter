@@ -349,8 +349,12 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
     padding-top: 15px;
 }
 
+.device-desktop .desktop {
+    padding-top: 5px;
+}
+
 .desktop.desktop-taskbar-position-left {
-    padding-left: 50px;
+    padding-left: 60px;
     padding-right: 0;
     padding-bottom: 0;
 }

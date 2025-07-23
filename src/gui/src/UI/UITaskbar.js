@@ -30,7 +30,7 @@ async function UITaskbar(options){
     // Load taskbar position preference from storage
     let taskbar_position = await puter.kv.get('taskbar_position');
     if (!taskbar_position) {
-        taskbar_position = 'bottom'; // default position
+        taskbar_position = 'left'; // default position
         await puter.kv.set('taskbar_position', taskbar_position);
     }
     
