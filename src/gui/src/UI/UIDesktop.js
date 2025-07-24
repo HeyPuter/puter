@@ -2283,6 +2283,13 @@ window.remove_taskbar_item = function (item) {
 
     $(item).animate({ width: 0 }, 200, function () {
         $(item).remove();
+        
+        // Adjust taskbar item sizes after removing an item
+        if (window.adjust_taskbar_item_sizes) {
+            setTimeout(() => {
+                window.adjust_taskbar_item_sizes();
+            }, 10);
+        }
     })
 }
 

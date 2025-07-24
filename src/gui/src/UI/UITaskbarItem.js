@@ -82,6 +82,13 @@ function UITaskbarItem(options){
     // fade in the taskbar item
     $(el_taskbar_item).show(50);
 
+    // Adjust taskbar item sizes after adding new item
+    if (window.adjust_taskbar_item_sizes) {
+        setTimeout(() => {
+            window.adjust_taskbar_item_sizes();
+        }, 100);
+    }
+
     $(el_taskbar_item).on("click", function(e){
         e.preventDefault();
         e.stopPropagation();

@@ -374,6 +374,11 @@ window.update_taskbar_position = async function(new_position) {
     $('.taskbar-sortable').sortable('destroy');
     window.make_taskbar_sortable();
     
+    // Adjust taskbar item sizes for the new position
+    setTimeout(() => {
+        window.adjust_taskbar_item_sizes();
+    }, 10);
+    
     // Reinitialize all taskbar item tooltips with new position
     $('.taskbar-item').each(function() {
         const $item = $(this);
@@ -500,5 +505,127 @@ window.update_maximized_window_for_taskbar = function(el_window) {
         });
     }
 };
+
+//-------------------------------------------
+// Dynamic taskbar item resizing for left/right positions
+//-------------------------------------------
+window.adjust_taskbar_item_sizes = function() {
+    const position = window.taskbar_position || 'bottom';
+    
+    // Only apply to left and right positions
+    if (position !== 'left' && position !== 'right') {
+        // Reset to default sizes for bottom position
+        $('.taskbar .taskbar-item').css({
+            'width': '40px',
+            'height': '40px',
+            'min-width': '40px',
+            'min-height': '40px',
+        });
+        $('.taskbar-icon').css('height', '40px');
+        return;
+    }
+    
+    const taskbar = $('.taskbar')[0];
+    const taskbarItems = $('.taskbar .taskbar-item:visible');
+    
+    if (!taskbar || taskbarItems.length === 0) return;
+    
+    // Get available height (minus padding)
+    const taskbarHeight = taskbar.clientHeight;
+    const paddingTop = 20; // from CSS
+    const paddingBottom = 20; // from CSS
+    const availableHeight = taskbarHeight - paddingTop - paddingBottom;
+    
+    // Calculate space needed with default sizes
+    const defaultItemSize = 40;
+    const defaultMargin = 5;
+    const totalItemsNeeded = taskbarItems.length;
+    const spaceNeededDefault = (totalItemsNeeded * defaultItemSize) + ((totalItemsNeeded - 1) * defaultMargin);
+    
+    if (spaceNeededDefault <= availableHeight) {
+        // No overflow, use default sizes
+        taskbarItems.css({
+            'width': defaultItemSize + 'px',
+            'height': defaultItemSize + 'px',
+            'min-width': defaultItemSize + 'px',
+            'min-height': defaultItemSize + 'px',
+            'padding': '6px 5px 10px 5px' // default padding
+        });
+        $('.taskbar-icon').css('height', defaultItemSize + 'px');
+        
+        // Reset margins to default
+        taskbarItems.css('margin-bottom', '5px');
+        taskbarItems.last().css('margin-bottom', '0px');
+    } else {
+        // Overflow detected, calculate smaller sizes
+        // Reserve some margin space (minimum 2px between items)
+        const minMargin = 2;
+        const marginSpace = (totalItemsNeeded - 1) * minMargin;
+        const availableForItems = availableHeight - marginSpace;
+        const newItemSize = Math.floor(availableForItems / totalItemsNeeded);
+        
+        // Ensure minimum size of 20px
+        const finalItemSize = Math.max(20, newItemSize);
+        
+        // Calculate proportional padding based on size ratio
+        const sizeRatio = finalItemSize / defaultItemSize;
+        const paddingTop = Math.max(1, Math.floor(6 * sizeRatio));
+        const paddingRight = Math.max(1, Math.floor(5 * sizeRatio));
+        const paddingBottom = Math.max(1, Math.floor(10 * sizeRatio));
+        const paddingLeft = Math.max(1, Math.floor(5 * sizeRatio));
+        
+        // Apply new sizes and padding
+        taskbarItems.css({
+            'width': finalItemSize + 'px',
+            'height': finalItemSize + 'px',
+            'padding': `${paddingTop}px ${paddingRight}px ${paddingBottom}px ${paddingLeft}px`
+        });
+        $('.taskbar-icon').css('height', finalItemSize + 'px');
+        
+        // Adjust margins
+        taskbarItems.css('margin-bottom', minMargin + 'px');
+        taskbarItems.last().css('margin-bottom', '0px');
+    }
+};
+
+// Hook into existing taskbar functionality
+$(document).ready(function() {
+    // Watch for taskbar item changes
+    const observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+            if (mutation.type === 'childList' || mutation.type === 'attributes') {
+                // Delay to ensure DOM updates are complete
+                setTimeout(() => {
+                    window.adjust_taskbar_item_sizes();
+                }, 10);
+            }
+        });
+    });
+    
+    // Start observing when taskbar is available
+    const checkTaskbar = setInterval(() => {
+        const taskbar = document.querySelector('.taskbar-sortable');
+        if (taskbar) {
+            observer.observe(taskbar, {
+                childList: true,
+                attributes: true,
+                subtree: true
+            });
+            clearInterval(checkTaskbar);
+            
+            // Initial call
+            setTimeout(() => {
+                window.adjust_taskbar_item_sizes();
+            }, 100);
+        }
+    }, 100);
+    
+    // Also watch for window resize events
+    window.addEventListener('resize', () => {
+        setTimeout(() => {
+            window.adjust_taskbar_item_sizes();
+        }, 10);
+    });
+});
 
 export default UITaskbar;
