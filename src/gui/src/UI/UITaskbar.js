@@ -531,28 +531,32 @@ window.adjust_taskbar_item_sizes = function() {
     if (!taskbar || taskbarItems.length === 0) return;
     
     // Get available height (minus padding)
+    const totalItemsNeeded = taskbarItems.length;
     const taskbarHeight = taskbar.clientHeight;
     const paddingTop = 20; // from CSS
     const paddingBottom = 20; // from CSS
-    const availableHeight = taskbarHeight - paddingTop - paddingBottom;
+    const availableHeight = taskbarHeight - paddingTop - paddingBottom - 180;
     
     // Calculate space needed with default sizes
     const defaultItemSize = 40;
     const defaultMargin = 5;
-    const totalItemsNeeded = taskbarItems.length;
     const spaceNeededDefault = (totalItemsNeeded * defaultItemSize) + ((totalItemsNeeded - 1) * defaultMargin);
     
     if (spaceNeededDefault <= availableHeight) {
         // No overflow, use default sizes
         taskbarItems.css({
-            'width': defaultItemSize + 'px',
-            'height': defaultItemSize + 'px',
-            'min-width': defaultItemSize + 'px',
-            'min-height': defaultItemSize + 'px',
+            'width': '40px',
+            'height': '40px',
+            'min-width': '40px',
+            'min-height': '40px',
             'padding': '6px 5px 10px 5px' // default padding
         });
         $('.taskbar-icon').css('height', defaultItemSize + 'px');
-        
+        $('.taskbar-icon').css('width', '40px');
+        $('.taskbar-icon > img').css('width', 'auto');
+        $('.taskbar-icon > img').css('margin', 'auto');
+        $('.taskbar-icon > img').css('display', 'block');
+
         // Reset margins to default
         taskbarItems.css('margin-bottom', '5px');
         taskbarItems.last().css('margin-bottom', '0px');
@@ -576,12 +580,17 @@ window.adjust_taskbar_item_sizes = function() {
         
         // Apply new sizes and padding
         taskbarItems.css({
-            'width': finalItemSize + 'px',
+            'width': '40px',
             'height': finalItemSize + 'px',
+            'min-width': '40px',
+            'min-height': finalItemSize + 'px',
             'padding': `${paddingTop}px ${paddingRight}px ${paddingBottom}px ${paddingLeft}px`
         });
         $('.taskbar-icon').css('height', finalItemSize + 'px');
-        
+        $('.taskbar-icon').css('width', '40px');
+        $('.taskbar-icon > img').css('width', 'auto');
+        $('.taskbar-icon > img').css('margin', 'auto');
+        $('.taskbar-icon > img').css('display', 'block');
         // Adjust margins
         taskbarItems.css('margin-bottom', minMargin + 'px');
         taskbarItems.last().css('margin-bottom', '0px');
