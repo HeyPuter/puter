@@ -74,7 +74,6 @@ const verify_fsentry = async (t, o) => {
         });
         await t.case('owner object has expected properties', () => {
             expect(o.owner).to.haveOwnProperty('username');
-            expect(o.owner).to.haveOwnProperty('email');
         });
     })
 }

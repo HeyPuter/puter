@@ -32,7 +32,7 @@ class LLMkdir extends LLFilesystemOperation {
 
     async _run () {
         const { parent, name, immutable } = this.values;
-        return parent.provider.mkdir({
+        return await parent.provider.mkdir({
             context: this.context,
             parent,
             name,
