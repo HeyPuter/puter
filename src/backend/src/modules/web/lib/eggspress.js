@@ -179,7 +179,18 @@ module.exports = function eggspress (route, settings, handler) {
         });
       } else await handler(req, res, next);
     } catch (e) {
-        api_error_handler(e, req, res, next);
+        if (e instanceof TypeError || e instanceof ReferenceError) {
+          // We add a dedicated branch for TypeError/ReferenceError since it usually
+          // indicates a bug in the backend. And it's pretty convenient to debug if we
+          // set a breakpoint here.
+          //
+          // Typical TypeError:
+          // - read properties of undefined
+          console.error(e);
+          api_error_handler(e, req, res, next);
+        } else {
+          api_error_handler(e, req, res, next);
+        }
     }
   };
 

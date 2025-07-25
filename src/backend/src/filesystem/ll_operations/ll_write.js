@@ -145,24 +145,24 @@ class LLWriteBase extends LLFilesystemOperation {
     }
 }
 
+/**
+ * The "overwrite" write operation.
+ * 
+ * This operation is used to write a file to an existing path.
+ * 
+ * @extends LLWriteBase
+ */
 class LLOWrite extends LLWriteBase {
     async _run () {
-        const {
-            node, actor, immutable,
-            file, tmp, fsentry_tmp,
-            message,
-        } = this.values;
+        const node = this.values.node;
 
-        const svc = Context.get('services');
-        const sizeService = svc.get('sizeService');
-        const resourceService = svc.get('resourceService');
-        const svc_fsEntry = svc.get('fsEntryService');
-        const svc_event = svc.get('event');
-
-        // TODO: fs:decouple-versions
-        //       add version hook externally so LLCWrite doesn't
-        //       need direct database access
-        const db = svc.get('database').get(DB_WRITE, 'filesystem');
+        // Embed fields into this.context
+        this.context.set('immutable', this.values.immutable);
+        this.context.set('tmp', this.values.tmp);
+        this.context.set('fsentry_tmp', this.values.fsentry_tmp);
+        this.context.set('message', this.values.message);
+        this.context.set('actor', this.values.actor);
+        this.context.set('app_id', this.values.app_id);
 
         // TODO: Add symlink write
         if ( ! await node.exists() ) {
@@ -170,75 +170,21 @@ class LLOWrite extends LLWriteBase {
             throw APIError.create('subject_does_not_exist');
         }
 
-        const svc_acl = this.context.get('services').get('acl');
-        if ( ! await svc_acl.check(actor, node, 'write') ) {
-            throw await svc_acl.get_safe_acl_error(actor, node, 'write');
-        }
-
-        const uid = await node.get('uid');
-
-        const bucket_region = node.entry.bucket_region;
-        const bucket = node.entry.bucket;
-
-        const state_upload = await this._storage_upload({
-            uuid: node.entry.uuid,
-            bucket, bucket_region, file,
-            tmp: {
-                ...tmp,
-                path: await node.get('path'),
-            }
-        });
-
-        if ( fsentry_tmp?.thumbnail_promise ) {
-            fsentry_tmp.thumbnail = await fsentry_tmp.thumbnail_promise;
-            delete fsentry_tmp.thumbnail_promise;
-        }
-
-        const ts = Math.round(Date.now() / 1000);
-        const raw_fsentry_delta = {
-            modified: ts,
-            accessed: ts,
-            size: file.size,
-            ...fsentry_tmp,
-        };
-
-        resourceService.register({
-            uid,
-            status: RESOURCE_STATUS_PENDING_CREATE,
-        });
-
-        const filesize = file.size;
-        sizeService.change_usage(actor.type.user.id, filesize);
-
-        const entryOp = await svc_fsEntry.update(uid, raw_fsentry_delta);
-
-        // depends on fsentry, does not depend on S3
-        (async () => {
-            await entryOp.awaitDone();
-            this.log.debug('[owrite] finished creating fsentry', { uid })
-            resourceService.free(uid);
-            svc_event.emit('fs.written.file', {
-                node,
-                context: this.context,
-            });
-        })();
-
-        state_upload.post_insert({
-            db, user: actor.type.user, node, uid, message, ts,
-        });
-
-        const svc_fileCache = this.context.get('services').get('file-cache');
-        await svc_fileCache.invalidate(node);
-
-        svc_event.emit('fs.write.file', {
-            node,
+        return await node.provider.write_overwrite({
             context: this.context,
+            node: node,
+            file: this.values.file,
         });
-
-        return node;
     }
 }
 
+/**
+ * The "non-overwrite" write operation.
+ * 
+ * This operation is used to write a file to a non-existent path.
+ * 
+ * @extends LLWriteBase
+ */
 class LLCWrite extends LLWriteBase {
     static MODULES = {
         _path: require('path'),
@@ -247,144 +193,26 @@ class LLCWrite extends LLWriteBase {
     }
 
     async _run () {
-        const { _path, uuidv4, config } = this.modules;
-        const {
-            parent, name, immutable,
-            file, tmp, fsentry_tmp,
-            message,
+        const parent = this.values.parent;
 
-            actor: actor_let,
-            app_id,
-        } = this.values;
-        let actor = actor_let;
+        // Embed fields into this.context
+        this.context.set('immutable', this.values.immutable);
+        this.context.set('tmp', this.values.tmp);
+        this.context.set('fsentry_tmp', this.values.fsentry_tmp);
+        this.context.set('message', this.values.message);
+        this.context.set('actor', this.values.actor);
+        this.context.set('app_id', this.values.app_id);
 
-        const svc = Context.get('services');
-        const sizeService = svc.get('sizeService');
-        const resourceService = svc.get('resourceService');
-        const svc_fsEntry = svc.get('fsEntryService');
-        const svc_event = svc.get('event');
-        const fs = svc.get('filesystem');
-
-        // TODO: fs:decouple-versions
-        //       add version hook externally so LLCWrite doesn't
-        //       need direct database access
-        const db = svc.get('database').get(DB_WRITE, 'filesystem');
-
-        const uid = uuidv4();
-        this.field('fsentry-uid', uid);
-
-        // determine bucket region
-        let bucket_region = config.s3_region ?? config.region;
-        let bucket = config.s3_bucket;
-
-        this.checkpoint('before acl');
         if ( ! await parent.exists() ) {
             throw APIError.create('subject_does_not_exist');
         }
 
-        const svc_acl = this.context.get('services').get('acl');
-        actor = actor ?? Context.get('actor');
-        if ( ! await svc_acl.check(actor, parent, 'write') ) {
-            throw await svc_acl.get_safe_acl_error(actor, parent, 'write');
-        }
-
-        this.checkpoint('before storage upload');
-
-        const storage_resp = await this._storage_upload({
-            uuid: uid,
-            bucket, bucket_region, file,
-            tmp: {
-                ...tmp,
-                path: _path.join(await parent.get('path'), name),
-            }
-        });
-
-        this.checkpoint('after storage upload');
-
-        fsentry_tmp.thumbnail = await fsentry_tmp.thumbnail_promise;
-        delete fsentry_tmp.thumbnail_promise;
-
-        this.checkpoint('after thumbnail promise');
-
-        const ts = Math.round(Date.now() / 1000);
-        const raw_fsentry = {
-            uuid: uid,
-            is_dir: 0,
-            user_id: actor.type.user.id,
-            created: ts,
-            accessed: ts,
-            modified: ts,
-            parent_uid: await parent.get('uid'),
-            name,
-            size: file.size,
-            path: _path.join(await parent.get('path'), name),
-            ...fsentry_tmp,
-
-            bucket_region,
-            bucket,
-
-            associated_app_id: app_id ?? null,
-        };
-
-        svc_event.emit('fs.pending.file', {
-            fsentry: FSNodeContext.sanitize_pending_entry_info(raw_fsentry),
+        return await parent.provider.write_new({
             context: this.context,
-        })
-
-        this.checkpoint('after emit pending file');
-
-        resourceService.register({
-            uid,
-            status: RESOURCE_STATUS_PENDING_CREATE,
+            parent,
+            name: this.values.name,
+            file: this.values.file,
         });
-
-        const filesize = file.size;
-        sizeService.change_usage(actor.type.user.id, filesize);
-
-        this.checkpoint('after change_usage');
-
-        const entryOp = await svc_fsEntry.insert(raw_fsentry);
-
-        this.checkpoint('after fsentry insert enqueue');
-
-        (async () => {
-            await entryOp.awaitDone();
-            this.log.debug('finished creating fsentry', { uid })
-            resourceService.free(uid);
-
-            const new_item_node = await fs.node(new NodeUIDSelector(uid));
-            const new_item = await new_item_node.get('entry');
-            const store_version_id = storage_resp.VersionId;
-            if( store_version_id ){
-                // insert version into db
-                db.write(
-                    "INSERT INTO `fsentry_versions` (`user_id`, `fsentry_id`, `fsentry_uuid`, `version_id`, `message`, `ts_epoch`) VALUES (?, ?, ?, ?, ?, ?)",
-                    [
-                        actor.type.user.id,
-                        new_item.id,
-                        new_item.uuid,
-                        store_version_id,
-                        message ?? null,
-                        ts,
-                    ]
-                );
-        }
-        })();
-
-        this.checkpoint('after version IIAFE');
-
-        const node = await fs.node(new NodeUIDSelector(uid));
-
-        this.checkpoint('after create FSNodeContext');
-
-        svc_event.emit('fs.create.file', {
-            node,
-            context: this.context,
-        });
-
-        this.checkpoint('return result');
-
-        return node;
     }
 }
 
