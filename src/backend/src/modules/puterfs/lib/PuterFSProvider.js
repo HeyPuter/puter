@@ -31,6 +31,7 @@ const { ParallelTasks } = require('../../../util/otelutil');
 
 const { TYPE_DIRECTORY } = require('../../../filesystem/FSNodeContext');
 const APIError = require('../../../api/APIError');
+const { MODE_WRITE } = require('../../../services/fs/FSLockService');
 
 class PuterFSProvider extends putility.AdvancedBase {
     static MODULES = {
@@ -428,6 +429,93 @@ class PuterFSProvider extends putility.AdvancedBase {
         }
 
         await tasks.awaitAll();
+    }
+
+    /**
+     * Create a new directory.
+     * 
+     * @param {Object} param
+     * @param {Context} param.context
+     * @param {FSNode} param.parent
+     * @param {string} param.name
+     * @param {boolean} param.immutable
+     * @returns {Promise<FSNode>}
+     */
+    async mkdir({ context, parent, name, immutable}) {
+        const { actor, thumbnail } = context.values;
+
+        const svc_fslock = context.get('services').get('fslock');
+        const lock_handle = await svc_fslock.lock_child(
+            await parent.get('path'),
+            name,
+            MODE_WRITE,
+        );
+
+        try {
+            const { _path, uuidv4 } = this.modules;
+
+            const ts = Math.round(Date.now() / 1000);
+            const uid = uuidv4();
+            const resourceService = context.get('services').get('resourceService');
+            const svc_fsEntry = context.get('services').get('fsEntryService');
+            const svc_event = context.get('services').get('event');
+            const fs = context.get('services').get('filesystem');
+
+            const existing = await fs.node(
+                new NodeChildSelector(parent.selector, name)
+            );
+
+            if (await existing.exists()) {
+                throw APIError.create('item_with_same_name_exists', null, {
+                    entry_name: name,
+                });
+            }
+
+            const svc_acl = context.get('services').get('acl');
+            if (! await parent.exists()) {
+                throw APIError.create('subject_does_not_exist');
+            }
+            if (! await svc_acl.check(actor, parent, 'write')) {
+                throw await svc_acl.get_safe_acl_error(actor, parent, 'write');
+            }
+
+            resourceService.register({
+                uid,
+                status: RESOURCE_STATUS_PENDING_CREATE,
+            });
+
+            const raw_fsentry = {
+                is_dir: 1,
+                uuid: uid,
+                parent_uid: await parent.get('uid'),
+                path: _path.join(await parent.get('path'), name),
+                user_id: actor.type.user.id,
+                name,
+                created: ts,
+                accessed: ts,
+                modified: ts,
+                immutable: immutable ?? false,
+                ...(thumbnail ? {
+                    thumbnail: thumbnail,
+                } : {}),
+            };
+
+            const entryOp = await svc_fsEntry.insert(raw_fsentry);
+
+            await entryOp.awaitDone();
+            resourceService.free(uid);
+
+            const node = await fs.node(new NodeUIDSelector(uid));
+
+            svc_event.emit('fs.create.directory', {
+                node,
+                context: Context.get(),
+            });
+
+            return node
+        } finally {
+            await lock_handle.unlock();
+        }
     }
 }
 
