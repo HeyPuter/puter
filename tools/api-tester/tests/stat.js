@@ -46,7 +46,23 @@ module.exports = {
             expect(threw).true;
         });
 
-        const flags = ['permissions', 'versions'];
+        await t.case('stat with versions', async () => {
+            result = await t.stat(TEST_FILENAME, {
+                return_versions: true,
+                });
+
+                await verify_fsentry(t, result);
+                await t.case('filename is correct', () => {
+                     expect(result.name).equal(`test_stat.txt`);
+                });
+            await t.case(`result has versions array`, () => {
+                expect(Array.isArray(result.versions)).true;
+            });
+        })
+
+        // Backend should return 'shares' field when 'return_shares' is true. And
+        // the backwards compatiable of `return_permissions` is also tested here.
+        const flags = ['shares', 'permissions'];
         for ( const flag of flags ) {
             await t.case('stat with ' + flag, async () => {
                 result = await t.stat(TEST_FILENAME, {
@@ -57,8 +73,10 @@ module.exports = {
                 await t.case('filename is correct', () => {
                     expect(result.name).equal(`test_stat.txt`);
                 });
-                await t.case(`result has ${flag} array`, () => {
-                    expect(Array.isArray(result[flag])).true;
+                await t.case(`result has shares (apps and users)`, () => {
+                    expect('shares' in result).true;
+                    expect(Array.isArray(result['shares']['users'])).true;
+                    expect(Array.isArray(result['shares']['apps'])).true;
                 });
             })
         }
