@@ -275,7 +275,7 @@ async function UITaskbar(options){
 window.make_taskbar_sortable = function(){
     const position = window.taskbar_position || 'bottom';
     const axis = position === 'bottom' ? 'x' : 'y';
-    
+
     $('.taskbar-sortable').sortable({
         axis: axis,
         items: '.taskbar-item-sortable:not(.has-open-contextmenu)',
