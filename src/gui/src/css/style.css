@@ -2525,6 +2525,96 @@ label {
     height: 40px;
 }
 
+/*****************************************************
+ * Task Manager
+ *****************************************************/
+
+.task-manager-container {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    background-color: rgba(255,255,255,0.8);
+    border: 2px inset rgba(127, 127, 127, 0.3);
+    overflow: auto;
+}
+
+.task-manager-container table {
+    box-sizing: border-box;
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.task-manager-container thead th {
+    box-shadow: 0 1px 4px -2px rgba(0,0,0,0.2);
+    backdrop-filter: blur(2px);
+    position: sticky;
+    z-index: 100;
+    padding: calc(10 * var(--scale)) calc(2.5 * var(--scale)) calc(5 * var(--scale)) calc(2.5 * var(--scale));
+    top: 0;
+    background-color: hsla(0, 0%, 100%, 0.8);
+    text-align: left;
+    border-bottom: 1px solid #e0e0e0;
+    padding: 5px;
+}
+
+.task-manager-container thead th:not(:last-of-type) {
+    border-right: 1px solid #e0e0e0;
+}
+
+.task-manager-container tbody > tr > td {
+    border-bottom: 1px solid #e0e0e0;
+    padding: 0 calc(2.5 * var(--scale));
+    vertical-align: middle;
+    padding-left: 0;
+}
+
+.task-manager-container td > span {
+    padding: 0 calc(2.5 * var(--scale));
+}
+
+.task {
+    display: flex;
+    height: calc(10 * var(--scale));
+    line-height: calc(10 * var(--scale));
+}
+
+.task-name {
+    flex-grow: 1;
+    padding-left: calc(2.5 * var(--scale));
+}
+
+.task-indentation {
+    display: flex;
+}
+
+.indentcell {
+    position: relative;
+    align-items: right;
+    width: calc(10 * var(--scale));
+    height: calc(10 * var(--scale));
+}
+
+.indentcell-trunk {
+    position: absolute;
+    top: 0;
+    left: calc(5 * var(--scale));
+    width: calc(5 * var(--scale));
+    height: calc(10 * var(--scale));
+    border-left: 2px solid var(--line-color);
+}
+
+.indentcell-branch {
+    position: absolute;
+    top: 0;
+    left: calc(5 * var(--scale));
+    width: calc(5 * var(--scale));
+    height: calc(5 * var(--scale));
+    border-left: 2px solid var(--line-color);
+    border-bottom: 2px solid var(--line-color);
+    border-radius: 0 0 0 calc(2.5 * var(--scale));
+}
+
+
 #clock {
     display: none;
     color: white;
