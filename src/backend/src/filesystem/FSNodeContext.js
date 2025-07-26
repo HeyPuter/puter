@@ -25,7 +25,7 @@ const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSele
 const { Context } = require("../util/context");
 const { NodeRawEntrySelector } = require("./node/selectors");
 const { DB_READ } = require("../services/database/consts");
-const { UserActorType } = require("../services/auth/Actor");
+const { UserActorType, AppUnderUserActorType } = require("../services/auth/Actor");
 const { PermissionUtil } = require("../services/auth/PermissionService");
 
 /**
@@ -745,6 +745,9 @@ module.exports = class FSNodeContext {
             fsentry.owner = {
                 username: res.owner?.username,
             };
+        }
+        if ( ! ( actor.type === AppUnderUserActorType ) ) {
+            if ( fsentry.owner ) delete fsentry.owner.email;
         }
 
         const info = this.services.get('information');
