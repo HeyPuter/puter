@@ -69,8 +69,6 @@ async function UIWindowSessionList(options){
             show_in_taskbar: false,
             update_window_url: false,
             cover_page: options.cover_page ?? false,
-            onAppend: function(this_window){
-            },
             window_class: 'window-session-list',
             body_css: {
                 width: 'initial',

@@ -68,8 +68,6 @@ async function UIWindowWelcome(options){
         show_in_taskbar: false,
         draggable_body: true,
         fadeIn: 1000,
-        onAppend: function(this_window){
-        },
         window_class: 'window-welcome',
         on_close: function(){
             // save the fact that the user has seen the welcome window

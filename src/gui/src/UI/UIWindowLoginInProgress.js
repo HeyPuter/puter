@@ -69,8 +69,6 @@ async function UIWindowLoginInProgress(options){
             show_in_taskbar: false,
             backdrop: true,
             stay_on_top: true,
-            onAppend: function(this_window){
-            },
             window_class: 'window-login-progress',
             body_css: {
                 width: 'initial',

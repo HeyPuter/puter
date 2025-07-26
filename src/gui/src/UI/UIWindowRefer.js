@@ -52,8 +52,6 @@ async function UIWindowRefer(options){
         init_center: true,
         allow_native_ctxmenu: true,
         allow_user_select: true,
-        onAppend: function(el_window){
-        },
         width: 500,
         dominant: true,
         window_css: {

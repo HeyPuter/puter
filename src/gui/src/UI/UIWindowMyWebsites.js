@@ -45,10 +45,6 @@ async function UIWindowMyWebsites(options){
         allow_user_select: true,
         width: 400,
         dominant: false,
-        onAppend: function(el_window){
-        },
-        window_css:{
-        },
         body_css: {
             padding: '10px',
             width: 'initial',

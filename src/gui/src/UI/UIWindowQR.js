@@ -61,8 +61,6 @@ async function UIWindowQR(options){
         dominant: true,
         show_in_taskbar: false,
         draggable_body: true,
-        onAppend: function(this_window){
-        },
         window_class: 'window-qr',
         body_css: {
             width: 'initial',
