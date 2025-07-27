@@ -16,10 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import UIComponentWindow from './UIComponentWindow.js';
-import Button from './Components/Button.js';
-import Flexer from './Components/Flexer.js';
-import Slider from './Components/Slider.js';
+import UIWindow from './UIWindow.js';
 
 const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
     options = options ?? {};
@@ -28,70 +25,33 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
 
     let state = {};
 
-    const slider_ch = (e) => {
-        state[e.meta.name] = e.target.value;
-        if (e.meta.name === 'lig') {
-            state.light_text = e.target.value < 60 ? true : false;
-        }
-        svc_theme.apply(state);
-    };
+    let h = '';
+    h += '<div class="theme-dialog-content" style="display: flex; flex-direction: column; gap: 10pt;">';
+        h += `<button class="button button-secondary reset-colors-btn">${i18n('reset_colors')}</button>`;
+        h += `<div class="slider-container" style="display: flex; flex-direction: column; gap: 5px;">`;
+            h += `<label style="font-weight: 500; color: #5f626d;">${i18n('hue')}</label>`;
+            h += `<input type="range" class="theme-slider" id="hue-slider" name="hue" min="0" max="360" value="${svc_theme.get('hue')}" style="width: 100%;">`;
+        h += `</div>`;
+        h += `<div class="slider-container" style="display: flex; flex-direction: column; gap: 5px;">`;
+            h += `<label style="font-weight: 500; color: #5f626d;">${i18n('saturation')}</label>`;
+            h += `<input type="range" class="theme-slider" id="sat-slider" name="sat" min="0" max="100" value="${svc_theme.get('sat')}" style="width: 100%;">`;
+        h += `</div>`;
+        h += `<div class="slider-container" style="display: flex; flex-direction: column; gap: 5px;">`;
+            h += `<label style="font-weight: 500; color: #5f626d;">${i18n('lightness')}</label>`;
+            h += `<input type="range" class="theme-slider" id="lig-slider" name="lig" min="0" max="100" value="${svc_theme.get('lig')}" style="width: 100%;">`;
+        h += `</div>`;
+        h += `<div class="slider-container" style="display: flex; flex-direction: column; gap: 5px;">`;
+            h += `<label style="font-weight: 500; color: #5f626d;">${i18n('transparency')}</label>`;
+            h += `<input type="range" class="theme-slider" id="alpha-slider" name="alpha" min="0" max="1" step="0.01" value="${svc_theme.get('alpha')}" style="width: 100%;">`;
+        h += `</div>`;
+    h += '</div>';
 
-    const hue_slider = new Slider({
-        label: i18n('hue'),
-        name: 'hue', min: 0, max: 360,
-        value: svc_theme.get('hue'),
-        on_change: slider_ch,
-    });
-    const sat_slider = new Slider({
-        label: i18n('saturation'),
-        name: 'sat', min: 0, max: 100,
-        value: svc_theme.get('sat'),
-        on_change: slider_ch,
-    });
-    const lig_slider = new Slider({
-        label: i18n('lightness'),
-        name: 'lig', min: 0, max: 100,
-        value: svc_theme.get('lig'),
-        on_change: slider_ch,
-    });
-    const alpha_slider = new Slider({
-        label: i18n('transparency'),
-        name: 'alpha', min: 0, max: 1, step: 0.01,
-        value: svc_theme.get('alpha'),
-        on_change: slider_ch,
-    });
-
-    const component = new Flexer({
-        children: [
-            new Button({
-                label: i18n('reset_colors'),
-                style: 'secondary',
-                on_click: () => {
-                    svc_theme.reset();
-                    state = {};
-                    hue_slider.set('value', svc_theme.get('hue'));
-                    sat_slider.set('value', svc_theme.get('sat'));
-                    lig_slider.set('value', svc_theme.get('lig'));
-                    alpha_slider.set('value', svc_theme.get('alpha'));
-                },
-            }),
-            hue_slider,
-            sat_slider,
-            lig_slider,
-            alpha_slider,
-        ],
-        gap: '10pt',
-    });
-
-    const w = await UIComponentWindow({
+    const el_window = await UIWindow({
         title: i18n('ui_colors'),
-        component,
         icon: null,
         uid: null,
         is_dir: false,
-        message: 'message',
-        // body_icon: options.body_icon,
-        // backdrop: options.backdrop ?? false,
+        body_content: h,
         is_resizable: false,
         is_droppable: false,
         has_head: true,
@@ -102,29 +62,41 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
         show_in_taskbar: false,
         window_class: 'window-alert',
         dominant: true,
-        body_content: '',
         width: 350,
-        // parent_uuid: options.parent_uuid,
-        // ...options.window_options,
         window_css:{
             height: 'initial',
         },
         body_css: {
             width: 'initial',
             padding: '20px',
-            // 'background-color': `hsla(
-            //     var(--primary-hue),
-            //     calc(max(var(--primary-saturation) - 15%, 0%)),
-            //     calc(min(100%,var(--primary-lightness) + 20%)), .91)`,
             'background-color': `hsla(
                 var(--primary-hue),
                 var(--primary-saturation),
                 var(--primary-lightness),
                 var(--primary-alpha))`,
             'backdrop-filter': 'blur(3px)',
-            
         },
         ...options.window_options,
+    });
+
+    // Event handlers
+    $(el_window).find('.theme-slider').on('input', function(e) {
+        const name = $(this).attr('name');
+        const value = parseFloat($(this).val());
+        state[name] = value;
+        if (name === 'lig') {
+            state.light_text = value < 60 ? true : false;
+        }
+        svc_theme.apply(state);
+    });
+
+    $(el_window).find('.reset-colors-btn').on('click', function() {
+        svc_theme.reset();
+        state = {};
+        $(el_window).find('#hue-slider').val(svc_theme.get('hue'));
+        $(el_window).find('#sat-slider').val(svc_theme.get('sat'));
+        $(el_window).find('#lig-slider').val(svc_theme.get('lig'));
+        $(el_window).find('#alpha-slider').val(svc_theme.get('alpha'));
     });
 
     return {};

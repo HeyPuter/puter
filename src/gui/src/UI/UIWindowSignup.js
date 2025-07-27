@@ -111,7 +111,6 @@ function UIWindowSignup(options){
             allow_native_ctxmenu: true,
             allow_user_select: true,
             ...options.window_options,
-            // width: 350,
             dominant: false,
             center: true,
             onAppend: function(el_window){
