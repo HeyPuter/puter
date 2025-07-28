@@ -217,13 +217,13 @@ class PuterHomepageService extends BaseService {
         const bundled = env != 'dev' || use_bundled_gui;
 
         // check if social media image is a valid absolute URL
-        let is_social_media_image_valid = true;
-        if (social_media_image && !is_valid_url(social_media_image)) {
+        let is_social_media_image_valid = !!social_media_image;
+        if (is_social_media_image_valid && !is_valid_url(social_media_image)) {
             is_social_media_image_valid = false;
         }
 
         // check if social media image ends with a valid image extension
-        if (social_media_image && !/\.(png|jpg|jpeg|gif|webp)$/.test(social_media_image.toLowerCase())) {
+        if (is_social_media_image_valid && !/\.(png|jpg|jpeg|gif|webp)$/.test(social_media_image.toLowerCase())) {
             is_social_media_image_valid = false;
         }
 
