@@ -5,13 +5,12 @@ export class WorkersHandler {
     }
 
     async create(workerName, filePath) {
-        const data = await puter.fs.read(filePath).then(r => r.text());
         let currentWorkers = await puter.kv.get("user-workers");
         if (!currentWorkers) {
             currentWorkers = {};
         }
 
-        const driverCall = await puter.drivers.call("workers", "worker-service", "create", { authorization: puter.authToken, fileData: data, workerName });
+        const driverCall = await puter.drivers.call("workers", "worker-service", "create", { authorization: puter.authToken, filePath, workerName });
         const driverResult = JSON.parse(driverCall.result);
         if (!driverCall.success || !driverResult.success) {
             throw new Error(driverResult?.errors || "Driver failed to execute, do you have the necessary permissions?");
