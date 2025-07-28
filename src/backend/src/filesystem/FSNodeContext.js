@@ -25,7 +25,7 @@ const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSele
 const { Context } = require("../util/context");
 const { NodeRawEntrySelector } = require("./node/selectors");
 const { DB_READ } = require("../services/database/consts");
-const { UserActorType, AppUnderUserActorType } = require("../services/auth/Actor");
+const { UserActorType, AppUnderUserActorType, Actor } = require("../services/auth/Actor");
 const { PermissionUtil } = require("../services/auth/PermissionService");
 
 /**
@@ -563,6 +563,16 @@ module.exports = class FSNodeContext {
         if ( key === 'mysql-id' ) {
             await this.fetchEntry();
             return this.mysql_id;
+        }
+        
+        if ( key === 'owner' ) {
+            const user_id = await this.get('user_id');
+            const actor = new Actor({
+                type: new UserActorType({
+                    user: await get_user({ id: user_id }),
+                }),
+            });
+            return actor;
         }
 
         const values_from_entry = ['immutable', 'user_id', 'name', 'size', 'parent_uid', 'metadata'];
